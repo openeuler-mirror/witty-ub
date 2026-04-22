@@ -13,14 +13,18 @@
 #pragma once
 
 #include <vector>
+#include <string>
+#include <functional>
 #include "diagnosis_result.h"
 #include "log_def.h"
 
 namespace brpc {
+
 class DiagnosisEngine {
 public:
-    DiagnosisResult Diagnosis(vector<SystemLog> systemLogs, vector<BrpcLog> brpcLogs);    
+    DiagnosisResult Diagnosis(vector<SystemLog> systemLogs, vector<BrpcLog> brpcLogs);
 };
+
 }
 
 //规范：在本文件中定义诊断主函数Diagnosis，如有必要，可以使用诊断代码生成skill添加更多变量和函数定义

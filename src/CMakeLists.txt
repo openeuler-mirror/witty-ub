@@ -27,6 +27,7 @@ add_subdirectory(framework)
 add_subdirectory(topology)
 add_subdirectory(plugins)
 add_subdirectory(log)
+add_subdirectory(brpc_diag_tool)
 
 #add_executable(copilot-worker
 #    ubse_main.cpp
@@ -48,3 +49,9 @@ add_executable(witty-ub-topo
 )
 target_include_directories(witty-ub-topo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(witty-ub-topo PRIVATE ubse_context topology lcne rack_http urma witty_json)
+
+add_executable(witty-ub-diag-example
+    witty_ub_diag_example_main.cpp
+)
+target_include_directories(witty-ub-diag-example PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(witty-ub-diag-example PRIVATE ubse_context brpc_diag_tool)
