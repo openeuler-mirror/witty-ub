@@ -3,3 +3,7 @@ build/
 __pycache__
 
 .codex
+
+data/docs/
+data/original_docs/
+data/projects/
