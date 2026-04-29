@@ -88,6 +88,7 @@ struct FailureMetadata {
     std::optional<std::string> podId;
     std::string programName;
     std::string procId;
+    std::string threadId;
     int64_t timestamp;
     std::string localEid;
     std::string localJettyId;
@@ -113,28 +114,15 @@ struct FailureEventQuery {
     bool Match(const FailureMetadata &metadata, bool podMode) const;
 };
 
-struct OpencodeConnection {
-    std::string url;
-    int port;
-    std::optional<std::string> username;
-    std::optional<std::string> passwd;
-};
-
-struct SkillInput {
-    std::unordered_map<std::string, std::string> componentsPaths;
-    std::unordered_map<std::string, std::string> compileCommandsPaths;
-};
-
+namespace graph {
 struct FuncNode {
-    std::string id;
     std::string name;
     std::string component;
-    std::string file;
 };
 
 struct CallEdge {
-    std::string srcId;
-    std::string dstId;
+    std::string src;
+    std::string dst;
 };
 
 struct CallGraph {
@@ -156,9 +144,8 @@ struct RelevantFuncs {
     // 加速查询
     std::unordered_map<std::string, std::vector<size_t>> upstreamNameIndex;
     std::unordered_map<std::string, std::vector<size_t>> downstreamNameIndex;
-    std::unordered_map<std::string, size_t> upstreamIdIndex;
-    std::unordered_map<std::string, size_t> downstreamIdIndex;
 };
+} // namespace graph
 
 std::optional<EventTypeOption> EventTypeOptionFromString(const std::string &str);
 std::string EventTypeOptionToString(EventTypeOption opt);

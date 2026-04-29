@@ -12,7 +12,7 @@
 
 #define MODULE_NAME "LOG"
 
-#include "log_failure_collector.h"
+#include "log_collector.h"
 
 #include <sys/stat.h>
 #include <algorithm>
@@ -102,7 +102,7 @@ bool MatchUmqEndpoints(FailureEvent &event, const FailureMetadata &meta)
            remoteEid == meta.remoteEid && remoteJettyId == meta.remoteJettyId;
 }
 
-RackResult LogFailureCollector::Initialize()
+RackResult LogCollector::Initialize()
 {
     if (InitIO() != RACK_OK) {
         LOG_ERROR << "failed to init io";
@@ -123,9 +123,9 @@ RackResult LogFailureCollector::Initialize()
     return RACK_OK;
 }
 
-void LogFailureCollector::UnInitialize() {}
+void LogCollector::UnInitialize() {}
 
-void LogFailureCollector::ReaderLoopOnce(const std::shared_ptr<LogReader> &reader,
+void LogCollector::ReaderLoopOnce(const std::shared_ptr<LogReader> &reader,
                                          std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
                                          std::mutex &eventsMapMutex)
 {
@@ -164,7 +164,7 @@ void LogFailureCollector::ReaderLoopOnce(const std::shared_ptr<LogReader> &reade
     }
 }
 
-RackResult LogFailureCollector::Start()
+RackResult LogCollector::Start()
 {
     std::unordered_map<std::string, std::vector<FailureEvent>> eventsMap;
     std::mutex eventsMapMutex;
@@ -178,7 +178,7 @@ RackResult LogFailureCollector::Start()
 
     {
         struct RunningGuard {
-            LogFailureCollector *self;
+            LogCollector *self;
             ~RunningGuard()
             {
                 self->readerActive_.store(false, std::memory_order_release);
@@ -197,7 +197,7 @@ RackResult LogFailureCollector::Start()
         workerThreads_.reserve(readers_.size());
 
 #ifdef ENABLE_TOOL_FEATURE
-        LOG_DEBUG << "LogFailureCollector running in tool mode with per-reader threads (run once)";
+        LOG_DEBUG << "LogCollector running in tool mode with per-reader threads (run once)";
         for (auto reader : readers_) {
             workerThreads_.emplace_back(
                 [this, &eventsMap, &eventsMapMutex, reader]() { ReaderLoopOnce(reader, eventsMap, eventsMapMutex); });
@@ -220,7 +220,7 @@ RackResult LogFailureCollector::Start()
     return RACK_OK;
 }
 
-void LogFailureCollector::Stop()
+void LogCollector::Stop()
 {
     readerActive_.store(false, std::memory_order_release);
     for (auto &t : workerThreads_) {
@@ -231,7 +231,7 @@ void LogFailureCollector::Stop()
     workerThreads_.clear();
 }
 
-RackResult LogFailureCollector::InitIO()
+RackResult LogCollector::InitIO()
 {
     std::filesystem::path outFile = FAILURE_EVENT_FILE;
     std::error_code ec;
@@ -245,7 +245,7 @@ RackResult LogFailureCollector::InitIO()
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseArgs()
+RackResult LogCollector::ParseArgs()
 {
     RackResult ret = RACK_OK;
     auto &argMap = UbseContext::GetInstance().GetArgMap();
@@ -261,7 +261,7 @@ RackResult LogFailureCollector::ParseArgs()
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParsePodMode(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParsePodMode(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto it = argMap.find("pod-mode");
     if (it == argMap.end()) {
@@ -277,7 +277,7 @@ RackResult LogFailureCollector::ParsePodMode(const std::unordered_map<std::strin
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseLogPath(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParseLogPath(const std::unordered_map<std::string, std::string> &argMap)
 {
     if (HandleLogPath(argMap, "ubsocket", true, true) != RACK_OK) {
         return RACK_FAIL;
@@ -300,7 +300,7 @@ RackResult LogFailureCollector::ParseLogPath(const std::unordered_map<std::strin
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::HandleLogPath(const std::unordered_map<std::string, std::string> &argMap,
+RackResult LogCollector::HandleLogPath(const std::unordered_map<std::string, std::string> &argMap,
                                               const std::string &component, bool podRequired, bool podSplitAndStrip)
 {
     const std::string arg = component + "-log-path";
@@ -324,7 +324,7 @@ RackResult LogFailureCollector::HandleLogPath(const std::unordered_map<std::stri
     return HandleSingleLogPathArg(arg, component, it->second);
 }
 
-RackResult LogFailureCollector::HandleSingleLogPathArg(const std::string &arg, const std::string &component,
+RackResult LogCollector::HandleSingleLogPathArg(const std::string &arg, const std::string &component,
                                                        const std::string &path)
 {
     if (!IsValidPath(path)) {
@@ -335,7 +335,7 @@ RackResult LogFailureCollector::HandleSingleLogPathArg(const std::string &arg, c
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::HandlePodSplitLogPathArg(const std::string &arg, const std::string &component,
+RackResult LogCollector::HandlePodSplitLogPathArg(const std::string &arg, const std::string &component,
                                                          const std::string &rawPodPath)
 {
     std::vector<std::string> entries;
@@ -368,7 +368,7 @@ RackResult LogFailureCollector::HandlePodSplitLogPathArg(const std::string &arg,
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseQueryCondition(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParseQueryCondition(const std::unordered_map<std::string, std::string> &argMap)
 {
     if (ParseTimeRange(argMap) != RACK_OK) {
         return RACK_FAIL;
@@ -388,7 +388,7 @@ RackResult LogFailureCollector::ParseQueryCondition(const std::unordered_map<std
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseTimeRange(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParseTimeRange(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto startIt = argMap.find("start-time");
     if (startIt == argMap.end()) {
@@ -422,7 +422,7 @@ RackResult LogFailureCollector::ParseTimeRange(const std::unordered_map<std::str
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseEventTypes(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParseEventTypes(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto it = argMap.find("event-type");
     if (it == argMap.end()) {
@@ -445,7 +445,7 @@ RackResult LogFailureCollector::ParseEventTypes(const std::unordered_map<std::st
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParsePodIds(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParsePodIds(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto it = argMap.find("pod-id");
     if (it == argMap.end()) {
@@ -480,7 +480,7 @@ RackResult LogFailureCollector::ParsePodIds(const std::unordered_map<std::string
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseLocalEids(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParseLocalEids(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto it = argMap.find("local-eid");
     if (it == argMap.end()) {
@@ -501,7 +501,7 @@ RackResult LogFailureCollector::ParseLocalEids(const std::unordered_map<std::str
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseJettyIds(const std::unordered_map<std::string, std::string> &argMap)
+RackResult LogCollector::ParseJettyIds(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto it = argMap.find("jetty-id");
     if (it == argMap.end()) {
@@ -522,7 +522,7 @@ RackResult LogFailureCollector::ParseJettyIds(const std::unordered_map<std::stri
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::CreateReaders()
+RackResult LogCollector::CreateReaders()
 {
     std::ifstream ifs;
     if (OpenFailureModeFile(ifs) != RACK_OK) {
@@ -557,7 +557,7 @@ RackResult LogFailureCollector::CreateReaders()
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::OpenFailureModeFile(std::ifstream &ifs) const
+RackResult LogCollector::OpenFailureModeFile(std::ifstream &ifs) const
 {
     ifs.open(FAILURE_MODE_FILE);
     if (!ifs.is_open()) {
@@ -572,7 +572,7 @@ RackResult LogFailureCollector::OpenFailureModeFile(std::ifstream &ifs) const
     return RACK_OK;
 }
 
-RackResult LogFailureCollector::ParseFailureModes(std::ifstream &ifs, std::vector<FailureMode> &modes) const
+RackResult LogCollector::ParseFailureModes(std::ifstream &ifs, std::vector<FailureMode> &modes) const
 {
     Json::CharReaderBuilder builder;
     Json::Value items(Json::arrayValue);
@@ -595,7 +595,7 @@ RackResult LogFailureCollector::ParseFailureModes(std::ifstream &ifs, std::vecto
     return RACK_OK;
 }
 
-std::vector<PathCell> LogFailureCollector::ExpandPathCells(const FailureMode &mode, const PathCell &pathCell) const
+std::vector<PathCell> LogCollector::ExpandPathCells(const FailureMode &mode, const PathCell &pathCell) const
 {
     if (mode.dataSource.option != DataSourceOption::USER) {
         return {pathCell};
@@ -616,7 +616,7 @@ std::vector<PathCell> LogFailureCollector::ExpandPathCells(const FailureMode &mo
     return fileCells;
 }
 
-RackResult LogFailureCollector::BuildGraph()
+RackResult LogCollector::BuildGraph()
 {
     keyFuncEventTypeMap_ = &keyFuncEventTypeMap;
     keyFuncRoleMap_ = &keyFuncRoleMap;
@@ -642,7 +642,7 @@ RackResult LogFailureCollector::BuildGraph()
     return RACK_OK;
 }
 
-void LogFailureCollector::CollectMetadata(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
+void LogCollector::CollectMetadata(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
                                           std::vector<FailureMetadata> &metadata)
 {
     for (FailureEvent &event : eventsMap.at("umq")) {
@@ -664,6 +664,10 @@ void LogFailureCollector::CollectMetadata(std::unordered_map<std::string, std::v
         meta.podId = event.pathCell.podId;
         meta.programName = event.attributes.at("program_name");
         meta.procId = event.attributes.at("proc_id");
+        auto threadIdIt = event.attributes.find("thread_id");
+        if (threadIdIt != event.attributes.end()) {
+            meta.threadId = threadIdIt->second;
+        }
         meta.timestamp = event.timestamp;
         meta.text = event.text;
         CacheUmqEndpointFields(event);
@@ -689,7 +693,7 @@ void LogFailureCollector::CollectMetadata(std::unordered_map<std::string, std::v
     }
 }
 
-void LogFailureCollector::CollectCorrelatedLogs(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
+void LogCollector::CollectCorrelatedLogs(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
                                                 std::vector<FailureMetadata> &metadata)
 {
     for (FailureMetadata &meta : metadata) {
@@ -730,7 +734,7 @@ void LogFailureCollector::CollectCorrelatedLogs(std::unordered_map<std::string, 
     }
 }
 
-void LogFailureCollector::FilterFuncNames(std::vector<FailureMetadata> &metadata)
+void LogCollector::FilterFuncNames(std::vector<FailureMetadata> &metadata)
 {
     auto &keyFuncRelevanceMap = graph_.GetKeyFuncRelevanceMap();
     if (keyFuncRelevanceMap.empty()) {
@@ -739,7 +743,7 @@ void LogFailureCollector::FilterFuncNames(std::vector<FailureMetadata> &metadata
     }
     for (FailureMetadata &meta : metadata) {
         const std::string &baseFuncName = meta.funcName;
-        const RelevantFuncs &relevantFuncs = keyFuncRelevanceMap.at(baseFuncName);
+        const failure::graph::RelevantFuncs &relevantFuncs = keyFuncRelevanceMap.at(baseFuncName);
         auto it = meta.events.begin();
         while (it != meta.events.end()) {
             if ((*it) == nullptr) {
@@ -763,7 +767,7 @@ void LogFailureCollector::FilterFuncNames(std::vector<FailureMetadata> &metadata
     }
 }
 
-RackResult LogFailureCollector::CorrelateEvents(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap)
+RackResult LogCollector::CorrelateEvents(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap)
 {
     auto umqIt = eventsMap.find("umq");
     if (umqIt == eventsMap.end()) {
@@ -782,6 +786,7 @@ RackResult LogFailureCollector::CorrelateEvents(std::unordered_map<std::string, 
               [](const FailureMetadata &a, const FailureMetadata &b) { return a.timestamp < b.timestamp; });
     CollectCorrelatedLogs(eventsMap, localMetadata);
     FilterFuncNames(localMetadata);
+    view_.Build(localMetadata, graph_.GetCallGraph());
 
     {
         std::lock_guard<std::mutex> lk(metadataMutex_);
@@ -790,7 +795,7 @@ RackResult LogFailureCollector::CorrelateEvents(std::unordered_map<std::string, 
     return RACK_OK;
 }
 
-void LogFailureCollector::Save()
+void LogCollector::Save()
 {
     std::vector<FailureMetadata> snapshot;
     {
@@ -820,9 +825,11 @@ void LogFailureCollector::Save()
             LOG_ERROR << "failed to set file mode 0640 for output file: " << FAILURE_EVENT_FILE;
         }
     }
+
+    view_.Dump();
 }
 
-bool LogFailureCollector::IsValidPodId(const std::string &podId) const
+bool LogCollector::IsValidPodId(const std::string &podId) const
 {
     if (podId.empty()) {
         LOG_ERROR << "empty pod-id";
@@ -844,7 +851,7 @@ bool LogFailureCollector::IsValidPodId(const std::string &podId) const
     return true;
 }
 
-bool LogFailureCollector::IsValidPath(const std::string &p) const
+bool LogCollector::IsValidPath(const std::string &p) const
 {
     if (p.empty()) {
         LOG_ERROR << "empty path";
@@ -862,7 +869,7 @@ bool LogFailureCollector::IsValidPath(const std::string &p) const
     return true;
 }
 
-bool LogFailureCollector::IsValidEid(const std::string &eid) const
+bool LogCollector::IsValidEid(const std::string &eid) const
 {
     if (eid.empty()) {
         LOG_ERROR << "empty eid";
@@ -885,7 +892,7 @@ bool LogFailureCollector::IsValidEid(const std::string &eid) const
     return true;
 }
 
-bool LogFailureCollector::IsValidJettyId(const std::string &jettyId) const
+bool LogCollector::IsValidJettyId(const std::string &jettyId) const
 {
     if (jettyId.empty()) {
         LOG_ERROR << "empty jettyId";
