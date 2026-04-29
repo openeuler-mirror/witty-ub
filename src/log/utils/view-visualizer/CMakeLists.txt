@@ -8,5 +8,17 @@
  # PURPOSE.
 ## See the Mulan PSL v2 for more details.
 
-add_subdirectory(code-analyzer)
-add_subdirectory(view-visualizer)
+add_library(view_visualizer STATIC
+    view_visualizer_module.cpp
+    view_visualizer.cpp
+)
+target_include_directories(view_visualizer PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(view_visualizer
+    PUBLIC
+        include
+        ubse_context
+)
+find_package(jsoncpp REQUIRED)
+target_link_libraries(view_visualizer PRIVATE jsoncpp_lib)

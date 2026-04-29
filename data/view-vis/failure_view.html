@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>witty-ub failure view</title>
+<style>
+__FAILURE_VIEW_CSS__
+</style>
+
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <h1>witty-ub failure view</h1>
+    <div class="tabs" role="tablist" aria-label="View type">
+      <button class="tab active" id="callGraphTab" type="button">Call Graph</button>
+      <button class="tab" id="resourceTab" type="button">Resource</button>
+    </div>
+    <label for="viewSelect">Top function</label>
+    <select id="viewSelect"></select>
+    <label for="searchBox">Search</label>
+    <input id="searchBox" type="search" placeholder="function / component / error code">
+    <div class="buttons">
+      <button class="primary" id="resetBtn">Reset</button>
+      <button id="fitBtn">Fit</button>
+    </div>
+    <div class="metrics">
+      <div class="metric"><strong id="nodeCount">0</strong><span>Nodes</span></div>
+      <div class="metric"><strong id="edgeCount">0</strong><span>Edges</span></div>
+      <div class="metric"><strong id="visibleCount">0</strong><span>Visible</span></div>
+      <div class="metric"><strong id="maxHit">0</strong><span>Max hit</span></div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </aside>
+  <main class="graph-wrap">
+    <svg id="graph" role="img" aria-label="failure call graph"></svg>
+    <section class="resource-view hidden" id="resourceView" aria-label="resource tree"></section>
+    <div class="empty" id="emptyState">No graph data</div>
+  </main>
+  <aside class="detail">
+    <h2 id="detailTitle">Details</h2>
+    <div id="detailBody"></div>
+  </aside>
+</div>
+<script>
+const FAILURE_VIEW_DATA = __FAILURE_VIEW_DATA__;
+</script>
+<script>
+__FAILURE_VIEW_JS__
+</script>
+
+</body>
+</html>
