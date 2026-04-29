@@ -8,6 +8,8 @@
  # PURPOSE.
 ## See the Mulan PSL v2 for more details.
 
+add_subdirectory(utils)
+
 add_library(failure_log STATIC
     log_collector.cpp
     log_local_collector_module.cpp
