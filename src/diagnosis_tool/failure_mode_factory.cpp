@@ -5,7 +5,7 @@
 
 namespace diag {
 
-FailureModeFactory &FailureModeFactory::Instance()
+FailureModeFactory &FailureModeFactory::Instance() noexcept
 {
     static FailureModeFactory instance;
     return instance;

@@ -13,7 +13,7 @@ public:
     using Creator = std::function<std::shared_ptr<FailureMode>()>;
 
     // 获取单例实例
-    static FailureModeFactory &Instance();
+    static FailureModeFactory &Instance() noexcept;
 
     // 注册故障模式类型
     void Register(const std::string &typeId, Creator creator) noexcept;
