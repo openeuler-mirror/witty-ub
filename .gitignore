@@ -3,6 +3,7 @@ build/
 __pycache__
 
 .codex
+.DS_Store
 
 data/docs/
 data/original_docs/
