@@ -11,10 +11,10 @@
  */
 
 #include "diagnosis_engine.h"
-#include "logger.h"
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include "logger.h"
 
 namespace brpc {
 
@@ -56,12 +56,12 @@ void DiagnosisEngine::InitRules()
 string DiagnosisEngine::ToLower(const string& str)
 {
     string result = str;
-    transform(result.begin(), result.end(), result.begin(), 
+    transform(result.begin(), result.end(), result.begin(),
               [](unsigned char c) { return tolower(c); });
     return result;
 }
 
-bool DiagnosisEngine::MatchRule(const DiagnosisRule& rule, 
+bool DiagnosisEngine::MatchRule(const DiagnosisRule& rule,
                                  const vector<SystemLog>& systemLogs,
                                  const vector<BrpcLog>& brpcLogs,
                                  vector<string>& matchedLogs)

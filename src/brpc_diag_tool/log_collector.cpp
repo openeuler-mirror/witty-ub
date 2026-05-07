@@ -11,10 +11,10 @@
  */
 
 #include "log_collector.h"
-#include "logger.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include "logger.h"
 
 namespace brpc {
 
@@ -22,7 +22,7 @@ string SystemLog::logPath;
 string BrpcLog::logPath;
 
 // 读取文件全部内容，返回文件文本字符串
-static string ReadFileContent(const string &path)
+static string ReadFileContent(const string &path) noexcept
 {
     ifstream file(path);
     if (!file.is_open()) {

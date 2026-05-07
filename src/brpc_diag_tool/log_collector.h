@@ -9,7 +9,8 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#ifndef LOG_COLLECTOR_H
+#define LOG_COLLECTOR_H
 #pragma once
 
 #include "log_def.h"
@@ -30,7 +31,7 @@ public:
 };
 
 }
-
+#endif
 /*
     规范：在本文件中定义日志采集的实现逻辑。本样例实现了从系统日志和brpc日志样例中分别读取日志数据的功能。
 */

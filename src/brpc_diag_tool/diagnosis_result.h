@@ -9,7 +9,8 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#ifndef DIAGNOSIS_RESULT_H
+#define DIAGNOSIS_RESULT_H
 #pragma once
 
 #include <string>
@@ -22,7 +23,7 @@ public:
     void OutputResult();
 };
 }
-
+#endif
 /*
     规范：在本文件中定义诊断结果类型，即DiagnosisEngine.diagnosis的返回值类型。主要包含:
     1、数据：诊断结果数据，本样例中为字符串result；

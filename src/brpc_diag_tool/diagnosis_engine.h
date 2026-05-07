@@ -10,6 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
+#ifndef DIAGNOSIS_ENGINE_H
+#define DIAGNOSIS_ENGINE_H
 #pragma once
 
 #include <vector>
@@ -29,16 +31,16 @@ struct DiagnosisRule {
 };
 
 class DiagnosisEngine {
+public:
+    DiagnosisEngine();
+    DiagnosisResult Diagnosis(vector<SystemLog> systemLogs, vector<BrpcLog> brpcLogs);
 private:
     vector<DiagnosisRule> rules;
     void InitRules();
     string ToLower(const string& str);
-    bool MatchRule(const DiagnosisRule& rule, const vector<SystemLog>& systemLogs, 
+    bool MatchRule(const DiagnosisRule& rule, const vector<SystemLog>& systemLogs,
                    const vector<BrpcLog>& brpcLogs, vector<string>& matchedLogs);
-    
-public:
-    DiagnosisEngine();
-    DiagnosisResult Diagnosis(vector<SystemLog> systemLogs, vector<BrpcLog> brpcLogs);
 };
 }
-//规范：在本文件中定义诊断主函数Diagnosis，如有必要，可以使用诊断代码生成skill添加更多变量和函数定义
+// 规范：在本文件中定义诊断主函数Diagnosis，如有必要，可以使用诊断代码生成skill添加更多变量和函数定义
+#endif
