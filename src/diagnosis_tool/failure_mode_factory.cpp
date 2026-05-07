@@ -20,10 +20,9 @@ void FailureModeFactory::Register(const std::string &typeId, Creator creator) no
         // 注册失败，但不抛异常
         std::terminate();
     }
-    
 }
 
-std::shared_ptr<FailureMode> FailureModeFactory::Create(const std::string &typeId) const
+std::shared_ptr<FailureMode> FailureModeFactory::Create(const std::string &typeId) const noexcept
 {
     auto it = m_creators.find(typeId);
     if (it != m_creators.end()) {
@@ -33,7 +32,7 @@ std::shared_ptr<FailureMode> FailureModeFactory::Create(const std::string &typeI
     return nullptr;
 }
 
-std::vector<std::string> FailureModeFactory::GetAllTypeIds() const
+std::vector<std::string> FailureModeFactory::GetAllTypeIds() const noexcept
 {
     std::vector<std::string> ids;
     ids.reserve(m_creators.size());
@@ -43,7 +42,7 @@ std::vector<std::string> FailureModeFactory::GetAllTypeIds() const
     return ids;
 }
 
-bool FailureModeFactory::IsRegistered(const std::string &typeId) const
+bool FailureModeFactory::IsRegistered(const std::string &typeId) const  noexcept
 {
     return m_creators.find(typeId) != m_creators.end();
 }

@@ -19,13 +19,13 @@ public:
     void Register(const std::string &typeId, Creator creator) noexcept;
 
     // 创建故障模式实例
-    std::shared_ptr<FailureMode> Create(const std::string &typeId) const;
+    std::shared_ptr<FailureMode> Create(const std::string &typeId) const noexcept;
 
     // 获取所有已注册的类型ID
-    std::vector<std::string> GetAllTypeIds() const;
+    std::vector<std::string> GetAllTypeIds() const noexcept;
 
     // 检查是否已注册
-    bool IsRegistered(const std::string &typeId) const;
+    bool IsRegistered(const std::string &typeId) const noexcept;
 
 private:
     FailureModeFactory() = default;
