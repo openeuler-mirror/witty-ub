@@ -34,7 +34,7 @@ public:
     string text;           // 单条日志文本内容
 };
 
-}
+} // namespace brpc
 #endif
 /*
     规范：在本文件中定义日志类，日志类对象可以表示一条日志，也可以进一步封装多条日志。

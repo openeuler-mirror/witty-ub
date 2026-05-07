@@ -12,13 +12,13 @@
 
 #pragma once
 
+#include <string>
+#include <unordered_map>
+#include <vector>
 #include "rack_error.h"
 #include "rack_module.h"
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
-#include <unordered_map>
-#include <vector>
-#include <string>
 
 namespace diag {
 using namespace rack::module;
@@ -39,10 +39,11 @@ public:
     // 停止模块
     void Stop() override;
     bool Visit(FailureModeController controller);
+
 private:
-    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> failureModeJson; 
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> failureModeJson;
     std::unordered_map<std::string, std::shared_ptr<FailureMode>> failureModeInstanceMap;
     std::unordered_map<std::string, std::vector<std::string>> subRootFailureModesMap;
 };
 
-}
+} // namespace diag

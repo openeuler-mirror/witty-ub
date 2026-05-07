@@ -1,3 +1,5 @@
+#ifndef FAILURE_MODE_H
+#define FAILURE_MODE_H
 #pragma once
 
 #include <memory>
@@ -7,9 +9,13 @@ namespace diag {
 class RootCause {
 public:
     RootCause(bool isFinalRootCause_, std::string rootCause_)
-        : isFinalRootCause(isFinalRootCause_), rootCause(rootCause_) {}
+        : isFinalRootCause(isFinalRootCause_),
+          rootCause(rootCause_)
+    {
+    }
     bool GetIsFinalRootCause();
     std::string GetRootCause();
+
 private:
     bool isFinalRootCause;
     std::string rootCause;
@@ -27,8 +33,10 @@ public:
     virtual std::string GetId() const = 0;
     void AddSubFailureMode(std::string faiureModeId);
     std::vector<std::string> GetSubFailureModes();
+
 private:
     std::vector<std::string> subFailureModes;
 };
 
-}
+} // namespace diag
+#endif

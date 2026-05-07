@@ -22,7 +22,7 @@ public:
     string result;
     void OutputResult();
 };
-}
+} // namespace brpc
 #endif
 /*
     规范：在本文件中定义诊断结果类型，即DiagnosisEngine.diagnosis的返回值类型。主要包含:

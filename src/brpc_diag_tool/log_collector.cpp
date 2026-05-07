@@ -11,9 +11,9 @@
  */
 
 #include "log_collector.h"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
 #include "logger.h"
 
 namespace brpc {
@@ -92,4 +92,4 @@ vector<BrpcLog> LogCollector::CollectBrpcLog(int64_t timestamp)
     return logs;
 }
 
-}
+} // namespace brpc

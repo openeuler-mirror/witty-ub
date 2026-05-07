@@ -14,8 +14,8 @@
 #define DIAGNOSIS_ENGINE_H
 #pragma once
 
-#include <vector>
 #include <string>
+#include <vector>
 #include "diagnosis_result.h"
 #include "log_def.h"
 
@@ -34,13 +34,14 @@ class DiagnosisEngine {
 public:
     DiagnosisEngine();
     DiagnosisResult Diagnosis(vector<SystemLog> systemLogs, vector<BrpcLog> brpcLogs);
+
 private:
     vector<DiagnosisRule> rules;
     void InitRules();
-    string ToLower(const string& str);
-    bool MatchRule(const DiagnosisRule& rule, const vector<SystemLog>& systemLogs,
-                   const vector<BrpcLog>& brpcLogs, vector<string>& matchedLogs);
+    string ToLower(const string &str);
+    bool MatchRule(const DiagnosisRule &rule, const vector<SystemLog> &systemLogs, const vector<BrpcLog> &brpcLogs,
+                   vector<string> &matchedLogs);
 };
-}
+} // namespace brpc
 // 规范：在本文件中定义诊断主函数Diagnosis，如有必要，可以使用诊断代码生成skill添加更多变量和函数定义
 #endif

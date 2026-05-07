@@ -14,9 +14,9 @@
 
 #include "rack_error.h"
 #include "rack_module.h"
-#include "log_collector.h"
 #include "diagnosis_engine.h"
 #include "diagnosis_result.h"
+#include "log_collector.h"
 
 namespace brpc {
 using namespace rack::module;
@@ -42,4 +42,4 @@ private:
     int64_t timestamp_;                       // 时间戳参数，用于日志筛选
 };
 
-}
+} // namespace brpc

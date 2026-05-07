@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#include <iostream>
 #include "diagnosis_result.h"
+#include <iostream>
 
 namespace brpc {
 
@@ -21,4 +21,4 @@ void DiagnosisResult::OutputResult()
     cout << result << endl;
 }
 
-}
+} // namespace brpc

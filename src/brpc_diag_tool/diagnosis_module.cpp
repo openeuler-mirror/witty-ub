@@ -60,8 +60,7 @@ RackResult DiagnosisModule::Initialize()
     collector_ = std::make_shared<LogCollector>();
     engine_ = std::make_shared<DiagnosisEngine>();
 
-    LOG_INFO << "DiagnosisModule initialized, brpc-log: " << BrpcLog::logPath
-             << ", system-log: " << SystemLog::logPath
+    LOG_INFO << "DiagnosisModule initialized, brpc-log: " << BrpcLog::logPath << ", system-log: " << SystemLog::logPath
              << ", timestamp: " << timestamp_;
     return RACK_OK;
 }
@@ -80,8 +79,7 @@ RackResult DiagnosisModule::Start()
     vector<SystemLog> systemLogs = collector_->CollectSystemLog(timestamp_);
     vector<BrpcLog> brpcLogs = collector_->CollectBrpcLog(timestamp_);
 
-    LOG_INFO << "Collected " << systemLogs.size() << " system log entries, "
-             << brpcLogs.size() << " brpc log entries";
+    LOG_INFO << "Collected " << systemLogs.size() << " system log entries, " << brpcLogs.size() << " brpc log entries";
 
     // 步骤2：调用诊断引擎进行分析
     DiagnosisResult result = engine_->Diagnosis(systemLogs, brpcLogs);
@@ -98,4 +96,4 @@ void DiagnosisModule::Stop()
     LOG_INFO << "DiagnosisModule stopped";
 }
 
-}
+} // namespace brpc

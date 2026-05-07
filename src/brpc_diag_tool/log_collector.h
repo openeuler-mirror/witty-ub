@@ -13,10 +13,10 @@
 #define LOG_COLLECTOR_H
 #pragma once
 
-#include "log_def.h"
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
+#include "log_def.h"
 
 namespace brpc {
 using namespace std;
@@ -30,7 +30,7 @@ public:
     vector<BrpcLog> CollectBrpcLog(int64_t timestamp);
 };
 
-}
+} // namespace brpc
 #endif
 /*
     规范：在本文件中定义日志采集的实现逻辑。本样例实现了从系统日志和brpc日志样例中分别读取日志数据的功能。
