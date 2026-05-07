@@ -49,7 +49,6 @@ void DiagnosisToolModule::InitializeFailureModeTree()
     Json::Value root;
     Json::CharReaderBuilder builder;
     std::string errs;
-
     if (!Json::parseFromStream(builder, file, &root, &errs)) {
         std::cerr << "Failed to parse JSON: " << errs << std::endl;
         return;
@@ -59,15 +58,10 @@ void DiagnosisToolModule::InitializeFailureModeTree()
     auto outerKeys = root.getMemberNames();
     for (const auto &outerKey : outerKeys) {
         const Json::Value &innerObj = root[outerKey];
-
-        if (!innerObj.isObject()) {
-            continue; // 跳过非对象类型
-        }
-
+        if (!innerObj.isObject()) continue;
         std::unordered_map<std::string, std::vector<std::string>> innerMap;
         auto innerKeys = innerObj.getMemberNames();
-        std::unordered_set<std::string> allFailureModes;
-        std::unordered_set<std::string> nonSubRootFailureModes;
+        std::unordered_set<std::string> allFailureModes, nonSubRootFailureModes;
         std::vector<std::string> subRootFailureModes;
         for (const auto &innerKey : innerKeys) {
             allFailureModes.insert(innerKey);
@@ -108,13 +102,12 @@ RackResult DiagnosisToolModule::Initialize()
 
 void DiagnosisToolModule::UnInitialize()
 {
-    // TODO
     LOG_INFO << "DiagnosisToolModule uninitialized";
 }
 
 bool DiagnosisToolModule::Visit(FailureModeController controller)
 {
-    bool isValid = controller.GetFailureMode()->isValid();
+    bool isValid = controller.GetFailureMode()->IsValid();
     if (!isValid) {
         return false;
     }

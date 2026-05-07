@@ -3,29 +3,35 @@
 
 namespace diag {
 
-static AutoRegister<HwBreak> hw("002");
+static AutoRegister<HwBreak> g_hw("002");
 
-bool HwBreak::isValid() {
+bool HwBreak::IsValid()
+{
     return true;
 }
 
-std::string HwBreak::GetName () const{
+std::string HwBreak::GetName() const
+{
     return "002";
 }
 
-std::string HwBreak::GetRootCauseDesc () const{
+std::string HwBreak::GetRootCauseDesc() const
+{
     return "硬件组件发生错误";
 }
 
-std::string HwBreak::GetFixSuggDesc () const{
+std::string HwBreak::GetFixSuggDesc() const
+{
     return "联系华为进行硬件更换";
 }
 
-std::string HwBreak::GetValidationMethodDesc () const{
+std::string HwBreak::GetValidationMethodDesc() const
+{
     return "LocalRAS报错";
 }
 
-std::string HwBreak::GetId () const{
+std::string HwBreak::GetId() const
+{
     return "002";
 }
-}
+} // namespace diag

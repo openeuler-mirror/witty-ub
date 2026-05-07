@@ -15,9 +15,9 @@ add_library(diagnosis_tool STATIC
     failure_mode.cpp
     failure_mode_realization/connect_break.cpp
     failure_mode_realization/hw_break.cpp
-    failure_mode_realization/hw003_break.cpp
-    failure_mode_realization/hw004_break.cpp
-    failure_mode_realization/hw005_break.cpp
+    failure_mode_realization/hw_break003.cpp
+    failure_mode_realization/hw_break004.cpp
+    failure_mode_realization/hw_break005.cpp
 )
 target_include_directories(diagnosis_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(diagnosis_tool PUBLIC include ubse_context)

@@ -9,14 +9,14 @@
 namespace diag {
 
 enum class StepType {
-    Fallback, // 回退
-    NonLeaf,  // 非叶子，继续遍历下级故障模式
-    Leaf      // 叶子，最终结果
+    FALLBACK, // 回退
+    NONLEAF,  // 非叶子，继续遍历下级故障模式
+    LEAF      // 叶子，最终结果
 };
 
 class FailureModeController {
 public:
-    FailureModeController(std::shared_ptr<FailureMode> failureMode_) : failureMode(failureMode_) {}
+    FailureModeController(std::shared_ptr<FailureMode> failureModeInput) : failureMode(failureModeInput) {}
     StepType GetNextStep();
     std::shared_ptr<FailureMode> GetFailureMode();
 

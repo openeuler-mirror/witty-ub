@@ -4,15 +4,15 @@
 namespace diag {
 StepType FailureModeController::GetNextStep()
 {
-    bool isFailureModeValid = failureMode->isValid();
+    bool isFailureModeValid = failureMode->IsValid();
     if (!isFailureModeValid) {
-        return StepType::Fallback;
+        return StepType::FALLBACK;
     }
     RootCause rootCause = failureMode->AnalyzeRootCause();
     if (rootCause.GetIsFinalRootCause()) {
-        return StepType::Leaf;
+        return StepType::LEAF;
     } else {
-        return StepType::NonLeaf;
+        return StepType::NONLEAF;
     }
 }
 std::shared_ptr<FailureMode> FailureModeController::GetFailureMode()

@@ -8,9 +8,9 @@
 namespace diag {
 class RootCause {
 public:
-    RootCause(bool isFinalRootCause_, std::string rootCause_)
-        : isFinalRootCause(isFinalRootCause_),
-          rootCause(rootCause_)
+    RootCause(bool isFinalRootCauseInput, std::string rootCauseInput)
+        : isFinalRootCause(isFinalRootCauseInput),
+          rootCause(rootCauseInput)
     {
     }
     bool GetIsFinalRootCause();
@@ -26,7 +26,7 @@ public:
     virtual void PrintDesc();
     virtual std::string GetName() const = 0;
     virtual std::string GetValidationMethodDesc() const = 0;
-    virtual bool isValid() = 0;
+    virtual bool IsValid() = 0;
     virtual std::string GetRootCauseDesc() const = 0;
     virtual RootCause AnalyzeRootCause();
     virtual std::string GetFixSuggDesc() const = 0;
