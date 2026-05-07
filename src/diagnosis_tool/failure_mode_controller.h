@@ -16,7 +16,7 @@ enum class StepType {
 
 class FailureModeController {
 public:
-    FailureModeController(std::shared_ptr<FailureMode> failureModeInput) : failureMode(failureModeInput) {}
+    explicit FailureModeController(std::shared_ptr<FailureMode> failureModeInput): failureMode(failureModeInput) {}
     StepType GetNextStep();
     std::shared_ptr<FailureMode> GetFailureMode();
 

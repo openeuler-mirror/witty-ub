@@ -16,7 +16,7 @@ public:
     static FailureModeFactory &Instance();
 
     // 注册故障模式类型
-    void Register(const std::string &typeId, Creator creator);
+    void Register(const std::string &typeId, Creator creator) noexcept;
 
     // 创建故障模式实例
     std::shared_ptr<FailureMode> Create(const std::string &typeId) const;

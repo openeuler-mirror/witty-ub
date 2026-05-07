@@ -11,7 +11,7 @@ FailureModeFactory &FailureModeFactory::Instance()
     return instance;
 }
 
-void FailureModeFactory::Register(const std::string &typeId, Creator creator)
+void FailureModeFactory::Register(const std::string &typeId, Creator creator) noexcept
 {
     std::cout << "Register: " << typeId << std::endl;
     m_creators[typeId] = std::move(creator);
