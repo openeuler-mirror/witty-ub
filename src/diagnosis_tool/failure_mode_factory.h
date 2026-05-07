@@ -39,8 +39,8 @@ public:
     explicit AutoRegister(const std::string &typeId) noexcept
     {
         try {
-            FailureModeFactory::Instance().Register(typeId, []() noexcept { return std::make_shared<T>(); });
-        } catch (...){
+            FailureModeFactory::Instance().Register(typeId, []() { return std::make_shared<T>(); });
+        } catch(...) {
             std::terminate();
         }
     }
