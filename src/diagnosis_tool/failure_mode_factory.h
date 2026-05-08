@@ -36,21 +36,23 @@ private:
 template <typename T>
 class AutoRegister {
 public:
-    explicit AutoRegister(const std::string &typeId) noexcept {
+    explicit AutoRegister(const std::string &typeId) noexcept
+    {
         try {
             FailureModeFactory::Instance().Register(typeId, &AutoRegister::Create);
-        } catch(...) {
+        } catch (...) {
             std::terminate();
         }
     }
+
 private:
-    static std::shared_ptr<FailureMode> Create() noexcept {
+    static std::shared_ptr<FailureMode> Create() noexcept
+    {
         try {
             return std::make_shared<T>();
         } catch (...) {
             return nullptr;
         }
     }
-
 };
 } // namespace diag
