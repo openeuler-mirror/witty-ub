@@ -1,0 +1,2 @@
+0127 20:16:58.342246|ERROR|UMQ|fetch_from_global[263]|buf with data not enough, rest count: 499 
+0127 20:16:58.342249|ERROR|UMQ|umq_qbuf_alloc[357]|fetch from global failed, current size: 0, alloc num: 1 
