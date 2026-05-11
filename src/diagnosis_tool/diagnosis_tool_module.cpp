@@ -14,7 +14,9 @@
 
 #include "diagnosis_tool_module.h"
 #include <json/json.h>
+#include <filesystem>
 #include <fstream>
+#include <cstdlib>
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
 #include "failure_mode_factory.h"
@@ -28,7 +30,7 @@ DiagnosisToolModule::DiagnosisToolModule() {}
 
 static std::vector<FailureModeController> visited;
 static std::vector<std::vector<FailureModeController>> validRoutes;
-constexpr const char *WITTY_DIR = "/var/witty-ub";
+constexpr const char *DEFAULT_WITTY_DIR = "/var/witty-ub";
 constexpr const char *FAILUREMODE_JSON_DIR = "data/failure_mode_tree.json";
 // 读取json文件，获取故障树
 void DiagnosisToolModule::InitializeFailureModeTree()
@@ -37,11 +39,13 @@ void DiagnosisToolModule::InitializeFailureModeTree()
     failureModeJson.clear();
 
     // 2. 尝试打开文件
-    std::string path = (std::filesystem::path(WITTY_DIR) / FAILUREMODE_JSON_DIR).string();
+    const char *wittyDirEnv = std::getenv("WITTY_DIR");
+    std::string wittyDir = wittyDirEnv ? wittyDirEnv : DEFAULT_WITTY_DIR;
+    std::string path = (std::filesystem::path(wittyDir) / FAILUREMODE_JSON_DIR).string();
     std::ifstream file;
     file.open(path);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file: failure_mode_tree.json" << std::endl;
+        std::cerr << "Failed to open file: " << path << std::endl;
         return;
     }
 
