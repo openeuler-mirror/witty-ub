@@ -1,0 +1,4 @@
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:29.000001 | I | health_check.cpp:50 | kvc-worker-pod-xyz | 11:291 | e18c3204-0044-0036-0036-000000000036 | tenant1 | Cannot receive heartbeat from worker. worker_id=worker-3
+2026-05-06T13:26:30.000001 | I | client_impl.cpp:400 | kvc-client-pod-abc | 12:301 | e18c3204-0044-0037-0037-000000000037 | tenant1 | K_CLIENT_WORKER_DISCONNECT worker=192.168.1.10:31402

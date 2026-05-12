@@ -1,0 +1,130 @@
+# === kvcache_conn_fault_003 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:00.000001 | I | client_impl.cpp:150 | kvc-client-pod-abc | 11:291 | e18c3204-0003-0003-0003-000000000003 | tenant1 | K_INVALID The objectKey is empty
+
+# === kvcache_conn_fault_004 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:01.000001 | I | client_impl.cpp:80 | kvc-client-pod-abc | 11:291 | e18c3204-0004-0004-0004-000000000004 | tenant1 | ConnectOptions was not configured
+
+# === kvcache_conn_fault_005 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:02.000001 | I | client_impl.cpp:250 | kvc-client-pod-abc | 11:291 | e18c3204-0005-0005-0005-000000000005 | tenant1 | Client object is already sealed
+
+# === kvcache_conn_fault_007 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:03.000001 | I | client_impl.cpp:300 | kvc-client-pod-abc | 11:291 | e18c3204-0007-0007-0007-000000000007 | tenant1 | K_NOT_FOUND Can't find object key=missing_key
+
+# === kvcache_conn_fault_009 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:04.000001 | I | client_impl.cpp:400 | kvc-client-pod-abc | 11:291 | e18c3204-0009-0009-0009-000000000009 | tenant1 | [RPC_RECV_TIMEOUT] req_id=12345 timeout=5000ms
+2026-05-06T13:26:05.000001 | I | client_impl.cpp:410 | kvc-client-pod-abc | 12:301 | e18c3204-0009-0010-0010-000000000010 | tenant1 | [RPC_SERVICE_UNAVAILABLE] worker=192.168.1.10:31402
+
+# === kvcache_conn_fault_011 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:06.000001 | I | worker_oc_service_get_impl.cpp:130 | kvc-worker-pod-xyz | 11:291 | e18c3204-0011-0011-0011-000000000011 | tenant1 | etcd is timeout endpoint=http://etcd-0:2379
+
+# === kvcache_conn_fault_012 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:07.000001 | I | health_check.cpp:50 | kvc-worker-pod-xyz | 11:291 | e18c3204-0012-0012-0012-000000000012 | tenant1 | Cannot receive heartbeat from worker. worker_id=worker-3
+
+# === kvcache_conn_fault_015 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:08.000001 | I | tcp_channel.cpp:200 | kvc-worker-pod-xyz | 11:291 | e18c3204-0015-0015-0015-000000000015 | tenant1 | [TCP_CONNECT_FAILED] addr=192.168.1.10:31402 errno=111
+
+# === kvcache_conn_fault_016 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:09.000001 | I | tcp_channel.cpp:200 | kvc-worker-pod-xyz | 11:291 | e18c3204-0016-0016-0016-000000000016 | tenant1 | [TCP_CONNECT_FAILED] addr=192.168.1.10:31402 errno=111
+
+# === kvcache_conn_fault_017 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:10.000001 | I | tcp_channel.cpp:220 | kvc-worker-pod-xyz | 11:291 | e18c3204-0017-0017-0017-000000000017 | tenant1 | [TCP_CONNECT_RESET] addr=192.168.1.10:31402
+2026-05-06T13:26:11.000001 | I | tcp_channel.cpp:230 | kvc-worker-pod-xyz | 12:301 | e18c3204-0017-0018-0018-000000000018 | tenant1 | [TCP_NETWORK_UNREACHABLE] addr=192.168.1.20:31402
+
+# === kvcache_conn_fault_018 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:12.000001 | I | uds_channel.cpp:100 | kvc-worker-pod-xyz | 11:291 | e18c3204-0018-0019-0019-000000000019 | tenant1 | [UDS_CONNECT_FAILED] path=/var/run/datasystem/worker.sock
+2026-05-06T13:26:13.000001 | I | shm_fd.cpp:80 | kvc-worker-pod-xyz | 12:301 | e18c3204-0018-0020-0020-000000000020 | tenant1 | [SHM_FD_TRANSFER_FAILED] reason=EMFILE
+
+# === kvcache_conn_fault_019 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:14.000001 | I | zmq_stub.cpp:300 | kvc-worker-pod-xyz | 11:291 | e18c3204-0019-0021-0021-000000000021 | tenant1 | [ZMQ_SEND_FAILURE_TOTAL] zmq_last_error_number=111
+
+# === kvcache_conn_fault_020 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:15.000001 | I | etcd_client.cpp:80 | kvc-worker-pod-xyz | 11:291 | e18c3204-0020-0022-0022-000000000022 | tenant1 | etcd is timeout endpoint=http://etcd-0:2379
+
+# === kvcache_conn_fault_021 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:16.000001 | I | tcp_channel.cpp:200 | kvc-worker-pod-xyz | 11:291 | e18c3204-0021-0023-0023-000000000023 | tenant1 | [TCP_CONNECT_FAILED] addr=192.168.1.10:31402 errno=111
+
+# === kvcache_conn_fault_023 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:17.000001 | I | urma_channel.cpp:100 | kvc-worker-pod-xyz | 11:291 | e18c3204-0023-0024-0024-000000000024 | tenant1 | [URMA_NEED_CONNECT] remoteInstanceId=200
+
+# === kvcache_conn_fault_024 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:18.000001 | I | urma_channel.cpp:150 | kvc-worker-pod-xyz | 11:291 | e18c3204-0024-0025-0025-000000000025 | tenant1 | [URMA_RECREATE_JFS] cqeStatus=9
+2026-05-06T13:26:19.000001 | I | urma_channel.cpp:160 | kvc-worker-pod-xyz | 12:301 | e18c3204-0024-0026-0026-000000000026 | tenant1 | [URMA_RECREATE_JFS_FAILED] reason=ack_timeout
+
+# === kvcache_conn_fault_025 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:20.000001 | I | urma_channel.cpp:200 | kvc-worker-pod-xyz | 11:291 | e18c3204-0025-0027-0027-000000000027 | tenant1 | [URMA_POLL_ERROR] errno=5
+2026-05-06T13:26:21.000001 | I | urma_channel.cpp:210 | kvc-worker-pod-xyz | 12:301 | e18c3204-0025-0028-0028-000000000028 | tenant1 | [URMA_WAIT_TIMEOUT] instanceId=100
+
+# === kvcache_conn_fault_027 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:22.000001 | I | urma_init.cpp:50 | kvc-worker-pod-xyz | 11:291 | e18c3204-0027-0029-0029-000000000029 | tenant1 | Failed to urma init device=ub0
+
+# === kvcache_conn_fault_028 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:23.000001 | I | fast_transport.cpp:100 | kvc-worker-pod-xyz | 11:291 | e18c3204-0028-0030-0030-000000000030 | tenant1 | [URMA_NEED_CONNECT] FastTransport handshake failed
+
+# === kvcache_conn_fault_036 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:24.000001 | I | shm_mmap.cpp:80 | kvc-worker-pod-xyz | 11:291 | e18c3204-0036-0031-0031-000000000031 | tenant1 | K_RUNTIME_ERROR Get mmap entry failed size=8388608
+
+# === kvcache_conn_fault_037 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:25.000001 | I | shm_mmap.cpp:80 | kvc-worker-pod-xyz | 11:291 | e18c3204-0037-0032-0032-000000000032 | tenant1 | K_RUNTIME_ERROR Get mmap entry failed size=8388608
+
+# === kvcache_conn_fault_038 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:26.000001 | I | tcp_channel.cpp:200 | kvc-client-pod-abc | 11:291 | e18c3204-0038-0033-0033-000000000033 | tenant1 | [TCP_CONNECT_FAILED] addr=192.168.1.10:31402 errno=111
+
+# === kvcache_conn_fault_041 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:27.000001 | I | tcp_channel.cpp:200 | kvc-client-pod-abc | 11:291 | e18c3204-0041-0034-0034-000000000034 | tenant1 | [TCP_CONNECT_FAILED] addr=192.168.1.10:31402 errno=111
+
+# === kvcache_conn_fault_042 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:28.000001 | I | uds_channel.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0042-0035-0035-000000000035 | tenant1 | [UDS_CONNECT_FAILED] path=/var/run/datasystem/worker.sock
+
+# === kvcache_conn_fault_044 ===
+2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
+2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
+2026-05-06T13:26:29.000001 | I | health_check.cpp:50 | kvc-worker-pod-xyz | 11:291 | e18c3204-0044-0036-0036-000000000036 | tenant1 | Cannot receive heartbeat from worker. worker_id=worker-3
+2026-05-06T13:26:30.000001 | I | client_impl.cpp:400 | kvc-client-pod-abc | 12:301 | e18c3204-0044-0037-0037-000000000037 | tenant1 | K_CLIENT_WORKER_DISCONNECT worker=192.168.1.10:31402
