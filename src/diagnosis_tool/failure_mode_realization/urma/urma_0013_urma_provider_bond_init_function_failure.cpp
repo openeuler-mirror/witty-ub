@@ -1,0 +1,52 @@
+#include "urma_0013_urma_provider_bond_init_function_failure.h"
+#include <vector>
+#include "../../failure_mode_factory.h"
+
+namespace diag {
+
+static AutoRegister<Urma0013UrmaProviderBondInitFunctionFailure> g_urma("urma_0013");
+
+bool Urma0013UrmaProviderBondInitFunctionFailure::IsValid(std::string &logContent)
+{
+    logContent.clear();
+    const std::vector<std::string> subFailureIds = {"urma_0014"};
+    for (const auto &subFailureId : subFailureIds) {
+        auto failureMode = FailureModeFactory::Instance().Create(subFailureId);
+        if (failureMode != nullptr && failureMode->IsValid(logContent)) {
+            return true;
+        }
+    }
+    logContent.clear();
+    return false;
+}
+
+std::string Urma0013UrmaProviderBondInitFunctionFailure::GetName() const
+{
+    return "urma_provider_bond_init 函数故障";
+}
+
+std::string Urma0013UrmaProviderBondInitFunctionFailure::GetRootCauseDesc() const
+{
+    return "当前函数直接错误日志向下级匹配；调用栈关系仅用于辅助定位上下游，不复制下游内部故障。";
+}
+
+RootCause Urma0013UrmaProviderBondInitFunctionFailure::AnalyzeRootCause()
+{
+    return RootCause(false, GetRootCauseDesc());
+}
+
+std::string Urma0013UrmaProviderBondInitFunctionFailure::GetFixSuggDesc() const
+{
+    return "向下级匹配。";
+}
+
+std::string Urma0013UrmaProviderBondInitFunctionFailure::GetValidationMethodDesc() const
+{
+    return "向下级匹配。";
+}
+
+std::string Urma0013UrmaProviderBondInitFunctionFailure::GetId() const
+{
+    return "urma_0013";
+}
+} // namespace diag

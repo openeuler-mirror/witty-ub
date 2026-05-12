@@ -6,8 +6,9 @@ namespace diag {
 
 static AutoRegister<ConnectBreak> g_connect("001");
 
-bool ConnectBreak::IsValid()
+bool ConnectBreak::IsValid(std::string &logContent)
 {
+    logContent.clear();
     return true;
 }
 

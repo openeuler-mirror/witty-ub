@@ -4,7 +4,7 @@
 namespace diag {
 StepType FailureModeController::GetNextStep()
 {
-    bool isFailureModeValid = failureMode->IsValid();
+    bool isFailureModeValid = failureMode->IsValid(logContent);
     if (!isFailureModeValid) {
         return StepType::FALLBACK;
     }

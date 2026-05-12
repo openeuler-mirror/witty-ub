@@ -62,7 +62,8 @@ void DiagnosisToolModule::InitializeFailureModeTree()
     auto outerKeys = root.getMemberNames();
     for (const auto &outerKey : outerKeys) {
         const Json::Value &innerObj = root[outerKey];
-        if (!innerObj.isObject()) continue;
+        if (!innerObj.isObject())
+            continue;
         std::unordered_map<std::string, std::vector<std::string>> innerMap;
         auto innerKeys = innerObj.getMemberNames();
         std::unordered_set<std::string> allFailureModes, nonSubRootFailureModes;
@@ -111,7 +112,8 @@ void DiagnosisToolModule::UnInitialize()
 
 bool DiagnosisToolModule::Visit(FailureModeController controller)
 {
-    bool isValid = controller.GetFailureMode()->IsValid();
+    std::string logContent;
+    bool isValid = controller.GetFailureMode()->IsValid(logContent);
     if (!isValid) {
         return false;
     }
