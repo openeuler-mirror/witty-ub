@@ -37,7 +37,7 @@ constexpr mode_t FAILURE_VIEW_FILE_PERM_640 = 0640;
 namespace {
 constexpr char EDGE_KEY_SEP = '\n';
 constexpr char NODE_KEY_SEP = '\n';
-const std::string NULL_ERROR_CODE_KEY;
+const std::string NULL_ERROR_CODE_KEY = "";
 using FuncNameToIndices = std::unordered_map<std::string, std::vector<size_t>>;
 using FuncErrorCodes = std::unordered_map<std::string, std::unordered_set<std::string>>;
 

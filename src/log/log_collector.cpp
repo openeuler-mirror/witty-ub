@@ -126,8 +126,8 @@ RackResult LogCollector::Initialize()
 void LogCollector::UnInitialize() {}
 
 void LogCollector::ReaderLoopOnce(const std::shared_ptr<LogReader> &reader,
-                                         std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
-                                         std::mutex &eventsMapMutex)
+                                  std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
+                                  std::mutex &eventsMapMutex)
 {
     std::unordered_map<std::string, std::vector<FailureEvent>> localEventsMap;
     bool handleCreated = false;
@@ -301,7 +301,7 @@ RackResult LogCollector::ParseLogPath(const std::unordered_map<std::string, std:
 }
 
 RackResult LogCollector::HandleLogPath(const std::unordered_map<std::string, std::string> &argMap,
-                                              const std::string &component, bool podRequired, bool podSplitAndStrip)
+                                       const std::string &component, bool podRequired, bool podSplitAndStrip)
 {
     const std::string arg = component + "-log-path";
     auto it = argMap.find(arg);
@@ -325,7 +325,7 @@ RackResult LogCollector::HandleLogPath(const std::unordered_map<std::string, std
 }
 
 RackResult LogCollector::HandleSingleLogPathArg(const std::string &arg, const std::string &component,
-                                                       const std::string &path)
+                                                const std::string &path)
 {
     if (!IsValidPath(path)) {
         LOG_ERROR << "invalid argument: " << arg;
@@ -336,7 +336,7 @@ RackResult LogCollector::HandleSingleLogPathArg(const std::string &arg, const st
 }
 
 RackResult LogCollector::HandlePodSplitLogPathArg(const std::string &arg, const std::string &component,
-                                                         const std::string &rawPodPath)
+                                                  const std::string &rawPodPath)
 {
     std::vector<std::string> entries;
     failure::Split(entries, rawPodPath, ',');
@@ -643,7 +643,7 @@ RackResult LogCollector::BuildGraph()
 }
 
 void LogCollector::CollectMetadata(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
-                                          std::vector<FailureMetadata> &metadata)
+                                   std::vector<FailureMetadata> &metadata)
 {
     for (FailureEvent &event : eventsMap.at("umq")) {
         if (event.attributes.at("alarm_level") != "error") {
@@ -694,7 +694,7 @@ void LogCollector::CollectMetadata(std::unordered_map<std::string, std::vector<F
 }
 
 void LogCollector::CollectCorrelatedLogs(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
-                                                std::vector<FailureMetadata> &metadata)
+                                         std::vector<FailureMetadata> &metadata)
 {
     for (FailureMetadata &meta : metadata) {
         for (auto &[component, events] : eventsMap) {

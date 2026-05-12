@@ -19,10 +19,10 @@
 #include <thread>
 
 #include "rack_module.h"
-#include "log_collector.h"
 #include "log_graph.h"
 #include "log_view.h"
 #include "log_reader.h"
+#include "log_collector.h"
 
 namespace failure::log {
 class LogCollector final {

@@ -15,8 +15,8 @@
 
 #include <vector>
 
-#include "code_analyzer_def.h"
 #include "rack_error.h"
+#include "code_analyzer_def.h"
 
 namespace code_analyzer {
 class CodeAnalyzer {

@@ -47,11 +47,10 @@ std::string EscapeJsonForScript(const std::string &json)
     escaped.reserve(json.size());
     for (size_t i = 0; i < json.size(); ++i) {
         if (json[i] == '<' && i + 1 < json.size() && json[i + 1] == '/') {
-            escaped.append("<\\/");
-            ++i;
-            continue;
+            escaped.append("<\\");
+        } else {
+            escaped.push_back(json[i]);
         }
-        escaped.push_back(json[i]);
     }
     return escaped;
 }
@@ -159,10 +158,18 @@ RackResult ViewVisualizer::WriteHtml(const std::string &html) const
 
 RackResult ViewVisualizer::ReadResourceFile(const std::string &fileName, std::string &content) const
 {
+    std::filesystem::path sourceResourcePath = VIEW_VIS_SOURCE_RESOURCE_DIR;
+    sourceResourcePath.append(fileName);
+    std::filesystem::path relativeResourcePath = std::filesystem::path(__FILE__).parent_path();
+    relativeResourcePath.append("../../../../data/view-vis");
+    relativeResourcePath.append(fileName);
+    std::filesystem::path runtimeResourcePath = VIEW_VIS_RUNTIME_RESOURCE_DIR;
+    runtimeResourcePath.append(fileName);
+
     const std::vector<std::filesystem::path> candidates = {
-        std::filesystem::path(VIEW_VIS_SOURCE_RESOURCE_DIR) / fileName,
-        std::filesystem::path(__FILE__).parent_path() / "../../../../data/view-vis" / fileName,
-        std::filesystem::path(VIEW_VIS_RUNTIME_RESOURCE_DIR) / fileName,
+        sourceResourcePath,
+        relativeResourcePath,
+        runtimeResourcePath,
     };
 
     for (const std::filesystem::path &candidate : candidates) {
