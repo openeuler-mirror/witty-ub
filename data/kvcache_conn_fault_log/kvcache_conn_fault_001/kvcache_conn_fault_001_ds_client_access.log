@@ -1,0 +1,5 @@
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+2 | DS_KV_CLIENT_PUT | 5000 | 4096 | {Object_key:bad_key,timeout:0} | The objectKey is empty
+1002 | DS_KV_CLIENT_GET | 30000 | 8192 | {Object_key:missing_obj,timeout:0} | 

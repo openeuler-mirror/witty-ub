@@ -70,4 +70,4 @@ else()
         "-Wl,--no-whole-archive"
     )
 endif()
-target_link_libraries(witty-ub-diag-tool PRIVATE ubse_context diagnosis_tool)
+target_link_libraries(witty-ub-diag-tool PRIVATE ubse_context diagnosis_tool log4cplus)

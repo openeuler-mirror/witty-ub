@@ -1,0 +1,112 @@
+# === kvcache_conn_fault_001 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+2 | DS_KV_CLIENT_PUT | 5000 | 4096 | {Object_key:bad_key,timeout:0} | The objectKey is empty
+1002 | DS_KV_CLIENT_GET | 30000 | 8192 | {Object_key:missing_obj,timeout:0} | 
+
+# === kvcache_conn_fault_002 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+2 | DS_KV_CLIENT_PUT | 5000 | 4096 | {Object_key:bad_key,timeout:0} | The objectKey is empty
+3 | DS_KV_CLIENT_GET | 8000 | 1024 | {Object_key:not_exist,timeout:0} | 
+8 | DS_KV_CLIENT_GET | 12000 | 2048 | {Object_key:not_ready,timeout:0} | 
+
+# === kvcache_conn_fault_003 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+2 | DS_KV_CLIENT_PUT | 5000 | 4096 | {Object_key:bad_key,timeout:0} | The objectKey is empty
+
+# === kvcache_conn_fault_006 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+2 | DS_KV_CLIENT_GET | 3000 | 512 | {Object_key:batch_key,OBJECT_KEYS_MAX_SIZE_LIMIT,timeout:0} | 
+
+# === kvcache_conn_fault_007 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | NOT_FOUND
+
+# === kvcache_conn_fault_008 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+19 | DS_KV_CLIENT_GET | 15000 | 4096 | {Object_key:try_again,timeout:0} | 
+23 | DS_KV_CLIENT_GET | 20000 | 8192 | {Object_key:disconnect,timeout:0} | 
+29 | DS_KV_CLIENT_PUT | 10000 | 2048 | {Object_key:fd_closed,timeout:0} | 
+
+# === kvcache_conn_fault_013 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+25 | DS_KV_CLIENT_GET | 25000 | 4096 | {Object_key:etcd_timeout,timeout:0} | 
+
+# === kvcache_conn_fault_014 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+1001 | DS_KV_CLIENT_GET | 30000 | 8192 | {Object_key:deadline,timeout:0} | 
+1002 | DS_KV_CLIENT_GET | 35000 | 4096 | {Object_key:unavail,timeout:0} | 
+
+# === kvcache_conn_fault_022 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+1004 | DS_KV_CLIENT_GET | 20000 | 4096 | {Object_key:urma_err1,timeout:0} | 
+1006 | DS_KV_CLIENT_GET | 22000 | 8192 | {Object_key:urma_err2,timeout:0} | 
+1008 | DS_KV_CLIENT_PUT | 18000 | 2048 | {Object_key:urma_err3,timeout:0} | 
+1009 | DS_KV_CLIENT_GET | 25000 | 4096 | {Object_key:urma_connect,timeout:0} | 
+1010 | DS_KV_CLIENT_GET | 28000 | 8192 | {Object_key:urma_timeout,timeout:0} | 
+
+# === kvcache_conn_fault_026 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+1009 | DS_KV_CLIENT_GET | 25000 | 4096 | {Object_key:urma_connect_failed,timeout:0} | 
+
+# === kvcache_conn_fault_031 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+1001 | DS_KV_CLIENT_GET | 30000 | 8192 | {Object_key:deadline,timeout:0} | 
+1002 | DS_KV_CLIENT_GET | 35000 | 4096 | {Object_key:unavail,timeout:0} | 
+
+# === kvcache_conn_fault_032 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+
+# === kvcache_conn_fault_033 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+
+# === kvcache_conn_fault_034 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+
+# === kvcache_conn_fault_035 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+18 | DS_KV_CLIENT_GET | 5000 | 4096 | {Object_key:file_limit,timeout:0} | 
+
+# === kvcache_conn_fault_036 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+5 | DS_KV_CLIENT_GET | 8000 | 8192 | {Object_key:mmap_fail,timeout:0} | 
+
+# === kvcache_conn_fault_037 ===
+0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
+0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
+5 | DS_KV_CLIENT_GET | 8000 | 8192 | {Object_key:runtime_err,timeout:0} | 
