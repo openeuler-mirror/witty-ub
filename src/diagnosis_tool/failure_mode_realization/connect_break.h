@@ -5,7 +5,7 @@ namespace diag {
 class ConnectBreak : public FailureMode {
 public:
     ConnectBreak() noexcept = default;
-    bool IsValid() override;
+    bool IsValid(std::string &logContent) override;
     std::string GetName() const override;
     std::string GetRootCauseDesc() const override;
     RootCause AnalyzeRootCause() override;
@@ -13,4 +13,4 @@ public:
     std::string GetValidationMethodDesc() const override;
     std::string GetId() const override;
 };
-}
+} // namespace diag

@@ -22,6 +22,7 @@ public:
 
 private:
     std::shared_ptr<FailureMode> failureMode;
+    std::string logContent;
 };
 
 } // namespace diag

@@ -31,6 +31,6 @@ std::vector<std::string> FailureMode::GetSubFailureModes()
 
 RootCause FailureMode::AnalyzeRootCause()
 {
-    return RootCause(true, GetRootCauseDesc());
+    return RootCause(false, GetRootCauseDesc());
 }
 } // namespace diag
