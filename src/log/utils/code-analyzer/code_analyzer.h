@@ -10,20 +10,21 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef CODE_ANALYZER_H
+#define CODE_ANALYZER_H
 
 #include <vector>
 
-#include "failure_def.h"
-#include "log_collector.h"
+#include "rack_error.h"
+#include "code_analyzer_def.h"
 
-namespace failure::log {
-class LogCallstackCollector final : public LogCollector {
+namespace code_analyzer {
+class CodeAnalyzer {
 public:
-    RackResult Initialize() override;
-    void UnInitialize() override;
-    RackResult Start() override;
-    void Stop() override;
+    RackResult Initialize();
+    void UnInitialize();
+    RackResult Start();
+    void Stop();
 
 private:
     RackResult ParseOpencodeConn(const std::unordered_map<std::string, std::string> &argMap);
@@ -31,7 +32,7 @@ private:
     RackResult ParseCompileCommandsPath(const std::unordered_map<std::string, std::string> &argMap);
     RackResult ParseArgs();
 
-    std::string BuildAnalysisSkillPrompt(const std::string &skill, const SkillInput &input,
+    std::string BuildAnalyzerSkillPrompt(const std::string &skill, const SkillInput &input,
                                          const std::string &component);
     std::string BuildAggregationSkillPrompt(const std::string &skill, const SkillInput &input);
     std::string BuildKeyfuncSkillPrompt(const std::string &skill, const SkillInput &input);
@@ -51,4 +52,6 @@ private:
     std::string sessionId_;
     int64_t promptSubmittedAtMs_ = 0;
 };
-} // namespace failure::log
+} // namespace code_analyzer
+
+#endif // CODE_ANALYZER_H

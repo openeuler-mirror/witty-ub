@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 SUPPORTED_COMPONENTS = ("ubsocket", "umq", "liburma", "libudma")
 SOURCE_EXTS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".hxx"}
@@ -33,10 +33,8 @@ CALL_PATTERN = re.compile(r"([A-Za-z_~][A-Za-z0-9_:~]*)\s*\(")
 
 @dataclass(frozen=True)
 class Node:
-    node_id: str
     name: str
     component: str
-    file: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -155,44 +153,55 @@ def strip_comments_and_strings(code: str) -> str:
     return "".join(result)
 
 
-def find_source_files(root: Path) -> Dict[str, List[Path]]:
-    mapping: Dict[str, List[Path]] = defaultdict(list)
+def find_source_files(root: Path) -> List[Path]:
+    files: List[Path] = []
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         if path.suffix.lower() not in SOURCE_EXTS:
             continue
-        mapping[path.name].append(path)
-    return mapping
+        files.append(path)
+    return sorted(files, key=lambda p: len(str(p)))
 
 
-def load_callstack(path: Path, expected_component: str) -> Tuple[List[Node], List[dict]]:
+def endpoint_to_name(value: object, node_name_by_id: Dict[str, str]) -> str:
+    raw = str(value or "").strip()
+    if raw in node_name_by_id:
+        return node_name_by_id[raw]
+    if "@" in raw:
+        raw = raw.split("@", 1)[0]
+    if "::" in raw:
+        raw = raw.split("::")[-1]
+    return raw
+
+
+def load_callstack(path: Path, expected_component: str) -> Tuple[List[Node], List[dict], Dict[str, str]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     nodes_data = data.get("nodes", [])
     edges_data = data.get("edges", [])
 
     nodes: List[Node] = []
+    node_name_by_id: Dict[str, str] = {}
+    seen_names: Set[str] = set()
     for raw in nodes_data:
         component = str(raw.get("component", "")).strip() or expected_component
+        name = str(raw.get("name", "")).strip()
+        legacy_id = str(raw.get("id", "")).strip()
+        if not name:
+            name = endpoint_to_name(legacy_id, {})
+        if not name:
+            continue
+        if legacy_id:
+            node_name_by_id[legacy_id] = name
+        if name in seen_names:
+            continue
+        seen_names.add(name)
         node = Node(
-            node_id=str(raw["id"]),
-            name=str(raw.get("name", "")),
+            name=name,
             component=component,
-            file=str(raw.get("file", "")),
         )
         nodes.append(node)
-    return nodes, edges_data
-
-
-def choose_candidate_file(candidates: Sequence[Path]) -> Optional[Path]:
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0]
-
-    # Prefer shorter relative path (often closer to public source tree)
-    sorted_candidates = sorted(candidates, key=lambda p: len(str(p)))
-    return sorted_candidates[0]
+    return nodes, edges_data, node_name_by_id
 
 
 def extract_brace_block(text: str, start_brace_index: int) -> Optional[str]:
@@ -345,10 +354,12 @@ def infer_calls_from_body(body: str) -> Set[str]:
     return tokens
 
 
-def ensure_edge_kind(edge: dict, default_kind: str) -> dict:
-    copied = dict(edge)
-    copied.setdefault("kind", default_kind)
-    return copied
+def normalize_edge(edge: dict, node_name_by_id: Dict[str, str]) -> Optional[dict]:
+    src = endpoint_to_name(edge.get("src"), node_name_by_id)
+    dst = endpoint_to_name(edge.get("dst"), node_name_by_id)
+    if not src or not dst:
+        return None
+    return {"src": src, "dst": dst}
 
 
 def main() -> int:
@@ -365,15 +376,17 @@ def main() -> int:
     nodes_by_component: Dict[str, List[Node]] = {}
     all_nodes: List[Node] = []
     existing_edges: List[dict] = []
+    node_name_by_legacy_id: Dict[str, str] = {}
 
     for comp in selected_components:
-        nodes, edges = load_callstack(callstack_paths[comp], comp)
+        nodes, edges, legacy_names = load_callstack(callstack_paths[comp], comp)
+        node_name_by_legacy_id.update(legacy_names)
         nodes_by_component[comp] = nodes
         all_nodes.extend(nodes)
         for edge in edges:
-            existing_edges.append(ensure_edge_kind(edge, "intra_component"))
-
-    node_by_id = {n.node_id: n for n in all_nodes}
+            normalized = normalize_edge(edge, legacy_names)
+            if normalized:
+                existing_edges.append(normalized)
 
     file_index_by_comp = {comp: find_source_files(root) for comp, root in source_roots.items()}
     callee_index_by_comp = {
@@ -387,10 +400,8 @@ def main() -> int:
     unresolved_bodies = 0
 
     for caller in all_nodes:
-        file_candidates = file_index_by_comp.get(caller.component, {}).get(caller.file, [])
         body: Optional[str] = None
-        source_file: Optional[Path] = None
-        for candidate in sorted(file_candidates, key=lambda p: len(str(p))):
+        for candidate in file_index_by_comp.get(caller.component, []):
             try:
                 text = candidate.read_text(encoding="utf-8", errors="ignore")
             except OSError:
@@ -398,10 +409,7 @@ def main() -> int:
             candidate_body = find_function_body_by_name(text, caller.name)
             if candidate_body:
                 body = candidate_body
-                source_file = candidate
                 break
-        if source_file is None:
-            source_file = choose_candidate_file(file_candidates)
         if not body:
             unresolved_bodies += 1
             continue
@@ -419,53 +427,50 @@ def main() -> int:
             matched_nodes: Dict[str, Node] = {}
             for tok in called_tokens:
                 for candidate in idx.get(tok, []):
-                    matched_nodes[candidate.node_id] = candidate
+                    matched_nodes[candidate.name] = candidate
 
             if not matched_nodes:
                 continue
 
-            confidence = "confirmed" if len(matched_nodes) == 1 else "inferred"
             for candidate in matched_nodes.values():
-                key = (caller.node_id, candidate.node_id)
+                key = (caller.name, candidate.name)
                 if key in cross_edge_keys:
                     continue
                 cross_edge_keys.add(key)
                 cross_edges.append(
                     {
-                        "src": caller.node_id,
-                        "dst": candidate.node_id,
-                        "confidence": confidence,
-                        "kind": "cross_component",
-                        "evidence": {
-                            "caller_component": caller.component,
-                            "callee_component": candidate.component,
-                            "source_file": str(source_file),
-                        },
+                        "src": caller.name,
+                        "dst": candidate.name,
                     }
                 )
 
-    merged_nodes = [
-        {
-            "id": n.node_id,
-            "name": n.name,
-            "component": n.component,
-            "file": n.file,
-        }
-        for n in all_nodes
-    ]
+    merged_node_by_name: Dict[str, dict] = {}
+    for node in all_nodes:
+        merged_node_by_name.setdefault(
+            node.name,
+            {
+                "name": node.name,
+                "component": node.component,
+            },
+        )
+    merged_nodes = list(merged_node_by_name.values())
 
     if args.drop_existing_edges:
-        merged_edges = cross_edges
+        edge_candidates = cross_edges
     else:
-        merged_edges = existing_edges + cross_edges
+        edge_candidates = existing_edges + cross_edges
 
-    # Remove dangling edges defensively.
-    valid_ids = {n["id"] for n in merged_nodes}
-    merged_edges = [
-        e
-        for e in merged_edges
-        if e.get("src") in valid_ids and e.get("dst") in valid_ids
-    ]
+    valid_names = set(merged_node_by_name)
+    merged_edge_by_key: Dict[Tuple[str, str], dict] = {}
+    for edge in edge_candidates:
+        normalized = normalize_edge(edge, node_name_by_legacy_id)
+        if not normalized:
+            continue
+        if normalized["src"] not in valid_names or normalized["dst"] not in valid_names:
+            continue
+        key = (normalized["src"], normalized["dst"])
+        merged_edge_by_key.setdefault(key, normalized)
+    merged_edges = list(merged_edge_by_key.values())
 
     stats = {
         "components": list(selected_components),
@@ -480,12 +485,16 @@ def main() -> int:
 
     pair_counter: Dict[str, int] = defaultdict(int)
     for e in cross_edges:
-        src = node_by_id.get(e["src"])
-        dst = node_by_id.get(e["dst"])
-        if not src or not dst:
+        src_components = {n.component for n in all_nodes if n.name == e["src"]}
+        dst_components = {n.component for n in all_nodes if n.name == e["dst"]}
+        if not src_components or not dst_components:
             continue
-        pair = f"{src.component}->{dst.component}"
-        pair_counter[pair] += 1
+        for src_component in src_components:
+            for dst_component in dst_components:
+                if src_component == dst_component:
+                    continue
+                pair = f"{src_component}->{dst_component}"
+                pair_counter[pair] += 1
     stats["cross_edges_by_pair"] = dict(sorted(pair_counter.items()))
 
     output_dir = Path(args.output_dir).expanduser().resolve()
@@ -496,8 +505,14 @@ def main() -> int:
         json.dumps({"nodes": merged_nodes, "edges": merged_edges}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    stats_path = output_dir / "stats.json"
+    stats_path.write_text(
+        json.dumps(stats, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     print(f"[done] output_dir={output_dir}")
     print(f"[done] overall_callstack={overall_callstack_path}")
+    print(f"[done] stats={stats_path}")
     print(f"[done] node_count={stats['node_count']}")
     print(f"[done] merged_edge_count={stats['merged_edge_count']}")
     print(f"[done] cross_component_edge_count={stats['cross_component_edge_count']}")

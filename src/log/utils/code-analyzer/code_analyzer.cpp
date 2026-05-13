@@ -10,9 +10,9 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#define MODULE_NAME "LOG"
+#define MODULE_NAME "CODE_ANALYZER"
 
-#include "log_callstack_collector.h"
+#include "code_analyzer.h"
 
 #include <chrono>
 #include <cstdint>
@@ -26,14 +26,14 @@
 #include "logger.h"
 #include "ubse_context.h"
 
-namespace failure::log {
+namespace code_analyzer {
 using namespace ubse::context;
 using namespace rack::com;
 
-constexpr const char *ANALYSIS_SKILL_NAME = "ub-callstack-analysis";
+constexpr const char *ANALYZER_SKILL_NAME = "ub-callstack-analyzer";
 constexpr const char *AGGREGATION_SKILL_NAME = "ub-callstack-aggregation";
-constexpr const char *KEYFUNC_SKILL_NAME = "ub-keyfunc-analysis";
-constexpr const char *DIAG_ANALYSIS_ROOT_DIR = "/var/witty-ub/callstack-analysis";
+constexpr const char *KEYFUNC_SKILL_NAME = "ub-keyfunc-analyzer";
+constexpr const char *CALLSTACK_ANALYSIS_ROOT_DIR = "/var/witty-ub/callstack-analysis";
 constexpr const char *OPENCODE_URL = "http://127.0.0.1";
 constexpr const char *OPENCODE_PORT = "4096";
 constexpr const char *OPENCODE_CONTENT_TYPE = "application/json";
@@ -57,7 +57,7 @@ constexpr int INT_12 = 12;
 constexpr int INT_16 = 16;
 constexpr int INT_18 = 18;
 
-const std::vector<std::string> LogCallstackCollector::allComponents_ = {"ubsocket", "umq", "liburma", "libudma"};
+const std::vector<std::string> CodeAnalyzer::allComponents_ = {"ubsocket", "umq", "liburma", "libudma"};
 
 Json::Int64 GetCurrentTimeMs()
 {
@@ -149,7 +149,7 @@ std::string Base64Encode(const std::string &input)
     return out;
 }
 
-void ApplyBasicAuthHeader(RackHttpRequest &req, const failure::OpencodeConnection &conn)
+void ApplyBasicAuthHeader(RackHttpRequest &req, const code_analyzer::OpencodeConnection &conn)
 {
     if (!conn.passwd.has_value() || conn.passwd->empty()) {
         return;
@@ -174,8 +174,8 @@ bool StringToJson(Json::Value &root, const std::string &jsonStr)
     return res;
 }
 
-std::string LogCallstackCollector::BuildAnalysisSkillPrompt(const std::string &skill, const SkillInput &input,
-                                                            const std::string &component)
+std::string CodeAnalyzer::BuildAnalyzerSkillPrompt(const std::string &skill, const SkillInput &input,
+                                                   const std::string &component)
 {
     std::string prompt = "请使用 " + skill + " skill 来完成源码分析。\n";
     prompt += "请严格按该 skill 的输入输出要求执行，并生成结果文件。\n";
@@ -193,7 +193,7 @@ std::string LogCallstackCollector::BuildAnalysisSkillPrompt(const std::string &s
     return prompt;
 }
 
-std::string LogCallstackCollector::BuildAggregationSkillPrompt(const std::string &skill, const SkillInput &input)
+std::string CodeAnalyzer::BuildAggregationSkillPrompt(const std::string &skill, const SkillInput &input)
 {
     std::string prompt = "请使用 " + skill + " skill 来完成调用图聚合。\n";
     prompt += "请严格按该 skill 的输入输出要求执行，并生成结果文件。\n";
@@ -204,15 +204,15 @@ std::string LogCallstackCollector::BuildAggregationSkillPrompt(const std::string
             return "";
         }
         prompt += "- --" + component + "-src: " + it->second + "\n";
-        prompt += "- --" + component + "-callstack: " + std::string(DIAG_ANALYSIS_ROOT_DIR) + "/" + component +
+        prompt += "- --" + component + "-callstack: " + std::string(CALLSTACK_ANALYSIS_ROOT_DIR) + "/" + component +
                   "/callstack.json\n";
     }
-    prompt += "- 输出目录: " + std::string(DIAG_ANALYSIS_ROOT_DIR) + "\n";
+    prompt += "- 输出目录: " + std::string(CALLSTACK_ANALYSIS_ROOT_DIR) + "\n";
     prompt += "- 输出文件: overall_callstack.json\n";
     return prompt;
 }
 
-std::string LogCallstackCollector::BuildKeyfuncSkillPrompt(const std::string &skill, const SkillInput &input)
+std::string CodeAnalyzer::BuildKeyfuncSkillPrompt(const std::string &skill, const SkillInput &input)
 {
     constexpr const char *keyfuncComponent = "umq"; // 当前默认network模式，非network下分析urma
 
@@ -231,7 +231,7 @@ std::string LogCallstackCollector::BuildKeyfuncSkillPrompt(const std::string &sk
     return prompt;
 }
 
-RackResult LogCallstackCollector::Initialize()
+RackResult CodeAnalyzer::Initialize()
 {
     RackResult ret = RACK_OK;
     if ((ret = ParseArgs()) != RACK_OK) {
@@ -241,9 +241,9 @@ RackResult LogCallstackCollector::Initialize()
     return RACK_OK;
 }
 
-void LogCallstackCollector::UnInitialize() {}
+void CodeAnalyzer::UnInitialize() {}
 
-RackResult LogCallstackCollector::Start()
+RackResult CodeAnalyzer::Start()
 {
     for (const std::string &component : allComponents_) {
         const auto it = input_.componentsPaths.find(component);
@@ -254,15 +254,15 @@ RackResult LogCallstackCollector::Start()
     }
 
     for (const std::string &component : allComponents_) {
-        const std::string analysisPrompt = BuildAnalysisSkillPrompt(ANALYSIS_SKILL_NAME, input_, component);
-        if (analysisPrompt.empty()) {
-            LOG_ERROR << "failed to build analysis prompt for component: " << component;
+        const std::string analyzerPrompt = BuildAnalyzerSkillPrompt(ANALYZER_SKILL_NAME, input_, component);
+        if (analyzerPrompt.empty()) {
+            LOG_ERROR << "failed to build analyzer prompt for component: " << component;
             return RACK_FAIL;
         }
 
-        RackResult ret = Run(ANALYSIS_SKILL_NAME, analysisPrompt);
+        RackResult ret = Run(ANALYZER_SKILL_NAME, analyzerPrompt);
         if (ret != RACK_OK) {
-            LOG_ERROR << "failed to run analysis skill for component: " << component;
+            LOG_ERROR << "failed to run analyzer skill for component: " << component;
             return ret;
         }
     }
@@ -294,9 +294,9 @@ RackResult LogCallstackCollector::Start()
     return RACK_OK;
 }
 
-void LogCallstackCollector::Stop() {}
+void CodeAnalyzer::Stop() {}
 
-RackResult LogCallstackCollector::ParseOpencodeConn(const std::unordered_map<std::string, std::string> &argMap)
+RackResult CodeAnalyzer::ParseOpencodeConn(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto it = argMap.find("opencode-url");
     if (it == argMap.end()) {
@@ -335,7 +335,7 @@ RackResult LogCallstackCollector::ParseOpencodeConn(const std::unordered_map<std
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::ParseSrcPath(const std::unordered_map<std::string, std::string> &argMap)
+RackResult CodeAnalyzer::ParseSrcPath(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto handleSrcPath = [this, &argMap](const std::string &component) -> RackResult {
         const std::string arg = component + "-src-path";
@@ -358,7 +358,7 @@ RackResult LogCallstackCollector::ParseSrcPath(const std::unordered_map<std::str
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::ParseCompileCommandsPath(const std::unordered_map<std::string, std::string> &argMap)
+RackResult CodeAnalyzer::ParseCompileCommandsPath(const std::unordered_map<std::string, std::string> &argMap)
 {
     auto handleCompileCommandsPath = [this, &argMap](const std::string &component) {
         const std::string arg = component + "-compile-commands-path";
@@ -383,7 +383,7 @@ RackResult LogCallstackCollector::ParseCompileCommandsPath(const std::unordered_
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::ParseArgs()
+RackResult CodeAnalyzer::ParseArgs()
 {
     auto &argMap = UbseContext::GetInstance().GetArgMap();
 
@@ -403,7 +403,7 @@ RackResult LogCallstackCollector::ParseArgs()
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::CreateSession()
+RackResult CodeAnalyzer::CreateSession()
 {
     RackHttpClient client(conn_.url + ":" + std::to_string(conn_.port));
     RackComContext ctx;
@@ -430,7 +430,7 @@ RackResult LogCallstackCollector::CreateSession()
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::WaitForSessionVisible() const
+RackResult CodeAnalyzer::WaitForSessionVisible() const
 {
     RackHttpClient client(conn_.url + ":" + std::to_string(conn_.port));
     RackComContext ctx;
@@ -465,7 +465,7 @@ RackResult LogCallstackCollector::WaitForSessionVisible() const
     return RACK_FAIL;
 }
 
-RackResult LogCallstackCollector::SendMessageAsync(const std::string &prompt)
+RackResult CodeAnalyzer::SendMessageAsync(const std::string &prompt)
 {
     RackHttpClient client(conn_.url + ":" + std::to_string(conn_.port));
     RackComContext ctx;
@@ -499,7 +499,7 @@ RackResult LogCallstackCollector::SendMessageAsync(const std::string &prompt)
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::WaitForAssistantMessageCompleted() const
+RackResult CodeAnalyzer::WaitForAssistantMessageCompleted() const
 {
     RackHttpClient client(conn_.url + ":" + std::to_string(conn_.port));
     RackComContext ctx;
@@ -559,7 +559,7 @@ RackResult LogCallstackCollector::WaitForAssistantMessageCompleted() const
     return RACK_FAIL;
 }
 
-RackResult LogCallstackCollector::FetchLatestAssistantMessage() const
+RackResult CodeAnalyzer::FetchLatestAssistantMessage() const
 {
     RackHttpClient client(conn_.url + ":" + std::to_string(conn_.port));
     RackComContext ctx;
@@ -619,7 +619,7 @@ RackResult LogCallstackCollector::FetchLatestAssistantMessage() const
     return RACK_OK;
 }
 
-RackResult LogCallstackCollector::Run(const std::string &skill, const std::string &prompt)
+RackResult CodeAnalyzer::Run(const std::string &skill, const std::string &prompt)
 {
     LOG_INFO << "run-Info: start skill " << skill;
     RackResult res = RACK_OK;
@@ -641,4 +641,4 @@ RackResult LogCallstackCollector::Run(const std::string &skill, const std::strin
     LOG_INFO << "run-Info: completed skill " << skill;
     return res;
 }
-} // namespace failure::log
+} // namespace code_analyzer

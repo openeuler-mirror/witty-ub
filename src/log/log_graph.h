@@ -20,6 +20,7 @@
 #include "failure_def.h"
 
 namespace failure::log {
+using namespace graph;
 using KeyFuncRelevanceMap = std::unordered_map<std::string, RelevantFuncs>;
 
 class LogGraph final {
@@ -28,18 +29,19 @@ public:
     RackResult LoadKeyFunctions();
     RackResult InitKeyFuncRelevance();
     void FindNodesByName(const std::string &funcName, std::vector<FuncNode> &matchedNodes) const;
-    void FindNeighborhood(const std::string &funcId, size_t upstreamLevel, size_t downstreamLevel,
-                          std::vector<FuncNode> &upstreamFuncs, std::vector<FuncNode> &downstreamFuncs) const;
+    void FindNeighborhood(const std::string &funcName, std::vector<FuncNode> &upstreamFuncs,
+                          std::vector<FuncNode> &downstreamFuncs) const;
     const KeyFuncRelevanceMap &GetKeyFuncRelevanceMap() const;
     const KeyFuncEventTypeMap &GetKeyFuncEventTypeMap() const;
     const KeyFuncRoleMap &GetKeyFuncRoleMap() const;
+    const CallGraph &GetCallGraph() const;
 
 private:
     RackResult ValidateGraphRoot(const Json::Value &root, const Json::Value *&nodes, const Json::Value *&edges) const;
     RackResult BuildNodes(const Json::Value &nodes, CallGraph &graph) const;
     RackResult BuildEdges(const Json::Value &edges, CallGraph &graph) const;
-    void CollectUpstreamNodes(size_t start, size_t maxLevel, std::unordered_set<size_t> &selected) const;
-    void CollectDownstreamNodes(size_t start, size_t maxLevel, std::unordered_set<size_t> &selected) const;
+    void CollectUpstreamNodes(size_t start, std::unordered_set<size_t> &selected) const;
+    void CollectDownstreamNodes(size_t start, std::unordered_set<size_t> &selected) const;
     RackResult ReadJson(Json::Value &root, const std::string &path) const;
     RackResult BuildGraph(const Json::Value &root, CallGraph &graph) const;
     RackResult InitKeyFuncMap(const Json::Value &root, KeyFuncEventTypeMap &keyFuncEventTypeMap,

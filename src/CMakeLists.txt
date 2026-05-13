@@ -71,3 +71,15 @@ else()
     )
 endif()
 target_link_libraries(witty-ub-diag-tool PRIVATE ubse_context diagnosis_tool log4cplus)
+
+add_executable(util-code-analyzer
+    util_code_analyzer_main.cpp
+)
+target_include_directories(util-code-analyzer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(util-code-analyzer PRIVATE ubse_context code_analyzer rack_http)
+
+add_executable(util-view-visualizer
+    util_view_visualizer_main.cpp
+)
+target_include_directories(util-view-visualizer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(util-view-visualizer PRIVATE ubse_context view_visualizer)

@@ -8,14 +8,16 @@
  # PURPOSE.
 ## See the Mulan PSL v2 for more details.
 
+add_subdirectory(utils)
+
 add_library(failure_log STATIC
-    log_callstack_collector.cpp
-    log_failure_collector.cpp
+    log_collector.cpp
     log_local_collector_module.cpp
     log_parser.cpp
     log_reader.cpp
     log_template.cpp
     log_graph.cpp
+    log_view.cpp
 )
 target_include_directories(failure_log PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
