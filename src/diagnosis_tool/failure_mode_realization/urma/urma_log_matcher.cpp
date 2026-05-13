@@ -68,7 +68,7 @@ bool MatchUrmaLogLine(const std::vector<std::string> &patterns, std::string &log
     }
 
     for (const auto &entry : std::filesystem::recursive_directory_iterator(
-             path, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        path, std::filesystem::directory_options::skip_permission_denied, ec)) {
         if (ec) {
             break;
         }
