@@ -1,0 +1,50 @@
+#include "urma_failure_839.h"
+#include "../../failure_mode_factory.h"
+#include "urma_log_helper.h"
+
+namespace diag {
+
+static AutoRegister<UrmaFailure839> g_urma("urma_839");
+
+bool UrmaFailure839::IsValid()
+{
+    std::string grepOutput = urma_log_helper::RunCommand(
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_del_jfr_p_vjetty_info_without_lock' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete p_vjfr_id node[]: ret pjfr_id')");
+    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    return !grepOutput.empty();
+}
+
+std::string UrmaFailure839::GetName() const
+{
+    return "bondp_del_jfr_p_vjetty_info_without_lock 执行处理 Jetty 失败导致当前资源状态无法推进";
+}
+
+std::string UrmaFailure839::GetRootCauseDesc() const
+{
+    return "bondp_del_jfr_p_vjetty_info_without_lock 调用下层 provider、bond 组件或系统接口处理 Jetty "
+           "时返回失败，当前分支携带 ret/errno "
+           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+}
+
+RootCause UrmaFailure839::AnalyzeRootCause()
+{
+    return RootCause(true, GetRootCauseDesc());
+}
+
+std::string UrmaFailure839::GetFixSuggDesc() const
+{
+    return "无";
+}
+
+std::string UrmaFailure839::GetValidationMethodDesc() const
+{
+    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete p_vjfr_id node[]: ret pjfr_id";
+}
+
+std::string UrmaFailure839::GetId() const
+{
+    return "urma_839";
+}
+
+} // namespace diag

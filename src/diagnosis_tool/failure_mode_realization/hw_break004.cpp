@@ -5,9 +5,8 @@ namespace diag {
 
 static AutoRegister<HwBreak004> g_hw("004");
 
-bool HwBreak004::IsValid(std::string &logContent)
+bool HwBreak004::IsValid()
 {
-    logContent.clear();
     return false;
 }
 

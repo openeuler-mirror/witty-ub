@@ -26,7 +26,7 @@ public:
     virtual void PrintDesc();
     virtual std::string GetName() const = 0;
     virtual std::string GetValidationMethodDesc() const = 0;
-    virtual bool IsValid(std::string& logContent) = 0;
+    virtual bool IsValid() = 0;
     virtual std::string GetRootCauseDesc() const = 0;
     virtual RootCause AnalyzeRootCause();
     virtual std::string GetFixSuggDesc() const = 0;

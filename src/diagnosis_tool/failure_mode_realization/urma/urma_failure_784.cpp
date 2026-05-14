@@ -1,0 +1,49 @@
+#include "urma_failure_784.h"
+#include "../../failure_mode_factory.h"
+#include "urma_log_helper.h"
+
+namespace diag {
+
+static AutoRegister<UrmaFailure784> g_urma("urma_784");
+
+bool UrmaFailure784::IsValid()
+{
+    std::string grepOutput = urma_log_helper::RunCommand(
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter')");
+    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    return !grepOutput.empty();
+}
+
+std::string UrmaFailure784::GetName() const
+{
+    return "urma_delete_jfce 校验 JFCE 无效导致删除流程拒绝继续执行";
+}
+
+std::string UrmaFailure784::GetRootCauseDesc() const
+{
+    return "urma_delete_jfce 在执行删除前发现调用方传入的 JFCE 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
+           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+}
+
+RootCause UrmaFailure784::AnalyzeRootCause()
+{
+    return RootCause(true, GetRootCauseDesc());
+}
+
+std::string UrmaFailure784::GetFixSuggDesc() const
+{
+    return "当前不会触发";
+}
+
+std::string UrmaFailure784::GetValidationMethodDesc() const
+{
+    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+}
+
+std::string UrmaFailure784::GetId() const
+{
+    return "urma_784";
+}
+
+} // namespace diag

@@ -1,14 +1,10 @@
 #include "failure_mode_controller.h"
 #include "failure_mode.h"
 
-#include <iostream>
-
 namespace diag {
 StepType FailureModeController::GetNextStep()
 {
-    bool isFailureModeValid = failureMode->IsValid(logContent);
-    std::cout << "FailureModeController::GetNextStep 日志内容：" << std::endl;
-    std::cout << logContent << std::endl;
+    bool isFailureModeValid = failureMode->IsValid();
     if (!isFailureModeValid) {
         return StepType::FALLBACK;
     }

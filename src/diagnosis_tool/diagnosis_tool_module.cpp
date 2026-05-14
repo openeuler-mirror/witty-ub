@@ -112,8 +112,7 @@ void DiagnosisToolModule::UnInitialize()
 
 bool DiagnosisToolModule::Visit(FailureModeController controller)
 {
-    std::string logContent;
-    bool isValid = controller.GetFailureMode()->IsValid(logContent);
+    bool isValid = controller.GetFailureMode()->IsValid();
     if (!isValid) {
         return false;
     }
