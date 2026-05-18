@@ -31,8 +31,8 @@
 
 namespace failure::log {
 
-constexpr const char *FAILURE_VIEW_FILE = "/var/witty-ub/failure-view.json";
-constexpr mode_t FAILURE_VIEW_FILE_PERM_640 = 0640;
+constexpr const char *LOG_VIEW_FILE = "/var/witty-ub/log-view.json";
+constexpr mode_t LOG_VIEW_FILE_PERM_640 = 0640;
 
 namespace {
 constexpr char EDGE_KEY_SEP = '\n';
@@ -529,7 +529,7 @@ RackResult LogView::Build(const std::vector<FailureMetadata> &metadata, const gr
 
 RackResult LogView::Dump() const
 {
-    std::filesystem::path outFile = FAILURE_VIEW_FILE;
+    std::filesystem::path outFile = LOG_VIEW_FILE;
     std::error_code ec;
     std::filesystem::create_directories(outFile.parent_path(), ec);
     if (ec) {
@@ -541,17 +541,17 @@ RackResult LogView::Dump() const
     builder["indentation"] = "  ";
     std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
-    std::ofstream ofs(FAILURE_VIEW_FILE, std::ios::out | std::ios::trunc);
+    std::ofstream ofs(LOG_VIEW_FILE, std::ios::out | std::ios::trunc);
     if (!ofs.is_open()) {
-        LOG_ERROR << "failed to open output file: " << FAILURE_VIEW_FILE;
+        LOG_ERROR << "failed to open output file: " << LOG_VIEW_FILE;
         return RACK_FAIL;
     }
     writer->write(root_, &ofs);
     ofs.flush();
     ofs.close();
 
-    if (::chmod(FAILURE_VIEW_FILE, FAILURE_VIEW_FILE_PERM_640) != 0) {
-        LOG_ERROR << "failed to set file mode 0640 for output file: " << FAILURE_VIEW_FILE;
+    if (::chmod(LOG_VIEW_FILE, LOG_VIEW_FILE_PERM_640) != 0) {
+        LOG_ERROR << "failed to set file mode 0640 for output file: " << LOG_VIEW_FILE;
         return RACK_FAIL;
     }
 

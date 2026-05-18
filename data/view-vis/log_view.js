@@ -363,7 +363,7 @@ function showOverview() {
 }
 
 function resourceViewForCurrentIndex() {
-  return (FAILURE_VIEW_DATA.resource_views || [])[state.viewIndex] || {tids: []};
+  return (LOG_VIEW_DATA.resource_views || [])[state.viewIndex] || {tids: []};
 }
 
 function countResourceItems(view) {
@@ -708,7 +708,7 @@ function fit() {
 
 function loadView(index) {
   state.viewIndex = index;
-  state.view = FAILURE_VIEW_DATA.callstack_views[index] || {nodes: [], edges: []};
+  state.view = LOG_VIEW_DATA.callstack_views[index] || {nodes: [], edges: []};
   state.nodes = (state.view.nodes || []).map(node => ({...node}));
   state.edges = (state.view.edges || []).map(edge => ({...edge}));
   state.selected = null;
@@ -726,7 +726,7 @@ function loadView(index) {
 }
 
 function init() {
-  const views = FAILURE_VIEW_DATA.callstack_views || [];
+  const views = LOG_VIEW_DATA.callstack_views || [];
   viewSelect.innerHTML = views.map((view, index) => {
     const name = view.top_function ?? "(null)";
     return `<option value="${index}">${esc(name)} (${(view.nodes || []).length}/${(view.edges || []).length})</option>`;

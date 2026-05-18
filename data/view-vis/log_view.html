@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>witty-ub failure view</title>
+<title>witty-ub log view</title>
 <style>
-__FAILURE_VIEW_CSS__
+__LOG_VIEW_CSS__
 </style>
 
 </head>
 <body>
 <div class="app">
   <aside class="side">
-    <h1>witty-ub failure view</h1>
+    <h1>witty-ub log view</h1>
     <div class="tabs" role="tablist" aria-label="View type">
       <button class="tab active" id="callGraphTab" type="button">Call Graph</button>
       <button class="tab" id="resourceTab" type="button">Resource</button>
@@ -34,7 +34,7 @@ __FAILURE_VIEW_CSS__
     <div class="legend" id="legend"></div>
   </aside>
   <main class="graph-wrap">
-    <svg id="graph" role="img" aria-label="failure call graph"></svg>
+    <svg id="graph" role="img" aria-label="log call graph"></svg>
     <section class="resource-view hidden" id="resourceView" aria-label="resource tree"></section>
     <div class="empty" id="emptyState">No graph data</div>
   </main>
@@ -44,10 +44,10 @@ __FAILURE_VIEW_CSS__
   </aside>
 </div>
 <script>
-const FAILURE_VIEW_DATA = __FAILURE_VIEW_DATA__;
+const LOG_VIEW_DATA = __LOG_VIEW_DATA__;
 </script>
 <script>
-__FAILURE_VIEW_JS__
+__LOG_VIEW_JS__
 </script>
 
 </body>
