@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "failure_log_info.h"
+
 namespace diag {
 class RootCause {
 public:
@@ -33,9 +35,14 @@ public:
     virtual std::string GetId() const = 0;
     void AddSubFailureMode(std::string faiureModeId);
     std::vector<std::string> GetSubFailureModes();
+    const FailureLogInfo &GetFailureLogInfoCache() const;
+
+protected:
+    FailureLogInfo &GetMutableFailureLogInfoCache();
 
 private:
     std::vector<std::string> subFailureModes;
+    FailureLogInfo failureLogInfoCache;
 };
 
 } // namespace diag

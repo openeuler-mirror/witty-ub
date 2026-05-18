@@ -29,6 +29,16 @@ std::vector<std::string> FailureMode::GetSubFailureModes()
     return subFailureModes;
 }
 
+const FailureLogInfo &FailureMode::GetFailureLogInfoCache() const
+{
+    return failureLogInfoCache;
+}
+
+FailureLogInfo &FailureMode::GetMutableFailureLogInfoCache()
+{
+    return failureLogInfoCache;
+}
+
 RootCause FailureMode::AnalyzeRootCause()
 {
     return RootCause(false, GetRootCauseDesc());

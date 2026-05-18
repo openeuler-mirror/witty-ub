@@ -19,4 +19,12 @@ std::shared_ptr<FailureMode> FailureModeController::GetFailureMode()
 {
     return failureMode;
 }
+void FailureModeController::AddSubFailureModeInView(const std::string &subFailureModeId)
+{
+    subFailureModesInView.insert(subFailureModeId);
+}
+void FailureModeController::AddHitCount()
+{
+    hitCount++;
+}
 } // namespace diag
