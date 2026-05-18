@@ -27,4 +27,12 @@ void FailureModeController::AddHitCount()
 {
     hitCount++;
 }
+std::unordered_set<std::string> &FailureModeController::GetSubFailureModesInView()
+{
+    return subFailureModesInView;
+}
+int FailureModeController::GetHitCount()
+{
+    return hitCount;
+}
 } // namespace diag

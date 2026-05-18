@@ -22,6 +22,8 @@ public:
     std::shared_ptr<FailureMode> GetFailureMode();
     void AddSubFailureModeInView(const std::string& subFailureModeId);
     void AddHitCount();
+    std::unordered_set<std::string>& GetSubFailureModesInView();
+    int GetHitCount();
 
 private:
     std::shared_ptr<FailureMode> failureMode;

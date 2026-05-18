@@ -20,6 +20,7 @@
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
 #include "failure_mode_factory.h"
+#include "failure_mode_view.h"
 #include "logger.h"
 #include "ubse_context.h"
 
@@ -150,7 +151,10 @@ bool DiagnosisToolModule::VisitUrma(FailureModeController controller)
     traces[logInfo.traceId].push_back(logInfo);
     
     allFailureModes.insert(failureModeId);
-    failureModeIdToController.insert_or_assign(failureModeId, controller);
+    auto [controllerIter, inserted] = failureModeIdToController.try_emplace(failureModeId, controller);
+    if (!inserted) {
+        controllerIter->second.AddHitCount();
+    }
     visited.push_back(controller);
     RootCause rootCause = failureMode->AnalyzeRootCause();
     if (!rootCause.GetIsFinalRootCause()) {
@@ -206,6 +210,17 @@ void DiagnosisToolModule::StartUrma(const std::vector<std::string> &subRootFailu
         if (childFailureModes.find(failureModeId) == childFailureModes.end()) {
             rootFailureModes.insert(failureModeId);
         }
+    }
+
+    FailureModeView view;
+    RackResult ret = view.Build(rootFailureModes, failureModeIdToController);
+    if (ret != RACK_OK) {
+        LOG_ERROR << "failed to build failure mode view";
+        return;
+    }
+    ret = view.Dump();
+    if (ret != RACK_OK) {
+        LOG_ERROR << "failed to dump failure mode view";
     }
 }
 

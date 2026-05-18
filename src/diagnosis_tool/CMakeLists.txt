@@ -13,6 +13,7 @@ add_library(diagnosis_tool STATIC
     failure_mode_controller.cpp
     failure_mode_factory.cpp
     failure_mode.cpp
+    failure_mode_view.cpp
     failure_mode_realization/connect_break.cpp
     failure_mode_realization/hw_break.cpp
     failure_mode_realization/hw_break003.cpp
