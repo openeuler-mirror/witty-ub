@@ -62,6 +62,10 @@ Json::Value LogInfoToJson(const FailureLogInfo &logInfo)
 {
     Json::Value logJson(Json::objectValue);
     logJson["time"] = FormatLogTime(logInfo.timestamp);
+    logJson["timestamp"] = Json::Int64(logInfo.timestamp);
+    logJson["failure_mode_id"] = logInfo.failureModeId;
+    logJson["filename"] = logInfo.filename;
+    logJson["line_no"] = logInfo.lineNo;
     logJson["pod_name"] = logInfo.podName;
     logJson["pid"] = logInfo.pid;
     logJson["tid"] = logInfo.tid;
@@ -69,6 +73,45 @@ Json::Value LogInfoToJson(const FailureLogInfo &logInfo)
     logJson["cluster_name"] = logInfo.clusterName;
     logJson["message"] = logInfo.message;
     return logJson;
+}
+
+Json::Value TraceToJson(const std::string &traceId, const std::vector<FailureLogInfo> &trace)
+{
+    Json::Value traceJson(Json::objectValue);
+    traceJson["trace_id"] = traceId;
+    traceJson["logs"] = Json::Value(Json::arrayValue);
+
+    std::vector<const FailureLogInfo *> logInfos;
+    logInfos.reserve(trace.size());
+    for (const FailureLogInfo &logInfo : trace) {
+        logInfos.push_back(&logInfo);
+    }
+    std::sort(logInfos.begin(), logInfos.end(), [](const FailureLogInfo *left, const FailureLogInfo *right) {
+        return left->timestamp > right->timestamp;
+    });
+
+    if (!logInfos.empty()) {
+        int64_t startTime = logInfos.front()->timestamp;
+        int64_t endTime = logInfos.front()->timestamp;
+        for (const FailureLogInfo *logInfo : logInfos) {
+            startTime = std::min(startTime, logInfo->timestamp);
+            endTime = std::max(endTime, logInfo->timestamp);
+        }
+        traceJson["start_time"] = FormatLogTime(startTime);
+        traceJson["end_time"] = FormatLogTime(endTime);
+        traceJson["duration_us"] = Json::Int64(endTime - startTime);
+        traceJson["mode_count"] = static_cast<Json::UInt64>(logInfos.size());
+    } else {
+        traceJson["start_time"] = "";
+        traceJson["end_time"] = "";
+        traceJson["duration_us"] = Json::Int64(0);
+        traceJson["mode_count"] = Json::UInt64(0);
+    }
+
+    for (const FailureLogInfo *logInfo : logInfos) {
+        traceJson["logs"].append(LogInfoToJson(*logInfo));
+    }
+    return traceJson;
 }
 
 std::string JsonToString(const Json::Value &root)
@@ -181,10 +224,12 @@ Json::Value NodeToJson(const FailureModeViewNode &node)
     return nodeJson;
 }
 
-Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots)
+Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots,
+                          const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces)
 {
     Json::Value root(Json::objectValue);
     root["trees"] = Json::Value(Json::arrayValue);
+    root["traces"] = Json::Value(Json::arrayValue);
 
     std::vector<const FailureModeViewNode *> sortedRoots;
     sortedRoots.reserve(roots.size());
@@ -199,6 +244,30 @@ Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots)
     });
     for (const FailureModeViewNode *node : sortedRoots) {
         root["trees"].append(NodeToJson(*node));
+    }
+
+    std::vector<std::pair<std::string, const std::vector<FailureLogInfo> *>> sortedTraces;
+    sortedTraces.reserve(traces.size());
+    for (const auto &[traceId, trace] : traces) {
+        sortedTraces.emplace_back(traceId, &trace);
+    }
+    std::sort(sortedTraces.begin(), sortedTraces.end(), [](const auto &left, const auto &right) {
+        const auto latestTimestamp = [](const std::vector<FailureLogInfo> &trace) {
+            int64_t latest = 0;
+            for (const FailureLogInfo &logInfo : trace) {
+                latest = std::max(latest, logInfo.timestamp);
+            }
+            return latest;
+        };
+        int64_t leftTime = latestTimestamp(*left.second);
+        int64_t rightTime = latestTimestamp(*right.second);
+        if (leftTime != rightTime) {
+            return leftTime > rightTime;
+        }
+        return left.first < right.first;
+    });
+    for (const auto &[traceId, trace] : sortedTraces) {
+        root["traces"].append(TraceToJson(traceId, *trace));
     }
     return root;
 }
@@ -324,9 +393,11 @@ const std::vector<FailureModeViewNode> &FailureModeViewNode::GetSubFailureModeNo
 }
 
 RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFailureModes,
-                                  std::unordered_map<std::string, FailureModeController> &failureModeIdToController)
+                                  std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+                                  const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces)
 {
     roots.clear();
+    traces_ = traces;
     roots.reserve(rootFailureModes.size());
     for (const std::string &rootFailureModeId : rootFailureModes) {
         auto controllerIter = failureModeIdToController.find(rootFailureModeId);
@@ -383,7 +454,7 @@ RackResult FailureModeView::BuildSubTree(
 
 RackResult FailureModeView::Dump() const
 {
-    const std::string html = BuildHtml(BuildRootJson(roots));
+    const std::string html = BuildHtml(BuildRootJson(roots, traces_));
     if (html.empty()) {
         return RACK_FAIL;
     }

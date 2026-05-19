@@ -41,7 +41,8 @@ private:
 class FailureModeView final {
 public:
     RackResult Build(const std::unordered_set<std::string> &rootFailureModes,
-                     std::unordered_map<std::string, FailureModeController> &failureModeIdToController);
+                     std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+                     const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces);
     RackResult Dump() const;
 
 private:
@@ -50,6 +51,7 @@ private:
                             std::unordered_set<std::string> &path);
 
     std::vector<FailureModeViewNode> roots;
+    std::unordered_map<std::string, std::vector<FailureLogInfo>> traces_;
 };
 } // namespace diag
 

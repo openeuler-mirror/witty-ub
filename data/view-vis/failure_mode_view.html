@@ -12,19 +12,15 @@ __FAILURE_MODE_VIEW_CSS__
 <div class="app">
   <aside class="side">
     <h1>Failure Mode View</h1>
-    <div class="tabs" id="treeTabs" role="tablist" aria-label="Failure mode trees"></div>
     <label for="searchBox">Search</label>
     <input id="searchBox" type="search" placeholder="id / name">
     <div class="buttons">
       <button class="primary" id="fitBtn" type="button">Fit</button>
       <button id="resetBtn" type="button">Reset</button>
     </div>
-    <div class="metrics">
-      <div class="metric"><strong id="nodeCount">0</strong><span>Nodes</span></div>
-      <div class="metric"><strong id="edgeCount">0</strong><span>Edges</span></div>
-      <div class="metric"><strong id="maxDepth">0</strong><span>Depth</span></div>
-      <div class="metric"><strong id="maxHit">0</strong><span>Max hit</span></div>
-    </div>
+    <div class="tabs" id="treeTabs" role="tablist" aria-label="Failure mode trees"></div>
+    <label>Traces</label>
+    <div class="trace-list" id="traceList"></div>
   </aside>
   <main class="graph-wrap">
     <svg id="graph" role="img" aria-label="failure mode tree"></svg>

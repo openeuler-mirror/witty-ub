@@ -216,7 +216,7 @@ void DiagnosisToolModule::StartUrma(const std::vector<std::string> &subRootFailu
     }
 
     FailureModeView view;
-    RackResult ret = view.Build(rootFailureModes, failureModeIdToController);
+    RackResult ret = view.Build(rootFailureModes, failureModeIdToController, traces);
     if (ret != RACK_OK) {
         LOG_ERROR << "failed to build failure mode view";
         return;

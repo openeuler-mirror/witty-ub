@@ -3,6 +3,7 @@ const state = {
   nodes: [],
   edges: [],
   selected: null,
+  selectedTraceId: null,
   query: "",
   scale: 1,
   offsetX: 0,
@@ -12,6 +13,7 @@ const state = {
 
 const svg = document.getElementById("graph");
 const treeTabs = document.getElementById("treeTabs");
+const traceList = document.getElementById("traceList");
 const searchBox = document.getElementById("searchBox");
 const fitBtn = document.getElementById("fitBtn");
 const resetBtn = document.getElementById("resetBtn");
@@ -38,6 +40,59 @@ function treeLabel(tree, index) {
   const id = tree?.id || `tree-${index + 1}`;
   const name = tree?.name ? ` · ${tree.name}` : "";
   return `${id}${name}`;
+}
+
+function traces() {
+  return Array.isArray(FAILURE_MODE_VIEW_DATA.traces) ? FAILURE_MODE_VIEW_DATA.traces : [];
+}
+
+function selectedTrace() {
+  if (!state.selectedTraceId) return null;
+  return currentTraces().find(trace => trace.trace_id === state.selectedTraceId) || null;
+}
+
+function currentTreeModeIds() {
+  return new Set(state.nodes.map(node => node.id).filter(Boolean));
+}
+
+function scopedTraceLogs(trace) {
+  const modeIds = currentTreeModeIds();
+  return (trace?.logs || []).filter(log => modeIds.has(log.failure_mode_id));
+}
+
+function traceInCurrentTree(trace) {
+  return scopedTraceLogs(trace).length > 0;
+}
+
+function currentTraces() {
+  return traces().filter(traceInCurrentTree);
+}
+
+function traceModeIds(trace) {
+  return new Set(scopedTraceLogs(trace).map(log => log.failure_mode_id).filter(Boolean));
+}
+
+function traceEdgeKeys(trace) {
+  const keys = new Set();
+  const logs = scopedTraceLogs(trace);
+  for (let index = 0; index + 1 < logs.length; index += 1) {
+    const src = logs[index].failure_mode_id;
+    const dst = logs[index + 1].failure_mode_id;
+    if (src && dst) keys.add(`${src}->${dst}`);
+  }
+  return keys;
+}
+
+function traceMatchesQuery(trace) {
+  if (!state.query) return true;
+  const logs = scopedTraceLogs(trace);
+  const text = [
+    trace.trace_id,
+    trace.start_time,
+    trace.end_time,
+    ...logs.flatMap(log => [log.failure_mode_id, log.message, log.pod_name, log.cluster_name])
+  ].join(" ").toLowerCase();
+  return text.includes(state.query);
 }
 
 function flattenTree(root) {
@@ -97,6 +152,7 @@ function renderTabs() {
     button.addEventListener("click", () => {
       state.treeIndex = index;
       state.selected = null;
+      state.selectedTraceId = null;
       state.query = "";
       searchBox.value = "";
       loadTree();
@@ -105,11 +161,43 @@ function renderTabs() {
   });
 }
 
+function renderTraceList() {
+  traceList.textContent = "";
+  const visibleTraces = currentTraces().filter(traceMatchesQuery);
+  if (!visibleTraces.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-traces";
+    empty.textContent = "No traces";
+    traceList.append(empty);
+    return;
+  }
+
+  visibleTraces.forEach(trace => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `trace-item${trace.trace_id === state.selectedTraceId ? " active" : ""}`;
+    button.innerHTML = `
+      <strong>${esc(trace.trace_id || "(empty)")}</strong>
+    `;
+    button.addEventListener("click", () => {
+      state.selectedTraceId = trace.trace_id;
+      state.selected = null;
+      showTrace(trace);
+      renderTraceList();
+      render();
+    });
+    traceList.append(button);
+  });
+}
+
 function render() {
   edgeLayer.textContent = "";
   nodeLayer.textContent = "";
   const byUid = new Map(state.nodes.map(node => [node.uid, node]));
   const related = new Set();
+  const trace = selectedTrace();
+  const traceModes = traceModeIds(trace);
+  const traceEdges = traceEdgeKeys(trace);
   if (state.selected) {
     related.add(state.selected.uid);
     state.edges.forEach(edge => {
@@ -124,7 +212,9 @@ function render() {
     if (!src || !dst) continue;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const selected = state.selected && (edge.src === state.selected.uid || edge.dst === state.selected.uid);
-    path.setAttribute("class", `edge${selected ? " selected" : ""}`);
+    const inTrace = traceEdges.has(`${src.id}->${dst.id}`);
+    const dim = trace && !inTrace;
+    path.setAttribute("class", `edge${selected ? " selected" : ""}${inTrace ? " trace" : ""}${dim ? " dim" : ""}`);
     path.setAttribute("d", edgePath(src, dst));
     edgeLayer.append(path);
   }
@@ -132,8 +222,9 @@ function render() {
   for (const node of state.nodes) {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     const selected = state.selected?.uid === node.uid;
-    const dim = (state.selected && !related.has(node.uid)) || !matchesQuery(node);
-    group.setAttribute("class", `node${selected ? " selected" : ""}${dim ? " dim" : ""}`);
+    const inTrace = traceModes.has(node.id);
+    const dim = (state.selected && !related.has(node.uid)) || !matchesQuery(node) || (trace && !inTrace);
+    group.setAttribute("class", `node${selected ? " selected" : ""}${inTrace ? " trace" : ""}${dim ? " dim" : ""}`);
     group.setAttribute("transform", `translate(${node.x} ${node.y})`);
 
     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -166,17 +257,16 @@ function render() {
     group.addEventListener("click", event => {
       event.stopPropagation();
       state.selected = node;
+      state.selectedTraceId = null;
       showNode(node);
+      renderTraceList();
       render();
     });
     nodeLayer.append(group);
   }
 
-  document.getElementById("nodeCount").textContent = state.nodes.length;
-  document.getElementById("edgeCount").textContent = state.edges.length;
-  document.getElementById("maxDepth").textContent = Math.max(0, ...state.nodes.map(node => node.depth + 1));
-  document.getElementById("maxHit").textContent = Math.max(0, ...state.nodes.map(node => Number(node.hit_count) || 0));
   emptyState.style.display = state.nodes.length ? "none" : "flex";
+  renderTraceList();
   applyTransform();
 }
 
@@ -208,11 +298,36 @@ function showNode(node) {
   `;
 }
 
+function showTrace(trace) {
+  const logs = scopedTraceLogs(trace);
+  const rows = logs.length ? logs.map((log, index) => `
+    <div class="trace-step">
+      <div class="step-index">${index + 1}</div>
+      <div class="step-body">
+        <strong>${esc(log.failure_mode_id || "(unknown)")}</strong>
+        <span>${esc(log.time || "")}</span>
+        <p>${esc(log.message || "")}</p>
+        <small>${esc(log.pod_name || "")} · ${esc(log.pid || "")}:${esc(log.tid || "")} · ${esc(log.cluster_name || "")}</small>
+      </div>
+    </div>
+  `).join("") : `<div class="empty-logs">No trace logs.</div>`;
+
+  detailTitle.textContent = "Trace";
+  detailBody.innerHTML = `
+    <div class="kv"><span>Trace ID</span><strong>${esc(trace.trace_id)}</strong></div>
+    <div class="kv"><span>Start</span><strong>${esc(trace.start_time || "")}</strong></div>
+    <div class="kv"><span>End</span><strong>${esc(trace.end_time || "")}</strong></div>
+    <div class="kv"><span>Duration</span><strong>${esc(trace.duration_us || 0)} us</strong></div>
+    <div class="kv"><span>Failure path</span><div class="trace-steps">${rows}</div></div>
+  `;
+}
+
 function showOverview() {
   const tree = (FAILURE_MODE_VIEW_DATA.trees || [])[state.treeIndex];
   detailTitle.textContent = "Tree";
   detailBody.innerHTML = `
     <div class="kv"><span>Root</span><strong>${esc(treeLabel(tree, state.treeIndex))}</strong></div>
+    <div class="kv"><span>Traces</span><strong>${esc(currentTraces().length)}</strong></div>
     <div class="kv"><span>Details</span><div>Select a node to inspect root cause, suggestion, validation method, and matched logs.</div></div>
   `;
 }
@@ -255,6 +370,7 @@ function loadTree() {
   state.nodes = flattened.nodes;
   state.edges = flattened.edges;
   state.selected = null;
+  state.selectedTraceId = null;
   showOverview();
   render();
   fit();
@@ -268,6 +384,7 @@ fitBtn.addEventListener("click", fit);
 resetBtn.addEventListener("click", reset);
 svg.addEventListener("click", () => {
   state.selected = null;
+  state.selectedTraceId = null;
   showOverview();
   render();
 });
