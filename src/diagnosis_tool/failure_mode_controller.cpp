@@ -27,6 +27,10 @@ void FailureModeController::AddHitCount()
 {
     hitCount++;
 }
+void FailureModeController::AddLogInfo(const FailureLogInfo &logInfo)
+{
+    logInfos.push_back(logInfo);
+}
 std::unordered_set<std::string> &FailureModeController::GetSubFailureModesInView()
 {
     return subFailureModesInView;
@@ -34,5 +38,9 @@ std::unordered_set<std::string> &FailureModeController::GetSubFailureModesInView
 int FailureModeController::GetHitCount()
 {
     return hitCount;
+}
+const std::vector<FailureLogInfo> &FailureModeController::GetLogInfos() const
+{
+    return logInfos;
 }
 } // namespace diag

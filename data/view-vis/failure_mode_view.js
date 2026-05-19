@@ -181,6 +181,21 @@ function render() {
 }
 
 function showNode(node) {
+  const logs = Array.isArray(node.log_infos) ? node.log_infos : [];
+  const logRows = logs.length ? logs.map(log => `
+    <div class="log-row">
+      <div class="log-fields">
+        <div class="log-field"><span>Time</span><strong>${esc(log.time)}</strong></div>
+        <div class="log-field"><span>Pod</span><strong>${esc(log.pod_name)}</strong></div>
+        <div class="log-field"><span>PID</span><strong>${esc(log.pid)}</strong></div>
+        <div class="log-field"><span>TID</span><strong>${esc(log.tid)}</strong></div>
+        <div class="log-field"><span>Trace ID</span><strong>${esc(log.trace_id)}</strong></div>
+        <div class="log-field"><span>Cluster</span><strong>${esc(log.cluster_name)}</strong></div>
+        <div class="log-field"><span>Message</span><strong>${esc(log.message)}</strong></div>
+      </div>
+    </div>
+  `).join("") : `<div class="empty-logs">No matched logs.</div>`;
+
   detailTitle.textContent = "Failure Mode";
   detailBody.innerHTML = `
     <div class="kv"><span>ID</span><strong>${esc(node.id)}</strong></div>
@@ -189,6 +204,7 @@ function showNode(node) {
     <div class="kv"><span>Root cause</span><div>${esc(node.cause || "None")}</div></div>
     <div class="kv"><span>Suggestion</span><div>${esc(node.suggestion || "None")}</div></div>
     <div class="kv"><span>Validation</span><div>${esc(node.validation || "None")}</div></div>
+    <div class="kv"><span>Matched logs</span><div class="log-list">${logRows}</div></div>
   `;
 }
 
@@ -197,7 +213,7 @@ function showOverview() {
   detailTitle.textContent = "Tree";
   detailBody.innerHTML = `
     <div class="kv"><span>Root</span><strong>${esc(treeLabel(tree, state.treeIndex))}</strong></div>
-    <div class="kv"><span>Details</span><div>Select a node to inspect root cause, suggestion, and validation method.</div></div>
+    <div class="kv"><span>Details</span><div>Select a node to inspect root cause, suggestion, validation method, and matched logs.</div></div>
   `;
 }
 

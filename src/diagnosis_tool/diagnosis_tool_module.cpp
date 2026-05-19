@@ -150,6 +150,7 @@ bool DiagnosisToolModule::VisitUrma(FailureModeController controller)
             if (!logInfo.traceId.empty()) {
                 controller.AddHitCount();
                 logInfo.failureModeId = failureModeId;
+                controller.AddLogInfo(logInfo);
                 traces[logInfo.traceId].push_back(logInfo);
             }
         }

@@ -22,13 +22,16 @@ public:
     std::shared_ptr<FailureMode> GetFailureMode();
     void AddSubFailureModeInView(const std::string& subFailureModeId);
     void AddHitCount();
+    void AddLogInfo(const FailureLogInfo &logInfo);
     std::unordered_set<std::string>& GetSubFailureModesInView();
     int GetHitCount();
+    const std::vector<FailureLogInfo> &GetLogInfos() const;
 
 private:
     std::shared_ptr<FailureMode> failureMode;
     std::unordered_set<std::string> subFailureModesInView;    // dynamic view; for urma
     int hitCount = 0;
+    std::vector<FailureLogInfo> logInfos;
 };
 
 } // namespace diag

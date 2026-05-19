@@ -13,7 +13,8 @@ namespace diag {
 class FailureModeViewNode {
 public:
     FailureModeViewNode(const std::string &id, const std::string &name, const std::string &cause,
-                        const std::string &suggestion, const std::string &validation, int hitCount);
+                        const std::string &suggestion, const std::string &validation, int hitCount,
+                        std::vector<FailureLogInfo> logInfos);
     FailureModeViewNode &AddSubFailureModeNode(FailureModeViewNode subFailureModeNode);
     const std::string &GetId() const;
     const std::string &GetName() const;
@@ -21,6 +22,7 @@ public:
     const std::string &GetSuggestion() const;
     const std::string &GetValidation() const;
     int GetHitCount() const;
+    const std::vector<FailureLogInfo> &GetLogInfos() const;
     const std::vector<FailureModeViewNode> &GetSubFailureModeNodes() const;
 
 private:
@@ -30,6 +32,8 @@ private:
     std::string suggestion_;
     std::string validation_;
     int hitCount_;
+
+    std::vector<FailureLogInfo> logInfos_;
 
     std::vector<FailureModeViewNode> subFailureModeNodes_;
 };

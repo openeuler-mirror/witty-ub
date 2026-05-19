@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <json/json.h>
 #include <sstream>
 #include <vector>
 
+#include "failure_def.h"
 #include "logger.h"
 
 namespace diag {
@@ -35,7 +37,38 @@ FailureModeViewNode MakeViewNode(FailureModeController &controller)
     const std::string &suggestion = failureMode->GetFixSuggDesc();
     const std::string &validation = failureMode->GetValidationMethodDesc();
     int hitCount = controller.GetHitCount();
-    return FailureModeViewNode(id, name, cause, suggestion, validation, hitCount);
+    return FailureModeViewNode(id, name, cause, suggestion, validation, hitCount, controller.GetLogInfos());
+}
+
+std::string FormatLogTime(int64_t timestamp)
+{
+    auto datetime = failure::TimestampToDatetimeStr(timestamp, "iso8601");
+    if (!datetime.has_value()) {
+        return std::to_string(timestamp);
+    }
+    int64_t microseconds = timestamp % 1000000;
+    if (microseconds < 0) {
+        microseconds += 1000000;
+    }
+    if (microseconds == 0) {
+        return *datetime;
+    }
+    std::ostringstream oss;
+    oss << *datetime << "." << std::setw(6) << std::setfill('0') << microseconds;
+    return oss.str();
+}
+
+Json::Value LogInfoToJson(const FailureLogInfo &logInfo)
+{
+    Json::Value logJson(Json::objectValue);
+    logJson["time"] = FormatLogTime(logInfo.timestamp);
+    logJson["pod_name"] = logInfo.podName;
+    logJson["pid"] = logInfo.pid;
+    logJson["tid"] = logInfo.tid;
+    logJson["trace_id"] = logInfo.traceId;
+    logJson["cluster_name"] = logInfo.clusterName;
+    logJson["message"] = logInfo.message;
+    return logJson;
 }
 
 std::string JsonToString(const Json::Value &root)
@@ -116,7 +149,20 @@ Json::Value NodeToJson(const FailureModeViewNode &node)
     nodeJson["suggestion"] = node.GetSuggestion();
     nodeJson["validation"] = node.GetValidation();
     nodeJson["hit_count"] = node.GetHitCount();
+    nodeJson["log_infos"] = Json::Value(Json::arrayValue);
     nodeJson["children"] = Json::Value(Json::arrayValue);
+
+    std::vector<const FailureLogInfo *> logInfos;
+    logInfos.reserve(node.GetLogInfos().size());
+    for (const FailureLogInfo &logInfo : node.GetLogInfos()) {
+        logInfos.push_back(&logInfo);
+    }
+    std::sort(logInfos.begin(), logInfos.end(), [](const FailureLogInfo *left, const FailureLogInfo *right) {
+        return left->timestamp > right->timestamp;
+    });
+    for (const FailureLogInfo *logInfo : logInfos) {
+        nodeJson["log_infos"].append(LogInfoToJson(*logInfo));
+    }
 
     std::vector<const FailureModeViewNode *> children;
     children.reserve(node.GetSubFailureModeNodes().size());
@@ -219,13 +265,15 @@ RackResult WriteHtml(const std::string &html)
 } // namespace
 
 FailureModeViewNode::FailureModeViewNode(const std::string &id, const std::string &name, const std::string &cause,
-                                         const std::string &suggestion, const std::string &validation, int hitCount)
+                                         const std::string &suggestion, const std::string &validation, int hitCount,
+                                         std::vector<FailureLogInfo> logInfos)
     : id_(id),
       name_(name),
       cause_(cause),
       suggestion_(suggestion),
       validation_(validation),
-      hitCount_(hitCount)
+      hitCount_(hitCount),
+      logInfos_(std::move(logInfos))
 {
 }
 
@@ -263,6 +311,11 @@ const std::string &FailureModeViewNode::GetValidation() const
 int FailureModeViewNode::GetHitCount() const
 {
     return hitCount_;
+}
+
+const std::vector<FailureLogInfo> &FailureModeViewNode::GetLogInfos() const
+{
+    return logInfos_;
 }
 
 const std::vector<FailureModeViewNode> &FailureModeViewNode::GetSubFailureModeNodes() const

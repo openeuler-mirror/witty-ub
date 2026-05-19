@@ -198,6 +198,45 @@ button.primary {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+.log-list {
+  display: grid;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 3px;
+}
+.log-row {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fafcff;
+  padding: 10px;
+}
+.log-fields {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 4px 8px;
+}
+.log-field {
+  display: contents;
+}
+.log-field span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+.log-field strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+.empty-logs {
+  color: var(--muted);
+}
 @media (max-width: 980px) {
   .app {
     grid-template-columns: 1fr;
