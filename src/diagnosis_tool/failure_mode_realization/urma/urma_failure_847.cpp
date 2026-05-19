@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure847> g_urma("urma_847");
 bool UrmaFailure847::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_insert_p_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Fail to add fd: to epoll fd')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_insert_p_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Fail to add fd:' | grep -F 'to epoll fd')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

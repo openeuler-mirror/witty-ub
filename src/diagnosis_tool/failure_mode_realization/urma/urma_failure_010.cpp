@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure010> g_urma("urma_010");
 bool UrmaFailure010::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create vjfc, dev_name: , eid_idx')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create vjfc, dev_name:' | grep -F ', eid_idx:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

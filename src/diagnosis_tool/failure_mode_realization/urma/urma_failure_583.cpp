@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure583> g_urma("urma_583");
 bool UrmaFailure583::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_register_seg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ioctl failed in urma_cmd_register_seg, ret:, errno')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_register_seg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ioctl failed in urma_cmd_register_seg, ret:' | grep -F ', errno:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

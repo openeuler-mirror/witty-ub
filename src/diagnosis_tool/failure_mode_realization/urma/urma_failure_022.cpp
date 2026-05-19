@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure022> g_urma("urma_022");
 bool UrmaFailure022::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_unbind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to unbind tjetty [](, )')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_unbind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to unbind tjetty [' | grep -F '](')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

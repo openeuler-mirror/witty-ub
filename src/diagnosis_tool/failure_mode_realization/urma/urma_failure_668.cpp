@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure668> g_urma("urma_668");
 bool UrmaFailure668::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_ioctl_wait_notify' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'wait notify ioctl failed, ret:, errno')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_ioctl_wait_notify' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'wait notify ioctl failed, ret:' | grep -F ', errno:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure092> g_urma("urma_092");
 bool UrmaFailure092::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_get_tp_attr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed in ioctl get_tp_attr, ret')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_get_tp_attr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed in ioctl get_tp_attr, ret:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

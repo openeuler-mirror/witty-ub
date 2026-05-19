@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure797> g_urma("urma_797");
 bool UrmaFailure797::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to delete jetty, dev_name: , eid_idx: , id: , ret')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to delete jetty, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', ret:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure648> g_urma("urma_648");
 bool UrmaFailure648::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'schedule_next_recv_port_matrix_singlepath' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid single path port in recv.It is likely because `urma_post_jetty_recv` was called before `urma_bind_jetty`')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'schedule_next_recv_port_matrix_singlepath' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'urma_post_jetty_recv' | grep -F 'urma_bind_jetty')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

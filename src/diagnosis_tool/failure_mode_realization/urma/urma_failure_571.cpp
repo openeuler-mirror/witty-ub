@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure571> g_urma("urma_571");
 bool UrmaFailure571::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_r_v2p_token_id_del_idx_lockless' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to find node, index')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_r_v2p_token_id_del_idx_lockless' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to find node, index:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

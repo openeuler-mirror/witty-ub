@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure659> g_urma("urma_659");
 bool UrmaFailure659::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'wait_async_event_ack' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'There is an event and it must be acked, acked:, reported')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'wait_async_event_ack' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'There is an event and it must be acked, acked:' | grep -F ', reported:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

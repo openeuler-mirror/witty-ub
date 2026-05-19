@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure137> g_urma("urma_137");
 bool UrmaFailure137::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_bind_jetty_ex' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Not allowed to bind local jetty:, with remote jetty')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_bind_jetty_ex' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Not allowed to bind local jetty:' | grep -F ', with remote jetty:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

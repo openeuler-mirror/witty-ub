@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure575> g_urma("urma_575");
 bool UrmaFailure575::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'import_pseg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to import seg (, )')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'import_pseg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to import seg (')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

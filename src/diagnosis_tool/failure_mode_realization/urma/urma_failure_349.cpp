@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure349> g_urma("urma_349");
 bool UrmaFailure349::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_delete_jetty_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jetty not from the same dev, cannot delete in a batch, index')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_delete_jetty_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jetty not from the same dev, cannot delete in a batch, index:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

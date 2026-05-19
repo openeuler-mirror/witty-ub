@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure832> g_urma("urma_832");
 bool UrmaFailure832::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_open_cdev' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'file_path: is not standardize')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_open_cdev' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'file_path:' | grep -F 'is not standardize')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

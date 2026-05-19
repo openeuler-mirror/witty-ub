@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure850> g_urma("urma_850");
 bool UrmaFailure850::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'restore_cr_local_id' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get vjetty.id of local_id: , ret')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'restore_cr_local_id' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get vjetty.id of local_id:' | grep -F ', ret:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

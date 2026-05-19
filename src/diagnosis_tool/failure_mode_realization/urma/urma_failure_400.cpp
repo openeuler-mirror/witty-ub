@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure400> g_urma("urma_400");
 bool UrmaFailure400::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfr cfg out of range, depth:, max_depth:, sge:, max_sge')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfr cfg out of range, depth:' | grep -F ', max_depth:' | grep -F ', sge:' | grep -F ', max_sge:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

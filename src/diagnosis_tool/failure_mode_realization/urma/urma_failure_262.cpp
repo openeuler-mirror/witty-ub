@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure262> g_urma("urma_262");
 bool UrmaFailure262::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'init_matrix_slave_devices' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create ctx for primary eid[]')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'init_matrix_slave_devices' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create ctx for primary eid[' | grep -F ']')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

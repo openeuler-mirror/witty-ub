@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure043> g_urma("urma_043");
 bool UrmaFailure043::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_get_jfc_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'output length too large, out.len=, buf.len=')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_get_jfc_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'output length too large, out.len=' | grep -F ', buf.len=')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure705> g_urma("urma_705");
 bool UrmaFailure705::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_delete_pjetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete pjetty , ret')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_delete_pjetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete pjetty' | grep -F ', ret:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

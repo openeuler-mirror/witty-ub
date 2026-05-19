@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure401> g_urma("urma_401");
 bool UrmaFailure401::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to create jfr, dev_name: , eid_idex')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to create jfr, dev_name:' | grep -F ', eid_idex:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

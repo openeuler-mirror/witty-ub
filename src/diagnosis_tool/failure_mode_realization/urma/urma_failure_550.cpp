@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure550> g_urma("urma_550");
 bool UrmaFailure550::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_parse_port_attr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'snprintf failed, path: , port_num')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_parse_port_attr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'snprintf failed, path:' | grep -F ', port_num:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

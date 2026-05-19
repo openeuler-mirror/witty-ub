@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure785> g_urma("urma_785");
 bool UrmaFailure785::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Jfce is still used by at least one jfc, refcnt')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Jfce is still used by at least one jfc, refcnt:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

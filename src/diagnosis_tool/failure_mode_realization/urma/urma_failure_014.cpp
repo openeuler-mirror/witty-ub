@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure014> g_urma("urma_014");
 bool UrmaFailure014::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_import_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Single-path jetty only support UTP or RTP, tp_type')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_import_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Single-path jetty only support UTP or RTP, tp_type:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

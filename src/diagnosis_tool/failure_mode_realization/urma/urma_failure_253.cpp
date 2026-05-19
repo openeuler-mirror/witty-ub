@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure253> g_urma("urma_253");
 bool UrmaFailure253::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'set_fd_noblock' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ret')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'set_fd_noblock' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ret:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

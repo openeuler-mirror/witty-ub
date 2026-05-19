@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure838> g_urma("urma_838");
 bool UrmaFailure838::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_add_jfr_p_vjetty_id_info' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to add p_vjfr_id[]: ret: , p_jfr_id: , v_jfr_id')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_add_jfr_p_vjetty_id_info' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to add p_vjfr_id[' | grep -F ']: ret:' | grep -F ', p_jfr_id:' | grep -F ', v_jfr_id:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

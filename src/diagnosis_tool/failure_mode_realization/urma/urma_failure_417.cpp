@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure417> g_urma("urma_417");
 bool UrmaFailure417::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to create jfce, dev_name: , eid_idx')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to create jfce, dev_name:' | grep -F ', eid_idx:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

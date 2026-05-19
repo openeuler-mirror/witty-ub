@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure852> g_urma("urma_852");
 bool UrmaFailure852::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_flush_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to flush pjetty[]')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_flush_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to flush pjetty[' | grep -F ']:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

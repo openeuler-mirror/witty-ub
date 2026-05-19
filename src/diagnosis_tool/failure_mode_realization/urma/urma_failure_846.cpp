@@ -9,7 +9,7 @@ static AutoRegister<UrmaFailure846> g_urma("urma_846");
 bool UrmaFailure846::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'add_remote_jetty_id_info' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to add bdp_r_p2v_vjetty_id[]: ret: , jetty_id')");
+        R"(test -n "$URMA_LOG_PATH" && grep -F 'add_remote_jetty_id_info' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to add bdp_r_p2v_vjetty_id[' | grep -F ']: ret:' | grep -F ', jetty_id: (' | grep -F ', uasid:' | grep -F ', id:')");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
