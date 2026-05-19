@@ -49,7 +49,7 @@ function flattenTree(root) {
   function visit(node, depth, parentUid, siblingIndex, path) {
     const uid = `${path}/${siblingIndex}:${node.id || "unknown"}`;
     const children = Array.isArray(node.children) ? node.children : [];
-    const current = {...node, uid, depth, childrenCount: children.length, x: 80 + depth * 280, y: 0};
+    const current = {...node, uid, depth, childrenCount: children.length, x: 0, y: 70 + depth * 120};
     nodes.push(current);
     maxDepth = Math.max(maxDepth, depth + 1);
     if (parentUid) {
@@ -57,13 +57,13 @@ function flattenTree(root) {
     }
 
     if (!children.length) {
-      current.y = 70 + leafIndex * 92;
+      current.x = 80 + leafIndex * 280;
       leafIndex += 1;
     } else {
-      const childYs = children.map((child, index) => visit(child, depth + 1, uid, index, uid));
-      current.y = childYs.reduce((sum, value) => sum + value, 0) / childYs.length;
+      const childXs = children.map((child, index) => visit(child, depth + 1, uid, index, uid));
+      current.x = childXs.reduce((sum, value) => sum + value, 0) / childXs.length;
     }
-    return current.y;
+    return current.x;
   }
 
   if (root) {
@@ -73,12 +73,12 @@ function flattenTree(root) {
 }
 
 function edgePath(src, dst) {
-  const x1 = src.x + 230;
-  const y1 = src.y + 32;
-  const x2 = dst.x;
-  const y2 = dst.y + 32;
-  const mid = (x1 + x2) / 2;
-  return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+  const x1 = src.x + 115;
+  const y1 = src.y + 64;
+  const x2 = dst.x + 115;
+  const y2 = dst.y;
+  const mid = (y1 + y2) / 2;
+  return `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`;
 }
 
 function matchesQuery(node) {
@@ -203,19 +203,28 @@ function showOverview() {
 
 function fit() {
   const rect = svg.getBoundingClientRect();
-  const maxX = Math.max(1, ...state.nodes.map(node => node.x + 250));
-  const maxY = Math.max(1, ...state.nodes.map(node => node.y + 90));
-  state.scale = Math.min(1.25, Math.max(0.18, Math.min(rect.width / (maxX + 80), rect.height / (maxY + 80))));
-  state.offsetX = 34;
-  state.offsetY = 34;
+  if (!state.nodes.length) {
+    state.scale = 1;
+    state.offsetX = 0;
+    state.offsetY = 0;
+    applyTransform();
+    return;
+  }
+
+  const minX = Math.min(...state.nodes.map(node => node.x));
+  const minY = Math.min(...state.nodes.map(node => node.y));
+  const maxX = Math.max(...state.nodes.map(node => node.x + 250));
+  const maxY = Math.max(...state.nodes.map(node => node.y + 90));
+  const graphWidth = Math.max(1, maxX - minX);
+  const graphHeight = Math.max(1, maxY - minY);
+  state.scale = Math.min(1.25, Math.max(0.18, Math.min(rect.width / (graphWidth + 80), rect.height / (graphHeight + 80))));
+  state.offsetX = rect.width / 2 - ((minX + maxX) / 2) * state.scale;
+  state.offsetY = rect.height / 2 - ((minY + maxY) / 2) * state.scale;
   applyTransform();
 }
 
 function reset() {
-  state.scale = 1;
-  state.offsetX = 0;
-  state.offsetY = 0;
-  applyTransform();
+  fit();
 }
 
 function resizeViewBox() {

@@ -7,6 +7,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../../failure_log_info.h"
@@ -77,7 +78,7 @@ inline std::string RunCommand(const std::string &cmd)
     return result;
 }
 
-inline bool ParseFailureLogLine(const std::string &line, FailureLogInfo &logInfo)
+inline bool ParseSingleFailureLogLine(const std::string &line, FailureLogInfo &logInfo)
 {
     std::vector<size_t> separators;
     separators.reserve(7);
@@ -138,6 +139,44 @@ inline bool ParseFailureLogLine(const std::string &line, FailureLogInfo &logInfo
     logInfo.clusterName = Trim(fields[6]);
     logInfo.message = Trim(line.substr(separators.back() + 1));
     return true;
+}
+
+inline std::unordered_map<const FailureLogInfo *, std::vector<FailureLogInfo>> &ParsedFailureLogLines()
+{
+    static std::unordered_map<const FailureLogInfo *, std::vector<FailureLogInfo>> parsedLogLines;
+    return parsedLogLines;
+}
+
+inline bool ParseFailureLogLine(const std::string &line, FailureLogInfo &logInfo)
+{
+    std::vector<FailureLogInfo> parsedLogInfos;
+    std::istringstream iss(line);
+    std::string currentLine;
+    while (std::getline(iss, currentLine)) {
+        FailureLogInfo currentLogInfo;
+        if (ParseSingleFailureLogLine(currentLine, currentLogInfo)) {
+            parsedLogInfos.push_back(currentLogInfo);
+        }
+    }
+
+    if (parsedLogInfos.empty()) {
+        ParsedFailureLogLines().erase(&logInfo);
+        return false;
+    }
+
+    logInfo = parsedLogInfos.front();
+    ParsedFailureLogLines()[&logInfo] = parsedLogInfos;
+    return true;
+}
+
+inline const std::vector<FailureLogInfo> &GetParsedFailureLogLines(const FailureLogInfo &logInfo)
+{
+    static const std::vector<FailureLogInfo> empty;
+    auto iter = ParsedFailureLogLines().find(&logInfo);
+    if (iter == ParsedFailureLogLines().end()) {
+        return empty;
+    }
+    return iter->second;
 }
 
 } // namespace urma_log_helper

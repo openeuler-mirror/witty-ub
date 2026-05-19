@@ -20,6 +20,7 @@
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
 #include "failure_mode_factory.h"
+#include "failure_mode_realization/urma/urma_log_helper.h"
 #include "failure_mode_view.h"
 #include "logger.h"
 #include "ubse_context.h"
@@ -143,10 +144,15 @@ bool DiagnosisToolModule::VisitUrma(FailureModeController controller)
     std::shared_ptr<FailureMode> failureMode = controller.GetFailureMode();
     std::string failureModeId = failureMode->GetId();
     if (failureMode->IsValid()) {
-        controller.AddHitCount();
-        FailureLogInfo logInfo = failureMode->GetFailureLogInfoCache();
-        logInfo.failureModeId = failureModeId;
-        traces[logInfo.traceId].push_back(logInfo);
+        const std::vector<FailureLogInfo> &logInfos =
+            urma_log_helper::GetParsedFailureLogLines(failureMode->GetFailureLogInfoCache());
+        for (FailureLogInfo logInfo : logInfos) {
+            if (!logInfo.traceId.empty()) {
+                controller.AddHitCount();
+                logInfo.failureModeId = failureModeId;
+                traces[logInfo.traceId].push_back(logInfo);
+            }
+        }
     }
     
     allFailureModes.insert(failureModeId);
