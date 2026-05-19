@@ -141,20 +141,16 @@ bool DiagnosisToolModule::VisitKvCache(FailureModeController controller)
 bool DiagnosisToolModule::VisitUrma(FailureModeController controller)
 {
     std::shared_ptr<FailureMode> failureMode = controller.GetFailureMode();
-    if (!failureMode->IsValid()) {
-        return false;
-    }
-    controller.AddHitCount();
     std::string failureModeId = failureMode->GetId();
-    FailureLogInfo logInfo = failureMode->GetFailureLogInfoCache();
-    logInfo.failureModeId = failureModeId;
-    traces[logInfo.traceId].push_back(logInfo);
+    if (failureMode->IsValid()) {
+        controller.AddHitCount();
+        FailureLogInfo logInfo = failureMode->GetFailureLogInfoCache();
+        logInfo.failureModeId = failureModeId;
+        traces[logInfo.traceId].push_back(logInfo);
+    }
     
     allFailureModes.insert(failureModeId);
-    auto [controllerIter, inserted] = failureModeIdToController.try_emplace(failureModeId, controller);
-    if (!inserted) {
-        controllerIter->second.AddHitCount();
-    }
+    failureModeIdToController.emplace(failureModeId, controller);
     visited.push_back(controller);
     RootCause rootCause = failureMode->AnalyzeRootCause();
     if (!rootCause.GetIsFinalRootCause()) {
