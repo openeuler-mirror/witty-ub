@@ -405,7 +405,7 @@ RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFai
             return RACK_FAIL;
         }
         FailureModeController &controller = controllerIter->second;
-        if (controller.GetSubFailureModesInView().empty()) {
+        if (controller.GetSubFailureModesValid().empty()) {
             continue;
         }
         roots.emplace_back(MakeViewNode(controller));
@@ -428,8 +428,8 @@ RackResult FailureModeView::BuildSubTree(
         return RACK_FAIL;
     }
 
-    std::vector<std::string> subFailureModeIds(parentControllerIter->second.GetSubFailureModesInView().begin(),
-                                               parentControllerIter->second.GetSubFailureModesInView().end());
+    std::vector<std::string> subFailureModeIds(parentControllerIter->second.GetSubFailureModesValid().begin(),
+                                               parentControllerIter->second.GetSubFailureModesValid().end());
     std::sort(subFailureModeIds.begin(), subFailureModeIds.end());
 
     for (const std::string &subFailureModeId : subFailureModeIds) {

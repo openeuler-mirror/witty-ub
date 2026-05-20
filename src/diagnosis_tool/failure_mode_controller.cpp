@@ -19,9 +19,9 @@ std::shared_ptr<FailureMode> FailureModeController::GetFailureMode()
 {
     return failureMode;
 }
-void FailureModeController::AddSubFailureModeInView(const std::string &subFailureModeId)
+void FailureModeController::AddSubFailureModeValid(const std::string &subFailureModeId)
 {
-    subFailureModesInView.insert(subFailureModeId);
+    subFailureModesValid.insert(subFailureModeId);
 }
 void FailureModeController::AddHitCount()
 {
@@ -31,9 +31,9 @@ void FailureModeController::AddLogInfo(const FailureLogInfo &logInfo)
 {
     logInfos.push_back(logInfo);
 }
-std::unordered_set<std::string> &FailureModeController::GetSubFailureModesInView()
+std::unordered_set<std::string> &FailureModeController::GetSubFailureModesValid()
 {
-    return subFailureModesInView;
+    return subFailureModesValid;
 }
 int FailureModeController::GetHitCount()
 {

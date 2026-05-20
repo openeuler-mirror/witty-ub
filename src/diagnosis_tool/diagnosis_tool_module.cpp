@@ -205,7 +205,7 @@ void DiagnosisToolModule::StartUrma(const std::vector<std::string> &subRootFailu
             const std::string &currModeId = trace[i].failureModeId;
             const std::string &nextModeId = trace[i + 1].failureModeId;
             auto &currController = failureModeIdToController.at(currModeId);
-            currController.AddSubFailureModeInView(nextModeId);
+            currController.AddSubFailureModeValid(nextModeId);
             childFailureModes.insert(nextModeId);
         }
     }

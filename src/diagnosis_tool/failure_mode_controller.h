@@ -20,16 +20,16 @@ public:
     explicit FailureModeController(std::shared_ptr<FailureMode> failureModeInput): failureMode(failureModeInput) {}
     StepType GetNextStep();
     std::shared_ptr<FailureMode> GetFailureMode();
-    void AddSubFailureModeInView(const std::string& subFailureModeId);
+    void AddSubFailureModeValid(const std::string& subFailureModeId);
     void AddHitCount();
     void AddLogInfo(const FailureLogInfo &logInfo);
-    std::unordered_set<std::string>& GetSubFailureModesInView();
+    std::unordered_set<std::string>& GetSubFailureModesValid();
     int GetHitCount();
     const std::vector<FailureLogInfo> &GetLogInfos() const;
 
 private:
     std::shared_ptr<FailureMode> failureMode;
-    std::unordered_set<std::string> subFailureModesInView;    // dynamic view; for urma
+    std::unordered_set<std::string> subFailureModesValid;    // dynamic view; for urma
     int hitCount = 0;
     std::vector<FailureLogInfo> logInfos;
 };
