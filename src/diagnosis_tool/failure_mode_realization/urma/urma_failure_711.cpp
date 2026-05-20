@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure711> g_urma("urma_711");
 bool UrmaFailure711::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_delete_comp_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete p_jfce, ret =')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_delete_comp_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete p_jfce, ret ='");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

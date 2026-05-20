@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure760> g_urma("urma_760");
 bool UrmaFailure760::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfc is deactived, can not delete')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfc is deactived, can not delete'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

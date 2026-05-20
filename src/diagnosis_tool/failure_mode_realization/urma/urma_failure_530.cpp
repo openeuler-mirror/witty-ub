@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure530> g_urma("urma_530");
 bool UrmaFailure530::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_get_jetty_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to exec ops->get_jetty_opt')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_get_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec ops->get_jetty_opt'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

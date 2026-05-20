@@ -9,7 +9,12 @@ static AutoRegister<UrmaFailure613> g_urma("urma_613");
 bool UrmaFailure613::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_unregister_seg' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Unregister seg fail, dev_name:' | grep -F ', eid_idx:' | grep -F ', tid:' | grep -F ', ret:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_unregister_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Unregister seg fail, dev_name:' | "
+        "grep -F ', eid_idx:' | "
+        "grep -F ', tid:' | "
+        "grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure552> g_urma("urma_552");
 bool UrmaFailure552::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_getenv_log_level' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter: log level str')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_getenv_log_level' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter: log level str'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

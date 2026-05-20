@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure874> g_urma("urma_874");
 bool UrmaFailure874::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_check_opt_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'invalid opt len')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_check_opt_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'invalid opt len'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

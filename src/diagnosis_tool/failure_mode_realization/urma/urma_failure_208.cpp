@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure208> g_urma("urma_208");
 bool UrmaFailure208::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_jfce_init_comp_attr_not_single_die' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Fail to create hash table')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_jfce_init_comp_attr_not_single_die' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Fail to create hash table'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure206> g_urma("urma_206");
 bool UrmaFailure206::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_jfce_get_args_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to alloc jfce args')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_jfce_get_args_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc jfce args'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

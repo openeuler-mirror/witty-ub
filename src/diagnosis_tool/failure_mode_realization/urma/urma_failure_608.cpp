@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure608> g_urma("urma_608");
 bool UrmaFailure608::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_free_token_id' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ref:' | grep -F ', not zero')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'ref:' | "
+        "grep -F ', not zero'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

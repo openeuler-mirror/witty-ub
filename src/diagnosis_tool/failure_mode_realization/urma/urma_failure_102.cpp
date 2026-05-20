@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure102> g_urma("urma_102");
 bool UrmaFailure102::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_deactive_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Jfc state is wrong in deactive_jfc')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Jfc state is wrong in deactive_jfc'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

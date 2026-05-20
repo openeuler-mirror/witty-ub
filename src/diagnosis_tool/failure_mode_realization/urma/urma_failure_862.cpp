@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure862> g_urma("urma_862");
 bool UrmaFailure862::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'update_mapping_hash_table' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to add primary eid to mapping hash table')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'update_mapping_hash_table' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to add primary eid to mapping hash table'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure070> g_urma("urma_070");
 bool UrmaFailure070::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_set_jetty_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jetty->jetty_cfg.jfs_cfg.jfc is not exist')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jetty->jetty_cfg.jfs_cfg.jfc is not exist'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

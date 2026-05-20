@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure840> g_urma("urma_840");
 bool UrmaFailure840::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_modify_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'modify pjfr fail, index:' | grep -F ', ret:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_modify_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'modify pjfr fail, index:' | "
+        "grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

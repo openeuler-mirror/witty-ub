@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure639> g_urma("urma_639");
 bool UrmaFailure639::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'post_send_check_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Try to call post_send api by invalid comp_type')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Try to call post_send api by invalid comp_type'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

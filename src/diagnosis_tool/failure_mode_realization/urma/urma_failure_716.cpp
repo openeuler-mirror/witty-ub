@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure716> g_urma("urma_716");
 bool UrmaFailure716::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_delete_context' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to urma_cmd_delete_context')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_delete_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to urma_cmd_delete_context'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

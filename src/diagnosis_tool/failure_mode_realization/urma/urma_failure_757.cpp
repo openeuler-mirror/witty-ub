@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure757> g_urma("urma_757");
 bool UrmaFailure757::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_free_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfc still actived, please deactived first')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_free_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfc still actived, please deactived first'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

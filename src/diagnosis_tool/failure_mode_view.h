@@ -10,11 +10,19 @@
 #include "failure_mode_controller.h"
 
 namespace diag {
+struct FailureModeViewNodeData {
+    std::string id;
+    std::string name;
+    std::string cause;
+    std::string suggestion;
+    std::string validation;
+    int hitCount;
+    std::vector<FailureLogInfo> logInfos;
+};
+
 class FailureModeViewNode {
 public:
-    FailureModeViewNode(const std::string &id, const std::string &name, const std::string &cause,
-                        const std::string &suggestion, const std::string &validation, int hitCount,
-                        std::vector<FailureLogInfo> logInfos);
+    explicit FailureModeViewNode(FailureModeViewNodeData data);
     FailureModeViewNode &AddSubFailureModeNode(FailureModeViewNode subFailureModeNode);
     const std::string &GetId() const;
     const std::string &GetName() const;

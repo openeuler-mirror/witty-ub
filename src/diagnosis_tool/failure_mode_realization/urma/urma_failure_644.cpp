@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure644> g_urma("urma_644");
 bool UrmaFailure644::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'post_send_check_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'All bonding devs are invalid')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'All bonding devs are invalid'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

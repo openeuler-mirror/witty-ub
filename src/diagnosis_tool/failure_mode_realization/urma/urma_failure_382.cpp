@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure382> g_urma("urma_382");
 bool UrmaFailure382::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfs' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to create jfs, dev_name:' | grep -F ', eid_idx:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to create jfs, dev_name:' | "
+        "grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

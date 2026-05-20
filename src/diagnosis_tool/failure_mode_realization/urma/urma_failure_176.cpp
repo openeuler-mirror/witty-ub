@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure176> g_urma("urma_176");
 bool UrmaFailure176::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create bonding jfce')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create bonding jfce'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

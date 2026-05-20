@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure646> g_urma("urma_646");
 bool UrmaFailure646::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_post_send_wr_no_store' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'WR->tjetty is NULL')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_post_send_wr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'WR->tjetty is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

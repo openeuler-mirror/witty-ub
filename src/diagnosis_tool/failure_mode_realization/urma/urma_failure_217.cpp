@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure217> g_urma("urma_217");
 bool UrmaFailure217::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_segment_uninit_comp_attr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to unregister segment, token_id:' | grep -F ', handle:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_segment_uninit_comp_attr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to unregister segment, token_id:' | "
+        "grep -F ', handle:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

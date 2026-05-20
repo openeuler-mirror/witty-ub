@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure177> g_urma("urma_177");
 bool UrmaFailure177::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_vjfs' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ubcore create jfs failed')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_vjfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'ubcore create jfs failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

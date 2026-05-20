@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure497> g_urma("urma_497");
 bool UrmaFailure497::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'get_bjetty_ctx_by_cr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Null bjetty_ctx in bdp_comp')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'get_bjetty_ctx_by_cr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Null bjetty_ctx in bdp_comp'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure568> g_urma("urma_568");
 bool UrmaFailure568::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_import_pjfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Currently, jfr does not support single-path mode')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_import_pjfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Currently, jfr does not support single-path mode'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

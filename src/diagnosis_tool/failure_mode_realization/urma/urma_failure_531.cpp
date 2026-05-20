@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure531> g_urma("urma_531");
 bool UrmaFailure531::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_get_ip_by_eid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_get_ip_by_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

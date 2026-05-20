@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure463> g_urma("urma_463");
 bool UrmaFailure463::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_alloc_token_id' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to register seg, dev_name:' | grep -F ', eid_idx:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_alloc_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to register seg, dev_name:' | "
+        "grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

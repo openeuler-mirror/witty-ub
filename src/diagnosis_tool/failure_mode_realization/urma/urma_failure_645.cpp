@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure645> g_urma("urma_645");
 bool UrmaFailure645::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'get_v_conn_on_send' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create vconn for (')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'get_v_conn_on_send' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create vconn for ('");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

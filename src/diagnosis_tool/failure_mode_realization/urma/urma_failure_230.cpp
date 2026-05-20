@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure230> g_urma("urma_230");
 bool UrmaFailure230::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'set_write_wr_ptseg_ptjetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bondp_find_vtseg_by_va fail')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'set_write_wr_ptseg_ptjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bondp_find_vtseg_by_va fail'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

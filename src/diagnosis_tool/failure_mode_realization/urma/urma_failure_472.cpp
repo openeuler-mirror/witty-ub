@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure472> g_urma("urma_472");
 bool UrmaFailure472::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_get_net_addr_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter with max_netaddr_cnt as 0')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_get_net_addr_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter with max_netaddr_cnt as 0'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

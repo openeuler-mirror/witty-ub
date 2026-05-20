@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure247> g_urma("urma_247");
 bool UrmaFailure247::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_uninit' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete global context')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_uninit' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete global context'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

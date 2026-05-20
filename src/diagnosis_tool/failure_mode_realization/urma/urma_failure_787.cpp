@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure787> g_urma("urma_787");
 bool UrmaFailure787::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfce' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to delete jfce, ret:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to delete jfce, ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

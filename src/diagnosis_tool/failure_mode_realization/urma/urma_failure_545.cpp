@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure545> g_urma("urma_545");
 bool UrmaFailure545::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_ioctl_get_eid_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to open urma cdev with path')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_ioctl_get_eid_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to open urma cdev with path'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

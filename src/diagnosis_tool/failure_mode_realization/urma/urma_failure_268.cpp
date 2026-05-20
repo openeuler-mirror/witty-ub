@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure268> g_urma("urma_268");
 bool UrmaFailure268::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_set_aggr_mode' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bonding context is invalid in user ctl')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_set_aggr_mode' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bonding context is invalid in user ctl'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

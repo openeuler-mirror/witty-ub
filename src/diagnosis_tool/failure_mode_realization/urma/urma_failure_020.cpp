@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure020> g_urma("urma_020");
 bool UrmaFailure020::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_bind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'The is_multipath attributes of jetty and tjetty are different')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'The is_multipath attributes of jetty and tjetty are different'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure271> g_urma("urma_271");
 bool UrmaFailure271::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_pseg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to register pseg')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_pseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to register pseg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

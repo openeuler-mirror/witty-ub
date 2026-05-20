@@ -9,7 +9,16 @@ static AutoRegister<UrmaFailure391> g_urma("urma_391");
 bool UrmaFailure391::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_alloc_jfs' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfs cfg out of range, depth:' | grep -F ', max_depth:' | grep -F ', inline_data:' | grep -F ', max_inline_len:' | grep -F ', sge:' | grep -F ', max_sge:' | grep -F ', rsge:' | grep -F ', max_rsge:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_alloc_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfs cfg out of range, depth:' | "
+        "grep -F ', max_depth:' | "
+        "grep -F ', inline_data:' | "
+        "grep -F ', max_inline_len:' | "
+        "grep -F ', sge:' | "
+        "grep -F ', max_sge:' | "
+        "grep -F ', rsge:' | "
+        "grep -F ', max_rsge:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

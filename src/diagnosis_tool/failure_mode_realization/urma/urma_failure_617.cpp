@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure617> g_urma("urma_617");
 bool UrmaFailure617::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_rearm_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to rearm jfc: JFCE is NULL')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_rearm_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to rearm jfc: JFCE is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

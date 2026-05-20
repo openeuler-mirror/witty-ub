@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure502> g_urma("urma_502");
 bool UrmaFailure502::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'get_topo_info_from_ko' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get topo info, change to general mode')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'get_topo_info_from_ko' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get topo info, change to general mode'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure902> g_urma("urma_902");
 bool UrmaFailure902::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_advise_jfr_async' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_advise_jfr_async' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

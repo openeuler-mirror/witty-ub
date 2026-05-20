@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure377> g_urma("urma_377");
 bool UrmaFailure377::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_set_jfc_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to exec urma_jfc_set_options')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_set_jfc_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec urma_jfc_set_options'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

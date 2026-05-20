@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure650> g_urma("urma_650");
 bool UrmaFailure650::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'post_recv_check_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bjetty_ctx is NULL')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'post_recv_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bjetty_ctx is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure782> g_urma("urma_782");
 bool UrmaFailure782::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfr_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter, index:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

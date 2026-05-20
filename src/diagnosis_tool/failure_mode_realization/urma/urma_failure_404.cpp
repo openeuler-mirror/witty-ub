@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure404> g_urma("urma_404");
 bool UrmaFailure404::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfr_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter, index:' | grep -F 'jfr in the array is NULL')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter, index:' | "
+        "grep -F 'jfr in the array is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

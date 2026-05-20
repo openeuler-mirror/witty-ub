@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure788> g_urma("urma_788");
 bool UrmaFailure788::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jetty_to_jetty_grp' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'failed to delete jetty to jetty_grp')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jetty_to_jetty_grp' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'failed to delete jetty to jetty_grp'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

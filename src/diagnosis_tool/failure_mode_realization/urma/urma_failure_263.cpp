@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure263> g_urma("urma_263");
 bool UrmaFailure263::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_context' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Uninitialized variables')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Uninitialized variables'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

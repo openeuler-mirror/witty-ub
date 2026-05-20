@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure056> g_urma("urma_056");
 bool UrmaFailure056::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_get_jfr_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid out buffer from kernel')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid out buffer from kernel'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

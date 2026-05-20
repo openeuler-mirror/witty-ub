@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure300> g_urma("urma_300");
 bool UrmaFailure300::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'deepcopy_jfs_wr_node' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Malloc wr failed')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'deepcopy_jfs_wr_node' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Malloc wr failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

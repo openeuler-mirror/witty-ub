@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure667> g_urma("urma_667");
 bool UrmaFailure667::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_ioctl_get_async_event' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'get async event ioctl failed, ret:' | grep -F ', errno:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_ioctl_get_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'get async event ioctl failed, ret:' | "
+        "grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

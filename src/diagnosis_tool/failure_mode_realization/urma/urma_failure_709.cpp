@@ -9,7 +9,13 @@ static AutoRegister<UrmaFailure709> g_urma("urma_709");
 bool UrmaFailure709::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'remove_remote_jetty_id_info' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to del bdp_r_p2v_vjetty_id[' | grep -F ']: ret:' | grep -F ', jetty_id: (' | grep -F ', uasid:' | grep -F ', id:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'remove_remote_jetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to del bdp_r_p2v_vjetty_id[' | "
+        "grep -F ']: ret:' | "
+        "grep -F ', jetty_id: (' | "
+        "grep -F ', uasid:' | "
+        "grep -F ', id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

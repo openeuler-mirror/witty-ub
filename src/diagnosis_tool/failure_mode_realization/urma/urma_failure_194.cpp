@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure194> g_urma("urma_194");
 bool UrmaFailure194::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'In matrix server, jetty only supports single-path mode with RC')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'In matrix server, jetty only supports single-path mode with RC'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

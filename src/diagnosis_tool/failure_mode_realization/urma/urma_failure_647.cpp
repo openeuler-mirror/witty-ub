@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure647> g_urma("urma_647");
 bool UrmaFailure647::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_post_send_wr_no_store' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Bondp supports at most wr_list')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_post_send_wr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Bondp supports at most wr_list'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

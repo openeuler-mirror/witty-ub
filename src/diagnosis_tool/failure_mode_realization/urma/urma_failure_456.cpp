@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure456> g_urma("urma_456");
 bool UrmaFailure456::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jetty_grp' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'max_jetty_in_jetty_grp is err')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_jetty_grp' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'max_jetty_in_jetty_grp is err'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

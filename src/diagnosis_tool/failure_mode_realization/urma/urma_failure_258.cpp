@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure258> g_urma("urma_258");
 bool UrmaFailure258::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'init_matrix_slave_devices' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'urma get device list failed!')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'init_matrix_slave_devices' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'urma get device list failed!'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

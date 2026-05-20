@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure064> g_urma("urma_064");
 bool UrmaFailure064::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_unbind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_unbind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

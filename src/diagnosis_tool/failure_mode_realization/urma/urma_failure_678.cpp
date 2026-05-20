@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure678> g_urma("urma_678");
 bool UrmaFailure678::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_send' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'null pointer exists in tjfr')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_send' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'null pointer exists in tjfr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

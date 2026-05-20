@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure656> g_urma("urma_656");
 bool UrmaFailure656::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'handle_recv' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid bdp_comp type')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'handle_recv' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid bdp_comp type'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

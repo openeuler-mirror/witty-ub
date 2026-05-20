@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure243> g_urma("urma_243");
 bool UrmaFailure243::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'create_bjetty_ctx' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Unaligned hdr_buf_size')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'create_bjetty_ctx' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Unaligned hdr_buf_size'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure775> g_urma("urma_775");
 bool UrmaFailure775::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_free_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfr still actived, please deactived first')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_free_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfr still actived, please deactived first'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

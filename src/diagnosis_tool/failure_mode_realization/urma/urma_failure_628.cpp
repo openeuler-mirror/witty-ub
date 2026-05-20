@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure628> g_urma("urma_628");
 bool UrmaFailure628::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'schedule_next_route_in_matrix_server_singlepath' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid single path port. Single path mode only support RC and need to call bind_jetty')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'schedule_next_route_in_matrix_server_singlepath' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid single path port. Single path mode only support RC and need to call bind_jetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

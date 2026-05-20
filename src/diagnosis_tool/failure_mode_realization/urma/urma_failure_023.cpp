@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure023> g_urma("urma_023");
 bool UrmaFailure023::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'import_jfr_default' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to import jfr, no valid route to rjfr')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'import_jfr_default' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to import jfr, no valid route to rjfr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

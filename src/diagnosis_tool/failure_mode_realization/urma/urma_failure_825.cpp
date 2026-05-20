@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure825> g_urma("urma_825");
 bool UrmaFailure825::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_validate_driver' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid driver name length')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_validate_driver' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid driver name length'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

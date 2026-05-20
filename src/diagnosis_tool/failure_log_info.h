@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace diag {
-enum LevelOption {
+enum class LevelOption {
     INFO,
     DEBUG,
     WARN,

@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure204> g_urma("urma_204");
 bool UrmaFailure204::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_import_jfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to import vjetty, [' | grep -F ']:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_import_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to import vjetty, [' | "
+        "grep -F ']:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

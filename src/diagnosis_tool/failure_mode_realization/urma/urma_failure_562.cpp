@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure562> g_urma("urma_562");
 bool UrmaFailure562::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'import_pjetty_for_primary_eid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Primary dev has NULL rjetty eid')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'import_pjetty_for_primary_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Primary dev has NULL rjetty eid'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure270> g_urma("urma_270");
 bool UrmaFailure270::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_pseg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid segment address for bondp seg')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_pseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid segment address for bondp seg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure723> g_urma("urma_723");
 bool UrmaFailure723::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'delete_copied_jfr_wr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid jfr wr to delete')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'delete_copied_jfr_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid jfr wr to delete'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

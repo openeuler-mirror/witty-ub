@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure081> g_urma("urma_081");
 bool UrmaFailure081::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_modify_tp' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_modify_tp' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

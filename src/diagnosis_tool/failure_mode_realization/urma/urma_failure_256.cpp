@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure256> g_urma("urma_256");
 bool UrmaFailure256::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'init_general_slave_devices' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid slave device number of device')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'init_general_slave_devices' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid slave device number of device'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

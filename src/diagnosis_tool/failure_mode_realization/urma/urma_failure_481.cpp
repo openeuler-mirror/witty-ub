@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure481> g_urma("urma_481");
 bool UrmaFailure481::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_get_eid_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'max eid cnt is err')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_get_eid_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'max eid cnt is err'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

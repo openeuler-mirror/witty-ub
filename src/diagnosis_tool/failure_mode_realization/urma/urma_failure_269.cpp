@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure269> g_urma("urma_269");
 bool UrmaFailure269::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_find_vtseg_by_va' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bondp_hash_table_lookup fail')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_find_vtseg_by_va' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bondp_hash_table_lookup fail'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

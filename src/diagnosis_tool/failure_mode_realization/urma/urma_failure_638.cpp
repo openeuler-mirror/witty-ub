@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure638> g_urma("urma_638");
 bool UrmaFailure638::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'post_send_check_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid bdp_send_comp')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid bdp_send_comp'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

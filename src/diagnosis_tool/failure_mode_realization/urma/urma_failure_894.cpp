@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure894> g_urma("urma_894");
 bool UrmaFailure894::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_check_seg_cfg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Atomic access should be config with read and write access')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Atomic access should be config with read and write access'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

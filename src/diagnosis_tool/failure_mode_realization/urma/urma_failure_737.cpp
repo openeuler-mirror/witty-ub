@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure737> g_urma("urma_737");
 bool UrmaFailure737::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_delete_jfr_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bad jfr index exceed array length, bad_jfr_index:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bad jfr index exceed array length, bad_jfr_index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

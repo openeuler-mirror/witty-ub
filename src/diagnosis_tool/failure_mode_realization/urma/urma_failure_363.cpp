@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure363> g_urma("urma_363");
 bool UrmaFailure363::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfc cfg depth of range, depth:' | grep -F ', max_depth:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfc cfg depth of range, depth:' | "
+        "grep -F ', max_depth:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

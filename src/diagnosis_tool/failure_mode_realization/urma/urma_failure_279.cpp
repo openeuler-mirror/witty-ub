@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure279> g_urma("urma_279");
 bool UrmaFailure279::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_queue_push_tail' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to alloc bdp_queue_node')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_queue_push_tail' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc bdp_queue_node'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

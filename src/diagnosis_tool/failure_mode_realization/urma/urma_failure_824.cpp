@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure824> g_urma("urma_824");
 bool UrmaFailure824::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_close_provider' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'close failed, err')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_close_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'close failed, err'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

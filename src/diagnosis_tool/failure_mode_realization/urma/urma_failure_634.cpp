@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure634> g_urma("urma_634");
 bool UrmaFailure634::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'update_send_wr_before_post' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to encode_jfs_wr_reliable_info')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'update_send_wr_before_post' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to encode_jfs_wr_reliable_info'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

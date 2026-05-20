@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure259> g_urma("urma_259");
 bool UrmaFailure259::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'init_matrix_slave_devices' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get topo info by bonding eid')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'init_matrix_slave_devices' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get topo info by bonding eid'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

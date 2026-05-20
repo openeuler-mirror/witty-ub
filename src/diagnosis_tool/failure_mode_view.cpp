@@ -4,12 +4,13 @@
 
 #include <sys/stat.h>
 
+#include <json/json.h>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <json/json.h>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #include "failure_def.h"
@@ -27,17 +28,22 @@ constexpr const char *DATA_PLACEHOLDER = "__FAILURE_MODE_VIEW_DATA__";
 constexpr const char *CSS_PLACEHOLDER = "__FAILURE_MODE_VIEW_CSS__";
 constexpr const char *JS_PLACEHOLDER = "__FAILURE_MODE_VIEW_JS__";
 constexpr mode_t OUTPUT_FILE_PERM_640 = 0640;
+constexpr const int MICROSECONDS_UNIT = 1000000;
+constexpr const int MICROSECONDS_LEN = 6;
 
 FailureModeViewNode MakeViewNode(FailureModeController &controller)
 {
     auto failureMode = controller.GetFailureMode();
-    const std::string &id = failureMode->GetId();
-    const std::string &name = failureMode->GetName();
-    const std::string &cause = failureMode->GetRootCauseDesc();
-    const std::string &suggestion = failureMode->GetFixSuggDesc();
-    const std::string &validation = failureMode->GetValidationMethodDesc();
-    int hitCount = controller.GetHitCount();
-    return FailureModeViewNode(id, name, cause, suggestion, validation, hitCount, controller.GetLogInfos());
+    FailureModeViewNodeData data {
+        failureMode->GetId(),
+        failureMode->GetName(),
+        failureMode->GetRootCauseDesc(),
+        failureMode->GetFixSuggDesc(),
+        failureMode->GetValidationMethodDesc(),
+        controller.GetHitCount(),
+        controller.GetLogInfos(),
+    };
+    return FailureModeViewNode(std::move(data));
 }
 
 std::string FormatLogTime(int64_t timestamp)
@@ -46,15 +52,15 @@ std::string FormatLogTime(int64_t timestamp)
     if (!datetime.has_value()) {
         return std::to_string(timestamp);
     }
-    int64_t microseconds = timestamp % 1000000;
+    int64_t microseconds = timestamp % MICROSECONDS_UNIT;
     if (microseconds < 0) {
-        microseconds += 1000000;
+        microseconds += MICROSECONDS_UNIT;
     }
     if (microseconds == 0) {
         return *datetime;
     }
     std::ostringstream oss;
-    oss << *datetime << "." << std::setw(6) << std::setfill('0') << microseconds;
+    oss << *datetime << "." << std::setw(MICROSECONDS_LEN) << std::setfill('0') << microseconds;
     return oss.str();
 }
 
@@ -236,12 +242,13 @@ Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots,
     for (const FailureModeViewNode &node : roots) {
         sortedRoots.push_back(&node);
     }
-    std::sort(sortedRoots.begin(), sortedRoots.end(), [](const FailureModeViewNode *left, const FailureModeViewNode *right) {
-        if (left->GetId() != right->GetId()) {
-            return left->GetId() < right->GetId();
-        }
-        return left->GetName() < right->GetName();
-    });
+    std::sort(sortedRoots.begin(), sortedRoots.end(),
+              [](const FailureModeViewNode *left, const FailureModeViewNode *right) {
+                  if (left->GetId() != right->GetId()) {
+                      return left->GetId() < right->GetId();
+                  }
+                  return left->GetName() < right->GetName();
+              });
     for (const FailureModeViewNode *node : sortedRoots) {
         root["trees"].append(NodeToJson(*node));
     }
@@ -333,16 +340,14 @@ RackResult WriteHtml(const std::string &html)
 }
 } // namespace
 
-FailureModeViewNode::FailureModeViewNode(const std::string &id, const std::string &name, const std::string &cause,
-                                         const std::string &suggestion, const std::string &validation, int hitCount,
-                                         std::vector<FailureLogInfo> logInfos)
-    : id_(id),
-      name_(name),
-      cause_(cause),
-      suggestion_(suggestion),
-      validation_(validation),
-      hitCount_(hitCount),
-      logInfos_(std::move(logInfos))
+FailureModeViewNode::FailureModeViewNode(FailureModeViewNodeData data)
+    : id_(std::move(data.id)),
+      name_(std::move(data.name)),
+      cause_(std::move(data.cause)),
+      suggestion_(std::move(data.suggestion)),
+      validation_(std::move(data.validation)),
+      hitCount_(data.hitCount),
+      logInfos_(std::move(data.logInfos))
 {
 }
 
@@ -421,7 +426,8 @@ RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFai
 
 RackResult FailureModeView::BuildSubTree(
     FailureModeViewNode &parentNode, const std::string &parentFailureModeId,
-    std::unordered_map<std::string, FailureModeController> &failureModeIdToController, std::unordered_set<std::string> &path)
+    std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+    std::unordered_set<std::string> &path)
 {
     auto parentControllerIter = failureModeIdToController.find(parentFailureModeId);
     if (parentControllerIter == failureModeIdToController.end()) {

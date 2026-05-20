@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure018> g_urma("urma_018");
 bool UrmaFailure018::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_bind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param jetty')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param jetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

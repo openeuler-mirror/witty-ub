@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure244> g_urma("urma_244");
 bool UrmaFailure244::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_provider_bond_uninit' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Provider Bond register ops not registered')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_provider_bond_uninit' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Provider Bond register ops not registered'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

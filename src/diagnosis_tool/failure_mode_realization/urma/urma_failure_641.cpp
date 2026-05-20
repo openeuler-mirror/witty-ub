@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure641> g_urma("urma_641");
 bool UrmaFailure641::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'post_send_check_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Data cannot be transferred between jettys in different matrix server mode')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Data cannot be transferred between jettys in different matrix server mode'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

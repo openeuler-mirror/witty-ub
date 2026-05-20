@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure482> g_urma("urma_482");
 bool UrmaFailure482::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_context' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter with err dev or ops')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter with err dev or ops'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

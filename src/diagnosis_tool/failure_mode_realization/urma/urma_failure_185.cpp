@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure185> g_urma("urma_185");
 bool UrmaFailure185::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_vjfr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bondp init jfr fail')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_vjfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bondp init jfr fail'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

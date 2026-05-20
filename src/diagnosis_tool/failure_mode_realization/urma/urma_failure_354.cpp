@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure354> g_urma("urma_354");
 bool UrmaFailure354::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_alloc_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'failed to fill jetty cfg')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_alloc_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'failed to fill jetty cfg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

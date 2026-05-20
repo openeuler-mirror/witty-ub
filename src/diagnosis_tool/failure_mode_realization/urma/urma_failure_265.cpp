@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure265> g_urma("urma_265");
 bool UrmaFailure265::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_context' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to init v_ctx')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init v_ctx'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

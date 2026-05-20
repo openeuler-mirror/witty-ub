@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure474> g_urma("urma_474");
 bool UrmaFailure474::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_read_sysfs_device' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'snprintf failed, dev_name')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_read_sysfs_device' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'snprintf failed, dev_name'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

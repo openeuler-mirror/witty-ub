@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure652> g_urma("urma_652");
 bool UrmaFailure652::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'send_so_from_snd_queue' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'v_conn has NULL target_vjetty in sending SO')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'send_so_from_snd_queue' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'v_conn has NULL target_vjetty in sending SO'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,12 @@ static AutoRegister<UrmaFailure610> g_urma("urma_610");
 bool UrmaFailure610::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_free_token_id' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to free token_id, dev_name:' | grep -F ', eid_idx:' | grep -F ', tid:' | grep -F ', ret:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to free token_id, dev_name:' | "
+        "grep -F ', eid_idx:' | "
+        "grep -F ', tid:' | "
+        "grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

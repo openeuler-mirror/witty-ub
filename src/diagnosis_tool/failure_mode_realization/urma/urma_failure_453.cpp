@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure453> g_urma("urma_453");
 bool UrmaFailure453::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_notifier' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to alloc notifier')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_notifier' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc notifier'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

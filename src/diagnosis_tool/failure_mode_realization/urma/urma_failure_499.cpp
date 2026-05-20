@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure499> g_urma("urma_499");
 bool UrmaFailure499::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'get_dev_and_ctx_by_name' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get eid_idx')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'get_dev_and_ctx_by_name' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get eid_idx'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure286> g_urma("urma_286");
 bool UrmaFailure286::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'create_topo_map' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'topo info doesn'\''t have cur_node')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'create_topo_map' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'topo info doesn'\\''t have cur_node'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

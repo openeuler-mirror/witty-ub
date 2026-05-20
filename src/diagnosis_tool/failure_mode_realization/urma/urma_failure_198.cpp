@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure198> g_urma("urma_198");
 bool UrmaFailure198::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create vjetty')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create vjetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

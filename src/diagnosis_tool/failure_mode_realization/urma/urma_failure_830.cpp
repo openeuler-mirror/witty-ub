@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure830> g_urma("urma_830");
 bool UrmaFailure830::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_open_drivers' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'snprintf_s' | grep -F 'failed')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'snprintf_s' | "
+        "grep -F 'failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

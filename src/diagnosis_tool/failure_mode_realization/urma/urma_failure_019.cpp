@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure019> g_urma("urma_019");
 bool UrmaFailure019::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_bind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Jetty already has a binded target jetty')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Jetty already has a binded target jetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

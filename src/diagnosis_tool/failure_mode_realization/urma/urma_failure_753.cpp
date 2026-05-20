@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure753> g_urma("urma_753");
 bool UrmaFailure753::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_delete_jetty_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'bad jetty index exceed array length, bad_jetty_index:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'bad jetty index exceed array length, bad_jetty_index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

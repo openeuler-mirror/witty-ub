@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure295> g_urma("urma_295");
 bool UrmaFailure295::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'deepcopy_cas_wr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to copy src sge')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'deepcopy_cas_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to copy src sge'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

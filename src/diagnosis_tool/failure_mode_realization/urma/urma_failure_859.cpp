@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure859> g_urma("urma_859");
 bool UrmaFailure859::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_slide_wnd_has' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Seq larger than total size of bitmap')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_slide_wnd_has' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Seq larger than total size of bitmap'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

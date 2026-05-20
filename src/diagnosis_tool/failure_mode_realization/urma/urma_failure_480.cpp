@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure480> g_urma("urma_480");
 bool UrmaFailure480::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_open_provider' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'open failed, err')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'open failed, err'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

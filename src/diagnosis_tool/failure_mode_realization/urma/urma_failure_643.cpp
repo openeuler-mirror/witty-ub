@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure643> g_urma("urma_643");
 bool UrmaFailure643::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'post_send_check_valid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'No bjetty_ctx')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'No bjetty_ctx'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

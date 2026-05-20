@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure029> g_urma("urma_029");
 bool UrmaFailure029::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_set_jfs_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ioctl failed in urma_cmd_set_jfs_opt, ret:' | grep -F ', errno:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_set_jfs_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'ioctl failed in urma_cmd_set_jfs_opt, ret:' | "
+        "grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

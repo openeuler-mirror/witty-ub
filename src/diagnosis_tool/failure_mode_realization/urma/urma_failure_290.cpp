@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure290> g_urma("urma_290");
 bool UrmaFailure290::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'deepcopy_sg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid num_sge')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'deepcopy_sg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid num_sge'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

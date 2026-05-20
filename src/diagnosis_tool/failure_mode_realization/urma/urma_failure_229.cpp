@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure229> g_urma("urma_229");
 bool UrmaFailure229::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'set_write_wr_ptseg_ptjetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Write sge.dst->handle is NULL')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'set_write_wr_ptseg_ptjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Write sge.dst->handle is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

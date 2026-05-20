@@ -9,7 +9,12 @@ static AutoRegister<UrmaFailure740> g_urma("urma_740");
 bool UrmaFailure740::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_delete_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'There is jfc event and it must be acked, jfc_comp:' | grep -F ', comp:' | grep -F ', jfc_async:' | grep -F ', async:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_delete_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'There is jfc event and it must be acked, jfc_comp:' | "
+        "grep -F ', comp:' | "
+        "grep -F ', jfc_async:' | "
+        "grep -F ', async:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

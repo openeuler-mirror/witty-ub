@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure292> g_urma("urma_292");
 bool UrmaFailure292::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'deepcopy_cas_wr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to alloc new_wr_cas->dst')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'deepcopy_cas_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc new_wr_cas->dst'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

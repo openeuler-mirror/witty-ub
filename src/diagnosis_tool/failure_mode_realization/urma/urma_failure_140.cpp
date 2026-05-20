@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure140> g_urma("urma_140");
 bool UrmaFailure140::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_unbind_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Not allowed to call unbind as the tp mode of jetty : is')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_unbind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Not allowed to call unbind as the tp mode of jetty : is'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

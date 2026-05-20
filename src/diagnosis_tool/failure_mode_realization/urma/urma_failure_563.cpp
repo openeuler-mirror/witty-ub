@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure563> g_urma("urma_563");
 bool UrmaFailure563::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'import_pjetty_for_primary_eid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to import primary tjetty')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'import_pjetty_for_primary_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to import primary tjetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

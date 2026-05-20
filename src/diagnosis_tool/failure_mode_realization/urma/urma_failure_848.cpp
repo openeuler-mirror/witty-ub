@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure848> g_urma("urma_848");
 bool UrmaFailure848::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'BDP_V_CONN_HASH_BASIS' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'BDP_V_CONN_HASH_BASIS' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

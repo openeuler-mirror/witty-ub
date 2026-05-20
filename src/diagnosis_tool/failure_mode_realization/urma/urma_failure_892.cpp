@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure892> g_urma("urma_892");
 bool UrmaFailure892::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_check_seg_cfg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Local only access is not allowed to config with other accesses')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Local only access is not allowed to config with other accesses'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

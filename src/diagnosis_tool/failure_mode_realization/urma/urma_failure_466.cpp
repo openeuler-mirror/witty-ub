@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure466> g_urma("urma_466");
 bool UrmaFailure466::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_alloc_token_id_ex' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'dev not support token id table mode')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_alloc_token_id_ex' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'dev not support token id table mode'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure807> g_urma("urma_807");
 bool UrmaFailure807::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jetty_grp' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter: jetty_list')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jetty_grp' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter: jetty_list'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

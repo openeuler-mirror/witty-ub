@@ -19,6 +19,7 @@ add_library(diagnosis_tool STATIC
     failure_mode_realization/hw_break003.cpp
     failure_mode_realization/hw_break004.cpp
     failure_mode_realization/hw_break005.cpp
+    failure_mode_realization/urma/urma_log_helper.cpp
     failure_mode_realization/kvcache_conn_fault_001.cpp
     failure_mode_realization/kvcache_conn_fault_002.cpp
     failure_mode_realization/kvcache_conn_fault_003.cpp

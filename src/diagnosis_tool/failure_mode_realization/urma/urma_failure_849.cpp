@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure849> g_urma("urma_849");
 bool UrmaFailure849::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'encode_jfs_wr_reliable_info' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Unsupported send opcode')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'encode_jfs_wr_reliable_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Unsupported send opcode'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

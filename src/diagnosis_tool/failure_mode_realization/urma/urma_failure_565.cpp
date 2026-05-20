@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure565> g_urma("urma_565");
 bool UrmaFailure565::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'import_pjetty_for_port_eid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'No valid direct route')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'import_pjetty_for_port_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'No valid direct route'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

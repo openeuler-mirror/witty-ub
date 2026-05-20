@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure278> g_urma("urma_278");
 bool UrmaFailure278::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_queue_push_tail' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to enqueue with invalid node_num:' | grep -F ', max_node:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_queue_push_tail' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to enqueue with invalid node_num:' | "
+        "grep -F ', max_node:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

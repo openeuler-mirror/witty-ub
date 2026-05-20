@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure427> g_urma("urma_427");
 bool UrmaFailure427::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jetty_check_jfc' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter, jfr is null or jfc is NULL with shared jfr flag')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_jetty_check_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter, jfr is null or jfc is NULL with shared jfr flag'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

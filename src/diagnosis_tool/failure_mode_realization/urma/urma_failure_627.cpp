@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure627> g_urma("urma_627");
 bool UrmaFailure627::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'comp_post_recv' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid post jfr wr type')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'comp_post_recv' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid post jfr wr type'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

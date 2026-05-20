@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure856> g_urma("urma_856");
 bool UrmaFailure856::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_slide_wnd_seq_in_window' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param wnd')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_slide_wnd_seq_in_window' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param wnd'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

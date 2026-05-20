@@ -9,7 +9,20 @@ static AutoRegister<UrmaFailure424> g_urma("urma_424");
 bool UrmaFailure424::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jetty_check_dev_cap' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jetty cfg out of range, jfs_depth:' | grep -F ', max_jfs_depth:' | grep -F ', inline_data:' | grep -F ', max_jfs_inline_len:' | grep -F ', jfr_depth:' | grep -F ', max_jfr_depth:' | grep -F ', jfs_sge:' | grep -F ', max_jfs_sge:' | grep -F ', jfs_rsge:' | grep -F ', max_jfs_rsge:' | grep -F ', jfr_sge:' | grep -F ', max_jfr_sge:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_jetty_check_dev_cap' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jetty cfg out of range, jfs_depth:' | "
+        "grep -F ', max_jfs_depth:' | "
+        "grep -F ', inline_data:' | "
+        "grep -F ', max_jfs_inline_len:' | "
+        "grep -F ', jfr_depth:' | "
+        "grep -F ', max_jfr_depth:' | "
+        "grep -F ', jfs_sge:' | "
+        "grep -F ', max_jfs_sge:' | "
+        "grep -F ', jfs_rsge:' | "
+        "grep -F ', max_jfs_rsge:' | "
+        "grep -F ', jfr_sge:' | "
+        "grep -F ', max_jfr_sge:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure578> g_urma("urma_578");
 bool UrmaFailure578::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_import_seg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to import vseg')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_import_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to import vseg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

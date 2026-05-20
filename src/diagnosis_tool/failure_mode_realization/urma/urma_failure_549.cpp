@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure549> g_urma("urma_549");
 bool UrmaFailure549::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_parse_rsvd_jetty_range' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'parse rsvd jetty: failed')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_parse_rsvd_jetty_range' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'parse rsvd jetty: failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

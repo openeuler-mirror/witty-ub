@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure614> g_urma("urma_614");
 bool UrmaFailure614::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_register_sysfs_dev' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Register device failed. Failed to match driver for device')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_register_sysfs_dev' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Register device failed. Failed to match driver for device'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

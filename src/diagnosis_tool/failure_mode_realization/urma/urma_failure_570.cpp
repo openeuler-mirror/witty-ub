@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure570> g_urma("urma_570");
 bool UrmaFailure570::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_v_segment_register' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Fail to register seg, ret:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_v_segment_register' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Fail to register seg, ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

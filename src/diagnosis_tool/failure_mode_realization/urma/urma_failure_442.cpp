@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure442> g_urma("urma_442");
 bool UrmaFailure442::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_alloc_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'alloc_jetty failed')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_alloc_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'alloc_jetty failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,11 @@ static AutoRegister<UrmaFailure836> g_urma("urma_836");
 bool UrmaFailure836::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_del_jfs_p_vjetty_info_without_lock' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete p_vjfs_id node[' | grep -F ']: ret:' | grep -F 'pjfs_id:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_del_jfs_p_vjetty_info_without_lock' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete p_vjfs_id node[' | "
+        "grep -F ']: ret:' | "
+        "grep -F 'pjfs_id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

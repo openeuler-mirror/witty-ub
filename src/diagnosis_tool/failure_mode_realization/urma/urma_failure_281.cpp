@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure281> g_urma("urma_281");
 bool UrmaFailure281::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_slide_wnd_init' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param: total_size <= window_size')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_slide_wnd_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param: total_size <= window_size'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

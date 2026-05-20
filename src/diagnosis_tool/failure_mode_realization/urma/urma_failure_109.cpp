@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure109> g_urma("urma_109");
 bool UrmaFailure109::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_active_jfs' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to exec ops->active_jfs')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec ops->active_jfs'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

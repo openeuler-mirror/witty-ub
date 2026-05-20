@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure214> g_urma("urma_214");
 bool UrmaFailure214::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_segment_get_args_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param va')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_segment_get_args_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param va'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

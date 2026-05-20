@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure677> g_urma("urma_677");
 bool UrmaFailure677::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_ack_async_event' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid parameter with ops nullptr')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_ack_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter with ops nullptr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

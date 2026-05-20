@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure051> g_urma("urma_051");
 bool UrmaFailure051::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_cmd_set_jfr_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfc not exist in jfr')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_cmd_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfc not exist in jfr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

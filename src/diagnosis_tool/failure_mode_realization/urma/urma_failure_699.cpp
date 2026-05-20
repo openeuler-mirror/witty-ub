@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure699> g_urma("urma_699");
 bool UrmaFailure699::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_delete_jfs' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete vjfs')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_delete_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete vjfs'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

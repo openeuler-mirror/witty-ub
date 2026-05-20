@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure712> g_urma("urma_712");
 bool UrmaFailure712::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_delete_comp_default' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete comp type')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_delete_comp_default' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete comp type'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure498> g_urma("urma_498");
 bool UrmaFailure498::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'get_dev_and_ctx_by_name' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get device')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'get_dev_and_ctx_by_name' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get device'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

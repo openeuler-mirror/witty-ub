@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure485> g_urma("urma_485");
 bool UrmaFailure485::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_context' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to create urma context')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to create urma context'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

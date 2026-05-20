@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure574> g_urma("urma_574");
 bool UrmaFailure574::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_unregister_seg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete pseg for vseg, token_id:' | grep -F ', handle:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_unregister_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete pseg for vseg, token_id:' | "
+        "grep -F ', handle:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

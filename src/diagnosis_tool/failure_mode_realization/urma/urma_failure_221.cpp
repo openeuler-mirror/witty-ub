@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure221> g_urma("urma_221");
 bool UrmaFailure221::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_v_conn_init' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to init slide window in bdp_v_conn_table_add')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_v_conn_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init slide window in bdp_v_conn_table_add'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

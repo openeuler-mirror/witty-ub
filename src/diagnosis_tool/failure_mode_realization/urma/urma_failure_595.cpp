@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure595> g_urma("urma_595");
 bool UrmaFailure595::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_import_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Token value must be set when token policy is not URMA_TOKEN_NONE')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_import_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Token value must be set when token policy is not URMA_TOKEN_NONE'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

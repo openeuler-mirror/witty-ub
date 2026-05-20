@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure827> g_urma("urma_827");
 bool UrmaFailure827::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_open_drivers' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to prepare dli_fname')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to prepare dli_fname'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

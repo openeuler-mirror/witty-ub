@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure881> g_urma("urma_881");
 bool UrmaFailure881::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_check_jetty_cfg_with_jetty_grp' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid token with share_jfr')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_check_jetty_cfg_with_jetty_grp' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid token with share_jfr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

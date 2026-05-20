@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure414> g_urma("urma_414");
 bool UrmaFailure414::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_set_jfr_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to exec ops->set_jfr_opt')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec ops->set_jfr_opt'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

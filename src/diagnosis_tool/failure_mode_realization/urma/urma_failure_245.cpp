@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure245> g_urma("urma_245");
 bool UrmaFailure245::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_init' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Initialized already')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Initialized already'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

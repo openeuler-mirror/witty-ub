@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure287> g_urma("urma_287");
 bool UrmaFailure287::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'create_topo_map' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to create eid_mapping_hash_table')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'create_topo_map' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create eid_mapping_hash_table'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

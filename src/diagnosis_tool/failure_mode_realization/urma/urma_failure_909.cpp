@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure909> g_urma("urma_909");
 bool UrmaFailure909::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_str_to_eid' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid argument')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_str_to_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid argument'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

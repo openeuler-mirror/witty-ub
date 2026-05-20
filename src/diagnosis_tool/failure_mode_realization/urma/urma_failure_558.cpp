@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure558> g_urma("urma_558");
 bool UrmaFailure558::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_get_device_by_name' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'device list name: does not match dev_name')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_get_device_by_name' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'device list name: does not match dev_name'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

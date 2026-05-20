@@ -9,7 +9,10 @@ static AutoRegister<UrmaFailure473> g_urma("urma_473");
 bool UrmaFailure473::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_get_net_addr_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get netaddr list, ret:' | grep -F ', max_netaddr_cnt:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_get_net_addr_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get netaddr list, ret:' | "
+        "grep -F ', max_netaddr_cnt:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

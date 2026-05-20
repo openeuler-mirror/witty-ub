@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure205> g_urma("urma_205");
 bool UrmaFailure205::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_vjfce_info_table_add' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'exist node in map')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_vjfce_info_table_add' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'exist node in map'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

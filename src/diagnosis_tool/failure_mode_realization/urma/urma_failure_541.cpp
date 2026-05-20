@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure541> g_urma("urma_541");
 bool UrmaFailure541::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'read_eid_list_sysyf' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to read sysfs file')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'read_eid_list_sysyf' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to read sysfs file'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

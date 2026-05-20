@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure013> g_urma("urma_013");
 bool UrmaFailure013::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_import_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Multi-path jetty only support RM or RC, trans_mode:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_import_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Multi-path jetty only support RM or RC, trans_mode:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

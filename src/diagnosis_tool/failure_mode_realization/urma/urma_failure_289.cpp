@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure289> g_urma("urma_289");
 bool UrmaFailure289::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'deepcopy_sg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid sg pointer, dst or src is NULL')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'deepcopy_sg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid sg pointer, dst or src is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

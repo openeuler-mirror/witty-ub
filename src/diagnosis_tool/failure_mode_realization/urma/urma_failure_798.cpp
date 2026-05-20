@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure798> g_urma("urma_798");
 bool UrmaFailure798::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jetty_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete as jetty has remote jetty, try unbind, index:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete as jetty has remote jetty, try unbind, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

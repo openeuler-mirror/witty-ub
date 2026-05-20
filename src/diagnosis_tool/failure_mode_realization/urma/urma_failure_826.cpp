@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure826> g_urma("urma_826");
 bool UrmaFailure826::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_open_drivers' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get dl addr')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get dl addr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

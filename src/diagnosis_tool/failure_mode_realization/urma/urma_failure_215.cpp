@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure215> g_urma("urma_215");
 bool UrmaFailure215::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_segment_get_args_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to alloc args')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_segment_get_args_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc args'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure495> g_urma("urma_495");
 bool UrmaFailure495::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'get_comp_urma_jetty_id' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to get_comp_urma_jetty, Invalid type')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'get_comp_urma_jetty_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to get_comp_urma_jetty, Invalid type'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

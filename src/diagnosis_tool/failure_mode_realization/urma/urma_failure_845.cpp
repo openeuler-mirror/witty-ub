@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure845> g_urma("urma_845");
 bool UrmaFailure845::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_user_ctl' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Unsupported opcode, opcode:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_user_ctl' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Unsupported opcode, opcode:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

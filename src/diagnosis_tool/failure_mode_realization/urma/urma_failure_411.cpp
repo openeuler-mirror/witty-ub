@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure411> g_urma("urma_411");
 bool UrmaFailure411::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_set_jfr_opt' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'invalid opt id or opt len')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'invalid opt id or opt len'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

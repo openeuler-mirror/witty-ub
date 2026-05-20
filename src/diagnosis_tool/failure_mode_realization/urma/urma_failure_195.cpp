@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure195> g_urma("urma_195");
 bool UrmaFailure195::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_create_jetty' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'In matrix server, multi-device mode don'\''t support single path currently')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_create_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'In matrix server, multi-device mode don'\\''t support single path currently'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure891> g_urma("urma_891");
 bool UrmaFailure891::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_check_seg_cfg' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'token_id must set when token_id_valid is true, or must NULL when token_id_valid is false')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'token_id must set when token_id_valid is true, or must NULL when token_id_valid is false'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

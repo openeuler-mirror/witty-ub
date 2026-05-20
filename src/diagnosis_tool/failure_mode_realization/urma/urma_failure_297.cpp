@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure297> g_urma("urma_297");
 bool UrmaFailure297::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'deepcopy_faa_wr' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to deepcopy dst sge')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'deepcopy_faa_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to deepcopy dst sge'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

@@ -9,7 +9,12 @@ static AutoRegister<UrmaFailure771> g_urma("urma_771");
 bool UrmaFailure771::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfs' "$URMA_LOG_PATH" 2>/dev/null | grep -F '[DRV_ERR]Failed to delete jfs, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', ret:')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to delete jfs, dev_name:' | "
+        "grep -F ', eid_idx:' | "
+        "grep -F ', id:' | "
+        "grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

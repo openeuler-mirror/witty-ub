@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure285> g_urma("urma_285");
 bool UrmaFailure285::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'create_topo_map' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to alloc topo_map')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'create_topo_map' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc topo_map'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

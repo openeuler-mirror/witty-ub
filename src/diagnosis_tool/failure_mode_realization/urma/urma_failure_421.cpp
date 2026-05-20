@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure421> g_urma("urma_421");
 bool UrmaFailure421::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_create_jetty_check_trans_mode' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'jfr cfg is null or trans_mode or order_type invalid with non shared jfr flag')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_create_jetty_check_trans_mode' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfr cfg is null or trans_mode or order_type invalid with non shared jfr flag'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

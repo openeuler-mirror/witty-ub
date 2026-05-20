@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure622> g_urma("urma_622");
 bool UrmaFailure622::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_get_async_event' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'epoll_wait no event or err')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_get_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'epoll_wait no event or err'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

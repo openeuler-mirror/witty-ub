@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure280> g_urma("urma_280");
 bool UrmaFailure280::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bdp_slide_wnd_init' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param wnd')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bdp_slide_wnd_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param wnd'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

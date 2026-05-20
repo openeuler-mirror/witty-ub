@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure773> g_urma("urma_773");
 bool UrmaFailure773::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'urma_delete_jfs_batch' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Failed to delete jfs batch')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete jfs batch'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();

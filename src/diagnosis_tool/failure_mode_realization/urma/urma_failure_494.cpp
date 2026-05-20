@@ -9,7 +9,9 @@ static AutoRegister<UrmaFailure494> g_urma("urma_494");
 bool UrmaFailure494::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'bondp_jetty_get_args_list' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'Invalid param jetty cfg')");
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'bondp_jetty_get_args_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param jetty cfg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
