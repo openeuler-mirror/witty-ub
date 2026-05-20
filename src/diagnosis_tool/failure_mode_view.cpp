@@ -30,6 +30,7 @@ constexpr const char *JS_PLACEHOLDER = "__FAILURE_MODE_VIEW_JS__";
 constexpr mode_t OUTPUT_FILE_PERM_640 = 0640;
 constexpr const int MICROSECONDS_UNIT = 1000000;
 constexpr const int MICROSECONDS_LEN = 6;
+using TraceView = std::pair<std::string, const std::vector<FailureLogInfo> *>;
 
 FailureModeViewNode MakeViewNode(FailureModeController &controller)
 {
@@ -189,6 +190,33 @@ bool ReplaceFirst(std::string &content, const std::string &placeholder, const st
     return true;
 }
 
+bool CompareFailureModeViewNode(const FailureModeViewNode *left, const FailureModeViewNode *right)
+{
+    if (left->GetId() != right->GetId()) {
+        return left->GetId() < right->GetId();
+    }
+    return left->GetName() < right->GetName();
+}
+
+int64_t GetLatestTraceTimestamp(const std::vector<FailureLogInfo> &trace)
+{
+    int64_t latest = 0;
+    for (const FailureLogInfo &logInfo : trace) {
+        latest = std::max(latest, logInfo.timestamp);
+    }
+    return latest;
+}
+
+bool CompareTraceView(const TraceView &left, const TraceView &right)
+{
+    int64_t leftTime = GetLatestTraceTimestamp(*left.second);
+    int64_t rightTime = GetLatestTraceTimestamp(*right.second);
+    if (leftTime != rightTime) {
+        return leftTime > rightTime;
+    }
+    return left.first < right.first;
+}
+
 Json::Value NodeToJson(const FailureModeViewNode &node)
 {
     Json::Value nodeJson(Json::objectValue);
@@ -218,12 +246,7 @@ Json::Value NodeToJson(const FailureModeViewNode &node)
     for (const FailureModeViewNode &child : node.GetSubFailureModeNodes()) {
         children.push_back(&child);
     }
-    std::sort(children.begin(), children.end(), [](const FailureModeViewNode *left, const FailureModeViewNode *right) {
-        if (left->GetId() != right->GetId()) {
-            return left->GetId() < right->GetId();
-        }
-        return left->GetName() < right->GetName();
-    });
+    std::sort(children.begin(), children.end(), CompareFailureModeViewNode);
     for (const FailureModeViewNode *child : children) {
         nodeJson["children"].append(NodeToJson(*child));
     }
@@ -242,37 +265,17 @@ Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots,
     for (const FailureModeViewNode &node : roots) {
         sortedRoots.push_back(&node);
     }
-    std::sort(sortedRoots.begin(), sortedRoots.end(),
-              [](const FailureModeViewNode *left, const FailureModeViewNode *right) {
-                    if (left->GetId() != right->GetId()) {
-                        return left->GetId() < right->GetId();
-                    }
-                    return left->GetName() < right->GetName();
-              });
+    std::sort(sortedRoots.begin(), sortedRoots.end(), CompareFailureModeViewNode);
     for (const FailureModeViewNode *node : sortedRoots) {
         root["trees"].append(NodeToJson(*node));
     }
 
-    std::vector<std::pair<std::string, const std::vector<FailureLogInfo> *>> sortedTraces;
+    std::vector<TraceView> sortedTraces;
     sortedTraces.reserve(traces.size());
     for (const auto &[traceId, trace] : traces) {
         sortedTraces.emplace_back(traceId, &trace);
     }
-    std::sort(sortedTraces.begin(), sortedTraces.end(), [](const auto &left, const auto &right) {
-        const auto latestTimestamp = [](const std::vector<FailureLogInfo> &trace) {
-            int64_t latest = 0;
-            for (const FailureLogInfo &logInfo : trace) {
-                latest = std::max(latest, logInfo.timestamp);
-            }
-            return latest;
-        };
-        int64_t leftTime = latestTimestamp(*left.second);
-        int64_t rightTime = latestTimestamp(*right.second);
-        if (leftTime != rightTime) {
-            return leftTime > rightTime;
-        }
-        return left.first < right.first;
-    });
+    std::sort(sortedTraces.begin(), sortedTraces.end(), CompareTraceView);
     for (const auto &[traceId, trace] : sortedTraces) {
         root["traces"].append(TraceToJson(traceId, *trace));
     }
