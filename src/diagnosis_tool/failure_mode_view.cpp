@@ -34,7 +34,7 @@ constexpr const int MICROSECONDS_LEN = 6;
 FailureModeViewNode MakeViewNode(FailureModeController &controller)
 {
     auto failureMode = controller.GetFailureMode();
-    FailureModeViewNodeData data {
+    FailureModeViewNodeData data{
         failureMode->GetId(),
         failureMode->GetName(),
         failureMode->GetRootCauseDesc(),
@@ -244,10 +244,10 @@ Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots,
     }
     std::sort(sortedRoots.begin(), sortedRoots.end(),
               [](const FailureModeViewNode *left, const FailureModeViewNode *right) {
-                  if (left->GetId() != right->GetId()) {
-                      return left->GetId() < right->GetId();
-                  }
-                  return left->GetName() < right->GetName();
+                    if (left->GetId() != right->GetId()) {
+                        return left->GetId() < right->GetId();
+                    }
+                    return left->GetName() < right->GetName();
               });
     for (const FailureModeViewNode *node : sortedRoots) {
         root["trees"].append(NodeToJson(*node));
