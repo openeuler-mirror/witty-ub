@@ -1,0 +1,17 @@
+# === urma_007 -> urma_831 -> urma_478 ===
+2026-05-06T13:25:26.869360 | E | urma_main.c:64 | pod_1 | 4216:303 | e18c3204-0001-0001-0001-000000000001 | tenant1 | URMA|liburma|303|-|urma_open_provider[71]|/drivers/aaa.drv %s doesn't exist or doesn't have permission.
+2026-05-06T13:25:27.124807 | E | urma_main.c:159 | pod_1 | 4216:303 | e18c3204-0001-0001-0001-000000000001 | tenant1 | URMA|liburma|303|-|urma_open_drivers[202]|Failed to open provider /drivers/aaa.drv
+2026-05-06T13:25:28.429016 | E | urma_main.c:212 | pod_1 | 4216:201 | e18c3204-0001-0001-0001-000000000001 | tenant1 | URMA|liburma|201|-|urma_init[225]|None of the providers registered.
+
+# === urma_557 -> urma_553 ===
+2026-05-07T09:26:46.648793 | E | urma_main.c:311 | pod_2 | 32487:2038 | f27d9470-0001-0001-0001-000000000001 | tenant2 | URMA|liburma|2038|-|urma_get_device_list[314]|Invalid parameter.
+2026-05-07T09:26:47.123456 | E | urma_main.c:406 | pod_2 | 32487:2038 | f27d9470-0001-0001-0001-000000000001 | tenant2 | URMA|liburma|2038|-|urma_get_device_by_name[417]|urma get device list failed, device_num: 0.
+
+# === urma_483 -> urma_543 -> urma_538 ===
+2026-05-07T16:58:00.322410 | E | urma_device.c:41 | pod_3 | 12630:349 | c072b3268-0001-0001-0001-000000000001 | tenant3 | URMA|liburma|349|-|urma_read_sysfs_file[59]|Failed open file: /usr/local/bbb.file, errno: -1.
+2026-05-07T16:58:01.759864 | E | urma_device.c:117 | pod_3 | 12630:349 | c072b3268-0001-0001-0001-000000000001 | tenant3 | URMA|liburma|349|-|read_eid_sysfs_with_index[127]|Failed to read sysfs file
+2026-05-07T16:58:03.016875 | E | urma_main.c:491 | pod_3 | 12630:687 | c072b3268-0001-0001-0001-000000000001 | tenant3 | URMA|liburma|687|-|urma_create_context[505]|Failed to query eid.
+
+# === urma_483 -> urma_542 ===
+2026-05-08T20:16:33.257491 | E | urma_device.c:117 | pod_4 | 287:34 | a368e6097-0001-0001-0001-000000000001 | tenant4 | URMA|liburma|34|-|read_eid_sysfs_with_index[123]|snprintf failed, eid idx: -2.
+2026-05-08T20:16:34.587903 | E | urma_main.c:491 | pod_4 | 287:34 | a368e6097-0001-0001-0001-000000000001 | tenant4 | URMA|liburma|34|-|urma_create_context[505]|Failed to query eid.

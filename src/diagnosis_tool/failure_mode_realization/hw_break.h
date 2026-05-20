@@ -4,7 +4,7 @@
 namespace diag {
 class HwBreak : public FailureMode {
 public:
-    bool IsValid(std::string &logContent) override;
+    bool IsValid() override;
     std::string GetName() const override;
     std::string GetRootCauseDesc() const override;
     std::string GetFixSuggDesc() const override;

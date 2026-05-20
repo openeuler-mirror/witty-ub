@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef FAILURE_VIEW_H
-#define FAILURE_VIEW_H
+#ifndef LOG_VIEW_H
+#define LOG_VIEW_H
 
 #include <unordered_map>
 
@@ -31,4 +31,4 @@ private:
 };
 } // namespace failure::log
 
-#endif // FAILURE_VIEW_H
+#endif // LOG_VIEW_H

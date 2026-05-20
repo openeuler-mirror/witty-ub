@@ -23,16 +23,16 @@
 
 namespace view_visualizer {
 namespace {
-constexpr const char *DEFAULT_INPUT_PATH = "/var/witty-ub/failure-view.json";
-constexpr const char *DEFAULT_OUTPUT_PATH = "/var/witty-ub/failure-view-vis.html";
+constexpr const char *DEFAULT_INPUT_PATH = "/var/witty-ub/log-view.json";
+constexpr const char *DEFAULT_OUTPUT_PATH = "/var/witty-ub/log-view-vis.html";
 constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/usr/share/witty-ub/data/view-vis";
 constexpr const char *VIEW_VIS_SOURCE_RESOURCE_DIR = "data/view-vis";
-constexpr const char *HTML_TEMPLATE_NAME = "failure_view.html";
-constexpr const char *CSS_RESOURCE_NAME = "failure_view.css";
-constexpr const char *JS_RESOURCE_NAME = "failure_view.js";
-constexpr const char *DATA_PLACEHOLDER = "__FAILURE_VIEW_DATA__";
-constexpr const char *CSS_PLACEHOLDER = "__FAILURE_VIEW_CSS__";
-constexpr const char *JS_PLACEHOLDER = "__FAILURE_VIEW_JS__";
+constexpr const char *HTML_TEMPLATE_NAME = "log_view.html";
+constexpr const char *CSS_RESOURCE_NAME = "log_view.css";
+constexpr const char *JS_RESOURCE_NAME = "log_view.js";
+constexpr const char *DATA_PLACEHOLDER = "__LOG_VIEW_DATA__";
+constexpr const char *CSS_PLACEHOLDER = "__LOG_VIEW_CSS__";
+constexpr const char *JS_PLACEHOLDER = "__LOG_VIEW_JS__";
 
 std::string JsonToString(const Json::Value &root)
 {
@@ -101,7 +101,7 @@ RackResult ViewVisualizer::Start()
     if (ret != RACK_OK) {
         return ret;
     }
-    LOG_INFO << "generated visualized failure view: " << DEFAULT_OUTPUT_PATH;
+    LOG_INFO << "generated visualized log view: " << DEFAULT_OUTPUT_PATH;
     return RACK_OK;
 }
 
@@ -111,7 +111,7 @@ RackResult ViewVisualizer::LoadView(Json::Value &root) const
 {
     std::ifstream ifs(DEFAULT_INPUT_PATH);
     if (!ifs.is_open()) {
-        LOG_ERROR << "failed to open failure view json: " << DEFAULT_INPUT_PATH;
+        LOG_ERROR << "failed to open log view json: " << DEFAULT_INPUT_PATH;
         return RACK_FAIL;
     }
 
@@ -119,11 +119,11 @@ RackResult ViewVisualizer::LoadView(Json::Value &root) const
     builder["collectComments"] = false;
     std::string errors;
     if (!Json::parseFromStream(builder, ifs, &root, &errors)) {
-        LOG_ERROR << "failed to parse failure view json: " << DEFAULT_INPUT_PATH << ", error: " << errors;
+        LOG_ERROR << "failed to parse log view json: " << DEFAULT_INPUT_PATH << ", error: " << errors;
         return RACK_FAIL;
     }
     if (!root.isObject() || !root["callstack_views"].isArray()) {
-        LOG_ERROR << "invalid failure view json: missing array callstack_views";
+        LOG_ERROR << "invalid log view json: missing array callstack_views";
         return RACK_FAIL;
     }
     return RACK_OK;

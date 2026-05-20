@@ -1,14 +1,10 @@
 #include "failure_mode_controller.h"
 #include "failure_mode.h"
 
-#include <iostream>
-
 namespace diag {
 StepType FailureModeController::GetNextStep()
 {
-    bool isFailureModeValid = failureMode->IsValid(logContent);
-    std::cout << "FailureModeController::GetNextStep 日志内容：" << std::endl;
-    std::cout << logContent << std::endl;
+    bool isFailureModeValid = failureMode->IsValid();
     if (!isFailureModeValid) {
         return StepType::FALLBACK;
     }
@@ -22,5 +18,29 @@ StepType FailureModeController::GetNextStep()
 std::shared_ptr<FailureMode> FailureModeController::GetFailureMode()
 {
     return failureMode;
+}
+void FailureModeController::AddSubFailureModeValid(const std::string &subFailureModeId)
+{
+    subFailureModesValid.insert(subFailureModeId);
+}
+void FailureModeController::AddHitCount()
+{
+    hitCount++;
+}
+void FailureModeController::AddLogInfo(const FailureLogInfo &logInfo)
+{
+    logInfos.push_back(logInfo);
+}
+std::unordered_set<std::string> &FailureModeController::GetSubFailureModesValid()
+{
+    return subFailureModesValid;
+}
+int FailureModeController::GetHitCount()
+{
+    return hitCount;
+}
+const std::vector<FailureLogInfo> &FailureModeController::GetLogInfos() const
+{
+    return logInfos;
 }
 } // namespace diag

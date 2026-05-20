@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include "failure_mode.h"
 
 namespace diag {
@@ -19,10 +20,18 @@ public:
     explicit FailureModeController(std::shared_ptr<FailureMode> failureModeInput): failureMode(failureModeInput) {}
     StepType GetNextStep();
     std::shared_ptr<FailureMode> GetFailureMode();
+    void AddSubFailureModeValid(const std::string& subFailureModeId);
+    void AddHitCount();
+    void AddLogInfo(const FailureLogInfo &logInfo);
+    std::unordered_set<std::string>& GetSubFailureModesValid();
+    int GetHitCount();
+    const std::vector<FailureLogInfo> &GetLogInfos() const;
 
 private:
     std::shared_ptr<FailureMode> failureMode;
-    std::string logContent;
+    std::unordered_set<std::string> subFailureModesValid;    // dynamic view; for urma
+    int hitCount = 0;
+    std::vector<FailureLogInfo> logInfos;
 };
 
 } // namespace diag

@@ -17,6 +17,7 @@
 #include <vector>
 #include "rack_error.h"
 #include "rack_module.h"
+#include "failure_log_info.h"
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
 
@@ -38,12 +39,24 @@ public:
     RackResult Start() override;
     // 停止模块
     void Stop() override;
-    bool Visit(FailureModeController controller);
+
+private:
+    bool VisitKvCache(FailureModeController controller);
+    bool VisitUrma(FailureModeController controller);   // 构建urma tree静态图和traces命中表
+    void StartKvcache(const std::vector<std::string> &subRootFailureModes);
+    void StartUrma(const std::vector<std::string> &subRootFailureModes);
 
 private:
     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> failureModeJson;
     std::unordered_map<std::string, std::shared_ptr<FailureMode>> failureModeInstanceMap;
     std::unordered_map<std::string, std::vector<std::string>> subRootFailureModesMap;
+
+    std::unordered_map<std::string, FailureModeController>
+        failureModeIdToController; // (failureLogInfo ->) failureModeId -> failureModeController (-> failureMode)
+    std::unordered_map<std::string, std::vector<FailureLogInfo>> traces; // traceId -> logs
+    std::unordered_set<std::string> allFailureModes;                     // failureModeId
+    std::unordered_set<std::string> childFailureModes;                   // failureModeId
+    std::unordered_set<std::string> rootFailureModes;                    // failureModeId
 };
 
 } // namespace diag
