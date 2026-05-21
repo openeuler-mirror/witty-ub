@@ -41,8 +41,7 @@ public:
     void Stop() override;
 
 private:
-    bool VisitKvCache(FailureModeController controller);
-    bool VisitUrma(FailureModeController controller);   // 构建urma tree静态图和traces命中表
+    bool Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
     void StartKvcache(const std::vector<std::string> &subRootFailureModes);
     void StartUrma(const std::vector<std::string> &subRootFailureModes);
 

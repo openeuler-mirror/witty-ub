@@ -16,6 +16,7 @@ enum class LevelOption {
 };
 
 struct FailureLogInfo {
+
     int64_t timestamp;
     LevelOption level;
     std::string filename;
@@ -26,7 +27,6 @@ struct FailureLogInfo {
     std::string traceId;
     std::string clusterName;
     std::string message;
-
     std::string failureModeId; // 该日志对应的故障模式ID
 };
 } // namespace diag
