@@ -14,8 +14,7 @@
 
 #include "log_local_collector_module.h"
 
-#include "log_callstack_collector.h"
-#include "log_failure_collector.h"
+#include "log_collector.h"
 #include "logger.h"
 #include "ubse_context.h"
 
@@ -26,22 +25,7 @@ LogLocalCollectorModule::LogLocalCollectorModule() {}
 
 RackResult LogLocalCollectorModule::Initialize()
 {
-    auto &argMap = UbseContext::GetInstance().GetArgMap();
-    auto it = argMap.find("target");
-    if (it == argMap.end()) {
-        LOG_ERROR << "missing argument target";
-        return RACK_FAIL;
-    }
-    const std::string &runningMode = it->second;
-    if (runningMode == "callstack") {
-        collector_ = std::make_shared<LogCallstackCollector>();
-    } else if (runningMode == "failure") {
-        collector_ = std::make_shared<LogFailureCollector>();
-    } else {
-        LOG_ERROR << "invalid argument target: " << runningMode << ", expected \"callstack\" or \"failure\"";
-        return RACK_FAIL;
-    }
-
+    collector_ = std::make_shared<LogCollector>();
     auto res = collector_->Initialize();
     if (res != RACK_OK) {
         LOG_ERROR << "failed to initialize LogLocalCollectorModule";

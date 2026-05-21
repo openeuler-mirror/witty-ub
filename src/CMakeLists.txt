@@ -27,6 +27,8 @@ add_subdirectory(framework)
 add_subdirectory(topology)
 add_subdirectory(plugins)
 add_subdirectory(log)
+add_subdirectory(brpc_diag_tool)
+add_subdirectory(diagnosis_tool)
 
 #add_executable(copilot-worker
 #    ubse_main.cpp
@@ -48,3 +50,36 @@ add_executable(witty-ub-topo
 )
 target_include_directories(witty-ub-topo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(witty-ub-topo PRIVATE ubse_context topology lcne rack_http urma witty_json)
+
+add_executable(witty-ub-diag-example
+    witty_ub_diag_example_main.cpp
+)
+target_include_directories(witty-ub-diag-example PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(witty-ub-diag-example PRIVATE ubse_context brpc_diag_tool)
+
+add_executable(witty-ub-diag-tool
+    witty_ub_diag_tool_main.cpp
+)
+target_include_directories(witty-ub-diag-tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+if(APPLE)
+    target_link_options(witty-ub-diag-tool PRIVATE -force_load $<TARGET_FILE:diagnosis_tool>)
+else()
+    target_link_options(witty-ub-diag-tool PRIVATE 
+        "-Wl,--whole-archive" 
+        "$<TARGET_FILE:diagnosis_tool>"
+        "-Wl,--no-whole-archive"
+    )
+endif()
+target_link_libraries(witty-ub-diag-tool PRIVATE ubse_context diagnosis_tool log4cplus)
+
+add_executable(util-code-analyzer
+    util_code_analyzer_main.cpp
+)
+target_include_directories(util-code-analyzer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(util-code-analyzer PRIVATE ubse_context code_analyzer rack_http)
+
+add_executable(util-view-visualizer
+    util_view_visualizer_main.cpp
+)
+target_include_directories(util-view-visualizer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(util-view-visualizer PRIVATE ubse_context view_visualizer)

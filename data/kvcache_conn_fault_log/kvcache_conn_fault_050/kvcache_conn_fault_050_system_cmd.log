@@ -1,0 +1,4 @@
+# pgrep_worker
+12345 /opt/datasystem/worker
+# ss_tnlp
+LISTEN 0 128 *:31402

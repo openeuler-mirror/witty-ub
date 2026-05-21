@@ -127,6 +127,7 @@ namespace failure {
         }
         j["program_name"] = programName;
         j["proc_id"] = procId;
+        j["thread_id"] = threadId;
         if (auto time = TimestampToDatetimeStr(timestamp)) {
             j["time"] = *time;
         }
