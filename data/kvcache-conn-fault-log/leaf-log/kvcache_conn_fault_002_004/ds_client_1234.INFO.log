@@ -1,0 +1,1 @@
+2026-05-13T15:27:26.429773 | I | kv_client.cpp:67 | yxh-worker1-kvclient-1 | 10411:10411 | 002004-uuid-aaaa-bbbb-ccccccccccc4 | model_kvcache_predictor | [BatchGet] OBJECT_KEYS_MAX_SIZE_LIMIT exceeded, count: 1024, limit: 512

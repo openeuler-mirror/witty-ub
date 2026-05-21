@@ -1,0 +1,1 @@
+2026-05-13T15:27:26.429773 | W | kv_client.cpp:67 | yxh-worker1-kvclient-1 | 10411:10411 | 020008-uuid-aaaa-bbbb-ccccccccccc48 | model_kvcache_predictor | [RPC_SERVICE_UNAVAILABLE] remote: 10.0.0.8:9090, state: shutting_down
