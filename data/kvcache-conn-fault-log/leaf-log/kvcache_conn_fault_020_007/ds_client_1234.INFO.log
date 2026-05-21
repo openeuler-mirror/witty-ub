@@ -1,0 +1,1 @@
+2026-05-13T15:27:26.429773 | W | kv_client.cpp:67 | yxh-worker1-kvclient-1 | 10411:10411 | 020007-uuid-aaaa-bbbb-ccccccccccc47 | model_kvcache_predictor | [RPC_RECV_TIMEOUT] remote: 10.0.0.7:9090, elapsed: 30000ms, zmq_fault:0

@@ -1,0 +1,3 @@
+2026-05-13T15:27:26.429773 | E | worker_oc_service_get_impl.cpp:130 | yxh-worker1-kvclient-1 | 10411:10411 | 006002-uuid-aaaa-bbbb-ccccccccccc12 | model_kvcache_predictor | [EtcdClient] etcd is timeout, endpoint: 10.0.0.1:2379, elapsed: 5000ms
+2026-05-13T15:27:26.429773 | I | worker_oc_service_get_impl.cpp:130 | yxh-worker1-kvclient-1 | 10411:10411 | 028002-uuid-aaaa-bbbb-ccccccccccc62 | model_kvcache_predictor | [URMA_NEED_CONNECT] remoteAddress: 10.0.0.11:8080, remoteInstanceId: 12345, remoteWorkerId: w2
+2026-05-13T15:27:26.429773 | I | worker_oc_service_get_impl.cpp:130 | yxh-worker1-kvclient-1 | 10411:10411 | 020009-uuid-aaaa-bbbb-ccccccccccc49 | model_kvcache_predictor | zmq_event_handshake_failure_total: 8
