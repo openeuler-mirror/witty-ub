@@ -1,0 +1,55 @@
+#include "kvcache_conn_fault_002_008.h"
+#include "../../failure_mode_factory.h"
+#include "../urma/urma_log_helper.h"
+
+namespace diag {
+
+// 故障编码: kvcache_conn_fault_002_008 (来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130)
+static AutoRegister<KvcacheConnFault002_008> g_kvcacheconnfault002_008("kvcache_conn_fault_002_008");
+
+bool KvcacheConnFault002_008::IsValid()
+{
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130
+    std::string grepOutput = urma_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_FAULT_LOG\" && awk -F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log | sort | uniq -c | grep -w 8");
+    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    return !grepOutput.empty();
+}
+
+std::string KvcacheConnFault002_008::GetName() const
+{
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130
+    return "错误码8 K_NOT_READY";
+}
+
+std::string KvcacheConnFault002_008::GetRootCauseDesc() const
+{
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130
+    return "K_NOT_READY(8)表示Client未就绪，通常Init未完成或顺序错误，属于用户侧问题。（来源：08手册:L130）";
+}
+
+RootCause KvcacheConnFault002_008::AnalyzeRootCause()
+{
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130
+    return RootCause(true, GetRootCauseDesc());
+}
+
+std::string KvcacheConnFault002_008::GetFixSuggDesc() const
+{
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130
+    return "检查业务侧Init调用和ConnectOptions配置顺序，确保在Put/Get前已完成Init。（来源：08手册:L248）";
+}
+
+std::string KvcacheConnFault002_008::GetValidationMethodDesc() const
+{
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L269, L271, L130
+    return "通过access log识别（来源：08手册:L130, L189）：access log中status_code（第8列）为8。（来源：08手册:L130）";
+}
+
+std::string KvcacheConnFault002_008::GetId() const
+{
+    return "kvcache_conn_fault_002_008";
+}
+
+} // namespace diag
