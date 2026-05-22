@@ -11,7 +11,7 @@ bool KvcacheConnFault002_002::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L151, L153, L248
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep 'ConnectOptions was not configured' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null");
+        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -h 'ConnectOptions was not configured' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null | tail -20");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
