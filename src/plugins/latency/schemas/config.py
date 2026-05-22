@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from uuid import uuid4
-from latency.ENUM.general import OnlineStatus
+from latency.ENUM.general import OnlineStatus, LogLevel
 from latency.ENUM.model import ModelProvider, ModelLabel
 
 
@@ -25,15 +25,20 @@ class ModelConfig(BaseModel):
     batch_size: int = Field(default=16, description="批处理大小")
 
 
-class RunConfig(BaseModel):
-    host: str = Field(
-        default="0.0.0.0", description="服务运行的主机地址", alias="RUN_HOST"
-    )
-    port: int = Field(default=12144, description="服务运行的端口号", alias="RUN_PORT")
+class ServiceConfig(BaseModel):
+    is_debug: bool = Field(default=False, description="是否启用调试模式")
+    uvicorn_ip: str = Field(default="0.0.0.0", description="FastAPI 服务的IP地址")
+    uvicorn_port: int = Field(default=8000, description="FastAPI 服务的端口号")
+    ssl_certfile: str | None = Field(None, description="SSL证书文件的路径")
+    ssl_keyfile: str | None = Field(None, description="SSL密钥文件的路径")
+    ssl_enable: bool = Field(default=False, description="是否启用SSL连接")
+    log_level: LogLevel = Field(LogLevel.INFO, description="日志级别")
 
 
 class ConfigModel(BaseModel):
-    run_config: RunConfig = Field(default_factory=RunConfig, description="运行配置")
+    service: ServiceConfig = Field(
+        default_factory=ServiceConfig, description="服务配置"
+    )
     task: TaskConfig = Field(default_factory=TaskConfig, description="任务配置")
     chat_model: ModelConfig | None = Field(default=None, description="聊天模型配置")
     embedding_model: ModelConfig | None = Field(

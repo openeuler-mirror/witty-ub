@@ -1,73 +1,115 @@
-# Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
-import os
-import signal
-import asyncio
-import multiprocessing
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+from typing import Optional
 import logging
-from latency.database.managers.task.task_manager import TaskManager
-from ENUM.task import TaskStatusEnum
-from config.config import Config
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.task.worker.base import BaseWorker
+from latency.database.managers.task import TaskManager
+
 logger = logging.getLogger(__name__)
 
-multiprocessing = multiprocessing.get_context('spawn')
 
-
-class ProcessHandler:
-    ''' 进程处理器类'''
-    time_out = 10
-    cpu_use_limit = Config().get_config().cpu_use_limit
-    cpu_use_limit = min(max(cpu_use_limit, 1), os.cpu_count()//2) # type: ignore
+class TaskHandler:
+    """任务队列"""
 
     @staticmethod
-    def subprocess_target(target, *args, **kwargs):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    async def init_task_queue():
+        """初始化任务队列"""
+        running_tasks = await TaskManager.get_tasks_by_status(TaskStatusEnum.RUNNING)
+        await TaskManager.update_tasks_status_by_task_ids(
+            [task.id for task in running_tasks], TaskStatusEnum.PENDING
+        )
+
+    @staticmethod
+    async def init_task(task_type: TaskTypeEnum, op_id: str) -> str:
+        """初始化任务"""
         try:
-            loop.run_until_complete(target(*args, **kwargs))
-        finally:
-            loop.close()
+            task_id = await BaseWorker.init(task_type, op_id)
+            return task_id
+        except Exception as e:
+            err = f"[TaskQueueService] 初始化任务失败 {e}"
+            logger.exception(err)
 
     @staticmethod
-    async def add_task(task_id: str, target, *args, **kwargs):
-        """添加任务到进程池"""
-        # 当本机每个cpu使用率>=85%时，认为进程池已满，拒绝添加新任务
-        # 计算cpu使用率
-        task_running = await TaskManager.get_tasks_by_status([TaskStatusEnum.RUNNING])
-        if len(task_running) >= ProcessHandler.cpu_use_limit:
-            warning = f"当前运行的任务数 {len(task_running)} 已达到CPU使用限制 {ProcessHandler.cpu_use_limit}，无法添加新任务 {task_id}。"
-            logger.warning("[ProcessHandler] %s", warning)
-            return False
-        task_model = await TaskManager.get_task_by_id(task_id)
-        if task_model and task_model.status == TaskStatusEnum.PENDING.value:
-            try:
-                process = multiprocessing.Process(target=ProcessHandler.subprocess_target,
-                                                  args=(target,) + args, kwargs=kwargs)
-                process.start()
-                await TaskManager.update_task_by_id(task_id, {"pid": process.pid})
-                return True
-            except Exception as e:
-                error = f"添加任务 {task_id} 失败: {e}"
-                logger.error("[ProcessHandler] %s", error)
-                return False
-        else:
-            info = f"任务ID {task_id} 已存在，无法添加。"
-            logger.info("[ProcessHandler] %s", info)
-            return False
+    async def stop_task(task_id: str) -> Optional[str]:
+        """停止任务"""
+        try:
+            flag = await BaseWorker.stop(task_id)
+            if not flag:
+                return None
+            return task_id
+        except Exception as e:
+            err = f"[TaskQueueService] 停止任务失败 {e}"
+            logger.exception(err)
 
     @staticmethod
-    async def remove_task(task_id: str):
-        """从进程池中移除任务"""
-        task_model = await TaskManager.get_task_by_id(task_id)
-        
-        if task_model and task_model.pid:
+    async def delete_task(task_id: str) -> Optional[str]:
+        """删除任务"""
+        try:
+            stop_flag = await BaseWorker.stop(task_id)
+            if not stop_flag:
+                return None
+            delete_flag = await BaseWorker.delete(task_id)
+            if not delete_flag:
+                return None
+            return task_id
+        except Exception as e:
+            err = f"[TaskQueueService] 删除任务失败 {e}"
+            logger.exception(err)
+
+    @staticmethod
+    async def handle_successed_tasks():
+        handle_successed_task_limit = 128
+        tasks = await TaskManager.get_oldest_tasks_by_status(
+            TaskStatusEnum.SUCCESS_PENDING, handle_successed_task_limit
+        )
+        for task in tasks:
             try:
-                pid = task_model.pid
-                os.kill(pid, signal.SIGKILL)
-                info = f"进程 {task_id} ({pid}) 被杀死。"
-                logger.info("[ProcessHandler] %s", info)
+                await BaseWorker.deinit(task.id)
             except Exception as e:
-                warning = f"杀死进程 {task_id} 失败: {e}"
-                logger.warning("[ProcessHandler] %s", warning)
-        else:
-            info = f"任务ID {task_id} 不存在或没有关联的进程，无法移除。"
-            logger.info("[ProcessHandler] %s", info)
+                err = f"[TaskQueueService] 处理成功任务失败 {e}"
+                logger.error(err)
+
+    @staticmethod
+    async def handle_failed_tasks():
+        handle_failed_task_limit = 128
+        tasks = await TaskManager.get_oldest_tasks_by_status(
+            TaskStatusEnum.FAILED, handle_failed_task_limit
+        )
+        pending_task_ids = []
+        fail_task_ids = []
+        for task in tasks:
+            try:
+                flag = await BaseWorker.reinit(task.id)
+            except Exception as e:
+                err = f"[TaskQueueService] 处理失败任务失败 {e}"
+                logger.error(err)
+                fail_task_ids.append(task.id)
+                continue
+            if flag:
+                pending_task_ids.append(task.id)
+            else:
+                fail_task_ids.append(task.id)
+
+    @staticmethod
+    async def handle_pending_tasks():
+        handle_pending_task_limit = 128
+        pending_tasks = await TaskManager.get_oldest_tasks_by_status(
+            TaskStatusEnum.PENDING, handle_pending_task_limit
+        )
+        running_task_ids = []
+        for task in pending_tasks:
+            try:
+                flag = await BaseWorker.run(task.id)
+            except Exception as e:
+                flag = False
+                err = f"[TaskQueueService] 处理待处理任务失败 {e}"
+                logger.error(err)
+            if not flag:
+                break
+            running_task_ids.append(task.id)
+
+    @staticmethod
+    async def handle_tasks():
+        await TaskHandler.handle_successed_tasks()
+        await TaskHandler.handle_failed_tasks()
+        await TaskHandler.handle_pending_tasks()

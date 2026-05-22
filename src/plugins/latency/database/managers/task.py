@@ -50,6 +50,22 @@ class TaskManager:
         return [TaskModel(**result) for result in results]
 
     @staticmethod
+    async def get_oldest_tasks_by_status(
+        status: TaskStatusEnum, limit: int = 10
+    ) -> list[TaskModel]:
+        """根据任务状态获取最旧的任务列表（按创建时间升序排序）"""
+        sql_str = """
+            SELECT id, pid, task_name, task_type, status, task_related_params, created_at
+            FROM task_table
+            WHERE status = :status
+            ORDER BY created_at ASC
+            LIMIT :limit
+        """
+        params = {"status": status.value, "limit": limit}
+        results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        return [TaskModel(**result) for result in results]
+
+    @staticmethod
     async def update_task_by_id(task_id: str, update_data: dict) -> bool:
         """根据任务ID更新任务信息"""
         set_clauses = []
