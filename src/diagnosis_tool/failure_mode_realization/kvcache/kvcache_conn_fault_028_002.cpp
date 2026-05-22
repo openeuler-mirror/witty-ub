@@ -32,7 +32,7 @@ std::string KvcacheConnFault028_002::GetRootCauseDesc() const
 RootCause KvcacheConnFault028_002::AnalyzeRootCause()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L907, L909, L298, L124
-    return RootCause(true, GetRootCauseDesc());
+    return RootCause(false, GetRootCauseDesc());
 }
 
 std::string KvcacheConnFault028_002::GetFixSuggDesc() const

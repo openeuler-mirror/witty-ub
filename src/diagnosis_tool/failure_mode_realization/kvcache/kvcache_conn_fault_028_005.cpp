@@ -11,7 +11,7 @@ bool KvcacheConnFault028_005::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L967, L969, L301, L624
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'fallback to TCP/IP payload' \"$WITTY_UB_FAULT_LOG\"/datasystem_worker.INFO.log \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null | tail -20");
+        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'fallback to TCP/IP payload' \"$WITTY_UB_FAULT_LOG\"/datasystem_worker.INFO.log 2>/dev/null | tail -20");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -32,7 +32,7 @@ std::string KvcacheConnFault028_005::GetRootCauseDesc() const
 RootCause KvcacheConnFault028_005::AnalyzeRootCause()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L967, L969, L301, L624
-    return RootCause(true, GetRootCauseDesc());
+    return RootCause(false, GetRootCauseDesc());
 }
 
 std::string KvcacheConnFault028_005::GetFixSuggDesc() const
