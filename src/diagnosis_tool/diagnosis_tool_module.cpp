@@ -30,7 +30,6 @@ using namespace ubse::context;
 
 DiagnosisToolModule::DiagnosisToolModule() {}
 
-static std::vector<std::vector<FailureModeController>> validRoutes;
 bool urmaVisited = false;
 constexpr const char *MODULE_KVCACHE = "kvcache_conn";
 constexpr const char *MODULE_URMA = "urma";
@@ -41,6 +40,8 @@ void DiagnosisToolModule::InitializeFailureModeTree()
 {
     // 1. 清空现有数据
     failureModeJson.clear();
+    failureModeInstanceMap.clear();
+    subRootFailureModesMap.clear();
 
     // 2. 尝试打开文件
     const char *wittyDirEnv = std::getenv("WITTY_DIR");
@@ -74,7 +75,8 @@ void DiagnosisToolModule::InitializeFailureModeTree()
         std::vector<std::string> subRootFailureModes;
         for (const auto &innerKey : innerKeys) {
             allFailureModes.insert(innerKey);
-            failureModeInstanceMap[innerKey] = FailureModeFactory::Instance().Create(innerKey);
+            std::shared_ptr<FailureMode> failureMode = FailureModeFactory::Instance().Create(innerKey);
+            failureModeInstanceMap[innerKey] = failureMode;
             const Json::Value &arrayValue = innerObj[innerKey];
             std::vector<std::string> vec;
             if (arrayValue.isArray()) {
@@ -82,7 +84,9 @@ void DiagnosisToolModule::InitializeFailureModeTree()
                     if (element.isString()) {
                         vec.push_back(element.asString());
                         nonSubRootFailureModes.insert(element.asString());
-                        failureModeInstanceMap[innerKey]->AddSubFailureMode(element.asString());
+                        if (failureMode != nullptr) {
+                            failureMode->AddSubFailureMode(element.asString());
+                        }
                     }
                 }
             }
@@ -152,6 +156,9 @@ bool DiagnosisToolModule::Visit(FailureModeController controller)
 {
     // TODO:把VisitUrma的逻辑同时拆给VisitKvcache
     std::shared_ptr<FailureMode> failureMode = controller.GetFailureMode();
+    if (failureMode == nullptr) {
+        return false;
+    }
     std::string failureModeId = failureMode->GetId();
     if (failureMode->IsValid()) {
         std::cout << failureMode -> GetName() << std::endl;
@@ -169,11 +176,13 @@ bool DiagnosisToolModule::Visit(FailureModeController controller)
     allFailureModes.insert(failureModeId);
     failureModeIdToController.emplace(failureModeId, controller);
     RootCause rootCause = failureMode->AnalyzeRootCause();
-    if (!rootCause.GetIsFinalRootCause() && !urmaVisited) {
+    if (!rootCause.GetIsFinalRootCause() && (failureModeId.find(MODULE_KVCACHE) != 0 || !urmaVisited)) {
         for (std::string subFailureModeId : failureMode->GetSubFailureModes()) {
+            if (subFailureModeId.find(MODULE_URMA) == 0) {
+                urmaVisited = true;
+            }
             Visit(FailureModeController(failureModeInstanceMap[subFailureModeId]));
         }
-        urmaVisited = true;
     }
     return true;
 }
@@ -181,7 +190,11 @@ bool DiagnosisToolModule::Visit(FailureModeController controller)
 void DiagnosisToolModule::StartKvcache(const std::vector<std::string> &subRootFailureModes)
 {
     for (auto subRootFailureModeId : subRootFailureModes) {
-        std::shared_ptr<FailureMode> subRootFailureMode = failureModeInstanceMap[subRootFailureModeId];
+        auto iter = failureModeInstanceMap.find(subRootFailureModeId);
+        if (iter == failureModeInstanceMap.end()) {
+            continue;
+        }
+        std::shared_ptr<FailureMode> subRootFailureMode = iter->second;
         Visit(FailureModeController(subRootFailureMode));
     }
 }
@@ -189,7 +202,11 @@ void DiagnosisToolModule::StartKvcache(const std::vector<std::string> &subRootFa
 void DiagnosisToolModule::StartUrma(const std::vector<std::string> &subRootFailureModes)
 {
     for (auto subRootFailureModeId : subRootFailureModes) {
-        std::shared_ptr<FailureMode> subRootFailureMode = failureModeInstanceMap[subRootFailureModeId];
+        auto iter = failureModeInstanceMap.find(subRootFailureModeId);
+        if (iter == failureModeInstanceMap.end()) {
+            continue;
+        }
+        std::shared_ptr<FailureMode> subRootFailureMode = iter->second;
         Visit(FailureModeController(subRootFailureMode));
     }
     // 仅对urma的trace排序
@@ -197,8 +214,7 @@ void DiagnosisToolModule::StartUrma(const std::vector<std::string> &subRootFailu
         std::sort(trace.begin(), trace.end(), [](const FailureLogInfo &left, const FailureLogInfo &right) {
             if (left.failureModeId.find(MODULE_KVCACHE) == 0 || right.failureModeId.find(MODULE_KVCACHE) == 0) {
                 return true;
-            }
-            else {
+            } else {
                 return left.timestamp > right.timestamp;
             }
         });
@@ -207,17 +223,35 @@ void DiagnosisToolModule::StartUrma(const std::vector<std::string> &subRootFailu
 
 RackResult DiagnosisToolModule::Start()
 {
+    failureModeIdToController.clear();
+    traces.clear();
+    allFailureModes.clear();
+    childFailureModes.clear();
+    rootFailureModes.clear();
+
     for (auto subRootFailures : subRootFailureModesMap) {
         std::string moduleName = subRootFailures.first;
-        // if (moduleName == MODULE_KVCACHE) {
-        //     std::cout << "Diagnosing failures in module: " << moduleName << std::endl;
-        //     StartKvcache(subRootFailures.second);
-        // }
-        // 仅调试，正式版本执行上述代码走KVCache判断，删除下述代码
-        if (moduleName == MODULE_URMA) {
+        if (moduleName == MODULE_KVCACHE) {
             std::cout << "Diagnosing failures in module: " << moduleName << std::endl;
-            StartUrma(subRootFailures.second);
+            StartKvcache(subRootFailures.second);
         }
+        // 仅调试，正式版本执行上述代码走KVCache判断，删除下述代码
+        // if (moduleName == MODULE_URMA) {
+        //     std::cout << "Diagnosing failures in module: " << moduleName << std::endl;
+        //     StartUrma(subRootFailures.second);
+        // }
+    }
+    // 仅对urma的trace排序
+    for (auto &[traceId, trace] : traces) {
+        std::sort(trace.begin(), trace.end(), [](const FailureLogInfo &left, const FailureLogInfo &right) {
+            if (left.failureModeId.find(MODULE_KVCACHE) == 0 && right.failureModeId.find(MODULE_URMA) == 0) {
+                return true;
+            } else if (left.failureModeId.find(MODULE_URMA) == 0 && right.failureModeId.find(MODULE_KVCACHE) == 0) {
+                return false;
+            } else {
+                return left.timestamp > right.timestamp;
+            }
+        });
     }
     for (const auto &[traceId, trace] : traces) {
         int traceLen = trace.size();
@@ -234,7 +268,13 @@ RackResult DiagnosisToolModule::Start()
             rootFailureModes.insert(failureModeId);
         }
     }
-
+    for (auto &[traceId, trace] : traces) {
+        std::cout << "traceId: " << traceId << std::endl;
+        for (const auto& logInfo : trace) {
+            std::cout << logInfo.failureModeId << " -> ";
+        }
+        std::cout << std::endl;
+    }
     FailureModeView view;
     RackResult ret = view.Build(rootFailureModes, failureModeIdToController, traces);
     if (ret != RACK_OK) {
