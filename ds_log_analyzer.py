@@ -381,3 +381,212 @@ def _plot_latency_chart(label:str,stats_series:list[dict],output_dir:str,fmt:str
     ax.grid(alpha=0.3)
     
     ax.legend(loc='upper left')
+
+    if times:
+        span_sec = (times[-1]-times[0]).total_seconds()
+        date_fmt = "%H:%M" if span_sec < 84600 else "%m-%d %H:%M"
+        fig.autofmt_xdate()
+        ax.xaxis.set_major_formatter(mdates.DateFormatter(date_fmt))
+    
+    ax.set_title(f"Latency - {label}\n{stats_text}",fontsize=11)
+
+    fig.tight_layout()
+
+    os.makedirs(output_dir, exist_ok=True)
+    safe_label = label.replace(".","_")
+    out_path = os.path.join(output_dir,f"{safe_label}_latency.{fmt}")
+    fig.savefig(out_path, format=fmt, dpi=dpi) 
+    plt.close(fig)
+    print(f"Saved:  {out_path}")
+
+def latency_cmd(args):
+    if args.window <=0:
+        print("ERROR: --window must be a positive integer",file=sys.stderr)
+        sys.exit(1)
+    if not args.inputs:
+        print("ERROR: --input is required",file=sys.stderr)
+        sys.exit(1)
+    for p in args.inputs:
+        if not os.path.exists(p):
+            print(f"ERROR: Input path {p} does not exist",file=sys.stderr)
+            sys.exit(1)
+    
+    op_filter= args.op if args.op else ""
+    print(f"Parsing access logs...")
+    if op_filter:
+        print(f" Filtering: {op_filter}")
+    
+    entries = _parse_latency_logs(args.inputs,op_filter)    
+    if not entries:
+        print("WARNING: No valid log entries found. Nothing to plot.",file=sys.stderr)
+        sys.exit(0)
+    start_ts=_parse_timestamp(args.start) if args.start else None
+    end_ts=_parse_timestamp(args.end) if args.end else None
+    if start_ts or end_ts:
+        before = len(entries)
+        if start_ts:
+            entries = [e for e in entries if e.timestamp >= start_ts]
+        if end_ts:
+            entries = [e for e in entries if e.timestamp <= end_ts]
+        print(f" Time range: {args.start or '...'} ~ {args.end or '...'}")
+        print(f" Filtered by time: {before} -> {len(entries)} entries")
+    if not entries:
+        print("WARNING: No log entries after time filtering.",file=sys.stderr)
+        sys.exit(0)
+    handles=set(e.handle for e in entries)
+    pods=set(e.pod_ip for e in entries)
+    print(f" Total entries: {len(entries)}  Handles: {handles}  Pods: {pods}")
+    print(f" Bucketing latency by {args.window}s windows...")
+    bucketed = _bucket_latency(entries,args.window)
+    if args.merge:
+        all_buckets:dict[int,list[float]] = defaultdict(list)
+        for pod_buckets in bucketed.values():
+            for bk,vals in pod_buckets.items():
+                all_buckets[bk].extend(vals)
+        stats_series=[]
+        for bk in sorted(all_buckets.keys()):
+            ws = datetime.fromtimestamp(bj * args.window)
+            vals = all_buckets[bk]
+            s=_compute_latency_stats(vals)
+            s["window_start"]=ws
+            s["values"]=vals
+            stats_series.append(s)
+        if stats_series:
+            _plot_latency_chart("All Pods",stats_series,args.output_dir,args.format,args.dpi)
+    else:
+        for pod_ip, pod_buckets in bucketed.items():
+            pod_buckets=[]
+            stats_series=[]
+            for bk in sorted(pod_buckets):
+                ws = datetime.fromtimestamp(bk * args.window)
+                vals = pod_buckets[bk]
+                s=_compute_latency_stats(vals)
+                s["window_start"]=ws
+                s["values"]=vals
+                stats_series.append(s)
+        if stats_series:
+            _plot_latency_chart(f"Pod {pod_ip}",stats_series,args.output_dir,args.format,args.dpi)
+    
+    print(f"\n{'='*80}")
+    print(f"{'Pod':<18} {'Avg':>10} {'P90':>10} {'P99':>10} {'Max':>10} {'Min':>10} {'Count':>8}")
+    print(f"{'-'*18} {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*8}")
+    if args.merge:
+        all_vals=[e.elapsed_us for e in entries ]
+        s=_compute_latency_stats(all_vals)
+        print(f"{'all':<18} {_format_us(s['avg']):>10} {_format_us(s['p90']):>10} {_format_us(s['p99']):>10} {_format_us(s['max']):>10} {_format_us(s['min']):>10} {s['count']:>8}")
+    else:
+        for pod_id in sorted(bucketed):
+            vals = [v for bk_vals in bucketed[pod_id].values() for v in bk_vals]
+            s=_compute_latency_stats(vals)
+            print(f"{pod_id:<18} {_format_us(s['avg']):>10} {_format_us(s['p90']):>10} {_format_us(s['p99']):>10} {_format_us(s['max']):>10} {_format_us(s['min']):>10} {s['count']:>8}")
+    print(f"{'='*80}")
+    print("\nDone") 
+
+
+def _get_template_content(template_name):
+    try:
+        import pkgutil
+        template_bytes = pkgutil.get_data(__name__,template_name)
+        if template_bytes:
+            return template_bytes.decode("utf-8")
+    except Exception as e:
+        pass
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    template_path = os.path.join(script_dir,'templates',template_name)
+    if os.path.exists(template_path):
+        with open(template_path,'r',encoding="utf-8") as f:
+            return f.read()
+        
+    template_path = os.path.join(os.getcwd(),template_name)
+    if os.path.exists(template_path):
+        with open(template_path,'r',encoding ="utf-8") as f:
+            return f.read()
+    return None
+
+def _aggregate_by_windos(traces:list,window_seconds:int)->list:
+    if not traces:
+        return []
+    windows = {}
+    for tarce in traces:
+        ts =datetime.fromisoformat(trace["timestamp"])
+        window_key = int(ts.timestamp()//window_seconds)
+        if window_key not in windows:
+            windows[window_key]={
+                "window_start": datetime.fromtimestamp(window_key * window_seconds),
+                "total_times:":[],
+                "query_meta_times":[],
+                "urma_times":[],
+                "samples":[]
+            }
+        if trace["total_time_us"] is not None:
+            windows[window_key]["total_times"].append(trace["total_time_us"])
+        if trace["query_meta_us"] is not None:
+            windows[window_key]["query_meta_times"].append(trace["query_meta_us"])
+        if trace["urma_total_us"] is not None:
+            windows[window_key]["urma_times"].append(trace["urma_total_us"])
+        windows[window_key]["samples"].append(trace)
+    result=[]
+    for window_key,data in sorted(windows.items()):
+        total_p99= _percentile(data["total_times"],99) if data["total_times"] else None
+        query_p99=_percentile(data["query_meta_times"],99) if data["query_meta_times"] else None
+        urma_p99=_percentile(data["urma_times"],99) if data["urma_times"] else None
+
+        representative= None
+        if total_p99 is not None and data["total_times"]:
+            closest_idx = min(range(len(data['total_times'])),key=lambda i: abs(data["total_times"][i]-total_p99))
+            representative = data["samples"][closest_idx] if closest_idx < len(data["samples"]) else data["samples"][0]
+        result.append({
+            "window_start": data["window_start"],
+            "window_end": data["window_start"] + timedelta(seconds=window_seconds),
+            "total_p99_us": total_p99,
+            "query_p99_us": query_p99,
+            "urma_p99_us": urma_p99,
+            "sample_count": len(data["samples"]),
+            "representative_trace": representative
+        })
+    return result
+def _aggregate_by_ip_pair(traces:list)->dict:
+    """按 urma_write_source 和 urma_write_dst 进行聚合"""
+    result={}
+    for trace in traces:
+        src = trace.get("urma_write_source","")
+        dst = trace.get("urma_write_dst","")
+        if not src or not dst:
+            continue
+        key=f"{src}||{dst}"
+        if key not in result:
+            result[key]={
+                "src": src,
+                "dst": dst,
+                "total_times_us":[],
+                "query_meta_us":[],
+                "urma_total_us":[],
+            }
+        result[key]["traces"].append(trace)
+        if trace.get("total_time_us") is not None:
+            result[key]["total_times_us"].append(trace["total_time_us"] )
+        if trace.get("query_meta_us") is not None:
+            result[key]["query_meta_us"].append(trace["query_meta_us"])
+        if trace.get("urma_total_us") is not None:
+            result[key]["urma_total_us"].append(trace["urma_total_us"])
+
+    for key,data in result.items():
+        total_times=data["total_times_us"]
+        query_meta_times=data["query_meta_us"]
+        urma_times=data["urma_total_us"]
+        if total_times:
+            data["total_p99"]= _percentile(sorted(total_times),99)
+            data["total_avg"]= sum(total_times)/len(total_times)
+        else:
+            data["total_p99"]=None
+            data["total_avg"]=None
+        if query_meta_times:
+            data["query_p99"] = _percentile(sorted(query_meta_times),99)
+        else:
+            data["query_p99"]=0
+        if urma_times:
+            data["urma_p99"] = _percentile(sorted(urma_times),99)
+        else:
+            data["urma_p99"]=0
+        data["sample_count"]= len(data["traces"])
+    return result
