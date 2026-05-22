@@ -1,3 +1,6 @@
+import os
+
+
 def _read_and_bucket_by_endpoint(
     csv_path: str, windows_sec: int
 ) -> dict[str, list[_Bucket]]:
@@ -212,3 +215,169 @@ def _plot_endpoint(end_point:str,metrics:list[dict],output_dir:str,fmt:str,dpi:i
     fig.savefig(output_path, format=fmt, dpi=dpi)
     plt.close(fig)
     print(f"Saved plot for endpoint {end_point} to {output_path}")
+
+def plot_cmd(args):
+    if args.windows<=0:
+        print('Error: --windows must be a positive integer representing seconds',file=sys.stderr)
+        sys.exit(1)
+    if args.min_samples< 0:
+        print('Error: --min_samples must be a non-negative integer',file=sys.stderr)
+        sys.exit(1)
+    if not os.path.isfile(args.input):
+        print(f"Error: Input file {args.input} does not exist",file=sys.stderr)
+        sys.exit(1)
+    print(f"Reading CSV:{args.input}")
+    print(f" Window: {args.windows}s Min samples: {args.min_samples}")
+    print(f" Group by: {args.group_by}")
+
+    if args.group_by != "endpoint":
+        print(f" Grouping by: urma_write_source -> urma_write_dst (with ports)")
+        endpont_buckets = _read_and_bucket_by_endpoint(args.input, args.windows)
+        if not endpont_buckets:
+            print("WARING: No valid rows with endpoint information found in CSV . Nothing to plot.",file=sys.stderr)
+            sys.exit(0)
+        
+        print(f" Endpoint pairs: {len(endpont_buckets)}")
+
+        for endpoint in sorted(endpont_buckets.keys()):
+            buckets = endpont_buckets[endpoint]
+            print(f"\nEndpoint: {endpoint} Buckets: {len(buckets)} time buckets")
+            metrics = _compute_metrics(buckets, args.min_samples)
+            if not metrics:
+                print(f" WARING: No buckets with >= {args.min_samples} samples, skpping")
+                continue
+            print(f" Plottable buckets: {len(metrics)}")
+            _plot_endpoint(endpoint, metrics, args.output_dir, args.format, args.dpi)
+    else:
+        node_buckets = _read_and_bucket(args.input, args.windows)
+        if not node_buckets:
+            print("WARNING: No valid rows found in CSV. Nothing to plot.",file=sys.stderr)
+            sys.exit(0)
+        
+        print(f" Pod IPs: {len(node_buckets)}")
+
+        for pod_ip in sorted(node_buckets.keys()):
+            buckets = node_buckets[pod_ip]
+            print(f"\nPod IP: {pod_ip} Buckets: {len(buckets)} time buckets")
+            metrics = _compute_metrics(buckets, args.min_samples)
+            if not metrics:
+                print(f" WARNING: No buckets with >= {args.min_samples} samples, skpping")
+                continue
+            print(f" Plottable buckets: {len(metrics)}")
+            slow_count =_write_slow_p99_trace_logs(pod_ip,metrics,args.output_dir)
+            if slow_count:
+                print(f" Slow P99 trace log:{os.path.join(args.output_dir,f"{pod_ip}.log")} ({slow_count} rows)")
+            _plot_node(pod_ip, metrics, args.output_dir, args.format, args.dpi)
+    print("\nDone")
+
+@dataclass
+class _LatencyEntry:
+    timestamp:datetime
+    elapsed_us:float
+    handle:str
+    pod_id:str
+
+def _resolve_log_files(inputs:list[str])->list[tuple[str,str]]:
+    _IP_PREFIXES = ("SDK_","dsworker_","worker_")
+    def _extract_ip(dir_name:str)->str:
+        for prefix in _IP_PREFIXES:
+            if dir_name.startswith(prefix):
+                return dir_name[len(prefix):]
+        return dir_name
+
+    result=[]
+    for path in inputs:
+        if os.path.isfile(path):
+            parent = os.path.basename(os.path.dirname(path))
+            result.append((path,_extract_ip(parent)))
+        elif os.path.isdir(path):
+            for entry in sorted(os.listdir(path)):
+                child = os.path.join(path,entry)
+                if os.path.isdir(child):
+                    pod_ip = _extract_ip(entry)
+                    for fname in sorted(os.listdir(child)):
+                        fpath=os.path.join(child,fname)
+                        if os.path.isfile(fpath):
+                            result.append((fpath,pod_ip))
+                elif os.path.isfile(child):
+                    parent = os.path.basename(os.path.dirname(child))
+                    result.append((child,_extract_ip(parent)))
+    return result
+
+def _parse_latency_logs(inputs: list[str],op_filter:str)->list[_LatencyEntry]:
+    entries=[]
+    for fpath,pod_ip in _resolve_log_files(inputs):
+        with open(fpath,"r",errors="replace") as f:
+            for line in f:
+                p = _parse_access_line(line)
+                if not p:
+                    continue
+                if op_filter and p["handle"] != op_filter:
+                    continue
+                try:
+                    elapsed = int(p["elapsed"])
+                except (ValueError,TypeError):
+                    continue
+                entries.append(_LatencyEntry(
+                    timestamp=_parse_timestamp(p["timestamp"]),
+                    elapsed_us=float(elapsed),
+                    handle=p["handle"],
+                    pod_ip=pod_ip                
+                    ))
+    entries.sort(key=lambda e: e.timestamp)
+    return entries
+
+def _bucket_latency(entries:list[_LatencyEntry],window_sec:int)->dict[str,dict[int,list[_LatencyEntry]]]:
+    result: dict[str,dict[int,list[_LatencyEntry]]] = defaultdict(lambda:defaultdict(list))
+    for e in entries:
+        bk = int(e.timestamp.timestamp()) // window_sec
+        result[e.pod_ip][bk].append(e.elapsed_us)
+    return result
+
+def _compute_latency_stats(values:list[float])->dict:
+    return {
+        "avg": sum(values)/len(values) if values else None,
+        "p90": _percentile(values,90) if values else None,
+        "p99": _percentile(values,99) if values else None,
+        "max" : max(values) if values else None,
+        "min" : min(values) if values else None,
+        "count": len(values) if values else 0
+    }
+    
+def _format_us(val:float)->str:
+    if val >= 1000:
+        return f"{val/1000:.2f} ms"
+    return f"{val:.0f} us"
+
+def _plot_latency_chart(label:str,stats_series:list[dict],output_dir:str,fmt:str,dpi:int):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+
+    times = [s["window_start"] for s in stats_series]
+    avg_vals = [s["avg"] for s in stats_series if s["avg"] is not None]
+    p99_vals = [s["p99"] for s in stats_series if s["p99"] is not None]
+
+    fig,ax = plt.subplots(figsize=(14,6))
+
+    ax.plot(times,avg_vals,'b-o',marker_size=3,linewidth=1.2,label="Avg")
+    ax.plot(times,p99_vals,'r--',linewidth=0.8,alpha=0.6,label="P99")
+
+    all_elapsed = []
+    for s in stats_series:
+        all_elapsed.extend(s["values"])
+    overall = _compute_latency_stats(all_elapsed)
+    stats_text=(
+        f"Overall avg={_format_us(overall['avg'])}  "
+        f"p90={_format_us(overall['p90'])}  "
+        f"p99={_format_us(overall['p99'])}  "
+        f"max={_format_us(overall['max'])}  "
+        f"min={_format_us(overall['min'])}  "
+        f"count={overall['count']}"
+    )
+
+    ax.set_ylabel('Latency (us)')
+    ax.grid(alpha=0.3)
+    
+    ax.legend(loc='upper left')
