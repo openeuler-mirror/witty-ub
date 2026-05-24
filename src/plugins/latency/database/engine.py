@@ -28,6 +28,7 @@ table_ddl_list = {
         CREATE TABLE IF NOT EXISTS log_file_table (
             id TEXT PRIMARY KEY,
             kb_id TEXT,
+            name TEXT,
             file_path TEXT,
             file_size INTEGER,
             anomaly_cnt INTEGER,
@@ -124,7 +125,7 @@ table_ddl_list = {
     "task_table": """
         CREATE TABLE IF NOT EXISTS task_table (
             id TEXT PRIMARY KEY,
-            pid INTEGER,
+            kb_id TEXT,
             op_id TEXT,
             task_name TEXT,
             task_type TEXT,
@@ -167,7 +168,7 @@ class AsyncSQLiteSingleton:
             return
 
         # 数据库配置
-        self.DB_PATH = Config().get_config().sql_lite_db_path
+        self.DB_PATH = Config().get_config().db.db_path
         # 异步锁（协程级）
         self._async_lock = asyncio.Lock()
         # 数据库连接（复用连接，避免频繁创建/关闭）

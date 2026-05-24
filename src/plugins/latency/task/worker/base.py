@@ -25,7 +25,7 @@ class BaseWorker:
     @staticmethod
     async def get_worker_name(task_id: str) -> TaskTypeEnum:
         """获取worker_name"""
-        task = await TaskManager.get_task_by_id(task_id)
+        task = await TaskManager.get_task_by_task_id(task_id)
         if task is None:
             err = f"获取任务失败, 任务ID: {task_id}"
             logging.error("[BaseWorker] %s", err)
@@ -44,7 +44,7 @@ class BaseWorker:
         """重新初始化任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
         flag = await BaseWorker.find_worker_class(worker_name).reinit(task_id)
-        task = await TaskManager.get_task_by_id(task_id)
+        task = await TaskManager.get_task_by_task_id(task_id)
         ProcessHandler.remove_task(task_id)
         if flag:
             await TaskManager.update_task(
@@ -85,7 +85,7 @@ class BaseWorker:
     async def stop(task_id: str) -> bool:
         """停止任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
-        task = await TaskManager.get_task_by_id(task_id)
+        task = await TaskManager.get_task_by_task_id(task_id)
         if task.status == TaskStatusEnum.RUNNING:
             ProcessHandler.remove_task(task_id)
         elif task.status == TaskStatusEnum.PENDING:
@@ -107,7 +107,7 @@ class BaseWorker:
         """删除任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
         task_id = await BaseWorker.find_worker_class(worker_name).delete(task_id)
-        await TaskManager.delete_task_by_id(task_id)
+        await TaskManager.delete_task_by_task_id(task_id)
         return task_id is not None
 
     @staticmethod

@@ -4,6 +4,20 @@ from latency.ENUM.general import OnlineStatus, LogLevel
 from latency.ENUM.model import ModelProvider, ModelLabel
 
 
+class ServiceConfig(BaseModel):
+    is_debug: bool = Field(default=False, description="是否启用调试模式")
+    uvicorn_ip: str = Field(default="0.0.0.0", description="FastAPI 服务的IP地址")
+    uvicorn_port: int = Field(default=8000, description="FastAPI 服务的端口号")
+    ssl_certfile: str | None = Field(None, description="SSL证书文件的路径")
+    ssl_keyfile: str | None = Field(None, description="SSL密钥文件的路径")
+    ssl_enable: bool = Field(default=False, description="是否启用SSL连接")
+    log_level: LogLevel = Field(LogLevel.INFO, description="日志级别")
+
+
+class DatabaseConfig(BaseModel):
+    db_path: str = Field(default="latency.db", description="SQLite数据库文件路径")
+
+
 class TaskConfig(BaseModel):
     task_retry_time: int = Field(default=3, description="任务重试次数")
     cpu_limit: int = Field(default=64, description="任务使用CPU核数")
@@ -25,20 +39,11 @@ class ModelConfig(BaseModel):
     batch_size: int = Field(default=16, description="批处理大小")
 
 
-class ServiceConfig(BaseModel):
-    is_debug: bool = Field(default=False, description="是否启用调试模式")
-    uvicorn_ip: str = Field(default="0.0.0.0", description="FastAPI 服务的IP地址")
-    uvicorn_port: int = Field(default=8000, description="FastAPI 服务的端口号")
-    ssl_certfile: str | None = Field(None, description="SSL证书文件的路径")
-    ssl_keyfile: str | None = Field(None, description="SSL密钥文件的路径")
-    ssl_enable: bool = Field(default=False, description="是否启用SSL连接")
-    log_level: LogLevel = Field(LogLevel.INFO, description="日志级别")
-
-
 class ConfigModel(BaseModel):
     service: ServiceConfig = Field(
         default_factory=ServiceConfig, description="服务配置"
     )
+    db: DatabaseConfig = Field(default_factory=DatabaseConfig, description="数据库配置")
     task: TaskConfig = Field(default_factory=TaskConfig, description="任务配置")
     chat_model: ModelConfig | None = Field(default=None, description="聊天模型配置")
     embedding_model: ModelConfig | None = Field(

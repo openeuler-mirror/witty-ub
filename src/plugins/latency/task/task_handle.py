@@ -14,10 +14,7 @@ class TaskHandler:
     @staticmethod
     async def init_task_queue():
         """初始化任务队列"""
-        running_tasks = await TaskManager.get_tasks_by_status(TaskStatusEnum.RUNNING)
-        await TaskManager.update_tasks_status_by_task_ids(
-            [task.id for task in running_tasks], TaskStatusEnum.PENDING
-        )
+        await TaskManager.update_running_tasks_to_pending_tasks()
 
     @staticmethod
     async def init_task(task_type: TaskTypeEnum, op_id: str) -> str:

@@ -7,7 +7,7 @@ import toml
 from latency.schemas.config import ConfigModel
 
 
-class Config():
+class Config:
     """配置文件读取和使用Class"""
 
     _config: ConfigModel
@@ -16,7 +16,7 @@ class Config():
         """读取配置文件；当PROD环境变量设置时，配置文件将在读取后删除"""
         config_file = os.getenv("CONFIG")
         if config_file is None:
-            config_file = "latency/common/config.toml"
+            config_file = "latency/static/config.toml"
         self._config = ConfigModel.model_validate(toml.load(config_file))
 
     def get_config(self) -> ConfigModel:

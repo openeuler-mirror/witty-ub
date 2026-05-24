@@ -28,6 +28,7 @@ class LogKnowledgeModel(BaseModel):
 class LogFileModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="日志文件ID")
     kb_id: str = Field(default="", description="关联的知识ID")
+    name: str = Field(default="", description="日志文件名称")
     file_path: str = Field(..., description="日志文件路径")
     file_size: int = Field(..., description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(0, description="日志文件中包含的异常数量")
@@ -40,8 +41,7 @@ class LogFileModel(BaseModel):
         description="日志文件创建时间",
     )
 
-
-class src_dst_aggregated_eventModel(BaseModel):
+class SrcDstAggregatedEventModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="事件ID")
     src_ip: str = Field(..., description="源IP地址")
     dst_ip: str = Field(..., description="目的IP地址")
@@ -165,7 +165,7 @@ class AnomalousEventChainModel(BaseModel):
     name: str = Field(default="default_chain", description="异常事件链名称")
     description: str = Field(default="", description="异常事件链描述")
     anomaly_code: str = Field(default="default_anomaly_code", description="异常代码")
-    offset: int = Field(default=0, description="异常事件链在日志解析结果中的偏移量")
+    offset: int = Field(default=0, description="异常事件链的顺序偏移量")
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )

@@ -19,8 +19,8 @@ class TaskReportModel(BaseModel):
 
 class TaskModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="任务ID")
-    pid: int | None = Field(default=None, description="任务对应的进程ID")
-    op_id: str | None = Field(default=None, description="任务相关的操作ID")
+    kb_id: str = Field(default="", description="所属知识库ID")
+    op_id: str = Field(default="", description="任务相关的操作ID")
     task_name: str = Field(..., description="任务名称")
     task_type: TaskTypeEnum = Field(..., description="任务类型")
     task_reports: list[TaskReportModel] = Field(
