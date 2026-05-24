@@ -27,6 +27,7 @@ class LogKnowledgeModel(BaseModel):
 
 class LogFileModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="日志文件ID")
+    kb_id: str = Field(default="", description="关联的知识ID")
     file_path: str = Field(..., description="日志文件路径")
     file_size: int = Field(..., description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(0, description="日志文件中包含的异常数量")
@@ -47,7 +48,7 @@ class src_dst_aggregated_eventModel(BaseModel):
     log_id: str = Field(..., description="关联的日志ID")
     log_parse_result_cnt: int = Field(0, description="日志解析结果数量")
     anomaly_log_parse_result_cnt: int = Field(0, description="异常日志解析结果数量")
-    anomaly_percent: float | None = Field(default=None, description="异常百分比")
+    anomaly_cnt: int = Field(0, description="异常数量")
     ave_total_latency: float | None = Field(
         default=None, description="平均总延迟，单位毫秒"
     )
@@ -134,8 +135,10 @@ class src_dst_aggregated_eventModel(BaseModel):
 
 class AnomalousEventModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="异常事件ID")
-    src_dst_aggregated_event_id: str = Field(
-        default="", description="关联的源目的IP聚合事件ID"
+    log_id: str = Field(default="", description="关联的日志ID")
+    aggregated_event_id: str = Field(
+        default="",
+        description="关联的聚合事件ID，如果该异常事件是从聚合事件中识别出来的，则记录对应的聚合事件ID",
     )
     start_log_parse_offset: int = Field(
         default=0, description="异常事件在日志解析结果中的起始偏移量"
@@ -157,6 +160,7 @@ class AnomalousEventChainModel(BaseModel):
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()), description="异常事件链ID"
     )
+    log_id: str = Field(..., description="关联的日志ID")
     anomalous_event_id: str = Field(..., description="关联的异常事件ID")
     name: str = Field(default="default_chain", description="异常事件链名称")
     description: str = Field(default="", description="异常事件链描述")
@@ -174,7 +178,14 @@ class AnomalousEventChainModel(BaseModel):
 class LogParseResultModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="解析结果ID")
     log_id: str = Field(default="", description="关联的日志ID")
-    event_id: str = Field(default="", description="关联的事件ID")
+    aggregated_event_id: str = Field(
+        default="",
+        description="关联的聚合事件ID，如果该解析结果是从聚合事件中识别出来的，则记录对应的聚合事件ID",
+    )
+    anomalous_event_id: str = Field(
+        default="",
+        description="关联的异常事件ID，如果该解析结果是从异常事件中识别出来的，则记录对应的异常事件ID",
+    )
     src_ip: str | None = Field(default=None, description="源IP地址")
     dst_ip: str | None = Field(default=None, description="目的IP地址")
     total_latency: float = Field(..., description="总延迟，单位毫秒")
@@ -190,7 +201,6 @@ class LogParseResultModel(BaseModel):
     )
     offset: int | None = Field(default=None, description="解析结果在日志中的偏移量")
     is_anomalous: bool = Field(..., description="是否为异常解析结果")
-    task_id: str | None = Field(default=None, description="关联的任务ID")
     content: str | None = Field(default=None, description="解析结果的原始内容")
     anomaly_reason: str | None = Field(default=None, description="异常原因描述")
     anomaly_score: float | None = Field(

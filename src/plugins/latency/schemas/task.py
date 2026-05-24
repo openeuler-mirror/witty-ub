@@ -8,6 +8,13 @@ class TaskReportModel(BaseModel):
     task_id: str = Field(..., description="任务ID")
     progress: float = Field(..., description="任务进度百分比")
     message: str | None = Field(default=None, description="任务状态消息")
+    existed_status: bool = Field(
+        True, description="任务报告是否存在的状态，默认为True表示存在"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="任务报告创建时间",
+    )
 
 
 class TaskModel(BaseModel):
@@ -20,6 +27,9 @@ class TaskModel(BaseModel):
         default_factory=list, description="任务进度报告列表"
     )
     status: TaskStatusEnum = Field(..., description="任务状态")
+    existed_status: bool = Field(
+        True, description="任务是否存在的状态，默认为True表示存在"
+    )
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="任务创建时间"
     )

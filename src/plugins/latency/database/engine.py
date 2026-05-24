@@ -8,7 +8,6 @@ from latency.config.config import Config
 
 # 配置日志
 logger = logging.getLogger(__name__)
-
 # 表结构定义
 table_ddl_list = {
     "log_knowledge_table": """
@@ -20,14 +19,15 @@ table_ddl_list = {
             task_cnt INTEGER,
             log_file_cnt INTEGER,
             anomaly_cnt INTEGER,
-            created_at TEXT NOT NULL,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
     """,
     "log_file_table": """
         CREATE TABLE IF NOT EXISTS log_file_table (
             id TEXT PRIMARY KEY,
+            kb_id TEXT,
             file_path TEXT,
             file_size INTEGER,
             anomaly_cnt INTEGER,
@@ -43,7 +43,7 @@ table_ddl_list = {
             log_id TEXT,
             log_parse_result_cnt INTEGER,
             anomaly_log_parse_result_cnt INTEGER,
-            anomaly_percent REAL,
+            anomaly_cnt INTEGER,
             ave_total_latency REAL,
             min_total_latency REAL,
             max_total_latency REAL,
@@ -69,7 +69,6 @@ table_ddl_list = {
             max_w2c_urma_latency REAL,
             p99_w2c_urma_latency REAL,
             p95_w2c_urma_latency REAL,
-            anomaly_cnt INTEGER,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
@@ -77,7 +76,8 @@ table_ddl_list = {
     "anomalous_event_table": """
     CREATE TABLE IF NOT EXISTS anomalous_event_table (
         id TEXT PRIMARY KEY,
-        src_dst_aggregated_event_id TEXT,
+        log_id TEXT,
+        aggregated_event_id TEXT,
         start_log_parse_offset INTEGER,
         end_log_parse_offset INTEGER,
         anomaly_reason TEXT,
@@ -89,6 +89,7 @@ table_ddl_list = {
     "anomalous_event_chain_table": """
     CREATE TABLE IF NOT EXISTS anomalous_event_chain_table (
         id TEXT PRIMARY KEY,
+        log_id TEXT,
         anomalous_event_id TEXT,
         name TEXT,
         description TEXT,
@@ -102,7 +103,8 @@ table_ddl_list = {
         CREATE TABLE IF NOT EXISTS log_parse_result_table(
             id TEXT PRIMARY KEY,
             log_id TEXT,
-            event_id TEXT,
+            aggregated_event_id TEXT,
+            anomalous_event_id TEXT,
             src_ip TEXT,
             dst_ip TEXT,
             total_latency REAL,
@@ -112,7 +114,6 @@ table_ddl_list = {
             w2c_urma_latency REAL,
             offset INTEGER,
             is_anomalous BOOLEAN,
-            task_id TEXT,
             content TEXT,
             anomaly_reason TEXT,
             anomaly_score REAL,
