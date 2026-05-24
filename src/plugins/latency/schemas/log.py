@@ -10,9 +10,18 @@ class LogKnowledgeModel(BaseModel):
     name: str = Field(..., description="知识名称")
     description: str = Field(..., description="知识描述")
     task_cnt: int = Field(0, description="关联的任务数量")
+    log_file_cnt: int = Field(0, description="关联的日志文件数量")
     anomaly_cnt: int = Field(0, description="关联的异常数量")
+    existed_status: bool = Field(
+        True, description="知识是否存在的状态，默认为True表示存在"
+    )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="知识创建时间"
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="知识创建时间",
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="知识更新时间",
     )
 
 
@@ -22,8 +31,12 @@ class LogFileModel(BaseModel):
     file_size: int = Field(..., description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(0, description="日志文件中包含的异常数量")
     task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
+    existed_status: bool = Field(
+        True, description="知识是否存在的状态，默认为True表示存在"
+    )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="日志文件创建时间"
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="日志文件创建时间",
     )
 
 
@@ -38,6 +51,12 @@ class src_dst_aggregated_eventModel(BaseModel):
     ave_total_latency: float | None = Field(
         default=None, description="平均总延迟，单位毫秒"
     )
+    min_total_latency: float | None = Field(
+        default=None, description="最小总延迟，单位毫秒"
+    )
+    max_total_latency: float | None = Field(
+        default=None, description="最大总延迟，单位毫秒"
+    )
     p99_total_latency: float | None = Field(
         default=None, description="总延迟的99百分位，单位毫秒"
     )
@@ -46,6 +65,12 @@ class src_dst_aggregated_eventModel(BaseModel):
     )
     ave_query_meta_latency: float | None = Field(
         default=None, description="平均查询元数据延迟，单位毫秒"
+    )
+    min_query_meta_latency: float | None = Field(
+        default=None, description="最小查询元数据延迟，单位毫秒"
+    )
+    max_query_meta_latency: float | None = Field(
+        default=None, description="最大查询元数据延迟，单位毫秒"
     )
     p99_query_meta_latency: float | None = Field(
         default=None, description="查询元数据延迟的99百分位，单位毫秒"
@@ -56,6 +81,12 @@ class src_dst_aggregated_eventModel(BaseModel):
     ave_urma_latency: float | None = Field(
         default=None, description="平均URMA延迟，单位毫秒"
     )
+    min_urma_latency: float | None = Field(
+        default=None, description="最小URMA延迟，单位毫秒"
+    )
+    max_urma_latency: float | None = Field(
+        default=None, description="最大URMA延迟，单位毫秒"
+    )
     p99_urma_latency: float | None = Field(
         default=None, description="URMA延迟的99百分位，单位毫秒"
     )
@@ -64,6 +95,12 @@ class src_dst_aggregated_eventModel(BaseModel):
     )
     ave_c2w_urma_latency: float | None = Field(
         default=None, description="平均C2W URMA延迟，单位毫秒"
+    )
+    min_c2w_urma_latency: float | None = Field(
+        default=None, description="最小C2W URMA延迟，单位毫秒"
+    )
+    max_c2w_urma_latency: float | None = Field(
+        default=None, description="最大C2W URMA延迟，单位毫秒"
     )
     p99_c2w_urma_latency: float | None = Field(
         default=None, description="C2W URMA延迟的99百分位，单位毫秒"
@@ -74,29 +111,46 @@ class src_dst_aggregated_eventModel(BaseModel):
     ave_w2c_urma_latency: float | None = Field(
         default=None, description="平均W2C URMA延迟，单位毫秒"
     )
+    min_w2c_urma_latency: float | None = Field(
+        default=None, description="最小W2C URMA延迟，单位毫秒"
+    )
+    max_w2c_urma_latency: float | None = Field(
+        default=None, description="最大W2C URMA延迟，单位毫秒"
+    )
     p99_w2c_urma_latency: float | None = Field(
         default=None, description="W2C URMA延迟的99百分位，单位毫秒"
     )
     p95_w2c_urma_latency: float | None = Field(
         default=None, description="W2C URMA延迟的95百分位，单位毫秒"
     )
+    existed_status: bool = Field(
+        True, description="知识是否存在的状态，默认为True表示存在"
+    )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="事件创建时间"
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="事件创建时间",
     )
 
 
 class AnomalousEventModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="异常事件ID")
     src_dst_aggregated_event_id: str = Field(
-        ..., description="关联的源目的IP聚合事件ID"
+        default="", description="关联的源目的IP聚合事件ID"
     )
     start_log_parse_offset: int = Field(
-        ..., description="异常事件在日志解析结果中的起始偏移量"
+        default=0, description="异常事件在日志解析结果中的起始偏移量"
     )
     end_log_parse_offset: int = Field(
-        ..., description="异常事件在日志解析结果中的结束偏移量"
+        default=0, description="异常事件在日志解析结果中的结束偏移量"
     )
-    anomaly_reason: str | None = Field(default=None, description="异常原因描述")
+    anomaly_reason: str = Field(default="", description="异常原因描述")
+    existed_status: bool = Field(
+        True, description="知识是否存在的状态，默认为True表示存在"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="异常事件创建时间",
+    )
 
 
 class AnomalousEventChainModel(BaseModel):
@@ -108,6 +162,13 @@ class AnomalousEventChainModel(BaseModel):
     description: str = Field(default="", description="异常事件链描述")
     anomaly_code: str = Field(default="default_anomaly_code", description="异常代码")
     offset: int = Field(default=0, description="异常事件链在日志解析结果中的偏移量")
+    existed_status: bool = Field(
+        True, description="知识是否存在的状态，默认为True表示存在"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="异常事件链创建时间",
+    )
 
 
 class LogParseResultModel(BaseModel):
@@ -134,4 +195,11 @@ class LogParseResultModel(BaseModel):
     anomaly_reason: str | None = Field(default=None, description="异常原因描述")
     anomaly_score: float | None = Field(
         default=None, description="异常评分，范围通常为0.0到1.0"
+    )
+    existed_status: bool = Field(
+        True, description="知识是否存在的状态，默认为True表示存在"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="日志解析结果创建时间",
     )

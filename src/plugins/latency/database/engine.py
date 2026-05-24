@@ -15,87 +15,109 @@ table_ddl_list = {
         CREATE TABLE IF NOT EXISTS log_knowledge_table (
             id TEXT PRIMARY KEY,
             image_bytes BLOB,
-            name TEXT
+            name TEXT,
             description TEXT,
-            task_cnt INTEGER
-            anomaly_cnt INTEGER
-            created_at TEXT NOT NULL
+            task_cnt INTEGER,
+            log_file_cnt INTEGER,
+            anomaly_cnt INTEGER,
+            created_at TEXT NOT NULL,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
         )
     """,
     "log_file_table": """
         CREATE TABLE IF NOT EXISTS log_file_table (
             id TEXT PRIMARY KEY,
-            file_path TEXT
-            file_size INTEGER
-            anomaly_cnt INTEGER
+            file_path TEXT,
+            file_size INTEGER,
+            anomaly_cnt INTEGER,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
     """,
     "src_dst_aggregated_event_table": """
         CREATE TABLE IF NOT EXISTS anomaly_event_table (
             id TEXT PRIMARY KEY,
-            src_ip TEXT
-            dst_ip TEXT
-            log_id TEXT
-            log_parse_result_cnt INTEGER
-            anomaly_log_parse_result_cnt INTEGER
-            anomaly_percent REAL
-            ave_total_latency REAL
-            p99_total_latency REAL
-            p95_total_latency REAL
-            ave_query_meta_latency REAL
-            p99_query_meta_latency REAL
-            p95_query_meta_latency REAL
-            ave_urma_latency REAL
-            p99_urma_latency REAL
-            p95_urma_latency REAL
-            ave_c2w_urma_latency REAL
-            p99_c2w_urma_latency REAL
-            p95_c2w_urma_latency REAL
-            ave_w2c_urma_latency REAL
-            p99_w2c_urma_latency REAL
-            p95_w2c_urma_latency REAL
+            src_ip TEXT,
+            dst_ip TEXT,
+            log_id TEXT,
+            log_parse_result_cnt INTEGER,
+            anomaly_log_parse_result_cnt INTEGER,
+            anomaly_percent REAL,
+            ave_total_latency REAL,
+            min_total_latency REAL,
+            max_total_latency REAL,
+            p99_total_latency REAL,
+            p95_total_latency REAL,
+            ave_query_meta_latency REAL,
+            min_query_meta_latency REAL,
+            max_query_meta_latency REAL,
+            p99_query_meta_latency REAL,
+            p95_query_meta_latency REAL,
+            ave_urma_latency REAL,
+            min_urma_latency REAL,
+            max_urma_latency REAL,
+            p99_urma_latency REAL,
+            p95_urma_latency REAL,
+            ave_c2w_urma_latency REAL,
+            min_c2w_urma_latency REAL,
+            max_c2w_urma_latency REAL,
+            p99_c2w_urma_latency REAL,
+            p95_c2w_urma_latency REAL,
+            ave_w2c_urma_latency REAL,
+            min_w2c_urma_latency REAL,
+            max_w2c_urma_latency REAL,
+            p99_w2c_urma_latency REAL,
+            p95_w2c_urma_latency REAL,
+            anomaly_cnt INTEGER,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
     """,
     "anomalous_event_table": """
     CREATE TABLE IF NOT EXISTS anomalous_event_table (
         id TEXT PRIMARY KEY,
-        src_dst_aggregated_event_id TEXT
-        start_log_parse_offset INTEGER
-        end_log_parse_offset INTEGER
+        src_dst_aggregated_event_id TEXT,
+        start_log_parse_offset INTEGER,
+        end_log_parse_offset INTEGER,
         anomaly_reason TEXT,
+        existed_status BOOLEAN NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
     )
     """,
     # 异常事件链
     "anomalous_event_chain_table": """
     CREATE TABLE IF NOT EXISTS anomalous_event_chain_table (
         id TEXT PRIMARY KEY,
-        anomalous_event_id TEXT
-        name TEXT
+        anomalous_event_id TEXT,
+        name TEXT,
         description TEXT,
-        anomaly_code TEXT
-        offset INTEGER
+        anomaly_code TEXT,
+        offset INTEGER,
+        existed_status BOOLEAN NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
     )
     """,
     "log_parse_result_table": """
         CREATE TABLE IF NOT EXISTS log_parse_result_table(
             id TEXT PRIMARY KEY,
-            log_id TEXT
-            event_id TEXT
+            log_id TEXT,
+            event_id TEXT,
             src_ip TEXT,
             dst_ip TEXT,
-            total_latency REAL
+            total_latency REAL,
             query_meta_latency REAL,
             urma_latency REAL,
             c2w_urma_latency REAL,
             w2c_urma_latency REAL,
             offset INTEGER,
-            is_anomalous BOOLEAN
+            is_anomalous BOOLEAN,
             task_id TEXT,
             content TEXT,
             anomaly_reason TEXT,
             anomaly_score REAL,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
         )
     """,
     "task_table": """
@@ -103,17 +125,20 @@ table_ddl_list = {
             id TEXT PRIMARY KEY,
             pid INTEGER,
             op_id TEXT,
-            task_name TEXT
-            task_type TEXT
-            status TEXT
+            task_name TEXT,
+            task_type TEXT,
+            status TEXT,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
     """,
     "task_report_table": """
         CREATE TABLE IF NOT EXISTS task_report_table (
             task_id TEXT PRIMARY KEY,
-            progress REAL
-            message TEXT
+            progress REAL,
+            message TEXT,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
         )
     """,
 }
