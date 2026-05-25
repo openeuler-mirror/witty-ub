@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -41,6 +42,11 @@ public:
     void Stop() override;
 
 private:
+    RackResult ParseDiagArgs();                     // 解析命令行参数并校验
+    RackResult ExtractLogsByTimeWindow();           // 根据时间窗提取日志
+    bool ExtractLogLines(const std::string &filePath, const std::string &outputPath,
+                         int64_t startTs, int64_t endTs);
+
     bool Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
     void StartKvcache(const std::vector<std::string> &subRootFailureModes);
     void StartUrma(const std::vector<std::string> &subRootFailureModes);
@@ -56,6 +62,17 @@ private:
     std::unordered_set<std::string> allFailureModes;                     // failureModeId
     std::unordered_set<std::string> childFailureModes;                   // failureModeId
     std::unordered_set<std::string> rootFailureModes;                    // failureModeId
+
+    // 命令行参数
+    std::string dsClientAccessLogPath;
+    std::string dsClientLogPath;
+    std::string dsWorkerLogInfoPath;
+    std::string resourceLogPath;
+    std::string startTimeStr;
+    std::string endTimeStr;
+    int64_t startTimestamp = 0;
+    int64_t endTimestamp = 0;
+    std::string extractedLogDir;
 };
 
 } // namespace diag

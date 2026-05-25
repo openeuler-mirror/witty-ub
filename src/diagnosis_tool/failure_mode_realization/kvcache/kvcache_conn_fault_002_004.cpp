@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_002_004.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,13 @@ static AutoRegister<KvcacheConnFault002_004> g_kvcacheconnfault002_004("kvcache_
 bool KvcacheConnFault002_004::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L185, L187, L250
-    std::string grepOutput = urma_log_helper::RunCommand(
+    std::string grepOutput = kvcache_log_helper::RunCommand(
         "test -n \"$WITTY_UB_FAULT_LOG\" && grep 'OBJECT_KEYS_MAX_SIZE_LIMIT' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    // 处理多文件grep输出，去掉"文件路径:"前缀，只保留日志行 (规则h)
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/SKILL.md 规则h
+    grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
+    kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
 

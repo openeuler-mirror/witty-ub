@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_028_006.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,10 @@ static AutoRegister<KvcacheConnFault028_006> g_kvcacheconnfault028_006("kvcache_
 bool KvcacheConnFault028_006::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L992, L994, L302, L128
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E '\\[URMA_POLL_ERROR\\]' \"$WITTY_UB_FAULT_LOG\"/datasystem_worker.INFO.log 2>/dev/null | tail -20");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E '\\[URMA_POLL_ERROR\\]' \"$WITTY_UB_FAULT_LOG\"/datasystem_worker.INFO.log 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
 

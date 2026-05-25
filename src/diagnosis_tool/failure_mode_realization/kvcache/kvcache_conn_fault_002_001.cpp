@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_002_001.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,10 @@ static AutoRegister<KvcacheConnFault002_001> g_kvcacheconnfault002_001("kvcache_
 bool KvcacheConnFault002_001::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L124, L126-129, L247
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -h -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log 2>/dev/null | grep -E 'The objectKey is empty|dataSize should be bigger than zero|length not match' | tail -20");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log | grep -E 'The objectKey is empty|dataSize should be bigger than zero|length not match'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
 

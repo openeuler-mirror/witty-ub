@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_002.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,13 @@ static AutoRegister<KvcacheConnFault002> g_kvcacheconnfault002("kvcache_conn_fau
 bool KvcacheConnFault002::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L93, L127-189
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && awk -F'|' '/DS_KV_CLIENT_(PUT|GET)/ {status=$8; gsub(/^ +| +$/,\"\",status); if (status ~ /^(0|2|3|8)$/) print $0}' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log 2>/dev/null | tail -20");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log | awk -F'|' '{gsub(/^ +| +$/,\"\",$8); gsub(/^ +| +$/,\"\",$13); print $8, $13}' | sort | uniq -c | head");
+    // 来源: rule f - 获取原始日志行用于trace解析，提取status_code为2/3/8或code=0的access log行
+    std::string rawOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log 2>/dev/null | awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code ~ /^[238]$/ || code == \"0\" {print $0}'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);
     return !grepOutput.empty();
 }
 
