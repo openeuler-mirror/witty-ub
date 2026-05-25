@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <fnmatch.h>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -143,16 +144,35 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
         return RACK_OK;
     };
 
-    if (getRequired("ds-client-access-log-path", dsClientAccessLogPath) != RACK_OK) return RACK_FAIL;
-    if (getRequired("ds-client-log-path", dsClientLogPath) != RACK_OK) return RACK_FAIL;
-    if (getRequired("ds-worker-log-info-path", dsWorkerLogInfoPath) != RACK_OK) return RACK_FAIL;
-    if (getRequired("resource-log-path", resourceLogPath) != RACK_OK) return RACK_FAIL;
+    if (getRequired("ds-log-path", dsLogPath) != RACK_OK) return RACK_FAIL;
+    if (dsLogPath.empty() || !std::filesystem::exists(dsLogPath) ||
+        !std::filesystem::is_directory(dsLogPath)) {
+        LOG_ERROR << "--ds-log-path must be an existing directory: " << dsLogPath;
+        return RACK_FAIL;
+    }
 
-    for (const auto &p : {dsClientAccessLogPath, dsClientLogPath, dsWorkerLogInfoPath, resourceLogPath}) {
-        if (!std::filesystem::exists(p)) {
-            LOG_ERROR << "Log path does not exist: " << p;
-            return RACK_FAIL;
-        }
+    if (getRequired("ds-client-access-log-file", dsClientAccessLogFile) != RACK_OK) return RACK_FAIL;
+    if (dsClientAccessLogFile.empty()) {
+        LOG_ERROR << "--ds-client-access-log-file cannot be empty";
+        return RACK_FAIL;
+    }
+
+    if (getRequired("ds-client-info-log-file", dsClientInfoLogFile) != RACK_OK) return RACK_FAIL;
+    if (dsClientInfoLogFile.empty()) {
+        LOG_ERROR << "--ds-client-info-log-file cannot be empty";
+        return RACK_FAIL;
+    }
+
+    if (getRequired("ds-worker-info-log-file", dsWorkerInfoLogFile) != RACK_OK) return RACK_FAIL;
+    if (dsWorkerInfoLogFile.empty()) {
+        LOG_ERROR << "--ds-worker-info-log-file cannot be empty";
+        return RACK_FAIL;
+    }
+
+    if (getRequired("resource-log-file", resourceLogFile) != RACK_OK) return RACK_FAIL;
+    if (resourceLogFile.empty()) {
+        LOG_ERROR << "--resource-log-file cannot be empty";
+        return RACK_FAIL;
     }
 
     if (getRequired("start-time", startTimeStr) != RACK_OK) return RACK_FAIL;
@@ -188,14 +208,9 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
 
 RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
 {
-    std::time_t now = std::time(nullptr);
-    std::tm tmBuf;
-    localtime_r(&now, &tmBuf);
-    char dateStr[16];
-    std::strftime(dateStr, sizeof(dateStr), "%Y-%m-%d", &tmBuf);
-
-    std::filesystem::path baseDir(EXTRACTED_LOG_BASE);
-    baseDir /= dateStr;
+    const char *wittyDirEnv = std::getenv("WITTY_DIR");
+    std::string wittyDir = wittyDirEnv ? wittyDirEnv : DEFAULT_WITTY_DIR;
+    std::filesystem::path baseDir = std::filesystem::path(wittyDir) / "log";
     extractedLogDir = baseDir.string();
 
     std::error_code ec;
@@ -207,31 +222,130 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
     std::filesystem::permissions(baseDir, std::filesystem::perms(DIR_PERM_755), ec);
 
     struct LogFileEntry {
-        std::string path;
-        std::string name;
+        std::string pattern;
+        std::string envName;
     };
     std::vector<LogFileEntry> logFiles = {
-        {dsClientAccessLogPath, "ds_client_access.log"},
-        {dsClientLogPath, "ds_client.log"},
-        {dsWorkerLogInfoPath, "ds_worker.INFO.log"},
-        {resourceLogPath, "resource.log"},
+        {dsClientAccessLogFile, "WITTY_UB_CLIENT_ACCESS_LOG"},
+        {dsClientInfoLogFile, "WITTY_UB_CLIENT_INFO_LOG"},
+        {dsWorkerInfoLogFile, "WITTY_UB_WORKER_INFO_LOG"},
+        {resourceLogFile, "WITTY_UB_RESOURCES_LOG"},
     };
 
     for (const auto &entry : logFiles) {
-        std::string outputPath = (baseDir / entry.name).string();
-        LOG_INFO << "Extracting logs: " << entry.path << " -> " << outputPath;
-        if (!ExtractLogLines(entry.path, outputPath, startTimestamp, endTimestamp)) {
-            LOG_WARN << "Failed to extract log lines from: " << entry.path;
+        std::vector<std::string> matchedFiles = FindMatchingFiles(dsLogPath, entry.pattern);
+        if (matchedFiles.empty()) {
+            LOG_ERROR << "No files matching '" << entry.pattern << "' found under " << dsLogPath;
+            return RACK_FAIL;
         }
+        LOG_INFO << "Found " << matchedFiles.size() << " file(s) matching " << entry.pattern;
+
+        int totalLines = 0;
+        for (const auto &srcPath : matchedFiles) {
+            std::string filename = std::filesystem::path(srcPath).filename().string();
+            std::string outputPath = (baseDir / filename).string();
+            LOG_INFO << "Extracting logs: " << srcPath << " -> " << outputPath;
+            if (!ExtractLogLines(srcPath, outputPath, startTimestamp, endTimestamp)) {
+                LOG_WARN << "Failed to extract log lines from: " << srcPath;
+                return RACK_FAIL;
+            }
+        }
+
+        std::string envValue = (baseDir / entry.pattern).string();
+        if (setenv(entry.envName.c_str(), envValue.c_str(), 1) != 0) {
+            LOG_ERROR << "Failed to set " << entry.envName << " environment variable";
+            return RACK_FAIL;
+        }
+        LOG_INFO << entry.envName << " set to: " << envValue;
     }
 
-    if (setenv("WITTY_UB_FAULT_LOG", extractedLogDir.c_str(), 1) != 0) {
-        LOG_ERROR << "Failed to set WITTY_UB_FAULT_LOG environment variable";
+    // Set URMA_LOG_PATH same as WITTY_UB_WORKER_INFO_LOG
+    std::string workerLogOutputPath = (baseDir / dsWorkerInfoLogFile).string();
+    if (setenv("URMA_LOG_PATH", workerLogOutputPath.c_str(), 1) != 0) {
+        LOG_ERROR << "Failed to set URMA_LOG_PATH environment variable";
         return RACK_FAIL;
     }
-    LOG_INFO << "WITTY_UB_FAULT_LOG set to: " << extractedLogDir;
+    LOG_INFO << "URMA_LOG_PATH set to: " << workerLogOutputPath;
 
     return RACK_OK;
+}
+
+void DiagnosisToolModule::ExtractLogLinesCount(const std::string &filePath,
+                                               int64_t startTs, int64_t endTs,
+                                               std::ofstream &outFile, int &count)
+{
+    std::ifstream inFile(filePath);
+    if (!inFile.is_open()) {
+        LOG_WARN << "Cannot open input file: " << filePath;
+        return;
+    }
+
+    std::string line;
+    bool inRange = false;
+    std::regex timePattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})");
+    while (std::getline(inFile, line)) {
+        std::smatch match;
+        if (!std::regex_search(line, match, timePattern)) {
+            if (inRange) {
+                outFile << line << '\n';
+            }
+            continue;
+        }
+        auto ts = failure::DatetimeStrToTimestamp(match.str());
+        if (!ts.has_value()) {
+            if (inRange) {
+                outFile << line << '\n';
+            }
+            continue;
+        }
+        if (*ts > endTs) {
+            break;
+        }
+        if (*ts >= startTs) {
+            inRange = true;
+            count++;
+            outFile << line << '\n';
+        } else {
+            inRange = false;
+        }
+    }
+}
+
+std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::string &dir,
+                                                                const std::string &pattern)
+{
+    std::vector<std::string> result;
+    std::error_code ec;
+
+    bool isWildcard = (pattern.find('*') != std::string::npos);
+    auto isNotHidden = [](const std::filesystem::path &p) {
+        return p.filename().string()[0] != '.';
+    };
+
+    for (auto it = std::filesystem::recursive_directory_iterator(dir, ec);
+         it != std::filesystem::recursive_directory_iterator(); ++it) {
+        if (ec) {
+            break;
+        }
+        if (!it->is_regular_file()) {
+            continue;
+        }
+        if (!isNotHidden(it->path())) {
+            continue;
+        }
+
+        const std::string &filename = it->path().filename().string();
+        if (isWildcard) {
+            if (fnmatch(pattern.c_str(), filename.c_str(), 0) == 0) {
+                result.push_back(it->path().string());
+            }
+        } else {
+            if (filename == pattern) {
+                result.push_back(it->path().string());
+            }
+        }
+    }
+    return result;
 }
 
 bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std::string &outputPath,
@@ -253,7 +367,7 @@ bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std
     int totalLines = 0;
     int matchedLines = 0;
     bool inRange = false;
-    std::regex timePattern(R"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})");
+    std::regex timePattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})");
     while (std::getline(inFile, line)) {
         totalLines++;
         std::smatch match;

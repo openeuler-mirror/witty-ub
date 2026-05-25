@@ -11,10 +11,10 @@ bool KvcacheConnFault002::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L93, L127-189
     std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log | awk -F'|' '{gsub(/^ +| +$/,\"\",$8); gsub(/^ +| +$/,\"\",$13); print $8, $13}' | sort | uniq -c | head");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' $WITTY_UB_CLIENT_ACCESS_LOG | awk -F'|' '{gsub(/^ +| +$/,\"\",$8); gsub(/^ +| +$/,\"\",$13); print $8, $13}' | sort | uniq -c | head");
     // 来源: rule f - 获取原始日志行用于trace解析，提取status_code为2/3/8或code=0的access log行
     std::string rawOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log 2>/dev/null | awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code ~ /^[238]$/ || code == \"0\" {print $0}'");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' $WITTY_UB_CLIENT_ACCESS_LOG 2>/dev/null | awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code ~ /^[238]$/ || code == \"0\" {print $0}'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);
     return !grepOutput.empty();

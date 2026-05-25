@@ -11,7 +11,7 @@ bool KvcacheConnFault006_001::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L309, L311, L192, L334
     std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'Get mmap entry failed' \"$WITTY_UB_FAULT_LOG\"/datasystem_worker.INFO.log \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null | tail -20");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E 'Get mmap entry failed' $WITTY_UB_WORKER_INFO_LOG $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null | tail -20");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     // 处理多文件grep输出，去掉"文件路径:"前缀，只保留日志行 (规则h)
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/SKILL.md 规则h

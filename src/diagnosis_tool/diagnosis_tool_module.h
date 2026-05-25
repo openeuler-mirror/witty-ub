@@ -44,8 +44,12 @@ public:
 private:
     RackResult ParseDiagArgs();                     // 解析命令行参数并校验
     RackResult ExtractLogsByTimeWindow();           // 根据时间窗提取日志
+    void ExtractLogLinesCount(const std::string &filePath, int64_t startTs, int64_t endTs,
+                              std::ofstream &outFile, int &count);
     bool ExtractLogLines(const std::string &filePath, const std::string &outputPath,
                          int64_t startTs, int64_t endTs);
+    std::vector<std::string> FindMatchingFiles(const std::string &dir,
+                                               const std::string &pattern); // 递归搜索匹配的文件
 
     bool Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
     void StartKvcache(const std::vector<std::string> &subRootFailureModes);
@@ -64,10 +68,11 @@ private:
     std::unordered_set<std::string> rootFailureModes;                    // failureModeId
 
     // 命令行参数
-    std::string dsClientAccessLogPath;
-    std::string dsClientLogPath;
-    std::string dsWorkerLogInfoPath;
-    std::string resourceLogPath;
+    std::string dsLogPath;               // --ds-log-path
+    std::string dsClientAccessLogFile;   // --ds-client-access-log-file
+    std::string dsClientInfoLogFile;     // --ds-client-info-log-file
+    std::string dsWorkerInfoLogFile;     // --ds-worker-info-log-file
+    std::string resourceLogFile;         // --resource-log-file
     std::string startTimeStr;
     std::string endTimeStr;
     int64_t startTimestamp = 0;

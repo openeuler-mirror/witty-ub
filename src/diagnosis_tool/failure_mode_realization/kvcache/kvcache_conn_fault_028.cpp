@@ -11,7 +11,7 @@ bool KvcacheConnFault028::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L856, L858-864, L137-138
     std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && awk -F'|' '{status=$8; gsub(/^ +| +$/,\"\",status); if (status ~ /^(1004|1006|1008|1009|1010)$/) print $0}' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log 2>/dev/null");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && awk -F'|' '{status=$8; gsub(/^ +| +$/,\"\",status); if (status ~ /^(1004|1006|1008|1009|1010)$/) print $0}' $WITTY_UB_CLIENT_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
