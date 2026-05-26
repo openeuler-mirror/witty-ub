@@ -21,6 +21,7 @@ class TaskModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="任务ID")
     kb_id: str = Field(default="", description="所属知识库ID")
     op_id: str = Field(default="", description="任务相关的操作ID")
+    retry_times: int = Field(default=0, description="任务重试次数")
     task_name: str = Field(..., description="任务名称")
     task_type: TaskTypeEnum = Field(..., description="任务类型")
     task_reports: list[TaskReportModel] = Field(

@@ -34,14 +34,27 @@ class TaskReportManager:
                     )
                 """
                 params = [
-                    tr.model_dump(exclude_none=False, by_alias=True)
-                    for tr in batch
+                    tr.model_dump(exclude_none=False, by_alias=True) for tr in batch
                 ]
                 await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([tr.task_id for tr in batch])
             except Exception as e:
                 print(f"批量添加任务报告失败，错误信息: {str(e)}")
         return ids_added
+
+    @staticmethod
+    async def update_task_reports_existed_status_by_task_id(
+        task_id: str, existed_status: int
+    ) -> bool:
+        """根据任务ID更新任务报告的存在状态"""
+        sql_str = """
+            UPDATE task_report_table
+            SET existed_status = :existed_status
+            WHERE task_id = :task_id
+        """
+        params = {"task_id": task_id, "existed_status": existed_status}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
 
     @staticmethod
     async def list_task_reports_by_task_ids(
