@@ -3,6 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
 from latency.schemas.task import TaskModel
+from latency.ENUM.task import TaskStatusEnum
 
 
 class LogKnowledgeModel(BaseModel):
@@ -30,6 +31,10 @@ class LogFileModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="日志文件ID")
     kb_id: str = Field(default="", description="关联的知识ID")
     name: str = Field(default="", description="日志文件名称")
+    parse_status: TaskStatusEnum = Field(
+        default=TaskStatusEnum.PENDING,
+        description="日志文件解析状态，支持查询解析中的日志文件（parsing）、解析成功的日志文件（parsed）和解析失败的日志文件（failed）",
+    )
     file_path: str = Field(default="", description="日志文件路径")
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
@@ -245,4 +250,3 @@ class LogParseResultModel(BaseModel):
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="日志解析结果创建时间",
     )
-

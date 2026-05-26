@@ -29,6 +29,7 @@ table_ddl_list = {
             id TEXT PRIMARY KEY,
             kb_id TEXT,
             name TEXT,
+            parse_status TEXT,
             file_path TEXT,
             file_size INTEGER,
             anomaly_cnt INTEGER,

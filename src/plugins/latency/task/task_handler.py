@@ -57,7 +57,7 @@ class TaskHandler:
     async def handle_successed_tasks():
         handle_successed_task_limit = 128
         tasks = await TaskManager.get_oldest_tasks_by_status(
-            TaskStatusEnum.SUCCESS_PENDING, handle_successed_task_limit
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, handle_successed_task_limit
         )
         for task in tasks:
             try:
@@ -70,7 +70,7 @@ class TaskHandler:
     async def handle_failed_tasks():
         handle_failed_task_limit = 128
         tasks = await TaskManager.get_oldest_tasks_by_status(
-            TaskStatusEnum.FAILED, handle_failed_task_limit
+            TaskStatusEnum.FAILED_PENDING_REMOVE, handle_failed_task_limit
         )
         pending_task_ids = []
         fail_task_ids = []

@@ -8,54 +8,160 @@
 
 ```
 latency/
-├── access/              # 入口层 (App)
+├── access/                 # 入口层 (App)
 │   ├── fastapi_server.py   # FastAPI 应用主入口
 │   ├── mcp_server.py       # MCP 服务器入口
 │   └── shell_server.py     # Shell 命令行入口
-├── routers/             # 路由层 (Router)
-│   └── log_file.py         # 日志文件相关 API 路由
-├── services/            # 服务层 (Service)
-│   └── log_file.py         # 日志文件业务逻辑
-├── database/            # 数据层
+├── routers/                # 路由层 (Router)
+│   ├── anomalous_event_chain.py
+│   ├── anomalous_event.py
+│   ├── log_file.py
+│   ├── log_knowledge.py
+│   ├── log_parse_result.py
+│   └── src_dst_aggregated_event.py
+├── services/               # 服务层 (Service)
+│   ├── anomalous_event_chain.py
+│   ├── anomalous_event.py
+│   ├── log_file.py
+│   ├── log_knowledge.py
+│   ├── log_parse_result.py
+│   └── src_dst_aggregated_event.py
+├── database/               # 数据层
 │   ├── engine.py           # SQLite 数据库引擎（单例模式）
 │   └── managers/           # 数据管理器（Manager）
-│       ├── task.py              # 任务管理
-│       ├── task_report.py       # 任务报告管理
-│       ├── log_file.py          # 日志文件管理
-│       ├── log_knowledge_base.py # 知识库管理
-│       ├── log_parse_result.py  # 日志解析结果管理
-│       ├── src_dst_aggregated.py # 聚合事件管理
-│       ├── anomalout_event.py   # 异常事件管理
-│       └── anomalous_event_chain.py # 异常事件链管理
-├── task/                # 任务处理层
-│   ├── task_handle.py      # 任务调度器（TaskHandler）
+│       ├── anomalous_event_chain.py
+│       ├── anomalout_event.py
+│       ├── log_file.py
+│       ├── log_knowledge.py
+│       ├── log_parse_result.py
+│       ├── src_dst_aggregated_event.py
+│       ├── task.py
+│       └── task_report.py
+├── task/                   # 任务处理层
+│   ├── task_handler.py     # 任务调度器（TaskHandler）
 │   ├── process_handle.py   # 进程处理器（多进程管理）
+│   ├── parse/              # 日志解析器
+│   │   ├── base_parser.py
+│   │   ├── remote_pull_log_parser.py
+│   │   ├── worker_access_log_parser.py
+│   │   ├── query_meta_log_parser.py
+│   │   ├── sdk_access_log_parser.py
+│   │   ├── urma_log_parser.py
+│   │   └── correlation/    # 关联分析
+│   │       ├── correlator.py
+│   │       └── result_builder.py
 │   └── worker/
 │       ├── base.py         # 基础工作器（BaseWorker）
 │       └── kv_cache_log_parse_worker.py  # 具体业务 Worker
-├── schemas/             # 数据模型（Pydantic）
+├── schemas/                # 数据模型（Pydantic）
+│   ├── config.py           # 配置模型
+│   ├── ds_log.py           # DS 日志模型
+│   ├── log.py              # 日志相关模型
 │   ├── request.py          # 请求模型
 │   ├── response.py         # 响应模型
-│   ├── task.py             # 任务模型
-│   ├── log.py              # 日志相关模型
-│   └── config.py           # 配置模型
-├── ENUM/                # 枚举定义
+│   └── task.py             # 任务模型
+├── ENUM/                   # 枚举定义
+│   ├── ds_log.py           # DS 日志枚举
 │   ├── general.py          # 通用枚举
-│   ├── task.py             # 任务相关枚举
-│   └── model.py            # 模型相关枚举
-├── config/              # 配置模块
+│   ├── model.py            # 模型枚举
+│   └── task.py             # 任务相关枚举
+├── config/                 # 配置模块
 │   └── config.py           # 配置读取类
-├── common/              # 公共资源
-│   └── config.toml         # TOML 配置文件
-├── models/              # AI 模型封装
+├── common/                 # 公共工具
+│   ├── convertor.py        # 数据转换器
+│   ├── ds_log_io.py        # DS 日志 IO
+│   └── zip_handler.py      # ZIP 文件处理
+├── models/                 # AI 模型封装
 │   ├── chat.py             # 聊天模型
 │   ├── embedding.py        # 嵌入模型
-│   ├── reranker.py         # 重排序模型
 │   ├── function.py         # 函数调用模型
-│   └── ocr.py              # OCR 模型
-└── static/              # 静态资源
-    └── fault_patterns_tree.json  # 故障模式树
+│   ├── ocr.py              # OCR 模型
+│   └── reranker.py         # 重排序模型
+├── regex/                  # 正则解析规则
+│   └── kvcache_log.py
+├── sdk/                    # SDK
+│   └── xxx.py
+├── static/                 # 静态资源
+│   ├── config.toml         # TOML 配置文件
+│   └── fault_patterns_tree.json
+├── deploy/                 # 部署文件
+│   ├── deploy.sh           # 一键部署脚本
+│   ├── pyproject.toml
+│   └── requirements.txt
+└── test/                   # 测试
+    ├── test_all_apis.py    # 全接口测试
+    ├── test_log_parser.py
+    └── test.py
 ```
+
+---
+
+## 部署指南
+
+### 环境要求
+
+- Python >= 3.10
+- [uv](https://github.com/astral-sh/uv)（推荐）或 pip
+
+### 一键部署
+
+```bash
+cd /path/to/latency/deploy
+bash deploy.sh
+```
+
+脚本将自动完成：
+1. 检查 `uv` 是否安装
+2. 创建虚拟环境（`.venv`）
+3. 基于**阿里源**安装依赖
+4. 创建必要的目录
+5. 启动 FastAPI 服务（`http://127.0.0.1:9772`）
+
+### 手动部署
+
+#### 1. 创建虚拟环境并安装依赖
+
+```bash
+cd /path/to/witty-ub/src/plugins/latency
+
+# 使用 uv（推荐）
+uv venv .venv --python python3.10
+uv pip install --python .venv/bin/python \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    -r deploy/requirements.txt
+
+# 或使用 pip
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r deploy/requirements.txt
+```
+
+#### 2. 启动服务
+
+```bash
+export PYTHONPATH=/path/to/witty-ub/src/plugins:$PYTHONPATH
+python latency/access/fastapi_server.py
+```
+
+服务默认监听 `0.0.0.0:9772`，可通过 `http://127.0.0.1:9772/health_check` 检查健康状态。
+
+### 依赖版本说明
+
+当前经过测试的依赖版本如下：
+
+| 包名 | 版本 |
+|------|------|
+| fastapi | 0.110.2 |
+| uvicorn | 0.21.0 |
+| apscheduler | 3.10.4 |
+| pydantic | 2.12.3 |
+| openai | 1.109.1 |
+| aiohttp | 3.9.5 |
+| aiofiles | 25.1.0 |
+| chardet | 4.0.0 |
+| requests | 2.32.2 |
+| toml | 0.10.2 |
+| httpx | 0.27.0 |
 
 ---
 
@@ -97,7 +203,7 @@ async def configure():
 async def startup_event():
     await configure()
     await mk_dirs()
-    await AsyncSQLiteSingleton.init_database()
+    await AsyncSQLiteSingleton().init_database()
     scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5)
     scheduler.start()
 ```
@@ -124,7 +230,7 @@ router = APIRouter(prefix="/log_file", tags=["log_file"])
 @router.post("/{kb_id}", response_model=UploadLogFilesResponse)
 async def upload_log_files(kb_id: str) -> UploadLogFilesResponse:
     upload_log_files_msg = await LogFileService.upload_log_files(kb_id)
-    return UploadLogFilesResponse(message=upload_log_files_msg)
+    return UploadLogFilesResponse(result=upload_log_files_msg)
 ```
 
 **开发规范**：
@@ -201,13 +307,13 @@ class TaskManager:
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
      │                    │                    │                    │
      ▼                    ▼                    ▼                    ▼
-task_handle.py        worker/base.py    kv_cache_log_parse_worker.py  task.py
+task_handler.py      worker/base.py    kv_cache_log_parse_worker.py  task.py
                                              (示例)                 (示例)
 ```
 
 ### 各层职责与开发规范
 
-#### 1. TaskHandler 层 (`task/task_handle.py`)
+#### 1. TaskHandler 层 (`task/task_handler.py`)
 
 **职责**：
 - 由 APScheduler 每 5 秒定时调度执行
@@ -238,14 +344,44 @@ class TaskHandler:
 ```
 
 **任务状态流转**：
+
 ```
-PENDING ──[run]──▶ RUNNING ──[success]──▶ SUCCESS_PENDING ──[deinit]──▶ SUCCESSFUL
-    │                  │
-    │                  └──[fail]──▶ FAILED ──[reinit]──▶ PENDING (retry)
-    │                                      └──[max retry]──▶ FAILED (final)
-    │
-    └──[stop/delete]──▶ CANCELLED
+                         ┌─────────────────────────────────────────┐
+                         │                                         │
+                         ▼                                         │
+PENDING ──[run]──▶ RUNNING ──[success]──▶ SUCCESSFUL_PENDING_REMOVE ──[deinit]──▶ SUCCESSFUL
+    │                  │                                                              │
+    │                  │ [fail/exception]                                             │
+    │                  ▼                                                              │
+    │            FAILED_PENDING_REMOVE ──[reinit]──▶ PENDING (retry, retry_times+1)   │
+    │                  │                              │                               │
+    │                  │ [reinit fail / max retry]    │                               │
+    │                  ▼                              │                               │
+    │                 FAILED ◀────────────────────────┘                               │
+    │                                                                                 │
+    └──[stop]──▶ CANCELLED                                                          │
+                                                                                      │
+[SUCCESSFUL / FAILED / CANCELLED] ──[delete]──▶ (从数据库删除) ◀──────────────────────┘
 ```
+
+**状态说明**：
+
+| 状态 | 说明 |
+|------|------|
+| `PENDING` | 待执行，等待 TaskHandler 调度 |
+| `RUNNING` | 正在执行，Worker 子进程已启动 |
+| `SUCCESSFUL_PENDING_REMOVE` | 执行成功，等待 `deinit` 清理后转为 `SUCCESSFUL` |
+| `FAILED_PENDING_REMOVE` | 执行失败，等待 `reinit` 重试或转为 `FAILED` |
+| `SUCCESSFUL` | 最终成功状态 |
+| `FAILED` | 最终失败状态（超过最大重试次数） |
+| `CANCELLED` | 已被手动停止/取消 |
+
+**调度顺序**（TaskHandler.handle_tasks 每 5 秒执行一次）：
+1. `handle_successed_tasks`：将 `SUCCESSFUL_PENDING_REMOVE` → `SUCCESSFUL`
+2. `handle_failed_tasks`：将 `FAILED_PENDING_REMOVE` 通过 `reinit` → `PENDING`（重试）或 `FAILED`（终态）
+3. `handle_pending_tasks`：将 `PENDING` → `RUNNING`
+
+**服务重启恢复**：启动时会自动将 `RUNNING` 状态的任务恢复为 `PENDING`，防止服务异常重启后任务卡住。
 
 #### 2. BaseWorker 层 (`task/worker/base.py`)
 
@@ -345,10 +481,10 @@ class BaseWorker:
                # 3. 上报进度
                await BaseWorker.report(task_id, "处理中...", TaskStatusEnum.RUNNING, 50.0)
                # 4. 完成
-               await BaseWorker.report(task_id, "完成", TaskStatusEnum.SUCCESSFUL, 100.0)
+               await BaseWorker.report(task_id, "完成", TaskStatusEnum.SUCCESSFUL_PENDING, 100.0)
                return True
            except Exception as e:
-               await BaseWorker.report(task_id, f"失败: {e}", TaskStatusEnum.FAILED, 0.0)
+               await BaseWorker.report(task_id, f"失败: {e}", TaskStatusEnum.FAILED_PENDING, 0.0)
                return False
 
        @staticmethod
@@ -427,7 +563,7 @@ async def configure():
 
 `services/analysis.py`:
 ```python
-from latency.task.task_handle import TaskHandler
+from latency.task.task_handler import TaskHandler
 from latency.ENUM.task import TaskTypeEnum
 
 class AnalysisService:
