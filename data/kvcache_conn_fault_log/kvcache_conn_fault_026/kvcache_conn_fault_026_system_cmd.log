@@ -1,8 +1,0 @@
-# ifconfig_ub0
-ub0: flags=4098<BROADCAST,MULTICAST>  mtu 1500
-        ether 00:1a:2b:3c:4d:5e  txqueuelen 1000  (Ethernet)
-        UP BROADCAST RUNNING  mtu 1500
-# ls_dev_ub
-
-# ubinfo
-

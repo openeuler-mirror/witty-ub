@@ -1,4 +1,0 @@
-0 | DS_KV_CLIENT_GET | 49469 | 8388608 | {Object_key:kv_test_1_0_28458466174080_0,timeout:0,transportType:SHM} | 
-0 | DS_KV_CLIENT_PUT | 12345 | 4096 | {Object_key:kv_test_2_0_12345678901234_0,timeout:0,transportType:SHM} | 
-0 | DS_KV_CLIENT_GET | 8823 | 1048576 | {Object_key:kv_test_3_0_56789012345678_0,timeout:0,transportType:SHM} | 
-2 | DS_KV_CLIENT_GET | 3000 | 512 | {Object_key:batch_key,OBJECT_KEYS_MAX_SIZE_LIMIT,timeout:0} | 
