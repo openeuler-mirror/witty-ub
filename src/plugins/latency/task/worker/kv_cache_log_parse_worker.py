@@ -30,7 +30,7 @@ class KVCacheLogParseWorker:
     KVCacheLogParseWorker
     """
 
-    name = TaskTypeEnum.KV_CACHE_LOG_PARSE
+    name = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
 
     @staticmethod
     async def init(op_id: str) -> str:
