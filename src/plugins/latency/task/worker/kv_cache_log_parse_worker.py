@@ -3,7 +3,7 @@ import logging
 import os
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler
-from latency.task.parse import (
+from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
     UrmaLogParser,

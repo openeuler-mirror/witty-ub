@@ -2,8 +2,9 @@
 
 from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log import URMA_RE
+from latency.regex.kvcache_log_file import URMA_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry, EntryType
-from latency.task.parse.base_parser import LogParser
+from latency.parse.base_parser import LogParser
 
 
 class UrmaLogParser(LogParser):
@@ -11,8 +12,7 @@ class UrmaLogParser(LogParser):
 
     @property
     def patterns(self) -> list[str]:
-        from latency.task.parse.base_parser import get_ds_log_config
-        return get_ds_log_config().urma_log_patterns
+        return URMA_LOG_PATTERNS
 
     label = "Worker urma parse"
     _handle_errors = True

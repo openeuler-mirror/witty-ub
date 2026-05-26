@@ -8,16 +8,9 @@ import hashlib
 
 from latency.ENUM.ds_log import OpType, AccessLogCol, StatusCode
 from latency.common.ds_log_io import Progress, glob_paths, parse_timestamp, open_log
-from latency.config.config import Config
 from latency.regex.kvcache_log import OBJECT_KEY_RE
 from latency.schemas.ds_log import LogEntry
 from latency.schemas.log import LogFileModel
-
-
-def get_ds_log_config():
-    """获取DS日志分析配置"""
-    config = Config()
-    return config.get_config().ds_log_analyzer
 
 
 logger = logging.getLogger(__name__)
