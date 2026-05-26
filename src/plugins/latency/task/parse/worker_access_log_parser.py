@@ -1,6 +1,7 @@
 """Worker访问日志解析器"""
 
 from latency.common.ds_log_io import parse_timestamp
+from latency.regex.kvcache_log_file import WORKER_ACCESS_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry, EntryType
 from latency.task.parse.base_parser import AccessLogParser, WORKER_GET_OPS, logger
 
@@ -10,8 +11,7 @@ class WorkerAccessLogParser(AccessLogParser):
 
     @property
     def patterns(self) -> list[str]:
-        from latency.task.parse.base_parser import get_ds_log_config
-        return get_ds_log_config().worker_access_log_patterns
+        return WORKER_ACCESS_LOG_PATTERNS
 
     label = "Worker access parse"
 

@@ -45,66 +45,6 @@ class DSLogAnalyzerConfig(BaseModel):
     
     slow_p99_threshold_us: float = Field(default=2000.0, alias="SLOW_P99_THRESHOLD_US", description="慢请求P99阈值，单位微秒")
     progress_update_lines: int = Field(default=100000, alias="PROGRESS_UPDATE_LINES", description="进度刷新间隔行数")
-    sdk_access_log_patterns: list[str] = Field(
-        default=[
-            "SDK_*/ds_client_access_*.log",
-            "SDK_*/ds_client_access_*.log.gz",
-            "SDK_*/ds_client.log",
-            "SDK_*/ds_client.log.gz",
-            "SDK_*/ds_client_access.log",
-            "SDK_*/ds_client_access.*.log.gz",
-        ],
-        alias="SDK_ACCESS_LOG_PATTERNS",
-        description="SDK访问日志文件模式",
-    )
-    worker_access_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/access.log",
-            "*Worker_*/access.log.gz",
-        ],
-        alias="WORKER_ACCESS_LOG_PATTERNS",
-        description="Worker访问日志文件模式",
-    )
-    urma_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="URMA_LOG_PATTERNS",
-        description="URMA日志文件模式",
-    )
-    remote_pull_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="REMOTE_PULL_LOG_PATTERNS",
-        description="RemotePull日志文件模式",
-    )
-    link_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="LINK_LOG_PATTERNS",
-        description="Link日志文件模式",
-    )
-    query_meta_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="QUERY_META_LOG_PATTERNS",
-        description="QueryMeta日志文件模式",
-    )
 
 
 class ConfigModel(BaseModel):

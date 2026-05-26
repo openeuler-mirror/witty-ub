@@ -2,6 +2,7 @@
 
 from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log import REMOTE_GET_RE, REMOTE_PULL_RE
+from latency.regex.kvcache_log_file import REMOTE_PULL_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry, EntryType
 from latency.task.parse.base_parser import LogParser
 
@@ -11,8 +12,7 @@ class RemotePullLogParser(LogParser):
 
     @property
     def patterns(self) -> list[str]:
-        from latency.task.parse.base_parser import get_ds_log_config
-        return get_ds_log_config().remote_pull_log_patterns
+        return REMOTE_PULL_LOG_PATTERNS
 
     label = "Worker remote pull parse"
     _handle_errors = True

@@ -2,6 +2,7 @@
 import os
 
 from latency.common.ds_log_io import parse_timestamp
+from latency.regex.kvcache_log_file import SDK_ACCESS_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry, EntryType
 from latency.task.parse.base_parser import AccessLogParser, SDK_GET_OPS, logger
 
@@ -11,8 +12,7 @@ class SdkAccessLogParser(AccessLogParser):
 
     @property
     def patterns(self) -> list[str]:
-        from latency.task.parse.base_parser import get_ds_log_config
-        return get_ds_log_config().sdk_access_log_patterns
+        return SDK_ACCESS_LOG_PATTERNS
 
     label = "SDK access parse"
 

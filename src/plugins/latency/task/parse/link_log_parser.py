@@ -2,6 +2,7 @@
 
 from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log import URMA_LINK_RE
+from latency.regex.kvcache_log_file import LINK_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry, EntryType
 from latency.task.parse.base_parser import LogParser
 
@@ -11,8 +12,7 @@ class LinkLogParser(LogParser):
 
     @property
     def patterns(self) -> list[str]:
-        from latency.task.parse.base_parser import get_ds_log_config
-        return get_ds_log_config().link_log_patterns
+        return LINK_LOG_PATTERNS
 
     label = "Worker link parse"
     _handle_errors = True
