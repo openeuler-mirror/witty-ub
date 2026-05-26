@@ -273,7 +273,7 @@ class LogFileService:
 ```python
 class TaskManager:
     @staticmethod
-    async def get_task_by_id(task_id: str) -> TaskModel | None:
+    async def get_task_by_task_id(task_id: str) -> TaskModel | None:
         sql_str = "SELECT ... FROM task_table WHERE id = :task_id"
         results = await AsyncSQLiteSingleton().execute_query(sql_str, {"task_id": task_id})
         if results:
@@ -281,7 +281,7 @@ class TaskManager:
         return None
 
     @staticmethod
-    async def create_task(task: TaskModel) -> bool:
+    async def add_task(task: TaskModel) -> bool:
         sql_str = "INSERT INTO task_table (...) VALUES (...)"
         return await AsyncSQLiteSingleton().execute_modify(sql_str, task.model_dump())
 ```
@@ -422,32 +422,76 @@ class BaseWorker:
 
 2. Create new Worker file under `task/worker/`:
    ```python
+   from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+   from latency.task.worker.base import BaseWorker
+   from latency.database.managers.task import TaskManager
+   from latency.schemas.task import TaskModel
+   import uuid
+
    class MyNewWorker:
        name = TaskTypeEnum.MY_NEW_WORKER
 
        @staticmethod
-       async def init(op_id: str) -> str:
+       async def init(op_id: str) -> str | None:
+           """Initialize task data, insert into DB; return None if op_id is invalid"""
            task_id = str(uuid.uuid4())
-           task = TaskModel(...)
-           await TaskManager.create_task(task)
+           task = TaskModel(
+               id=task_id,
+               kb_id="",
+               task_name="my_new_task",
+               task_type=TaskTypeEnum.MY_NEW_WORKER,
+               status=TaskStatusEnum.PENDING,
+               op_id=op_id,
+           )
+           await TaskManager.add_task(task)
            return task_id
 
        @staticmethod
        async def run(task_id: str) -> bool:
-           await BaseWorker.report(task_id, "Processing...", TaskStatusEnum.RUNNING, 50.0)
+           """Actual business logic, runs in sub-process"""
+           try:
+               task = await TaskManager.get_task_by_task_id(task_id)
+               # ... execute business logic ...
+               await BaseWorker.report(task_id, "Processing...", TaskStatusEnum.RUNNING, 50.0)
+               await TaskManager.update_task(
+                   task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+               )
+               await BaseWorker.report(task_id, "Done", TaskStatusEnum.RUNNING, 100.0)
+               return True
+           except Exception as e:
+               await TaskManager.update_task(
+                   task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+               )
+               await BaseWorker.report(task_id, f"Failed: {e}", TaskStatusEnum.RUNNING, 0.0)
+               return False
+
+       @staticmethod
+       async def stop(task_id: str) -> str | None:
+           return task_id
+
+       @staticmethod
+       async def delete(task_id: str) -> str:
+           return task_id
+
+       @staticmethod
+       async def reinit(task_id: str) -> bool:
            return True
+
+       @staticmethod
+       async def deinit(task_id: str) -> str:
+           return task_id
    ```
 
 3. Worker lifecycle methods:
 
-| Method | Trigger | Description |
-|--------|---------|-------------|
-| `init` | External task creation | Initialize task data, insert into DB |
-| `run` | TaskHandler schedules | Actual business logic, runs in sub-process |
-| `stop` | External stop request | Clean up running resources |
-| `delete` | External delete request | Permanently remove task data |
-| `reinit` | Failed task retry | Reset task state for retry |
-| `deinit` | Task success completion | Final cleanup, set state to SUCCESSFUL |
+| Method | Trigger | Input | Output | Description |
+|--------|---------|-------|--------|-------------|
+| `init` | External task creation | `op_id: str` | `str \| None` | Initialize task data, insert into DB; return `None` on failure |
+| `run` | TaskHandler schedules | `task_id: str` | `bool` | Actual business logic, runs in sub-process; return `True` on success |
+| `stop` | External stop request | `task_id: str` | `str \| None` | Clean up running resources; return `task_id` or `None` |
+| `delete` | External delete request | `task_id: str` | `str` | Permanently remove task data; return `task_id` |
+| `reinit` | Failed task retry | `task_id: str` | `bool` | Reset task state for retry; return whether retry is allowed |
+| `deinit` | Task success completion | `task_id: str` | `str` | Final cleanup; return `task_id` |
 
 ---
 
@@ -519,7 +563,7 @@ class LogAnalysisWorker:
     name = TaskTypeEnum.LOG_ANALYSIS_WORKER
 
     @staticmethod
-    async def init(op_id: str) -> str:
+    async def init(op_id: str) -> str | None:
         task_id = str(uuid.uuid4())
         task = TaskModel(
             id=task_id,
@@ -528,15 +572,34 @@ class LogAnalysisWorker:
             status=TaskStatusEnum.PENDING,
             op_id=op_id,
         )
-        await TaskManager.create_task(task)
+        await TaskManager.add_task(task)
         return task_id
 
     @staticmethod
     async def run(task_id: str) -> bool:
         await BaseWorker.report(task_id, "Started", TaskStatusEnum.RUNNING, 0.0)
         # ... execute analysis logic ...
+        await TaskManager.update_task(
+            task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+        )
         await BaseWorker.report(task_id, "Completed", TaskStatusEnum.RUNNING, 100.0)
         return True
+
+    @staticmethod
+    async def stop(task_id: str) -> str | None:
+        return task_id
+
+    @staticmethod
+    async def delete(task_id: str) -> str:
+        return task_id
+
+    @staticmethod
+    async def reinit(task_id: str) -> bool:
+        return True
+
+    @staticmethod
+    async def deinit(task_id: str) -> str:
+        return task_id
 ```
 
 ---

@@ -273,7 +273,7 @@ class LogFileService:
 ```python
 class TaskManager:
     @staticmethod
-    async def get_task_by_id(task_id: str) -> TaskModel | None:
+    async def get_task_by_task_id(task_id: str) -> TaskModel | None:
         sql_str = "SELECT ... FROM task_table WHERE id = :task_id"
         results = await AsyncSQLiteSingleton().execute_query(sql_str, {"task_id": task_id})
         if results:
@@ -281,7 +281,7 @@ class TaskManager:
         return None
 
     @staticmethod
-    async def create_task(task: TaskModel) -> bool:
+    async def add_task(task: TaskModel) -> bool:
         sql_str = "INSERT INTO task_table (...) VALUES (...)"
         return await AsyncSQLiteSingleton().execute_modify(sql_str, task.model_dump())
 ```
@@ -424,7 +424,7 @@ class BaseWorker:
 
     @staticmethod
     async def report(task_id: str, message: str, status: TaskStatusEnum, progress: float) -> bool:
-        """添加任务进度报告"""
+        """添加任务进度报告。注意：status 参数为保留位，当前未写入报告"""
         task_report = TaskReportModel(task_id=task_id, message=message, progress=progress)
         return await TaskReportManager.add_task_report(task_report)
 ```
@@ -453,22 +453,25 @@ class BaseWorker:
    from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
    from latency.task.worker.base import BaseWorker
    from latency.database.managers.task import TaskManager
+   from latency.schemas.task import TaskModel
+   import uuid
 
    class MyNewWorker:
        name = TaskTypeEnum.MY_NEW_WORKER  # 必须设置 name，用于 BaseWorker 反射查找
 
        @staticmethod
-       async def init(op_id: str) -> str:
-           """初始化任务，创建数据库记录，返回 task_id"""
+       async def init(op_id: str) -> str | None:
+           """初始化任务，创建数据库记录，返回 task_id；若 op_id 无效可返回 None"""
            task_id = str(uuid.uuid4())
            task = TaskModel(
                id=task_id,
+               kb_id="",          # 若有关联知识库可填入 kb_id
                task_name="my_new_task",
                task_type=TaskTypeEnum.MY_NEW_WORKER,
                status=TaskStatusEnum.PENDING,
                op_id=op_id,
            )
-           await TaskManager.create_task(task)
+           await TaskManager.add_task(task)
            return task_id
 
        @staticmethod
@@ -476,48 +479,54 @@ class BaseWorker:
            """实际执行业务逻辑（在子进程中运行）"""
            try:
                # 1. 获取任务信息
-               task = await TaskManager.get_task_by_id(task_id)
+               task = await TaskManager.get_task_by_task_id(task_id)
                # 2. 执行业务逻辑...
-               # 3. 上报进度
+               # 3. 上报进度（status 为保留位，当前未实际写入）
                await BaseWorker.report(task_id, "处理中...", TaskStatusEnum.RUNNING, 50.0)
                # 4. 完成
-               await BaseWorker.report(task_id, "完成", TaskStatusEnum.SUCCESSFUL_PENDING, 100.0)
+               await TaskManager.update_task(
+                   task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+               )
+               await BaseWorker.report(task_id, "完成", TaskStatusEnum.RUNNING, 100.0)
                return True
            except Exception as e:
-               await BaseWorker.report(task_id, f"失败: {e}", TaskStatusEnum.FAILED_PENDING, 0.0)
+               await TaskManager.update_task(
+                   task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+               )
+               await BaseWorker.report(task_id, f"失败: {e}", TaskStatusEnum.RUNNING, 0.0)
                return False
 
        @staticmethod
-       async def stop(task_id: str) -> bool:
-           """停止任务时的清理逻辑"""
-           return True
+       async def stop(task_id: str) -> str | None:
+           """停止任务时的清理逻辑，返回 task_id 或 None"""
+           return task_id
 
        @staticmethod
-       async def delete(task_id: str) -> bool:
-           """删除任务时的清理逻辑"""
-           return True
+       async def delete(task_id: str) -> str:
+           """删除任务时的清理逻辑，返回 task_id"""
+           return task_id
 
        @staticmethod
        async def reinit(task_id: str) -> bool:
-           """重试任务前的重置逻辑"""
+           """重试任务前的重置逻辑，返回是否允许重试"""
            return True
 
        @staticmethod
        async def deinit(task_id: str) -> str:
-           """任务成功后的清理逻辑"""
+           """任务成功后的清理逻辑，返回 task_id"""
            return task_id
    ```
 
 3. Worker 生命周期方法说明：
 
-| 方法 | 调用时机 | 说明 |
-|------|---------|------|
-| `init` | 外部创建任务时 | 初始化任务数据，插入数据库 |
-| `run` | TaskHandler 调度执行时 | 实际业务逻辑，在独立子进程中运行 |
-| `stop` | 外部调用停止任务时 | 清理运行中的资源 |
-| `delete` | 外部调用删除任务时 | 彻底删除任务相关数据 |
-| `reinit` | 失败任务重试时 | 重置任务状态，准备重新执行 |
-| `deinit` | 任务成功完成后 | 最终清理，状态置为 SUCCESSFUL |
+| 方法 | 调用时机 | 输入 | 输出 | 说明 |
+|------|---------|------|------|------|
+| `init` | 外部创建任务时 | `op_id: str` | `str \| None` | 初始化任务数据，插入数据库；失败返回 `None` |
+| `run` | TaskHandler 调度执行时 | `task_id: str` | `bool` | 实际业务逻辑，在独立子进程中运行；成功返回 `True` |
+| `stop` | 外部调用停止任务时 | `task_id: str` | `str \| None` | 清理运行中的资源；返回 `task_id` 或 `None` |
+| `delete` | 外部调用删除任务时 | `task_id: str` | `str` | 彻底删除任务相关数据；返回 `task_id` |
+| `reinit` | 失败任务重试时 | `task_id: str` | `bool` | 重置任务状态，准备重新执行；返回是否允许重试 |
+| `deinit` | 任务成功完成后 | `task_id: str` | `str` | 最终清理，返回 `task_id` |
 
 #### 4. Manager 层（在任务路径中的角色）
 
@@ -597,7 +606,7 @@ class LogAnalysisWorker:
     name = TaskTypeEnum.LOG_ANALYSIS_WORKER
 
     @staticmethod
-    async def init(op_id: str) -> str:
+    async def init(op_id: str) -> str | None:
         task_id = str(uuid.uuid4())
         task = TaskModel(
             id=task_id,
@@ -606,7 +615,7 @@ class LogAnalysisWorker:
             status=TaskStatusEnum.PENDING,
             op_id=op_id,
         )
-        await TaskManager.create_task(task)
+        await TaskManager.add_task(task)
         return task_id
 
     @staticmethod
@@ -614,10 +623,27 @@ class LogAnalysisWorker:
         # 实际业务逻辑在子进程中执行
         await BaseWorker.report(task_id, "开始分析", TaskStatusEnum.RUNNING, 0.0)
         # ... 执行分析逻辑 ...
+        await TaskManager.update_task(
+            task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+        )
         await BaseWorker.report(task_id, "分析完成", TaskStatusEnum.RUNNING, 100.0)
         return True
 
-    # ... stop / delete / reinit / deinit ...
+    @staticmethod
+    async def stop(task_id: str) -> str | None:
+        return task_id
+
+    @staticmethod
+    async def delete(task_id: str) -> str:
+        return task_id
+
+    @staticmethod
+    async def reinit(task_id: str) -> bool:
+        return True
+
+    @staticmethod
+    async def deinit(task_id: str) -> str:
+        return task_id
 ```
 
 ---
