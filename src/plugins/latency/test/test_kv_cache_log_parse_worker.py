@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 
-async def test_kv_cache_log_parse_worker(log_dir: str = None, persist: bool = True):
+async def test_kv_cache_log_parse_worker(log_dir: str = None):
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
     from latency.database.engine import AsyncSQLiteSingleton
     from latency.database.managers.log_parse_result import LogParseResultManager
@@ -28,45 +28,25 @@ async def test_kv_cache_log_parse_worker(log_dir: str = None, persist: bool = Tr
         return
 
     start = time.perf_counter()
-    results = await KVCacheLogParseWorker.parse_log(log_dir, persist=persist)
+    results = await KVCacheLogParseWorker.parse_log(log_dir)
     elapsed = time.perf_counter() - start
     logger.info(f"\nParse elapsed: {elapsed:.3f}s")
 
-    if persist:
-        req = ListLogParseResultRequest()
-        total, page_results = await LogParseResultManager.list_log_parse_results(req)
-        anomalous = sum(1 for r in page_results if r.is_anomalous)
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Total results in DB: {total}")
-        logger.info(f"Anomalous in current page: {anomalous}")
-        logger.info(f"{'='*60}")
+    total = len(results)
+    anomalous = sum(1 for r in results if r.is_anomalous)
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Total results: {total}")
+    logger.info(f"Anomalous: {anomalous}")
+    logger.info(f"{'='*60}")
 
-        for i, r in enumerate(page_results[:5]):
-            logger.info(f"\n--- Result {i} ---")
-            logger.info(f"  trace_id: {r.trace_id}")
-            logger.info(f"  timestamp: {r.timestamp}")
-            logger.info(f"  pod_ip: {r.pod_ip}")
-            logger.info(f"  total_latency: {r.total_latency}")
-            logger.info(f"  operation: {r.operation}")
-            logger.info(f"  is_anomalous: {r.is_anomalous}")
-
-        del page_results
-    else:
-        total = len(results)
-        anomalous = sum(1 for r in results if r.is_anomalous)
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Total results: {total}")
-        logger.info(f"Anomalous: {anomalous}")
-        logger.info(f"{'='*60}")
-
-        for i, r in enumerate(results[:5]):
-            logger.info(f"\n--- Result {i} ---")
-            logger.info(f"  trace_id: {r.trace_id}")
-            logger.info(f"  timestamp: {r.timestamp}")
-            logger.info(f"  pod_ip: {r.pod_ip}")
-            logger.info(f"  total_latency: {r.total_latency}")
-            logger.info(f"  operation: {r.operation}")
-            logger.info(f"  is_anomalous: {r.is_anomalous}")
+    for i, r in enumerate(results[:5]):
+        logger.info(f"\n--- Result {i} ---")
+        logger.info(f"  trace_id: {r.trace_id}")
+        logger.info(f"  timestamp: {r.timestamp}")
+        logger.info(f"  pod_ip: {r.pod_ip}")
+        logger.info(f"  total_latency: {r.total_latency}")
+        logger.info(f"  operation: {r.operation}")
+        logger.info(f"  is_anomalous: {r.is_anomalous}")
 
     logger.info("\n=== TEST PASSED ===")
 

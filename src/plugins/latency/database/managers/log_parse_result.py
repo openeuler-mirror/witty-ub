@@ -32,10 +32,12 @@ class LogParseResultManager:
         return result
 
     @staticmethod
-    async def add_log_parse_results(results: list[LogParseResultModel]) -> list[str]:
+    async def add_log_parse_results(
+        results: list[LogParseResultModel],
+        batch_size: int = 1024,
+    ) -> list[str]:
         """批量添加日志解析结果"""
         ids_added = []
-        batch_size = 1024
         for i in range(0, len(results), batch_size):
             batch = results[i : i + batch_size]
             try:

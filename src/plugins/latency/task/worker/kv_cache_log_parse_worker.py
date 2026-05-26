@@ -13,6 +13,7 @@ from latency.task.parse import (
     LogCorrelator,
     ParseResultBuilder,
 )
+from latency.common.ds_log_io import glob_paths, open_log
 from latency.database.engine import AsyncSQLiteSingleton
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
@@ -26,6 +27,24 @@ from latency.schemas.log import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _scan_file(parser, path: str) -> tuple[str, list]:
+    pod_ip = parser.extract_pod_ip(path)
+    log_file = LogFileModel(file_path=path, file_size=os.path.getsize(path))
+    entries = []
+    try:
+        with open_log(path) as f:
+            for line_no, line in enumerate(f, 1):
+                entry = parser.match_line(line, pod_ip)
+                if entry:
+                    entry.log_id = log_file.id
+                    entries.append(entry)
+    except EOFError:
+        logger.warning(f"Skipping corrupted file {path}")
+    except Exception as e:
+        logger.warning(f"Error reading {path}: {e}")
+    return parser.label, entries
 
 
 class KVCacheLogParseWorker:
@@ -54,7 +73,6 @@ class KVCacheLogParseWorker:
     @staticmethod
     async def parse_log(
         log_dir: str,
-        persist: bool = False,
     ) -> list[LogParseResultModel]:
         parsers = [
             SdkAccessLogParser(),
@@ -65,14 +83,24 @@ class KVCacheLogParseWorker:
             QueryMetaLogParser(),
         ]
 
-        parse_tasks = [asyncio.to_thread(parser.parse, log_dir) for parser in parsers]
-        parse_results = await asyncio.gather(*parse_tasks)
+        scan_tasks = []
+        for parser in parsers:
+            paths = glob_paths(
+                [os.path.join(log_dir, p) for p in parser.patterns]
+            )
+            for path in paths:
+                scan_tasks.append(asyncio.to_thread(_scan_file, parser, path))
 
-        parsed = {}
-        for parser, entries in zip(parsers, parse_results):
-            parsed[parser.label] = entries
-            logger.info(f"{parser.label}: {len(entries)} entries")
-        del parse_results
+        scan_results = await asyncio.gather(*scan_tasks)
+
+        parsed: dict[str, list] = {}
+        for label, entries in scan_results:
+            parsed.setdefault(label, []).extend(entries)
+        del scan_results
+
+        for label in parsed:
+            parsed[label].sort(key=lambda x: x.timestamp)
+            logger.info(f"{label}: {len(parsed[label])} entries")
 
         correlator = LogCorrelator(parsed)
         correlated = correlator.correlate()
@@ -89,13 +117,6 @@ class KVCacheLogParseWorker:
         total = len(results)
         anomalous_count = sum(1 for r in results if r.is_anomalous)
         logger.info(f"Parse complete: {total} results, {anomalous_count} anomalous")
-
-        if persist:
-            await AsyncSQLiteSingleton().init_database()
-            ids = await LogParseResultManager.add_log_parse_results(results)
-            del results
-            logger.info(f"Persisted {len(ids)} results to database, released results from memory")
-            return []
 
         return results
 
