@@ -1,104 +1,128 @@
 from latency.schemas.log import LogParseResultModel
+from latency.schemas.request import ListLogParseResultRequest
 from latency.database.engine import AsyncSQLiteSingleton
 
 
 class LogParseResultManager:
+    """日志解析结果管理器"""
 
     @staticmethod
-    async def add_log_parse_result(result: LogParseResultModel) -> str:
+    async def add_log_parse_result(result: LogParseResultModel) -> bool:
+        """添加日志解析结果"""
         sql_str = """
             INSERT INTO log_parse_result_table (
-                id, log_id, aggregated_event_id, anomalous_event_id,
-                trace_id, timestamp, src_ip, dst_ip, pod_ip,
-                total_latency, c2w_latency, worker_query_meta_latency,
-                urma_total_latency, urma_link_latency, urma_inflight_count,
-                c2w_urma_latency, w2w_urma_latency, urma_write_source, urma_write_dst,
-                operation, data_size, offset,
-                is_anomalous, content, anomaly_reason, anomaly_score, remark,
-                existed_status, created_at
-            )
-            VALUES (
-                :id, :log_id, :aggregated_event_id, :anomalous_event_id,
-                :trace_id, :timestamp, :src_ip, :dst_ip, :pod_ip,
-                :total_latency, :c2w_latency, :worker_query_meta_latency,
-                :urma_total_latency, :urma_link_latency, :urma_inflight_count,
-                :c2w_urma_latency, :w2w_urma_latency, :urma_write_source, :urma_write_dst,
-                :operation, :data_size, :offset,
-                :is_anomalous, :content, :anomaly_reason, :anomaly_score, :remark,
-                :existed_status, :created_at
+                id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
+                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
+                worker_query_meta_latency, urma_total_latency, urma_link_latency,
+                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
+                operation, data_size, offset, is_anomalous, content,
+                anomaly_reason, anomaly_score, remark, existed_status, created_at
+            ) VALUES (
+                :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
+                :timestamp, :src_ip, :dst_ip, :pod_ip, :total_latency, :c2w_latency,
+                :worker_query_meta_latency, :urma_total_latency, :urma_link_latency,
+                :urma_inflight_count, :c2w_urma_latency, :w2w_urma_latency,
+                :operation, :data_size, :offset, :is_anomalous, :content,
+                :anomaly_reason, :anomaly_score, :remark, :existed_status, :created_at
             )
         """
-        data = result.model_dump(exclude_none=False)
-        success = await AsyncSQLiteSingleton().execute_modify(sql_str, data)
-        return result.id if success else ""
+        result = await AsyncSQLiteSingleton().execute_modify(
+            sql_str, result.model_dump(exclude_none=False, by_alias=True)
+        )
+        return result
 
     @staticmethod
-    async def batch_add_log_parse_results(results: list[LogParseResultModel]) -> bool:
-        if not results:
-            return False
+    async def add_log_parse_results(results: list[LogParseResultModel]) -> list[str]:
+        """批量添加日志解析结果"""
+        ids_added = []
+        batch_size = 1024
+        for i in range(0, len(results), batch_size):
+            batch = results[i : i + batch_size]
+            try:
+                sql_str = """
+                    INSERT INTO log_parse_result_table (
+                        id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
+                        timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
+                        worker_query_meta_latency, urma_total_latency, urma_link_latency,
+                        urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
+                        operation, data_size, offset, is_anomalous, content,
+                        anomaly_reason, anomaly_score, remark, existed_status, created_at
+                    ) VALUES (
+                        :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
+                        :timestamp, :src_ip, :dst_ip, :pod_ip, :total_latency, :c2w_latency,
+                        :worker_query_meta_latency, :urma_total_latency, :urma_link_latency,
+                        :urma_inflight_count, :c2w_urma_latency, :w2w_urma_latency,
+                        :operation, :data_size, :offset, :is_anomalous, :content,
+                        :anomaly_reason, :anomaly_score, :remark, :existed_status, :created_at
+                    )
+                """
+                params = [
+                    r.model_dump(exclude_none=False, by_alias=True)
+                    for r in batch
+                ]
+                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                ids_added.extend([r.id for r in batch])
+            except Exception as e:
+                print(f"批量添加日志解析结果失败，错误信息: {str(e)}")
+        return ids_added
+
+    @staticmethod
+    async def list_log_parse_results(
+        req: ListLogParseResultRequest,
+    ) -> tuple[int, list[LogParseResultModel]]:
+        """分页查询日志解析结果"""
         sql_str = """
-            INSERT INTO log_parse_result_table (
-                id, log_id, aggregated_event_id, anomalous_event_id,
-                trace_id, timestamp, src_ip, dst_ip, pod_ip,
-                total_latency, c2w_latency, worker_query_meta_latency,
-                urma_total_latency, urma_link_latency, urma_inflight_count,
-                c2w_urma_latency, w2w_urma_latency, urma_write_source, urma_write_dst,
-                operation, data_size, offset,
-                is_anomalous, content, anomaly_reason, anomaly_score, remark,
-                existed_status, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
+                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
+                worker_query_meta_latency, urma_total_latency, urma_link_latency,
+                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
+                operation, data_size, offset, is_anomalous, content,
+                anomaly_reason, anomaly_score, remark, existed_status, created_at
+            FROM log_parse_result_table
+            WHERE existed_status = 1
         """
-        rows = []
-        for r in results:
-            data = r.model_dump(exclude_none=False)
-            rows.append((
-                data.get("id"), data.get("log_id"), data.get("aggregated_event_id"),
-                data.get("anomalous_event_id"), data.get("trace_id"), data.get("timestamp"),
-                data.get("src_ip"), data.get("dst_ip"), data.get("pod_ip"),
-                data.get("total_latency"), data.get("c2w_latency"),
-                data.get("worker_query_meta_latency"), data.get("urma_total_latency"),
-                data.get("urma_link_latency"), data.get("urma_inflight_count"),
-                data.get("c2w_urma_latency"), data.get("w2w_urma_latency"),
-                data.get("urma_write_source"), data.get("urma_write_dst"),
-                data.get("operation"), data.get("data_size"), data.get("offset"),
-                data.get("is_anomalous"), data.get("content"),
-                data.get("anomaly_reason"), data.get("anomaly_score"), data.get("remark"),
-                data.get("existed_status"), data.get("created_at"),
-            ))
-        return await AsyncSQLiteSingleton().execute_modify(sql_str, rows)
+        params = {}
+        if req.src_ip:
+            sql_str += " AND src_ip LIKE :src_ip"
+            params["src_ip"] = f"%{req.src_ip}%"
+        if req.dst_ip:
+            sql_str += " AND dst_ip LIKE :dst_ip"
+            params["dst_ip"] = f"%{req.dst_ip}%"
+        if req.is_anomalous is not None:
+            sql_str += " AND is_anomalous = :is_anomalous"
+            params["is_anomalous"] = req.is_anomalous
+        if req.created_at_start:
+            sql_str += " AND created_at >= :created_at_start"
+            params["created_at_start"] = req.created_at_start
+        if req.created_at_end:
+            sql_str += " AND created_at <= :created_at_end"
+            params["created_at_end"] = req.created_at_end
 
-    @staticmethod
-    async def delete_log_parse_result_by_id(result_id: str) -> bool:
-        sql_str = """
-            DELETE FROM log_parse_result_table
-            WHERE id = :result_id
-        """
-        params = {"result_id": result_id}
-        return await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
+        count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
+        total = count_rows[0]["cnt"] if count_rows else 0
 
-    @staticmethod
-    async def delete_log_parse_results_by_ids(result_ids: list[str]) -> bool:
-        if not result_ids:
-            return False
-        placeholders = ", ".join(["?"] * len(result_ids))
-        sql_str = f"""
-            DELETE FROM log_parse_result_table
-            WHERE id IN ({placeholders})
-        """
-        return await AsyncSQLiteSingleton().execute_modify(sql_str, tuple(result_ids))
+        sort_order = "DESC" if req.created_sorted_desc else "ASC"
+        sql_str += f" ORDER BY created_at {sort_order}"
+        offset = (req.page_num - 1) * req.page_cnt
+        sql_str += " LIMIT :limit OFFSET :offset"
+        params["limit"] = req.page_cnt
+        params["offset"] = offset
+
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        results = [LogParseResultModel(**row) for row in rows]
+        return total, results
 
     @staticmethod
     async def get_log_parse_result_by_id(result_id: str) -> LogParseResultModel | None:
+        """根据ID获取日志解析结果"""
         sql_str = """
-            SELECT id, log_id, aggregated_event_id, anomalous_event_id,
-                   trace_id, timestamp, src_ip, dst_ip, pod_ip,
-                   total_latency, c2w_latency, worker_query_meta_latency,
-                   urma_total_latency, urma_link_latency, urma_inflight_count,
-                   c2w_urma_latency, w2w_urma_latency, urma_write_source, urma_write_dst,
-                   operation, data_size, offset,
-                   is_anomalous, content, anomaly_reason, anomaly_score, remark,
-                   existed_status, created_at
+            SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
+                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
+                worker_query_meta_latency, urma_total_latency, urma_link_latency,
+                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
+                operation, data_size, offset, is_anomalous, content,
+                anomaly_reason, anomaly_score, remark, existed_status, created_at
             FROM log_parse_result_table
             WHERE id = :result_id
         """
@@ -109,61 +133,13 @@ class LogParseResultManager:
         return None
 
     @staticmethod
-    async def list_log_parse_results_by_aggregated_event_id(
-        aggregated_event_id: str,
-    ) -> list[LogParseResultModel]:
+    async def delete_log_parse_results_by_log_id(log_id: str) -> bool:
+        """根据日志ID删除解析结果"""
         sql_str = """
-            SELECT id, log_id, aggregated_event_id, anomalous_event_id,
-                   trace_id, timestamp, src_ip, dst_ip, pod_ip,
-                   total_latency, c2w_latency, worker_query_meta_latency,
-                   urma_total_latency, urma_link_latency, urma_inflight_count,
-                   c2w_urma_latency, w2w_urma_latency, urma_write_source, urma_write_dst,
-                   operation, data_size, offset,
-                   is_anomalous, content, anomaly_reason, anomaly_score, remark,
-                   existed_status, created_at
-            FROM log_parse_result_table
-            WHERE aggregated_event_id = :aggregated_event_id
-            ORDER BY created_at DESC
+            UPDATE log_parse_result_table
+            SET existed_status = 0
+            WHERE log_id = :log_id
         """
-        params = {"aggregated_event_id": aggregated_event_id}
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        return [LogParseResultModel(**row) for row in rows]
-
-    @staticmethod
-    async def list_log_parse_results_by_anomalous_event_id(
-        anomalous_event_id: str,
-    ) -> list[LogParseResultModel]:
-        sql_str = """
-            SELECT id, log_id, aggregated_event_id, anomalous_event_id,
-                   trace_id, timestamp, src_ip, dst_ip, pod_ip,
-                   total_latency, c2w_latency, worker_query_meta_latency,
-                   urma_total_latency, urma_link_latency, urma_inflight_count,
-                   c2w_urma_latency, w2w_urma_latency, urma_write_source, urma_write_dst,
-                   operation, data_size, offset,
-                   is_anomalous, content, anomaly_reason, anomaly_score, remark,
-                   existed_status, created_at
-            FROM log_parse_result_table
-            WHERE anomalous_event_id = :anomalous_event_id
-            ORDER BY created_at DESC
-        """
-        params = {"anomalous_event_id": anomalous_event_id}
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        return [LogParseResultModel(**row) for row in rows]
-
-    @staticmethod
-    async def list_anomalous_log_parse_results() -> list[LogParseResultModel]:
-        sql_str = """
-            SELECT id, log_id, aggregated_event_id, anomalous_event_id,
-                   trace_id, timestamp, src_ip, dst_ip, pod_ip,
-                   total_latency, c2w_latency, worker_query_meta_latency,
-                   urma_total_latency, urma_link_latency, urma_inflight_count,
-                   c2w_urma_latency, w2w_urma_latency, urma_write_source, urma_write_dst,
-                   operation, data_size, offset,
-                   is_anomalous, content, anomaly_reason, anomaly_score, remark,
-                   existed_status, created_at
-            FROM log_parse_result_table
-            WHERE is_anomalous = 1
-            ORDER BY created_at DESC
-        """
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str)
-        return [LogParseResultModel(**row) for row in rows]
+        params = {"log_id": log_id}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result

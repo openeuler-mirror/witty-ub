@@ -1,13 +1,13 @@
 import logging
 from typing import Any, Optional
 
-from ENUM.ds_log import StatusCode
-from regex.kvcache_log import NOT_FOUND_RE
-from schemas.ds_log import (
+from latency.ENUM.ds_log import StatusCode
+from latency.regex.kvcache_log import NOT_FOUND_RE
+from latency.schemas.ds_log import (
     LogEntry,
     CorrelationResult,
 )
-from schemas.log import LogParseResultModel
+from latency.schemas.log import LogParseResultModel
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ class ParseResultBuilder:
             results.append(LogParseResultModel(
                 log_id=self.log_dir,
                 trace_id=sdk.trace_id,
-                timestamp=sdk.timestamp,
+                timestamp=sdk.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if sdk.timestamp else None,
                 src_ip=urma_info["src_ip"],
                 dst_ip=urma_info["dst_ip"],
                 pod_ip=sdk.pod_ip,
@@ -168,7 +168,7 @@ class ParseResultBuilder:
             results.append(LogParseResultModel(
                 log_id=self.log_dir,
                 trace_id=w.trace_id,
-                timestamp=w.timestamp,
+                timestamp=w.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if w.timestamp else None,
                 src_ip=urma_info["src_ip"],
                 dst_ip=urma_info["dst_ip"],
                 pod_ip=w.pod_ip,

@@ -16,11 +16,11 @@ class LogKnowledgeModel(BaseModel):
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )
-    created_at: datetime = Field(
+    created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="知识创建时间",
     )
-    updated_at: datetime = Field(
+    updated_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="知识更新时间",
     )
@@ -30,17 +30,18 @@ class LogFileModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="日志文件ID")
     kb_id: str = Field(default="", description="关联的知识ID")
     name: str = Field(default="", description="日志文件名称")
-    file_path: str = Field(..., description="日志文件路径")
-    file_size: int = Field(..., description="日志文件大小，单位字节")
-    anomaly_cnt: int = Field(0, description="日志文件中包含的异常数量")
+    file_path: str = Field(default="", description="日志文件路径")
+    file_size: int = Field(default=0, description="日志文件大小，单位字节")
+    anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
     existed_status: bool = Field(
-        True, description="知识是否存在的状态，默认为True表示存在"
+        default=True, description="知识是否存在的状态，默认为True表示存在"
     )
-    created_at: datetime = Field(
+    created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="日志文件创建时间",
     )
+
 
 class SrcDstAggregatedEventModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="事件ID")
@@ -108,7 +109,7 @@ class SrcDstAggregatedEventModel(BaseModel):
         default=None, description="URMA建链延迟的99百分位，单位毫秒"
     )
     p95_urma_link_latency: float | None = Field(
-        default=None, description="URMA建链延迟的95百分位，单位毫秒"    
+        default=None, description="URMA建链延迟的95百分位，单位毫秒"
     )
     ave_c2w_urma_latency: float | None = Field(
         default=None, description="平均C2W URMA延迟，单位毫秒"
@@ -143,7 +144,7 @@ class SrcDstAggregatedEventModel(BaseModel):
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )
-    created_at: datetime = Field(
+    created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="事件创建时间",
     )
@@ -166,7 +167,7 @@ class AnomalousEventModel(BaseModel):
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )
-    created_at: datetime = Field(
+    created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="异常事件创建时间",
     )
@@ -185,13 +186,15 @@ class AnomalousEventChainModel(BaseModel):
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )
-    created_at: datetime = Field(
+    created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="异常事件链创建时间",
     )
 
 
 class LogParseResultModel(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="解析结果ID")
+    log_id: str = Field(default="", description="关联的日志目录路径")
     aggregated_event_id: str = Field(
         default="",
         description="关联的聚合事件ID，如果该解析结果是从聚合事件中识别出来的，则记录对应的聚合事件ID",
@@ -200,58 +203,46 @@ class LogParseResultModel(BaseModel):
         default="",
         description="关联的异常事件ID，如果该解析结果是从异常事件中识别出来的，则记录对应的异常事件ID",
     )
-    anomaly_reason: str | None = Field(default=None, description="异常原因描述")
-    anomaly_score: float | None = Field(
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP地址")
+    src_ip: Optional[str] = Field(default=None, description="源IP地址")
+    dst_ip: Optional[str] = Field(default=None, description="目的IP地址")
+    is_anomalous: bool = Field(..., description="是否为异常解析结果")
+    anomaly_reason: Optional[str] = Field(default=None, description="异常原因描述")
+    anomaly_score: Optional[float] = Field(
         default=None, description="异常评分，范围通常为0.0到1.0"
     )
-    c2w_latency: float | None = Field(
-        default=None, description="Client到本地worker延迟，单位毫秒"
-    )
-    c2w_urma_latency: float | None = Field(
-        default=None, description="（故障情况）C2W URMA延迟，单位毫秒"
-    )
-    content: str | None = Field(default=None, description="解析结果的原始内容")
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-        description="日志解析结果创建时间",
-    )
-    data_size: str | None = Field(default=None, description="数据大小")
-    dst_ip: str | None = Field(default=None, description="目的IP地址")
+    content: Optional[str] = Field(default=None, description="解析结果的原始内容")
+    data_size: Optional[str] = Field(default=None, description="数据大小")
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="解析结果ID")
-    is_anomalous: bool = Field(..., description="是否为异常解析结果")
-    log_id: str = Field(default="", description="关联的日志目录路径")
-    offset: int | None = Field(default=None, description="解析结果在日志中的偏移量")
-    operation: str | None = Field(default=None, description="操作类型")
-    pod_ip: str | None = Field(default=None, description="Pod IP地址")
-    remark: str | None = Field(default=None, description="备注信息")
-    src_ip: str | None = Field(default=None, description="源IP地址")
-    timestamp: datetime = Field(
-        default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3], 
-        description="事件时间戳")
-    trace_id: str | None = Field(default=None, description="追踪ID")
+    offset: Optional[int] = Field(default=None, description="解析结果在日志中的偏移量")
+    operation: Optional[str] = Field(default=None, description="操作类型")
+    remark: Optional[str] = Field(default=None, description="备注信息")
+    trace_id: Optional[str] = Field(default=None, description="追踪ID")
     total_latency: float = Field(..., description="总延迟，单位毫秒")
-    urma_inflight_count: int | None = Field(
-        default=None, description="在途写请求数"
-    )
-    urma_link_latency: float | None = Field(
+    urma_inflight_count: Optional[int] = Field(default=None, description="在途写请求数")
+    urma_link_latency: Optional[float] = Field(
         default=None, description="URMA建链延迟，单位毫秒"
     )
-    urma_total_latency: float | None = Field(
+    urma_total_latency: Optional[float] = Field(
         default=None, description="URMA总延迟，单位毫秒"
     )
-    urma_write_dst: str | None = Field(
-        default=None, description="URMA写请求目标"
+    c2w_latency: Optional[float] = Field(
+        default=None, description="Client到本地worker延迟，单位毫秒"
     )
-    urma_write_source: str | None = Field(
-        default=None, description="URMA写请求来源"
+    worker_query_meta_latency: Optional[float] = Field(
+        default=None, description="Worker查询元数据延迟(w1->w2)，单位毫秒"
     )
-    w2w_urma_latency: float | None = Field(
+    c2w_urma_latency: Optional[float] = Field(
+        default=None, description="（故障情况）C2W URMA延迟，单位毫秒"
+    )
+    w2w_urma_latency: Optional[float] = Field(
         default=None, description="W2W URMA延迟，单位毫秒"
     )
-    worker_query_meta_latency: float | None = Field(
-        default=None, description="Worker查询元数据延迟(w1->w2)，单位毫秒"
+    timestamp: Optional[str] = Field(default=None, description="事件时间戳")
+    created_at: str = Field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        description="日志解析结果创建时间",
     )
 
