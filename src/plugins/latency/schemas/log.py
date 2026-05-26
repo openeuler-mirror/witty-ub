@@ -228,7 +228,9 @@ class LogParseResultModel(BaseModel):
     pod_ip: str | None = Field(default=None, description="Pod IP地址")
     remark: str | None = Field(default=None, description="备注信息")
     src_ip: str | None = Field(default=None, description="源IP地址")
-    timestamp: datetime | None = Field(default=None, description="事件时间戳")
+    timestamp: datetime = Field(
+        default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3], 
+        description="事件时间戳")
     trace_id: str | None = Field(default=None, description="追踪ID")
     total_latency: float = Field(..., description="总延迟，单位毫秒")
     urma_inflight_count: int | None = Field(
@@ -253,11 +255,3 @@ class LogParseResultModel(BaseModel):
         default=None, description="Worker查询元数据延迟(w1->w2)，单位毫秒"
     )
 
-    @field_serializer("timestamp", "created_at")
-    @classmethod
-    def serialize_datetime(cls, v: datetime | None) -> str | None:
-        if v is None:
-            return None
-        if isinstance(v, str):
-            return v
-        return v.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]

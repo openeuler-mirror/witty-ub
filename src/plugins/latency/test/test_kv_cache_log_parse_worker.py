@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 async def test_kv_cache_log_parse_worker(log_dir: str = None):
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-    from latency.schemas.log import LogParseResultModel
 
     if log_dir is None:
         log_dir = os.path.join(os.path.dirname(__file__), "test_data")

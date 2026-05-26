@@ -2,11 +2,21 @@ import logging
 import os
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler
+from latency.task.parse import (
+    SdkAccessLogParser,
+    WorkerAccessLogParser,
+    UrmaLogParser,
+    RemotePullLogParser,
+    LinkLogParser,
+    QueryMetaLogParser,
+    LogCorrelator,
+    ParseResultBuilder,
+)
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.schemas.log import (
     LogFileModel,
-    src_dst_aggregated_eventModel,
+    SrcDstAggregatedEventModel,
     AnomalousEventModel,
     AnomalousEventChainModel,
     LogParseResultModel,
@@ -99,7 +109,7 @@ class KVCacheLogParseWorker:
     @staticmethod
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
-    ) -> list[src_dst_aggregated_eventModel]:
+    ) -> list[SrcDstAggregatedEventModel]:
         """生成聚合结果"""
         pass
 
@@ -109,7 +119,7 @@ class KVCacheLogParseWorker:
         list_log_parse_results: list[LogParseResultModel],
         anomalous_events: list[AnomalousEventModel],
         anomalous_event_chains: list[AnomalousEventChainModel],
-        src_dst_aggregated_events: list[src_dst_aggregated_eventModel],
+        src_dst_aggregated_events: list[SrcDstAggregatedEventModel],
     ) -> bool:
         """存库"""
         pass
