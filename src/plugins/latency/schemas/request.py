@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Any
+from fastapi import UploadFile
+from latency.ENUM.general import SourceType
 
 
 class CreateLogKnowledgeRequest(BaseModel):
@@ -27,19 +29,43 @@ class ListLogKnowledgeRequest(BaseModel):
         default=None,
         description="知识创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_sort: bool = Field(
-        default=False,
-        description="知识创建时间排序，True表示升序，False表示降序，默认为False",
+    created_sorted_desc: bool = Field(
+        default=True,
+        description="知识创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的知识数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
+class UpLoadLogFileConfig(BaseModel):
+    name: Optional[str] = Field(default=None, description="日志文件名称")
+    source_type: Optional[SourceType] = Field(
+        default=None, description="日志文件来源类型，支持local、remote和upload"
+    )
+    source: str | UploadFile = Field(
+        default=None,
+        description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
+    )
+
+
+class UpLoadLogFilesRequest(BaseModel):
+    upload_log_file_configs: list[UpLoadLogFileConfig] = Field(
+        default_factory=list, description="日志文件配置列表"
+    )
+
+
 class UpdateLogFileRequest(BaseModel):
     name: Optional[str] = Field(default=None, description="日志文件名称")
+    source_type: Optional[SourceType] = Field(
+        default=None, description="日志文件来源类型，支持local、remote和upload"
+    )
+    source: str | UploadFile = Field(
+        default=None,
+        description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
+    )
 
 
-class ListLogFileRequest(BaseModel):
+class ListLogFilesRequest(BaseModel):
     name: Optional[str] = Field(default=None, description="日志文件名称，支持模糊查询")
     created_at_start: Optional[str] = Field(
         default=None,
@@ -49,9 +75,9 @@ class ListLogFileRequest(BaseModel):
         default=None,
         description="日志文件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_sort: bool = Field(
-        default=False,
-        description="日志文件创建时间排序，True表示升序，False表示降序，默认为False",
+    created_sorted_desc: bool = Field(
+        default=True,
+        description="日志文件创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志文件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
@@ -68,9 +94,9 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
         default=None,
         description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_sort: Optional[bool] = Field(
-        default=None,
-        description="聚合事件创建时间排序，True表示升序，False表示降序，None表示不排序",
+    created_sorted_desc: bool = Field(
+        default=True,
+        description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
@@ -96,9 +122,9 @@ class ListLogParseResultRequest(BaseModel):
         default=None,
         description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_sort: Optional[bool] = Field(
-        default=None,
-        description="日志解析结果创建时间排序，True表示升序，False表示降序，None表示不排序",
+    created_sorted_desc: bool = Field(
+        default=True,
+        description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")

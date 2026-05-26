@@ -77,6 +77,16 @@ class DeleteLogFilesResponse(ResponseBase):
     result: DeleteLogFilesMsg = Field(..., description="删除日志文件响应结果")
 
 
+class RunOrStopLogParseMsg(BaseModel):
+    task_id: Optional[str] = Field(
+        default=None, description="运行或停止日志解析的任务ID"
+    )
+
+
+class RunOrStopLogParseResponse(ResponseBase):
+    result: RunOrStopLogParseMsg = Field(..., description="运行或停止日志解析响应结果")
+
+
 class UpdateLogFileMsg(BaseModel):
     log_file_id: Optional[str] = Field(default=None, description="更新的日志文件ID")
 
@@ -94,6 +104,14 @@ class ListLogFilesMsg(BaseModel):
 
 class ListLogFilesResponse(ResponseBase):
     result: ListLogFilesMsg = Field(..., description="查询日志文件列表响应结果")
+
+
+class GetLogFileMsg(BaseModel):
+    log_file: Optional[LogFileModel] = Field(default=None, description="日志文件详情")
+
+
+class GetLogFileResponse(ResponseBase):
+    result: GetLogFileMsg = Field(..., description="查询日志文件详情响应结果")
 
 
 class GetLogFileMsg(BaseModel):
@@ -163,6 +181,16 @@ class ListLogParseResultsResponse(ResponseBase):
     result: ListLogParseResultsMsg = Field(
         ..., description="查询日志解析结果列表响应结果"
     )
+
+
+class GetLogParseResultMsg(BaseModel):
+    log_parse_result: Optional[LogParseResultModel] = Field(
+        default=None, description="日志解析结果详情"
+    )
+
+
+class GetLogParseResultResponse(ResponseBase):
+    result: GetLogParseResultMsg = Field(..., description="查询日志解析结果详情响应结果")
 
 
 class StopOrRunLogParseMsg(BaseModel):

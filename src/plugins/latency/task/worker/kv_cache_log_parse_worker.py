@@ -6,7 +6,7 @@ from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.schemas.log import (
     LogFileModel,
-    src_dst_aggregated_eventModel,
+    SrcDstAggregatedEventModel,
     AnomalousEventModel,
     AnomalousEventChainModel,
     LogParseResultModel,
@@ -20,7 +20,7 @@ class KVCacheLogParseWorker:
     KVCacheLogParseWorker
     """
 
-    name = TaskTypeEnum.KV_CACHE_LOG_PARSE
+    name = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
 
     @staticmethod
     async def init(op_id: str) -> str:
@@ -99,7 +99,7 @@ class KVCacheLogParseWorker:
     @staticmethod
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
-    ) -> list[src_dst_aggregated_eventModel]:
+    ) -> list[SrcDstAggregatedEventModel]:
         """生成聚合结果"""
         pass
 
@@ -109,7 +109,7 @@ class KVCacheLogParseWorker:
         list_log_parse_results: list[LogParseResultModel],
         anomalous_events: list[AnomalousEventModel],
         anomalous_event_chains: list[AnomalousEventChainModel],
-        src_dst_aggregated_events: list[src_dst_aggregated_eventModel],
+        src_dst_aggregated_events: list[SrcDstAggregatedEventModel],
     ) -> bool:
         """存库"""
         pass

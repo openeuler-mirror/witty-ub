@@ -37,7 +37,7 @@ table_ddl_list = {
         )
     """,
     "src_dst_aggregated_event_table": """
-        CREATE TABLE IF NOT EXISTS anomaly_event_table (
+        CREATE TABLE IF NOT EXISTS src_dst_aggregated_event_table (
             id TEXT PRIMARY KEY,
             src_ip TEXT,
             dst_ip TEXT,
@@ -124,8 +124,6 @@ table_ddl_list = {
             urma_inflight_count INTEGER,
             c2w_urma_latency REAL,
             w2w_urma_latency REAL,
-            urma_write_source TEXT,
-            urma_write_dst TEXT,
             operation TEXT,
             data_size TEXT,
             offset INTEGER,
@@ -152,11 +150,12 @@ table_ddl_list = {
     """,
     "task_report_table": """
         CREATE TABLE IF NOT EXISTS task_report_table (
-            task_id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
             progress REAL,
             message TEXT,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
         )
     """,
 }
@@ -275,11 +274,7 @@ class AsyncSQLiteSingleton:
             cursor = self._conn.cursor()
 
             # 判断是否为批量操作
-            if (
-                isinstance(params, list)
-                and len(params) > 0
-                and isinstance(params[0], (tuple, list))
-            ):
+            if isinstance(params, list) and len(params) > 0:
                 # 批量操作：使用 executemany
                 cursor.executemany(sql, params)
                 logger.debug(f"批量执行修改成功，影响行数: {cursor.rowcount}")
