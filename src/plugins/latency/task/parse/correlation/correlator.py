@@ -107,19 +107,20 @@ class WorkerRemotePullCorrelator(BaseCorrelator):
 
 
 class WorkerLinkCorrelator(BaseCorrelator):
-    def correlate(self) -> dict[int, float]:
+    def correlate(self) -> dict[int, list[LogEntry]]:
         results = {}
         for i, w in enumerate(self.index_manager.worker_entries):
             candidates = self.index_manager.links_by_trace.get(w.trace_id, [])
             if not candidates:
                 candidates = self.index_manager.links_by_pod_trace.get((w.pod_ip, w.trace_id), [])
             if candidates:
-                results[i] = max(link.elapsed_us for link in candidates)
+                best = max(candidates, key=lambda x: x.elapsed_us)
+                results[i] = [best]
         return results
 
 
 class WorkerQueryMetaCorrelator(BaseCorrelator):
-    def correlate(self) -> dict[int, float]:
+    def correlate(self) -> dict[int, list[LogEntry]]:
         results = {}
         for i, w in enumerate(self.index_manager.worker_entries):
             candidates = self.index_manager.metas_by_pod_trace.get((w.pod_ip, w.trace_id), [])
@@ -129,7 +130,7 @@ class WorkerQueryMetaCorrelator(BaseCorrelator):
             in_range = [entry for entry in candidates if start <= entry.timestamp <= w.timestamp]
             choices = in_range or candidates
             best = min(choices, key=lambda x: abs(x.timestamp - w.timestamp).total_seconds())
-            results[i] = best.elapsed_us
+            results[i] = [best]
         return results
 
 
