@@ -1,6 +1,14 @@
 from enum import StrEnum
 
 
+class SourceType(StrEnum):
+    """数据来源类型"""
+
+    LOCAL = "local"
+    REMOTE = "remote"
+    UPLOAD = "upload"
+
+
 class LogLevel(StrEnum):
     """日志级别"""
 

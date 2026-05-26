@@ -21,8 +21,15 @@ import shutil
 import logging
 from latency.ENUM.general import FilePath
 from latency.config.config import Config
-from latency.task.task_handle import TaskHandler
-from latency.routers import log_file
+from latency.task.task_handler import TaskHandler
+from latency.routers import (
+    log_file,
+    log_knowledge,
+    log_parse_result,
+    src_dst_aggregated_event,
+    anomalous_event,
+    anomalous_event_chain,
+)
 from latency.database.engine import AsyncSQLiteSingleton
 
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)
@@ -41,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 async def configure():
     app.include_router(log_file.router)
+    app.include_router(log_knowledge.router)
+    app.include_router(log_parse_result.router)
+    app.include_router(src_dst_aggregated_event.router)
+    app.include_router(anomalous_event.router)
+    app.include_router(anomalous_event_chain.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):

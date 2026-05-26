@@ -20,6 +20,33 @@ class LogKnowledgeManager:
         return log_kb_model.id if result else ""
 
     @staticmethod
+    async def add_log_kbs(log_kbs: list[LogKnowledgeModel]) -> list[str]:
+        """批量添加日志知识库"""
+        ids_added = []
+        batch_size = 1024
+        for i in range(0, len(log_kbs), batch_size):
+            batch = log_kbs[i : i + batch_size]
+            try:
+                sql_str = """
+                    INSERT INTO log_knowledge_table (
+                        id, image_bytes, name, description, task_cnt, log_file_cnt,
+                        anomaly_cnt, existed_status, created_at, updated_at
+                    ) VALUES (
+                        :id, :image_bytes, :name, :description, :task_cnt, :log_file_cnt,
+                        :anomaly_cnt, :existed_status, :created_at, :updated_at
+                    )
+                """
+                params = [
+                    log_kb.model_dump(exclude_none=False, by_alias=True)
+                    for log_kb in batch
+                ]
+                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                ids_added.extend([log_kb.id for log_kb in batch])
+            except Exception as e:
+                print(f"批量添加日志知识库失败，错误信息: {str(e)}")
+        return ids_added
+
+    @staticmethod
     async def delete_log_kb_by_kb_id(kb_id: str) -> bool:
         """根据知识库ID删除日志知识库"""
         sql_str = """
@@ -65,7 +92,7 @@ class LogKnowledgeManager:
         if req.created_at_end:
             sql_str += " AND created_at <= :created_at_end"
             params["created_at_end"] = req.created_at_end
-        rows = await AsyncSQLiteSingleton().execute_fetch_all(sql_str, params)
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return rows[0]["cnt"] if rows else 0
 
     @staticmethod
@@ -89,14 +116,14 @@ class LogKnowledgeManager:
         if req.created_at_end:
             sql_str += " AND created_at <= :created_at_end"
             params["created_at_end"] = req.created_at_end
-        sort_order = "ASC" if req.created_at_sort else "DESC"
+        sort_order = "ASC" if req.created_sorted_desc else "DESC"
         sql_str += f" ORDER BY created_at {sort_order}"
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt
         params["offset"] = offset
 
-        rows = await AsyncSQLiteSingleton().execute_fetch_all(sql_str, params)
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         log_kbs = [LogKnowledgeModel.model_validate(row) for row in rows]
         return log_kbs
 
@@ -109,7 +136,7 @@ class LogKnowledgeManager:
             WHERE id = :kb_id
         """
         params = {"kb_id": kb_id}
-        rows = await AsyncSQLiteSingleton().execute_fetch_all(sql_str, params)
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         if rows:
             return LogKnowledgeModel.model_validate(rows[0])
         return None
