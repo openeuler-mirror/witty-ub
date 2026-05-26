@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -59,9 +60,11 @@ class KVCacheLogParseWorker:
             QueryMetaLogParser(),
         ]
 
-        parsed: dict[str, list[BaseLogEntry]] = {}
-        for parser in parsers:
-            entries = parser.parse(log_dir)
+        parse_tasks = [asyncio.to_thread(parser.parse, log_dir) for parser in parsers]
+        parse_results = await asyncio.gather(*parse_tasks)
+
+        parsed = {}
+        for parser, entries in zip(parsers, parse_results):
             parsed[parser.label] = entries
             logger.info(f"{parser.label}: {len(entries)} entries")
 

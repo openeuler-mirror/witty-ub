@@ -2,6 +2,7 @@ import sys
 import os
 import asyncio
 import logging
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -23,7 +24,10 @@ async def test_kv_cache_log_parse_worker(log_dir: str = None):
         logger.error(f"Directory not found: {log_dir}")
         return
 
+    start = time.perf_counter()
     results = await KVCacheLogParseWorker.parse_log(log_dir)
+    elapsed = time.perf_counter() - start
+    logger.info(f"\nParse elapsed: {elapsed:.3f}s")
 
     logger.info(f"\n{'='*60}")
     logger.info(f"Total results: {len(results)}")

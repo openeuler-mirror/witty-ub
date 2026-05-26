@@ -123,24 +123,33 @@ class AccessLogParser(LogParser):
     @staticmethod
     def parse_access_line(line: str):
         """
-        解析访问日志行，支持两种格式：
-        1. 简化格式：用 | 分隔，包含 status_code | handle | elapsed | size | req_msg | resp_msg
-        2. 完整格式：用空格分隔，至少13列
+        解析访问日志行，支持三种格式：
+        1. 完整管道格式：用 | 分隔，包含 timestamp | level | source | ip | code | trace_id | ... | handle | elapsed | size | req_msg | resp_msg
+        2. 简化格式：用 | 分隔，包含 status_code | handle | elapsed | size | req_msg | resp_msg
+        3. 空格分隔格式：用空格分隔，至少13列
         """
         # 去除首尾空白
         line = line.strip()
         if not line:
             return None
 
-        # 检测日志格式：简化格式用 | 分隔，完整格式用空格分隔
         if "|" in line:
-            # 简化格式: status_code | handle | elapsed | size | req_msg | resp_msg
             parts = LogParser.split_by_delimiter(line)
             if len(parts) < 5:
                 return None
-            # 简化格式没有 timestamp 和 trace_id，生成基于内容的 trace_id
+            if len(parts) >= ACCESS_LOG_MIN_PARTS - 1 and parts[0].startswith("20"):
+                handle = parts[AccessLogCol.HANDLE].strip() if AccessLogCol.HANDLE < len(parts) else ""
+                return {
+                    "timestamp": parts[AccessLogCol.TIMESTAMP].strip(),
+                    "trace_id": parts[AccessLogCol.TRACE_ID].strip() if AccessLogCol.TRACE_ID < len(parts) else "",
+                    "status_code": parts[AccessLogCol.STATUS_CODE].strip() if AccessLogCol.STATUS_CODE < len(parts) else "",
+                    "handle": handle,
+                    "elapsed": parts[AccessLogCol.ELAPSED].strip() if AccessLogCol.ELAPSED < len(parts) else "",
+                    "size": parts[AccessLogCol.SIZE].strip() if AccessLogCol.SIZE < len(parts) else "",
+                    "req_msg": parts[AccessLogCol.REQ_MSG].strip() if AccessLogCol.REQ_MSG < len(parts) else "",
+                    "resp_msg": parts[AccessLogCol.RESP_MSG].strip() if AccessLogCol.RESP_MSG < len(parts) else "",
+                }
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            # 使用行内容生成伪 trace_id
             content_hash = hashlib.md5(line.encode()).hexdigest()[:16]
             trace_id = f"{content_hash[:8]}-{content_hash[8:12]}-{content_hash[12:16]}-0000-000000000000"
             return {
@@ -154,7 +163,6 @@ class AccessLogParser(LogParser):
                 "resp_msg": parts[5] if len(parts) > 5 else "",
             }
         else:
-            # 完整格式: 空格分隔，至少13列
             if len(line) < 80 or line[0] != "2":
                 return None
             parts = line.split()
