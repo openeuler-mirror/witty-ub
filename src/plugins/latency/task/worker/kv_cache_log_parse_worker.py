@@ -13,6 +13,8 @@ from latency.task.parse import (
     LogCorrelator,
     ParseResultBuilder,
 )
+from latency.database.engine import AsyncSQLiteSingleton
+from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.schemas.log import (
@@ -50,8 +52,11 @@ class KVCacheLogParseWorker:
 
     # 解析日志
     @staticmethod
-    async def parse_log(log_dir: str) -> list[LogParseResultModel]:
-        parsers: list[LogParser] = [
+    async def parse_log(
+        log_dir: str,
+        persist: bool = False,
+    ) -> list[LogParseResultModel]:
+        parsers = [
             SdkAccessLogParser(),
             WorkerAccessLogParser(),
             UrmaLogParser(),
@@ -67,6 +72,7 @@ class KVCacheLogParseWorker:
         for parser, entries in zip(parsers, parse_results):
             parsed[parser.label] = entries
             logger.info(f"{parser.label}: {len(entries)} entries")
+        del parse_results
 
         correlator = LogCorrelator(parsed)
         correlated = correlator.correlate()
@@ -74,13 +80,22 @@ class KVCacheLogParseWorker:
         sdk_entries = parsed.get("SDK access parse", [])
         worker_entries = parsed.get("Worker access parse", [])
 
-        builder = ParseResultBuilder(sdk_entries, worker_entries, correlated)
+        builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir)
         results = builder.build()
 
-        logger.info(
-            f"Parse complete: {len(results)} results, "
-            f"{sum(1 for r in results if r.is_anomalous)} anomalous"
-        )
+        del parsed, correlated, builder
+        logger.info("Released parsed & correlated intermediate data")
+
+        total = len(results)
+        anomalous_count = sum(1 for r in results if r.is_anomalous)
+        logger.info(f"Parse complete: {total} results, {anomalous_count} anomalous")
+
+        if persist:
+            await AsyncSQLiteSingleton().init_database()
+            ids = await LogParseResultManager.add_log_parse_results(results)
+            del results
+            logger.info(f"Persisted {len(ids)} results to database, released results from memory")
+            return []
 
         return results
 

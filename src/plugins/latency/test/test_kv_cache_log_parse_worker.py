@@ -11,8 +11,11 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 
-async def test_kv_cache_log_parse_worker(log_dir: str = None):
+async def test_kv_cache_log_parse_worker(log_dir: str = None, persist: bool = True):
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+    from latency.database.engine import AsyncSQLiteSingleton
+    from latency.database.managers.log_parse_result import LogParseResultManager
+    from latency.schemas.request import ListLogParseResultRequest
 
     if log_dir is None:
         log_dir = os.path.join(os.path.dirname(__file__), "test_data")
@@ -25,43 +28,47 @@ async def test_kv_cache_log_parse_worker(log_dir: str = None):
         return
 
     start = time.perf_counter()
-    results = await KVCacheLogParseWorker.parse_log(log_dir)
+    results = await KVCacheLogParseWorker.parse_log(log_dir, persist=persist)
     elapsed = time.perf_counter() - start
     logger.info(f"\nParse elapsed: {elapsed:.3f}s")
 
-    logger.info(f"\n{'='*60}")
-    logger.info(f"Total results: {len(results)}")
-    logger.info(
-        f"Anomalous: {sum(1 for r in results if r.is_anomalous)}"
-    )
-    logger.info(f"{'='*60}")
-
-    for i, r in enumerate(results[:5]):
-        logger.info(f"\n--- Result {i} ---")
-        logger.info(f"  log_id: {r.log_id}")
-        logger.info(f"  trace_id: {r.trace_id}")
-        logger.info(f"  timestamp: {r.timestamp}")
-        logger.info(f"  pod_ip: {r.pod_ip}")
-        logger.info(f"  total_latency: {r.total_latency}")
-        logger.info(f"  operation: {r.operation}")
-        logger.info(f"  data_size: {r.data_size}")
-        logger.info(f"  is_anomalous: {r.is_anomalous}")
-
-    if results:
+    if persist:
+        req = ListLogParseResultRequest()
+        total, page_results = await LogParseResultManager.list_log_parse_results(req)
+        anomalous = sum(1 for r in page_results if r.is_anomalous)
         logger.info(f"\n{'='*60}")
-        logger.info("Model dump serialization test:")
+        logger.info(f"Total results in DB: {total}")
+        logger.info(f"Anomalous in current page: {anomalous}")
         logger.info(f"{'='*60}")
-        dump = results[0].model_dump(exclude_none=False)
-        logger.info(
-            f"  timestamp type: {type(dump['timestamp']).__name__} = {dump['timestamp']}"
-        )
-        logger.info(
-            f"  created_at type: {type(dump['created_at']).__name__} = {dump['created_at']}"
-        )
-        logger.info(f"  log_id: {dump['log_id']}")
+
+        for i, r in enumerate(page_results[:5]):
+            logger.info(f"\n--- Result {i} ---")
+            logger.info(f"  trace_id: {r.trace_id}")
+            logger.info(f"  timestamp: {r.timestamp}")
+            logger.info(f"  pod_ip: {r.pod_ip}")
+            logger.info(f"  total_latency: {r.total_latency}")
+            logger.info(f"  operation: {r.operation}")
+            logger.info(f"  is_anomalous: {r.is_anomalous}")
+
+        del page_results
+    else:
+        total = len(results)
+        anomalous = sum(1 for r in results if r.is_anomalous)
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Total results: {total}")
+        logger.info(f"Anomalous: {anomalous}")
+        logger.info(f"{'='*60}")
+
+        for i, r in enumerate(results[:5]):
+            logger.info(f"\n--- Result {i} ---")
+            logger.info(f"  trace_id: {r.trace_id}")
+            logger.info(f"  timestamp: {r.timestamp}")
+            logger.info(f"  pod_ip: {r.pod_ip}")
+            logger.info(f"  total_latency: {r.total_latency}")
+            logger.info(f"  operation: {r.operation}")
+            logger.info(f"  is_anomalous: {r.is_anomalous}")
 
     logger.info("\n=== TEST PASSED ===")
-    return results
 
 
 async def test_data_file(data_file: str):
@@ -106,5 +113,5 @@ if __name__ == "__main__":
         else:
             logger.error(f"Default test file not found: {data_file}")
             logger.info(
-                "Usage: python test_kv_cache_log_parse_worker.py [path_to_file_or_dir]"
+                "Usage: python test_kv_cache_log_parse_worker.py <log_dir>"
             )
