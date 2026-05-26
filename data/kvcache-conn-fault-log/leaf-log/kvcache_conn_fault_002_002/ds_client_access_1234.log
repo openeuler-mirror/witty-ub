@@ -1,2 +1,0 @@
-2026-05-13T15:27:26.429773 | I | access_recorder.cpp:219 | yxh-worker1-kvclient-1 | 10411:10411 | 002002-uuid-aaaa-bbbb-ccccccccccc2 | model_kvcache_predictor | 8 | DS_KV_CLIENT_GET | 2410 | 8388608 | {Object_key:[test_key]} | ConnectOptions was not configured
-2026-05-13T15:27:26.429773 | I | access_recorder.cpp:219 | yxh-worker1-kvclient-1 | 10411:10411 | 002002-uuid-aaaa-bbbb-ccccccccccc2 | model_kvcache_predictor | 8 | DS_KV_CLIENT_GET | 2410 | 8388608 | {Object_key:[test_key]} | ConnectOptions was not configured

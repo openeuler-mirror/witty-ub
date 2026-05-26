@@ -1,4 +1,0 @@
-2026-05-06T13:25:28.429016 | I | client_impl.cpp:100 | kvc-client-pod-abc | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Client init success
-2026-05-06T13:25:29.123456 | I | client_impl.cpp:200 | kvc-client-pod-abc | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Get object success key=kv_test_1
-2026-05-06T13:26:12.000001 | I | uds_channel.cpp:100 | kvc-worker-pod-xyz | 11:291 | e18c3204-0018-0019-0019-000000000019 | tenant1 | [UDS_CONNECT_FAILED] path=/var/run/datasystem/worker.sock
-2026-05-06T13:26:13.000001 | I | shm_fd.cpp:80 | kvc-worker-pod-xyz | 12:301 | e18c3204-0018-0020-0020-000000000020 | tenant1 | [SHM_FD_TRANSFER_FAILED] reason=EMFILE

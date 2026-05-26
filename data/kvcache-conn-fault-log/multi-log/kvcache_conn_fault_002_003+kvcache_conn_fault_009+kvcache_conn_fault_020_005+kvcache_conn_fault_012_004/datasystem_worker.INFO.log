@@ -1,2 +1,0 @@
-2026-05-13T15:27:26.429773 | E | worker_oc_service_get_impl.cpp:130 | yxh-worker1-kvclient-1 | 10411:10411 | 020005-uuid-aaaa-bbbb-ccccccccccc45 | model_kvcache_predictor | [EtcdClient] etcd is timeout, endpoint: 10.0.0.1:2379, elapsed: 5000ms
-2026-05-13T15:27:26.429773 | W | worker_oc_service_get_impl.cpp:130 | yxh-worker1-kvclient-1 | 10411:10411 | 012004-uuid-aaaa-bbbb-ccccccccccc34 | model_kvcache_predictor | Cannot receive heartbeat from worker. workerId: 5, lastSeen: 30s ago

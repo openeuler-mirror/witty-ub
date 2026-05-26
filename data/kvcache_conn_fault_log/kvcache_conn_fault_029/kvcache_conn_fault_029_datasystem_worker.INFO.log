@@ -1,4 +1,0 @@
-2026-05-06T13:25:28.429016 | I | worker_oc_service_get_impl.cpp:130 | kvc-worker-pod-xyz | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Worker started on port 31402
-2026-05-06T13:25:29.123456 | I | worker_oc_service_get_impl.cpp:200 | kvc-worker-pod-xyz | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Metrics Summary, version=v0, cycle=100, interval=10000ms
-2026-05-06T13:26:24.000001 | I | worker_oc_service_get_impl.cpp:130 | kvc-worker-pod-xyz | 11:291 | e18c3204-0029-0031-0031-000000000031 | tenant1 | [RPC_RECV_TIMEOUT] req_id=11111 timeout=5000ms
-2026-05-06T13:26:24.000002 | I | metrics.cpp:50 | kvc-worker-pod-xyz | 12:301 | e18c3204-0029-0032-0032-000000000032 | tenant1 | zmq_send_failure_total=+0

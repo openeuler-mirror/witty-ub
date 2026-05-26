@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_002_005.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,10 @@ static AutoRegister<KvcacheConnFault002_005> g_kvcacheconnfault002_005("kvcache_
 bool KvcacheConnFault002_005::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L200, L203-204, L251
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'Can.?t find object|K_NOT_FOUND' \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E 'Can.?t find object|K_NOT_FOUND' $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
 

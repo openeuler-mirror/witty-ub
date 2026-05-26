@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_012_001.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,13 @@ static AutoRegister<KvcacheConnFault012_001> g_kvcacheconnfault012_001("kvcache_
 bool KvcacheConnFault012_001::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L512, L515-516, L271, L224-225
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E '\\[RPC_RECV_TIMEOUT\\]|\\[RPC_SERVICE_UNAVAILABLE\\]' \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log \"$WITTY_UB_FAULT_LOG\"/datasystem_worker.INFO.log 2>/dev/null | tail -20");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E '\\[RPC_RECV_TIMEOUT\\]|\\[RPC_SERVICE_UNAVAILABLE\\]' $WITTY_UB_CLIENT_INFO_LOG $WITTY_UB_WORKER_INFO_LOG 2>/dev/null | tail -20");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    // 处理多文件grep输出，去掉"文件路径:"前缀，只保留日志行 (规则h)
+    // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/SKILL.md 规则h
+    grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
+    kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
 

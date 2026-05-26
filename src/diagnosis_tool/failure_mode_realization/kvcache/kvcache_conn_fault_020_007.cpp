@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_020_007.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,10 @@ static AutoRegister<KvcacheConnFault020_007> g_kvcacheconnfault020_007("kvcache_
 bool KvcacheConnFault020_007::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L769, L771-772, L224
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E '\\[RPC_RECV_TIMEOUT\\]' \"$WITTY_UB_FAULT_LOG\"/ds_client_*.INFO.log 2>/dev/null | tail -20");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E '\\[RPC_RECV_TIMEOUT\\]' $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
 

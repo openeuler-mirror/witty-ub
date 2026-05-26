@@ -1,6 +1,6 @@
 #include "kvcache_conn_fault_020.h"
 #include "../../failure_mode_factory.h"
-#include "../urma/urma_log_helper.h"
+#include "kvcache_log_helper.h"
 
 namespace diag {
 
@@ -10,10 +10,13 @@ static AutoRegister<KvcacheConnFault020> g_kvcacheconnfault020("kvcache_conn_fau
 bool KvcacheConnFault020::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L611, L613-615, L137, L198
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && awk -F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log | sort | uniq -c | grep -E '1001|1002'");
+    std::string grepOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && awk -F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' $WITTY_UB_CLIENT_ACCESS_LOG | sort | uniq -c | grep -E '1001|1002'");
+    // 来源: rule f - 获取原始日志行用于trace解析，提取status_code=1001或1002的access log行
+    std::string rawOutput = kvcache_log_helper::RunCommand(
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code ~ /^(1001|1002)$/ {print $0}' $WITTY_UB_CLIENT_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);
     return !grepOutput.empty();
 }
 

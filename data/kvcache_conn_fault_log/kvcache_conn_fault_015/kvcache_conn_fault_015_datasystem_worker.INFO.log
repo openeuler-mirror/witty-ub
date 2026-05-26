@@ -1,4 +1,0 @@
-2026-05-06T13:25:28.429016 | I | worker_oc_service_get_impl.cpp:130 | kvc-worker-pod-xyz | 11:291 | e18c3204-0001-0001-0001-000000000001 | tenant1 | Worker started on port 31402
-2026-05-06T13:25:29.123456 | I | worker_oc_service_get_impl.cpp:200 | kvc-worker-pod-xyz | 12:301 | e18c3204-0002-0002-0002-000000000002 | tenant1 | Metrics Summary, version=v0, cycle=100, interval=10000ms
-2026-05-06T13:26:08.000001 | I | tcp_channel.cpp:200 | kvc-worker-pod-xyz | 11:291 | e18c3204-0015-0015-0015-000000000015 | tenant1 | [TCP_CONNECT_FAILED] addr=192.168.1.10:31402 errno=111
-2026-05-06T13:26:08.000002 | I | zmq_stub.cpp:300 | kvc-worker-pod-xyz | 12:301 | e18c3204-0015-0016-0016-000000000016 | tenant1 | [ZMQ_SEND_FAILURE_TOTAL] zmq_last_error_number=111

@@ -7,7 +7,7 @@ description: 灵衢超节点kvcache通断场景的故障定界代码生成器
 
 #步骤
 ## 步骤1：
-生成单个叶子故障日志，读取src/diagnosis_tool路径下的所有故障，为每个叶子故障生成从根节点识别叶子故障所需要的所有的日志文件（如果有多个就生成多个），日志文件放在data/kvcache-conn-fault-log/leaf-log/目录下，每个叶子故障的日志放在以该叶子故障的故障编码命名的文件下
+生成单个叶子故障日志，读取diagnosis_tool/failure_mode_realization/kvcache路径下的所有故障，为每个叶子故障生成从根节点识别叶子故障所需要的所有的日志文件（如果有多个就生成多个），日志文件放在data/kvcache-conn-fault-log/leaf-log/目录下，每个叶子故障的日志放在以该叶子故障的故障编码命名的文件下
 
 ## 步骤2：
 读取data/kvcache_conn_fault_mode.md文件，检查文件中对应的故障表现和生成的叶子故障的日志是否匹配，如不匹配输出该故障编码，到data/kvcache-conn-fault-log/gen-leaf-error.md中，然后总结生成的叶子故障故障日志到data/kvcache-conn-fault-log/gen-leaf-fault.md文件的表格中，表格第一列为故障编码，第二列为故障名，第三列为是否正确生成，第四列为涉及的日志文件

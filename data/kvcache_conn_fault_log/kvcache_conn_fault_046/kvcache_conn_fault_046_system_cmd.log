@@ -1,5 +1,0 @@
-# kubectl_describe
-Conditions:
-  Type             Status    Reason
-  Ready            False     NodeStatusUnknown
-Taints: node.kubernetes.io/not-ready:NoSchedule
