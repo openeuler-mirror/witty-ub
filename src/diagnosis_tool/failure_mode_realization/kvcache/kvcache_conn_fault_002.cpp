@@ -11,7 +11,7 @@ bool KvcacheConnFault002::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L93, L127-189
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_FAULT_LOG\" && grep -E 'DS_KV_CLIENT_(PUT|GET)' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log | awk -F'|' '{gsub(/^ +| +$/,\"\",$8); gsub(/^ +| +$/,\"\",$13); print $8, $13}' | sort | uniq -c | head");
+        "test -n \"$WITTY_UB_FAULT_LOG\" && awk -F'|' '/DS_KV_CLIENT_(PUT|GET)/ {status=$8; gsub(/^ +| +$/,\"\",status); if (status ~ /^(0|2|3|8)$/) print $0}' \"$WITTY_UB_FAULT_LOG\"/ds_client_access_*.log 2>/dev/null | tail -20");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
