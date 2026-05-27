@@ -1,5 +1,4 @@
 #include "urma_failure_283.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure283> g_urma("urma_283");
 
 bool UrmaFailure283::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Jetty state is wrong in deactive_jetty.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to exec ops->active_jetty.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure283::IsValid()
 
 std::string UrmaFailure283::GetName() const
 {
-    return "Jetty数据通路处理失败";
+    return "激活Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure283::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "函数用于激活Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure283::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure283::GetFixSuggDesc() const
 
 std::string UrmaFailure283::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_deactive_jetty，Jetty state is wrong in deactive_jetty.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jetty，Failed to exec ops->active_jetty.。";
 }
 
 std::string UrmaFailure283::GetId() const

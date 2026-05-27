@@ -1,5 +1,4 @@
 #include "urma_failure_544.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure544> g_urma("urma_544");
 
 bool UrmaFailure544::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'post_send_check_jfs_wr_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'when set write_wr, either of src/dst num_sge/sge has been set zero or NULL.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unregister_seg' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,16 @@ bool UrmaFailure544::IsValid()
 
 std::string UrmaFailure544::GetName() const
 {
-    return "WR数据通路处理失败";
+    return "URMA "
+           "context、设备对象、provider操作表、Segment对象、provider未提供unregister_"
+           "seg操作实现无效导致注销Segment失败";
 }
 
 std::string UrmaFailure544::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "函数用于注销Segment，调用方传入的URMA "
+           "context、设备对象、provider操作表、Segment对象、provider未提供unregister_"
+           "seg操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure544::AnalyzeRootCause()
@@ -40,8 +42,7 @@ std::string UrmaFailure544::GetFixSuggDesc() const
 
 std::string UrmaFailure544::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：post_send_check_jfs_wr_valid，when set write_wr, either of src/dst num_sge/sge "
-           "has been set zero or NULL.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unregister_seg，Invalid parameter.。";
 }
 
 std::string UrmaFailure544::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_337.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure337> g_urma("urma_337");
 
 bool UrmaFailure337::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create health_check_fd, errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_start_health_check_thread' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create health epoll'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -39,7 +38,7 @@ std::string UrmaFailure337::GetFixSuggDesc() const
 
 std::string UrmaFailure337::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_create_health_check_ctx，Failed to create health_check_fd, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_start_health_check_thread，Failed to create health epoll。";
 }
 
 std::string UrmaFailure337::GetId() const

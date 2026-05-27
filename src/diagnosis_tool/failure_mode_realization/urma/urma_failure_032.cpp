@@ -1,5 +1,4 @@
 #include "urma_failure_032.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure032> g_urma("urma_032");
 
 bool UrmaFailure032::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_slide_wnd_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param: total_size <= window_size'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_slide_wnd_init' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid param wnd'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure032::GetFixSuggDesc() const
 
 std::string UrmaFailure032::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bdp_slide_wnd_init，Invalid param: total_size <= window_size";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bdp_slide_wnd_init，Invalid param wnd。";
 }
 
 std::string UrmaFailure032::GetId() const

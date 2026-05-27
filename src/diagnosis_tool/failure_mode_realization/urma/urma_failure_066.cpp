@@ -1,5 +1,4 @@
 #include "urma_failure_066.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure066> g_urma("urma_066");
 
 bool UrmaFailure066::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_add_jetty_p_vjetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to add p_vjetty_id[' | grep -F ']: ret:' | grep -F ', p_jetty_id:' | grep -F ', v_jetty_id:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to create pjetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure066::IsValid()
 
 std::string UrmaFailure066::GetName() const
 {
-    return "执行虚拟 Jetty过程中依赖步骤失败";
+    return "物理 Jetty创建时下层资源准备失败";
 }
 
 std::string UrmaFailure066::GetRootCauseDesc() const
 {
-    return "函数用于执行虚拟 "
-           "Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
+    return "函数负责创建物理 Jetty，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure066::AnalyzeRootCause()
@@ -40,8 +38,7 @@ std::string UrmaFailure066::GetFixSuggDesc() const
 
 std::string UrmaFailure066::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_add_jetty_p_vjetty_id_info，Failed to add p_vjetty_id[，]: ret:，, "
-           "p_jetty_id:，, v_jetty_id:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjetty，Failed to create pjetty。";
 }
 
 std::string UrmaFailure066::GetId() const

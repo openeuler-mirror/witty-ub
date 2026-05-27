@@ -1,5 +1,4 @@
 #include "urma_failure_859.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,8 @@ static AutoRegister<UrmaFailure859> g_urma("urma_859");
 
 bool UrmaFailure859::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_validate_driver' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid driver name length.'");
+    std::string grepOutput = urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_match_driver' "
+                                                         "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'snprintf failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +17,13 @@ bool UrmaFailure859::IsValid()
 
 std::string UrmaFailure859::GetName() const
 {
-    return "provider操作表无效导致注销URMA资源失败";
+    return "分配设备过程中依赖步骤失败";
 }
 
 std::string UrmaFailure859::GetRootCauseDesc() const
 {
-    return "函数用于注销URMA资源，调用方传入的provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于分配设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure859::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure859::GetFixSuggDesc() const
 
 std::string UrmaFailure859::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_validate_driver，Invalid driver name length.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_match_driver，snprintf failed。";
 }
 
 std::string UrmaFailure859::GetId() const

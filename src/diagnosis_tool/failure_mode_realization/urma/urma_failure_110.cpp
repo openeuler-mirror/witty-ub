@@ -1,5 +1,4 @@
 #include "urma_failure_110.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure110> g_urma("urma_110");
 bool UrmaFailure110::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_update_pjetty_id_mapping' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to add recreated pjetty id mapping: , ret:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_register_health_check_task' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to register health task: no valid route'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure110::IsValid()
 
 std::string UrmaFailure110::GetName() const
 {
-    return "物理 Jetty删除时下层资源准备失败";
+    return "未找到可用于注册健康检查的有效对象或路由";
 }
 
 std::string UrmaFailure110::GetRootCauseDesc() const
 {
-    return "函数负责删除物理 Jetty，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "函数在注册健康检查过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法"
+           "定位目标。";
 }
 
 RootCause UrmaFailure110::AnalyzeRootCause()
@@ -39,8 +39,8 @@ std::string UrmaFailure110::GetFixSuggDesc() const
 
 std::string UrmaFailure110::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_update_pjetty_id_mapping，Failed to add recreated pjetty id mapping: , "
-           "ret:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_register_health_check_task，Failed to register health task: no "
+           "valid route。";
 }
 
 std::string UrmaFailure110::GetId() const

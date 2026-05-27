@@ -1,5 +1,4 @@
 #include "urma_failure_566.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure566> g_urma("urma_566");
 
 bool UrmaFailure566::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Jfc state is wrong in active_jfc.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'convert_jfs_vwr_to_pwr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Unsupported send opcode'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,7 +18,7 @@ bool UrmaFailure566::IsValid()
 
 std::string UrmaFailure566::GetName() const
 {
-    return "JFC数据通路处理失败";
+    return "JFS数据通路处理失败";
 }
 
 std::string UrmaFailure566::GetRootCauseDesc() const
@@ -40,7 +39,7 @@ std::string UrmaFailure566::GetFixSuggDesc() const
 
 std::string UrmaFailure566::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_active_jfc，Jfc state is wrong in active_jfc.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：convert_jfs_vwr_to_pwr，Unsupported send opcode。";
 }
 
 std::string UrmaFailure566::GetId() const

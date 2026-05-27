@@ -1,5 +1,4 @@
 #include "urma_failure_700.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure700> g_urma("urma_700");
 bool UrmaFailure700::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_deactive_jfr, ret:' | grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_deactive_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_deactive_jfs, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,8 @@ std::string UrmaFailure700::GetFixSuggDesc() const
 
 std::string UrmaFailure700::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_deactive_jfr，ioctl failed in urma_cmd_deactive_jfr, ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_deactive_jfs，ioctl failed in urma_cmd_deactive_jfs, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure700::GetId() const

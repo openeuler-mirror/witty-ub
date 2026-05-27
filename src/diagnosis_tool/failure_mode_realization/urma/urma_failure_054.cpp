@@ -1,5 +1,4 @@
 #include "urma_failure_054.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure054> g_urma("urma_054");
 bool UrmaFailure054::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create pjfs'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info_without_lock' \"$URMA_LOG_PATH\" "
+        "2>/dev/null | grep -F 'Failed to delete p_vjfs_id node[' | grep -F ']: ret:' | grep -F 'pjfs_id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure054::IsValid()
 
 std::string UrmaFailure054::GetName() const
 {
-    return "物理 JFS创建时下层资源准备失败";
+    return "虚拟 JFS清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure054::GetRootCauseDesc() const
 {
-    return "函数负责创建物理 JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "函数负责释放或撤销虚拟 JFS相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure054::AnalyzeRootCause()
@@ -39,7 +38,8 @@ std::string UrmaFailure054::GetFixSuggDesc() const
 
 std::string UrmaFailure054::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_del_jfs_p_vjetty_info，Failed to create pjfs";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info_without_lock，Failed to delete p_vjfs_id "
+           "node[，]: ret:，pjfs_id:。";
 }
 
 std::string UrmaFailure054::GetId() const

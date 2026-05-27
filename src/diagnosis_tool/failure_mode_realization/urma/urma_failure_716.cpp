@@ -1,5 +1,4 @@
 #include "urma_failure_716.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,9 +9,8 @@ static AutoRegister<UrmaFailure716> g_urma("urma_716");
 bool UrmaFailure716::IsValid()
 {
     std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_user_ctl_set_bonding_mode_legacy' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | "
-                                    "grep -F 'Invalid set bonding mode legacy param.'");
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_cdev' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'file_path:' | grep -F 'is not standardize.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,12 +18,13 @@ bool UrmaFailure716::IsValid()
 
 std::string UrmaFailure716::GetName() const
 {
-    return "URMA context无效导致设置Jetty失败";
+    return "打开字符设备过程中依赖步骤失败";
 }
 
 std::string UrmaFailure716::GetRootCauseDesc() const
 {
-    return "函数用于设置Jetty，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于打开字符设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
+           "A操作失败。";
 }
 
 RootCause UrmaFailure716::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure716::GetFixSuggDesc() const
 
 std::string UrmaFailure716::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_user_ctl_set_bonding_mode_legacy，Invalid set bonding mode legacy param.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_cdev，file_path:，is not standardize.。";
 }
 
 std::string UrmaFailure716::GetId() const

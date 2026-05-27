@@ -1,5 +1,4 @@
 #include "urma_failure_458.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure458> g_urma("urma_458");
 
 bool UrmaFailure458::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to exec ops->get_jfr_opt.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure458::IsValid()
 
 std::string UrmaFailure458::GetName() const
 {
-    return "获取JFR过程中依赖步骤失败";
+    return "URMA context、provider操作表、JFR对象无效导致查询JFR失败";
 }
 
 std::string UrmaFailure458::GetRootCauseDesc() const
 {
-    return "函数用于获取JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "函数用于查询JFR，调用方传入的URMA "
+           "context、provider操作表、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure458::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure458::GetFixSuggDesc() const
 
 std::string UrmaFailure458::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_get_jfr_opt，Failed to exec ops->get_jfr_opt.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_jfr，Invalid parameter.。";
 }
 
 std::string UrmaFailure458::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_209.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,9 +9,8 @@ static AutoRegister<UrmaFailure209> g_urma("urma_209");
 bool UrmaFailure209::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to delete jetty, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', "
-        "ret:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to "
+        "delete jetty because it has remote jetty, try unbind first'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,8 +38,8 @@ std::string UrmaFailure209::GetFixSuggDesc() const
 
 std::string UrmaFailure209::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_delete_jetty，[DRV_ERR]Failed to delete jetty, dev_name:，, eid_idx:，, "
-           "id:，, ret:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty，Failed to delete jetty because it has remote jetty, "
+           "try unbind first。";
 }
 
 std::string UrmaFailure209::GetId() const

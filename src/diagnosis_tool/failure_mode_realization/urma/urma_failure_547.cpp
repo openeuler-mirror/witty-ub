@@ -1,5 +1,4 @@
 #include "urma_failure_547.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure547> g_urma("urma_547");
 
 bool UrmaFailure547::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Try to call post_send api by invalid comp_type:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_wait_jfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Epoll wait err, ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure547::IsValid()
 
 std::string UrmaFailure547::GetName() const
 {
-    return "WR对象无效导致投递组件失败";
+    return "epoll数据通路处理失败";
 }
 
 std::string UrmaFailure547::GetRootCauseDesc() const
 {
-    return "函数用于投递组件，调用方传入的WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure547::AnalyzeRootCause()
@@ -39,7 +39,7 @@ std::string UrmaFailure547::GetFixSuggDesc() const
 
 std::string UrmaFailure547::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：post_send_check_valid，Try to call post_send api by invalid comp_type:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_wait_jfc，Epoll wait err, ret:。";
 }
 
 std::string UrmaFailure547::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_542.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure542> g_urma("urma_542");
 bool UrmaFailure542::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'comp_post_send' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid post jfs wr type:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]register seg failed, dev_name:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure542::IsValid()
 
 std::string UrmaFailure542::GetName() const
 {
-    return "JFS对象、WR对象无效导致投递JFS失败";
+    return "Segment注册时下层资源准备失败";
 }
 
 std::string UrmaFailure542::GetRootCauseDesc() const
 {
-    return "函数用于投递JFS，调用方传入的JFS对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数负责注册Segment，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure542::AnalyzeRootCause()
@@ -39,7 +38,8 @@ std::string UrmaFailure542::GetFixSuggDesc() const
 
 std::string UrmaFailure542::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：comp_post_send，Invalid post jfs wr type:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_seg_cfg，[DRV_ERR]register seg failed, dev_name:，, "
+           "eid_idx:。";
 }
 
 std::string UrmaFailure542::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_231.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure231> g_urma("urma_231");
 bool UrmaFailure231::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_ex' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Not allowed to bind local jetty:' | grep -F 'of mode:' | grep -F 'with remote jetty:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not allowed "
+        "to bind local jetty:' | grep -F ', with remote jetty:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,8 +39,8 @@ std::string UrmaFailure231::GetFixSuggDesc() const
 
 std::string UrmaFailure231::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_bind_jetty_ex，Not allowed to bind local jetty:，of mode:，with remote "
-           "jetty:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty，Not allowed to bind local jetty:，, with remote "
+           "jetty:。";
 }
 
 std::string UrmaFailure231::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_108.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure108> g_urma("urma_108");
 bool UrmaFailure108::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_register_health_check_task' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to register health task: no valid route'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_relink_primary_import' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to unimport old primary ptjetty, lidx:' | grep -F 'tidx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure108::IsValid()
 
 std::string UrmaFailure108::GetName() const
 {
-    return "未找到可用于注册健康检查的有效对象或路由";
+    return "Jetty清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure108::GetRootCauseDesc() const
 {
-    return "函数在注册健康检查过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法"
-           "定位目标。";
+    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure108::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure108::GetFixSuggDesc() const
 
 std::string UrmaFailure108::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_register_health_check_task，Failed to register health task: no valid route";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_relink_primary_import，Failed to unimport old primary ptjetty, "
+           "lidx:，tidx:。";
 }
 
 std::string UrmaFailure108::GetId() const

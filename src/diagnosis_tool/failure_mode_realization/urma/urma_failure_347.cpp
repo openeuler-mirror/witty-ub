@@ -1,5 +1,4 @@
 #include "urma_failure_347.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure347> g_urma("urma_347");
 bool UrmaFailure347::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pcontext' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create vcontext'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pcontext' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to create context for primary eid, dev:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -39,7 +38,8 @@ std::string UrmaFailure347::GetFixSuggDesc() const
 
 std::string UrmaFailure347::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_delete_pcontext，Failed to create vcontext";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pcontext，Failed to create context for primary eid, "
+           "dev:，, eid_idx:。";
 }
 
 std::string UrmaFailure347::GetId() const

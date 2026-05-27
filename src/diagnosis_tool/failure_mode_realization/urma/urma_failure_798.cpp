@@ -1,5 +1,4 @@
 #include "urma_failure_798.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure798> g_urma("urma_798");
 
 bool UrmaFailure798::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jfs_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to exec urma_jfr_set_options.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure798::IsValid()
 
 std::string UrmaFailure798::GetName() const
 {
-    return "URMA context、provider操作表、JFS对象、provider未提供deactive_jfs操作实现无效导致去激活JFS失败";
+    return "设置JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure798::GetRootCauseDesc() const
 {
-    return "函数用于去激活JFS，调用方传入的URMA "
-           "context、provider操作表、JFS对象、provider未提供deactive_"
-           "jfs操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于设置JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure798::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure798::GetFixSuggDesc() const
 
 std::string UrmaFailure798::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_deactive_jfs，Invalid parameter.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfs_opt，Failed to exec urma_jfr_set_options.。";
 }
 
 std::string UrmaFailure798::GetId() const

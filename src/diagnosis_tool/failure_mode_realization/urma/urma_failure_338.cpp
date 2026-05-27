@@ -1,5 +1,4 @@
 #include "urma_failure_338.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure338> g_urma("urma_338");
 
 bool UrmaFailure338::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to add ctx async fd to health epoll, errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_start_health_check_thread' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create health check thread'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure338::IsValid()
 
 std::string UrmaFailure338::GetName() const
 {
-    return "context数据通路处理失败";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure338::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure338::AnalyzeRootCause()
@@ -40,8 +39,7 @@ std::string UrmaFailure338::GetFixSuggDesc() const
 
 std::string UrmaFailure338::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_create_health_check_ctx，Failed to add ctx async fd to health epoll, "
-           "errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_start_health_check_thread，Failed to create health check thread。";
 }
 
 std::string UrmaFailure338::GetId() const

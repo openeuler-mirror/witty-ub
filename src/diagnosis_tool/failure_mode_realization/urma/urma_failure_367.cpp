@@ -1,5 +1,4 @@
 #include "urma_failure_367.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure367> g_urma("urma_367");
 
 bool UrmaFailure367::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_create_jfr, ret:' | grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure367::GetFixSuggDesc() const
 
 std::string UrmaFailure367::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_create_jfr，ioctl failed in urma_cmd_create_jfr, ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jfs，ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure367::GetId() const

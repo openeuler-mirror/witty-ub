@@ -1,5 +1,4 @@
 #include "urma_failure_097.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure097> g_urma("urma_097");
 
 bool UrmaFailure097::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_send_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed find jetty when handle send cr, cr.local_id:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_and_store' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'WR->tjetty is NULL'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure097::IsValid()
 
 std::string UrmaFailure097::GetName() const
 {
-    return "未找到可用于获取Jetty的有效对象或路由";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure097::GetRootCauseDesc() const
 {
-    return "函数在获取Jetty过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
-           "目标。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure097::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure097::GetFixSuggDesc() const
 
 std::string UrmaFailure097::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：handle_send_cr_with_store，Failed find jetty when handle send cr, cr.local_id:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_and_store，WR->tjetty is NULL。";
 }
 
 std::string UrmaFailure097::GetId() const

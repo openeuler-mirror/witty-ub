@@ -1,5 +1,4 @@
 #include "urma_failure_153.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure153> g_urma("urma_153");
 
 bool UrmaFailure153::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jetty->jetty_cfg.jetty_grp is not exist'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jetty_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'jetty->jetty_cfg.shared.jfc is not exist'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure153::GetFixSuggDesc() const
 
 std::string UrmaFailure153::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_set_jetty_opt，jetty->jetty_cfg.jetty_grp is not exist";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jetty_opt，jetty->jetty_cfg.shared.jfc is not exist。";
 }
 
 std::string UrmaFailure153::GetId() const

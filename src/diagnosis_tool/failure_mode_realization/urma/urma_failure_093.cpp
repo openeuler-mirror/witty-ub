@@ -1,5 +1,4 @@
 #include "urma_failure_093.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure093> g_urma("urma_093");
 
 bool UrmaFailure093::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'get_comp_urma_jetty_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to get_comp_urma_jetty, Invalid type:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to import vjetty, []:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure093::IsValid()
 
 std::string UrmaFailure093::GetName() const
 {
-    return "获取组件所需输入对象无效导致获取组件失败";
+    return "虚拟 Jetty导入时下层资源准备失败";
 }
 
 std::string UrmaFailure093::GetRootCauseDesc() const
 {
-    return "函数用于获取组件，调用方传入的获取组件所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数负责导入虚拟 Jetty，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure093::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure093::GetFixSuggDesc() const
 
 std::string UrmaFailure093::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：get_comp_urma_jetty_id，Failed to get_comp_urma_jetty, Invalid type:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pjfr，Failed to import vjetty, []:。";
 }
 
 std::string UrmaFailure093::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_525.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure525> g_urma("urma_525");
 
 bool UrmaFailure525::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_unregister_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pseg' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to import vseg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure525::IsValid()
 
 std::string UrmaFailure525::GetName() const
 {
-    return "注销ioctl的ioctl调用返回失败";
+    return "Token导入时下层资源准备失败";
 }
 
 std::string UrmaFailure525::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交注销ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "函数负责导入Token，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure525::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure525::GetFixSuggDesc() const
 
 std::string UrmaFailure525::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_unregister_seg，ioctl failed, ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pseg，Failed to import vseg。";
 }
 
 std::string UrmaFailure525::GetId() const

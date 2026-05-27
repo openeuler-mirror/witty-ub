@@ -1,5 +1,4 @@
 #include "urma_failure_392.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure392> g_urma("urma_392");
 bool UrmaFailure392::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, trans_mode:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_order_type' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to create jfs, dev_name:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure392::IsValid()
 
 std::string UrmaFailure392::GetName() const
 {
-    return "URMA context、provider操作表、JFS对象无效导致分配JFS失败";
+    return "JFS创建时下层资源准备失败";
 }
 
 std::string UrmaFailure392::GetRootCauseDesc() const
 {
-    return "函数用于分配JFS，调用方传入的URMA "
-           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数负责创建JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure392::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure392::GetFixSuggDesc() const
 
 std::string UrmaFailure392::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_alloc_jfs，Invalid parameter, trans_mode:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_order_type，[DRV_ERR]Failed to create jfs, dev_name:，, "
+           "eid_idx:。";
 }
 
 std::string UrmaFailure392::GetId() const

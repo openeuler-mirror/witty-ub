@@ -1,5 +1,4 @@
 #include "urma_failure_022.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure022> g_urma("urma_022");
 
 bool UrmaFailure022::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create global context.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_global_ctx_init' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to alloc global context'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure022::IsValid()
 
 std::string UrmaFailure022::GetName() const
 {
-    return "context创建时下层资源准备失败";
+    return "context相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure022::GetRootCauseDesc() const
 {
-    return "函数负责创建context，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "函数在分配context前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure022::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure022::GetFixSuggDesc() const
 
 std::string UrmaFailure022::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_init，Failed to create global context.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_global_ctx_init，Failed to alloc global context。";
 }
 
 std::string UrmaFailure022::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_049.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure049> g_urma("urma_049");
 
 bool UrmaFailure049::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_start_perf' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Urma perf failed to initialize performance record context'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_uninit' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure049::IsValid()
 
 std::string UrmaFailure049::GetName() const
 {
-    return "初始化context过程中依赖步骤失败";
+    return "执行URMA资源所需输入对象无效导致释放设备失败";
 }
 
 std::string UrmaFailure049::GetRootCauseDesc() const
 {
-    return "函数用于初始化context，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次UR"
-           "MA操作失败。";
+    return "函数用于释放设备，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure049::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure049::GetFixSuggDesc() const
 
 std::string UrmaFailure049::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_start_perf，Urma perf failed to initialize performance record context";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_uninit，Invalid parameter.。";
 }
 
 std::string UrmaFailure049::GetId() const

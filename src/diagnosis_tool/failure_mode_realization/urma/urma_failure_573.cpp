@@ -1,5 +1,4 @@
 #include "urma_failure_573.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure573> g_urma("urma_573");
 
 bool UrmaFailure573::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfr state is wrong in deactive_jfr.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Jfc state is wrong in deactive_jfc.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,7 +18,7 @@ bool UrmaFailure573::IsValid()
 
 std::string UrmaFailure573::GetName() const
 {
-    return "JFR数据通路处理失败";
+    return "JFC数据通路处理失败";
 }
 
 std::string UrmaFailure573::GetRootCauseDesc() const
@@ -40,7 +39,7 @@ std::string UrmaFailure573::GetFixSuggDesc() const
 
 std::string UrmaFailure573::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_deactive_jfr，jfr state is wrong in deactive_jfr.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfc，Jfc state is wrong in deactive_jfc.。";
 }
 
 std::string UrmaFailure573::GetId() const

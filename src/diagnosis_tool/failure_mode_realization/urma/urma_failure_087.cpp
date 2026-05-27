@@ -1,5 +1,4 @@
 #include "urma_failure_087.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure087> g_urma("urma_087");
 
 bool UrmaFailure087::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Jetty already has a binded target jetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to import health check seg for jetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure087::IsValid()
 
 std::string UrmaFailure087::GetName() const
 {
-    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
+    return "健康检查导入时下层资源准备失败";
 }
 
 std::string UrmaFailure087::GetRootCauseDesc() const
 {
-    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
-           "致URMA无法完成设备发现或能力初始化。";
+    return "函数负责导入健康检查，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure087::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure087::GetFixSuggDesc() const
 
 std::string UrmaFailure087::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_bind_jetty，Jetty already has a binded target jetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pjetty，Failed to import health check seg for jetty。";
 }
 
 std::string UrmaFailure087::GetId() const

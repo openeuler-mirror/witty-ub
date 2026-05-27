@@ -1,5 +1,4 @@
 #include "urma_failure_379.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure379> g_urma("urma_379");
 
 bool UrmaFailure379::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_alloc_jfr, ret:' | grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_jfce' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure379::IsValid()
 
 std::string UrmaFailure379::GetName() const
 {
-    return "ioctl相关临时结构或命令参数分配失败";
+    return "URMA context无效导致创建JFCE失败";
 }
 
 std::string UrmaFailure379::GetRootCauseDesc() const
 {
-    return "函数在分配ioctl前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "函数用于创建JFCE，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure379::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure379::GetFixSuggDesc() const
 
 std::string UrmaFailure379::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_alloc_jfr，ioctl failed in urma_cmd_alloc_jfr, ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jfce，Invalid parameter。";
 }
 
 std::string UrmaFailure379::GetId() const

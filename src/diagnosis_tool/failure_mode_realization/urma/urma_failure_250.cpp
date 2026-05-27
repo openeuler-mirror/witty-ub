@@ -1,5 +1,4 @@
 #include "urma_failure_250.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure250> g_urma("urma_250");
 
 bool UrmaFailure250::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Not allowed to bind local jetty:' | grep -F 'of mode:' | grep -F 'with remote jetty:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_jetty_async' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to unimport jetty.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure250::IsValid()
 
 std::string UrmaFailure250::GetName() const
 {
-    return "绑定Jetty过程中依赖步骤失败";
+    return "Jetty清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure250::GetRootCauseDesc() const
 {
-    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure250::AnalyzeRootCause()
@@ -40,8 +38,7 @@ std::string UrmaFailure250::GetFixSuggDesc() const
 
 std::string UrmaFailure250::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_bind_jetty_async，Not allowed to bind local jetty:，of mode:，with remote "
-           "jetty:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_jetty_async，Failed to unimport jetty.。";
 }
 
 std::string UrmaFailure250::GetId() const

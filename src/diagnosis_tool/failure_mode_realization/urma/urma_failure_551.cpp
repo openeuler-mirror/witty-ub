@@ -1,5 +1,4 @@
 #include "urma_failure_551.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure551> g_urma("urma_551");
 bool UrmaFailure551::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_and_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to convert jfs wr'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'post_send_check_jfs_wr_valid' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'when set cas_wr, either src or dst is NULL.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,7 +18,7 @@ bool UrmaFailure551::IsValid()
 
 std::string UrmaFailure551::GetName() const
 {
-    return "JFS数据通路处理失败";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure551::GetRootCauseDesc() const
@@ -40,7 +39,8 @@ std::string UrmaFailure551::GetFixSuggDesc() const
 
 std::string UrmaFailure551::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_post_send_wr_and_store，Failed to convert jfs wr";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：post_send_check_jfs_wr_valid，when set cas_wr, either src or dst is "
+           "NULL.。";
 }
 
 std::string UrmaFailure551::GetId() const

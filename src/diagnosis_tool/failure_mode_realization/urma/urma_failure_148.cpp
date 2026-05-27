@@ -1,5 +1,4 @@
 #include "urma_failure_148.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure148> g_urma("urma_148");
 
 bool UrmaFailure148::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'failed to fill jetty cfg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure148::IsValid()
 
 std::string UrmaFailure148::GetName() const
 {
-    return "释放ioctl的ioctl调用返回失败";
+    return "分配Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure148::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交释放ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "函数用于分配Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure148::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure148::GetFixSuggDesc() const
 
 std::string UrmaFailure148::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_free_jetty，ioctl failed, ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jetty，failed to fill jetty cfg。";
 }
 
 std::string UrmaFailure148::GetId() const

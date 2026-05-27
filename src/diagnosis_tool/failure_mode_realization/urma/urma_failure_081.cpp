@@ -1,5 +1,4 @@
 #include "urma_failure_081.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure081> g_urma("urma_081");
 
 bool UrmaFailure081::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc target jetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_modify_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'modify pjetty fail, index:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure081::IsValid()
 
 std::string UrmaFailure081::GetName() const
 {
-    return "Jetty相关临时结构或命令参数分配失败";
+    return "修改物理 Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure081::GetRootCauseDesc() const
 {
-    return "函数在分配Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "函数用于修改物理 "
+           "Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
 }
 
 RootCause UrmaFailure081::AnalyzeRootCause()
@@ -39,7 +39,7 @@ std::string UrmaFailure081::GetFixSuggDesc() const
 
 std::string UrmaFailure081::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_unimport_pjetty，Failed to alloc target jetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_modify_jetty，modify pjetty fail, index:，, ret:。";
 }
 
 std::string UrmaFailure081::GetId() const

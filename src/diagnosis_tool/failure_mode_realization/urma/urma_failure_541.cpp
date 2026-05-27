@@ -1,5 +1,4 @@
 #include "urma_failure_541.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure541> g_urma("urma_541");
 bool UrmaFailure541::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_wait_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Epoll wait err, ret:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'token_id "
+        "must set when token_id_valid is true, or must NULL when token_id_valid is false.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure541::IsValid()
 
 std::string UrmaFailure541::GetName() const
 {
-    return "epoll数据通路处理失败";
+    return "设置Token过程中依赖步骤失败";
 }
 
 std::string UrmaFailure541::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "函数用于设置Token，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure541::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure541::GetFixSuggDesc() const
 
 std::string UrmaFailure541::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_wait_jfc，Epoll wait err, ret:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_seg_cfg，token_id must set when token_id_valid is true, or "
+           "must NULL when token_id_valid is false.。";
 }
 
 std::string UrmaFailure541::GetId() const

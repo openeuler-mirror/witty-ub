@@ -1,5 +1,4 @@
 #include "urma_failure_699.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure699> g_urma("urma_699");
 bool UrmaFailure699::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_active_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_active_jfr, ret:' | grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_active_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_active_jfs, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,8 @@ std::string UrmaFailure699::GetFixSuggDesc() const
 
 std::string UrmaFailure699::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_active_jfr，ioctl failed in urma_cmd_active_jfr, ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_active_jfs，ioctl failed in urma_cmd_active_jfs, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure699::GetId() const

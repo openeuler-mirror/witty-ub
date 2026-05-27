@@ -1,5 +1,4 @@
 #include "urma_failure_065.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure065> g_urma("urma_065");
 
 bool UrmaFailure065::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete pjetty' | grep -F ', ret:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vjetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to fill health check seg info for vjetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure065::IsValid()
 
 std::string UrmaFailure065::GetName() const
 {
-    return "物理 Jetty清理阶段下层释放操作失败";
+    return "创建健康检查过程中依赖步骤失败";
 }
 
 std::string UrmaFailure065::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销物理 Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "函数用于创建健康检查，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
+           "A操作失败。";
 }
 
 RootCause UrmaFailure065::AnalyzeRootCause()
@@ -39,7 +39,7 @@ std::string UrmaFailure065::GetFixSuggDesc() const
 
 std::string UrmaFailure065::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_delete_pjetty，Failed to delete pjetty，, ret:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vjetty，Failed to fill health check seg info for vjetty。";
 }
 
 std::string UrmaFailure065::GetId() const

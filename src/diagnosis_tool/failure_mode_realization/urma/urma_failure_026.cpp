@@ -1,5 +1,4 @@
 #include "urma_failure_026.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure026> g_urma("urma_026");
 
 bool UrmaFailure026::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_init_member_eid_info_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to get slave device info'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_uninit' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete global context.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure026::IsValid()
 
 std::string UrmaFailure026::GetName() const
 {
-    return "获取设备过程中依赖步骤失败";
+    return "context清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure026::GetRootCauseDesc() const
 {
-    return "函数用于获取设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "函数负责释放或撤销context相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure026::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure026::GetFixSuggDesc() const
 
 std::string UrmaFailure026::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_init_member_eid_info_list，Failed to get slave device info";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_uninit，Failed to delete global context.。";
 }
 
 std::string UrmaFailure026::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_561.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure561> g_urma("urma_561");
 
 bool UrmaFailure561::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'schedule_send_balance' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid min_active_count.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_and_store' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to convert jfr wr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure561::IsValid()
 
 std::string UrmaFailure561::GetName() const
 {
-    return "执行URMA资源所需输入对象无效导致激活组件失败";
+    return "JFR数据通路处理失败";
 }
 
 std::string UrmaFailure561::GetRootCauseDesc() const
 {
-    return "函数用于激活组件，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure561::AnalyzeRootCause()
@@ -39,7 +39,7 @@ std::string UrmaFailure561::GetFixSuggDesc() const
 
 std::string UrmaFailure561::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：schedule_send_balance，Invalid min_active_count.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_and_store，Failed to convert jfr wr。";
 }
 
 std::string UrmaFailure561::GetId() const

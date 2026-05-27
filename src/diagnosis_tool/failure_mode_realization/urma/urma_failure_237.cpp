@@ -1,5 +1,4 @@
 #include "urma_failure_237.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure237> g_urma("urma_237");
 bool UrmaFailure237::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_advise_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter.'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unbind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not "
+        "allowed to call unbind as the tp mode of jetty :' | grep -F 'is:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure237::IsValid()
 
 std::string UrmaFailure237::GetName() const
 {
-    return "URMA context、provider操作表、Jetty对象、目标Jetty对象无效导致解绑Jetty失败";
+    return "解绑TP过程中依赖步骤失败";
 }
 
 std::string UrmaFailure237::GetRootCauseDesc() const
 {
-    return "函数用于解绑Jetty，调用方传入的URMA "
-           "context、provider操作表、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于解绑TP，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure237::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure237::GetFixSuggDesc() const
 
 std::string UrmaFailure237::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_advise_jetty，Invalid parameter.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unbind_jetty，Not allowed to call unbind as the tp mode of jetty "
+           ":，is:。";
 }
 
 std::string UrmaFailure237::GetId() const

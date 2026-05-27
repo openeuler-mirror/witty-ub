@@ -1,5 +1,4 @@
 #include "urma_failure_559.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure559> g_urma("urma_559");
 bool UrmaFailure559::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_send_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to resend jfs wr, wr_id:' | grep -F 'u'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Bondp supports at most' | grep -F 'wr_list.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,7 +18,7 @@ bool UrmaFailure559::IsValid()
 
 std::string UrmaFailure559::GetName() const
 {
-    return "JFS数据通路处理失败";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure559::GetRootCauseDesc() const
@@ -40,7 +39,7 @@ std::string UrmaFailure559::GetFixSuggDesc() const
 
 std::string UrmaFailure559::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：handle_send_cr_with_store，Failed to resend jfs wr, wr_id:，u";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_no_store，Bondp supports at most，wr_list.。";
 }
 
 std::string UrmaFailure559::GetId() const

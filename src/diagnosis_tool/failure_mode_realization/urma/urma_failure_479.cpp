@@ -1,5 +1,4 @@
 #include "urma_failure_479.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure479> g_urma("urma_479");
 
 bool UrmaFailure479::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ioctl_get_eid_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to open urma cdev with path'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_list_sysyf' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to read sysfs file'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure479::GetFixSuggDesc() const
 
 std::string UrmaFailure479::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_ioctl_get_eid_list，Failed to open urma cdev with path";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_list_sysyf，Failed to read sysfs file。";
 }
 
 std::string UrmaFailure479::GetId() const

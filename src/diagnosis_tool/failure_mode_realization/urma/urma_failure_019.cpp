@@ -1,5 +1,4 @@
 #include "urma_failure_019.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure019> g_urma("urma_019");
 
 bool UrmaFailure019::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_provider_bond_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Provider Bond register ops failed.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init health event lock'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure019::IsValid()
 
 std::string UrmaFailure019::GetName() const
 {
-    return "设备注册时下层资源准备失败";
+    return "初始化健康检查过程中依赖步骤失败";
 }
 
 std::string UrmaFailure019::GetRootCauseDesc() const
 {
-    return "函数负责注册设备，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "函数用于初始化健康检查，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure019::AnalyzeRootCause()
@@ -39,7 +39,7 @@ std::string UrmaFailure019::GetFixSuggDesc() const
 
 std::string UrmaFailure019::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_provider_bond_init，Provider Bond register ops failed.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_health_check_ctx，Failed to init health event lock。";
 }
 
 std::string UrmaFailure019::GetId() const

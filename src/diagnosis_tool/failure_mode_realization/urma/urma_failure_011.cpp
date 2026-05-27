@@ -1,5 +1,4 @@
 #include "urma_failure_011.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure011> g_urma("urma_011");
 
 bool UrmaFailure011::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to init jetty recv wr buf'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init jetty send wr buf'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure011::GetFixSuggDesc() const
 
 std::string UrmaFailure011::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_del_jetty_p_vjetty_info，Failed to init jetty recv wr buf";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jetty_p_vjetty_info，Failed to init jetty send wr buf。";
 }
 
 std::string UrmaFailure011::GetId() const

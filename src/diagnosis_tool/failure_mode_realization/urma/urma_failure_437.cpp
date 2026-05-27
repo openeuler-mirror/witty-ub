@@ -1,5 +1,4 @@
 #include "urma_failure_437.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure437> g_urma("urma_437");
 
 bool UrmaFailure437::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid out buffer from kernel.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_jfc_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid out buffer from kernel.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure437::IsValid()
 
 std::string UrmaFailure437::GetName() const
 {
-    return "URMA context无效导致获取JFR失败";
+    return "URMA context无效导致获取JFC失败";
 }
 
 std::string UrmaFailure437::GetRootCauseDesc() const
 {
-    return "函数用于获取JFR，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于获取JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure437::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure437::GetFixSuggDesc() const
 
 std::string UrmaFailure437::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_get_jfr_opt，Invalid out buffer from kernel.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_jfc_opt，Invalid out buffer from kernel.。";
 }
 
 std::string UrmaFailure437::GetId() const

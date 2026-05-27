@@ -1,5 +1,4 @@
 #include "urma_failure_560.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure560> g_urma("urma_560");
 
 bool UrmaFailure560::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'convert_jfs_vwr_to_pwr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Unsupported send opcode'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_and_store' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to copy jfr wr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,7 +18,7 @@ bool UrmaFailure560::IsValid()
 
 std::string UrmaFailure560::GetName() const
 {
-    return "JFS数据通路处理失败";
+    return "JFR数据通路处理失败";
 }
 
 std::string UrmaFailure560::GetRootCauseDesc() const
@@ -40,7 +39,7 @@ std::string UrmaFailure560::GetFixSuggDesc() const
 
 std::string UrmaFailure560::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：convert_jfs_vwr_to_pwr，Unsupported send opcode";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_and_store，Failed to copy jfr wr。";
 }
 
 std::string UrmaFailure560::GetId() const

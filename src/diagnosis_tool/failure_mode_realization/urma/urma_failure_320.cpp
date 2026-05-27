@@ -1,5 +1,4 @@
 #include "urma_failure_320.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure320> g_urma("urma_320");
 
 bool UrmaFailure320::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Fail to add fd:' | grep -F 'to epoll fd:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_post_jetty_recv_wr' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure320::IsValid()
 
 std::string UrmaFailure320::GetName() const
 {
-    return "文件描述符数据通路处理失败";
+    return "Jetty对象、WR对象无效导致投递Jetty失败";
 }
 
 std::string UrmaFailure320::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "函数用于投递Jetty，调用方传入的Jetty对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure320::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure320::GetFixSuggDesc() const
 
 std::string UrmaFailure320::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_create_pjfce，Fail to add fd:，to epoll fd:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_post_jetty_recv_wr，Invalid parameter.。";
 }
 
 std::string UrmaFailure320::GetId() const

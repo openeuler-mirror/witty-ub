@@ -1,5 +1,4 @@
 #include "urma_failure_641.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure641> g_urma("urma_641");
 bool UrmaFailure641::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_delete_jfr , ret:' | grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'jfc not from the same dev, cannot delete in a batch, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure641::IsValid()
 
 std::string UrmaFailure641::GetName() const
 {
-    return "删除ioctl的ioctl调用返回失败";
+    return "JFC清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure641::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "函数负责释放或撤销JFC相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure641::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure641::GetFixSuggDesc() const
 
 std::string UrmaFailure641::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_free_jfr，ioctl failed in urma_cmd_delete_jfr , ret:，, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，jfc not from the same dev, cannot delete in "
+           "a batch, index:。";
 }
 
 std::string UrmaFailure641::GetId() const

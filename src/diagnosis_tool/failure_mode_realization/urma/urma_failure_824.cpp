@@ -1,5 +1,4 @@
 #include "urma_failure_824.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure824> g_urma("urma_824");
 
 bool UrmaFailure824::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jfr_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to exec ops->set_jfr_opt.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure824::IsValid()
 
 std::string UrmaFailure824::GetName() const
 {
-    return "URMA context、provider操作表、JFR对象无效导致去激活JFR失败";
+    return "设置JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure824::GetRootCauseDesc() const
 {
-    return "函数用于去激活JFR，调用方传入的URMA "
-           "context、provider操作表、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于设置JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure824::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure824::GetFixSuggDesc() const
 
 std::string UrmaFailure824::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_deactive_jfr，Invalid parameter.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfr_opt，Failed to exec ops->set_jfr_opt.。";
 }
 
 std::string UrmaFailure824::GetId() const

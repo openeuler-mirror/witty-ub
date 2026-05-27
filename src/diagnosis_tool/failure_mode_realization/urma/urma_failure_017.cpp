@@ -1,5 +1,4 @@
 #include "urma_failure_017.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure017> g_urma("urma_017");
 
 bool UrmaFailure017::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_write_affinity' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_v_conn_init' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to init slide window in bdp_v_conn_table_add'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure017::IsValid()
 
 std::string UrmaFailure017::GetName() const
 {
-    return "URMA context、provider操作表、JFS对象无效导致投递JFS失败";
+    return "初始化URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure017::GetRootCauseDesc() const
 {
-    return "函数用于投递JFS，调用方传入的URMA "
-           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure017::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure017::GetFixSuggDesc() const
 
 std::string UrmaFailure017::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_write_affinity，Invalid parameter.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bdp_v_conn_init，Failed to init slide window in bdp_v_conn_table_add。";
 }
 
 std::string UrmaFailure017::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_803.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure803> g_urma("urma_803");
 
 bool UrmaFailure803::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfr cfg out of range, depth:' | grep -F ', max_depth:' | grep -F ', sge:' | grep -F ', max_sge:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,16 @@ bool UrmaFailure803::IsValid()
 
 std::string UrmaFailure803::GetName() const
 {
-    return "去激活JFR过程中依赖步骤失败";
+    return "URMA "
+           "context、设备对象、sysfs设备信息、provider操作表、JFS对象、provider未提供active_"
+           "jfs操作实现无效导致激活JFS失败";
 }
 
 std::string UrmaFailure803::GetRootCauseDesc() const
 {
-    return "函数用于去激活JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "函数用于激活JFS，调用方传入的URMA "
+           "context、设备对象、sysfs设备信息、provider操作表、JFS对象、provider未提供active_"
+           "jfs操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure803::AnalyzeRootCause()
@@ -40,8 +42,7 @@ std::string UrmaFailure803::GetFixSuggDesc() const
 
 std::string UrmaFailure803::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_deactive_jfs，jfr cfg out of range, depth:，, max_depth:，, sge:，, "
-           "max_sge:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jfs，Invalid parameter.。";
 }
 
 std::string UrmaFailure803::GetId() const

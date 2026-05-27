@@ -1,5 +1,4 @@
 #include "urma_failure_725.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure725> g_urma("urma_725");
 bool UrmaFailure725::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_slide_wnd_seq_in_window' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param wnd'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_user_ctl_set_bonding_mode_legacy' \"$URMA_LOG_PATH\" 2>/dev/null "
+        "| grep -F 'Invalid set bonding mode legacy param.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure725::IsValid()
 
 std::string UrmaFailure725::GetName() const
 {
-    return "执行URMA资源所需输入对象无效导致释放URMA资源失败";
+    return "URMA context无效导致设置Jetty失败";
 }
 
 std::string UrmaFailure725::GetRootCauseDesc() const
 {
-    return "函数用于释放URMA资源，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于设置Jetty，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure725::AnalyzeRootCause()
@@ -39,7 +38,8 @@ std::string UrmaFailure725::GetFixSuggDesc() const
 
 std::string UrmaFailure725::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bdp_slide_wnd_seq_in_window，Invalid param wnd";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_user_ctl_set_bonding_mode_legacy，Invalid set bonding mode legacy "
+           "param.。";
 }
 
 std::string UrmaFailure725::GetId() const

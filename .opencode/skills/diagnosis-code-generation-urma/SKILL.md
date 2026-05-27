@@ -26,7 +26,7 @@ description: "根据 urma_failure_mode_tree.md 故障模式树生成对应的 C+
    - `故障现象`
    - `故障原因`
    - `解决办法`
-   - `函数名`
+   - 叶子故障模式节点需要包含`函数名`，顶层故障模式（非叶节点）不需要
 3. `FailureMode` 基类定义以 `src/diagnosis_tool/failure_mode.h` 为准。
 4. 生成代码风格参考 `src/diagnosis_tool/failure_mode_realization/` 下已有样例
 

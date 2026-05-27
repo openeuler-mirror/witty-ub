@@ -1,5 +1,4 @@
 #include "urma_failure_332.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure332> g_urma("urma_332");
 
 bool UrmaFailure332::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_and_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to allocate jfr wr entry'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to create pjfr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure332::IsValid()
 
 std::string UrmaFailure332::GetName() const
 {
-    return "JFR相关临时结构或命令参数分配失败";
+    return "物理 JFR创建时下层资源准备失败";
 }
 
 std::string UrmaFailure332::GetRootCauseDesc() const
 {
-    return "函数在投递JFR前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "函数负责创建物理 JFR，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure332::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure332::GetFixSuggDesc() const
 
 std::string UrmaFailure332::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_post_recv_wr_and_store，Failed to allocate jfr wr entry";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjfr，Failed to create pjfr。";
 }
 
 std::string UrmaFailure332::GetId() const

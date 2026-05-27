@@ -1,5 +1,4 @@
 #include "urma_failure_263.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure263> g_urma("urma_263");
 
 bool UrmaFailure263::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to set opt, jetty has been activated'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'alloc_jetty failed.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure263::IsValid()
 
 std::string UrmaFailure263::GetName() const
 {
-    return "设置Jetty过程中依赖步骤失败";
+    return "Jetty相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure263::GetRootCauseDesc() const
 {
-    return "函数用于设置Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "函数在分配Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure263::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure263::GetFixSuggDesc() const
 
 std::string UrmaFailure263::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_set_jetty_opt，Failed to set opt, jetty has been activated";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jetty，alloc_jetty failed.。";
 }
 
 std::string UrmaFailure263::GetId() const

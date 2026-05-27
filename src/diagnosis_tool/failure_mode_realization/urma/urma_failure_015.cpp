@@ -1,5 +1,4 @@
 #include "urma_failure_015.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure015> g_urma("urma_015");
 
 bool UrmaFailure015::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to init target active indices'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to init active indices'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure015::GetFixSuggDesc() const
 
 std::string UrmaFailure015::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_unimport_pjfr，Failed to init target active indices";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pjfr，Failed to init active indices。";
 }
 
 std::string UrmaFailure015::GetId() const

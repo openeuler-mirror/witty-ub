@@ -1,5 +1,4 @@
 #include "urma_failure_537.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure537> g_urma("urma_537");
 bool UrmaFailure537::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]register seg failed, dev_name:' | grep -F ', eid_idx:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_seg' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to register seg, dev_name:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -39,7 +38,8 @@ std::string UrmaFailure537::GetFixSuggDesc() const
 
 std::string UrmaFailure537::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_check_seg_cfg，[DRV_ERR]register seg failed, dev_name:，, eid_idx:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_seg，[DRV_ERR]Failed to register seg, dev_name:，, "
+           "eid_idx:。";
 }
 
 std::string UrmaFailure537::GetId() const

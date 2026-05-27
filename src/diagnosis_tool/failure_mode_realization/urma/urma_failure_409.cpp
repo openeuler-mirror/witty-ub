@@ -1,5 +1,4 @@
 #include "urma_failure_409.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +9,8 @@ static AutoRegister<UrmaFailure409> g_urma("urma_409");
 bool UrmaFailure409::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_register_sysfs_dev' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Register device failed. Failed to match driver for device'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to free token_id, dev_name:' | grep -F ', eid_idx:' | grep -F ', tid:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure409::IsValid()
 
 std::string UrmaFailure409::GetName() const
 {
-    return "设备注册时下层资源准备失败";
+    return "Token清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure409::GetRootCauseDesc() const
 {
-    return "函数负责注册设备，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "函数负责释放或撤销Token相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure409::AnalyzeRootCause()
@@ -39,8 +38,8 @@ std::string UrmaFailure409::GetFixSuggDesc() const
 
 std::string UrmaFailure409::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_register_sysfs_dev，Register device failed. Failed to match driver for "
-           "device";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_token_id，[DRV_ERR]Failed to free token_id, dev_name:，, "
+           "eid_idx:，, tid:，, ret:。";
 }
 
 std::string UrmaFailure409::GetId() const

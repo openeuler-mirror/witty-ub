@@ -1,5 +1,4 @@
 #include "urma_failure_137.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure137> g_urma("urma_137");
 
 bool UrmaFailure137::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to malloc buffer.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jetty_batch' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,12 @@ bool UrmaFailure137::IsValid()
 
 std::string UrmaFailure137::GetName() const
 {
-    return "Jetty相关临时结构或命令参数分配失败";
+    return "URMA context、Jetty对象无效导致删除Jetty失败";
 }
 
 std::string UrmaFailure137::GetRootCauseDesc() const
 {
-    return "函数在删除Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "函数用于删除Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure137::AnalyzeRootCause()
@@ -39,7 +38,7 @@ std::string UrmaFailure137::GetFixSuggDesc() const
 
 std::string UrmaFailure137::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_cmd_delete_jetty_batch，Failed to malloc buffer.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty_batch，Invalid parameter。";
 }
 
 std::string UrmaFailure137::GetId() const

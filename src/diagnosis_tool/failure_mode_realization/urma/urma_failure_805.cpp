@@ -1,5 +1,4 @@
 #include "urma_failure_805.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure805> g_urma("urma_805");
 
 bool UrmaFailure805::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_modify_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to exec ops->active_jfs.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure805::IsValid()
 
 std::string UrmaFailure805::GetName() const
 {
-    return "URMA context、provider操作表、JFR对象、provider未提供modify_jfr操作实现无效导致修改JFR失败";
+    return "激活JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure805::GetRootCauseDesc() const
 {
-    return "函数用于修改JFR，调用方传入的URMA "
-           "context、provider操作表、JFR对象、provider未提供modify_"
-           "jfr操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数用于激活JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure805::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure805::GetFixSuggDesc() const
 
 std::string UrmaFailure805::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_modify_jfr，Invalid parameter.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jfs，Failed to exec ops->active_jfs.。";
 }
 
 std::string UrmaFailure805::GetId() const

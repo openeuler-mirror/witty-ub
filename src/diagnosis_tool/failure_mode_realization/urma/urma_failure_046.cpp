@@ -1,5 +1,4 @@
 #include "urma_failure_046.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure046> g_urma("urma_046");
 
 bool UrmaFailure046::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'urma_init has been called before.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to open provider'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure046::IsValid()
 
 std::string UrmaFailure046::GetName() const
 {
-    return "初始化URMA资源过程中依赖步骤失败";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure046::GetRootCauseDesc() const
 {
-    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
-           "RMA操作失败。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure046::AnalyzeRootCause()
@@ -35,12 +34,12 @@ RootCause UrmaFailure046::AnalyzeRootCause()
 
 std::string UrmaFailure046::GetFixSuggDesc() const
 {
-    return "查看/usr/lib64/urma目录下，是否存在liburma_udma.so等驱动文件，或查看文件是否具备x权限，完成正确部署后重试";
+    return "无";
 }
 
 std::string UrmaFailure046::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_init，urma_init has been called before.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_drivers，Failed to open provider。";
 }
 
 std::string UrmaFailure046::GetId() const

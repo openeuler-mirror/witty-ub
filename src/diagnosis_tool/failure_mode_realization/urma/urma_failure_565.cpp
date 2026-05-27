@@ -1,5 +1,4 @@
 #include "urma_failure_565.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +8,9 @@ static AutoRegister<UrmaFailure565> g_urma("urma_565");
 
 bool UrmaFailure565::IsValid()
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_health_calc_primary_interval_us' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | "
-                                    "grep -F 'Health check epoll_wait failed, errno:'");
+    std::string grepOutput = urma_log_helper::RunCommand(
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_send_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to resend jfs wr, wr_id:' | grep -F 'u'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,7 +18,7 @@ bool UrmaFailure565::IsValid()
 
 std::string UrmaFailure565::GetName() const
 {
-    return "健康检查数据通路处理失败";
+    return "JFS数据通路处理失败";
 }
 
 std::string UrmaFailure565::GetRootCauseDesc() const
@@ -41,7 +39,7 @@ std::string UrmaFailure565::GetFixSuggDesc() const
 
 std::string UrmaFailure565::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：bondp_health_calc_primary_interval_us，Health check epoll_wait failed, errno:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：handle_send_cr_with_store，Failed to resend jfs wr, wr_id:，u。";
 }
 
 std::string UrmaFailure565::GetId() const

@@ -1,5 +1,4 @@
 #include "urma_failure_041.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure041> g_urma("urma_041");
 
 bool UrmaFailure041::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'realpath failed.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'doesn'\\''t exist or doesn'\\''t have permission.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure041::GetFixSuggDesc() const
 
 std::string UrmaFailure041::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_open_provider，realpath failed.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_provider，doesn't exist or doesn't have permission.。";
 }
 
 std::string UrmaFailure041::GetId() const

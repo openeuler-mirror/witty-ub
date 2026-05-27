@@ -1,5 +1,4 @@
 #include "urma_failure_558.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure558> g_urma("urma_558");
 
 bool UrmaFailure558::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_fake_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid cr error status:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_and_store' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to post send wr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,12 +18,13 @@ bool UrmaFailure558::IsValid()
 
 std::string UrmaFailure558::GetName() const
 {
-    return "执行URMA资源所需输入对象无效导致刷出虚拟 Jetty失败";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure558::GetRootCauseDesc() const
 {
-    return "函数用于刷出虚拟 Jetty，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure558::AnalyzeRootCause()
@@ -39,7 +39,7 @@ std::string UrmaFailure558::GetFixSuggDesc() const
 
 std::string UrmaFailure558::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：handle_fake_cr_with_store，Invalid cr error status:";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_and_store，Failed to post send wr。";
 }
 
 std::string UrmaFailure558::GetId() const

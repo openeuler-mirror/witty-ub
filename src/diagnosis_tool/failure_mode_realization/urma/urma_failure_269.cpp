@@ -1,5 +1,4 @@
 #include "urma_failure_269.h"
-
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +8,9 @@ static AutoRegister<UrmaFailure269> g_urma("urma_269");
 
 bool UrmaFailure269::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to exec ops->set_jetty_opt.'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to exec urma_jetty_set_options.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -40,7 +39,7 @@ std::string UrmaFailure269::GetFixSuggDesc() const
 
 std::string UrmaFailure269::GetValidationMethodDesc() const
 {
-    return "通过 URMA 日志关键字校验：urma_set_jetty_opt，Failed to exec ops->set_jetty_opt.";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jetty_opt，Failed to exec urma_jetty_set_options.。";
 }
 
 std::string UrmaFailure269::GetId() const
