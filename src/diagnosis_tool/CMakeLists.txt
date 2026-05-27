@@ -9,6 +9,7 @@
 ## See the Mulan PSL v2 for more details.
 
 file(GLOB URMA_FAILURE_MODE_SOURCES failure_mode_realization/urma/urma_failure_*.cpp)
+file(GLOB KVCACHE_FAILURE_MODE_SOURCES failure_mode_realization/kvcache/kvcache_conn_fault_*.cpp)
 
 add_library(diagnosis_tool STATIC
     diagnosis_tool_module.cpp
@@ -22,51 +23,8 @@ add_library(diagnosis_tool STATIC
     failure_mode_realization/hw_break004.cpp
     failure_mode_realization/hw_break005.cpp
     failure_mode_realization/kvcache/kvcache_log_helper.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_001.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_001.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_002.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_003.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_004.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_005.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_006.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_007.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_002_008.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_006.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_006_001.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_006_002.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_006_003.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_007.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_008.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_009.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_010.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_011.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_012.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_012_001.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_012_002.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_012_003.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_012_004.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_001.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_002.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_003.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_004.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_005.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_006.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_007.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_008.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_009.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_020_010.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_001.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_002.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_003.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_004.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_005.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_006.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_007.cpp
-    failure_mode_realization/kvcache/kvcache_conn_fault_028_008.cpp
     failure_mode_realization/urma/urma_log_helper.cpp
+    ${KVCACHE_FAILURE_MODE_SOURCES}
     ${URMA_FAILURE_MODE_SOURCES}
 )
 target_include_directories(diagnosis_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

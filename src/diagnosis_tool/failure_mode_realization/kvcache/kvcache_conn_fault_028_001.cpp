@@ -13,6 +13,7 @@ bool KvcacheConnFault028_001::IsValid()
     std::string grepOutput = kvcache_log_helper::RunCommand(
         "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E '\\[URMA_NEED_CONNECT\\]' $WITTY_UB_WORKER_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
     kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }

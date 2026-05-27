@@ -13,6 +13,7 @@ bool KvcacheConnFault028::IsValid()
     std::string grepOutput = kvcache_log_helper::RunCommand(
         "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && awk -F'|' '{status=$8; gsub(/^ +| +$/,\"\",status); if (status ~ /^(1004|1006|1008|1009|1010)$/) print $0}' $WITTY_UB_CLIENT_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
     kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }
