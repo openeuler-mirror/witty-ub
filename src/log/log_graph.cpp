@@ -26,12 +26,11 @@
 #include "logger.h"
 
 namespace failure::log {
+using namespace failure::graph;
 constexpr const char *OVERALL_CALLSTACK_PATH = "/var/witty-ub/callstack-analysis/overall_callstack.json";
 constexpr const char *KEY_FUNCTIONS_PATH = "/var/witty-ub/keyfunc-analysis/keyfunc.json";
-constexpr const int UPSTREAM_LEVEL = 8;
-constexpr const int DOWNSTREAM_LEVEL = 16;
 
-void LogGraph::CollectUpstreamNodes(size_t start, size_t maxLevel, std::unordered_set<size_t> &selected) const
+void LogGraph::CollectUpstreamNodes(size_t start, std::unordered_set<size_t> &selected) const
 {
     std::queue<std::pair<size_t, size_t>> q;
     std::vector<int> visited(graph_.nodes.size(), -1);
@@ -41,9 +40,6 @@ void LogGraph::CollectUpstreamNodes(size_t start, size_t maxLevel, std::unordere
     while (!q.empty()) {
         auto [cur, level] = q.front();
         q.pop();
-        if (level >= maxLevel) {
-            continue;
-        }
 
         for (size_t parent : graph_.upstreamEdges[cur]) {
             if (visited[parent] != -1) {
@@ -56,7 +52,7 @@ void LogGraph::CollectUpstreamNodes(size_t start, size_t maxLevel, std::unordere
     }
 }
 
-void LogGraph::CollectDownstreamNodes(size_t start, size_t maxLevel, std::unordered_set<size_t> &selected) const
+void LogGraph::CollectDownstreamNodes(size_t start, std::unordered_set<size_t> &selected) const
 {
     std::queue<std::pair<size_t, size_t>> q;
     std::vector<int> visited(graph_.nodes.size(), -1);
@@ -66,9 +62,6 @@ void LogGraph::CollectDownstreamNodes(size_t start, size_t maxLevel, std::unorde
     while (!q.empty()) {
         auto [cur, level] = q.front();
         q.pop();
-        if (level >= maxLevel) {
-            continue;
-        }
 
         for (size_t child : graph_.downstreamEdges[cur]) {
             if (visited[child] != -1) {
@@ -126,22 +119,17 @@ RackResult LogGraph::InitKeyFuncRelevance()
         FindNodesByName(funcName, matchedNodes);
         RelevantFuncs relevantFuncs;
         for (const FuncNode &node : matchedNodes) {
-            FindNeighborhood(node.id, UPSTREAM_LEVEL, DOWNSTREAM_LEVEL, relevantFuncs.upstreamFuncs,
-                             relevantFuncs.downstreamFuncs);
+            FindNeighborhood(node.name, relevantFuncs.upstreamFuncs, relevantFuncs.downstreamFuncs);
         }
         relevantFuncs.upstreamNameIndex.reserve(relevantFuncs.upstreamFuncs.size());
         relevantFuncs.downstreamNameIndex.reserve(relevantFuncs.downstreamFuncs.size());
-        relevantFuncs.upstreamIdIndex.reserve(relevantFuncs.upstreamFuncs.size());
-        relevantFuncs.downstreamIdIndex.reserve(relevantFuncs.downstreamFuncs.size());
         for (size_t i = 0; i < relevantFuncs.upstreamFuncs.size(); ++i) {
             const auto &func = relevantFuncs.upstreamFuncs[i];
             relevantFuncs.upstreamNameIndex[func.name].push_back(i);
-            relevantFuncs.upstreamIdIndex.emplace(func.id, i);
         }
         for (size_t i = 0; i < relevantFuncs.downstreamFuncs.size(); ++i) {
             const auto &func = relevantFuncs.downstreamFuncs[i];
             relevantFuncs.downstreamNameIndex[func.name].push_back(i);
-            relevantFuncs.downstreamIdIndex.emplace(func.id, i);
         }
         keyFuncRelevanceMap_.emplace(funcName, std::move(relevantFuncs));
     }
@@ -225,23 +213,21 @@ RackResult LogGraph::BuildNodes(const Json::Value &nodes, CallGraph &graph) cons
             return RACK_FAIL;
         }
 
-        const std::string id = node["id"].asString();
-        if (id.empty()) {
-            LOG_ERROR << "node id is empty at index " << i;
+        const std::string name = node["name"].asString();
+        if (name.empty()) {
+            LOG_ERROR << "node name is empty at index " << i;
             return RACK_FAIL;
         }
-        if (graph.nodeIndex.find(id) != graph.nodeIndex.end()) {
-            LOG_ERROR << "duplicated node id: " << id;
+        if (graph.nodeIndex.find(name) != graph.nodeIndex.end()) {
+            LOG_ERROR << "duplicated node name: " << name;
             return RACK_FAIL;
         }
 
         FuncNode funcNode;
-        funcNode.id = id;
-        funcNode.name = node["name"].asString();
+        funcNode.name = name;
         funcNode.component = node["component"].asString();
-        funcNode.file = node["file"].asString();
 
-        graph.nodeIndex[id] = graph.nodes.size();
+        graph.nodeIndex[name] = graph.nodes.size();
         graph.nodes.emplace_back(std::move(funcNode));
     }
 
@@ -260,21 +246,21 @@ RackResult LogGraph::BuildEdges(const Json::Value &edges, CallGraph &graph) cons
             return RACK_FAIL;
         }
 
-        const std::string srcId = edge["src"].asString();
-        const std::string dstId = edge["dst"].asString();
-        if (srcId.empty() || dstId.empty()) {
+        const std::string src = edge["src"].asString();
+        const std::string dst = edge["dst"].asString();
+        if (src.empty() || dst.empty()) {
             LOG_WARN << "skip edge with empty src/dst at index " << i;
             continue;
         }
 
-        const auto srcIt = graph.nodeIndex.find(srcId);
-        const auto dstIt = graph.nodeIndex.find(dstId);
+        const auto srcIt = graph.nodeIndex.find(src);
+        const auto dstIt = graph.nodeIndex.find(dst);
         if (srcIt == graph.nodeIndex.end() || dstIt == graph.nodeIndex.end()) {
-            LOG_WARN << "skip dangling edge at index " << i << ", src=" << srcId << ", dst=" << dstId;
+            LOG_WARN << "skip dangling edge at index " << i << ", src=" << src << ", dst=" << dst;
             continue;
         }
 
-        graph.edges.push_back({srcId, dstId});
+        graph.edges.push_back({src, dst});
         graph.downstreamEdges[srcIt->second].push_back(dstIt->second);
         graph.upstreamEdges[dstIt->second].push_back(srcIt->second);
     }
@@ -336,17 +322,17 @@ RackResult log::LogGraph::InitKeyFuncMap(const Json::Value &root, KeyFuncEventTy
     return RACK_OK;
 }
 
-void LogGraph::FindNeighborhood(const std::string &funcId, size_t upstreamLevel, size_t downstreamLevel,
-                                std::vector<FuncNode> &upstreamFuncs, std::vector<FuncNode> &downstreamFuncs) const
+void LogGraph::FindNeighborhood(const std::string &funcName, std::vector<FuncNode> &upstreamFuncs,
+                                std::vector<FuncNode> &downstreamFuncs) const
 {
     if (graph_.nodes.empty()) {
         LOG_WARN << "callstack graph is empty";
         return;
     }
 
-    const auto startIt = graph_.nodeIndex.find(funcId);
+    const auto startIt = graph_.nodeIndex.find(funcName);
     if (startIt == graph_.nodeIndex.end()) {
-        LOG_WARN << "function id not found in graph: " << funcId;
+        LOG_WARN << "function name not found in graph: " << funcName;
         return;
     }
     const size_t start = startIt->second;
@@ -354,8 +340,8 @@ void LogGraph::FindNeighborhood(const std::string &funcId, size_t upstreamLevel,
     std::unordered_set<size_t> upstreamIndices;
     std::unordered_set<size_t> downstreamIndices;
 
-    CollectUpstreamNodes(start, upstreamLevel, upstreamIndices);
-    CollectDownstreamNodes(start, downstreamLevel, downstreamIndices);
+    CollectUpstreamNodes(start, upstreamIndices);
+    CollectDownstreamNodes(start, downstreamIndices);
 
     std::vector<size_t> sortedUpstreamIndices;
     sortedUpstreamIndices.reserve(upstreamIndices.size());
@@ -392,5 +378,10 @@ const KeyFuncEventTypeMap &log::LogGraph::GetKeyFuncEventTypeMap() const
 const KeyFuncRoleMap &log::LogGraph::GetKeyFuncRoleMap() const
 {
     return keyFuncRoleMap_;
+}
+
+const CallGraph &LogGraph::GetCallGraph() const
+{
+    return graph_;
 }
 } // namespace failure::log

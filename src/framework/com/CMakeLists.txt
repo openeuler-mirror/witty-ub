@@ -13,8 +13,13 @@ add_library(rack_http STATIC
     http/rack_http_client.cpp 
 )
 target_include_directories(rack_http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-find_package(httplib REQUIRED)
-target_link_libraries(rack_http PUBLIC httplib::httplib)
+find_package(httplib QUIET)
+if(httplib_FOUND)
+    target_link_libraries(rack_http PUBLIC httplib::httplib)
+else()
+    target_include_directories(rack_http PUBLIC /usr/include)
+    target_link_libraries(rack_http PUBLIC -lcpp-httplib)
+endif()
 
 
 #add_executable(http_server_main
