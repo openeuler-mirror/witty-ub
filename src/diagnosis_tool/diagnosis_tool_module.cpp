@@ -448,7 +448,7 @@ bool DiagnosisToolModule::Visit(FailureModeController controller)
     }
     std::string failureModeId = failureMode->GetId();
     if (failureMode->IsValid()) {
-        // std::cout << failureMode -> GetName() << std::endl;
+        std::cout << failureMode -> GetName() << std::endl;
         const std::vector<FailureLogInfo> &logInfos =
             urma_log_helper::GetParsedFailureLogLines(failureMode->GetFailureLogInfoCache());
         for (FailureLogInfo logInfo : logInfos) {
