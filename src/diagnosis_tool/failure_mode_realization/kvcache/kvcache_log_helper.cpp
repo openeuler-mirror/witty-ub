@@ -1,5 +1,5 @@
 #include "kvcache_log_helper.h"
-
+#include <iostream>
 #include <regex>
 #include <sstream>
 
@@ -35,6 +35,7 @@ std::string StripFilepathPrefixFromOutput(const std::string &grepOutput)
             processedOutput += rawLine + "\n";
         }
     }
+    std::cout << "cmd output: " << processedOutput << std::endl;
     return processedOutput;
 }
 

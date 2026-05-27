@@ -221,6 +221,12 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
     }
     std::filesystem::permissions(baseDir, std::filesystem::perms(DIR_PERM_755), ec);
 
+    // 清除已有日志文件，避免新旧日志混合
+    for (const auto &entry : std::filesystem::directory_iterator(baseDir, ec)) {
+        if (ec) break;
+        std::filesystem::remove(entry.path(), ec);
+    }
+
     struct LogFileEntry {
         std::string pattern;
         std::string envName;
