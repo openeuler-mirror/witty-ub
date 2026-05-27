@@ -1,4 +1,5 @@
 #include "urma_failure_625.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure625> g_urma("urma_625");
 bool UrmaFailure625::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_ack_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfr not from the same dev, cannot delete in a batch, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure625::IsValid()
 
 std::string UrmaFailure625::GetName() const
 {
-    return "bondp_ack_async_event 校验 异步事件 无效导致确认流程拒绝继续执行";
+    return "JFR清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure625::GetRootCauseDesc() const
 {
-    return "bondp_ack_async_event 在执行确认前发现调用方传入的 异步事件 "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure625::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure625::GetFixSuggDesc() const
 
 std::string UrmaFailure625::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_cmd_delete_jfr_batch，jfr not from the same dev, cannot delete in a batch, "
+           "index:";
 }
 
 std::string UrmaFailure625::GetId() const

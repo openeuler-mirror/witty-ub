@@ -1,4 +1,5 @@
 #include "urma_failure_471.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure471> g_urma("urma_471");
 bool UrmaFailure471::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_user_ctl' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to excecute user_ctl, ret:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_read_sysfs_file' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'snprintf failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure471::IsValid()
 
 std::string UrmaFailure471::GetName() const
 {
-    return "urma_user_ctl 执行处理 URMA 对象 失败导致当前资源状态无法推进";
+    return "读取sysfs过程中依赖步骤失败";
 }
 
 std::string UrmaFailure471::GetRootCauseDesc() const
 {
-    return "urma_user_ctl 调用下层 provider、bond 组件或系统接口处理 URMA 对象 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于读取sysfs，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure471::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure471::GetFixSuggDesc() const
 
 std::string UrmaFailure471::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to excecute user_ctl, ret";
+    return "通过 URMA 日志关键字校验：urma_read_sysfs_file，snprintf failed";
 }
 
 std::string UrmaFailure471::GetId() const

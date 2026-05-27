@@ -1,4 +1,5 @@
 #include "urma_failure_316.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure316> g_urma("urma_316");
 bool UrmaFailure316::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_create_jfr, ret:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_parse_rsvd_jetty_range' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'parse rsvd jetty:' | grep -F 'failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,13 @@ bool UrmaFailure316::IsValid()
 
 std::string UrmaFailure316::GetName() const
 {
-    return "urma_cmd_create_jfr URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "端口信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure316::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jfr 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFR 状态。";
+    return "函数需要从sysfs获取端口信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或能力初始"
+           "化。";
 }
 
 RootCause UrmaFailure316::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure316::GetFixSuggDesc() const
 
 std::string UrmaFailure316::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_create_jfr, ret:, errno";
+    return "通过 URMA 日志关键字校验：urma_parse_rsvd_jetty_range，parse rsvd jetty:，failed";
 }
 
 std::string UrmaFailure316::GetId() const

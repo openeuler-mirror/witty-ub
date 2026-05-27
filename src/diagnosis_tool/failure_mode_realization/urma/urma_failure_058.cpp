@@ -1,4 +1,5 @@
 #include "urma_failure_058.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure058> g_urma("urma_058");
 bool UrmaFailure058::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_active_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_add_jfr_p_vjetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to add p_vjfr_id[' | grep -F ']: ret:' | grep -F ', p_jfr_id:' | grep -F ', v_jfr_id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure058::IsValid()
 
 std::string UrmaFailure058::GetName() const
 {
-    return "urma_cmd_active_jfr 校验 context 无效导致激活流程拒绝继续执行";
+    return "执行虚拟 JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure058::GetRootCauseDesc() const
 {
-    return "urma_cmd_active_jfr 在执行激活前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行虚拟 "
+           "JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
 }
 
 RootCause UrmaFailure058::AnalyzeRootCause()
@@ -41,7 +40,8 @@ std::string UrmaFailure058::GetFixSuggDesc() const
 
 std::string UrmaFailure058::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_add_jfr_p_vjetty_id_info，Failed to add p_vjfr_id[，]: ret:，, "
+           "p_jfr_id:，, v_jfr_id:";
 }
 
 std::string UrmaFailure058::GetId() const

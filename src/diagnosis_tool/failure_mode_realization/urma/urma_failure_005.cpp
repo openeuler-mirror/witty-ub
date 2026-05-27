@@ -1,4 +1,5 @@
 #include "urma_failure_005.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure005> g_urma("urma_005");
 bool UrmaFailure005::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_unregister_provider_ops' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init jfs wr buf'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure005::IsValid()
 
 std::string UrmaFailure005::GetName() const
 {
-    return "urma_unregister_provider_ops 校验 provider 无效导致注册流程拒绝继续执行";
+    return "JFS数据通路处理失败";
 }
 
 std::string UrmaFailure005::GetRootCauseDesc() const
 {
-    return "urma_unregister_provider_ops 在执行注册前发现调用方传入的 provider "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure005::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure005::GetFixSuggDesc() const
 
 std::string UrmaFailure005::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_del_jfs_p_vjetty_info，Failed to init jfs wr buf";
 }
 
 std::string UrmaFailure005::GetId() const

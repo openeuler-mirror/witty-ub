@@ -1,4 +1,5 @@
 #include "urma_failure_238.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure238> g_urma("urma_238");
 bool UrmaFailure238::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'set_fadd_wr_ptseg_pjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'when set faa_wr, one of src or dst is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_advise_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure238::IsValid()
 
 std::string UrmaFailure238::GetName() const
 {
-    return "set_fadd_wr_ptseg_pjetty 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "URMA context、设备对象、Jetty对象、目标Jetty对象无效导致执行Jetty失败";
 }
 
 std::string UrmaFailure238::GetRootCauseDesc() const
 {
-    return "set_fadd_wr_ptseg_pjetty 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于执行Jetty，调用方传入的URMA "
+           "context、设备对象、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure238::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure238::GetFixSuggDesc() const
 
 std::string UrmaFailure238::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：when set faa_wr, one of src or dst is NULL";
+    return "通过 URMA 日志关键字校验：urma_advise_jetty，Invalid parameter.";
 }
 
 std::string UrmaFailure238::GetId() const

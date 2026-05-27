@@ -1,4 +1,5 @@
 #include "urma_failure_582.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure582> g_urma("urma_582");
 bool UrmaFailure582::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_register_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_post_jfs_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure582::IsValid()
 
 std::string UrmaFailure582::GetName() const
 {
-    return "urma_cmd_register_seg 校验 context 无效导致注册流程拒绝继续执行";
+    return "JFS对象、WR对象无效导致投递JFS失败";
 }
 
 std::string UrmaFailure582::GetRootCauseDesc() const
 {
-    return "urma_cmd_register_seg 在执行注册前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于投递JFS，调用方传入的JFS对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure582::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure582::GetFixSuggDesc() const
 
 std::string UrmaFailure582::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_post_jfs_wr，Invalid parameter.";
 }
 
 std::string UrmaFailure582::GetId() const

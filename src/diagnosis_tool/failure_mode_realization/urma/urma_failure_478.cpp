@@ -1,4 +1,5 @@
 #include "urma_failure_478.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure478> g_urma("urma_478");
 bool UrmaFailure478::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'doesn'\\''t exist or doesn'\\''t have permission'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_sysfs_with_index' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to parse eid value, dev name:' | grep -F ', eid idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure478::IsValid()
 
 std::string UrmaFailure478::GetName() const
 {
-    return "urma_open_provider 打开 provider 失败导致打开无法访问底层资源";
+    return "EID信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure478::GetRootCauseDesc() const
 {
-    return "urma_open_provider 需要访问 provider 对应的文件、目录、provider "
-           "动态库或字符设备，但路径不存在、权限不足或系统调用失败，导致后续 URMA 设备枚举、provider "
-           "装载或上下文创建无法进行。";
+    return "函数需要从sysfs获取EID信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或能力初始"
+           "化。";
 }
 
 RootCause UrmaFailure478::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure478::GetFixSuggDesc() const
 
 std::string UrmaFailure478::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：doesn't exist or doesn't have permission";
+    return "通过 URMA 日志关键字校验：read_eid_sysfs_with_index，Failed to parse eid value, dev name:，, eid idx:";
 }
 
 std::string UrmaFailure478::GetId() const

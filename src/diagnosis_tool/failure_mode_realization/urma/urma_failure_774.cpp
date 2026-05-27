@@ -1,4 +1,5 @@
 #include "urma_failure_774.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure774> g_urma("urma_774");
 bool UrmaFailure774::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_free_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec ops->active_jfc.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure774::IsValid()
 
 std::string UrmaFailure774::GetName() const
 {
-    return "urma_free_jfr 校验 JFR 无效导致释放流程拒绝继续执行";
+    return "激活JFC过程中依赖步骤失败";
 }
 
 std::string UrmaFailure774::GetRootCauseDesc() const
 {
-    return "urma_free_jfr 在执行释放前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure774::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure774::GetFixSuggDesc() const
 
 std::string UrmaFailure774::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_active_jfc，Failed to exec ops->active_jfc.";
 }
 
 std::string UrmaFailure774::GetId() const

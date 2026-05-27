@@ -1,4 +1,5 @@
 #include "urma_failure_553.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure553> g_urma("urma_553");
 bool UrmaFailure553::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_device_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Bondp supports at most' | grep -F 'wr_list.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure553::IsValid()
 
 std::string UrmaFailure553::GetName() const
 {
-    return "urma_get_device_list 校验 设备 无效导致获取流程拒绝继续执行";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure553::GetRootCauseDesc() const
 {
-    return "urma_get_device_list 在执行获取前发现调用方传入的 设备 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure553::AnalyzeRootCause()
@@ -35,12 +35,12 @@ RootCause UrmaFailure553::AnalyzeRootCause()
 
 std::string UrmaFailure553::GetFixSuggDesc() const
 {
-    return "执行 `lsmod | grep udma` 检查驱动是否加载，执行 `urma_admin show -a` 查看 UB 设备是否存在，部署完成后重试";
+    return "无";
 }
 
 std::string UrmaFailure553::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_post_recv_wr_no_store，Bondp supports at most，wr_list.";
 }
 
 std::string UrmaFailure553::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_818.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure818> g_urma("urma_818");
 bool UrmaFailure818::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_unadvise_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,14 @@ bool UrmaFailure818::IsValid()
 
 std::string UrmaFailure818::GetName() const
 {
-    return "urma_cmd_unadvise_jfr 校验 context 无效导致处理流程拒绝继续执行";
+    return "URMA context、设备对象、sysfs设备信息、provider操作表、provider未提供active_jfr操作实现无效导致激活JFR失败";
 }
 
 std::string UrmaFailure818::GetRootCauseDesc() const
 {
-    return "urma_cmd_unadvise_jfr 在执行处理前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活JFR，调用方传入的URMA "
+           "context、设备对象、sysfs设备信息、provider操作表、provider未提供active_"
+           "jfr操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure818::AnalyzeRootCause()
@@ -41,7 +41,7 @@ std::string UrmaFailure818::GetFixSuggDesc() const
 
 std::string UrmaFailure818::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_active_jfr，Invalid parameter.";
 }
 
 std::string UrmaFailure818::GetId() const

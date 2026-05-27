@@ -1,4 +1,5 @@
 #include "urma_failure_229.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure229> g_urma("urma_229");
 bool UrmaFailure229::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'set_write_wr_ptseg_ptjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Write sge.dst->handle is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Not allowed to bind local jetty:' | grep -F ', with remote jetty:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure229::IsValid()
 
 std::string UrmaFailure229::GetName() const
 {
-    return "set_write_wr_ptseg_ptjetty 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "绑定Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure229::GetRootCauseDesc() const
 {
-    return "set_write_wr_ptseg_ptjetty 在初始化或注册设备时未能打开 provider "
-           "动态库、获取动态库路径、匹配驱动名称或完成 provider 注册，导致 URMA 用户态无法绑定对应设备的 provider "
-           "操作集。";
+    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure229::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure229::GetFixSuggDesc() const
 
 std::string UrmaFailure229::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Write sge.dst->handle is NULL";
+    return "通过 URMA 日志关键字校验：urma_bind_jetty，Not allowed to bind local jetty:，, with remote jetty:";
 }
 
 std::string UrmaFailure229::GetId() const

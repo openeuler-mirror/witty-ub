@@ -1,4 +1,5 @@
 #include "urma_failure_588.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure588> g_urma("urma_588");
 bool UrmaFailure588::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_unimport_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete jfce[' | grep -F '], still in use. use_cnt:' | grep -F 'u'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure588::IsValid()
 
 std::string UrmaFailure588::GetName() const
 {
-    return "urma_cmd_unimport_jfr 校验 JFR 无效导致导入流程拒绝继续执行";
+    return "JFCE清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure588::GetRootCauseDesc() const
 {
-    return "urma_cmd_unimport_jfr 在执行导入前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFCE相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure588::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure588::GetFixSuggDesc() const
 
 std::string UrmaFailure588::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_delete_jfce，Failed to delete jfce[，], still in use. use_cnt:，u";
 }
 
 std::string UrmaFailure588::GetId() const

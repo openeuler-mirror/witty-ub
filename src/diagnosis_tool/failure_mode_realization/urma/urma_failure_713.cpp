@@ -1,4 +1,5 @@
 #include "urma_failure_713.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure713> g_urma("urma_713");
 bool UrmaFailure713::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_comp_default' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Fail to uninit comp attr, ret'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'convert_bond_port_id_to_active_index' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid converted active index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure713::IsValid()
 
 std::string UrmaFailure713::GetName() const
 {
-    return "bondp_delete_comp_default 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "激活端口所需输入对象无效导致激活端口失败";
 }
 
 std::string UrmaFailure713::GetRootCauseDesc() const
 {
-    return "bondp_delete_comp_default 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于激活端口，调用方传入的激活端口所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure713::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure713::GetFixSuggDesc() const
 
 std::string UrmaFailure713::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Fail to uninit comp attr, ret";
+    return "通过 URMA 日志关键字校验：convert_bond_port_id_to_active_index，Invalid converted active index:";
 }
 
 std::string UrmaFailure713::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_862.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure862> g_urma("urma_862");
 bool UrmaFailure862::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'update_mapping_hash_table' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to add primary eid to mapping hash table'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'snprintf_s' | grep -F 'failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure862::IsValid()
 
 std::string UrmaFailure862::GetName() const
 {
-    return "update_mapping_hash_table 更新 设备 映射结构失败导致资源索引不可用";
+    return "打开URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure862::GetRootCauseDesc() const
 {
-    return "update_mapping_hash_table 需要维护 设备 "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数用于打开URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
+           "A操作失败。";
 }
 
 RootCause UrmaFailure862::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure862::GetFixSuggDesc() const
 
 std::string UrmaFailure862::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to add primary eid to mapping hash table";
+    return "通过 URMA 日志关键字校验：urma_open_drivers，snprintf_s，failed";
 }
 
 std::string UrmaFailure862::GetId() const

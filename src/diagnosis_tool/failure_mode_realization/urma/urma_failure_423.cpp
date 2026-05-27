@@ -1,4 +1,5 @@
 #include "urma_failure_423.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure423> g_urma("urma_423");
 bool UrmaFailure423::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_jetty_check_dev_cap' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jetty_grp jetty cnt:' | "
-        "grep -F ', max_jetty in grp:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_query_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,14 +19,13 @@ bool UrmaFailure423::IsValid()
 
 std::string UrmaFailure423::GetName() const
 {
-    return "urma_create_jetty_check_dev_cap 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "查询ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure423::GetRootCauseDesc() const
 {
-    return "urma_create_jetty_check_dev_cap 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数通过ioctl向URMA内核驱动提交查询ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure423::AnalyzeRootCause()
@@ -42,7 +40,7 @@ std::string UrmaFailure423::GetFixSuggDesc() const
 
 std::string UrmaFailure423::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jetty_grp jetty cnt:, max_jetty in grp";
+    return "通过 URMA 日志关键字校验：urma_cmd_query_jfs，ioctl failed, ret:，, errno:";
 }
 
 std::string UrmaFailure423::GetId() const

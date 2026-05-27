@@ -1,4 +1,5 @@
 #include "urma_failure_501.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure501> g_urma("urma_501");
 bool UrmaFailure501::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'get_dev_and_ctx_by_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create context'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_perf_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Urma perf get info failed, need' | grep -F 'bytes buffer, but only' | grep -F 'provided'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure501::IsValid()
 
 std::string UrmaFailure501::GetName() const
 {
-    return "get_dev_and_ctx_by_eid 执行获取 context 失败导致当前资源状态无法推进";
+    return "获取锁过程中依赖步骤失败";
 }
 
 std::string UrmaFailure501::GetRootCauseDesc() const
 {
-    return "get_dev_and_ctx_by_eid 调用下层 provider、bond 组件或系统接口处理 context 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于获取锁，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure501::AnalyzeRootCause()
@@ -40,7 +40,8 @@ std::string UrmaFailure501::GetFixSuggDesc() const
 
 std::string UrmaFailure501::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create context";
+    return "通过 URMA 日志关键字校验：urma_get_perf_info，Urma perf get info failed, need，bytes buffer, but "
+           "only，provided";
 }
 
 std::string UrmaFailure501::GetId() const

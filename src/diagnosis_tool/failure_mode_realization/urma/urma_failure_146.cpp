@@ -1,4 +1,5 @@
 #include "urma_failure_146.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure146> g_urma("urma_146");
 bool UrmaFailure146::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_unbind_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'failed to fill jetty cfg'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure146::IsValid()
 
 std::string UrmaFailure146::GetName() const
 {
-    return "urma_unbind_jetty_async 校验 Jetty 无效导致绑定流程拒绝继续执行";
+    return "分配Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure146::GetRootCauseDesc() const
 {
-    return "urma_unbind_jetty_async 在执行绑定前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于分配Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure146::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure146::GetFixSuggDesc() const
 
 std::string UrmaFailure146::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_cmd_alloc_jetty，failed to fill jetty cfg";
 }
 
 std::string UrmaFailure146::GetId() const

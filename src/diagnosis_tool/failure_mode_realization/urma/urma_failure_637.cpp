@@ -1,4 +1,5 @@
 #include "urma_failure_637.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure637> g_urma("urma_637");
 bool UrmaFailure637::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'post_send_check_jfs_wr_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'when set faa_wr, either src or dst is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure637::IsValid()
 
 std::string UrmaFailure637::GetName() const
 {
-    return "post_send_check_jfs_wr_valid 执行投递 JFS 失败导致当前资源状态无法推进";
+    return "URMA context无效导致释放JFC失败";
 }
 
 std::string UrmaFailure637::GetRootCauseDesc() const
 {
-    return "post_send_check_jfs_wr_valid 调用下层 provider、bond 组件或系统接口处理 JFS 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于释放JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure637::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure637::GetFixSuggDesc() const
 
 std::string UrmaFailure637::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：when set faa_wr, either src or dst is NULL";
+    return "通过 URMA 日志关键字校验：urma_cmd_free_jfc，Invalid parameter";
 }
 
 std::string UrmaFailure637::GetId() const

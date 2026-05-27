@@ -1,4 +1,5 @@
 #include "urma_failure_618.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure618> g_urma("urma_618");
 bool UrmaFailure618::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_wait_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure618::IsValid()
 
 std::string UrmaFailure618::GetName() const
 {
-    return "bondp_wait_jfc 校验 JFCE 无效导致等待流程拒绝继续执行";
+    return "URMA context、JFS对象无效导致释放JFS失败";
 }
 
 std::string UrmaFailure618::GetRootCauseDesc() const
 {
-    return "bondp_wait_jfc 在执行等待前发现调用方传入的 JFCE 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于释放JFS，调用方传入的URMA context、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure618::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure618::GetFixSuggDesc() const
 
 std::string UrmaFailure618::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param";
+    return "通过 URMA 日志关键字校验：urma_cmd_free_jfs，Invalid parameter";
 }
 
 std::string UrmaFailure618::GetId() const

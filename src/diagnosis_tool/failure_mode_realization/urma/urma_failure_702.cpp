@@ -1,4 +1,5 @@
 #include "urma_failure_702.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure702> g_urma("urma_702");
 bool UrmaFailure702::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete jfr[' | "
-        "grep -F '], still in use. use_cnt:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_tlv_ioctl' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'ioctl failed, ret:' | grep -F ', errno:' | grep -F ', cmd:' | grep -F ', kdrv_err:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,14 @@ bool UrmaFailure702::IsValid()
 
 std::string UrmaFailure702::GetName() const
 {
-    return "bondp_delete_jfr 执行删除 JFR 失败导致当前资源状态无法推进";
+    return "执行ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure702::GetRootCauseDesc() const
 {
-    return "bondp_delete_jfr 调用下层 provider、bond 组件或系统接口处理 JFR 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数通过ioctl向URMA内核驱动提交执行ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。URMA内核态调用驱动异常，返回错误码2048，则容器中用户态日志出现ioctl失败，并且errno为特定的2048，故障发生"
+           "在内核态驱动";
 }
 
 RootCause UrmaFailure702::AnalyzeRootCause()
@@ -36,12 +36,12 @@ RootCause UrmaFailure702::AnalyzeRootCause()
 
 std::string UrmaFailure702::GetFixSuggDesc() const
 {
-    return "无";
+    return "UDMA驱动相关，需进一步排查硬件";
 }
 
 std::string UrmaFailure702::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete jfr[], still in use. use_cnt";
+    return "通过 URMA 日志关键字校验：urma_tlv_ioctl，ioctl failed, ret:，, errno:，, cmd:，, kdrv_err:";
 }
 
 std::string UrmaFailure702::GetId() const

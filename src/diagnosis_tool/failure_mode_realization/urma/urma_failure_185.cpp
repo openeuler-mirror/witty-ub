@@ -1,4 +1,5 @@
 #include "urma_failure_185.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure185> g_urma("urma_185");
 bool UrmaFailure185::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_vjfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'bondp init jfr fail'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_create_jetty_check_dev_cap' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jetty_grp jetty cnt:' | grep -F ', max_jetty in grp:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure185::IsValid()
 
 std::string UrmaFailure185::GetName() const
 {
-    return "bondp_create_vjfr 执行创建 JFR 失败导致当前资源状态无法推进";
+    return "创建Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure185::GetRootCauseDesc() const
 {
-    return "bondp_create_vjfr 调用下层 provider、bond 组件或系统接口处理 JFR 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于创建Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure185::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure185::GetFixSuggDesc() const
 
 std::string UrmaFailure185::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：bondp init jfr fail";
+    return "通过 URMA 日志关键字校验：urma_create_jetty_check_dev_cap，jetty_grp jetty cnt:，, max_jetty in grp:";
 }
 
 std::string UrmaFailure185::GetId() const

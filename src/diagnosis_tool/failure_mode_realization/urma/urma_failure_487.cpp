@@ -1,4 +1,5 @@
 #include "urma_failure_487.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure487> g_urma("urma_487");
 bool UrmaFailure487::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_set_context_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid option value len'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_log_set_thread_tag' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure487::IsValid()
 
 std::string UrmaFailure487::GetName() const
 {
-    return "urma_set_context_opt 校验 context 无效导致设置流程拒绝继续执行";
+    return "设置线程所需输入对象无效导致设置线程失败";
 }
 
 std::string UrmaFailure487::GetRootCauseDesc() const
 {
-    return "urma_set_context_opt 在执行设置前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于设置线程，调用方传入的设置线程所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure487::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure487::GetFixSuggDesc() const
 
 std::string UrmaFailure487::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid option value len";
+    return "通过 URMA 日志关键字校验：urma_log_set_thread_tag，Invalid parameter.";
 }
 
 std::string UrmaFailure487::GetId() const

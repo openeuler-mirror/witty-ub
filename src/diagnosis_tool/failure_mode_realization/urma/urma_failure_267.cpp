@@ -1,4 +1,5 @@
 #include "urma_failure_267.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure267> g_urma("urma_267");
 bool UrmaFailure267::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create epoll'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec urma_jetty_set_options.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure267::IsValid()
 
 std::string UrmaFailure267::GetName() const
 {
-    return "bondp_create_context 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "设置Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure267::GetRootCauseDesc() const
 {
-    return "bondp_create_context 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数用于设置Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure267::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure267::GetFixSuggDesc() const
 
 std::string UrmaFailure267::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create epoll";
+    return "通过 URMA 日志关键字校验：urma_set_jetty_opt，Failed to exec urma_jetty_set_options.";
 }
 
 std::string UrmaFailure267::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_313.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure313> g_urma("urma_313");
 bool UrmaFailure313::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfs not from the same dev, cannot delete in a batch, index:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_tp_attr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure313::IsValid()
 
 std::string UrmaFailure313::GetName() const
 {
-    return "urma_cmd_delete_jfs_batch 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "URMA context、provider操作表无效导致获取TP失败";
 }
 
 std::string UrmaFailure313::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfs_batch 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于获取TP，调用方传入的URMA context、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure313::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure313::GetFixSuggDesc() const
 
 std::string UrmaFailure313::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfs not from the same dev, cannot delete in a batch, index";
+    return "通过 URMA 日志关键字校验：urma_get_tp_attr，Invalid parameter.";
 }
 
 std::string UrmaFailure313::GetId() const

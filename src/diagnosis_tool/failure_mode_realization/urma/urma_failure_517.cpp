@@ -1,4 +1,5 @@
 #include "urma_failure_517.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure517> g_urma("urma_517");
 bool UrmaFailure517::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_query_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'import_pseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to import seg ('");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure517::IsValid()
 
 std::string UrmaFailure517::GetName() const
 {
-    return "urma_query_jfs 校验 context 无效导致查询流程拒绝继续执行";
+    return "Segment导入时下层资源准备失败";
 }
 
 std::string UrmaFailure517::GetRootCauseDesc() const
 {
-    return "urma_query_jfs 在执行查询前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责导入Segment，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure517::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure517::GetFixSuggDesc() const
 
 std::string UrmaFailure517::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：import_pseg，Failed to import seg (";
 }
 
 std::string UrmaFailure517::GetId() const

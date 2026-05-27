@@ -1,4 +1,5 @@
 #include "urma_failure_124.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure124> g_urma("urma_124");
 bool UrmaFailure124::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfr state is wrong in deactive_jfr'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_bind_jetty_ex' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure124::IsValid()
 
 std::string UrmaFailure124::GetName() const
 {
-    return "urma_deactive_jfr 执行激活 JFR 失败导致当前资源状态无法推进";
+    return "URMA context、Jetty对象、目标Jetty对象无效导致绑定Jetty失败";
 }
 
 std::string UrmaFailure124::GetRootCauseDesc() const
 {
-    return "urma_deactive_jfr 调用下层 provider、bond 组件或系统接口处理 JFR 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于绑定Jetty，调用方传入的URMA "
+           "context、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure124::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure124::GetFixSuggDesc() const
 
 std::string UrmaFailure124::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfr state is wrong in deactive_jfr";
+    return "通过 URMA 日志关键字校验：urma_cmd_bind_jetty_ex，Invalid parameter.";
 }
 
 std::string UrmaFailure124::GetId() const

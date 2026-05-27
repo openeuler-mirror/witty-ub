@@ -1,4 +1,5 @@
 #include "urma_failure_811.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure811> g_urma("urma_811");
 bool UrmaFailure811::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_modify_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to set opt, jfr has been activated'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure811::IsValid()
 
 std::string UrmaFailure811::GetName() const
 {
-    return "urma_cmd_modify_jfs 校验 context 无效导致修改流程拒绝继续执行";
+    return "设置JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure811::GetRootCauseDesc() const
 {
-    return "urma_cmd_modify_jfs 在执行修改前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于设置JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure811::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure811::GetFixSuggDesc() const
 
 std::string UrmaFailure811::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_set_jfr_opt，Failed to set opt, jfr has been activated";
 }
 
 std::string UrmaFailure811::GetId() const

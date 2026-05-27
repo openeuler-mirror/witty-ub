@@ -1,4 +1,5 @@
 #include "urma_failure_379.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure379> g_urma("urma_379");
 bool UrmaFailure379::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, trans_mode:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'ioctl failed in urma_cmd_alloc_jfr, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure379::IsValid()
 
 std::string UrmaFailure379::GetName() const
 {
-    return "urma_create_jfs 校验 JFS 无效导致创建流程拒绝继续执行";
+    return "ioctl相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure379::GetRootCauseDesc() const
 {
-    return "urma_create_jfs 在执行创建前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在分配ioctl前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure379::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure379::GetFixSuggDesc() const
 
 std::string UrmaFailure379::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter, trans_mode";
+    return "通过 URMA 日志关键字校验：urma_cmd_alloc_jfr，ioctl failed in urma_cmd_alloc_jfr, ret:，, errno:";
 }
 
 std::string UrmaFailure379::GetId() const

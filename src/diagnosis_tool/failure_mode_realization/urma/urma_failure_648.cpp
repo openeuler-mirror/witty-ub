@@ -1,4 +1,5 @@
 #include "urma_failure_648.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,9 @@ static AutoRegister<UrmaFailure648> g_urma("urma_648");
 bool UrmaFailure648::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'schedule_next_recv_port_matrix_singlepath' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'urma_post_jetty_recv' | "
-        "grep -F 'urma_bind_jetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to delete jfc, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', "
+        "ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,14 +20,12 @@ bool UrmaFailure648::IsValid()
 
 std::string UrmaFailure648::GetName() const
 {
-    return "schedule_next_recv_port_matrix_singlepath 校验 context 无效导致接收流程拒绝继续执行";
+    return "JFC清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure648::GetRootCauseDesc() const
 {
-    return "schedule_next_recv_port_matrix_singlepath 在执行接收前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFC相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure648::AnalyzeRootCause()
@@ -42,8 +40,8 @@ std::string UrmaFailure648::GetFixSuggDesc() const
 
 std::string UrmaFailure648::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid single path port in recv.It is likely because "
-           "`urma_post_jetty_recv` was called before `urma_bind_jetty`";
+    return "通过 URMA 日志关键字校验：urma_delete_jfc，[DRV_ERR]Failed to delete jfc, dev_name:，, eid_idx:，, id:，, "
+           "ret:";
 }
 
 std::string UrmaFailure648::GetId() const

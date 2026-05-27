@@ -1,4 +1,5 @@
 #include "urma_failure_343.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure343> g_urma("urma_343");
 bool UrmaFailure343::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'init_create_jetty_cmd' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vcontext' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create epoll'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure343::IsValid()
 
 std::string UrmaFailure343::GetName() const
 {
-    return "init_create_jetty_cmd 校验 Jetty 无效导致创建流程拒绝继续执行";
+    return "epoll创建时下层资源准备失败";
 }
 
 std::string UrmaFailure343::GetRootCauseDesc() const
 {
-    return "init_create_jetty_cmd 在执行创建前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责创建epoll，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure343::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure343::GetFixSuggDesc() const
 
 std::string UrmaFailure343::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_create_vcontext，Failed to create epoll";
 }
 
 std::string UrmaFailure343::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_010.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure010> g_urma("urma_010");
 bool UrmaFailure010::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create vjfc, dev_name:' | "
-        "grep -F ', eid_idx:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init jetty send wr buf'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,13 @@ bool UrmaFailure010::IsValid()
 
 std::string UrmaFailure010::GetName() const
 {
-    return "bondp_create_jfc 执行创建 context 失败导致当前资源状态无法推进";
+    return "Jetty数据通路处理失败";
 }
 
 std::string UrmaFailure010::GetRootCauseDesc() const
 {
-    return "bondp_create_jfc 调用下层 provider、bond 组件或系统接口处理 context 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure010::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure010::GetFixSuggDesc() const
 
 std::string UrmaFailure010::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create vjfc, dev_name: , eid_idx";
+    return "通过 URMA 日志关键字校验：bondp_del_jetty_p_vjetty_info，Failed to init jetty send wr buf";
 }
 
 std::string UrmaFailure010::GetId() const

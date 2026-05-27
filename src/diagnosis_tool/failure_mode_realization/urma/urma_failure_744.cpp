@@ -1,4 +1,5 @@
 #include "urma_failure_744.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure744> g_urma("urma_744");
 bool UrmaFailure744::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'bad jfc index exceed array length, bad_jfc_index:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jfc_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure744::IsValid()
 
 std::string UrmaFailure744::GetName() const
 {
-    return "urma_cmd_delete_jfc_batch 校验 JFC 业务条件不满足导致删除流程拒绝继续执行";
+    return "URMA context无效导致设置JFC失败";
 }
 
 std::string UrmaFailure744::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfc_batch 在执行删除时发现 JFC "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数用于设置JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure744::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure744::GetFixSuggDesc() const
 
 std::string UrmaFailure744::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：bad jfc index exceed array length, bad_jfc_index";
+    return "通过 URMA 日志关键字校验：urma_cmd_set_jfc_opt，Invalid parameter.";
 }
 
 std::string UrmaFailure744::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_123.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,8 +10,7 @@ static AutoRegister<UrmaFailure123> g_urma("urma_123");
 bool UrmaFailure123::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
         "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
@@ -19,13 +19,13 @@ bool UrmaFailure123::IsValid()
 
 std::string UrmaFailure123::GetName() const
 {
-    return "urma_deactive_jfr 校验 JFR 无效导致激活流程拒绝继续执行";
+    return "URMA context、Jetty对象、目标Jetty对象无效导致绑定Jetty失败";
 }
 
 std::string UrmaFailure123::GetRootCauseDesc() const
 {
-    return "urma_deactive_jfr 在执行激活前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于绑定Jetty，调用方传入的URMA "
+           "context、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure123::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure123::GetFixSuggDesc() const
 
 std::string UrmaFailure123::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_cmd_bind_jetty，Invalid parameter";
 }
 
 std::string UrmaFailure123::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_396.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure396> g_urma("urma_396");
 bool UrmaFailure396::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_set_jfs_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to exec ops->set_jfs_opt'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to alloc memory.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure396::IsValid()
 
 std::string UrmaFailure396::GetName() const
 {
-    return "urma_set_jfs_opt 执行设置 JFS 失败导致当前资源状态无法推进";
+    return "JFR相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure396::GetRootCauseDesc() const
 {
-    return "urma_set_jfs_opt 调用下层 provider、bond 组件或系统接口处理 JFS 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数在分配JFR前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure396::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure396::GetFixSuggDesc() const
 
 std::string UrmaFailure396::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to exec ops->set_jfs_opt";
+    return "通过 URMA 日志关键字校验：urma_delete_jfr_batch，Failed to alloc memory.";
 }
 
 std::string UrmaFailure396::GetId() const

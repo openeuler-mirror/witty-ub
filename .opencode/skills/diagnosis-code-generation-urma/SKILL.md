@@ -16,15 +16,17 @@ description: "根据 urma_failure_mode_tree.md 故障模式树生成对应的 C+
 
 ## 输入
 
-- `failure_mode_tree_path`：必选，故障模式树 Markdown 文件路径，通常为 `./output/urma_failure_modes_tree.md`
+- `failure_mode_tree_path`：必选，故障模式树 Markdown 文件路径，通常为 `./data/urma_failure_modes_tree.md`
 
 输入要求：
 
 1. `failure_mode_tree_path` 必须是可访问的 Markdown 文件
 2. 故障树节点必须包含以下字段：
+   - `故障编号`
    - `故障现象`
    - `故障原因`
    - `解决办法`
+   - `函数名`
 3. `FailureMode` 基类定义以 `src/diagnosis_tool/failure_mode.h` 为准。
 4. 生成代码风格参考 `src/diagnosis_tool/failure_mode_realization/` 下已有样例
 
@@ -112,9 +114,21 @@ static AutoRegister<UrmaFailure001> g_urma("urma_001");
 7. `AnalyzeRootCause` 根据是否为叶节点生成：
    - 非叶节点：`return RootCause(false, GetRootCauseDesc());`
    - 叶节点：`return RootCause(true, GetRootCauseDesc());`
-8. `IsValid` 根据是否为叶节点生成：
+8. `IsValid` 的实现根据是否为叶节点生成：
    - 非叶节点：`return true;`
-   - 叶节点：根据 `故障现象` 生成校验逻辑，通常是找到日志文件，并根据 `故障现象` 中描述的现象进行字符串匹配或正则匹配，返回是否匹配成功的布尔值
+   - 叶节点：根据 `故障现象` 生成校验逻辑，需要调用urma_log_helper.h的RunCommand方法，根据 `故障现象` 中描述的现象生成命令（通常需要匹配函数名和日志字面量）进行字符串匹配并返回日志内容，然后对日志信息进行提取，最后返回是否匹配成功的布尔值；对于多个字符串匹配，需要同时满足
+```cpp
+bool UrmaFailure002::IsValid()
+{
+    std::string grepOutput = urma_log_helper::RunCommand(
+        "test -n \"$URMA_LOG_PATH\" && "
+        "grep -F 'urma_provider_bond_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Provider Bond register ops failed'");
+    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
+    return !grepOutput.empty();
+}
+```
 
 ### 字符串与代码安全规则
 
@@ -122,7 +136,7 @@ static AutoRegister<UrmaFailure001> g_urma("urma_001");
 2. 中文文本可以保留为 UTF-8。
 3. 生成代码不要引入全局 using namespace
 4. 单个故障模式 `.cpp` 只包含自身头文件、`../../failure_mode_factory.h` 和必要依赖
-5. `URMA_LOG_PATH` 日志扫描 helper 统一定义在 `src/diagnosis_tool/failure_mode_realization/urma/urma_log_helper.h`，避免重复代码
+5. `URMA_LOG_PATH` 日志扫描 helper 已统一声明在 `src/diagnosis_tool/failure_mode_realization/urma/urma_log_helper.h`，不允许新增额外的辅助函数
 
 ## 步骤
 
@@ -167,4 +181,4 @@ static AutoRegister<UrmaFailure001> g_urma("urma_001");
 8. 不要编造日志路径、环境变量、修复命令或工程 helper。
 9. 生成代码后必须复查是否包含未转义字符串、重复类名和重复注册编号。
 10. 生成代码后必须复查文件名和类名是否存在 `failure`、`unknown`、`node` 等无语义兜底命名；除非原始故障名称本身就是“其他故障”等泛化分类，否则必须改为对应英文语义名称。
-11. 生成代码后必须复查 URMA 故障实现中是否重复定义 helper 函数或引入重复依赖；如果需要日志匹配 helper，必须统一放在 `urma_log_helper.h/.cpp` 中，避免污染其他组件命名空间。
+11. 生成代码后必须复查 URMA 故障实现中是否重复定义 helper 函数或引入重复依赖；如果需要日志匹配 helper，只能调用 `urma_log_helper.h/.cpp` 中的函数，不允许额外新增辅助函数。

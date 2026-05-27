@@ -1,4 +1,5 @@
 #include "urma_failure_071.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure071> g_urma("urma_071");
 bool UrmaFailure071::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_set_jetty_opt, ret:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create pjetty'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,12 @@ bool UrmaFailure071::IsValid()
 
 std::string UrmaFailure071::GetName() const
 {
-    return "urma_cmd_set_jetty_opt URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "物理 Jetty创建时下层资源准备失败";
 }
 
 std::string UrmaFailure071::GetRootCauseDesc() const
 {
-    return "urma_cmd_set_jetty_opt 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 Jetty 状态。";
+    return "函数负责创建物理 Jetty，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure071::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure071::GetFixSuggDesc() const
 
 std::string UrmaFailure071::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_set_jetty_opt, ret:, errno";
+    return "通过 URMA 日志关键字校验：bondp_del_jetty_p_vjetty_info，Failed to create pjetty";
 }
 
 std::string UrmaFailure071::GetId() const

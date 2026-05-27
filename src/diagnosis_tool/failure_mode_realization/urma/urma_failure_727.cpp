@@ -1,4 +1,5 @@
 #include "urma_failure_727.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure727> g_urma("urma_727");
 bool UrmaFailure727::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_slide_wnd_has' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid param wnd'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure727::IsValid()
 
 std::string UrmaFailure727::GetName() const
 {
-    return "urma_cmd_delete_jfs_batch 校验 JFS 无效导致删除流程拒绝继续执行";
+    return "执行URMA资源所需输入对象无效导致执行URMA资源失败";
 }
 
 std::string UrmaFailure727::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfs_batch 在执行删除前发现调用方传入的 JFS "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行URMA资源，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure727::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure727::GetFixSuggDesc() const
 
 std::string UrmaFailure727::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bdp_slide_wnd_has，Invalid param wnd";
 }
 
 std::string UrmaFailure727::GetId() const

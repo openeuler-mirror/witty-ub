@@ -1,4 +1,5 @@
 #include "urma_failure_054.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure054> g_urma("urma_054");
 bool UrmaFailure054::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create pjfs'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure054::IsValid()
 
 std::string UrmaFailure054::GetName() const
 {
-    return "urma_cmd_get_jfr_opt 校验 context 无效导致获取流程拒绝继续执行";
+    return "物理 JFS创建时下层资源准备失败";
 }
 
 std::string UrmaFailure054::GetRootCauseDesc() const
 {
-    return "urma_cmd_get_jfr_opt 在执行获取前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责创建物理 JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure054::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure054::GetFixSuggDesc() const
 
 std::string UrmaFailure054::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_del_jfs_p_vjetty_info，Failed to create pjfs";
 }
 
 std::string UrmaFailure054::GetId() const

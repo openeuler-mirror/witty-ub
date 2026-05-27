@@ -1,4 +1,5 @@
 #include "urma_failure_033.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure033> g_urma("urma_033");
 bool UrmaFailure033::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_get_jfs_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid out buffer from kernel'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_slide_wnd_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init bitmap'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure033::IsValid()
 
 std::string UrmaFailure033::GetName() const
 {
-    return "urma_cmd_get_jfs_opt 校验 JFS 无效导致获取流程拒绝继续执行";
+    return "初始化URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure033::GetRootCauseDesc() const
 {
-    return "urma_cmd_get_jfs_opt 在执行获取前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure033::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure033::GetFixSuggDesc() const
 
 std::string UrmaFailure033::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid out buffer from kernel";
+    return "通过 URMA 日志关键字校验：bdp_slide_wnd_init，Failed to init bitmap";
 }
 
 std::string UrmaFailure033::GetId() const

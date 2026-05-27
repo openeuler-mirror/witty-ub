@@ -1,4 +1,5 @@
 #include "urma_failure_683.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure683> g_urma("urma_683");
 bool UrmaFailure683::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_poll_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_notifier' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete notifier, ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure683::IsValid()
 
 std::string UrmaFailure683::GetName() const
 {
-    return "urma_poll_jfc 校验 JFC 无效导致轮询流程拒绝继续执行";
+    return "Notifier清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure683::GetRootCauseDesc() const
 {
-    return "urma_poll_jfc 在执行轮询前发现调用方传入的 JFC 不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销Notifier相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure683::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure683::GetFixSuggDesc() const
 
 std::string UrmaFailure683::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_delete_notifier，Failed to delete notifier, ret:";
 }
 
 std::string UrmaFailure683::GetId() const

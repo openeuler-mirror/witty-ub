@@ -1,4 +1,5 @@
 #include "urma_failure_688.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,7 @@ static AutoRegister<UrmaFailure688> g_urma("urma_688");
 bool UrmaFailure688::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_post_jfs_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'set_fd_noblock' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure688::IsValid()
 
 std::string UrmaFailure688::GetName() const
 {
-    return "urma_post_jfs_wr 校验 JFS 无效导致投递流程拒绝继续执行";
+    return "设置文件描述符过程中依赖步骤失败";
 }
 
 std::string UrmaFailure688::GetRootCauseDesc() const
 {
-    return "urma_post_jfs_wr 在执行投递前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于设置文件描述符，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure688::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure688::GetFixSuggDesc() const
 
 std::string UrmaFailure688::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：set_fd_noblock，ret:";
 }
 
 std::string UrmaFailure688::GetId() const

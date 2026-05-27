@@ -1,4 +1,5 @@
 #include "urma_failure_311.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure311> g_urma("urma_311");
 bool UrmaFailure311::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed, ret:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_tp_attr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,12 @@ bool UrmaFailure311::IsValid()
 
 std::string UrmaFailure311::GetName() const
 {
-    return "urma_cmd_create_jfs URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "URMA context、provider操作表无效导致设置TP失败";
 }
 
 std::string UrmaFailure311::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jfs 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFS 状态。";
+    return "函数用于设置TP，调用方传入的URMA context、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure311::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure311::GetFixSuggDesc() const
 
 std::string UrmaFailure311::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed, ret:, errno";
+    return "通过 URMA 日志关键字校验：urma_set_tp_attr，Invalid parameter.";
 }
 
 std::string UrmaFailure311::GetId() const

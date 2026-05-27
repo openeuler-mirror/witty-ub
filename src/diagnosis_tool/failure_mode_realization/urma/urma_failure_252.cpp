@@ -1,4 +1,5 @@
 #include "urma_failure_252.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,7 +10,8 @@ static AutoRegister<UrmaFailure252> g_urma("urma_252");
 bool UrmaFailure252::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'set_fd_noblock' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'flags:')");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -17,13 +19,16 @@ bool UrmaFailure252::IsValid()
 
 std::string UrmaFailure252::GetName() const
 {
-    return "set_fd_noblock 执行设置 fd 失败导致当前资源状态无法推进";
+    return "URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象、provider未提供bind_jetty_"
+           "async操作实现无效导致绑定Jetty失败";
 }
 
 std::string UrmaFailure252::GetRootCauseDesc() const
 {
-    return "set_fd_noblock 调用下层 provider、bond 组件或系统接口处理 fd 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于绑定Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象、provider未提供bind_jetty_"
+           "async操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure252::AnalyzeRootCause()
@@ -38,7 +43,7 @@ std::string UrmaFailure252::GetFixSuggDesc() const
 
 std::string UrmaFailure252::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：flags";
+    return "通过 URMA 日志关键字校验：urma_bind_jetty_async，Invalid parameter.";
 }
 
 std::string UrmaFailure252::GetId() const

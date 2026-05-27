@@ -1,4 +1,5 @@
 #include "urma_failure_624.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure624> g_urma("urma_624");
 bool UrmaFailure624::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_get_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'failed to get invalid jetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure624::IsValid()
 
 std::string UrmaFailure624::GetName() const
 {
-    return "bondp_get_async_event 校验 Jetty 无效导致获取流程拒绝继续执行";
+    return "URMA context、JFR对象无效导致删除JFR失败";
 }
 
 std::string UrmaFailure624::GetRootCauseDesc() const
 {
-    return "bondp_get_async_event 在执行获取前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于删除JFR，调用方传入的URMA context、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure624::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure624::GetFixSuggDesc() const
 
 std::string UrmaFailure624::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：failed to get invalid jetty";
+    return "通过 URMA 日志关键字校验：urma_cmd_delete_jfr_batch，Invalid parameter.";
 }
 
 std::string UrmaFailure624::GetId() const

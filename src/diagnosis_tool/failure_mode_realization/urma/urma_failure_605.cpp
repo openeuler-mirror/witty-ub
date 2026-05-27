@@ -1,4 +1,5 @@
 #include "urma_failure_605.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure605> g_urma("urma_605");
 bool UrmaFailure605::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_import_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to delete pcontext'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure605::IsValid()
 
 std::string UrmaFailure605::GetName() const
 {
-    return "urma_import_seg 校验 context 无效导致导入流程拒绝继续执行";
+    return "context清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure605::GetRootCauseDesc() const
 {
-    return "urma_import_seg 在执行导入前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销context相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure605::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure605::GetFixSuggDesc() const
 
 std::string UrmaFailure605::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_delete_context，Failed to delete pcontext";
 }
 
 std::string UrmaFailure605::GetId() const

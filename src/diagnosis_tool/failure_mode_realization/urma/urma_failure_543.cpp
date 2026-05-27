@@ -1,4 +1,5 @@
 #include "urma_failure_543.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure543> g_urma("urma_543");
 bool UrmaFailure543::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'read_eid_sysfs_with_index' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to read sysfs file'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'comp_post_recv' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid post jfr wr type:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure543::IsValid()
 
 std::string UrmaFailure543::GetName() const
 {
-    return "read_eid_sysfs_with_index URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "JFR对象、WR对象无效导致投递JFR失败";
 }
 
 std::string UrmaFailure543::GetRootCauseDesc() const
 {
-    return "read_eid_sysfs_with_index 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 设备 状态。";
+    return "函数用于投递JFR，调用方传入的JFR对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure543::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure543::GetFixSuggDesc() const
 
 std::string UrmaFailure543::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to read sysfs file";
+    return "通过 URMA 日志关键字校验：comp_post_recv，Invalid post jfr wr type:";
 }
 
 std::string UrmaFailure543::GetId() const

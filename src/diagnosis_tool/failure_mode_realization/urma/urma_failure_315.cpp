@@ -1,4 +1,5 @@
 #include "urma_failure_315.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure315> g_urma("urma_315");
 bool UrmaFailure315::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_parse_rsvd_jetty_range' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'parse sysfs:' | grep -F 'failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure315::IsValid()
 
 std::string UrmaFailure315::GetName() const
 {
-    return "urma_cmd_create_jfr 校验 context 无效导致创建流程拒绝继续执行";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure315::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jfr 在执行创建前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure315::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure315::GetFixSuggDesc() const
 
 std::string UrmaFailure315::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_parse_rsvd_jetty_range，parse sysfs:，failed";
 }
 
 std::string UrmaFailure315::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_496.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure496> g_urma("urma_496");
 bool UrmaFailure496::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'get_bjetty_ctx_by_cr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to get comp, local_id:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to query eid.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure496::IsValid()
 
 std::string UrmaFailure496::GetName() const
 {
-    return "get_bjetty_ctx_by_cr 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "查询EID过程中依赖步骤失败";
 }
 
 std::string UrmaFailure496::GetRootCauseDesc() const
 {
-    return "get_bjetty_ctx_by_cr 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于查询EID，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure496::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure496::GetFixSuggDesc() const
 
 std::string UrmaFailure496::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to get comp, local_id";
+    return "通过 URMA 日志关键字校验：urma_query_eid，Failed to query eid.";
 }
 
 std::string UrmaFailure496::GetId() const

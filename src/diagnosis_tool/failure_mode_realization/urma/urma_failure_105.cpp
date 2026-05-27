@@ -1,4 +1,5 @@
 #include "urma_failure_105.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure105> g_urma("urma_105");
 bool UrmaFailure105::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_import_health_check_tseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid rjetty for health check seg import, health check disabled'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure105::IsValid()
 
 std::string UrmaFailure105::GetName() const
 {
-    return "urma_active_jfs 校验 JFS 无效导致激活流程拒绝继续执行";
+    return "Jetty对象、Segment对象无效导致导入健康检查失败";
 }
 
 std::string UrmaFailure105::GetRootCauseDesc() const
 {
-    return "urma_active_jfs 在执行激活前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于导入健康检查，调用方传入的Jetty对象、Segment对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure105::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure105::GetFixSuggDesc() const
 
 std::string UrmaFailure105::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_import_health_check_tseg，Invalid rjetty for health check seg import, "
+           "health check disabled";
 }
 
 std::string UrmaFailure105::GetId() const

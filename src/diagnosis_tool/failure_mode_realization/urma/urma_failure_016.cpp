@@ -1,4 +1,5 @@
 #include "urma_failure_016.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure016> g_urma("urma_016");
 bool UrmaFailure016::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_import_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to import pjetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_v_conn_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init slide window in bdp_v_conn_table_add'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure016::IsValid()
 
 std::string UrmaFailure016::GetName() const
 {
-    return "bondp_import_jetty 执行导入 context 失败导致当前资源状态无法推进";
+    return "初始化URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure016::GetRootCauseDesc() const
 {
-    return "bondp_import_jetty 调用下层 provider、bond 组件或系统接口处理 context 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure016::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure016::GetFixSuggDesc() const
 
 std::string UrmaFailure016::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to import pjetty";
+    return "通过 URMA 日志关键字校验：bdp_v_conn_init，Failed to init slide window in bdp_v_conn_table_add";
 }
 
 std::string UrmaFailure016::GetId() const

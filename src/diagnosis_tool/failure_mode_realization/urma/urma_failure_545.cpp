@@ -1,4 +1,5 @@
 #include "urma_failure_545.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure545> g_urma("urma_545");
 bool UrmaFailure545::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_ioctl_get_eid_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to open urma cdev with path'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'post_send_check_jfs_wr_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'when set cas_wr, either src or dst is NULL.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure545::IsValid()
 
 std::string UrmaFailure545::GetName() const
 {
-    return "urma_ioctl_get_eid_list URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure545::GetRootCauseDesc() const
 {
-    return "urma_ioctl_get_eid_list 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 设备 状态。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure545::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure545::GetFixSuggDesc() const
 
 std::string UrmaFailure545::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to open urma cdev with path";
+    return "通过 URMA 日志关键字校验：post_send_check_jfs_wr_valid，when set cas_wr, either src or dst is NULL.";
 }
 
 std::string UrmaFailure545::GetId() const

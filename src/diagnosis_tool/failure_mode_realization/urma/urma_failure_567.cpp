@@ -1,4 +1,5 @@
 #include "urma_failure_567.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure567> g_urma("urma_567");
 bool UrmaFailure567::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_unimport_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid bdp tjetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Jfc state is wrong in deactive_jfc.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure567::IsValid()
 
 std::string UrmaFailure567::GetName() const
 {
-    return "bondp_unimport_jetty 校验 目标 Jetty 无效导致导入流程拒绝继续执行";
+    return "JFC数据通路处理失败";
 }
 
 std::string UrmaFailure567::GetRootCauseDesc() const
 {
-    return "bondp_unimport_jetty 在执行导入前发现调用方传入的 目标 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure567::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure567::GetFixSuggDesc() const
 
 std::string UrmaFailure567::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid bdp tjetty";
+    return "通过 URMA 日志关键字校验：urma_deactive_jfc，Jfc state is wrong in deactive_jfc.";
 }
 
 std::string UrmaFailure567::GetId() const

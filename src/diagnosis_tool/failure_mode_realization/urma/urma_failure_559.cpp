@@ -1,4 +1,5 @@
 #include "urma_failure_559.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure559> g_urma("urma_559");
 bool UrmaFailure559::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_device_by_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'urma get device list failed!'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_send_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to resend jfs wr, wr_id:' | grep -F 'u'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure559::IsValid()
 
 std::string UrmaFailure559::GetName() const
 {
-    return "urma_get_device_by_eid 执行获取 设备 失败导致当前资源状态无法推进";
+    return "JFS数据通路处理失败";
 }
 
 std::string UrmaFailure559::GetRootCauseDesc() const
 {
-    return "urma_get_device_by_eid 调用下层 provider、bond 组件或系统接口处理 设备 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure559::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure559::GetFixSuggDesc() const
 
 std::string UrmaFailure559::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：urma get device list failed!";
+    return "通过 URMA 日志关键字校验：handle_send_cr_with_store，Failed to resend jfs wr, wr_id:，u";
 }
 
 std::string UrmaFailure559::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_046.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure046> g_urma("urma_046");
 bool UrmaFailure046::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'urma_init has been called before.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure046::IsValid()
 
 std::string UrmaFailure046::GetName() const
 {
-    return "urma_cmd_deactive_jfc 校验 context 无效导致激活流程拒绝继续执行";
+    return "初始化URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure046::GetRootCauseDesc() const
 {
-    return "urma_cmd_deactive_jfc 在执行激活前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure046::AnalyzeRootCause()
@@ -36,12 +35,12 @@ RootCause UrmaFailure046::AnalyzeRootCause()
 
 std::string UrmaFailure046::GetFixSuggDesc() const
 {
-    return "无";
+    return "查看/usr/lib64/urma目录下，是否存在liburma_udma.so等驱动文件，或查看文件是否具备x权限，完成正确部署后重试";
 }
 
 std::string UrmaFailure046::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_init，urma_init has been called before.";
 }
 
 std::string UrmaFailure046::GetId() const

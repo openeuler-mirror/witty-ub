@@ -1,4 +1,5 @@
 #include "urma_failure_613.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,12 +10,8 @@ static AutoRegister<UrmaFailure613> g_urma("urma_613");
 bool UrmaFailure613::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_unregister_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Unregister seg fail, dev_name:' | "
-        "grep -F ', eid_idx:' | "
-        "grep -F ', tid:' | "
-        "grep -F ', ret:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -22,13 +19,12 @@ bool UrmaFailure613::IsValid()
 
 std::string UrmaFailure613::GetName() const
 {
-    return "urma_unregister_seg 执行注册 设备 失败导致当前资源状态无法推进";
+    return "URMA context、JFS对象无效导致删除JFS失败";
 }
 
 std::string UrmaFailure613::GetRootCauseDesc() const
 {
-    return "urma_unregister_seg 调用下层 provider、bond 组件或系统接口处理 设备 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于删除JFS，调用方传入的URMA context、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure613::AnalyzeRootCause()
@@ -43,7 +39,7 @@ std::string UrmaFailure613::GetFixSuggDesc() const
 
 std::string UrmaFailure613::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Unregister seg fail, dev_name: , eid_idx: , tid: , ret";
+    return "通过 URMA 日志关键字校验：urma_cmd_delete_jfs_batch，Invalid parameter, index:";
 }
 
 std::string UrmaFailure613::GetId() const

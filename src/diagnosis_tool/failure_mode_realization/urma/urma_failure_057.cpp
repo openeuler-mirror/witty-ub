@@ -1,4 +1,5 @@
 #include "urma_failure_057.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure057> g_urma("urma_057");
 bool UrmaFailure057::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'output length too large, out.len=' | "
-        "grep -F ', buf.len='");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create jfs datapath ctx'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,12 @@ bool UrmaFailure057::IsValid()
 
 std::string UrmaFailure057::GetName() const
 {
-    return "urma_cmd_get_jfr_opt URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "JFS创建时下层资源准备失败";
 }
 
 std::string UrmaFailure057::GetRootCauseDesc() const
 {
-    return "urma_cmd_get_jfr_opt 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFR 状态。";
+    return "函数负责创建JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure057::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure057::GetFixSuggDesc() const
 
 std::string UrmaFailure057::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：output length too large, out.len=, buf.len=";
+    return "通过 URMA 日志关键字校验：bondp_del_jfs_p_vjetty_info，Failed to create jfs datapath ctx";
 }
 
 std::string UrmaFailure057::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_824.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure824> g_urma("urma_824");
 bool UrmaFailure824::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_close_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'close failed, err'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure824::IsValid()
 
 std::string UrmaFailure824::GetName() const
 {
-    return "urma_close_provider 打开 provider 失败导致处理无法访问底层资源";
+    return "URMA context、provider操作表、JFR对象无效导致去激活JFR失败";
 }
 
 std::string UrmaFailure824::GetRootCauseDesc() const
 {
-    return "urma_close_provider 需要访问 provider 对应的文件、目录、provider "
-           "动态库或字符设备，但路径不存在、权限不足或系统调用失败，导致后续 URMA 设备枚举、provider "
-           "装载或上下文创建无法进行。";
+    return "函数用于去激活JFR，调用方传入的URMA "
+           "context、provider操作表、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure824::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure824::GetFixSuggDesc() const
 
 std::string UrmaFailure824::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：close failed, err";
+    return "通过 URMA 日志关键字校验：urma_deactive_jfr，Invalid parameter.";
 }
 
 std::string UrmaFailure824::GetId() const

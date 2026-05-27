@@ -1,4 +1,5 @@
 #include "urma_failure_809.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure809> g_urma("urma_809");
 bool UrmaFailure809::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_ctrlplane_compat' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure809::IsValid()
 
 std::string UrmaFailure809::GetName() const
 {
-    return "urma_delete_context 校验 context 无效导致删除流程拒绝继续执行";
+    return "URMA context、provider操作表、provider未提供import_jfr_ex操作实现无效导致导入JFR失败";
 }
 
 std::string UrmaFailure809::GetRootCauseDesc() const
 {
-    return "urma_delete_context 在执行删除前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于导入JFR，调用方传入的URMA "
+           "context、provider操作表、provider未提供import_jfr_ex操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure809::AnalyzeRootCause()
@@ -36,12 +35,12 @@ RootCause UrmaFailure809::AnalyzeRootCause()
 
 std::string UrmaFailure809::GetFixSuggDesc() const
 {
-    return "当前不会触发";
+    return "无";
 }
 
 std::string UrmaFailure809::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_check_ctrlplane_compat，Invalid parameter.";
 }
 
 std::string UrmaFailure809::GetId() const

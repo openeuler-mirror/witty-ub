@@ -1,4 +1,5 @@
 #include "urma_failure_047.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure047> g_urma("urma_047");
 bool UrmaFailure047::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_active_jfc, ret:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'None of the providers registered.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,12 @@ bool UrmaFailure047::IsValid()
 
 std::string UrmaFailure047::GetName() const
 {
-    return "urma_cmd_deactive_jfc URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "URMA资源初始化时下层资源准备失败";
 }
 
 std::string UrmaFailure047::GetRootCauseDesc() const
 {
-    return "urma_cmd_deactive_jfc 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFC 状态。";
+    return "函数负责初始化URMA资源，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure047::AnalyzeRootCause()
@@ -36,12 +34,12 @@ RootCause UrmaFailure047::AnalyzeRootCause()
 
 std::string UrmaFailure047::GetFixSuggDesc() const
 {
-    return "无";
+    return "查看/usr/lib64/urma目录下，是否存在liburma_udma.so等驱动文件，或查看文件是否具备x权限，完成正确部署后重试";
 }
 
 std::string UrmaFailure047::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_active_jfc, ret:, errno";
+    return "通过 URMA 日志关键字校验：urma_init，None of the providers registered.";
 }
 
 std::string UrmaFailure047::GetId() const

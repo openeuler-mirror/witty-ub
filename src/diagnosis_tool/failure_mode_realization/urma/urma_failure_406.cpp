@@ -1,4 +1,5 @@
 #include "urma_failure_406.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,9 @@ static AutoRegister<UrmaFailure406> g_urma("urma_406");
 bool UrmaFailure406::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to free token_id, dev_name:' | grep -F ', eid_idx:' | grep -F ', tid:' | "
+        "grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +20,12 @@ bool UrmaFailure406::IsValid()
 
 std::string UrmaFailure406::GetName() const
 {
-    return "urma_alloc_jfr 校验 context 无效导致分配流程拒绝继续执行";
+    return "Token清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure406::GetRootCauseDesc() const
 {
-    return "urma_alloc_jfr 在执行分配前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销Token相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure406::AnalyzeRootCause()
@@ -40,7 +40,8 @@ std::string UrmaFailure406::GetFixSuggDesc() const
 
 std::string UrmaFailure406::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_free_token_id，[DRV_ERR]Failed to free token_id, dev_name:，, eid_idx:，, "
+           "tid:，, ret:";
 }
 
 std::string UrmaFailure406::GetId() const

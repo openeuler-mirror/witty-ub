@@ -1,4 +1,5 @@
 #include "urma_failure_018.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure018> g_urma("urma_018");
 bool UrmaFailure018::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param jetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to init health event lock'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure018::IsValid()
 
 std::string UrmaFailure018::GetName() const
 {
-    return "bondp_bind_jetty 校验 Jetty 无效导致绑定流程拒绝继续执行";
+    return "初始化健康检查过程中依赖步骤失败";
 }
 
 std::string UrmaFailure018::GetRootCauseDesc() const
 {
-    return "bondp_bind_jetty 在执行绑定前发现调用方传入的 Jetty 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于初始化健康检查，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure018::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure018::GetFixSuggDesc() const
 
 std::string UrmaFailure018::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param jetty";
+    return "通过 URMA 日志关键字校验：bondp_create_health_check_ctx，Failed to init health event lock";
 }
 
 std::string UrmaFailure018::GetId() const

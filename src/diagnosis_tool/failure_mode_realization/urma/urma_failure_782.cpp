@@ -1,4 +1,5 @@
 #include "urma_failure_782.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,10 @@ static AutoRegister<UrmaFailure782> g_urma("urma_782");
 bool UrmaFailure782::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, index:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_order_type' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfs cfg out of range, depth:' | grep -F ', max_depth:' | grep -F ', inline_data:' | "
+        "grep -F ', max_inline_len:' | grep -F ', sge:' | grep -F 'hu, max_sge:' | grep -F ', rsge:' | "
+        "grep -F 'hu, max_rsge:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +21,13 @@ bool UrmaFailure782::IsValid()
 
 std::string UrmaFailure782::GetName() const
 {
-    return "urma_delete_jfr_batch 校验 context 无效导致删除流程拒绝继续执行";
+    return "创建JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure782::GetRootCauseDesc() const
 {
-    return "urma_delete_jfr_batch 在执行删除前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于创建JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure782::AnalyzeRootCause()
@@ -41,7 +42,8 @@ std::string UrmaFailure782::GetFixSuggDesc() const
 
 std::string UrmaFailure782::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter, index";
+    return "通过 URMA 日志关键字校验：urma_check_order_type，jfs cfg out of range, depth:，, max_depth:，, "
+           "inline_data:，, max_inline_len:，, sge:，hu, max_sge:，, rsge:，hu, max_rsge:";
 }
 
 std::string UrmaFailure782::GetId() const

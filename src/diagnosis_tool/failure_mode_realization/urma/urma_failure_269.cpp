@@ -1,4 +1,5 @@
 #include "urma_failure_269.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure269> g_urma("urma_269");
 bool UrmaFailure269::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_find_vtseg_by_va' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'bondp_hash_table_lookup fail'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec ops->set_jetty_opt.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure269::IsValid()
 
 std::string UrmaFailure269::GetName() const
 {
-    return "bondp_find_vtseg_by_va 更新 目标 segment 映射结构失败导致资源索引不可用";
+    return "设置Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure269::GetRootCauseDesc() const
 {
-    return "bondp_find_vtseg_by_va 需要维护 目标 segment "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数用于设置Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure269::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure269::GetFixSuggDesc() const
 
 std::string UrmaFailure269::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：bondp_hash_table_lookup fail";
+    return "通过 URMA 日志关键字校验：urma_set_jetty_opt，Failed to exec ops->set_jetty_opt.";
 }
 
 std::string UrmaFailure269::GetId() const

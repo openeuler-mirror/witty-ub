@@ -1,4 +1,5 @@
 #include "urma_failure_397.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure397> g_urma("urma_397");
 bool UrmaFailure397::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_ctrlplane_compat' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Token value must be set when token policy is not URMA_TOKEN_NONE.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure397::IsValid()
 
 std::string UrmaFailure397::GetName() const
 {
-    return "urma_create_jfr 校验 context 无效导致创建流程拒绝继续执行";
+    return "设置Token过程中依赖步骤失败";
 }
 
 std::string UrmaFailure397::GetRootCauseDesc() const
 {
-    return "urma_create_jfr 在执行创建前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于设置Token，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure397::AnalyzeRootCause()
@@ -40,7 +40,8 @@ std::string UrmaFailure397::GetFixSuggDesc() const
 
 std::string UrmaFailure397::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_check_ctrlplane_compat，Token value must be set when token policy is not "
+           "URMA_TOKEN_NONE.";
 }
 
 std::string UrmaFailure397::GetId() const

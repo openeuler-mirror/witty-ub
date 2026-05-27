@@ -1,4 +1,5 @@
 #include "urma_failure_850.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure850> g_urma("urma_850");
 bool UrmaFailure850::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'restore_cr_local_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to get vjetty.id of local_id:' | "
-        "grep -F ', ret:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_match_driver' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'snprintf failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,13 @@ bool UrmaFailure850::IsValid()
 
 std::string UrmaFailure850::GetName() const
 {
-    return "restore_cr_local_id 执行处理 Jetty 失败导致当前资源状态无法推进";
+    return "分配设备过程中依赖步骤失败";
 }
 
 std::string UrmaFailure850::GetRootCauseDesc() const
 {
-    return "restore_cr_local_id 调用下层 provider、bond 组件或系统接口处理 Jetty 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于分配设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure850::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure850::GetFixSuggDesc() const
 
 std::string UrmaFailure850::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to get vjetty.id of local_id: , ret";
+    return "通过 URMA 日志关键字校验：urma_match_driver，snprintf failed";
 }
 
 std::string UrmaFailure850::GetId() const

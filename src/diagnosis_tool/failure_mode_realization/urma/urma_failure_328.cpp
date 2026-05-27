@@ -1,4 +1,5 @@
 #include "urma_failure_328.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure328> g_urma("urma_328");
 bool UrmaFailure328::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfc not from the same dev, cannot delete in a batch, index:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to create pjfs'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure328::IsValid()
 
 std::string UrmaFailure328::GetName() const
 {
-    return "urma_cmd_delete_jfc_batch 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "物理 JFS创建时下层资源准备失败";
 }
 
 std::string UrmaFailure328::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfc_batch 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数负责创建物理 JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure328::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure328::GetFixSuggDesc() const
 
 std::string UrmaFailure328::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfc not from the same dev, cannot delete in a batch, index";
+    return "通过 URMA 日志关键字校验：bondp_create_pjfs，Failed to create pjfs";
 }
 
 std::string UrmaFailure328::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_270.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure270> g_urma("urma_270");
 bool UrmaFailure270::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_pseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid segment address for bondp seg'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to exec urma_add_jetty_to_jetty_grp.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure270::IsValid()
 
 std::string UrmaFailure270::GetName() const
 {
-    return "bondp_create_pseg 校验 segment 无效导致创建流程拒绝继续执行";
+    return "设置Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure270::GetRootCauseDesc() const
 {
-    return "bondp_create_pseg 在执行创建前发现调用方传入的 segment 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于设置Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure270::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure270::GetFixSuggDesc() const
 
 std::string UrmaFailure270::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid segment address for bondp seg";
+    return "通过 URMA 日志关键字校验：urma_set_jetty_opt，Failed to exec urma_add_jetty_to_jetty_grp.";
 }
 
 std::string UrmaFailure270::GetId() const

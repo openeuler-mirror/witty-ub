@@ -1,4 +1,5 @@
 #include "urma_failure_665.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure665> g_urma("urma_665");
 bool UrmaFailure665::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_wait_notify' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfr still actived, please deactived first'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure665::IsValid()
 
 std::string UrmaFailure665::GetName() const
 {
-    return "urma_cmd_wait_notify 校验 fd 无效导致等待流程拒绝继续执行";
+    return "释放JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure665::GetRootCauseDesc() const
 {
-    return "urma_cmd_wait_notify 在执行等待前发现调用方传入的 fd 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于释放JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure665::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure665::GetFixSuggDesc() const
 
 std::string UrmaFailure665::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_free_jfr，jfr still actived, please deactived first";
 }
 
 std::string UrmaFailure665::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_283.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure283> g_urma("urma_283");
 bool UrmaFailure283::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_slide_wnd_uninit' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param wnd'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Jetty state is wrong in deactive_jetty.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure283::IsValid()
 
 std::string UrmaFailure283::GetName() const
 {
-    return "bdp_slide_wnd_uninit 校验 URMA 对象 无效导致初始化流程拒绝继续执行";
+    return "Jetty数据通路处理失败";
 }
 
 std::string UrmaFailure283::GetRootCauseDesc() const
 {
-    return "bdp_slide_wnd_uninit 在执行初始化前发现调用方传入的 URMA 对象 "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure283::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure283::GetFixSuggDesc() const
 
 std::string UrmaFailure283::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param wnd";
+    return "通过 URMA 日志关键字校验：urma_deactive_jetty，Jetty state is wrong in deactive_jetty.";
 }
 
 std::string UrmaFailure283::GetId() const

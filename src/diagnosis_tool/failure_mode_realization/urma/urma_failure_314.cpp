@@ -1,4 +1,5 @@
 #include "urma_failure_314.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure314> g_urma("urma_314");
 bool UrmaFailure314::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to malloc buffer'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_tp_attr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure314::IsValid()
 
 std::string UrmaFailure314::GetName() const
 {
-    return "urma_cmd_delete_jfs_batch 分配 JFS 临时参数失败导致删除流程无法继续";
+    return "URMA context、provider操作表、provider未提供get_tp_attr操作实现无效导致获取TP失败";
 }
 
 std::string UrmaFailure314::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfs_batch 需要为 JFS 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数用于获取TP，调用方传入的URMA "
+           "context、provider操作表、provider未提供get_tp_attr操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure314::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure314::GetFixSuggDesc() const
 
 std::string UrmaFailure314::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to malloc buffer";
+    return "通过 URMA 日志关键字校验：urma_get_tp_attr，Invalid parameter.";
 }
 
 std::string UrmaFailure314::GetId() const

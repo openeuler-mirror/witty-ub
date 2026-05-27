@@ -1,4 +1,5 @@
 #include "urma_failure_114.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure114> g_urma("urma_114");
 bool UrmaFailure114::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_import_jfr_compat' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_import_pseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'No valid direct route'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure114::IsValid()
 
 std::string UrmaFailure114::GetName() const
 {
-    return "urma_import_jfr_compat 校验 context 无效导致导入流程拒绝继续执行";
+    return "未找到可用于导入路由的有效对象或路由";
 }
 
 std::string UrmaFailure114::GetRootCauseDesc() const
 {
-    return "urma_import_jfr_compat 在执行导入前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在导入路由过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
+           "目标。";
 }
 
 RootCause UrmaFailure114::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure114::GetFixSuggDesc() const
 
 std::string UrmaFailure114::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_import_pseg，No valid direct route";
 }
 
 std::string UrmaFailure114::GetId() const

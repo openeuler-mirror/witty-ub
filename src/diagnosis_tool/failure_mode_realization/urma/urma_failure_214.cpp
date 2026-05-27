@@ -1,4 +1,5 @@
 #include "urma_failure_214.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure214> g_urma("urma_214");
 bool UrmaFailure214::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_segment_get_args_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param va'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure214::IsValid()
 
 std::string UrmaFailure214::GetName() const
 {
-    return "bondp_segment_get_args_list 校验 segment 无效导致获取流程拒绝继续执行";
+    return "URMA context、设备对象、sysfs设备信息、provider操作表、Jetty对象无效导致删除Jetty失败";
 }
 
 std::string UrmaFailure214::GetRootCauseDesc() const
 {
-    return "bondp_segment_get_args_list 在执行获取前发现调用方传入的 segment "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于删除Jetty，调用方传入的URMA "
+           "context、设备对象、sysfs设备信息、provider操作表、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure214::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure214::GetFixSuggDesc() const
 
 std::string UrmaFailure214::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param va";
+    return "通过 URMA 日志关键字校验：urma_delete_jetty_batch，Invalid parameter, index:";
 }
 
 std::string UrmaFailure214::GetId() const

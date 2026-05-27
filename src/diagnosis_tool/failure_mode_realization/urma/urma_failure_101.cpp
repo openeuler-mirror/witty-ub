@@ -1,4 +1,5 @@
 #include "urma_failure_101.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -10,8 +11,8 @@ bool UrmaFailure101::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
         "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "grep -F 'bondp_unregister_health_check_seg_for_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Failed to unregister health check segment'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +20,12 @@ bool UrmaFailure101::IsValid()
 
 std::string UrmaFailure101::GetName() const
 {
-    return "urma_deactive_jfc 校验 JFC 无效导致激活流程拒绝继续执行";
+    return "健康检查清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure101::GetRootCauseDesc() const
 {
-    return "urma_deactive_jfc 在执行激活前发现调用方传入的 JFC 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销健康检查相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure101::AnalyzeRootCause()
@@ -40,7 +40,8 @@ std::string UrmaFailure101::GetFixSuggDesc() const
 
 std::string UrmaFailure101::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：bondp_unregister_health_check_seg_for_jetty，Failed to unregister health check "
+           "segment";
 }
 
 std::string UrmaFailure101::GetId() const

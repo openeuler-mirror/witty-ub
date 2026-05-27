@@ -1,4 +1,5 @@
 #include "urma_failure_819.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure819> g_urma("urma_819");
 bool UrmaFailure819::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_unadvise_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'jfr cfg out of range, depth:' | grep -F ', max_depth:' | grep -F ', sge:' | grep -F ', max_sge:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure819::IsValid()
 
 std::string UrmaFailure819::GetName() const
 {
-    return "urma_cmd_unadvise_jetty 校验 context 无效导致处理流程拒绝继续执行";
+    return "激活JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure819::GetRootCauseDesc() const
 {
-    return "urma_cmd_unadvise_jetty 在执行处理前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure819::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure819::GetFixSuggDesc() const
 
 std::string UrmaFailure819::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_active_jfr，jfr cfg out of range, depth:，, max_depth:，, sge:，, max_sge:";
 }
 
 std::string UrmaFailure819::GetId() const

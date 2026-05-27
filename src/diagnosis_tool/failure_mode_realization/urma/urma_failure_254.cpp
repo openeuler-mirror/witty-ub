@@ -1,4 +1,5 @@
 #include "urma_failure_254.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,10 +10,8 @@ static AutoRegister<UrmaFailure254> g_urma("urma_254");
 bool UrmaFailure254::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'init_slave_context_fd' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'failed to add fd:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unbind_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Not allowed to call unbind as the tp mode of jetty :' | grep -F 'is:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +19,13 @@ bool UrmaFailure254::IsValid()
 
 std::string UrmaFailure254::GetName() const
 {
-    return "init_slave_context_fd 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "解绑TP过程中依赖步骤失败";
 }
 
 std::string UrmaFailure254::GetRootCauseDesc() const
 {
-    return "init_slave_context_fd 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数用于解绑TP，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure254::AnalyzeRootCause()
@@ -41,7 +40,8 @@ std::string UrmaFailure254::GetFixSuggDesc() const
 
 std::string UrmaFailure254::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：failed to add fd: , errno";
+    return "通过 URMA 日志关键字校验：urma_unbind_jetty_async，Not allowed to call unbind as the tp mode of jetty "
+           ":，is:";
 }
 
 std::string UrmaFailure254::GetId() const

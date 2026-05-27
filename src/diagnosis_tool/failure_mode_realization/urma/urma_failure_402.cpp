@@ -1,4 +1,5 @@
 #include "urma_failure_402.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure402> g_urma("urma_402");
 bool UrmaFailure402::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F '[DRV_ERR]Failed to create jfce, dev_name:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure402::IsValid()
 
 std::string UrmaFailure402::GetName() const
 {
-    return "urma_delete_jfr_batch 校验 JFR 无效导致删除流程拒绝继续执行";
+    return "JFCE创建时下层资源准备失败";
 }
 
 std::string UrmaFailure402::GetRootCauseDesc() const
 {
-    return "urma_delete_jfr_batch 在执行删除前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责创建JFCE，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure402::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure402::GetFixSuggDesc() const
 
 std::string UrmaFailure402::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA 日志关键字校验：urma_deactive_jfr，[DRV_ERR]Failed to create jfce, dev_name:，, eid_idx:";
 }
 
 std::string UrmaFailure402::GetId() const

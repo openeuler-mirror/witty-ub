@@ -1,4 +1,5 @@
 #include "urma_failure_650.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure650> g_urma("urma_650");
 bool UrmaFailure650::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'post_recv_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'bjetty_ctx is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter,' | grep -F 'jfc in the array is NULL.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,12 @@ bool UrmaFailure650::IsValid()
 
 std::string UrmaFailure650::GetName() const
 {
-    return "post_recv_check_valid 执行投递 context 失败导致当前资源状态无法推进";
+    return "删除JFC所需输入对象无效导致删除JFC失败";
 }
 
 std::string UrmaFailure650::GetRootCauseDesc() const
 {
-    return "post_recv_check_valid 调用下层 provider、bond 组件或系统接口处理 context 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于删除JFC，调用方传入的删除JFC所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure650::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure650::GetFixSuggDesc() const
 
 std::string UrmaFailure650::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：bjetty_ctx is NULL";
+    return "通过 URMA 日志关键字校验：urma_delete_jfc_batch，Invalid parameter,，jfc in the array is NULL.";
 }
 
 std::string UrmaFailure650::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_628.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure628> g_urma("urma_628");
 bool UrmaFailure628::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'schedule_next_route_in_matrix_server_singlepath' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid single path port. Single path mode only support RC and need to call bind_jetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,12 @@ bool UrmaFailure628::IsValid()
 
 std::string UrmaFailure628::GetName() const
 {
-    return "schedule_next_route_in_matrix_server_singlepath 校验 context 业务条件不满足导致调度流程拒绝继续执行";
+    return "URMA context无效导致删除JFC失败";
 }
 
 std::string UrmaFailure628::GetRootCauseDesc() const
 {
-    return "schedule_next_route_in_matrix_server_singlepath 在执行调度时发现 context "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数用于删除JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure628::AnalyzeRootCause()
@@ -41,8 +39,7 @@ std::string UrmaFailure628::GetFixSuggDesc() const
 
 std::string UrmaFailure628::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid single path port. Single path mode only support RC and need to "
-           "call bind_jetty";
+    return "通过 URMA 日志关键字校验：urma_cmd_delete_jfc，Invalid parameter";
 }
 
 std::string UrmaFailure628::GetId() const

@@ -1,4 +1,5 @@
 #include "urma_failure_851.h"
+
 #include "../../failure_mode_factory.h"
 #include "urma_log_helper.h"
 
@@ -9,9 +10,8 @@ static AutoRegister<UrmaFailure851> g_urma("urma_851");
 bool UrmaFailure851::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_handle_cr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid cr error status:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'check_valid_sgl' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'sge is a null pointer.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +19,13 @@ bool UrmaFailure851::IsValid()
 
 std::string UrmaFailure851::GetName() const
 {
-    return "bondp_handle_cr_no_store 校验 WR 无效导致处理流程拒绝继续执行";
+    return "执行context过程中依赖步骤失败";
 }
 
 std::string UrmaFailure851::GetRootCauseDesc() const
 {
-    return "bondp_handle_cr_no_store 在执行处理前发现调用方传入的 WR "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行context，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA"
+           "操作失败。";
 }
 
 RootCause UrmaFailure851::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure851::GetFixSuggDesc() const
 
 std::string UrmaFailure851::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid cr error status";
+    return "通过 URMA 日志关键字校验：check_valid_sgl，sge is a null pointer.";
 }
 
 std::string UrmaFailure851::GetId() const
