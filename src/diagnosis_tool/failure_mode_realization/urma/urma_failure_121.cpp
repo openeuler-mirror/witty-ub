@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure121> g_urma("urma_121");
 
 bool UrmaFailure121::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_active_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfr state is wrong in active_jfr'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_unimport_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure121::IsValid()
 
 std::string UrmaFailure121::GetName() const
 {
-    return "urma_active_jfr 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "URMA context无效导致解除导入JFR失败";
 }
 
 std::string UrmaFailure121::GetRootCauseDesc() const
 {
-    return "urma_active_jfr 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数用于解除导入JFR，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure121::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure121::GetFixSuggDesc() const
 
 std::string UrmaFailure121::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfr state is wrong in active_jfr";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_unimport_jfr，Invalid parameter。";
 }
 
 std::string UrmaFailure121::GetId() const

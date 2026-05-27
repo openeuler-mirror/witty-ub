@@ -9,7 +9,8 @@ static AutoRegister<UrmaFailure253> g_urma("urma_253");
 bool UrmaFailure253::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        R"(test -n "$URMA_LOG_PATH" && grep -F 'set_fd_noblock' "$URMA_LOG_PATH" 2>/dev/null | grep -F 'ret:')");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not "
+        "allowed to bind local jetty:' | grep -F ', with remote jetty:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -17,13 +18,13 @@ bool UrmaFailure253::IsValid()
 
 std::string UrmaFailure253::GetName() const
 {
-    return "set_fd_noblock 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "绑定Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure253::GetRootCauseDesc() const
 {
-    return "set_fd_noblock 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure253::AnalyzeRootCause()
@@ -38,7 +39,8 @@ std::string UrmaFailure253::GetFixSuggDesc() const
 
 std::string UrmaFailure253::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ret";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_async，Not allowed to bind local jetty:，, with remote "
+           "jetty:。";
 }
 
 std::string UrmaFailure253::GetId() const

@@ -8,10 +8,8 @@ static AutoRegister<UrmaFailure859> g_urma("urma_859");
 
 bool UrmaFailure859::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_slide_wnd_has' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Seq larger than total size of bitmap'");
+    std::string grepOutput = urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_match_driver' "
+                                                         "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'snprintf failed'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +17,13 @@ bool UrmaFailure859::IsValid()
 
 std::string UrmaFailure859::GetName() const
 {
-    return "bdp_slide_wnd_has 更新 URMA 对象 映射结构失败导致资源索引不可用";
+    return "分配设备过程中依赖步骤失败";
 }
 
 std::string UrmaFailure859::GetRootCauseDesc() const
 {
-    return "bdp_slide_wnd_has 需要维护 URMA 对象 "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数用于分配设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure859::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure859::GetFixSuggDesc() const
 
 std::string UrmaFailure859::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Seq larger than total size of bitmap";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_match_driver，snprintf failed。";
 }
 
 std::string UrmaFailure859::GetId() const

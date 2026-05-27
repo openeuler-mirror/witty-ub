@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure274> g_urma("urma_274");
 
 bool UrmaFailure274::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_register_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc bondp segment comp'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_jetty_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,14 @@ bool UrmaFailure274::IsValid()
 
 std::string UrmaFailure274::GetName() const
 {
-    return "bondp_register_seg 分配 segment 临时参数失败导致注册流程无法继续";
+    return "URMA context、provider操作表、Jetty对象、provider未提供get_jetty_opt操作实现无效导致获取Jetty失败";
 }
 
 std::string UrmaFailure274::GetRootCauseDesc() const
 {
-    return "bondp_register_seg 需要为 segment 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数用于获取Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象、provider未提供get_jetty_"
+           "opt操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure274::AnalyzeRootCause()
@@ -40,7 +40,7 @@ std::string UrmaFailure274::GetFixSuggDesc() const
 
 std::string UrmaFailure274::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to alloc bondp segment comp";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_jetty_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure274::GetId() const

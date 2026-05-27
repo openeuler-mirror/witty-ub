@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure101> g_urma("urma_101");
 
 bool UrmaFailure101::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_flush_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to flush pjetty['");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure101::IsValid()
 
 std::string UrmaFailure101::GetName() const
 {
-    return "urma_deactive_jfc 校验 JFC 无效导致激活流程拒绝继续执行";
+    return "物理 Jetty数据通路处理失败";
 }
 
 std::string UrmaFailure101::GetRootCauseDesc() const
 {
-    return "urma_deactive_jfc 在执行激活前发现调用方传入的 JFC 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure101::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure101::GetFixSuggDesc() const
 
 std::string UrmaFailure101::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_flush_jetty，Failed to flush pjetty[。";
 }
 
 std::string UrmaFailure101::GetId() const

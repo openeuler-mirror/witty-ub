@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure218> g_urma("urma_218");
 
 bool UrmaFailure218::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_comp' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param ctx'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_flush_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure218::IsValid()
 
 std::string UrmaFailure218::GetName() const
 {
-    return "bondp_create_comp 校验 context 无效导致创建流程拒绝继续执行";
+    return "URMA context、Jetty对象无效导致刷出Jetty失败";
 }
 
 std::string UrmaFailure218::GetRootCauseDesc() const
 {
-    return "bondp_create_comp 在执行创建前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于刷出Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure218::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure218::GetFixSuggDesc() const
 
 std::string UrmaFailure218::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param ctx";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_flush_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure218::GetId() const

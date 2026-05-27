@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure521> g_urma("urma_521");
 bool UrmaFailure521::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_query_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unregister_seg_inner' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to delete pseg for vseg, token_id:' | grep -F ', handle:' | grep -F 'u.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure521::IsValid()
 
 std::string UrmaFailure521::GetName() const
 {
-    return "urma_query_jfr 校验 JFR 无效导致查询流程拒绝继续执行";
+    return "Token清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure521::GetRootCauseDesc() const
 {
-    return "urma_query_jfr 在执行查询前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销Token相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure521::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure521::GetFixSuggDesc() const
 
 std::string UrmaFailure521::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unregister_seg_inner，Failed to delete pseg for vseg, "
+           "token_id:，, handle:，u.。";
 }
 
 std::string UrmaFailure521::GetId() const

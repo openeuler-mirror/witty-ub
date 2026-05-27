@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure191> g_urma("urma_191");
 
 bool UrmaFailure191::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_pjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create pjetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_add_jetty_to_jetty_grp' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'failed to add jetty to jetty_grp.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure191::IsValid()
 
 std::string UrmaFailure191::GetName() const
 {
-    return "bondp_create_pjetty 执行创建 Jetty 失败导致当前资源状态无法推进";
+    return "删除Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure191::GetRootCauseDesc() const
 {
-    return "bondp_create_pjetty 调用下层 provider、bond 组件或系统接口处理 Jetty 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于删除Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure191::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure191::GetFixSuggDesc() const
 
 std::string UrmaFailure191::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create pjetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_add_jetty_to_jetty_grp，failed to add jetty to jetty_grp.。";
 }
 
 std::string UrmaFailure191::GetId() const

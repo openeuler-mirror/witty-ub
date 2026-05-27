@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure596> g_urma("urma_596");
 
 bool UrmaFailure596::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_import_jetty_ex' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfce' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete pjfce.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure596::IsValid()
 
 std::string UrmaFailure596::GetName() const
 {
-    return "urma_import_jetty_ex 校验 context 无效导致导入流程拒绝继续执行";
+    return "JFCE清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure596::GetRootCauseDesc() const
 {
-    return "urma_import_jetty_ex 在执行导入前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFCE相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure596::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure596::GetFixSuggDesc() const
 
 std::string UrmaFailure596::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfce，Failed to delete pjfce.。";
 }
 
 std::string UrmaFailure596::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure392> g_urma("urma_392");
 bool UrmaFailure392::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_set_jfs_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_order_type' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to create jfs, dev_name:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure392::IsValid()
 
 std::string UrmaFailure392::GetName() const
 {
-    return "urma_set_jfs_opt 校验 JFS 无效导致设置流程拒绝继续执行";
+    return "JFS创建时下层资源准备失败";
 }
 
 std::string UrmaFailure392::GetRootCauseDesc() const
 {
-    return "urma_set_jfs_opt 在执行设置前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责创建JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure392::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure392::GetFixSuggDesc() const
 
 std::string UrmaFailure392::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_order_type，[DRV_ERR]Failed to create jfs, dev_name:，, "
+           "eid_idx:。";
 }
 
 std::string UrmaFailure392::GetId() const

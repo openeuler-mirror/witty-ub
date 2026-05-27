@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure324> g_urma("urma_324");
 
 bool UrmaFailure324::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to malloc buffer'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vjfce' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Fail to create epoll_fd for vjfce.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure324::IsValid()
 
 std::string UrmaFailure324::GetName() const
 {
-    return "urma_cmd_delete_jfr_batch 分配 JFR 临时参数失败导致删除流程无法继续";
+    return "epoll创建时下层资源准备失败";
 }
 
 std::string UrmaFailure324::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfr_batch 需要为 JFR 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数负责创建epoll，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure324::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure324::GetFixSuggDesc() const
 
 std::string UrmaFailure324::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to malloc buffer";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vjfce，Fail to create epoll_fd for vjfce.。";
 }
 
 std::string UrmaFailure324::GetId() const

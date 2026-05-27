@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure564> g_urma("urma_564");
 
 bool UrmaFailure564::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'import_pjetty_for_port_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to import direct tjetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'handle_fake_cr_with_store' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid cr error status:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure564::IsValid()
 
 std::string UrmaFailure564::GetName() const
 {
-    return "import_pjetty_for_port_eid 执行导入 EID 失败导致当前资源状态无法推进";
+    return "执行URMA资源所需输入对象无效导致刷出虚拟 Jetty失败";
 }
 
 std::string UrmaFailure564::GetRootCauseDesc() const
 {
-    return "import_pjetty_for_port_eid 调用下层 provider、bond 组件或系统接口处理 EID 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于刷出虚拟 Jetty，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure564::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure564::GetFixSuggDesc() const
 
 std::string UrmaFailure564::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to import direct tjetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：handle_fake_cr_with_store，Invalid cr error status:。";
 }
 
 std::string UrmaFailure564::GetId() const

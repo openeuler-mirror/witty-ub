@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure646> g_urma("urma_646");
 bool UrmaFailure646::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_post_send_wr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'WR->tjetty is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'There is "
+        "jfc event and it must be acked, jfc_comp:' | grep -F ', comp:' | grep -F ', jfc_async:' | grep -F ', async:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure646::IsValid()
 
 std::string UrmaFailure646::GetName() const
 {
-    return "bondp_post_send_wr_no_store 执行投递 目标 Jetty 失败导致当前资源状态无法推进";
+    return "释放JFC过程中依赖步骤失败";
 }
 
 std::string UrmaFailure646::GetRootCauseDesc() const
 {
-    return "bondp_post_send_wr_no_store 调用下层 provider、bond 组件或系统接口处理 目标 Jetty 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于释放JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure646::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure646::GetFixSuggDesc() const
 
 std::string UrmaFailure646::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：WR->tjetty is NULL";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_free_jfc，There is jfc event and it must be acked, "
+           "jfc_comp:，, comp:，, jfc_async:，, async:。";
 }
 
 std::string UrmaFailure646::GetId() const

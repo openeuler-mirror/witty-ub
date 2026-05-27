@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure054> g_urma("urma_054");
 bool UrmaFailure054::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info_without_lock' \"$URMA_LOG_PATH\" "
+        "2>/dev/null | grep -F 'Failed to delete p_vjfs_id node[' | grep -F ']: ret:' | grep -F 'pjfs_id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure054::IsValid()
 
 std::string UrmaFailure054::GetName() const
 {
-    return "urma_cmd_get_jfr_opt 校验 context 无效导致获取流程拒绝继续执行";
+    return "虚拟 JFS清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure054::GetRootCauseDesc() const
 {
-    return "urma_cmd_get_jfr_opt 在执行获取前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销虚拟 JFS相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure054::AnalyzeRootCause()
@@ -41,7 +38,8 @@ std::string UrmaFailure054::GetFixSuggDesc() const
 
 std::string UrmaFailure054::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info_without_lock，Failed to delete p_vjfs_id "
+           "node[，]: ret:，pjfs_id:。";
 }
 
 std::string UrmaFailure054::GetId() const

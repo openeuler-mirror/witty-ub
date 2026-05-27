@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure651> g_urma("urma_651");
 
 bool UrmaFailure651::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'post_recv_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid bdp_recv_comp type'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure651::IsValid()
 
 std::string UrmaFailure651::GetName() const
 {
-    return "post_recv_check_valid 校验 Jetty 无效导致投递流程拒绝继续执行";
+    return "URMA context、provider操作表、provider未提供free_jfc操作实现无效导致释放JFC失败";
 }
 
 std::string UrmaFailure651::GetRootCauseDesc() const
 {
-    return "post_recv_check_valid 在执行投递前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于释放JFC，调用方传入的URMA "
+           "context、provider操作表、provider未提供free_jfc操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure651::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure651::GetFixSuggDesc() const
 
 std::string UrmaFailure651::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid bdp_recv_comp type";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfc，Invalid parameter.。";
 }
 
 std::string UrmaFailure651::GetId() const

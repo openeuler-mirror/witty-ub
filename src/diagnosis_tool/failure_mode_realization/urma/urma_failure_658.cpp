@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure658> g_urma("urma_658");
 
 bool UrmaFailure658::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'handle_recv' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create vconn for ('");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfc_batch' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure658::IsValid()
 
 std::string UrmaFailure658::GetName() const
 {
-    return "handle_recv 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "URMA context、设备对象、sysfs设备信息、provider操作表无效导致删除JFC失败";
 }
 
 std::string UrmaFailure658::GetRootCauseDesc() const
 {
-    return "handle_recv 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数用于删除JFC，调用方传入的URMA "
+           "context、设备对象、sysfs设备信息、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure658::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure658::GetFixSuggDesc() const
 
 std::string UrmaFailure658::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create vconn for ( , )";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfc_batch，Invalid parameter, index:。";
 }
 
 std::string UrmaFailure658::GetId() const

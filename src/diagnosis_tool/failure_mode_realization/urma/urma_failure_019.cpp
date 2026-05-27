@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure019> g_urma("urma_019");
 
 bool UrmaFailure019::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Jetty already has a binded target jetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init health event lock'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure019::IsValid()
 
 std::string UrmaFailure019::GetName() const
 {
-    return "bondp_bind_jetty 校验 Jetty 业务条件不满足导致绑定流程拒绝继续执行";
+    return "初始化健康检查过程中依赖步骤失败";
 }
 
 std::string UrmaFailure019::GetRootCauseDesc() const
 {
-    return "bondp_bind_jetty 在执行绑定时发现 Jetty "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数用于初始化健康检查，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure019::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure019::GetFixSuggDesc() const
 
 std::string UrmaFailure019::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Jetty already has a binded target jetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_health_check_ctx，Failed to init health event lock。";
 }
 
 std::string UrmaFailure019::GetId() const

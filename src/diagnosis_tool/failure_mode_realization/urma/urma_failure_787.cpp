@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure787> g_urma("urma_787");
 
 bool UrmaFailure787::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to delete jfce, ret:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_order_type' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure787::IsValid()
 
 std::string UrmaFailure787::GetName() const
 {
-    return "urma_delete_jfce 执行删除 JFCE 失败导致当前资源状态无法推进";
+    return "URMA context无效导致创建JFS失败";
 }
 
 std::string UrmaFailure787::GetRootCauseDesc() const
 {
-    return "urma_delete_jfce 调用下层 provider、bond 组件或系统接口处理 JFCE 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于创建JFS，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure787::AnalyzeRootCause()
@@ -35,12 +33,12 @@ RootCause UrmaFailure787::AnalyzeRootCause()
 
 std::string UrmaFailure787::GetFixSuggDesc() const
 {
-    return "当前不会触发";
+    return "无";
 }
 
 std::string UrmaFailure787::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Failed to delete jfce, ret";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_order_type，Invalid parameter.。";
 }
 
 std::string UrmaFailure787::GetId() const

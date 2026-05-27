@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure167> g_urma("urma_167");
 
 bool UrmaFailure167::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_tp_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, trans_mode:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_modify_tp' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure167::IsValid()
 
 std::string UrmaFailure167::GetName() const
 {
-    return "urma_get_tp_list 校验 TP 无效导致获取流程拒绝继续执行";
+    return "URMA context无效导致修改TP失败";
 }
 
 std::string UrmaFailure167::GetRootCauseDesc() const
 {
-    return "urma_get_tp_list 在执行获取前发现调用方传入的 TP 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于修改TP，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure167::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure167::GetFixSuggDesc() const
 
 std::string UrmaFailure167::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter, trans_mode";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_modify_tp，Invalid parameter.。";
 }
 
 std::string UrmaFailure167::GetId() const

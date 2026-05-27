@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure478> g_urma("urma_478");
 
 bool UrmaFailure478::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'doesn'\\''t exist or doesn'\\''t have permission'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_list_sysyf' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'printf failed, eid idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure478::IsValid()
 
 std::string UrmaFailure478::GetName() const
 {
-    return "urma_open_provider 打开 provider 失败导致打开无法访问底层资源";
+    return "读取EID过程中依赖步骤失败";
 }
 
 std::string UrmaFailure478::GetRootCauseDesc() const
 {
-    return "urma_open_provider 需要访问 provider 对应的文件、目录、provider "
-           "动态库或字符设备，但路径不存在、权限不足或系统调用失败，导致后续 URMA 设备枚举、provider "
-           "装载或上下文创建无法进行。";
+    return "函数用于读取EID，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure478::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure478::GetFixSuggDesc() const
 
 std::string UrmaFailure478::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：doesn't exist or doesn't have permission";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_list_sysyf，printf failed, eid idx:。";
 }
 
 std::string UrmaFailure478::GetId() const

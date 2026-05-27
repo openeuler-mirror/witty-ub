@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure048> g_urma("urma_048");
 
 bool UrmaFailure048::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_create_jfce, ret:' | "
-        "grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_init' \"$URMA_LOG_PATH\" 2>/dev/null "
+                                    "| grep -F 'None of the providers registered.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,12 @@ bool UrmaFailure048::IsValid()
 
 std::string UrmaFailure048::GetName() const
 {
-    return "urma_cmd_create_jfce URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "URMA资源初始化时下层资源准备失败";
 }
 
 std::string UrmaFailure048::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jfce 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFCE 状态。";
+    return "函数负责初始化URMA资源，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure048::AnalyzeRootCause()
@@ -36,12 +33,12 @@ RootCause UrmaFailure048::AnalyzeRootCause()
 
 std::string UrmaFailure048::GetFixSuggDesc() const
 {
-    return "无";
+    return "查看/usr/lib64/urma目录下，是否存在liburma_udma.so等驱动文件，或查看文件是否具备x权限，完成正确部署后重试";
 }
 
 std::string UrmaFailure048::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_create_jfce, ret:, errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_init，None of the providers registered.。";
 }
 
 std::string UrmaFailure048::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure384> g_urma("urma_384");
 bool UrmaFailure384::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc memory'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_notifier' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'ioctl failed in urma_cmd_create_notifier, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure384::IsValid()
 
 std::string UrmaFailure384::GetName() const
 {
-    return "urma_delete_jfs_batch 分配 context 临时参数失败导致删除流程无法继续";
+    return "创建ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure384::GetRootCauseDesc() const
 {
-    return "urma_delete_jfs_batch 需要为 context 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数通过ioctl向URMA内核驱动提交创建ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure384::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure384::GetFixSuggDesc() const
 
 std::string UrmaFailure384::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to alloc memory";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_notifier，ioctl failed in urma_cmd_create_notifier, "
+           "ret:，, errno:。";
 }
 
 std::string UrmaFailure384::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure411> g_urma("urma_411");
 
 bool UrmaFailure411::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'invalid opt id or opt len'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_eid' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F '[DRV_ERR]Failed to create urma context.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure411::IsValid()
 
 std::string UrmaFailure411::GetName() const
 {
-    return "urma_set_jfr_opt 校验 JFR 无效导致设置流程拒绝继续执行";
+    return "context创建时下层资源准备失败";
 }
 
 std::string UrmaFailure411::GetRootCauseDesc() const
 {
-    return "urma_set_jfr_opt 在执行设置前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责创建context，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure411::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure411::GetFixSuggDesc() const
 
 std::string UrmaFailure411::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：invalid opt id or opt len";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_eid，[DRV_ERR]Failed to create urma context.。";
 }
 
 std::string UrmaFailure411::GetId() const

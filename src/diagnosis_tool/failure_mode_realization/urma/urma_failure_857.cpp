@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure857> g_urma("urma_857");
 
 bool UrmaFailure857::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_slide_wnd_seq_in_window' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Seq larger than total size of bitmap'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_user_ctl' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure857::IsValid()
 
 std::string UrmaFailure857::GetName() const
 {
-    return "bdp_slide_wnd_seq_in_window 更新 URMA 对象 映射结构失败导致资源索引不可用";
+    return "URMA context、provider操作表、provider未提供user_ctl操作实现无效导致执行context失败";
 }
 
 std::string UrmaFailure857::GetRootCauseDesc() const
 {
-    return "bdp_slide_wnd_seq_in_window 需要维护 URMA 对象 "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数用于执行context，调用方传入的URMA "
+           "context、provider操作表、provider未提供user_ctl操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure857::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure857::GetFixSuggDesc() const
 
 std::string UrmaFailure857::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Seq larger than total size of bitmap";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_user_ctl，Invalid parameter.。";
 }
 
 std::string UrmaFailure857::GetId() const

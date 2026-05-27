@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure713> g_urma("urma_713");
 
 bool UrmaFailure713::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_comp_default' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Fail to uninit comp attr, ret'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_discover_devices' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'open failed, errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure713::IsValid()
 
 std::string UrmaFailure713::GetName() const
 {
-    return "bondp_delete_comp_default 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure713::GetRootCauseDesc() const
 {
-    return "bondp_delete_comp_default 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure713::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure713::GetFixSuggDesc() const
 
 std::string UrmaFailure713::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Fail to uninit comp attr, ret";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_discover_devices，open failed, errno:。";
 }
 
 std::string UrmaFailure713::GetId() const

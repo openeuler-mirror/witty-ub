@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure278> g_urma("urma_278");
 
 bool UrmaFailure278::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_queue_push_tail' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to enqueue with invalid node_num:' | "
-        "grep -F ', max_node:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,14 +18,13 @@ bool UrmaFailure278::IsValid()
 
 std::string UrmaFailure278::GetName() const
 {
-    return "bdp_queue_push_tail 校验 URMA 对象 无效导致处理流程拒绝继续执行";
+    return "URMA context、provider操作表、Jetty对象无效导致激活Jetty失败";
 }
 
 std::string UrmaFailure278::GetRootCauseDesc() const
 {
-    return "bdp_queue_push_tail 在执行处理前发现调用方传入的 URMA 对象 "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure278::AnalyzeRootCause()
@@ -42,7 +39,7 @@ std::string UrmaFailure278::GetFixSuggDesc() const
 
 std::string UrmaFailure278::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to enqueue with invalid node_num: , max_node";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure278::GetId() const

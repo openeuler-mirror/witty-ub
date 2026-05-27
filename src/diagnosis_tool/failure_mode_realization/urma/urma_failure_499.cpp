@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure499> g_urma("urma_499");
 
 bool UrmaFailure499::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'get_dev_and_ctx_by_name' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to get eid_idx'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_eid' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter with err dev or ops.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure499::IsValid()
 
 std::string UrmaFailure499::GetName() const
 {
-    return "get_dev_and_ctx_by_name 执行获取 context 失败导致当前资源状态无法推进";
+    return "设备对象、sysfs设备信息、provider操作表无效导致查询设备失败";
 }
 
 std::string UrmaFailure499::GetRootCauseDesc() const
 {
-    return "get_dev_and_ctx_by_name 调用下层 provider、bond 组件或系统接口处理 context 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于查询设备，调用方传入的设备对象、sysfs设备信息、provider操作表不满足接口前置条件，无法继续完成本次UR"
+           "MA操作。";
 }
 
 RootCause UrmaFailure499::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure499::GetFixSuggDesc() const
 
 std::string UrmaFailure499::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to get eid_idx";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_eid，Invalid parameter with err dev or ops.。";
 }
 
 std::string UrmaFailure499::GetId() const

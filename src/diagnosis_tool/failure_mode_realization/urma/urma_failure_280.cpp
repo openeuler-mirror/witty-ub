@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure280> g_urma("urma_280");
 
 bool UrmaFailure280::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_slide_wnd_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param wnd'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Jetty state is wrong in active_jetty.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure280::IsValid()
 
 std::string UrmaFailure280::GetName() const
 {
-    return "bdp_slide_wnd_init 校验 URMA 对象 无效导致初始化流程拒绝继续执行";
+    return "Jetty数据通路处理失败";
 }
 
 std::string UrmaFailure280::GetRootCauseDesc() const
 {
-    return "bdp_slide_wnd_init 在执行初始化前发现调用方传入的 URMA 对象 "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure280::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure280::GetFixSuggDesc() const
 
 std::string UrmaFailure280::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param wnd";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jetty，Jetty state is wrong in active_jetty.。";
 }
 
 std::string UrmaFailure280::GetId() const

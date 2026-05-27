@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure233> g_urma("urma_233");
 bool UrmaFailure233::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'set_cas_wr_ptseg_pjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'when set cas_wr, one of src or dst is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_ex' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not "
+        "allowed to bind local jetty:' | grep -F 'of mode:' | grep -F 'with remote jetty:' | grep -F 'of mode:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure233::IsValid()
 
 std::string UrmaFailure233::GetName() const
 {
-    return "set_cas_wr_ptseg_pjetty 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "绑定Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure233::GetRootCauseDesc() const
 {
-    return "set_cas_wr_ptseg_pjetty 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure233::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure233::GetFixSuggDesc() const
 
 std::string UrmaFailure233::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：when set cas_wr, one of src or dst is NULL";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_ex，Not allowed to bind local jetty:，of mode:，with "
+           "remote jetty:，of mode:。";
 }
 
 std::string UrmaFailure233::GetId() const

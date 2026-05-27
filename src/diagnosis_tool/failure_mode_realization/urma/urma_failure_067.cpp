@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure067> g_urma("urma_067");
 
 bool UrmaFailure067::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jetty->jetty_cfg.shared.jfc is not exist'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pjetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete pjetty' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure067::IsValid()
 
 std::string UrmaFailure067::GetName() const
 {
-    return "urma_cmd_set_jetty_opt 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "物理 Jetty清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure067::GetRootCauseDesc() const
 {
-    return "urma_cmd_set_jetty_opt 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数负责释放或撤销物理 Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure067::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure067::GetFixSuggDesc() const
 
 std::string UrmaFailure067::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jetty->jetty_cfg.shared.jfc is not exist";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pjetty，Failed to delete pjetty，, ret:。";
 }
 
 std::string UrmaFailure067::GetId() const

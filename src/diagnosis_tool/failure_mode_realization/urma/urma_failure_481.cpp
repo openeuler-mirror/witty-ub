@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure481> g_urma("urma_481");
 
 bool UrmaFailure481::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_eid_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'max eid cnt is err'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_sysfs_with_index' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to read sysfs file'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure481::IsValid()
 
 std::string UrmaFailure481::GetName() const
 {
-    return "urma_get_eid_list 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "EID信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure481::GetRootCauseDesc() const
 {
-    return "urma_get_eid_list 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数需要从sysfs获取EID信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或能力初始"
+           "化。";
 }
 
 RootCause UrmaFailure481::AnalyzeRootCause()
@@ -36,12 +34,12 @@ RootCause UrmaFailure481::AnalyzeRootCause()
 
 std::string UrmaFailure481::GetFixSuggDesc() const
 {
-    return "执行 `lsmod | grep udma` 检查驱动是否加载，执行 `urma_admin show -a` 查看 UB 设备是否存在，部署完成后重试";
+    return "无";
 }
 
 std::string UrmaFailure481::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：max eid cnt is err";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_sysfs_with_index，Failed to read sysfs file。";
 }
 
 std::string UrmaFailure481::GetId() const

@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure316> g_urma("urma_316");
 
 bool UrmaFailure316::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_create_jfr, ret:' | "
-        "grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_tp_attr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure316::IsValid()
 
 std::string UrmaFailure316::GetName() const
 {
-    return "urma_cmd_create_jfr URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "URMA context、provider操作表、provider未提供get_tp_attr操作实现无效导致获取TP失败";
 }
 
 std::string UrmaFailure316::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jfr 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFR 状态。";
+    return "函数用于获取TP，调用方传入的URMA "
+           "context、provider操作表、provider未提供get_tp_attr操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure316::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure316::GetFixSuggDesc() const
 
 std::string UrmaFailure316::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_create_jfr, ret:, errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_tp_attr，Invalid parameter.。";
 }
 
 std::string UrmaFailure316::GetId() const

@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure326> g_urma("urma_326");
 
 bool UrmaFailure326::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_create_jfc, ret:' | "
-        "grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_vjfce' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to create pjfce.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,12 @@ bool UrmaFailure326::IsValid()
 
 std::string UrmaFailure326::GetName() const
 {
-    return "urma_cmd_create_jfc URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "JFCE创建时下层资源准备失败";
 }
 
 std::string UrmaFailure326::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jfc 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFC 状态。";
+    return "函数负责创建JFCE，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure326::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure326::GetFixSuggDesc() const
 
 std::string UrmaFailure326::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_create_jfc, ret:, errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_vjfce，Failed to create pjfce.。";
 }
 
 std::string UrmaFailure326::GetId() const

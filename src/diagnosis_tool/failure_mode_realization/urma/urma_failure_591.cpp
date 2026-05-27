@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure591> g_urma("urma_591");
 
 bool UrmaFailure591::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_import_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Token value must be set when token policy is not URMA_TOKEN_NONE'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_config_perf_attr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Urma perf config failed. perf_attr is invalid.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure591::IsValid()
 
 std::string UrmaFailure591::GetName() const
 {
-    return "urma_import_jfr 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "执行URMA资源所需输入对象无效导致执行URMA资源失败";
 }
 
 std::string UrmaFailure591::GetRootCauseDesc() const
 {
-    return "urma_import_jfr 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数用于执行URMA资源，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure591::AnalyzeRootCause()
@@ -36,12 +33,12 @@ RootCause UrmaFailure591::AnalyzeRootCause()
 
 std::string UrmaFailure591::GetFixSuggDesc() const
 {
-    return "UDMA 错误定界；建链交换信息失败，可重试";
+    return "无";
 }
 
 std::string UrmaFailure591::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Token value must be set when token policy is not URMA_TOKEN_NONE";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_config_perf_attr，Urma perf config failed. perf_attr is invalid.。";
 }
 
 std::string UrmaFailure591::GetId() const

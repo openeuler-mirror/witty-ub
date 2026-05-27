@@ -9,10 +9,8 @@ static AutoRegister<UrmaFailure698> g_urma("urma_698");
 bool UrmaFailure698::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete jfs[' | "
-        "grep -F '], still in use. use_cnt:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jfs_opt' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_set_jfs_opt, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure698::IsValid()
 
 std::string UrmaFailure698::GetName() const
 {
-    return "bondp_delete_jfs 执行删除 JFS 失败导致当前资源状态无法推进";
+    return "设置ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure698::GetRootCauseDesc() const
 {
-    return "bondp_delete_jfs 调用下层 provider、bond 组件或系统接口处理 JFS 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数通过ioctl向URMA内核驱动提交设置ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure698::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure698::GetFixSuggDesc() const
 
 std::string UrmaFailure698::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete jfs[], still in use. use_cnt";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jfs_opt，ioctl failed in urma_cmd_set_jfs_opt, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure698::GetId() const

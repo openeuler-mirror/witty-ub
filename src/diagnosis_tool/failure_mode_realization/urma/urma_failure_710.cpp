@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure710> g_urma("urma_710");
 bool UrmaFailure710::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_remove_p_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Fail to del fd: to epoll fd'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_tlv_ioctl' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed, ret:' | grep -F ', errno:' | grep -F ', cmd:' | grep -F ', kdrv_err:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,14 @@ bool UrmaFailure710::IsValid()
 
 std::string UrmaFailure710::GetName() const
 {
-    return "bondp_remove_p_jfce 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "执行ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure710::GetRootCauseDesc() const
 {
-    return "bondp_remove_p_jfce 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数通过ioctl向URMA内核驱动提交执行ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。URMA内核态调用驱动异常，返回错误码2048，则容器中用户态日志出现ioctl失败，并且errno为特定的2048，故障发生"
+           "在内核态驱动";
 }
 
 RootCause UrmaFailure710::AnalyzeRootCause()
@@ -35,12 +35,12 @@ RootCause UrmaFailure710::AnalyzeRootCause()
 
 std::string UrmaFailure710::GetFixSuggDesc() const
 {
-    return "无";
+    return "UDMA驱动相关，需进一步排查硬件";
 }
 
 std::string UrmaFailure710::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Fail to del fd: to epoll fd";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_tlv_ioctl，ioctl failed, ret:，, errno:，, cmd:，, kdrv_err:。";
 }
 
 std::string UrmaFailure710::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure099> g_urma("urma_099");
 bool UrmaFailure099::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_active_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_send_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed find jetty when handle send cr, cr.local_id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure099::IsValid()
 
 std::string UrmaFailure099::GetName() const
 {
-    return "urma_active_jfc 校验 context 无效导致激活流程拒绝继续执行";
+    return "未找到可用于获取Jetty的有效对象或路由";
 }
 
 std::string UrmaFailure099::GetRootCauseDesc() const
 {
-    return "urma_active_jfc 在执行激活前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在获取Jetty过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
+           "目标。";
 }
 
 RootCause UrmaFailure099::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure099::GetFixSuggDesc() const
 
 std::string UrmaFailure099::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：handle_send_cr_with_store，Failed find jetty when handle send cr, "
+           "cr.local_id:。";
 }
 
 std::string UrmaFailure099::GetId() const

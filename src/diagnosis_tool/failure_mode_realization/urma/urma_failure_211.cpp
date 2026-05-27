@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure211> g_urma("urma_211");
 bool UrmaFailure211::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_jfr_get_args_list' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param jfc'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to delete jetty, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure211::IsValid()
 
 std::string UrmaFailure211::GetName() const
 {
-    return "bondp_jfr_get_args_list 校验 JFR 无效导致获取流程拒绝继续执行";
+    return "Jetty清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure211::GetRootCauseDesc() const
 {
-    return "bondp_jfr_get_args_list 在执行获取前发现调用方传入的 JFR "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure211::AnalyzeRootCause()
@@ -41,7 +38,8 @@ std::string UrmaFailure211::GetFixSuggDesc() const
 
 std::string UrmaFailure211::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param jfc";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty，[DRV_ERR]Failed to delete jetty, dev_name:，, "
+           "eid_idx:，, id:，, ret:。";
 }
 
 std::string UrmaFailure211::GetId() const

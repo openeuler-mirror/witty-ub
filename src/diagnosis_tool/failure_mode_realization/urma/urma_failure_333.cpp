@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure333> g_urma("urma_333");
 
 bool UrmaFailure333::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_set_jfc_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_r_v2p_token_id_del_idx_lockless' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to find node, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure333::IsValid()
 
 std::string UrmaFailure333::GetName() const
 {
-    return "urma_cmd_set_jfc_opt 校验 JFC 无效导致设置流程拒绝继续执行";
+    return "未找到可用于释放Token的有效对象或路由";
 }
 
 std::string UrmaFailure333::GetRootCauseDesc() const
 {
-    return "urma_cmd_set_jfc_opt 在执行设置前发现调用方传入的 JFC 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在释放Token过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
+           "目标。";
 }
 
 RootCause UrmaFailure333::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure333::GetFixSuggDesc() const
 
 std::string UrmaFailure333::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bdp_r_v2p_token_id_del_idx_lockless，Failed to find node, index:。";
 }
 
 std::string UrmaFailure333::GetId() const

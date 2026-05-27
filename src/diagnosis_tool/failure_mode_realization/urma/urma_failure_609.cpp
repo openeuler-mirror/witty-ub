@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure609> g_urma("urma_609");
 
 bool UrmaFailure609::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete pjfr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure609::IsValid()
 
 std::string UrmaFailure609::GetName() const
 {
-    return "urma_free_token_id 校验 context 无效导致释放流程拒绝继续执行";
+    return "物理 JFR清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure609::GetRootCauseDesc() const
 {
-    return "urma_free_token_id 在执行释放前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销物理 JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure609::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure609::GetFixSuggDesc() const
 
 std::string UrmaFailure609::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfr，Failed to delete pjfr。";
 }
 
 std::string UrmaFailure609::GetId() const

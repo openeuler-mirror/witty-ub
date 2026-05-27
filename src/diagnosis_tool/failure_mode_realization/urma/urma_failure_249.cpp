@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure249> g_urma("urma_249");
 
 bool UrmaFailure249::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_init_ctx_table' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create p_vjetty_id_table'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_jetty_async' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,16 @@ bool UrmaFailure249::IsValid()
 
 std::string UrmaFailure249::GetName() const
 {
-    return "bondp_init_ctx_table 更新 context 映射结构失败导致资源索引不可用";
+    return "URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象、provider未提供unimport_jetty_"
+           "async操作实现无效导致解除导入Jetty失败";
 }
 
 std::string UrmaFailure249::GetRootCauseDesc() const
 {
-    return "bondp_init_ctx_table 需要维护 context "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数用于解除导入Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象、provider未提供unimport_jetty_"
+           "async操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure249::AnalyzeRootCause()
@@ -40,7 +42,7 @@ std::string UrmaFailure249::GetFixSuggDesc() const
 
 std::string UrmaFailure249::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create p_vjetty_id_table";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_jetty_async，Invalid parameter.。";
 }
 
 std::string UrmaFailure249::GetId() const

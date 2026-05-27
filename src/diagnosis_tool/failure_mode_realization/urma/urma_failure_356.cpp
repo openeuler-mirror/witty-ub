@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure356> g_urma("urma_356");
 bool UrmaFailure356::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'update_mapping_hash_table' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to create eid_mapping_hash_table'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure356::IsValid()
 
 std::string UrmaFailure356::GetName() const
 {
-    return "urma_cmd_set_jetty_opt 校验 Jetty 无效导致设置流程拒绝继续执行";
+    return "EID创建时下层资源准备失败";
 }
 
 std::string UrmaFailure356::GetRootCauseDesc() const
 {
-    return "urma_cmd_set_jetty_opt 在执行设置前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责创建EID，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure356::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure356::GetFixSuggDesc() const
 
 std::string UrmaFailure356::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：update_mapping_hash_table，Failed to create eid_mapping_hash_table。";
 }
 
 std::string UrmaFailure356::GetId() const

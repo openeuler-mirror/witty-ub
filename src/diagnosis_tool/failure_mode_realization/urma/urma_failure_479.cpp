@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure479> g_urma("urma_479");
 
 bool UrmaFailure479::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'realpath failed'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_list_sysyf' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to read sysfs file'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure479::IsValid()
 
 std::string UrmaFailure479::GetName() const
 {
-    return "urma_open_provider 打开 provider 失败导致打开无法访问底层资源";
+    return "EID信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure479::GetRootCauseDesc() const
 {
-    return "urma_open_provider 需要访问 provider 对应的文件、目录、provider "
-           "动态库或字符设备，但路径不存在、权限不足或系统调用失败，导致后续 URMA 设备枚举、provider "
-           "装载或上下文创建无法进行。";
+    return "函数需要从sysfs获取EID信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或能力初始"
+           "化。";
 }
 
 RootCause UrmaFailure479::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure479::GetFixSuggDesc() const
 
 std::string UrmaFailure479::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：realpath failed";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_list_sysyf，Failed to read sysfs file。";
 }
 
 std::string UrmaFailure479::GetId() const

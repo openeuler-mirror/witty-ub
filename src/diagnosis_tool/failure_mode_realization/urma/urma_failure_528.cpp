@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure528> g_urma("urma_528");
 bool UrmaFailure528::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_register_seg' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_register_seg, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure528::IsValid()
 
 std::string UrmaFailure528::GetName() const
 {
-    return "urma_get_jetty_opt 校验 Jetty 无效导致获取流程拒绝继续执行";
+    return "注册ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure528::GetRootCauseDesc() const
 {
-    return "urma_get_jetty_opt 在执行获取前发现调用方传入的 Jetty 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数通过ioctl向URMA内核驱动提交注册ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure528::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure528::GetFixSuggDesc() const
 
 std::string UrmaFailure528::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_register_seg，ioctl failed in urma_cmd_register_seg, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure528::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure869> g_urma("urma_869");
 
 bool UrmaFailure869::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'deepcopy_jfs_wr_inner' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid jfs wr to deepcopy'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to prepare dli_fname.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure869::IsValid()
 
 std::string UrmaFailure869::GetName() const
 {
-    return "deepcopy_jfs_wr_inner 校验 JFS 无效导致复制流程拒绝继续执行";
+    return "打开URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure869::GetRootCauseDesc() const
 {
-    return "deepcopy_jfs_wr_inner 在执行复制前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于打开URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
+           "A操作失败。";
 }
 
 RootCause UrmaFailure869::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure869::GetFixSuggDesc() const
 
 std::string UrmaFailure869::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid jfs wr to deepcopy";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_drivers，Failed to prepare dli_fname.。";
 }
 
 std::string UrmaFailure869::GetId() const

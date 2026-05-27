@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure618> g_urma("urma_618");
 
 bool UrmaFailure618::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_wait_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure618::IsValid()
 
 std::string UrmaFailure618::GetName() const
 {
-    return "bondp_wait_jfc 校验 JFCE 无效导致等待流程拒绝继续执行";
+    return "删除ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure618::GetRootCauseDesc() const
 {
-    return "bondp_wait_jfc 在执行等待前发现调用方传入的 JFCE 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure618::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure618::GetFixSuggDesc() const
 
 std::string UrmaFailure618::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs，ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure618::GetId() const

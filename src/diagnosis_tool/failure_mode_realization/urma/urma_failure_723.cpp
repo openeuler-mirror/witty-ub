@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure723> g_urma("urma_723");
 
 bool UrmaFailure723::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'delete_copied_jfr_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid jfr wr to delete'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_modify_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'modify pjfs fail, index:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure723::IsValid()
 
 std::string UrmaFailure723::GetName() const
 {
-    return "delete_copied_jfr_wr 校验 JFR 无效导致删除流程拒绝继续执行";
+    return "修改物理 JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure723::GetRootCauseDesc() const
 {
-    return "delete_copied_jfr_wr 在执行删除前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于修改物理 "
+           "JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
 }
 
 RootCause UrmaFailure723::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure723::GetFixSuggDesc() const
 
 std::string UrmaFailure723::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid jfr wr to delete";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_modify_jfs，modify pjfs fail, index:，, ret:。";
 }
 
 std::string UrmaFailure723::GetId() const

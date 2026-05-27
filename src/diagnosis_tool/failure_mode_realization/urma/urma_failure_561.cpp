@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure561> g_urma("urma_561");
 
 bool UrmaFailure561::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'import_pjetty_for_primary_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Primary dev has NULL ctx'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_and_store' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to convert jfr wr'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure561::IsValid()
 
 std::string UrmaFailure561::GetName() const
 {
-    return "import_pjetty_for_primary_eid 执行导入 context 失败导致当前资源状态无法推进";
+    return "JFR数据通路处理失败";
 }
 
 std::string UrmaFailure561::GetRootCauseDesc() const
 {
-    return "import_pjetty_for_primary_eid 调用下层 provider、bond 组件或系统接口处理 context 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure561::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure561::GetFixSuggDesc() const
 
 std::string UrmaFailure561::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Primary dev has NULL ctx";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_and_store，Failed to convert jfr wr。";
 }
 
 std::string UrmaFailure561::GetId() const

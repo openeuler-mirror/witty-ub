@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure642> g_urma("urma_642");
 bool UrmaFailure642::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Data cannot be transferred between jettys in different multipath mode'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'ioctl failed in urma_cmd_delete_jfc_batch , ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure642::IsValid()
 
 std::string UrmaFailure642::GetName() const
 {
-    return "post_send_check_valid 校验 目标 Jetty 业务条件不满足导致投递流程拒绝继续执行";
+    return "删除ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure642::GetRootCauseDesc() const
 {
-    return "post_send_check_valid 在执行投递时发现 目标 Jetty "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure642::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure642::GetFixSuggDesc() const
 
 std::string UrmaFailure642::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Data cannot be transferred between jettys in different multipath mode";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，ioctl failed in urma_cmd_delete_jfc_batch , "
+           "ret:，, errno:。";
 }
 
 std::string UrmaFailure642::GetId() const

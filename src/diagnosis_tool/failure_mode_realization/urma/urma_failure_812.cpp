@@ -9,10 +9,8 @@ static AutoRegister<UrmaFailure812> g_urma("urma_812");
 bool UrmaFailure812::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_modify_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_modify_jfs, ret:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'jfr cfg "
+        "out of range, depth:' | grep -F ', max_depth:' | grep -F ', sge:' | grep -F ', max_sge:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure812::IsValid()
 
 std::string UrmaFailure812::GetName() const
 {
-    return "urma_cmd_modify_jfs URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "去激活JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure812::GetRootCauseDesc() const
 {
-    return "urma_cmd_modify_jfs 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFS 状态。";
+    return "函数用于去激活JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure812::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure812::GetFixSuggDesc() const
 
 std::string UrmaFailure812::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_modify_jfs, ret:, errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfs，jfr cfg out of range, depth:，, max_depth:，, "
+           "sge:，, max_sge:。";
 }
 
 std::string UrmaFailure812::GetId() const

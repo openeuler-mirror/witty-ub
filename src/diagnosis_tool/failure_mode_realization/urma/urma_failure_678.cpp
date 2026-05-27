@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure678> g_urma("urma_678");
 bool UrmaFailure678::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_send' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'null pointer exists in tjfr'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to delete jfr, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', status:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure678::IsValid()
 
 std::string UrmaFailure678::GetName() const
 {
-    return "urma_send 校验 JFR 无效导致发送流程拒绝继续执行";
+    return "JFR清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure678::GetRootCauseDesc() const
 {
-    return "urma_send 在执行发送前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure678::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure678::GetFixSuggDesc() const
 
 std::string UrmaFailure678::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：null pointer exists in tjfr";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr，[DRV_ERR]Failed to delete jfr, dev_name:，, "
+           "eid_idx:，, id:，, status:。";
 }
 
 std::string UrmaFailure678::GetId() const

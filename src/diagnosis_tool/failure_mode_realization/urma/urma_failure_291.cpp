@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure291> g_urma("urma_291");
 
 bool UrmaFailure291::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'deepcopy_sg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc dst sge'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ack_notify' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'max_jetty_in_jetty_grp' | grep -F 'is err.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure291::IsValid()
 
 std::string UrmaFailure291::GetName() const
 {
-    return "deepcopy_sg 分配 SGE 临时参数失败导致复制流程无法继续";
+    return "确认Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure291::GetRootCauseDesc() const
 {
-    return "deepcopy_sg 需要为 SGE 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数用于确认Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure291::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure291::GetFixSuggDesc() const
 
 std::string UrmaFailure291::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to alloc dst sge";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ack_notify，max_jetty_in_jetty_grp，is err.。";
 }
 
 std::string UrmaFailure291::GetId() const

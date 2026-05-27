@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure574> g_urma("urma_574");
 
 bool UrmaFailure574::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_unregister_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete pseg for vseg, token_id:' | "
-        "grep -F ', handle:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_flush_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,12 @@ bool UrmaFailure574::IsValid()
 
 std::string UrmaFailure574::GetName() const
 {
-    return "bondp_unregister_seg 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "URMA context、JFS对象无效导致刷出JFS失败";
 }
 
 std::string UrmaFailure574::GetRootCauseDesc() const
 {
-    return "bondp_unregister_seg 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于刷出JFS，调用方传入的URMA context、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure574::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure574::GetFixSuggDesc() const
 
 std::string UrmaFailure574::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete pseg for vseg, token_id:, handle";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_flush_jfs，Invalid parameter.。";
 }
 
 std::string UrmaFailure574::GetId() const

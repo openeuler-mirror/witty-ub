@@ -9,10 +9,8 @@ static AutoRegister<UrmaFailure505> g_urma("urma_505");
 bool UrmaFailure505::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_query_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed, ret:' | "
-        "grep -F ', errno:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_perf_info' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Urma "
+        "perf get info failed, need' | grep -F 'bytes buffer, but only' | grep -F 'provided'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure505::IsValid()
 
 std::string UrmaFailure505::GetName() const
 {
-    return "urma_cmd_query_jfs URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "获取锁过程中依赖步骤失败";
 }
 
 std::string UrmaFailure505::GetRootCauseDesc() const
 {
-    return "urma_cmd_query_jfs 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFS 状态。";
+    return "函数用于获取锁，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure505::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure505::GetFixSuggDesc() const
 
 std::string UrmaFailure505::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed, ret:, errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_perf_info，Urma perf get info failed, need，bytes buffer, but "
+           "only，provided。";
 }
 
 std::string UrmaFailure505::GetId() const

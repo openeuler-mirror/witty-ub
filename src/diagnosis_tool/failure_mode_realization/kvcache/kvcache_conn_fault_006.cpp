@@ -16,6 +16,7 @@ bool KvcacheConnFault006::IsValid()
     std::string rawOutput = kvcache_log_helper::RunCommand(
         "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code == \"5\" {print $0}' $WITTY_UB_CLIENT_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    rawOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(rawOutput);
     kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);
     return !grepOutput.empty();
 }

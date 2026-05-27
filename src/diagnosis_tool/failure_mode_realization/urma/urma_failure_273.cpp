@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure273> g_urma("urma_273");
 
 bool UrmaFailure273::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_register_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid token id for register bondp seg'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_jetty_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure273::IsValid()
 
 std::string UrmaFailure273::GetName() const
 {
-    return "bondp_register_seg 校验 segment 无效导致注册流程拒绝继续执行";
+    return "Jetty对象无效导致获取Jetty失败";
 }
 
 std::string UrmaFailure273::GetRootCauseDesc() const
 {
-    return "bondp_register_seg 在执行注册前发现调用方传入的 segment 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于获取Jetty，调用方传入的Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure273::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure273::GetFixSuggDesc() const
 
 std::string UrmaFailure273::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid token id for register bondp seg";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_jetty_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure273::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure025> g_urma("urma_025");
 
 bool UrmaFailure025::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_global_ctx_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc global context'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_init' \"$URMA_LOG_PATH\" 2>/dev/null "
+                                    "| grep -F 'Failed to start health check thread.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure025::IsValid()
 
 std::string UrmaFailure025::GetName() const
 {
-    return "bondp_global_ctx_init 分配 context 临时参数失败导致初始化流程无法继续";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure025::GetRootCauseDesc() const
 {
-    return "bondp_global_ctx_init 需要为 context 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure025::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure025::GetFixSuggDesc() const
 
 std::string UrmaFailure025::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to alloc global context";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_init，Failed to start health check thread.。";
 }
 
 std::string UrmaFailure025::GetId() const

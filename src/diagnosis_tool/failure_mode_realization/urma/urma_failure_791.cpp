@@ -9,9 +9,9 @@ static AutoRegister<UrmaFailure791> g_urma("urma_791");
 bool UrmaFailure791::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_free_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete jetty because it has remote jetty, try unbind first'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_order_type' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'jfs "
+        "cfg out of range, depth:' | grep -F ', max_depth:' | grep -F ', inline_data:' | grep -F ', max_inline_len:' | "
+        "grep -F ', sge:' | grep -F 'hu, max_sge:' | grep -F ', rsge:' | grep -F 'hu, max_rsge:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +19,13 @@ bool UrmaFailure791::IsValid()
 
 std::string UrmaFailure791::GetName() const
 {
-    return "urma_free_jetty 执行释放 Jetty 失败导致当前资源状态无法推进";
+    return "创建JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure791::GetRootCauseDesc() const
 {
-    return "urma_free_jetty 调用下层 provider、bond 组件或系统接口处理 Jetty 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于创建JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure791::AnalyzeRootCause()
@@ -40,7 +40,8 @@ std::string UrmaFailure791::GetFixSuggDesc() const
 
 std::string UrmaFailure791::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete jetty because it has remote jetty, try unbind first";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_order_type，jfs cfg out of range, depth:，, max_depth:，, "
+           "inline_data:，, max_inline_len:，, sge:，hu, max_sge:，, rsge:，hu, max_rsge:。";
 }
 
 std::string UrmaFailure791::GetId() const

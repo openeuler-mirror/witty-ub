@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure676> g_urma("urma_676");
 
 bool UrmaFailure676::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_ack_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'jfr is deactived, can not delete.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure676::IsValid()
 
 std::string UrmaFailure676::GetName() const
 {
-    return "urma_ack_async_event 校验 context 无效导致确认流程拒绝继续执行";
+    return "JFR清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure676::GetRootCauseDesc() const
 {
-    return "urma_ack_async_event 在执行确认前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure676::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure676::GetFixSuggDesc() const
 
 std::string UrmaFailure676::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr，jfr is deactived, can not delete.。";
 }
 
 std::string UrmaFailure676::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure533> g_urma("urma_533");
 
 bool UrmaFailure533::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_smac' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_seg' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure533::IsValid()
 
 std::string UrmaFailure533::GetName() const
 {
-    return "urma_get_smac 校验 context 无效导致获取流程拒绝继续执行";
+    return "URMA context、设备对象、provider操作表、Segment对象无效导致解除导入Segment失败";
 }
 
 std::string UrmaFailure533::GetRootCauseDesc() const
 {
-    return "urma_get_smac 在执行获取前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于解除导入Segment，调用方传入的URMA "
+           "context、设备对象、provider操作表、Segment对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure533::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure533::GetFixSuggDesc() const
 
 std::string UrmaFailure533::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_seg，Invalid parameter.。";
 }
 
 std::string UrmaFailure533::GetId() const

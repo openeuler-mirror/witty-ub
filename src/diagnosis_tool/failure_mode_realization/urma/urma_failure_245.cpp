@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure245> g_urma("urma_245");
 
 bool UrmaFailure245::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Initialized already'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unadvise_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure245::IsValid()
 
 std::string UrmaFailure245::GetName() const
 {
-    return "bondp_init 校验 context 业务条件不满足导致初始化流程拒绝继续执行";
+    return "URMA context、provider操作表、Jetty对象、目标Jetty对象无效导致导入Jetty失败";
 }
 
 std::string UrmaFailure245::GetRootCauseDesc() const
 {
-    return "bondp_init 在执行初始化时发现 context "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数用于导入Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure245::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure245::GetFixSuggDesc() const
 
 std::string UrmaFailure245::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Initialized already";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unadvise_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure245::GetId() const

@@ -8,10 +8,8 @@ static AutoRegister<UrmaFailure569> g_urma("urma_569");
 
 bool UrmaFailure569::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_unimport_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid bdp tjetty'");
+    std::string grepOutput = urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'schedule_send' "
+                                                         "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'No active port'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +17,13 @@ bool UrmaFailure569::IsValid()
 
 std::string UrmaFailure569::GetName() const
 {
-    return "bondp_unimport_jfr 校验 目标 Jetty 无效导致导入流程拒绝继续执行";
+    return "激活端口过程中依赖步骤失败";
 }
 
 std::string UrmaFailure569::GetRootCauseDesc() const
 {
-    return "bondp_unimport_jfr 在执行导入前发现调用方传入的 目标 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活端口，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure569::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure569::GetFixSuggDesc() const
 
 std::string UrmaFailure569::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid bdp tjetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_send，No active port。";
 }
 
 std::string UrmaFailure569::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure848> g_urma("urma_848");
 
 bool UrmaFailure848::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'BDP_V_CONN_HASH_BASIS' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unadvise_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure848::IsValid()
 
 std::string UrmaFailure848::GetName() const
 {
-    return "BDP_V_CONN_HASH_BASIS 校验 Jetty 无效导致处理流程拒绝继续执行";
+    return "URMA context、provider操作表、JFS对象无效导致执行JFR失败";
 }
 
 std::string UrmaFailure848::GetRootCauseDesc() const
 {
-    return "BDP_V_CONN_HASH_BASIS 在执行处理前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行JFR，调用方传入的URMA "
+           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure848::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure848::GetFixSuggDesc() const
 
 std::string UrmaFailure848::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unadvise_jfr，Invalid parameter.。";
 }
 
 std::string UrmaFailure848::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure624> g_urma("urma_624");
 bool UrmaFailure624::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_get_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'failed to get invalid jetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'bad jfs index exceed array length, bad_jfs_index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure624::IsValid()
 
 std::string UrmaFailure624::GetName() const
 {
-    return "bondp_get_async_event 校验 Jetty 无效导致获取流程拒绝继续执行";
+    return "删除JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure624::GetRootCauseDesc() const
 {
-    return "bondp_get_async_event 在执行获取前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于删除JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure624::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure624::GetFixSuggDesc() const
 
 std::string UrmaFailure624::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：failed to get invalid jetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs_batch，bad jfs index exceed array length, "
+           "bad_jfs_index:。";
 }
 
 std::string UrmaFailure624::GetId() const

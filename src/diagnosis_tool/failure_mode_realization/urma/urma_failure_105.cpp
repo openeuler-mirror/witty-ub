@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure105> g_urma("urma_105");
 bool UrmaFailure105::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_register_health_check_seg_for_jetty' \"$URMA_LOG_PATH\" "
+        "2>/dev/null | grep -F 'Failed to register health check segment'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure105::IsValid()
 
 std::string UrmaFailure105::GetName() const
 {
-    return "urma_active_jfs 校验 JFS 无效导致激活流程拒绝继续执行";
+    return "健康检查注册时下层资源准备失败";
 }
 
 std::string UrmaFailure105::GetRootCauseDesc() const
 {
-    return "urma_active_jfs 在执行激活前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责注册健康检查，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure105::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure105::GetFixSuggDesc() const
 
 std::string UrmaFailure105::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_register_health_check_seg_for_jetty，Failed to register health "
+           "check segment。";
 }
 
 std::string UrmaFailure105::GetId() const

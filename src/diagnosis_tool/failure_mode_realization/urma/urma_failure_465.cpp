@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure465> g_urma("urma_465");
 
 bool UrmaFailure465::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_alloc_token_id_ex' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_async_event' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure465::IsValid()
 
 std::string UrmaFailure465::GetName() const
 {
-    return "urma_alloc_token_id_ex 校验 context 无效导致分配流程拒绝继续执行";
+    return "URMA context、provider操作表、JFS对象无效导致获取JFR失败";
 }
 
 std::string UrmaFailure465::GetRootCauseDesc() const
 {
-    return "urma_alloc_token_id_ex 在执行分配前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于获取JFR，调用方传入的URMA "
+           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure465::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure465::GetFixSuggDesc() const
 
 std::string UrmaFailure465::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_async_event，Invalid parameter.。";
 }
 
 std::string UrmaFailure465::GetId() const

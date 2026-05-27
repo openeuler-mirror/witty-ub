@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure590> g_urma("urma_590");
 
 bool UrmaFailure590::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_unimport_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_config_perf_attr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Urma perf config failed. perf record is not started.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure590::IsValid()
 
 std::string UrmaFailure590::GetName() const
 {
-    return "urma_cmd_unimport_jetty_async 校验 目标 Jetty 无效导致导入流程拒绝继续执行";
+    return "获取URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure590::GetRootCauseDesc() const
 {
-    return "urma_cmd_unimport_jetty_async 在执行导入前发现调用方传入的 目标 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于获取URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
+           "A操作失败。";
 }
 
 RootCause UrmaFailure590::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure590::GetFixSuggDesc() const
 
 std::string UrmaFailure590::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_config_perf_attr，Urma perf config failed. perf record is not "
+           "started.。";
 }
 
 std::string UrmaFailure590::GetId() const

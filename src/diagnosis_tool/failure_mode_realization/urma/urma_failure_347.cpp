@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure347> g_urma("urma_347");
 bool UrmaFailure347::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_create_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'failed to fill jetty cfg'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pcontext' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to create context for primary eid, dev:' | grep -F ', eid_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure347::IsValid()
 
 std::string UrmaFailure347::GetName() const
 {
-    return "urma_cmd_create_jetty URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "context创建时下层资源准备失败";
 }
 
 std::string UrmaFailure347::GetRootCauseDesc() const
 {
-    return "urma_cmd_create_jetty 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 Jetty 状态。";
+    return "函数负责创建context，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
 }
 
 RootCause UrmaFailure347::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure347::GetFixSuggDesc() const
 
 std::string UrmaFailure347::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：failed to fill jetty cfg";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pcontext，Failed to create context for primary eid, "
+           "dev:，, eid_idx:。";
 }
 
 std::string UrmaFailure347::GetId() const

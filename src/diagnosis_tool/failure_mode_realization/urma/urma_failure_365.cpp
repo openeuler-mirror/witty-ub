@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure365> g_urma("urma_365");
 
 bool UrmaFailure365::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_token_id' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure365::IsValid()
 
 std::string UrmaFailure365::GetName() const
 {
-    return "urma_delete_jfc_batch 校验 JFC 无效导致删除流程拒绝继续执行";
+    return "释放ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure365::GetRootCauseDesc() const
 {
-    return "urma_delete_jfc_batch 在执行删除前发现调用方传入的 JFC 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数通过ioctl向URMA内核驱动提交释放ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure365::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure365::GetFixSuggDesc() const
 
 std::string UrmaFailure365::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_free_token_id，ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure365::GetId() const

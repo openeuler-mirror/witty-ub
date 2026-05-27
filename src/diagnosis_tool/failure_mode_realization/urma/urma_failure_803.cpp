@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure803> g_urma("urma_803");
 
 bool UrmaFailure803::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_notifier' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,16 @@ bool UrmaFailure803::IsValid()
 
 std::string UrmaFailure803::GetName() const
 {
-    return "urma_delete_notifier 校验 context 无效导致删除流程拒绝继续执行";
+    return "URMA "
+           "context、设备对象、sysfs设备信息、provider操作表、JFS对象、provider未提供active_"
+           "jfs操作实现无效导致激活JFS失败";
 }
 
 std::string UrmaFailure803::GetRootCauseDesc() const
 {
-    return "urma_delete_notifier 在执行删除前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活JFS，调用方传入的URMA "
+           "context、设备对象、sysfs设备信息、provider操作表、JFS对象、provider未提供active_"
+           "jfs操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure803::AnalyzeRootCause()
@@ -41,7 +42,7 @@ std::string UrmaFailure803::GetFixSuggDesc() const
 
 std::string UrmaFailure803::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jfs，Invalid parameter.。";
 }
 
 std::string UrmaFailure803::GetId() const

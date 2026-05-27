@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure721> g_urma("urma_721");
 bool UrmaFailure721::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'delete_copied_jfs_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid jfs wr to delete'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'convert_bond_port_id_to_active_index' \"$URMA_LOG_PATH\" 2>/dev/null | "
+        "grep -F 'Invalid port id, chip_id:' | grep -F ', port_idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure721::IsValid()
 
 std::string UrmaFailure721::GetName() const
 {
-    return "delete_copied_jfs_wr 校验 JFS 无效导致删除流程拒绝继续执行";
+    return "激活端口所需输入对象无效导致激活端口失败";
 }
 
 std::string UrmaFailure721::GetRootCauseDesc() const
 {
-    return "delete_copied_jfs_wr 在执行删除前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活端口，调用方传入的激活端口所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure721::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure721::GetFixSuggDesc() const
 
 std::string UrmaFailure721::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid jfs wr to delete";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：convert_bond_port_id_to_active_index，Invalid port id, chip_id:，, "
+           "port_idx:。";
 }
 
 std::string UrmaFailure721::GetId() const

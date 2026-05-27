@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure201> g_urma("urma_201");
 
 bool UrmaFailure201::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_import_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc target jetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure201::IsValid()
 
 std::string UrmaFailure201::GetName() const
 {
-    return "bondp_import_jetty 分配 目标 Jetty 临时参数失败导致导入流程无法继续";
+    return "URMA context、provider操作表、Jetty对象无效导致查询Jetty失败";
 }
 
 std::string UrmaFailure201::GetRootCauseDesc() const
 {
-    return "bondp_import_jetty 需要为 目标 Jetty 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数用于查询Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure201::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure201::GetFixSuggDesc() const
 
 std::string UrmaFailure201::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to alloc target jetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure201::GetId() const

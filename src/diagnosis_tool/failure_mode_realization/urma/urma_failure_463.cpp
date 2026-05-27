@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure463> g_urma("urma_463");
 
 bool UrmaFailure463::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_alloc_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to register seg, dev_name:' | "
-        "grep -F ', eid_idx:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Write access should be config with read access.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure463::IsValid()
 
 std::string UrmaFailure463::GetName() const
 {
-    return "urma_alloc_token_id 执行分配 设备 失败导致当前资源状态无法推进";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure463::GetRootCauseDesc() const
 {
-    return "urma_alloc_token_id 调用下层 provider、bond 组件或系统接口处理 设备 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure463::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure463::GetFixSuggDesc() const
 
 std::string UrmaFailure463::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Failed to register seg, dev_name: , eid_idx";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_seg_cfg，Write access should be config with read access.。";
 }
 
 std::string UrmaFailure463::GetId() const

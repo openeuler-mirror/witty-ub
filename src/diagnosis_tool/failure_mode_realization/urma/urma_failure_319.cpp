@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure319> g_urma("urma_319");
 
 bool UrmaFailure319::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_free_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_post_jetty_send_wr' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure319::IsValid()
 
 std::string UrmaFailure319::GetName() const
 {
-    return "urma_cmd_free_jfs 校验 context 无效导致释放流程拒绝继续执行";
+    return "Jetty对象、WR对象无效导致投递Jetty失败";
 }
 
 std::string UrmaFailure319::GetRootCauseDesc() const
 {
-    return "urma_cmd_free_jfs 在执行释放前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于投递Jetty，调用方传入的Jetty对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure319::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure319::GetFixSuggDesc() const
 
 std::string UrmaFailure319::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_post_jetty_send_wr，Invalid parameter.。";
 }
 
 std::string UrmaFailure319::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure205> g_urma("urma_205");
 bool UrmaFailure205::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_vjfce_info_table_add' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'exist node in map'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to "
+        "delete jetty because it has remote jetty, try unbind first'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure205::IsValid()
 
 std::string UrmaFailure205::GetName() const
 {
-    return "bdp_vjfce_info_table_add 更新 JFCE 映射结构失败导致资源索引不可用";
+    return "Jetty清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure205::GetRootCauseDesc() const
 {
-    return "bdp_vjfce_info_table_add 需要维护 JFCE "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure205::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure205::GetFixSuggDesc() const
 
 std::string UrmaFailure205::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：exist node in map";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jetty，Failed to delete jetty because it has remote jetty, "
+           "try unbind first。";
 }
 
 std::string UrmaFailure205::GetId() const

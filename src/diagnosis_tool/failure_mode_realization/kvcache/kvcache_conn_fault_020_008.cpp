@@ -13,6 +13,7 @@ bool KvcacheConnFault020_008::IsValid()
     std::string grepOutput = kvcache_log_helper::RunCommand(
         "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E '\\[RPC_SERVICE_UNAVAILABLE\\]' $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
+    grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
     kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
 }

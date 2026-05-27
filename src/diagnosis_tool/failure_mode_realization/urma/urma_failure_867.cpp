@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure867> g_urma("urma_867");
 
 bool UrmaFailure867::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'deepcopy_jfs_wr_node' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Deepcopy faa failed'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_getenv_log_level' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter: log level str.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure867::IsValid()
 
 std::string UrmaFailure867::GetName() const
 {
-    return "deepcopy_jfs_wr_node 执行复制 JFS 失败导致当前资源状态无法推进";
+    return "执行URMA资源所需输入对象无效导致获取URMA资源失败";
 }
 
 std::string UrmaFailure867::GetRootCauseDesc() const
 {
-    return "deepcopy_jfs_wr_node 调用下层 provider、bond 组件或系统接口处理 JFS 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于获取URMA资源，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure867::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure867::GetFixSuggDesc() const
 
 std::string UrmaFailure867::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Deepcopy faa failed";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_getenv_log_level，Invalid parameter: log level str.。";
 }
 
 std::string UrmaFailure867::GetId() const

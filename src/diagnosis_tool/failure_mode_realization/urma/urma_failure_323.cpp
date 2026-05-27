@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure323> g_urma("urma_323");
 
 bool UrmaFailure323::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jfr_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfr not from the same dev, cannot delete in a batch, index:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjfce' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Fail to add fd:' | grep -F 'to epoll fd:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure323::IsValid()
 
 std::string UrmaFailure323::GetName() const
 {
-    return "urma_cmd_delete_jfr_batch 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "文件描述符数据通路处理失败";
 }
 
 std::string UrmaFailure323::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jfr_batch 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure323::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure323::GetFixSuggDesc() const
 
 std::string UrmaFailure323::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfr not from the same dev, cannot delete in a batch, index";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjfce，Fail to add fd:，to epoll fd:。";
 }
 
 std::string UrmaFailure323::GetId() const
