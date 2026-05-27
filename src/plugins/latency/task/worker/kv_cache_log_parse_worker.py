@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.task.process_handle import ProcessHandler
+from collections import defaultdict
+from latency.ENUM.task import TaskTypeEnum
+from latency.config.config import Config
 from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
@@ -14,10 +15,8 @@ from latency.parse import (
     ParseResultBuilder,
 )
 from latency.common.ds_log_io import glob_paths, open_log
-from latency.database.engine import AsyncSQLiteSingleton
-from latency.database.managers.log_parse_result import LogParseResultManager
-from latency.database.managers.task import TaskManager
-from latency.database.managers.task_report import TaskReportManager
+from latency.common.stats import stats
+
 from latency.schemas.log import (
     LogFileModel,
     SrcDstAggregatedEventModel,
@@ -145,8 +144,55 @@ class KVCacheLogParseWorker:
     async def detect_exception(
         list_log_parse_results: list[LogParseResultModel],
     ) -> list[AnomalousEventModel]:
-        """异常检测"""
-        pass
+        """逐条检测异常事件"""
+        cfg = Config().get_config().ds_log_analyzer
+
+        thresholds = [
+            ("total_latency", cfg.total_p99_threshold_ms),
+            ("c2w_latency", cfg.c2w_p99_threshold_ms),
+            ("w2w_urma_latency", cfg.w2w_p99_threshold_ms),
+            ("urma_link_latency", cfg.urma_link_p99_threshold_ms),
+            ("worker_query_meta_latency", cfg.query_meta_p99_threshold_ms),
+        ]
+
+        events: list[AnomalousEventModel] = []
+        anomalous_count = 0
+
+        for idx, r in enumerate(list_log_parse_results):
+            reasons: list[str] = []
+
+            if r.is_anomalous and r.anomaly_reason:
+                reasons.append(r.anomaly_reason)
+
+            if r.c2w_latency is not None and r.c2w_latency < 0:
+                reasons.append("Client2WorkerTime(us) < 0")
+
+            if r.c2w_urma_latency is not None:
+                reasons.append(f"c2w_urma_latency={r.c2w_urma_latency:.3f}ms (remote URMA path)")
+
+            for field_name, threshold_ms in thresholds:
+                value = getattr(r, field_name, None)
+                if value is not None and value > threshold_ms:
+                    reasons.append(f"{field_name}={value:.3f}ms > threshold {threshold_ms}ms")
+
+            if not reasons:
+                continue
+
+            anomalous_count += 1
+            log_id = r.log_id or ""
+
+            events.append(AnomalousEventModel(
+                log_id=log_id,
+                aggregated_event_id="",
+                start_log_parse_offset=idx,
+                end_log_parse_offset=idx,
+                anomaly_reason="; ".join(reasons),
+            ))
+
+        logger.info(f"Detect exception: {anomalous_count:,} anomalous out of "
+                     f"{len(list_log_parse_results):,} results")
+
+        return events
 
     # 异常事件匹配故障
     @staticmethod
@@ -169,8 +215,56 @@ class KVCacheLogParseWorker:
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
     ) -> list[SrcDstAggregatedEventModel]:
-        """生成聚合结果"""
-        pass
+        """按 src_ip/dst_ip 聚合统计"""
+        latency_fields = [
+            ("total_latency", "total_latency"),
+            ("query_meta_latency", "worker_query_meta_latency"),
+            ("urma_total_latency", "urma_total_latency"),
+            ("urma_link_latency", "urma_link_latency"),
+            ("c2w_urma_latency", "c2w_urma_latency"),
+            ("w2w_urma_latency", "w2w_urma_latency"),
+        ]
+
+        groups: dict[tuple[str, str], list[LogParseResultModel]] = defaultdict(list)
+        for r in list_log_parse_results:
+            src = r.src_ip or ""
+            dst = r.dst_ip or ""
+            if not src and not dst:
+                continue
+            groups[(src, dst)].append(r)
+
+        results: list[SrcDstAggregatedEventModel] = []
+        for (src, dst), items in groups.items():
+            log_id = items[0].log_id or ""
+            total_cnt = len(items)
+            anomaly_cnt = sum(1 for r in items if r.is_anomalous)
+            anomaly_log_cnt = sum(1 for r in items if r.anomalous_event_id)
+
+            agg: dict[str, float | None] = {}
+            for prefix, field_name in latency_fields:
+                values = [getattr(r, field_name) for r in items]
+                values = [v for v in values if v is not None]
+                st = stats(values)
+                agg[f"ave_{prefix}"] = st["ave"]
+                agg[f"min_{prefix}"] = st["min"]
+                agg[f"max_{prefix}"] = st["max"]
+                agg[f"p95_{prefix}"] = st["p95"]
+                agg[f"p99_{prefix}"] = st["p99"]
+
+            results.append(SrcDstAggregatedEventModel(
+                src_ip=src,
+                dst_ip=dst,
+                log_id=log_id,
+                log_parse_result_cnt=total_cnt,
+                anomaly_log_parse_result_cnt=anomaly_log_cnt,
+                anomaly_cnt=anomaly_cnt,
+                **agg,
+            ))
+
+        logger.info(f"Aggregate result: {len(results):,} endpoints from "
+                     f"{len(list_log_parse_results):,} results")
+
+        return results
 
     # 存库
     @staticmethod

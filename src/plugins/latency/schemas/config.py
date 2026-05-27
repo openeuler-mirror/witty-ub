@@ -42,9 +42,12 @@ class ModelConfig(BaseModel):
 
 class DSLogAnalyzerConfig(BaseModel):
     model_config = {"populate_by_name": True}
-    
-    slow_p99_threshold_us: float = Field(default=2000.0, alias="SLOW_P99_THRESHOLD_US", description="慢请求P99阈值，单位微秒")
-    progress_update_lines: int = Field(default=100000, alias="PROGRESS_UPDATE_LINES", description="进度刷新间隔行数")
+
+    total_p99_threshold_ms: float = Field(default=2.0, alias="TOTAL_P99_THRESHOLD_MS", description="总时延P99阈值，单位毫秒")
+    c2w_p99_threshold_ms: float = Field(default=1.0, alias="C2W_P99_THRESHOLD_MS", description="C2W时延P99阈值，单位毫秒")
+    w2w_p99_threshold_ms: float = Field(default=1.0, alias="W2W_P99_THRESHOLD_MS", description="W2W时延P99阈值，单位毫秒")
+    urma_link_p99_threshold_ms: float = Field(default=1.0, alias="URMA_LINK_P99_THRESHOLD_MS", description="URMA建链时延P99阈值，单位毫秒")
+    query_meta_p99_threshold_ms: float = Field(default=1.0, alias="QUERY_META_P99_THRESHOLD_MS", description="Worker QueryMeta时延P99阈值，单位毫秒")
 
 
 class ConfigModel(BaseModel):
