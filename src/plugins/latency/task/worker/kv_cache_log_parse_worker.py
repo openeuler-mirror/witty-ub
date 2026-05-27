@@ -28,14 +28,22 @@ from latency.schemas.log import (
 
 logger = logging.getLogger(__name__)
 
+_PROGRESS_UPDATE_LINES = 100_000
+
 
 def _scan_file(parser, path: str) -> tuple[str, list]:
     pod_ip = parser.extract_pod_ip(path)
     log_file = LogFileModel(file_path=path, file_size=os.path.getsize(path))
+    file_name = os.path.basename(path)
     entries = []
     try:
         with open_log(path) as f:
             for line_no, line in enumerate(f, 1):
+                if line_no % _PROGRESS_UPDATE_LINES == 0:
+                    logger.info(
+                        f"[{parser.label}] scanning {file_name} | "
+                        f"line {line_no:,} | match {len(entries):,}"
+                    )
                 entry = parser.match_line(line, pod_ip)
                 if entry:
                     entry.log_id = log_file.id
@@ -44,6 +52,10 @@ def _scan_file(parser, path: str) -> tuple[str, list]:
         logger.warning(f"Skipping corrupted file {path}")
     except Exception as e:
         logger.warning(f"Error reading {path}: {e}")
+    logger.info(
+        f"[{parser.label}] done {file_name} | "
+        f"lines scanned | match {len(entries):,}"
+    )
     return parser.label, entries
 
 
@@ -88,8 +100,12 @@ class KVCacheLogParseWorker:
             paths = glob_paths(
                 [os.path.join(log_dir, p) for p in parser.patterns]
             )
+            logger.info(f"[{parser.label}] found {len(paths)} file(s)")
             for path in paths:
                 scan_tasks.append(asyncio.to_thread(_scan_file, parser, path))
+
+        total_tasks = len(scan_tasks)
+        logger.info(f"=== Stage 1/3: Scanning {total_tasks} file(s) ===")
 
         scan_results = await asyncio.gather(*scan_tasks)
 
@@ -100,14 +116,18 @@ class KVCacheLogParseWorker:
 
         for label in parsed:
             parsed[label].sort(key=lambda x: x.timestamp)
-            logger.info(f"{label}: {len(parsed[label])} entries")
+            logger.info(f"  {label}: {len(parsed[label]):,} entries")
 
+        logger.info("=== Stage 2/3: Correlating entries ===")
         correlator = LogCorrelator(parsed)
         correlated = correlator.correlate()
+        logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
+                     f"Worker→URMA: {len(correlated.worker_urma_map):,}")
 
         sdk_entries = parsed.get("SDK access parse", [])
         worker_entries = parsed.get("Worker access parse", [])
 
+        logger.info("=== Stage 3/3: Building parse results ===")
         builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir)
         results = builder.build()
 
@@ -116,7 +136,7 @@ class KVCacheLogParseWorker:
 
         total = len(results)
         anomalous_count = sum(1 for r in results if r.is_anomalous)
-        logger.info(f"Parse complete: {total} results, {anomalous_count} anomalous")
+        logger.info(f"Parse complete: {total:,} results, {anomalous_count:,} anomalous")
 
         return results
 
