@@ -59,14 +59,39 @@ class LogParseResultManager:
                     )
                 """
                 params = [
-                    r.model_dump(exclude_none=False, by_alias=True)
-                    for r in batch
+                    r.model_dump(exclude_none=False, by_alias=True) for r in batch
                 ]
                 await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([r.id for r in batch])
             except Exception as e:
                 print(f"批量添加日志解析结果失败，错误信息: {str(e)}")
         return ids_added
+
+    @staticmethod
+    async def delete_log_parse_results_by_log_id(log_id: str) -> bool:
+        """根据日志ID删除解析结果"""
+        sql_str = """
+            UPDATE log_parse_result_table
+            SET existed_status = 0
+            WHERE log_id = :log_id
+        """
+        params = {"log_id": log_id}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
+
+    @staticmethod
+    async def update_log_prase_results_existed_status_by_log_id(
+        log_id: str, existed_status: int
+    ) -> bool:
+        """根据日志ID更新解析结果的existed_status"""
+        sql_str = """
+            UPDATE log_parse_result_table
+            SET existed_status = :existed_status
+            WHERE log_id = :log_id
+        """
+        params = {"log_id": log_id, "existed_status": existed_status}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
 
     @staticmethod
     async def list_log_parse_results(
@@ -133,15 +158,3 @@ class LogParseResultManager:
         if rows:
             return LogParseResultModel(**rows[0])
         return None
-
-    @staticmethod
-    async def delete_log_parse_results_by_log_id(log_id: str) -> bool:
-        """根据日志ID删除解析结果"""
-        sql_str = """
-            UPDATE log_parse_result_table
-            SET existed_status = 0
-            WHERE log_id = :log_id
-        """
-        params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result

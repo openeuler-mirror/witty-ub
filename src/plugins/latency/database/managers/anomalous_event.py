@@ -40,14 +40,39 @@ class AnomalousEventManager:
                     )
                 """
                 params = [
-                    e.model_dump(exclude_none=False, by_alias=True)
-                    for e in batch
+                    e.model_dump(exclude_none=False, by_alias=True) for e in batch
                 ]
                 await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([e.id for e in batch])
             except Exception as e:
                 print(f"批量添加异常事件失败，错误信息: {str(e)}")
         return ids_added
+
+    @staticmethod
+    async def delete_anomalous_events_by_log_id(log_id: str) -> bool:
+        """根据日志ID删除异常事件"""
+        sql_str = """
+            UPDATE anomalous_event_table
+            SET existed_status = 0
+            WHERE log_id = :log_id
+        """
+        params = {"log_id": log_id}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
+
+    @staticmethod
+    async def update_anomalous_events_existed_status_by_log_id(
+        log_id: str, existed_status: int
+    ) -> bool:
+        """根据日志ID更新异常事件的存在状态"""
+        sql_str = """
+            UPDATE anomalous_event_table
+            SET existed_status = :existed_status
+            WHERE log_id = :log_id
+        """
+        params = {"log_id": log_id, "existed_status": existed_status}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
 
     @staticmethod
     async def list_anomalous_events_by_log_id(log_id: str) -> list[AnomalousEventModel]:
@@ -77,15 +102,3 @@ class AnomalousEventManager:
         if rows:
             return AnomalousEventModel(**rows[0])
         return None
-
-    @staticmethod
-    async def delete_anomalous_events_by_log_id(log_id: str) -> bool:
-        """根据日志ID删除异常事件"""
-        sql_str = """
-            UPDATE anomalous_event_table
-            SET existed_status = 0
-            WHERE log_id = :log_id
-        """
-        params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result

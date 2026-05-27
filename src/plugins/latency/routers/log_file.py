@@ -26,6 +26,7 @@ from latency.schemas.response import (
     UploadLogFilesResponse,
     DeleteLogFilesResponse,
     UpdateLogFileResponse,
+    RunOrStopLogParseResponse,
     ListLogFilesResponse,
     GetLogFileResponse,
 )
@@ -40,7 +41,7 @@ async def upload_log_files(
     req: Annotated[UpLoadLogFilesRequest, Body()],
 ) -> UploadLogFilesResponse:
     upload_log_files_msg = await LogFileService.upload_log_files(kb_id, req)
-    return UploadLogFilesResponse(message=upload_log_files_msg)
+    return UploadLogFilesResponse(result=upload_log_files_msg)
 
 
 @router.delete("/{log_file_id}", response_model=DeleteLogFilesResponse)
@@ -50,7 +51,7 @@ async def delete_log_file_by_log_file_id(
     delete_log_files_msg = await LogFileService.delete_log_file_by_log_file_id(
         log_file_id
     )
-    return DeleteLogFilesResponse(message=delete_log_files_msg)
+    return DeleteLogFilesResponse(result=delete_log_files_msg)
 
 
 @router.put("/{log_file_id}", response_model=UpdateLogFileResponse)
@@ -59,18 +60,18 @@ async def update_log_file(
     req: Annotated[UpdateLogFileRequest, Body()],
 ) -> UpdateLogFileResponse:
     update_log_file_msg = await LogFileService.update_log_file(log_file_id, req)
-    return UpdateLogFileResponse(message=update_log_file_msg)
+    return UpdateLogFileResponse(result=update_log_file_msg)
 
 
-@router.put("/run/{log_file_id}", response_model=UpdateLogFileResponse)
+@router.put("/run/{log_file_id}", response_model=RunOrStopLogParseResponse)
 async def run_or_stop_log_file_by_log_file_id(
     log_file_id: Annotated[str, Path()],
     run: Annotated[bool, Query(description="是否运行日志文件，默认为true")] = True,
-) -> UpdateLogFileResponse:
+) -> RunOrStopLogParseResponse:
     update_log_file_msg = await LogFileService.run_or_stop_log_parse_by_log_file_id(
         log_file_id, run
     )
-    return UpdateLogFileResponse(message=update_log_file_msg)
+    return RunOrStopLogParseResponse(result=update_log_file_msg)
 
 
 @router.post("/list/{kb_id}", response_model=ListLogFilesResponse)

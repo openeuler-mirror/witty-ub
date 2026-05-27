@@ -1,7 +1,7 @@
 from latency.schemas.response import (
     GetAnomalousEventMsg,
 )
-from latency.database.managers.anomalout_event import AnomalousEventManager
+from latency.database.managers.anomalous_event import AnomalousEventManager
 
 
 class AnomalousEventService:

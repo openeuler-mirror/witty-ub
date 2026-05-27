@@ -44,7 +44,9 @@ class SrcDstAggregatedEventManager:
         return result
 
     @staticmethod
-    async def add_aggregated_events(events: list[SrcDstAggregatedEventModel]) -> list[str]:
+    async def add_aggregated_events(
+        events: list[SrcDstAggregatedEventModel],
+    ) -> list[str]:
         """批量添加聚合事件"""
         ids_added = []
         batch_size = 1024
@@ -89,6 +91,32 @@ class SrcDstAggregatedEventManager:
             except Exception as e:
                 print(f"批量添加聚合事件失败，错误信息: {str(e)}")
         return ids_added
+
+    @staticmethod
+    async def delete_aggregated_events_by_log_id(log_id: str) -> bool:
+        """根据日志ID删除聚合事件"""
+        sql_str = """
+            UPDATE src_dst_aggregated_event_table
+            SET existed_status = 0
+            WHERE log_id = :log_id
+        """
+        params = {"log_id": log_id}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
+
+    @staticmethod
+    async def update_aggregated_events_existed_status_by_log_id(
+        log_id: str, existed_status: int
+    ) -> bool:
+        """根据日志ID更新聚合事件的existed_status"""
+        sql_str = """
+            UPDATE src_dst_aggregated_event_table
+            SET existed_status = :existed_status
+            WHERE log_id = :log_id
+        """
+        params = {"log_id": log_id, "existed_status": existed_status}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
 
     @staticmethod
     async def list_aggregated_events(
@@ -141,7 +169,9 @@ class SrcDstAggregatedEventManager:
         return total, events
 
     @staticmethod
-    async def get_aggregated_event_by_id(event_id: str) -> SrcDstAggregatedEventModel | None:
+    async def get_aggregated_event_by_id(
+        event_id: str,
+    ) -> SrcDstAggregatedEventModel | None:
         """根据ID获取聚合事件"""
         sql_str = """
             SELECT id, src_ip, dst_ip, log_id, log_parse_result_cnt,
@@ -164,15 +194,3 @@ class SrcDstAggregatedEventManager:
         if rows:
             return SrcDstAggregatedEventModel(**rows[0])
         return None
-
-    @staticmethod
-    async def delete_aggregated_events_by_log_id(log_id: str) -> bool:
-        """根据日志ID删除聚合事件"""
-        sql_str = """
-            UPDATE src_dst_aggregated_event_table
-            SET existed_status = 0
-            WHERE log_id = :log_id
-        """
-        params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result

@@ -10,8 +10,8 @@ class TaskManager:
     async def add_task(task: TaskModel) -> bool:
         """创建新任务"""
         sql_str = """
-            INSERT INTO task_table (id, kb_id, op_id, task_name, task_type, status, existed_status, created_at)
-            VALUES (:id, :kb_id, :op_id, :task_name, :task_type, :status, :existed_status, :created_at)
+            INSERT INTO task_table (id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at)
+            VALUES (:id, :kb_id, :op_id, :retry_times, :task_name, :task_type, :status, :existed_status, :created_at)
         """
         result = await AsyncSQLiteSingleton().execute_modify(
             sql_str, task.model_dump(exclude_none=False, by_alias=True)
@@ -27,12 +27,11 @@ class TaskManager:
             batch = tasks[i : i + batch_size]
             try:
                 sql_str = """
-                    INSERT INTO task_table (id, kb_id, op_id, task_name, task_type, status, existed_status, created_at)
-                    VALUES (:id, :kb_id, :op_id, :task_name, :task_type, :status, :existed_status, :created_at)
+                    INSERT INTO task_table (id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at)
+                    VALUES (:id, :kb_id, :op_id, :retry_times, :task_name, :task_type, :status, :existed_status, :created_at)
                 """
                 params = [
-                    task.model_dump(exclude_none=False, by_alias=True)
-                    for task in batch
+                    task.model_dump(exclude_none=False, by_alias=True) for task in batch
                 ]
                 await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([task.id for task in batch])
@@ -115,7 +114,7 @@ class TaskManager:
             return []
         placeholders = ", ".join(["?"] * len(task_ids))
         sql_str = f"""
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             WHERE id IN ({placeholders})
         """
@@ -126,7 +125,7 @@ class TaskManager:
     async def list_all_tasks() -> list[TaskModel]:
         """获取所有任务"""
         sql_str = """
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             ORDER BY created_at DESC
         """
@@ -137,7 +136,7 @@ class TaskManager:
     async def get_task_by_task_id(task_id: str) -> TaskModel | None:
         """根据任务ID获取任务信息"""
         sql_str = """
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             WHERE id = :task_id
         """
@@ -153,7 +152,7 @@ class TaskManager:
     ) -> list[TaskModel]:
         """根据知识库ID获取任务列表"""
         sql_str = """
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             WHERE kb_id = :kb_id
         """
@@ -177,7 +176,7 @@ class TaskManager:
             return []
         placeholders = ", ".join(["?"] * len(status))
         sql_str = f"""
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             WHERE status IN ({placeholders})
         """
@@ -191,7 +190,7 @@ class TaskManager:
     ) -> list[TaskModel]:
         """根据任务状态获取最旧的任务列表（按创建时间升序排序）"""
         sql_str = """
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             WHERE status = :status
             ORDER BY created_at ASC
@@ -208,7 +207,7 @@ class TaskManager:
             return []
         placeholders = ", ".join(["?"] * len(op_ids))
         sql_str = f"""
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM (
                 SELECT *, ROW_NUMBER() OVER (PARTITION BY op_id ORDER BY created_at DESC) as rn
                 FROM task_table
@@ -223,7 +222,7 @@ class TaskManager:
     async def get_current_task_by_op_id(op_id: str) -> TaskModel | None:
         """根据操作ID获取最新的任务信息（适用于一个操作可能对应多个任务的场景，获取最新的任务）"""
         sql_str = """
-            SELECT id, kb_id, op_id, task_name, task_type, status, existed_status, created_at
+            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at
             FROM task_table
             WHERE op_id = :op_id
             ORDER BY created_at DESC

@@ -52,7 +52,7 @@ class LogFileService:
         log_file_models = []
         for upload_log_file_config in req.upload_log_file_configs:
             log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name)
-            if upload_log_file_config.source_type == SourceType.local:
+            if upload_log_file_config.source_type == SourceType.LOCAL:
                 log_file_model.file_path = upload_log_file_config.source
                 log_file_model.file_size = os.path.getsize(
                     upload_log_file_config.source
@@ -182,11 +182,11 @@ class LogFileService:
             )
             return RunOrStopLogParseMsg(task_id=task_id)
         task = await TaskManager.get_current_task_by_op_id(log_file_id)
-        if task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
+        if task and task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
             await TaskHandler.stop(task.id)
             return RunOrStopLogParseMsg(task_id=task.id)
         else:
-            return UpdateLogFileMsg(log_file_id=log_file_id)
+            return RunOrStopLogParseMsg(task_id=None)
 
     @staticmethod
     async def list_log_files(kb_id: str, req: ListLogFilesRequest) -> ListLogFilesMsg:

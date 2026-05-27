@@ -8,8 +8,8 @@ class LogFileManager:
     async def add_log_file(log_file: LogFileModel) -> bool:
         """添加日志文件"""
         sql_str = """
-            INSERT INTO log_file_table (id, kb_id, name, file_path, file_size, anomaly_cnt, existed_status, created_at)
-            VALUES (:id, :kb_id, :name, :file_path, :file_size, :anomaly_cnt, :existed_status, :created_at)
+            INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at)
+            VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :existed_status, :created_at)
         """
         result = await AsyncSQLiteSingleton().execute_modify(
             sql_str, log_file.model_dump(exclude_none=False, by_alias=True)
@@ -25,8 +25,8 @@ class LogFileManager:
             batch = log_files[i : i + batch_size]
             try:
                 sql_str = """
-                    INSERT INTO log_file_table (id, kb_id, name, file_path, file_size, anomaly_cnt, existed_status, created_at)
-                    VALUES (:id, :kb_id, :name, :file_path, :file_size, :anomaly_cnt, :existed_status, :created_at)
+                    INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at)
+                    VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :existed_status, :created_at)
                 """
                 params = [
                     log_file.model_dump(exclude_none=False, by_alias=True)
@@ -71,7 +71,7 @@ class LogFileManager:
     ) -> tuple[int, list[LogFileModel]]:
         """根据知识ID分页查询日志文件列表"""
         sql_str = """
-            SELECT id, kb_id, name, file_path, file_size, anomaly_cnt, existed_status, created_at
+            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at
             FROM log_file_table
             WHERE kb_id = :kb_id AND existed_status = 1
         """
@@ -79,6 +79,9 @@ class LogFileManager:
         if req.name:
             sql_str += " AND name LIKE :name"
             params["name"] = f"%{req.name}%"
+        if req.parse_status:
+            sql_str += " AND parse_status = :parse_status"
+            params["parse_status"] = req.parse_status.value
         if req.created_at_start:
             sql_str += " AND created_at >= :created_at_start"
             params["created_at_start"] = req.created_at_start
@@ -105,7 +108,7 @@ class LogFileManager:
     async def get_log_file_by_log_file_id(log_file_id: str) -> LogFileModel | None:
         """根据日志文件ID获取日志文件信息"""
         sql_str = """
-            SELECT id, kb_id, name, file_path, file_size, anomaly_cnt, existed_status, created_at
+            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at
             FROM log_file_table
             WHERE id = :log_file_id
         """
