@@ -51,7 +51,7 @@ private:
     std::vector<std::string> FindMatchingFiles(const std::string &dir,
                                                const std::string &pattern); // 递归搜索匹配的文件
 
-    bool Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
+    void Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
     void StartKvcache(const std::vector<std::string> &subRootFailureModes);
     void StartUrma(const std::vector<std::string> &subRootFailureModes);
 
@@ -72,6 +72,7 @@ private:
     std::string dsClientAccessLogFile;   // --ds-client-access-log-file
     std::string dsClientInfoLogFile;     // --ds-client-info-log-file
     std::string dsWorkerInfoLogFile;     // --ds-worker-info-log-file
+    std::string dsWorkerAccessLogFile;
     std::string resourceLogFile;         // --resource-log-file
     std::string startTimeStr;
     std::string endTimeStr;

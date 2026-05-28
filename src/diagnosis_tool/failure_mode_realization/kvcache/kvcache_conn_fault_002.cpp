@@ -12,7 +12,7 @@ bool KvcacheConnFault002::IsValid()
 {
     // 提取status_code为2/3/8或code=0且respMsg异常的access log行。
     std::string rawOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && "
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && "
         "awk -F'|' 'NR>0 {"
         "code=$8; action=$9; resp=$13; "
         "gsub(/^ +| +$/,\"\",code); "
@@ -20,7 +20,7 @@ bool KvcacheConnFault002::IsValid()
         "gsub(/^ +| +$/,\"\",resp)"
         "} action ~ /^DS_KV_CLIENT_(PUT|GET)$/ && "
         "(code == \"2\" || code == \"3\" || code == \"8\" || (code == \"0\" && resp != \"\")) "
-        "{print $0}' $WITTY_UB_CLIENT_ACCESS_LOG 2>/dev/null");
+        "{print $0}' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     rawOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(rawOutput);
     kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);

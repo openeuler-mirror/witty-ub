@@ -11,7 +11,7 @@ bool KvcacheConnFault002_003::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L170, L172, L249
     std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep 'Client object is already sealed' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && grep 'Client object is already sealed' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG $WITTY_UB_CLIENT_INFO_LOG $WITTY_UB_WORKER_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     // 处理多文件grep输出，去掉"文件路径:"前缀，只保留日志行 (规则h)
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/SKILL.md 规则h
