@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from collections import defaultdict
-from plugins.latency.schemas.log import LogParseResultModel
+from latency.schemas.log import LogParseResultModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.task.process_handle import ProcessHandler
@@ -126,10 +126,10 @@ class KVCacheLogParseWorker(BaseWorker):
         await SrcDstAggregatedEventManager.update_aggregated_events_existed_status_by_log_id(
             task.op_id, existed_status=0
         )
-        await TaskReportManager.update_task_report_status_by_task_id(
+        await TaskReportManager.update_task_reports_existed_status_by_task_id(
             task_id, status=TaskStatusEnum.PENDING
         )
-        if task.retry_times > Config().get_config().task_retry_times:
+        if task.retry_times > Config().get_config().task.task_retry_times:
             await LogFileManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
             )
@@ -560,7 +560,7 @@ class KVCacheLogParseWorker(BaseWorker):
             await SrcDstAggregatedEventManager.update_aggregated_events_existed_status_by_log_id(
                 task.op_id, existed_status=0
             )
-            await TaskReportManager.update_task_report_existed_status_by_task_id(
+            await TaskReportManager.update_task_reports_existed_status_by_task_id(
                 task_id, existed_status=0
             )
             await TaskManager.update_task(

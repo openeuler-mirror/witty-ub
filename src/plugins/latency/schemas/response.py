@@ -8,6 +8,7 @@ from latency.schemas.log import (
     AnomalousEventChainModel,
     LogParseResultModel,
 )
+from latency.schemas.task import TaskModel
 
 
 class ResponseBase(BaseModel):
@@ -199,3 +200,44 @@ class StopOrRunLogParseMsg(BaseModel):
 
 class StopOrRunLogParseResponse(ResponseBase):
     result: StopOrRunLogParseMsg = Field(..., description="停止或运行日志解析响应结果")
+
+
+class CreateTaskMsg(BaseModel):
+    task_id: Optional[str] = Field(default=None, description="创建的任务ID")
+
+
+class CreateTaskResponse(ResponseBase):
+    result: CreateTaskMsg = Field(..., description="创建任务响应结果")
+
+
+class StopTaskMsg(BaseModel):
+    task_id: Optional[str] = Field(default=None, description="停止的任务ID")
+
+
+class StopTaskResponse(ResponseBase):
+    result: StopTaskMsg = Field(..., description="停止任务响应结果")
+
+
+class DeleteTaskMsg(BaseModel):
+    task_id: Optional[str] = Field(default=None, description="删除的任务ID")
+
+
+class DeleteTaskResponse(ResponseBase):
+    result: DeleteTaskMsg = Field(..., description="删除任务响应结果")
+
+
+class ListTasksMsg(BaseModel):
+    total: int = Field(..., description="符合条件的任务总数")
+    tasks: list[TaskModel] = Field(default_factory=list, description="任务列表")
+
+
+class ListTasksResponse(ResponseBase):
+    result: ListTasksMsg = Field(..., description="查询任务列表响应结果")
+
+
+class GetTaskMsg(BaseModel):
+    task: Optional[TaskModel] = Field(default=None, description="任务详情")
+
+
+class GetTaskResponse(ResponseBase):
+    result: GetTaskMsg = Field(..., description="查询任务详情响应结果")

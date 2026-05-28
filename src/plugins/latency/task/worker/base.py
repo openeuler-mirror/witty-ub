@@ -90,6 +90,9 @@ class BaseWorker:
             ProcessHandler.remove_task(task_id)
         elif task.status == TaskStatusEnum.PENDING:
             pass
+        elif task.status == TaskStatusEnum.CANCELLED:
+            # 任务已经是 CANCELLED 状态，视为停止成功
+            return True
         else:
             return False
         task_id = await BaseWorker.find_worker_class(worker_name).stop(task_id)
