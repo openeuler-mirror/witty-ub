@@ -177,10 +177,34 @@ async def main():
     print("\n[Step 5] 查询任务报告")
     await query_task_reports()
     
+    # 6. 循环监控任务状态
+    print("\n[Step 6] 循环监控任务状态（按 Ctrl+C 退出）")
+    print("=" * 70)
+    print("提示：按 Ctrl+C 可以退出监控")
+    print("-" * 70)
+    
+    try:
+        while True:
+            status = query_task_status(task_id)
+            current_time = time.strftime("%H:%M:%S")
+            print(f"[{current_time}] 任务状态：{status}")
+            
+            # 如果任务已完成，可以选择退出或继续监控
+            if status in ["successful", "failed", "cancelled"]:
+                print(f"✅ 任务已结束，状态：{status}")
+                choice = input("是否继续监控？(y/n): ").strip().lower()
+                if choice != 'y':
+                    break
+                print("-" * 70)
+            
+            time.sleep(2)  # 每2秒查询一次
+    except KeyboardInterrupt:
+        print("\n\n⚠️  用户中断监控")
+    
     print("\n" + "=" * 70)
     print("全链路测试完成")
     print("=" * 70)
 
-
+# Invoke-WebRequest -Uri http://localhost:9772/task/{task_id} -Method GET | Select-Object -ExpandProperty Content
 if __name__ == "__main__":
     asyncio.run(main())
