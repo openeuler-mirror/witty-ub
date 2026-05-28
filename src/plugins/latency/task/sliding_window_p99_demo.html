@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>多指标滑动窗口 P99 时延分析</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "Segoe UI", system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+h1 { text-align: center; margin-bottom: 8px; font-size: 22px; color: #f1f5f9; }
+.subtitle { text-align: center; color: #94a3b8; margin-bottom: 20px; font-size: 14px; }
+.controls {
+  display: flex; gap: 16px; justify-content: center; align-items: center;
+  flex-wrap: wrap; margin-bottom: 16px; padding: 14px; border-radius: 12px;
+  background: #1e293b;
+}
+.controls label { font-size: 13px; color: #cbd5e1; }
+.controls input[type="range"] { width: 160px; accent-color: #6366f1; }
+.controls .val { font-weight: 600; color: #a5b4fc; min-width: 50px; display: inline-block; }
+.controls button {
+  padding: 7px 18px; border: none; border-radius: 8px; cursor: pointer;
+  background: #6366f1; color: #fff; font-size: 13px; font-weight: 600;
+  transition: background 0.2s;
+}
+.controls button:hover { background: #4f46e5; }
+.metric-toggles {
+  display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap;
+}
+.metric-btn {
+  padding: 6px 14px; border-radius: 20px; border: 2px solid; cursor: pointer;
+  font-size: 13px; font-weight: 600; background: transparent; transition: all 0.2s;
+}
+.metric-btn.active { color: #fff !important; }
+.metric-btn.inactive { opacity: 0.4; }
+.stats-bar {
+  display: flex; gap: 12px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap;
+}
+.stat-card {
+  background: #1e293b; border-radius: 10px; padding: 10px 16px; text-align: center; min-width: 120px;
+}
+.stat-card .label { font-size: 11px; color: #94a3b8; margin-bottom: 2px; }
+.stat-card .value { font-size: 18px; font-weight: 700; }
+.stat-card .value.red { color: #f87171; }
+.stat-card .value.amber { color: #fbbf24; }
+.stat-card .value.green { color: #34d399; }
+.stat-card .value.blue { color: #60a5fa; }
+.chart-row {
+  display: flex; gap: 12px; margin-bottom: 12px;
+}
+.chart-container {
+  position: relative; flex: 1; height: 280px; background: #1e293b; border-radius: 12px;
+  padding: 12px;
+}
+.chart-container canvas { width: 100% !important; height: 100% !important; }
+.chart-title {
+  position: absolute; top: 8px; left: 16px; font-size: 13px; font-weight: 600; z-index: 10;
+  padding: 2px 8px; border-radius: 4px; background: rgba(30,41,59,0.85);
+}
+.legend {
+  display: flex; gap: 18px; justify-content: center; margin-bottom: 10px; font-size: 12px;
+}
+.legend span { display: flex; align-items: center; gap: 5px; }
+.legend .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.hover-info {
+  position: fixed; top: 0; right: 0; background: #334155; border-radius: 12px;
+  padding: 14px 18px; margin: 24px; min-width: 260px; font-size: 13px;
+  line-height: 1.7; color: #e2e8f0; z-index: 100; box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  display: none; max-height: 90vh; overflow-y: auto;
+}
+.hover-info .hi-title { font-weight: 700; color: #a78bfa; margin-bottom: 6px; font-size: 14px; }
+.hover-info .hi-row { display: flex; justify-content: space-between; }
+.hover-info .hi-label { color: #94a3b8; }
+.hover-info .hi-val { font-weight: 600; }
+.hover-info .hi-val.bad { color: #f87171; }
+.hover-info .hi-val.ok { color: #34d399; }
+.hover-info .hi-sep { border-top: 1px solid #475569; margin: 6px 0; }
+.explanation {
+  background: #1e293b; border-radius: 12px; padding: 18px; margin-top: 8px;
+  font-size: 13px; line-height: 1.8; color: #cbd5e1; max-width: 900px; margin-left: auto; margin-right: auto;
+}
+.explanation h3 { color: #e2e8f0; margin-bottom: 6px; }
+.explanation code { background: #334155; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>多指标滑动窗口 P99 时延分析</h1>
+<p class="subtitle">模拟 10,000 条带时间戳的数据 — 各时延指标独立曲线 — 同时间戳并排排列 — 滑动窗口 P99 异常检测</p>
+
+<div class="controls">
+  <label>窗口大小: <input type="range" id="windowSize" min="50" max="1000" step="50" value="200">
+    <span class="val" id="windowSizeVal">200</span></label>
+  <label>步长: <input type="range" id="stepSize" min="10" max="200" step="10" value="50">
+    <span class="val" id="stepSizeVal">50</span></label>
+  <label>P99阈值(ms): <input type="range" id="threshold" min="0.5" max="10" step="0.5" value="2.0">
+    <span class="val" id="thresholdVal">2.0</span></label>
+  <button id="regenerate">重新生成数据</button>
+</div>
+
+<div class="metric-toggles" id="metricToggles"></div>
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="legend">
+  <span><span class="dot" style="background:#60a5fa90"></span>指标值曲线</span>
+  <span><span class="dot" style="background:#a78bfa"></span>滑动窗口 P99</span>
+  <span><span class="dot" style="background:#fbbf24"></span>阈值线</span>
+  <span><span class="dot" style="background:#f8717140"></span>异常区间</span>
+</div>
+
+<div id="chartsArea"></div>
+
+<div class="hover-info" id="hoverInfo">
+  <div class="hi-title">窗口详情</div>
+  <div id="hiContent"></div>
+</div>
+
+<div class="explanation">
+  <h3>怎么看</h3>
+  <p>
+    <strong>每个指标独立一张图</strong>：total_latency、c2w_latency、w2w_urma_latency、urma_link_latency、query_meta_latency 各一条曲线，可以分别观察哪个指标出现劣化。<br><br>
+    <strong>同时间戳并排</strong>：x 轴是时间戳，如果同一秒有多条数据（如并发请求），它们在 x 轴上紧挨着排列，时间标签可以连续重复（如 12:00, 12:00, 12:01...）。<br><br>
+    <strong>滑动窗口 P99</strong>：以每个点为中心，前后各取半窗口的数据，计算该窗口内的 P99。紫色曲线就是各点的窗口 P99。<br><br>
+    <strong>指标切换</strong>：点击顶部指标按钮可以显示/隐藏对应图表。
+  </p>
+</div>
+
+<script>
+const TOTAL = 10000;
+let rawData = [];
+let charts = {};
+let currentSlidingP99 = {};
+let currentZones = {};
+let currentThreshold = 2.0;
+let activeMetrics = new Set();
+
+const METRICS = [
+  { key: 'total_latency',         label: '总时延',       color: '#60a5fa', base: 1.2,  spike: 8,   degSegs: [3, 7, 11, 15], degMul: [3.0, 1.8, 5.0, 0.6] },
+  { key: 'c2w_latency',           label: 'C2W 时延',    color: '#f472b6', base: 0.4,  spike: 5,   degSegs: [3, 11],       degMul: [2.5, 3.5] },
+  { key: 'w2w_urma_latency',      label: 'W2W URMA',    color: '#34d399', base: 0.3,  spike: 4,   degSegs: [7, 11, 15],   degMul: [1.5, 4.0, 0.5] },
+  { key: 'urma_link_latency',     label: 'URMA 建链',   color: '#fbbf24', base: 0.15, spike: 3,   degSegs: [11],          degMul: [3.0] },
+  { key: 'query_meta_latency',    label: 'QueryMeta',   color: '#c084fc', base: 0.2,  spike: 3,   degSegs: [3, 7],        degMul: [2.0, 1.2] },
+];
+
+function generateData() {
+  rawData = [];
+  let baseTime = new Date(2025, 0, 15, 10, 0, 0, 0).getTime();
+  let cursor = baseTime;
+
+  for (let i = 0; i < TOTAL; i++) {
+    if (i > 0) {
+      if (Math.random() < 0.15) {
+        // same second as previous (concurrent requests)
+      } else if (Math.random() < 0.3) {
+        cursor += 2000 + Math.random() * 3000; // 2-5s gap
+      } else {
+        cursor += Math.floor(100 + Math.random() * 900); // 100ms-1s
+      }
+    }
+
+    const row = { idx: i, ts: new Date(cursor), values: {} };
+    const seg = Math.floor(i / 500) % 20;
+
+    for (const m of METRICS) {
+      let val = m.base + Math.random() * m.base * 0.8;
+      const degIdx = m.degSegs.indexOf(seg);
+      if (degIdx >= 0) {
+        val = m.base * m.degMul[degIdx] + Math.random() * m.base * m.degMul[degIdx] * 0.8;
+      }
+      if (Math.random() < 0.005) {
+        val += m.spike + Math.random() * m.spike;
+      }
+      row.values[m.key] = parseFloat(val.toFixed(3));
+    }
+
+    rawData.push(row);
+  }
+}
+
+function buildXPositions() {
+  const tsMap = new Map();
+  for (const r of rawData) {
+    const sec = Math.floor(r.ts.getTime() / 1000);
+    if (!tsMap.has(sec)) tsMap.set(sec, []);
+    tsMap.get(sec).push(r);
+  }
+
+  const positions = new Map();
+  for (const [sec, rows] of tsMap) {
+    rows.forEach((r, j) => {
+      positions.set(r.idx, { sec, offset: j, total: rows.length, label: r.ts.toTimeString().slice(0, 8) });
+    });
+  }
+  return positions;
+}
+
+function percentile(arr, p) {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function computeSlidingP99(metricKey, windowSize, stepSize) {
+  const values = rawData.map(r => r.values[metricKey]);
+  const points = [];
+  const halfW = Math.floor(windowSize / 2);
+  for (let center = 0; center < values.length; center += stepSize) {
+    const start = Math.max(0, center - halfW);
+    const end = Math.min(values.length - 1, center + halfW);
+    const window = values.slice(start, end + 1);
+    const p99 = percentile(window, 99);
+    const ave = window.reduce((a, b) => a + b, 0) / window.length;
+    const max = Math.max(...window);
+    points.push({ start, end, center, p99, ave, max, count: window.length });
+  }
+  return points;
+}
+
+function findAnomalyZones(slidingP99, threshold) {
+  const zones = [];
+  let inZone = false;
+  let zoneStart = 0;
+  for (let i = 0; i < slidingP99.length; i++) {
+    if (slidingP99[i].p99 > threshold && !inZone) {
+      zoneStart = slidingP99[i].start;
+      inZone = true;
+    }
+    if (slidingP99[i].p99 <= threshold && inZone) {
+      zones.push({ start: zoneStart, end: slidingP99[i - 1].end });
+      inZone = false;
+    }
+  }
+  if (inZone) zones.push({ start: zoneStart, end: slidingP99[slidingP99.length - 1].end });
+  return zones;
+}
+
+function formatTime(date) {
+  return date.toTimeString().slice(0, 12);
+}
+
+function render() {
+  const windowSize = parseInt(document.getElementById('windowSize').value);
+  const stepSize = parseInt(document.getElementById('stepSize').value);
+  const threshold = parseFloat(document.getElementById('threshold').value);
+  currentThreshold = threshold;
+
+  const xPositions = buildXPositions();
+  const xLabels = rawData.map(r => xPositions.get(r.idx).label);
+  const xIndices = rawData.map((_, i) => i);
+
+  // Compute for each metric
+  currentSlidingP99 = {};
+  currentZones = {};
+  const metricStats = {};
+
+  for (const m of METRICS) {
+    const sp = computeSlidingP99(m.key, windowSize, stepSize);
+    currentSlidingP99[m.key] = sp;
+    const zones = findAnomalyZones(sp, threshold);
+    currentZones[m.key] = zones;
+
+    const values = rawData.map(r => r.values[m.key]);
+    const globalP99 = percentile(values, 99);
+    const globalAve = values.reduce((a, b) => a + b, 0) / values.length;
+    const overThreshold = values.filter(v => v > threshold).length;
+    metricStats[m.key] = { globalP99, globalAve, overThreshold, zoneCount: zones.length, zoneCover: zones.reduce((s, z) => s + (z.end - z.start + 1), 0) };
+  }
+
+  // Stats bar
+  const statsBar = document.getElementById('statsBar');
+  statsBar.innerHTML = METRICS.map(m => {
+    const s = metricStats[m.key];
+    return `<div class="stat-card"><div class="label">${m.label} P99</div><div class="value" style="color:${m.color}">${s.globalP99.toFixed(3)} ms</div></div>`;
+  }).join('') + `<div class="stat-card"><div class="label">异常区间总计</div><div class="value amber">${METRICS.reduce((s, m) => s + metricStats[m.key].zoneCount, 0)}</div></div>`;
+
+  // Metric toggles
+  const togglesDiv = document.getElementById('metricToggles');
+  if (togglesDiv.children.length === 0) {
+    METRICS.forEach(m => {
+      activeMetrics.add(m.key);
+      const btn = document.createElement('button');
+      btn.className = 'metric-btn active';
+      btn.style.borderColor = m.color;
+      btn.style.color = m.color;
+      btn.textContent = m.label;
+      btn.dataset.key = m.key;
+      btn.addEventListener('click', () => {
+        if (activeMetrics.has(m.key)) { activeMetrics.delete(m.key); btn.classList.remove('active'); btn.classList.add('inactive'); }
+        else { activeMetrics.add(m.key); btn.classList.add('active'); btn.classList.remove('inactive'); }
+        updateChartVisibility();
+      });
+      togglesDiv.appendChild(btn);
+    });
+  }
+
+  // Build charts
+  const area = document.getElementById('chartsArea');
+  area.innerHTML = '';
+  if (Object.keys(charts).length) { for (const k in charts) charts[k].destroy(); charts = {}; }
+
+  for (const m of METRICS) {
+    const values = rawData.map(r => r.values[m.key]);
+    const sp = currentSlidingP99[m.key];
+    const zones = currentZones[m.key];
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'chart-container';
+    wrapper.id = `chart-wrap-${m.key}`;
+    wrapper.style.display = activeMetrics.has(m.key) ? '' : 'none';
+
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'chart-title';
+    titleDiv.style.color = m.color;
+    titleDiv.textContent = `${m.label}  |  全局P99=${metricStats[m.key].globalP99.toFixed(3)}ms  异常区间=${zones.length}个  覆盖=${metricStats[m.key].zoneCover}条`;
+    wrapper.appendChild(titleDiv);
+
+    const canvas = document.createElement('canvas');
+    canvas.id = `chart-${m.key}`;
+    wrapper.appendChild(canvas);
+    area.appendChild(wrapper);
+
+    const metricLine = values.map((v, i) => ({ x: i, y: v }));
+    const p99Line = sp.map(p => ({ x: p.center, y: p.p99 }));
+    const threshLine = [{ x: 0, y: threshold }, { x: TOTAL - 1, y: threshold }];
+
+    charts[m.key] = new Chart(canvas, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: `${m.label} 值`,
+            data: metricLine,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHoverBackgroundColor: m.color,
+            showLine: true,
+            borderColor: m.color + '90',
+            borderWidth: 1,
+            tension: 0,
+            order: 3,
+          },
+          {
+            label: '滑动窗口 P99',
+            data: p99Line,
+            pointRadius: 1.5,
+            pointBackgroundColor: sp.map(p => p.p99 > threshold ? '#f87171' : '#a78bfa'),
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: '#fff',
+            pointHoverBorderColor: '#a78bfa',
+            pointHoverBorderWidth: 2,
+            showLine: true,
+            borderColor: '#a78bfa',
+            borderWidth: 2.5,
+            tension: 0.3,
+            order: 1,
+          },
+          {
+            label: 'P99 阈值',
+            data: threshLine,
+            pointRadius: 0,
+            showLine: true,
+            borderColor: '#fbbf24',
+            borderWidth: 1.5,
+            borderDash: [6, 4],
+            order: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 150 },
+        interaction: { mode: 'nearest', intersect: true },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: {
+            type: 'linear',
+            title: { display: true, text: '序列位置（同时间戳并排）', color: '#64748b', font: { size: 11 } },
+            ticks: {
+              color: '#475569',
+              font: { size: 10 },
+              maxTicksLimit: 12,
+              callback: function(val) {
+                const idx = Math.round(val);
+                if (idx >= 0 && idx < rawData.length) {
+                  const xp = xPositions.get(idx);
+                  if (xp && xp.offset === 0) return xp.label;
+                }
+                return '';
+              }
+            },
+            grid: { color: '#1e293b' },
+          },
+          y: {
+            title: { display: true, text: '时延 (ms)', color: '#64748b', font: { size: 11 } },
+            ticks: { color: '#475569', font: { size: 10 } },
+            grid: { color: '#1e293b' },
+            suggestedMax: Math.max(threshold * 1.5, metricStats[m.key].globalP99 * 1.3),
+          },
+        },
+        onHover: (event, elements) => {
+          const infoPanel = document.getElementById('hoverInfo');
+          const content = document.getElementById('hiContent');
+          if (elements.length > 0 && elements[0].datasetIndex === 1) {
+            const idx = elements[0].index;
+            const w = sp[idx];
+            const isBad = w.p99 > threshold;
+            const centerRow = rawData[w.center];
+            content.innerHTML = `
+              <div class="hi-row"><span class="hi-label">指标</span><span class="hi-val" style="color:${m.color}">${m.label}</span></div>
+              <div class="hi-row"><span class="hi-label">中心时间</span><span class="hi-val">${centerRow ? formatTime(centerRow.ts) : '—'}</span></div>
+              <div class="hi-sep"></div>
+              <div class="hi-row"><span class="hi-label">窗口范围</span><span class="hi-val">#${w.start} ~ #${w.end}</span></div>
+              <div class="hi-row"><span class="hi-label">窗口条数</span><span class="hi-val">${w.count}</span></div>
+              <div class="hi-row"><span class="hi-label">窗口 P99</span><span class="hi-val ${isBad ? 'bad' : 'ok'}">${w.p99.toFixed(3)} ms</span></div>
+              <div class="hi-row"><span class="hi-label">窗口均值</span><span class="hi-val">${w.ave.toFixed(3)} ms</span></div>
+              <div class="hi-row"><span class="hi-label">窗口最大</span><span class="hi-val">${w.max.toFixed(3)} ms</span></div>
+              <div class="hi-sep"></div>
+              <div class="hi-row"><span class="hi-label">是否超阈值</span><span class="hi-val ${isBad ? 'bad' : 'ok'}">${isBad ? '超阈值!' : '正常'}</span></div>
+            `;
+            infoPanel.style.display = 'block';
+          } else {
+            infoPanel.style.display = 'none';
+          }
+        },
+      },
+      plugins: [
+        {
+          id: 'anomalyZones-' + m.key,
+          beforeDraw(chartInstance) {
+            const { ctx, chartArea, scales } = chartInstance;
+            if (!chartArea) return;
+            zones.forEach(z => {
+              const xStart = scales.x.getPixelForValue(z.start);
+              const xEnd = scales.x.getPixelForValue(z.end);
+              if (xEnd < chartArea.left || xStart > chartArea.right) return;
+              const clampStart = Math.max(xStart, chartArea.left);
+              const clampEnd = Math.min(xEnd, chartArea.right);
+              ctx.save();
+              ctx.fillStyle = 'rgba(248, 113, 113, 0.10)';
+              ctx.fillRect(clampStart, chartArea.top, clampEnd - clampStart, chartArea.bottom - chartArea.top);
+              ctx.strokeStyle = 'rgba(248, 113, 113, 0.20)';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([3, 3]);
+              ctx.strokeRect(clampStart, chartArea.top, clampEnd - clampStart, chartArea.bottom - chartArea.top);
+              ctx.restore();
+            });
+          }
+        },
+        {
+          id: 'hoverBand-' + m.key,
+          afterDatasetsDraw(chartInstance) {
+            const infoPanel = document.getElementById('hoverInfo');
+            if (infoPanel.style.display === 'none') return;
+            const elements = chartInstance.getActiveElements();
+            if (!elements.length || elements[0].datasetIndex !== 1) return;
+            const idx = elements[0].index;
+            const w = sp[idx];
+            const { ctx, chartArea, scales } = chartInstance;
+            const xStart = scales.x.getPixelForValue(w.start);
+            const xEnd = scales.x.getPixelForValue(w.end);
+            const yP99 = scales.y.getPixelForValue(w.p99);
+
+            ctx.save();
+            ctx.fillStyle = '#a78bfa15';
+            ctx.fillRect(Math.max(xStart, chartArea.left), chartArea.top, Math.min(xEnd, chartArea.right) - Math.max(xStart, chartArea.left), chartArea.bottom - chartArea.top);
+
+            ctx.strokeStyle = '#a78bfa60';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath(); ctx.moveTo(xStart, chartArea.top); ctx.lineTo(xStart, chartArea.bottom); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(xEnd, chartArea.top); ctx.lineTo(xEnd, chartArea.bottom); ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.strokeStyle = '#a78bfa50';
+            ctx.beginPath(); ctx.moveTo(Math.max(xStart, chartArea.left), yP99); ctx.lineTo(Math.min(xEnd, chartArea.right), yP99); ctx.stroke();
+
+            ctx.fillStyle = w.p99 > currentThreshold ? '#f87171' : '#a78bfa';
+            ctx.font = '600 11px system-ui';
+            ctx.textAlign = 'left';
+            ctx.fillText(`P99=${w.p99.toFixed(2)}ms`, Math.max(xStart, chartArea.left) + 4, yP99 - 5);
+            ctx.restore();
+          }
+        }
+      ],
+    });
+  }
+
+  function updateChartVisibility() {
+    for (const m of METRICS) {
+      const wrap = document.getElementById(`chart-wrap-${m.key}`);
+      if (wrap) wrap.style.display = activeMetrics.has(m.key) ? '' : 'none';
+    }
+  }
+}
+
+document.getElementById('windowSize').addEventListener('input', e => {
+  document.getElementById('windowSizeVal').textContent = e.target.value;
+  render();
+});
+document.getElementById('stepSize').addEventListener('input', e => {
+  document.getElementById('stepSizeVal').textContent = e.target.value;
+  render();
+});
+document.getElementById('threshold').addEventListener('input', e => {
+  document.getElementById('thresholdVal').textContent = e.target.value;
+  render();
+});
+document.getElementById('regenerate').addEventListener('click', () => {
+  generateData();
+  document.getElementById('metricToggles').innerHTML = '';
+  render();
+});
+
+generateData();
+render();
+</script>
+</body>
+</html>

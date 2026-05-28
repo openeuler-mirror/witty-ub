@@ -48,6 +48,9 @@ class DSLogAnalyzerConfig(BaseModel):
     w2w_p99_threshold_ms: float = Field(default=1.0, alias="W2W_P99_THRESHOLD_MS", description="W2W时延P99阈值，单位毫秒")
     urma_link_p99_threshold_ms: float = Field(default=1.0, alias="URMA_LINK_P99_THRESHOLD_MS", description="URMA建链时延P99阈值，单位毫秒")
     query_meta_p99_threshold_ms: float = Field(default=1.0, alias="QUERY_META_P99_THRESHOLD_MS", description="Worker QueryMeta时延P99阈值，单位毫秒")
+    sliding_window_size: int = Field(default=500, alias="SLIDING_WINDOW_SIZE", description="滑动窗口大小（条目数）")
+    sliding_window_step: int = Field(default=50, alias="SLIDING_WINDOW_STEP", description="滑动窗口步长（条目数）")
+    zone_anomaly_density_threshold: float = Field(default=0.5, alias="ZONE_ANOMALY_DENSITY_THRESHOLD", description="区间异常密度阈值，超过此比例则整个区间标记为异常")
 
 
 class ConfigModel(BaseModel):

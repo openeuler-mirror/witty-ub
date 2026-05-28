@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from collections import defaultdict
+from plugins.latency.schemas.log import LogParseResultModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.task.process_handle import ProcessHandler
@@ -206,8 +207,19 @@ class KVCacheLogParseWorker:
     async def detect_exception(
         list_log_parse_results: list[LogParseResultModel],
     ) -> list[AnomalousEventModel]:
-        """逐条检测异常事件"""
+        """滑动窗口P99两步法检测异常事件
+
+        Step1: 滑动窗口计算P99，找出P99超过阈值的异常区间
+        Step1.5: 区间裁剪——从合并区间两端收缩，剔除无异常条目的边缘
+        Step1.6: 计算区间异常密度——判断是局部突刺还是整体劣化
+        Step2: 密度低则只标记超阈值条目，密度高则整个区间标记为异常
+        """
         cfg = Config().get_config().ds_log_analyzer
+        window_size = cfg.sliding_window_size
+        window_step = cfg.sliding_window_step
+        density_threshold = cfg.zone_anomaly_density_threshold
+        half_w = window_size // 2
+        n = len(list_log_parse_results)
 
         thresholds = [
             ("total_latency", cfg.total_p99_threshold_ms),
@@ -217,42 +229,130 @@ class KVCacheLogParseWorker:
             ("worker_query_meta_latency", cfg.query_meta_p99_threshold_ms),
         ]
 
-        events: list[AnomalousEventModel] = []
-        anomalous_count = 0
+        # 预提取各指标值数组，避免窗口内反复getattr
+        field_arrays: dict[str, list[float | None]] = {}
+        for field_name, _ in thresholds:
+            field_arrays[field_name] = [getattr(r, field_name, None) for r in list_log_parse_results]
 
-        for idx, r in enumerate(list_log_parse_results):
-            reasons: list[str] = []
-
-            if r.is_anomalous and r.anomaly_reason:
-                reasons.append(r.anomaly_reason)
-
-            if r.c2w_latency is not None and r.c2w_latency < 0:
-                reasons.append("Client2WorkerTime(us) < 0")
-
-            if r.c2w_urma_latency is not None:
-                reasons.append(f"c2w_urma_latency={r.c2w_urma_latency:.3f}ms (remote URMA path)")
-
+        # Step1: 滑动窗口P99检测，找出异常区间
+        degraded_windows: list[tuple[int, int, str, float, float]] = []
+        for center in range(0, n, window_step):
+            start = max(0, center - half_w)
+            end = min(n - 1, center + half_w)
             for field_name, threshold_ms in thresholds:
-                value = getattr(r, field_name, None)
-                if value is not None and value > threshold_ms:
-                    reasons.append(f"{field_name}={value:.3f}ms > threshold {threshold_ms}ms")
+                values = [v for v in field_arrays[field_name][start:end + 1] if v is not None]
+                if not values:
+                    continue
+                p99 = stats(values)["p99"]
+                if p99 is not None and p99 > threshold_ms:
+                    degraded_windows.append((start, end, field_name, threshold_ms, p99))
 
-            if not reasons:
+        # 合并相邻异常区间（按start排序，重叠/相邻则合并）
+        degraded_windows.sort(key=lambda x: (x[0], x[1]))
+        merged_zones: list[tuple[int, int, dict[str, tuple[float, float]]]] = []
+        for start, end, field_name, threshold_ms, p99 in degraded_windows:
+            if merged_zones and start <= merged_zones[-1][1] + 1:
+                prev_start, prev_end, prev_fields = merged_zones[-1]
+                new_end = max(prev_end, end)
+                prev_fields[field_name] = (threshold_ms, p99)
+                merged_zones[-1] = (prev_start, new_end, prev_fields)
+            else:
+                merged_zones.append((start, end, {field_name: (threshold_ms, p99)}))
+
+        # Step1.5: 区间裁剪——从两端向内扫描，收缩到第一条超过任意阈值的条目
+        trimmed_zones: list[tuple[int, int, dict[str, tuple[float, float]]]] = []
+        for zone_start, zone_end, zone_fields in merged_zones:
+            clip_start = zone_start
+            for i in range(zone_start, zone_end + 1):
+                if any(
+                    field_arrays[fn][i] is not None and field_arrays[fn][i] > tm
+                    for fn, tm in thresholds
+                ):
+                    clip_start = i
+                    break
+            else:
                 continue
 
-            anomalous_count += 1
-            log_id = r.log_id or ""
+            clip_end = zone_end
+            for i in range(zone_end, clip_start - 1, -1):
+                if any(
+                    field_arrays[fn][i] is not None and field_arrays[fn][i] > tm
+                    for fn, tm in thresholds
+                ):
+                    clip_end = i
+                    break
 
-            events.append(AnomalousEventModel(
-                log_id=log_id,
-                aggregated_event_id="",
-                start_log_parse_offset=idx,
-                end_log_parse_offset=idx,
-                anomaly_reason="; ".join(reasons),
-            ))
+            trimmed_zones.append((clip_start, clip_end, zone_fields))
 
-        logger.info(f"Detect exception: {anomalous_count:,} anomalous out of "
-                     f"{len(list_log_parse_results):,} results")
+        # Step1.6: 计算区间异常密度
+        zone_info: list[tuple[int, int, dict, bool]] = []
+        for zone_start, zone_end, zone_fields in trimmed_zones:
+            zone_len = zone_end - zone_start + 1
+            exceeded = 0
+            for i in range(zone_start, zone_end + 1):
+                if any(
+                    field_arrays[fn][i] is not None and field_arrays[fn][i] > tm
+                    for fn, tm in thresholds
+                ):
+                    exceeded += 1
+            density = exceeded / zone_len if zone_len > 0 else 0.0
+            is_bulk = density >= density_threshold
+            zone_info.append((zone_start, zone_end, zone_fields, is_bulk))
+
+        # Step2: 密度低则只标记超阈值条目，密度高则整个区间标记
+        events: list[AnomalousEventModel] = []
+        anomalous_count = 0
+        bulk_zone_count = 0
+        trimmed_cover = 0
+
+        for zone_start, zone_end, zone_fields, is_bulk in zone_info:
+            zone_len = zone_end - zone_start + 1
+            trimmed_cover += zone_len
+            if is_bulk:
+                bulk_zone_count += 1
+
+            for idx in range(zone_start, zone_end + 1):
+                r = list_log_parse_results[idx]
+                reasons: list[str] = []
+
+                if r.is_anomalous and r.anomaly_reason:
+                    reasons.append(r.anomaly_reason)
+
+                if r.c2w_latency is not None and r.c2w_latency < 0:
+                    reasons.append("Client2WorkerTime(us) < 0")
+
+                if r.c2w_urma_latency is not None:
+                    reasons.append(f"c2w_urma_latency={r.c2w_urma_latency:.3f}ms (remote URMA path)")
+
+                for field_name, threshold_ms in thresholds:
+                    value = field_arrays[field_name][idx]
+                    if value is not None and value > threshold_ms:
+                        reasons.append(f"{field_name}={value:.3f}ms > threshold {threshold_ms}ms")
+
+                if not reasons and is_bulk:
+                    reasons.append("in bulk degraded zone (density>threshold)")
+
+                if not reasons:
+                    continue
+
+                anomalous_count += 1
+                log_id = r.log_id or ""
+
+                events.append(AnomalousEventModel(
+                    log_id=log_id,
+                    aggregated_event_id="",
+                    start_log_parse_offset=idx,
+                    end_log_parse_offset=idx,
+                    anomaly_reason="; ".join(reasons),
+                ))
+
+        raw_zone_cover = sum(end - start + 1 for start, end, _ in merged_zones)
+        logger.info(
+            f"Detect exception: {anomalous_count:,} anomalous entries out of "
+            f"{n:,} results | raw zones: {len(merged_zones)} covering {raw_zone_cover:,}, "
+            f"trimmed zones: {len(trimmed_zones)} covering {trimmed_cover:,}, "
+            f"bulk degraded zones: {bulk_zone_count}"
+        )
 
         return events
 
@@ -287,7 +387,7 @@ class KVCacheLogParseWorker:
             ("w2w_urma_latency", "w2w_urma_latency"),
         ]
 
-        groups: dict[tuple[str, str], list[LogParseResultModel]] = defaultdict(list)
+        groups: dict[tuple[str, str], list[LogParseResultModel]] = defaultdict[tuple[str, str], list[LogParseResultModel]](list)
         for r in list_log_parse_results:
             src = r.src_ip or ""
             dst = r.dst_ip or ""
@@ -336,8 +436,45 @@ class KVCacheLogParseWorker:
         anomalous_event_chains: list[AnomalousEventChainModel],
         src_dst_aggregated_events: list[SrcDstAggregatedEventModel],
     ) -> bool:
-        """存库"""
-        pass
+        """存库
+
+        按引用顺序依次写入：log_parse_results → aggregated_events → anomalous_events → event_chains
+        """
+        success = True
+
+        if list_log_parse_results:
+            try:
+                await LogParseResultManager.add_log_parse_results(list_log_parse_results)
+                logger.info(f"Stored {len(list_log_parse_results):,} log parse results")
+            except Exception as e:
+                logger.error(f"Failed to store log parse results: {e}")
+                success = False
+
+        if src_dst_aggregated_events:
+            try:
+                await SrcDstAggregatedEventManager.add_aggregated_events(src_dst_aggregated_events)
+                logger.info(f"Stored {len(src_dst_aggregated_events):,} aggregated events")
+            except Exception as e:
+                logger.error(f"Failed to store aggregated events: {e}")
+                success = False
+
+        if anomalous_events:
+            try:
+                await AnomalousEventManager.add_anomalous_events(anomalous_events)
+                logger.info(f"Stored {len(anomalous_events):,} anomalous events")
+            except Exception as e:
+                logger.error(f"Failed to store anomalous events: {e}")
+                success = False
+
+        if anomalous_event_chains:
+            try:
+                await AnomalousEventChainManager.add_event_chains(anomalous_event_chains)
+                logger.info(f"Stored {len(anomalous_event_chains):,} event chains")
+            except Exception as e:
+                logger.error(f"Failed to store event chains: {e}")
+                success = False
+
+        return success
 
     @staticmethod
     async def run(task_id: str) -> bool:
