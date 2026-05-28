@@ -42,69 +42,15 @@ class ModelConfig(BaseModel):
 
 class DSLogAnalyzerConfig(BaseModel):
     model_config = {"populate_by_name": True}
-    
-    slow_p99_threshold_us: float = Field(default=2000.0, alias="SLOW_P99_THRESHOLD_US", description="慢请求P99阈值，单位微秒")
-    progress_update_lines: int = Field(default=100000, alias="PROGRESS_UPDATE_LINES", description="进度刷新间隔行数")
-    sdk_access_log_patterns: list[str] = Field(
-        default=[
-            "SDK_*/ds_client_access_*.log",
-            "SDK_*/ds_client_access_*.log.gz",
-            "SDK_*/ds_client.log",
-            "SDK_*/ds_client.log.gz",
-            "SDK_*/ds_client_access.log",
-            "SDK_*/ds_client_access.*.log.gz",
-        ],
-        alias="SDK_ACCESS_LOG_PATTERNS",
-        description="SDK访问日志文件模式",
-    )
-    worker_access_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/access.log",
-            "*Worker_*/access.log.gz",
-        ],
-        alias="WORKER_ACCESS_LOG_PATTERNS",
-        description="Worker访问日志文件模式",
-    )
-    urma_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="URMA_LOG_PATTERNS",
-        description="URMA日志文件模式",
-    )
-    remote_pull_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="REMOTE_PULL_LOG_PATTERNS",
-        description="RemotePull日志文件模式",
-    )
-    link_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="LINK_LOG_PATTERNS",
-        description="Link日志文件模式",
-    )
-    query_meta_log_patterns: list[str] = Field(
-        default=[
-            "*Worker_*/datasystem_worker.INFO.*",
-            "*Worker_*/datasystem_worker.INFO.*.gz",
-            "*Worker_*/kvcache.INFO.*",
-            "*Worker_*/kvcache.INFO.*.gz",
-        ],
-        alias="QUERY_META_LOG_PATTERNS",
-        description="QueryMeta日志文件模式",
-    )
+
+    total_p99_threshold_ms: float = Field(default=2.0, alias="TOTAL_P99_THRESHOLD_MS", description="总时延P99阈值，单位毫秒")
+    c2w_p99_threshold_ms: float = Field(default=1.0, alias="C2W_P99_THRESHOLD_MS", description="C2W时延P99阈值，单位毫秒")
+    w2w_p99_threshold_ms: float = Field(default=1.0, alias="W2W_P99_THRESHOLD_MS", description="W2W时延P99阈值，单位毫秒")
+    urma_link_p99_threshold_ms: float = Field(default=1.0, alias="URMA_LINK_P99_THRESHOLD_MS", description="URMA建链时延P99阈值，单位毫秒")
+    query_meta_p99_threshold_ms: float = Field(default=1.0, alias="QUERY_META_P99_THRESHOLD_MS", description="Worker QueryMeta时延P99阈值，单位毫秒")
+    sliding_window_size: int = Field(default=500, alias="SLIDING_WINDOW_SIZE", description="滑动窗口大小（条目数）")
+    sliding_window_step: int = Field(default=50, alias="SLIDING_WINDOW_STEP", description="滑动窗口步长（条目数）")
+    zone_anomaly_density_threshold: float = Field(default=0.5, alias="ZONE_ANOMALY_DENSITY_THRESHOLD", description="区间异常密度阈值，超过此比例则整个区间标记为异常")
 
 
 class ConfigModel(BaseModel):

@@ -161,8 +161,8 @@ class ParseResultBuilder:
                 remark = self._format_failure_remark("Worker", w.status_code, w.resp_msg)
             is_anomalous = bool(remark)
 
-            query_meta_us = self.correlated.worker_query_meta_map.get(i)
-            link_us = self.correlated.worker_link_map.get(i)
+            query_meta_list = self.correlated.worker_query_meta_map.get(i, [])
+            link_list = self.correlated.worker_link_map.get(i, [])
             w2c_urma_list = self.correlated.worker_worker_urma_map.get(i, [])
 
             results.append(LogParseResultModel(
@@ -173,9 +173,9 @@ class ParseResultBuilder:
                 dst_ip=urma_info["dst_ip"],
                 pod_ip=w.pod_ip,
                 total_latency=w.elapsed_us / 1000,
-                worker_query_meta_latency=query_meta_us / 1000 if query_meta_us is not None else None,
+                worker_query_meta_latency=query_meta_list[0].elapsed_us / 1000 if query_meta_list else None,
                 urma_total_latency=urma_info["urma_latency"],
-                urma_link_latency=link_us / 1000 if link_us is not None else None,
+                urma_link_latency=link_list[0].elapsed_us / 1000 if link_list else None,
                 urma_inflight_count=urma_info["urma_inflight_count"],
                 w2w_urma_latency=w2c_urma_list[0].elapsed_us / 1000 if w2c_urma_list else None,
                 urma_write_source=None,

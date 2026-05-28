@@ -1,49 +1,14 @@
 
 # DS日志分析配置
 [DS_LOG_ANALYZER]
-# 慢请求P99阈值，单位微秒
-SLOW_P99_THRESHOLD_US = 2000.0
-# 进度刷新间隔行数
-PROGRESS_UPDATE_LINES = 100000
-# SDK访问日志文件模式
-SDK_ACCESS_LOG_PATTERNS = [
-    "SDK_*/ds_client_access_*.log",
-    "SDK_*/ds_client_access_*.log.gz",
-    "SDK_*/ds_client.log",
-    "SDK_*/ds_client.log.gz",
-    "SDK_*/ds_client_access.log",
-    "SDK_*/ds_client_access.*.log.gz",
-]
-# Worker访问日志文件模式
-WORKER_ACCESS_LOG_PATTERNS = [
-    "*Worker_*/access.log",
-    "*Worker_*/access.log.gz",
-]
-# URMA日志文件模式
-URMA_LOG_PATTERNS = [
-    "*Worker_*/datasystem_worker.INFO.*",
-    "*Worker_*/datasystem_worker.INFO.*.gz",
-    "*Worker_*/kvcache.INFO.*",
-    "*Worker_*/kvcache.INFO.*.gz",
-]
-# RemotePull日志文件模式
-REMOTE_PULL_LOG_PATTERNS = [
-    "*Worker_*/datasystem_worker.INFO.*",
-    "*Worker_*/datasystem_worker.INFO.*.gz",
-    "*Worker_*/kvcache.INFO.*",
-    "*Worker_*/kvcache.INFO.*.gz",
-]
-# Link日志文件模式
-LINK_LOG_PATTERNS = [
-    "*Worker_*/datasystem_worker.INFO.*",
-    "*Worker_*/datasystem_worker.INFO.*.gz",
-    "*Worker_*/kvcache.INFO.*",
-    "*Worker_*/kvcache.INFO.*.gz",
-]
-# QueryMeta日志文件模式
-QUERY_META_LOG_PATTERNS = [
-    "*Worker_*/datasystem_worker.INFO.*",
-    "*Worker_*/datasystem_worker.INFO.*.gz",
-    "*Worker_*/kvcache.INFO.*",
-    "*Worker_*/kvcache.INFO.*.gz",
-]
+# 异常检测阈值，单位毫秒
+TOTAL_P99_THRESHOLD_MS = 4.0
+C2W_P99_THRESHOLD_MS = 2.0
+W2W_P99_THRESHOLD_MS = 1.5
+URMA_LINK_P99_THRESHOLD_MS = 4
+QUERY_META_P99_THRESHOLD_MS = 1
+# 滑动窗口配置
+SLIDING_WINDOW_SIZE = 500
+SLIDING_WINDOW_STEP = 50
+# 区间异常密度阈值，超过此比例则整个区间标记为异常
+ZONE_ANOMALY_DENSITY_THRESHOLD = 0.5

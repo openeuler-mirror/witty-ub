@@ -9,3 +9,4 @@ chardet==4.0.0
 requests==2.32.2
 toml==0.10.2
 httpx==0.27.0
+urllib3>=2.1.0

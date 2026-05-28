@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 async def test_log_parser(log_dir: str = None):
     """测试日志解析器"""
-    from latency.task.parse import (
+    from latency.parse import (
         SdkAccessLogParser,
         WorkerAccessLogParser,
         UrmaLogParser,
