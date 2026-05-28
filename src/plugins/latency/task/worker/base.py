@@ -112,7 +112,7 @@ class BaseWorker:
 
     @staticmethod
     async def report(
-        task_id: str, message: str, status: TaskStatusEnum, progress: float
+        task_id: str, message: str, progress: float
     ) -> bool:
         """添加任务报告"""
         task_report = TaskReportModel(

@@ -39,6 +39,9 @@ from latency.schemas.log import (
     AnomalousEventChainModel,
     LogParseResultModel,
 )
+from latency.task.worker.base import BaseWorker
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ def _scan_file(parser, path: str) -> tuple[str, list]:
     return parser.label, entries
 
 
-class KVCacheLogParseWorker:
+class KVCacheLogParseWorker(BaseWorker):
     """
     KVCacheLogParseWorker
     """
@@ -102,6 +105,7 @@ class KVCacheLogParseWorker:
         await LogFileManager.update_log_file(
             log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
+        await BaseWorker.report(task.id, "初始化任务", 0.0)
         return task.id
 
     @staticmethod
@@ -136,6 +140,7 @@ class KVCacheLogParseWorker:
         await LogFileManager.update_log_file(
             task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
+        await BaseWorker.report(task.id, "重新初始化任务", 0.0)
         return True
 
     @staticmethod
@@ -484,16 +489,52 @@ class KVCacheLogParseWorker:
             if not task:
                 logger.error(f"任务 {task_id} 不存在")
                 return False
+            
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
-            # TODO: 解析日志存库
+            await BaseWorker.report(task.id, "运行任务", 5.0)
+            
+            log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+            if not log_file:
+                logger.error(f"LogFile {task.op_id} 不存在")
+                await TaskManager.update_task(
+                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                return False
+            log_dir = log_file.file_path
+
+            await BaseWorker.report(task.id, "开始解析日志 请耐心等待", 10.0)
+            list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir)
+            await BaseWorker.report(task.id, "完成解析日志", 70.0)
+            src_dst_aggregated_events = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
+            await BaseWorker.report(task.id, "生成聚合事件", 80.0)
+            anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
+            await BaseWorker.report(task.id, "检测异常事件", 85.0)
+            anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
+            await BaseWorker.report(task.id, "匹配故障事件", 90.0)
+
+            stored = await KVCacheLogParseWorker.store_result(
+                list_log_parse_results=list_log_parse_results,
+                anomalous_events=anomalous_events,
+                anomalous_event_chains=anomalous_event_chains or [],
+                src_dst_aggregated_events=src_dst_aggregated_events,
+            )
+            await BaseWorker.report(task.id, "存库", 95.0)
+            
+            if not stored:
+                logger.warning(f"任务 {task_id} 存库部分失败，但仍标记为成功")
+
+            await LogFileManager.update_log_file(
+                task.op_id, {"anomaly_cnt": len(anomalous_events)}
+            )
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
             await LogFileManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
+            await BaseWorker.report(task.id, "任务成功", 100.0)
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")
