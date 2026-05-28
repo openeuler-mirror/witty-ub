@@ -5805,7 +5805,7 @@ onBeforeUnmount(() => {
                     <td colspan="7" class="trace-empty metric-table-error">{{ traceLogsError }}</td>
                   </tr>
                   <tr v-else-if="getSelectedTraceLogs().length === 0">
-                    <td colspan="7" class="trace-empty">暂无运行日志</td>
+                    <td colspan="7" class="trace-empty">无对应故障日志</td>
                   </tr>
                   <template v-else>
                     <tr
