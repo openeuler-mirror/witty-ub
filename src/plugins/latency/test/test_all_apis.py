@@ -10,9 +10,13 @@ import sqlite3
 import uuid
 from datetime import datetime
 import requests
+import os
 
 BASE_URL = "http://127.0.0.1:9772"
-DB_PATH = "/home/zjq/witty-ub/src/plugins/latency/latency.db"
+# 动态获取脚本所在目录的父目录（即 latency 目录）
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+LATENCY_DIR = os.path.dirname(TEST_DIR)
+DB_PATH = os.path.join(LATENCY_DIR, "latency.db")
 
 
 def now():
@@ -147,6 +151,21 @@ def ensure_mock_data():
         aec_id = aec_rows[0]["id"]
         print(f"  使用已有 anomalous_event_chain: {aec_id}")
 
+    # 7) 确保至少有一个 task
+    t_rows = db_execute("SELECT id FROM task_table WHERE existed_status=1 LIMIT 1")
+    if not t_rows:
+        t_id = str(uuid.uuid4())
+        db_execute(
+            """INSERT INTO task_table
+            (id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (t_id, kb_id, lf_id, 0, "mock_task", "kv_cache_log_parse_worker", "pending", 1, now()),
+        )
+        print(f"  创建 mock task: {t_id}")
+    else:
+        t_id = t_rows[0]["id"]
+        print(f"  使用已有 task: {t_id}")
+
     return {
         "kb_id": kb_id,
         "log_file_id": lf_id,
@@ -154,6 +173,7 @@ def ensure_mock_data():
         "aggregated_event_id": ae_id,
         "anomalous_event_id": ane_id,
         "event_chain_id": aec_id,
+        "task_id": t_id,
     }
 
 
@@ -207,6 +227,7 @@ def main():
     aggregated_event_id = ids["aggregated_event_id"]
     anomalous_event_id = ids["anomalous_event_id"]
     event_chain_id = ids["event_chain_id"]
+    task_id = ids["task_id"]
 
     # 2. log_kb 接口
     print("\n[log_kb]")
@@ -255,7 +276,19 @@ def main():
         "page_cnt": 10, "page_num": 1
     }, desc="list_anomalous_event_chains")
 
-    # 8. 清理（可选）
+    # 8. task 接口
+    print("\n[task]")
+    call("POST", "/task/list", payload={"page_cnt": 10, "page_num": 1}, desc="list_tasks")
+    call("GET", f"/task/{task_id}", desc="get_task")
+    call("POST", "/task/create", payload={
+        "task_type": "kv_cache_log_parse_worker",
+        "op_id": log_file_id,
+        "task_name": "test_task"
+    }, desc="create_task")
+    call("PUT", f"/task/stop/{task_id}", desc="stop_task")
+    call("DELETE", f"/task/{task_id}", desc="delete_task")
+
+    # 9. 清理（可选）
     print("\n[Cleanup]")
     # 删除刚才通过接口创建的 log_file（如果有的话）
     # 这里只是演示，删除通过 upload 接口创建的 log_file 记录

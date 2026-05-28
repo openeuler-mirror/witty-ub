@@ -22,6 +22,7 @@ import logging
 from latency.ENUM.general import FilePath
 from latency.config.config import Config
 from latency.task.task_handler import TaskHandler
+from latency.task.worker import *
 from latency.routers import (
     log_file,
     log_knowledge,
@@ -29,6 +30,7 @@ from latency.routers import (
     src_dst_aggregated_event,
     anomalous_event,
     anomalous_event_chain,
+    task,
 )
 from latency.database.engine import AsyncSQLiteSingleton
 
@@ -53,6 +55,7 @@ async def configure():
     app.include_router(src_dst_aggregated_event.router)
     app.include_router(anomalous_event.router)
     app.include_router(anomalous_event_chain.router)
+    app.include_router(task.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):

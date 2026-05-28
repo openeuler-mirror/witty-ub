@@ -142,6 +142,7 @@ table_ddl_list = {
             id TEXT PRIMARY KEY,
             kb_id TEXT,
             op_id TEXT,
+            retry_times INTEGER NOT NULL DEFAULT 0,
             task_name TEXT,
             task_type TEXT,
             status TEXT,

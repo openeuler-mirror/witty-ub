@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Any
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
-from latency.ENUM.task import TaskStatusEnum
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 
 
 class CreateLogKnowledgeRequest(BaseModel):
@@ -132,4 +132,32 @@ class ListLogParseResultRequest(BaseModel):
         description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+
+
+class CreateTaskRequest(BaseModel):
+    task_type: TaskTypeEnum = Field(..., description="任务类型")
+    op_id: str = Field(..., description="操作ID，关联的业务对象ID")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID")
+    task_name: Optional[str] = Field(default=None, description="任务名称")
+
+
+class ListTasksRequest(BaseModel):
+    task_type: Optional[TaskTypeEnum] = Field(default=None, description="任务类型")
+    status: Optional[TaskStatusEnum] = Field(default=None, description="任务状态")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID")
+    op_id: Optional[str] = Field(default=None, description="操作ID")
+    created_at_start: Optional[str] = Field(
+        default=None,
+        description="任务创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    created_at_end: Optional[str] = Field(
+        default=None,
+        description="任务创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    created_sorted_desc: bool = Field(
+        default=True,
+        description="任务创建时间排序，True表示降序，False表示升序，默认为True",
+    )
+    page_cnt: int = Field(default=10, description="每页的任务数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")

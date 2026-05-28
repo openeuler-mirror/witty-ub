@@ -80,7 +80,7 @@ class LogParseResultManager:
         return result
 
     @staticmethod
-    async def update_log_prase_results_existed_status_by_log_id(
+    async def update_log_parse_results_existed_status_by_log_id(
         log_id: str, existed_status: int
     ) -> bool:
         """根据日志ID更新解析结果的existed_status"""
