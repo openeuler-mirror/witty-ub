@@ -11,8 +11,8 @@ import time
 import requests
 
 # 设置 Python 路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
+# $env:PYTHONPATH="e:\witty-ub\src\plugins"; python e:\witty-ub\src\plugins\latency\test\test_full_link.py
 from latency.schemas.log import LogFileModel, LogKnowledgeModel
 from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
