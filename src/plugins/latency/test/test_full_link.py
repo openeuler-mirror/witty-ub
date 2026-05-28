@@ -32,8 +32,6 @@ async def setup_test_data(log_dir: str) -> tuple[str, str]:
         image_bytes=b"",
         name="test_kb",
         description="测试知识库",
-        src_ip_list=["192.168.1.1"],
-        dst_ip_list=["192.168.1.2"],
     )
     await LogKnowledgeManager.add_log_kb(kb_model)
     print(f"✅ 创建 log_knowledge: {kb_id}")
