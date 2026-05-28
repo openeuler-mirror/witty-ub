@@ -205,10 +205,10 @@ class LogFileService:
         for log_file_model in log_file_models:
             log_file_model.task = task_dict.get(log_file_model.id)
             if log_file_model.task:
-                log_file_model.task_reports = task_report_dict.get(
+                log_file_model.task.task_reports = task_report_dict.get(
                     log_file_model.task.id, []
                 )
-                log_file_model.task_reports.sort(
+                log_file_model.task.task_reports.sort(
                     key=lambda x: x.created_at, reverse=True
                 )
         return ListLogFilesMsg(total=total, log_files=log_file_models)
