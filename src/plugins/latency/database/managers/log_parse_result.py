@@ -1,7 +1,7 @@
 from latency.schemas.log import LogParseResultModel
 from latency.schemas.request import ListLogParseResultRequest
 from latency.database.engine import AsyncSQLiteSingleton
-
+from typing import Optional
 
 class LogParseResultManager:
     """日志解析结果管理器"""
