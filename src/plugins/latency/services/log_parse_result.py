@@ -1,8 +1,9 @@
-from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest
+from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.schemas.response import (
     ListLogParseResultsMsg,
     GetLogParseResultMsg,
     ListTracesByHostMsg,
+    GetLatencyMetricsMsg,
 )
 from latency.database.managers.log_parse_result import LogParseResultManager
 
@@ -23,14 +24,18 @@ class LogParseResultService:
     @staticmethod
     async def list_traces_by_host(req: ListTracesByHostRequest) -> ListTracesByHostMsg:
         """根据主机获取trace列表"""
-        total, traces = await LogParseResultManager.list_traces_by_host(
-            host=req.host,
-            start_time=req.start_time,
-            end_time=req.end_time,
-            operation=req.operation,
-            page_cnt=req.page_cnt,
-            page_num=req.page_num,
-            sort_by=req.sort_by,
-            sort_order=req.sort_order,
-        )
+        total, traces = await LogParseResultManager.list_traces_by_host(req)
         return ListTracesByHostMsg(total=total, traces=traces)
+
+    @staticmethod
+    async def get_latency_metrics(req: GetLatencyMetricsRequest) -> GetLatencyMetricsMsg:
+        """获取延迟指标时间曲线数据"""
+        total, metrics = await LogParseResultManager.get_latency_metrics(req)
+        return GetLatencyMetricsMsg(
+            total=total,
+            metrics=metrics,
+            time_range={
+                "start_time": req.start_time,
+                "end_time": req.end_time,
+            },
+        )

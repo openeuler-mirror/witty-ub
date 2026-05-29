@@ -155,6 +155,31 @@ class ListTracesByHostRequest(BaseModel):
     sort_order: str = Field(default="desc", description="排序方向")
 
 
+class GetLatencyMetricsRequest(BaseModel):
+    """获取延迟指标时间曲线请求"""
+    host: Optional[str] = Field(default=None, description="主机名或IP地址，可选")
+    src_ip: Optional[str] = Field(default=None, description="源IP地址，可选")
+    dst_ip: Optional[str] = Field(default=None, description="目的IP地址，可选")
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
+    )
+    max_points: int = Field(
+        default=1000,
+        description="最大返回数据点数，用于控制数据量，默认1000",
+    )
+    sort_by: str = Field(default="timestamp", description="排序字段")
+    sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")
+
+
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")
     op_id: str = Field(..., description="操作ID，关联的业务对象ID")

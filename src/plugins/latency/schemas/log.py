@@ -250,3 +250,11 @@ class LogParseResultModel(BaseModel):
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="日志解析结果创建时间",
     )
+
+
+class LatencyMetricItem(BaseModel):
+    """延迟指标数据点（用于时间曲线）"""
+    time: str = Field(..., description="时间戳")
+    total_latency: Optional[float] = Field(default=None, description="总延迟，单位毫秒")
+    urma_total_latency: Optional[float] = Field(default=None, description="URMA总延迟，单位毫秒")
+    worker_query_meta_latency: Optional[float] = Field(default=None, description="Worker查询元数据延迟，单位毫秒")
