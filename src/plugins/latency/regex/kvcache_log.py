@@ -36,7 +36,7 @@ REMOTE_GET_RE = re.compile(
 
 REMOTE_PULL_RE = re.compile(
     r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}.\d{6}).*?"
-    r"Remote pull request:.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
+    r"Processing pull object:.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
 )
 
 # -------------------------------------------------------------------

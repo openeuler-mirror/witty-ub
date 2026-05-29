@@ -194,6 +194,24 @@ class GetLogParseResultResponse(ResponseBase):
     result: GetLogParseResultMsg = Field(..., description="查询日志解析结果详情响应结果")
 
 
+class TraceItem(BaseModel):
+    trace_id: str = Field(..., description="追踪ID")
+    pod_id: str = Field(..., description="Pod ID/名称")
+    time: str = Field(..., description="时间戳")
+    sdk_ms: float = Field(..., description="SDK端到端延迟(毫秒)")
+    req_delay_ms: float = Field(..., description="请求延迟(毫秒)")
+    rsp_delay_ms: float = Field(..., description="响应延迟(毫秒)")
+
+
+class ListTracesByHostMsg(BaseModel):
+    total: int = Field(..., description="符合条件的trace总数")
+    traces: list[TraceItem] = Field(default_factory=list, description="trace列表")
+
+
+class ListTracesByHostResponse(ResponseBase):
+    result: ListTracesByHostMsg = Field(..., description="查询trace列表响应结果")
+
+
 class StopOrRunLogParseMsg(BaseModel):
     success: bool = Field(..., description="操作是否成功")
 

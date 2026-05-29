@@ -18,19 +18,21 @@ latency/
 │   ├── log_file.py
 │   ├── log_knowledge.py
 │   ├── log_parse_result.py
-│   └── src_dst_aggregated_event.py
+│   ├── src_dst_aggregated_event.py
+│   └── task.py
 ├── services/               # 服务层 (Service)
 │   ├── anomalous_event_chain.py
 │   ├── anomalous_event.py
 │   ├── log_file.py
 │   ├── log_knowledge.py
 │   ├── log_parse_result.py
-│   └── src_dst_aggregated_event.py
+│   ├── src_dst_aggregated_event.py
+│   └── task.py
 ├── database/               # 数据层
 │   ├── engine.py           # SQLite 数据库引擎（单例模式）
 │   └── managers/           # 数据管理器（Manager）
 │       ├── anomalous_event_chain.py
-│       ├── anomalout_event.py
+│       ├── anomalous_event.py
 │       ├── log_file.py
 │       ├── log_knowledge.py
 │       ├── log_parse_result.py
@@ -40,19 +42,20 @@ latency/
 ├── task/                   # 任务处理层
 │   ├── task_handler.py     # 任务调度器（TaskHandler）
 │   ├── process_handle.py   # 进程处理器（多进程管理）
-│   ├── parse/              # 日志解析器
-│   │   ├── base_parser.py
-│   │   ├── remote_pull_log_parser.py
-│   │   ├── worker_access_log_parser.py
-│   │   ├── query_meta_log_parser.py
-│   │   ├── sdk_access_log_parser.py
-│   │   ├── urma_log_parser.py
-│   │   └── correlation/    # 关联分析
-│   │       ├── correlator.py
-│   │       └── result_builder.py
 │   └── worker/
 │       ├── base.py         # 基础工作器（BaseWorker）
 │       └── kv_cache_log_parse_worker.py  # 具体业务 Worker
+├── parse/                  # 日志解析器
+│   ├── base_parser.py
+│   ├── remote_pull_log_parser.py
+│   ├── worker_access_log_parser.py
+│   ├── query_meta_log_parser.py
+│   ├── sdk_access_log_parser.py
+│   ├── link_log_parser.py
+│   ├── urma_log_parser.py
+│   └── correlation/        # 关联分析
+│       ├── correlator.py
+│       └── result_builder.py
 ├── schemas/                # 数据模型（Pydantic）
 │   ├── config.py           # 配置模型
 │   ├── ds_log.py           # DS 日志模型
@@ -68,8 +71,10 @@ latency/
 ├── config/                 # 配置模块
 │   └── config.py           # 配置读取类
 ├── common/                 # 公共工具
+│   ├── __init__.py
 │   ├── convertor.py        # 数据转换器
 │   ├── ds_log_io.py        # DS 日志 IO
+│   ├── stats.py            # 统计工具
 │   └── zip_handler.py      # ZIP 文件处理
 ├── models/                 # AI 模型封装
 │   ├── chat.py             # 聊天模型
@@ -78,7 +83,8 @@ latency/
 │   ├── ocr.py              # OCR 模型
 │   └── reranker.py         # 重排序模型
 ├── regex/                  # 正则解析规则
-│   └── kvcache_log.py
+│   ├── kvcache_log.py
+│   └── kvcache_log_file.py
 ├── sdk/                    # SDK
 │   └── xxx.py
 ├── static/                 # 静态资源
@@ -86,12 +92,23 @@ latency/
 │   └── fault_patterns_tree.json
 ├── deploy/                 # 部署文件
 │   ├── deploy.sh           # 一键部署脚本
+│   ├── skill_build.sh      # Skill 构建脚本
 │   ├── pyproject.toml
-│   └── requirements.txt
-└── test/                   # 测试
-    ├── test_all_apis.py    # 全接口测试
-    ├── test_log_parser.py
-    └── test.py
+│   ├── requirements.txt
+│   ├── log_detection.spec  # PyInstaller 打包配置
+│   ├── Dockerfile          # Docker 镜像构建
+│   └── Dockerfile-base     # 基础 Docker 镜像
+├── test/                   # 测试
+│   ├── test_all_apis.py    # 全接口测试
+│   ├── test_log_parser.py
+│   ├── test_full_link.py   # 全链路测试
+│   ├── test_kv_cache_log_parse_worker.py
+│   ├── test_scheduler_run.py
+│   ├── test_task_service.py
+│   └── test.py
+├── ds_log_analyzer.py      # DS 日志分析器主入口
+├── LICENSE                 # 许可证文件
+└── README.en.md            # 英文文档
 ```
 
 ---
