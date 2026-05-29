@@ -135,6 +135,26 @@ class ListLogParseResultRequest(BaseModel):
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
+class ListTracesByHostRequest(BaseModel):
+    host: str = Field(..., description="主机名或IP地址")
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
+    )
+    page_cnt: int = Field(default=20, description="每页数量")
+    page_num: int = Field(default=1, description="页码")
+    sort_by: str = Field(default="timestamp", description="排序字段")
+    sort_order: str = Field(default="desc", description="排序方向")
+
+
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")
     op_id: str = Field(..., description="操作ID，关联的业务对象ID")

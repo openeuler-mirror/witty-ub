@@ -158,3 +158,55 @@ class LogParseResultManager:
         if rows:
             return LogParseResultModel(**rows[0])
         return None
+
+    @staticmethod
+    async def list_traces_by_host(
+        host: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        operation: Optional[str] = None,
+        page_cnt: int = 20,
+        page_num: int = 1,
+        sort_by: str = "timestamp",
+        sort_order: str = "desc",
+    ) -> tuple[int, list[dict]]:
+        """根据主机获取trace列表"""
+        sql_str = """
+            SELECT 
+                trace_id,
+                pod_ip as pod_id,
+                timestamp as time,
+                total_latency as sdk_ms,
+                c2w_latency as req_delay_ms,
+                (total_latency - c2w_latency) as rsp_delay_ms
+            FROM log_parse_result_table
+            WHERE existed_status = 1 AND pod_ip = :host
+        """
+        params = {"host": host}
+        
+        if start_time:
+            sql_str += " AND timestamp >= :start_time"
+            params["start_time"] = start_time
+        if end_time:
+            sql_str += " AND timestamp <= :end_time"
+            params["end_time"] = end_time
+        if operation:
+            sql_str += " AND operation LIKE :operation"
+            params["operation"] = f"%{operation}%"
+        
+        count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
+        count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
+        total = count_rows[0]["cnt"] if count_rows else 0
+        
+        valid_sort_fields = ["timestamp", "total_latency", "c2w_latency"]
+        sort_by = sort_by if sort_by in valid_sort_fields else "timestamp"
+        sort_order = "DESC" if sort_order.lower() == "desc" else "ASC"
+        sql_str += f" ORDER BY {sort_by} {sort_order}"
+        
+        offset = (page_num - 1) * page_cnt
+        sql_str += " LIMIT :limit OFFSET :offset"
+        params["limit"] = page_cnt
+        params["offset"] = offset
+        
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        return total, rows
