@@ -4,7 +4,6 @@ kvcache_conn_fault_002_001,respMsg参数非法类故障,通过日志关键字识
 kvcache_conn_fault_002_002,respMsg未配置Init故障,通过日志关键字识别（08手册:L248）：匹配ConnectOptions was not configured,未配置Init就发起调用，属于用户侧问题（08手册:L248）,检查业务侧Init调用是否正确配置ConnectOptions（08手册:L248）,,"L151, L153, L248"
 kvcache_conn_fault_002_003,respMsg重复Publish故障,通过日志关键字识别（08手册:L249）：匹配Client object is already sealed,buffer重复Publish，属于用户业务逻辑问题（08手册:L249）,检查业务逻辑，确认是否对同一对象重复调用Publish（08手册:L249）,,"L170, L172, L249"
 kvcache_conn_fault_002_004,respMsg批次超限故障,通过日志关键字识别（08手册:L250）：匹配OBJECT_KEYS_MAX_SIZE_LIMIT,批处理大小超过最大限制，属于用户侧问题（08手册:L250）,拆分批次，减小单次请求的对象数量（08手册:L250）,,"L185, L187, L250"
-kvcache_conn_fault_002_005,respMsg对象不存在故障,通过日志关键字识别（08手册:L251）：匹配Can't find object,对象不存在，属于用户侧问题。可能原因：业务未Put直接Get、对象已过期（TTL）、key拼写错误（08手册:L251）,业务方自查Put/Get顺序、key正确性、TTL设置（08手册:L251）,,"L200, L203-204, L251"
 kvcache_conn_fault_002_006,错误码2 K_INVALID,"通过access log识别（08手册:L130, L189）：access log中status_code（第8列）为2",K_INVALID表示业务参数非法，属于用户侧问题（08手册:L130）,"业务方校验调用参数（08手册:L130, L247）",,"L227, L229, L130"
 kvcache_conn_fault_002_007,错误码3 K_NOT_FOUND,"通过access log识别（08手册:L130, L189）：access log中status_code（第8列）为3",K_NOT_FOUND(3)表示对象不存在，属于用户侧问题（08手册:L130）,业务方自查key正确性和Put/Get顺序（08手册:L251）,,"L253, L255, L130"
 kvcache_conn_fault_002_008,错误码8 K_NOT_READY,"通过access log识别（08手册:L130, L189）：access log中status_code（第8列）为8",K_NOT_READY(8)表示Client未就绪，通常Init未完成或顺序错误，属于用户侧问题（08手册:L130）,检查业务侧Init调用和ConnectOptions配置顺序，确保在Put/Get前已完成Init（08手册:L248）,,"L269, L271, L130"
