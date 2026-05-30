@@ -58,4 +58,4 @@ class LogKnowledgeService:
     @staticmethod
     async def get_log_kb_by_kb_id(kb_id: str) -> GetLogKnowledgeMsg:
         log_kb = await LogKnowledgeManager.get_log_kb_by_kb_id(kb_id)
-        return GetLogKnowledgeMsg(log_kb=log_kb)
+        return GetLogKnowledgeMsg(kb=log_kb)

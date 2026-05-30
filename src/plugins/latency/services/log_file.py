@@ -146,7 +146,7 @@ class LogFileService:
                 task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
                 op_id=log_file_id,
             )
-        return UploadLogFilesMsg(log_files_ids=log_file_ids)
+        return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
