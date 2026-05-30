@@ -64,8 +64,8 @@ private:
         failureModeIdToController; // (failureLogInfo ->) failureModeId -> failureModeController (-> failureMode)
     std::unordered_map<std::string, std::vector<FailureLogInfo>> traces; // traceId -> logs
     std::unordered_set<std::string> allFailureModes;                     // failureModeId
-    std::unordered_set<std::string> childFailureModes;                   // failureModeId
     std::unordered_set<std::string> rootFailureModes;                    // failureModeId
+    std::unordered_map<std::string, std::vector<std::string>> childToParentFailureModes;
 
     // 命令行参数
     std::string dsLogPath;               // --ds-log-path
