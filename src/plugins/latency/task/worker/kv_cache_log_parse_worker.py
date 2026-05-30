@@ -231,6 +231,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 if 0 <= idx < len(list_log_parse_results):
                     r = list_log_parse_results[idx]
                     r.anomalous_event_id = event.id
+                    r.is_anomalous = True
 
         logger.info(
             f"Detect exception: {len(events):,} anomalous entries out of {n:,} results"
