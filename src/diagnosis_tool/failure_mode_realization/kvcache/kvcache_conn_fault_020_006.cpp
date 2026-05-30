@@ -11,7 +11,7 @@ bool KvcacheConnFault020_006::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L749, L751-752, L223
     std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E '\\[TCP_CONNECT_FAILED\\]' $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && grep -E '\\[TCP_CONNECT_FAILED\\]' $WITTY_UB_CLIENT_INFO_LOG $WITTY_UB_WORKER_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
     kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);

@@ -11,7 +11,7 @@ bool KvcacheConnFault028_005::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L967, L969, L301, L624
     std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG\" && grep -E 'fallback to TCP/IP payload' $WITTY_UB_WORKER_INFO_LOG 2>/dev/null");
+        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && grep -E 'fallback to TCP payload' $WITTY_UB_WORKER_INFO_LOG $WITTY_UB_CLIENT_INFO_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     grepOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(grepOutput);
     kvcache_log_helper::ParseFailureLogLine(grepOutput, logInfo);
@@ -21,7 +21,7 @@ bool KvcacheConnFault028_005::IsValid()
 std::string KvcacheConnFault028_005::GetName() const
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L967, L969, L301, L624
-    return "fallback to TCP/IP payload（URMA降级TCP）";
+    return "fallback to TCP payload（URMA降级TCP）";
 }
 
 std::string KvcacheConnFault028_005::GetRootCauseDesc() const
