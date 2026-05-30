@@ -22,6 +22,7 @@
 #include <regex>
 #include <sstream>
 #include <sys/stat.h>
+#include <unordered_set>
 #include "failure_def.h"
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
@@ -89,8 +90,9 @@ void DiagnosisToolModule::InitializeFailureModeTree()
             const Json::Value &arrayValue = innerObj[innerKey];
             std::vector<std::string> vec;
             if (arrayValue.isArray()) {
-                for (const auto &element : arrayValue) {
+                for (auto &element : arrayValue) {
                     if (element.isString()) {
+                        childToParentFailureModes[element.asString()].push_back(innerKey);
                         vec.push_back(element.asString());
                         nonSubRootFailureModes.insert(element.asString());
                         if (failureMode != nullptr) {
@@ -169,6 +171,12 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
         return RACK_FAIL;
     }
 
+    if (getRequired("ds-worker-access-log-file", dsWorkerAccessLogFile) != RACK_OK) return RACK_FAIL;
+    if (dsWorkerAccessLogFile.empty()) {
+        LOG_ERROR << "--ds-worker-access-log-file cannot be empty";
+        return RACK_FAIL;
+    }
+
     if (getRequired("resource-log-file", resourceLogFile) != RACK_OK) return RACK_FAIL;
     if (resourceLogFile.empty()) {
         LOG_ERROR << "--resource-log-file cannot be empty";
@@ -235,6 +243,7 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
         {dsClientAccessLogFile, "WITTY_UB_CLIENT_ACCESS_LOG"},
         {dsClientInfoLogFile, "WITTY_UB_CLIENT_INFO_LOG"},
         {dsWorkerInfoLogFile, "WITTY_UB_WORKER_INFO_LOG"},
+        {dsWorkerAccessLogFile, "WITTY_UB_WORKER_ACCESS_LOG"},
         {resourceLogFile, "WITTY_UB_RESOURCES_LOG"},
     };
 
@@ -445,18 +454,39 @@ void DiagnosisToolModule::UnInitialize()
 //     return true;
 // }
 
-bool DiagnosisToolModule::Visit(FailureModeController controller)
+void DiagnosisToolModule::Visit(FailureModeController controller)
 {
     // TODO:把VisitUrma的逻辑同时拆给VisitKvcache
     std::shared_ptr<FailureMode> failureMode = controller.GetFailureMode();
     if (failureMode == nullptr) {
-        return false;
+        return;
     }
     std::string failureModeId = failureMode->GetId();
-    if (failureMode->IsValid()) {
-        std::cout << failureMode -> GetName() << std::endl;
+    bool isValid = failureMode->IsValid();
+    if (isValid) {
         const std::vector<FailureLogInfo> &logInfos =
             urma_log_helper::GetParsedFailureLogLines(failureMode->GetFailureLogInfoCache());
+        bool allEmptyTrace = true;
+        for (FailureLogInfo info: logInfos) {
+            if (info.traceId != "") {
+                allEmptyTrace = false;
+            }
+        }
+        if (allEmptyTrace) {
+            return;
+        }
+        // 若是urma的二级节点，将当前日志补到上级节点上
+        if (failureModeId.find(MODULE_URMA) == 0 && childToParentFailureModes[failureModeId][0].find(MODULE_URMA) == 0) {
+            std::string parentFailureModeId = childToParentFailureModes[failureModeId][0];
+            FailureModeController &parentController = failureModeIdToController.at(parentFailureModeId);
+            for (FailureLogInfo logInfo : logInfos) {
+                parentController.AddHitCount();
+                logInfo.failureModeId = parentFailureModeId;
+                parentController.AddLogInfo(logInfo);
+                traces[logInfo.traceId].push_back(logInfo);
+            }
+            allFailureModes.insert(parentFailureModeId);
+        }
         for (FailureLogInfo logInfo : logInfos) {
             if (!logInfo.traceId.empty()) {
                 controller.AddHitCount();
@@ -465,19 +495,28 @@ bool DiagnosisToolModule::Visit(FailureModeController controller)
                 traces[logInfo.traceId].push_back(logInfo);
             }
         }
-    }
-    allFailureModes.insert(failureModeId);
-    failureModeIdToController.emplace(failureModeId, controller);
-    RootCause rootCause = failureMode->AnalyzeRootCause();
-    if (!rootCause.GetIsFinalRootCause() && (failureModeId.find(MODULE_KVCACHE) != 0 || !urmaVisited)) {
-        for (std::string subFailureModeId : failureMode->GetSubFailureModes()) {
-            if (subFailureModeId.find(MODULE_URMA) == 0) {
-                urmaVisited = true;
-            }
-            Visit(FailureModeController(failureModeInstanceMap[subFailureModeId]));
+        // 若是urma的二级节点，将父节点补到allFailureModes中
+        if (failureModeId.find(MODULE_KVCACHE) == 0 || childToParentFailureModes[failureModeId][0].find(MODULE_URMA) == 0) {
+            allFailureModes.insert(failureModeId);
         }
+        failureModeIdToController.emplace(failureModeId, controller);
+        RootCause rootCause = failureMode->AnalyzeRootCause();
+        if (!rootCause.GetIsFinalRootCause()) {
+            bool subFailureModeIsUrma = false;
+            for (std::string subFailureModeId : failureMode->GetSubFailureModes()) {
+                if (failureModeId.find(MODULE_KVCACHE) == 0 && subFailureModeId.find(MODULE_URMA) == 0 && urmaVisited) {
+                    break;
+                }
+                if (failureModeId.find(MODULE_KVCACHE) == 0 && subFailureModeId.find(MODULE_URMA) == 0) {
+                    subFailureModeIsUrma = true;
+                }
+                Visit(FailureModeController(failureModeInstanceMap[subFailureModeId]));
+            }
+            urmaVisited = urmaVisited || subFailureModeIsUrma;
+        }
+        return;
     }
-    return true;
+    return;
 }
 
 void DiagnosisToolModule::StartKvcache(const std::vector<std::string> &subRootFailureModes)
@@ -519,7 +558,6 @@ RackResult DiagnosisToolModule::Start()
     failureModeIdToController.clear();
     traces.clear();
     allFailureModes.clear();
-    childFailureModes.clear();
     rootFailureModes.clear();
 
     for (auto subRootFailures : subRootFailureModesMap) {
@@ -546,23 +584,49 @@ RackResult DiagnosisToolModule::Start()
             }
         });
     }
+    //首先删除没有父节点的子节点
     for (const auto &[traceId, trace] : traces) {
+        std::unordered_set<std::string> allFailureModeIds;
+        std::vector<FailureLogInfo> newTrace;
         int traceLen = trace.size();
-        for (int i = 0; i < traceLen - 1; ++i) {
-            const std::string &currModeId = trace[i].failureModeId;
-            const std::string &nextModeId = trace[i + 1].failureModeId;
-            auto &currController = failureModeIdToController.at(currModeId);
-            currController.AddSubFailureModeValid(nextModeId);
-            childFailureModes.insert(nextModeId);
+        for (int i = 0; i < traceLen; i++) {
+            allFailureModeIds.insert(trace[i].failureModeId);
         }
+        for (int i = 0; i < traceLen; i++) {
+            std::string currFailureModeId = trace[i].failureModeId;
+            bool valid = true;
+            // 如果KVCache的某一级父节点不在当前列表中，说明该节点无效
+            while (currFailureModeId.find(MODULE_KVCACHE) == 0 && childToParentFailureModes.find(currFailureModeId) != childToParentFailureModes.end()) {
+                if (allFailureModeIds.find(childToParentFailureModes[currFailureModeId][0]) == allFailureModeIds.end()) {
+                    valid = false;
+                    break;
+                }
+                currFailureModeId = childToParentFailureModes[currFailureModeId][0];
+            }
+            if (valid) {
+                newTrace.push_back(trace[i]);
+            }
+        }
+        traces[traceId] = newTrace;
     }
+    // 获取根节点并将子节点加入父节点FailureModeController中
     for (const auto &failureModeId : allFailureModes) {
-        if (childFailureModes.find(failureModeId) == childFailureModes.end()) {
+        if (childToParentFailureModes.find(failureModeId) == childToParentFailureModes.end()) {
             rootFailureModes.insert(failureModeId);
+        } else {
+            for (std::string parentFailureModeId: childToParentFailureModes[failureModeId]) {
+                if (allFailureModes.find(parentFailureModeId) != allFailureModes.end()) {
+                    std::cout << "parent: " << parentFailureModeId << "; child: " << failureModeId << std::endl;
+                    FailureModeController &parentFailureModeController = failureModeIdToController.at(parentFailureModeId);
+                    parentFailureModeController.AddSubFailureModeValid(failureModeId);
+                    std::cout << "success" << std::endl;
+                }
+            }
         }
     }
+
     for (auto &[traceId, trace] : traces) {
-        std::cout << "traceId: " << traceId << std::endl;
+        std::cout << "traceId: " << traceId << ": ";
         for (const auto& logInfo : trace) {
             std::cout << logInfo.failureModeId << " -> ";
         }

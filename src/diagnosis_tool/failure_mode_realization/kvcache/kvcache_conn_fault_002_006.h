@@ -3,9 +3,9 @@
 #include "../../failure_mode.h"
 
 namespace diag {
-class KvcacheConnFault028_002 : public FailureMode {
+class KvcacheConnFault002_006 : public FailureMode {
 public:
-    KvcacheConnFault028_002() noexcept = default;
+    KvcacheConnFault002_006() noexcept = default;
     bool IsValid() override;
     std::string GetName() const override;
     std::string GetRootCauseDesc() const override;
