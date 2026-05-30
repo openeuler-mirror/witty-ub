@@ -1,6 +1,8 @@
 from latency.schemas.response import (
     GetAnomalousEventMsg,
+    ListAnomalousEventsMsg,
 )
+from latency.schemas.request import ListAnomalousEventRequest
 from latency.database.managers.anomalous_event import AnomalousEventManager
 
 
@@ -13,6 +15,11 @@ class AnomalousEventService:
         return GetAnomalousEventMsg(event=event)
 
     @staticmethod
-    async def list_anomalous_events_by_log_id(log_id: str) -> list:
+    async def list_anomalous_events_by_log_id(log_id: str) -> ListAnomalousEventsMsg:
         events = await AnomalousEventManager.list_anomalous_events_by_log_id(log_id)
-        return events
+        return ListAnomalousEventsMsg(total=len(events), events=events)
+
+    @staticmethod
+    async def list_anomalous_events(req: ListAnomalousEventRequest) -> ListAnomalousEventsMsg:
+        total, events = await AnomalousEventManager.list_anomalous_events(req)
+        return ListAnomalousEventsMsg(total=total, events=events)

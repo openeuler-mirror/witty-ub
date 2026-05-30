@@ -109,6 +109,9 @@ class LogParseResultManager:
             WHERE existed_status = 1
         """
         params = {}
+        if req.log_id:
+            sql_str += " AND log_id = :log_id"
+            params["log_id"] = req.log_id
         if req.src_ip:
             sql_str += " AND src_ip LIKE :src_ip"
             params["src_ip"] = f"%{req.src_ip}%"

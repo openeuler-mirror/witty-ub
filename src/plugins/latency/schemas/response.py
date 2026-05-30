@@ -159,6 +159,19 @@ class GetAnomalousEventResponse(ResponseBase):
     result: GetAnomalousEventMsg = Field(..., description="查询异常事件详情响应结果")
 
 
+class ListAnomalousEventsMsg(BaseModel):
+    total: int = Field(..., description="符合条件的异常事件总数")
+    events: list[AnomalousEventModel] = Field(
+        default_factory=list, description="异常事件列表"
+    )
+
+
+class ListAnomalousEventsResponse(ResponseBase):
+    result: ListAnomalousEventsMsg = Field(
+        ..., description="查询异常事件列表响应结果"
+    )
+
+
 class ListAnomalousEventChainsMsg(BaseModel):
     total: int = Field(..., description="符合条件的异常事件链总数")
     event_chains: list[AnomalousEventChainModel] = Field(

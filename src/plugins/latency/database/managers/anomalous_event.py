@@ -1,4 +1,5 @@
 from latency.schemas.log import AnomalousEventModel
+from latency.schemas.request import ListAnomalousEventRequest
 from latency.database.engine import AsyncSQLiteSingleton
 
 
@@ -102,3 +103,36 @@ class AnomalousEventManager:
         if rows:
             return AnomalousEventModel(**rows[0])
         return None
+
+    @staticmethod
+    async def list_anomalous_events(
+        req: ListAnomalousEventRequest,
+    ) -> tuple[int, list[AnomalousEventModel]]:
+        """分页查询异常事件"""
+        sql_str = """
+            SELECT id, log_id, aggregated_event_id, start_log_parse_offset,
+                end_log_parse_offset, anomaly_reason, existed_status, created_at
+            FROM anomalous_event_table
+            WHERE existed_status = 1
+        """
+        params = {}
+        if req.log_id:
+            sql_str += " AND log_id = :log_id"
+            params["log_id"] = req.log_id
+        if req.aggregated_event_id:
+            sql_str += " AND aggregated_event_id = :aggregated_event_id"
+            params["aggregated_event_id"] = req.aggregated_event_id
+
+        count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
+        count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
+        total = count_rows[0]["cnt"] if count_rows else 0
+
+        sql_str += " ORDER BY created_at DESC"
+        offset = (req.page_num - 1) * req.page_cnt
+        sql_str += " LIMIT :limit OFFSET :offset"
+        params["limit"] = req.page_cnt
+        params["offset"] = offset
+
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        events = [AnomalousEventModel(**row) for row in rows]
+        return total, events

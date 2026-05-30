@@ -89,6 +89,7 @@ class ListLogFilesRequest(BaseModel):
 
 
 class ListSrcDstAggregatedEventRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的聚合事件")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     created_at_start: Optional[str] = Field(
@@ -108,11 +109,13 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
 
 
 class ListAnomalousEventChainRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件链")
     page_cnt: int = Field(default=10, description="每页的异常事件链数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
 class ListLogParseResultRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     is_anomalous: Optional[bool] = Field(
@@ -132,6 +135,13 @@ class ListLogParseResultRequest(BaseModel):
         description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+
+
+class ListAnomalousEventRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
+    aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
+    page_cnt: int = Field(default=10, description="每页的异常事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
