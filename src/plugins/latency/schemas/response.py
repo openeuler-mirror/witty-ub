@@ -215,6 +215,7 @@ class TraceItem(BaseModel):
     sdk_ms: float = Field(..., description="SDK端到端延迟(毫秒)")
     req_delay_ms: float = Field(..., description="请求延迟(毫秒)")
     rsp_delay_ms: float = Field(..., description="响应延迟(毫秒)")
+    is_anomalous: bool = Field(default=False, description="是否为异常")
 
 
 class ListTracesByHostMsg(BaseModel):

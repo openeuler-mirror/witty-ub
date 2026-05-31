@@ -167,14 +167,28 @@ class LogParseResultManager:
         req: ListTracesByHostRequest,
     ) -> tuple[int, list[dict]]:
         """根据主机获取trace列表"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"list_traces_by_host called with is_anomalous={req.is_anomalous}")
+        
         sql_str = """
             SELECT 
+                id,
                 trace_id,
-                pod_ip as pod_id,
+                pod_ip,
                 timestamp as time,
-                total_latency as sdk_ms,
+                operation,
+                total_latency,
+                urma_total_latency,
+                c2w_latency,
+                worker_query_meta_latency,
+                w2w_urma_latency,
+                is_anomalous,
+                anomaly_reason,
                 c2w_latency as req_delay_ms,
-                (total_latency - c2w_latency) as rsp_delay_ms
+                (total_latency - c2w_latency) as rsp_delay_ms,
+                total_latency as sdk_ms,
+                pod_ip as pod_id
             FROM log_parse_result_table
             WHERE existed_status = 1 AND pod_ip = :host
         """
@@ -189,6 +203,12 @@ class LogParseResultManager:
         if req.operation:
             sql_str += " AND operation LIKE :operation"
             params["operation"] = f"%{req.operation}%"
+        if req.is_anomalous is not None:
+            logger.info(f"Adding is_anomalous filter: {req.is_anomalous}")
+            sql_str += " AND is_anomalous = :is_anomalous"
+            params["is_anomalous"] = 1 if req.is_anomalous else 0
+        
+        logger.info(f"Final SQL params: {params}")
         
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
@@ -205,6 +225,7 @@ class LogParseResultManager:
         params["offset"] = offset
         
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        logger.info(f"Returned {len(rows)} rows")
         return total, rows
 
     @staticmethod

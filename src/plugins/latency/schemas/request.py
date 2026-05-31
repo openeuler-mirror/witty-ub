@@ -159,6 +159,10 @@ class ListTracesByHostRequest(BaseModel):
         default=None,
         description="操作类型过滤：GET / SET",
     )
+    is_anomalous: Optional[bool] = Field(
+        default=None,
+        description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
+    )
     page_cnt: int = Field(default=20, description="每页数量")
     page_num: int = Field(default=1, description="页码")
     sort_by: str = Field(default="timestamp", description="排序字段")

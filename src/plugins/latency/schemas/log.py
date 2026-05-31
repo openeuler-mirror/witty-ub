@@ -53,9 +53,9 @@ class SrcDstAggregatedEventModel(BaseModel):
     src_ip: str = Field(..., description="源IP地址")
     dst_ip: str = Field(..., description="目的IP地址")
     log_id: str = Field(..., description="关联的日志ID")
-    log_parse_result_cnt: int = Field(0, description="日志解析结果数量")
-    anomaly_log_parse_result_cnt: int = Field(0, description="异常日志解析结果数量")
-    anomaly_cnt: int = Field(0, description="异常数量")
+    log_parse_result_cnt: int = Field(default=0, description="日志解析结果数量")
+    anomaly_log_parse_result_cnt: int = Field(default=0, description="异常日志解析结果数量")
+    anomaly_cnt: int = Field(default=0, description="异常数量")
     ave_total_latency: float | None = Field(
         default=None, description="平均总延迟，单位毫秒"
     )
