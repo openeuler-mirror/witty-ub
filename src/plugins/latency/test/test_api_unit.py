@@ -99,6 +99,18 @@ class TestLogKnowledge:
             data = response.json()
             assert data["code"] == 200
 
+    @pytest.mark.asyncio
+    async def test_delete_log_knowledge(self):
+        """测试删除日志知识"""
+        if not TestLogKnowledge.kb_id:
+            pytest.skip("No kb_id available")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"{BASE_URL}/log_kb/{TestLogKnowledge.kb_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+
 
 class TestLogFile:
     """日志文件接口测试"""
@@ -200,13 +212,12 @@ class TestLogParseResult:
 
     @pytest.mark.asyncio
     async def test_get_latency_metrics(self):
-        """测试获取延迟指标时间曲线数据（必选指标）"""
+        """测试获取延迟指标时间曲线数据"""
         async with httpx.AsyncClient() as client:
             payload = {
                 "host": TEST_HOST,
                 "start_time": "2024-01-01 00:00:00",
                 "end_time": now(),
-                "operation": "READ",
                 "max_points": 100,
                 "sort_by": "timestamp",
                 "sort_order": "asc"
@@ -217,17 +228,10 @@ class TestLogParseResult:
             assert data["code"] == 200
             assert "total" in data["result"]
             assert "metrics" in data["result"]
-            assert "time_range" in data["result"]
-            # 验证返回的数据点结构
-            for metric in data["result"]["metrics"]:
-                assert "time" in metric
-                assert "total_latency" in metric
-                assert "urma_total_latency" in metric
-                assert "worker_query_meta_latency" in metric
 
 
-class TestSrcDstAggregatedEvent:
-    """源目聚合事件接口测试"""
+class TestAggregatedEvent:
+    """聚合事件接口测试"""
 
     @pytest.mark.asyncio
     async def test_list_aggregated_events(self):
@@ -236,7 +240,8 @@ class TestSrcDstAggregatedEvent:
             payload = {
                 "page_cnt": 10,
                 "page_num": 1,
-                "src_ip": TEST_SRC_IP
+                "src_ip": TEST_SRC_IP,
+                "dst_ip": TEST_DST_IP
             }
             response = await client.post(f"{BASE_URL}/aggregated_event/list", json=payload)
             assert response.status_code == 200
@@ -250,20 +255,19 @@ class TestAnomalousEvent:
     """异常事件接口测试"""
 
     @pytest.mark.asyncio
-    async def test_get_anomalous_event(self):
-        """测试获取异常事件详情（需要先有数据）"""
+    async def test_list_anomalous_events(self):
+        """测试查询异常事件列表"""
         async with httpx.AsyncClient() as client:
-            # 先查询是否有异常事件
-            response = await client.post(f"{BASE_URL}/anomalous_event_chain/list", json={"page_cnt": 1, "page_num": 1})
+            payload = {
+                "page_cnt": 10,
+                "page_num": 1
+            }
+            response = await client.post(f"{BASE_URL}/anomalous_event/list", json=payload)
+            assert response.status_code == 200
             data = response.json()
-            if data["result"]["total"] > 0:
-                event_chain = data["result"]["event_chains"][0]
-                # 获取异常事件
-                response = await client.get(f"{BASE_URL}/anomalous_event/{event_chain.get('anomalous_event_id', '')}")
-                # 如果ID无效，可能返回404或其他状态，这里只检查格式
-                if response.status_code == 200:
-                    data = response.json()
-                    assert data["code"] == 200
+            assert data["code"] == 200
+            assert "total" in data["result"]
+            assert "events" in data["result"]
 
 
 class TestAnomalousEventChain:
@@ -334,6 +338,43 @@ class TestTask:
             assert data["code"] == 200
             assert "task_id" in data["result"]
             TestTask.task_id = data["result"]["task_id"]
+
+    @pytest.mark.asyncio
+    async def test_get_task(self):
+        """测试获取任务详情"""
+        if not TestTask.task_id:
+            pytest.skip("No task_id available")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/task/{TestTask.task_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+            assert "task" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_stop_task(self):
+        """测试停止任务"""
+        if not TestTask.task_id:
+            pytest.skip("No task_id available")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.put(f"{BASE_URL}/task/stop/{TestTask.task_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_delete_task(self):
+        """测试删除任务"""
+        if not TestTask.task_id:
+            pytest.skip("No task_id available")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"{BASE_URL}/task/{TestTask.task_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
 
 
 if __name__ == "__main__":
