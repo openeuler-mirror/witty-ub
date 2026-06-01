@@ -87,6 +87,9 @@ class AnomalousEventChainManager:
             WHERE existed_status = 1
         """
         params = {}
+        if req.log_id:
+            sql_str += " AND log_id = :log_id"
+            params["log_id"] = req.log_id
 
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)

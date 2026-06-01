@@ -89,6 +89,7 @@ class ListLogFilesRequest(BaseModel):
 
 
 class ListSrcDstAggregatedEventRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的聚合事件")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     created_at_start: Optional[str] = Field(
@@ -108,11 +109,13 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
 
 
 class ListAnomalousEventChainRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件链")
     page_cnt: int = Field(default=10, description="每页的异常事件链数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
 class ListLogParseResultRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     is_anomalous: Optional[bool] = Field(
@@ -135,6 +138,13 @@ class ListLogParseResultRequest(BaseModel):
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
+class ListAnomalousEventRequest(BaseModel):
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
+    aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
+    page_cnt: int = Field(default=10, description="每页的异常事件数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+
+
 class ListTracesByHostRequest(BaseModel):
     host: str = Field(..., description="主机名或IP地址")
     start_time: Optional[str] = Field(
@@ -149,10 +159,39 @@ class ListTracesByHostRequest(BaseModel):
         default=None,
         description="操作类型过滤：GET / SET",
     )
+    is_anomalous: Optional[bool] = Field(
+        default=None,
+        description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
+    )
     page_cnt: int = Field(default=20, description="每页数量")
     page_num: int = Field(default=1, description="页码")
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="desc", description="排序方向")
+
+
+class GetLatencyMetricsRequest(BaseModel):
+    """获取延迟指标时间曲线请求"""
+    host: Optional[str] = Field(default=None, description="主机名或IP地址，可选")
+    src_ip: Optional[str] = Field(default=None, description="源IP地址，可选")
+    dst_ip: Optional[str] = Field(default=None, description="目的IP地址，可选")
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
+    )
+    max_points: int = Field(
+        default=1000,
+        description="最大返回数据点数，用于控制数据量，默认1000",
+    )
+    sort_by: str = Field(default="timestamp", description="排序字段")
+    sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")
 
 
 class CreateTaskRequest(BaseModel):

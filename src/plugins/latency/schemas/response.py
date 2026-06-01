@@ -7,6 +7,7 @@ from latency.schemas.log import (
     AnomalousEventModel,
     AnomalousEventChainModel,
     LogParseResultModel,
+    LatencyMetricItem,
 )
 from latency.schemas.task import TaskModel
 
@@ -158,6 +159,19 @@ class GetAnomalousEventResponse(ResponseBase):
     result: GetAnomalousEventMsg = Field(..., description="查询异常事件详情响应结果")
 
 
+class ListAnomalousEventsMsg(BaseModel):
+    total: int = Field(..., description="符合条件的异常事件总数")
+    events: list[AnomalousEventModel] = Field(
+        default_factory=list, description="异常事件列表"
+    )
+
+
+class ListAnomalousEventsResponse(ResponseBase):
+    result: ListAnomalousEventsMsg = Field(
+        ..., description="查询异常事件列表响应结果"
+    )
+
+
 class ListAnomalousEventChainsMsg(BaseModel):
     total: int = Field(..., description="符合条件的异常事件链总数")
     event_chains: list[AnomalousEventChainModel] = Field(
@@ -201,6 +215,7 @@ class TraceItem(BaseModel):
     sdk_ms: float = Field(..., description="SDK端到端延迟(毫秒)")
     req_delay_ms: float = Field(..., description="请求延迟(毫秒)")
     rsp_delay_ms: float = Field(..., description="响应延迟(毫秒)")
+    is_anomalous: bool = Field(default=False, description="是否为异常")
 
 
 class ListTracesByHostMsg(BaseModel):
@@ -210,6 +225,20 @@ class ListTracesByHostMsg(BaseModel):
 
 class ListTracesByHostResponse(ResponseBase):
     result: ListTracesByHostMsg = Field(..., description="查询trace列表响应结果")
+
+
+class GetLatencyMetricsMsg(BaseModel):
+    """延迟指标时间曲线响应"""
+    total: int = Field(..., description="符合条件的数据点总数")
+    metrics: list[LatencyMetricItem] = Field(default_factory=list, description="延迟指标时间序列数据")
+    time_range: dict = Field(
+        default_factory=dict,
+        description="实际查询的时间范围",
+    )
+
+
+class GetLatencyMetricsResponse(ResponseBase):
+    result: GetLatencyMetricsMsg = Field(..., description="获取延迟指标时间曲线响应结果")
 
 
 class StopOrRunLogParseMsg(BaseModel):

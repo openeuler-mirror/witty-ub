@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import uuid
 from collections import defaultdict
 from latency.schemas.log import LogParseResultModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -215,9 +216,22 @@ class KVCacheLogParseWorker(BaseWorker):
         """使用多窗口并行检测引擎检测异常事件"""
         n = len(list_log_parse_results)
 
-        # 从配置文件创建检测引擎并并行执行
         detector = AnomalyDetector.from_config()
         events = await detector.detect(list_log_parse_results)
+
+        if not events:
+            return events
+
+        for event in events:
+            event.id = str(uuid.uuid4())
+            event.aggregated_event_id = ""
+            start_idx = event.start_log_parse_offset
+            end_idx = event.end_log_parse_offset
+            for idx in range(start_idx, end_idx + 1):
+                if 0 <= idx < len(list_log_parse_results):
+                    r = list_log_parse_results[idx]
+                    r.anomalous_event_id = event.id
+                    r.is_anomalous = True
 
         logger.info(
             f"Detect exception: {len(events):,} anomalous entries out of {n:,} results"
@@ -244,8 +258,8 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
-    ) -> list[SrcDstAggregatedEventModel]:
-        """按 src_ip/dst_ip 聚合统计"""
+    ) -> tuple[list[SrcDstAggregatedEventModel], dict[tuple[str, str], str]]:
+        """按 src_ip/dst_ip 聚合统计，返回聚合结果和src_dst到aggregated_event_id的映射"""
         latency_fields = [
             ("total_latency", "total_latency"),
             ("query_meta_latency", "worker_query_meta_latency"),
@@ -264,7 +278,11 @@ class KVCacheLogParseWorker(BaseWorker):
             groups[(src, dst)].append(r)
 
         results: list[SrcDstAggregatedEventModel] = []
+        src_dst_to_agg_id_map: dict[tuple[str, str], str] = {}
         for (src, dst), items in groups.items():
+            agg_id = str(uuid.uuid4())
+            src_dst_to_agg_id_map[(src, dst)] = agg_id
+
             log_id = items[0].log_id or ""
             total_cnt = len(items)
             anomaly_cnt = sum(1 for r in items if r.is_anomalous)
@@ -282,6 +300,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 agg[f"p99_{prefix}"] = st["p99"]
 
             results.append(SrcDstAggregatedEventModel(
+                id=agg_id,
                 src_ip=src,
                 dst_ip=dst,
                 log_id=log_id,
@@ -291,10 +310,13 @@ class KVCacheLogParseWorker(BaseWorker):
                 **agg,
             ))
 
+            for r in items:
+                r.aggregated_event_id = agg_id
+
         logger.info(f"Aggregate result: {len(results):,} endpoints from "
                      f"{len(list_log_parse_results):,} results")
 
-        return results
+        return results, src_dst_to_agg_id_map
 
     # 存库
     @staticmethod
@@ -366,14 +388,29 @@ class KVCacheLogParseWorker(BaseWorker):
                 )
                 return False
             log_dir = log_file.file_path
+            kb_id = log_file.kb_id
 
             await BaseWorker.report(task.id, "开始解析日志 请耐心等待", 10.0)
             list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir)
             await BaseWorker.report(task.id, "完成解析日志", 70.0)
-            src_dst_aggregated_events = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
-            await BaseWorker.report(task.id, "生成聚合事件", 80.0)
+            
+            # 先检测异常（填充 anomalous_event_id）
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
-            await BaseWorker.report(task.id, "检测异常事件", 85.0)
+            await BaseWorker.report(task.id, "检测异常事件", 80.0)
+            
+            # 再生成聚合事件（此时 anomalous_event_id 已填充）
+            src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
+            await BaseWorker.report(task.id, "生成聚合事件", 85.0)
+            
+            # 更新异常事件的 aggregated_event_id
+            for event in anomalous_events:
+                start_idx = event.start_log_parse_offset
+                if 0 <= start_idx < len(list_log_parse_results):
+                    r = list_log_parse_results[start_idx]
+                    src = r.src_ip or ""
+                    dst = r.dst_ip or ""
+                    event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst), "")
+            
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
             await BaseWorker.report(task.id, "匹配故障事件", 90.0)
 
@@ -391,6 +428,13 @@ class KVCacheLogParseWorker(BaseWorker):
             await LogFileManager.update_log_file(
                 task.op_id, {"anomaly_cnt": len(anomalous_events)}
             )
+            
+            # 更新关联的知识库统计
+            if kb_id:
+                await LogKnowledgeManager.update_log_kb(
+                    kb_id, {"anomaly_cnt": len(anomalous_events)}
+                )
+            
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )

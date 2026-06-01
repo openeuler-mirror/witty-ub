@@ -53,9 +53,9 @@ class SrcDstAggregatedEventModel(BaseModel):
     src_ip: str = Field(..., description="源IP地址")
     dst_ip: str = Field(..., description="目的IP地址")
     log_id: str = Field(..., description="关联的日志ID")
-    log_parse_result_cnt: int = Field(0, description="日志解析结果数量")
-    anomaly_log_parse_result_cnt: int = Field(0, description="异常日志解析结果数量")
-    anomaly_cnt: int = Field(0, description="异常数量")
+    log_parse_result_cnt: int = Field(default=0, description="日志解析结果数量")
+    anomaly_log_parse_result_cnt: int = Field(default=0, description="异常日志解析结果数量")
+    anomaly_cnt: int = Field(default=0, description="异常数量")
     ave_total_latency: float | None = Field(
         default=None, description="平均总延迟，单位毫秒"
     )
@@ -250,3 +250,11 @@ class LogParseResultModel(BaseModel):
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="日志解析结果创建时间",
     )
+
+
+class LatencyMetricItem(BaseModel):
+    """延迟指标数据点（用于时间曲线）"""
+    time: str = Field(..., description="时间戳")
+    total_latency: Optional[float] = Field(default=None, description="总延迟，单位毫秒")
+    urma_total_latency: Optional[float] = Field(default=None, description="URMA总延迟，单位毫秒")
+    worker_query_meta_latency: Optional[float] = Field(default=None, description="Worker查询元数据延迟，单位毫秒")

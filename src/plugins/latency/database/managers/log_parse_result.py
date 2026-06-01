@@ -1,5 +1,5 @@
 from latency.schemas.log import LogParseResultModel
-from latency.schemas.request import ListLogParseResultRequest
+from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.database.engine import AsyncSQLiteSingleton
 from typing import Optional
 
@@ -109,6 +109,9 @@ class LogParseResultManager:
             WHERE existed_status = 1
         """
         params = {}
+        if req.log_id:
+            sql_str += " AND log_id = :log_id"
+            params["log_id"] = req.log_id
         if req.src_ip:
             sql_str += " AND src_ip LIKE :src_ip"
             params["src_ip"] = f"%{req.src_ip}%"
@@ -161,52 +164,116 @@ class LogParseResultManager:
 
     @staticmethod
     async def list_traces_by_host(
-        host: str,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        operation: Optional[str] = None,
-        page_cnt: int = 20,
-        page_num: int = 1,
-        sort_by: str = "timestamp",
-        sort_order: str = "desc",
+        req: ListTracesByHostRequest,
     ) -> tuple[int, list[dict]]:
         """根据主机获取trace列表"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"list_traces_by_host called with is_anomalous={req.is_anomalous}")
+        
         sql_str = """
             SELECT 
+                id,
                 trace_id,
-                pod_ip as pod_id,
+                pod_ip,
                 timestamp as time,
-                total_latency as sdk_ms,
+                operation,
+                total_latency,
+                urma_total_latency,
+                c2w_latency,
+                worker_query_meta_latency,
+                w2w_urma_latency,
+                is_anomalous,
+                anomaly_reason,
                 c2w_latency as req_delay_ms,
-                (total_latency - c2w_latency) as rsp_delay_ms
+                (total_latency - c2w_latency) as rsp_delay_ms,
+                total_latency as sdk_ms,
+                pod_ip as pod_id
             FROM log_parse_result_table
             WHERE existed_status = 1 AND pod_ip = :host
         """
-        params = {"host": host}
+        params = {"host": req.host}
         
-        if start_time:
+        if req.start_time:
             sql_str += " AND timestamp >= :start_time"
-            params["start_time"] = start_time
-        if end_time:
+            params["start_time"] = req.start_time
+        if req.end_time:
             sql_str += " AND timestamp <= :end_time"
-            params["end_time"] = end_time
-        if operation:
+            params["end_time"] = req.end_time
+        if req.operation:
             sql_str += " AND operation LIKE :operation"
-            params["operation"] = f"%{operation}%"
+            params["operation"] = f"%{req.operation}%"
+        if req.is_anomalous is not None:
+            logger.info(f"Adding is_anomalous filter: {req.is_anomalous}")
+            sql_str += " AND is_anomalous = :is_anomalous"
+            params["is_anomalous"] = 1 if req.is_anomalous else 0
+        
+        logger.info(f"Final SQL params: {params}")
         
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
         
         valid_sort_fields = ["timestamp", "total_latency", "c2w_latency"]
-        sort_by = sort_by if sort_by in valid_sort_fields else "timestamp"
-        sort_order = "DESC" if sort_order.lower() == "desc" else "ASC"
+        sort_by = req.sort_by if req.sort_by in valid_sort_fields else "timestamp"
+        sort_order = "DESC" if req.sort_order.lower() == "desc" else "ASC"
         sql_str += f" ORDER BY {sort_by} {sort_order}"
         
-        offset = (page_num - 1) * page_cnt
+        offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
-        params["limit"] = page_cnt
+        params["limit"] = req.page_cnt
         params["offset"] = offset
+        
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        logger.info(f"Returned {len(rows)} rows")
+        return total, rows
+
+    @staticmethod
+    async def get_latency_metrics(
+        req: GetLatencyMetricsRequest,
+    ) -> tuple[int, list[dict]]:
+        """获取延迟指标时间曲线数据"""
+        sql_str = """
+            SELECT 
+                timestamp as time,
+                total_latency,
+                urma_total_latency,
+                worker_query_meta_latency
+            FROM log_parse_result_table
+            WHERE existed_status = 1
+        """
+        params = {}
+        
+        if req.host:
+            sql_str += " AND pod_ip = :host"
+            params["host"] = req.host
+        if req.src_ip:
+            sql_str += " AND src_ip LIKE :src_ip"
+            params["src_ip"] = f"%{req.src_ip}%"
+        if req.dst_ip:
+            sql_str += " AND dst_ip LIKE :dst_ip"
+            params["dst_ip"] = f"%{req.dst_ip}%"
+        if req.start_time:
+            sql_str += " AND timestamp >= :start_time"
+            params["start_time"] = req.start_time
+        if req.end_time:
+            sql_str += " AND timestamp <= :end_time"
+            params["end_time"] = req.end_time
+        if req.operation:
+            sql_str += " AND operation LIKE :operation"
+            params["operation"] = f"%{req.operation}%"
+        
+        count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
+        count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
+        total = count_rows[0]["cnt"] if count_rows else 0
+        
+        valid_sort_fields = ["timestamp", "total_latency", "urma_total_latency", "worker_query_meta_latency"]
+        sort_by = req.sort_by if req.sort_by in valid_sort_fields else "timestamp"
+        sort_order = "DESC" if req.sort_order.lower() == "desc" else "ASC"
+        sql_str += f" ORDER BY {sort_by} {sort_order}"
+        
+        sql_str += " LIMIT :limit"
+        params["limit"] = req.max_points
         
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return total, rows

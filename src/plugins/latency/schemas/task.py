@@ -12,7 +12,7 @@ class TaskReportModel(BaseModel):
         True, description="任务报告是否存在的状态，默认为True表示存在"
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=datetime.utcnow,
         description="任务报告创建时间",
     )
 

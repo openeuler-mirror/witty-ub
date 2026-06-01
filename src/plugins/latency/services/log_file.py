@@ -54,9 +54,12 @@ class LogFileService:
             log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name)
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 log_file_model.file_path = upload_log_file_config.source
-                log_file_model.file_size = os.path.getsize(
-                    upload_log_file_config.source
-                )
+                try:
+                    log_file_model.file_size = os.path.getsize(
+                        upload_log_file_config.source
+                    )
+                except (FileNotFoundError, OSError):
+                    log_file_model.file_size = 0
             elif upload_log_file_config.source_type == SourceType.remote:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
                 try:
@@ -146,7 +149,7 @@ class LogFileService:
                 task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
                 op_id=log_file_id,
             )
-        return UploadLogFilesMsg(log_files_ids=log_file_ids)
+        return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
@@ -183,7 +186,7 @@ class LogFileService:
             return RunOrStopLogParseMsg(task_id=task_id)
         task = await TaskManager.get_current_task_by_op_id(log_file_id)
         if task and task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
-            await TaskHandler.stop(task.id)
+            await TaskHandler.stop_task(task.id)
             return RunOrStopLogParseMsg(task_id=task.id)
         else:
             return RunOrStopLogParseMsg(task_id=None)
