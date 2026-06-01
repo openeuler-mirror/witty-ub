@@ -35,7 +35,6 @@ std::string StripFilepathPrefixFromOutput(const std::string &grepOutput)
             processedOutput += rawLine + "\n";
         }
     }
-    std::cout << "cmd output: " << processedOutput << std::endl;
     return processedOutput;
 }
 

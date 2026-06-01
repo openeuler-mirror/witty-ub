@@ -23,9 +23,16 @@ void FailureModeController::AddSubFailureModeValid(const std::string &subFailure
 {
     subFailureModesValid.insert(subFailureModeId);
 }
-void FailureModeController::AddHitCount()
+void FailureModeController::AddHitCount(std::string traceId)
 {
-    hitCount++;
+    if (traceIds.find(traceId) == traceIds.end()) {
+        hitCount++;
+        traceIds.insert(traceId);
+    }
+}
+bool FailureModeController::HasTraceId(std::string traceId)
+{
+    return traceIds.find(traceId) != traceIds.end();
 }
 void FailureModeController::AddLogInfo(const FailureLogInfo &logInfo)
 {
