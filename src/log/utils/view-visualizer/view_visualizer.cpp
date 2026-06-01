@@ -25,7 +25,7 @@ namespace view_visualizer {
 namespace {
 constexpr const char *DEFAULT_INPUT_PATH = "/var/witty-ub/log-view.json";
 constexpr const char *DEFAULT_OUTPUT_PATH = "/var/witty-ub/log-view-vis.html";
-constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/usr/share/witty-ub/data/view-vis";
+constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/var/witty-ub/data/view-vis";
 constexpr const char *VIEW_VIS_SOURCE_RESOURCE_DIR = "data/view-vis";
 constexpr const char *HTML_TEMPLATE_NAME = "log_view.html";
 constexpr const char *CSS_RESOURCE_NAME = "log_view.css";
