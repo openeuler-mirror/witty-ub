@@ -20,6 +20,7 @@ from latency.parse import (
     ParseResultBuilder,
 )
 from latency.common.ds_log_io import glob_paths, open_log
+from latency.common.stats import stats
 from latency.detect import AnomalyDetector
 from latency.database.engine import AsyncSQLiteSingleton
 from latency.database.managers.log_parse_result import LogParseResultManager
