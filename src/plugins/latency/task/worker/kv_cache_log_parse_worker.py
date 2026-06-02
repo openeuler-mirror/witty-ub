@@ -3,6 +3,7 @@ import logging
 import os
 import uuid
 from collections import defaultdict
+from typing import Optional
 from latency.schemas.log import LogParseResultModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
