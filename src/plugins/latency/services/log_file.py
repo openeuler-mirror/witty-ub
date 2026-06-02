@@ -144,10 +144,12 @@ class LogFileService:
                         )
             log_file_models.append(log_file_model)
         log_file_ids = await LogFileManager.add_log_files(log_file_models)
+        
         for log_file_id in log_file_ids:
             await TaskHandler.init_task(
                 task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
                 op_id=log_file_id,
+                parse_config=req.parse_config,
             )
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 

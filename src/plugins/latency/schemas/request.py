@@ -5,6 +5,34 @@ from latency.ENUM.general import SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 
 
+class ParseConfig(BaseModel):
+    """
+    日志解析配置
+    
+    用于配置解析器的行为，包括时间范围过滤、耗时阈值过滤等
+    """
+    start_time: Optional[str] = Field(
+        default=None,
+        description="日志内容时间范围开始，格式 YYYY-MM-DD HH:MM:SS"
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="日志内容时间范围结束，格式 YYYY-MM-DD HH:MM:SS"
+    )
+    min_elapsed_ms: Optional[int] = Field(
+        default=None,
+        description="最小耗时阈值（毫秒），用于过滤快速操作"
+    )
+    
+    def is_time_filter_enabled(self) -> bool:
+        """判断是否启用了时间过滤"""
+        return self.start_time is not None or self.end_time is not None
+    
+    def is_elapsed_filter_enabled(self) -> bool:
+        """判断是否启用了耗时过滤"""
+        return self.min_elapsed_ms is not None
+
+
 class CreateLogKnowledgeRequest(BaseModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
     name: str = Field(..., description="知识名称")
@@ -52,6 +80,9 @@ class UpLoadLogFileConfig(BaseModel):
 class UpLoadLogFilesRequest(BaseModel):
     upload_log_file_configs: list[UpLoadLogFileConfig] = Field(
         default_factory=list, description="日志文件配置列表"
+    )
+    parse_config: Optional[ParseConfig] = Field(
+        default=None, description="全局解析配置，应用于所有上传的日志文件"
     )
 
 

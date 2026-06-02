@@ -153,14 +153,15 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def parse_log(
         log_dir: str,
+        parse_config: Optional[ParseConfig] = None,
     ) -> list[LogParseResultModel]:
         parsers = [
-            SdkAccessLogParser(),
-            WorkerAccessLogParser(),
-            UrmaLogParser(),
-            RemotePullLogParser(),
-            LinkLogParser(),
-            QueryMetaLogParser(),
+            SdkAccessLogParser(parse_config),
+            WorkerAccessLogParser(parse_config),
+            UrmaLogParser(parse_config),
+            RemotePullLogParser(parse_config),
+            LinkLogParser(parse_config),
+            QueryMetaLogParser(parse_config),
         ]
 
         scan_tasks = []
@@ -391,7 +392,14 @@ class KVCacheLogParseWorker(BaseWorker):
             kb_id = log_file.kb_id
 
             await BaseWorker.report(task.id, "开始解析日志 请耐心等待", 10.0)
-            list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir)
+            
+            # 从 TaskHandler 获取解析配置
+            from latency.task.task_handler import TaskHandler
+            parse_config = TaskHandler.get_task_config(task_id)
+            if parse_config:
+                logger.info(f"[任务 {task_id}] 使用解析配置: {parse_config}")
+            
+            list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir, parse_config)
             await BaseWorker.report(task.id, "完成解析日志", 70.0)
             
             # 先检测异常（填充 anomalous_event_id）

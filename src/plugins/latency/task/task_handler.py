@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 class TaskHandler:
     """任务队列"""
+    
+    _task_configs: dict[str, Optional["ParseConfig"]] = {}
 
     @staticmethod
     async def init_task_queue():
@@ -17,14 +19,26 @@ class TaskHandler:
         await TaskManager.update_running_tasks_to_pending_tasks()
 
     @staticmethod
-    async def init_task(task_type: TaskTypeEnum, op_id: str) -> str:
+    async def init_task(task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None) -> str:
         """初始化任务"""
         try:
             task_id = await BaseWorker.init(task_type, op_id)
+            if task_id:
+                TaskHandler._task_configs[task_id] = parse_config
             return task_id
         except Exception as e:
             err = f"[TaskQueueService] 初始化任务失败 {e}"
             logger.exception(err)
+    
+    @staticmethod
+    def get_task_config(task_id: str) -> Optional["ParseConfig"]:
+        """获取任务的解析配置"""
+        return TaskHandler._task_configs.get(task_id)
+    
+    @staticmethod
+    def remove_task_config(task_id: str):
+        """移除任务的解析配置"""
+        TaskHandler._task_configs.pop(task_id, None)
 
     @staticmethod
     async def stop_task(task_id: str) -> Optional[str]:
