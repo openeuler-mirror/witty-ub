@@ -90,27 +90,47 @@ def upload_log_files(kb_id: str, log_dir: str, parse_config=None) -> dict:
         return {"error": str(e)}
 
 
-def query_task_status(task_id: str) -> str:
-    """查询任务状态"""
+def query_task_status(task_id: str) -> tuple[str, str]:
+    """查询任务状态，返回(status, error_message)"""
     url = f"http://localhost:9772/task/{task_id}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
+        
         data = response.json()
-        task = data.get("result", {}).get("task")
-        if task:
-            return task.get("status")
-        return "未知"
+        result = data.get("result")
+        
+        if not result:
+            return "未知", "API 返回无 result 字段"
+        
+        task = result.get("task")
+        if not task:
+            return "未知", f"任务 {task_id} 不存在或已被删除"
+        
+        status = task.get("status")
+        if status is None:
+            return "未知", "task 中 status 字段为 None"
+        
+        return status, None
+        
+    except requests.exceptions.ConnectionError:
+        return "未知", "无法连接到 API 服务"
+    except requests.exceptions.Timeout:
+        return "未知", "请求超时"
     except Exception as e:
-        return f"查询失败: {e}"
+        return "未知", f"请求异常: {str(e)}"
 
 
-def wait_for_task_completion(task_id: str, timeout=120) -> bool:
+def wait_for_task_completion(task_id: str, timeout=30000) -> bool:
     """等待任务完成"""
     print(f"\n等待任务 {task_id} 完成（最多 {timeout} 秒）")
     for i in range(timeout):
-        status = query_task_status(task_id)
-        print(f"\r第 {i+1:3d} 秒 - 任务状态: {status}", end="", flush=True)
+        status, error = query_task_status(task_id)
+        
+        if error:
+            print(f"\r第 {i+1:3d} 秒 - {error}", end="", flush=True)
+        else:
+            print(f"\r第 {i+1:3d} 秒 - 任务状态: {status}", end="", flush=True)
         
         if status in ["successful", "successful_pending_remove"]:
             print("\n✅ 任务完成！")
