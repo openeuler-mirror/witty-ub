@@ -131,7 +131,7 @@ class KVCacheLogParseWorker(BaseWorker):
             task.op_id, existed_status=0
         )
         await TaskReportManager.update_task_reports_existed_status_by_task_id(
-            task_id, status=TaskStatusEnum.PENDING
+            task_id, existed_status=TaskStatusEnum.PENDING
         )
         if task.retry_times > Config().get_config().task.task_retry_times:
             await LogFileManager.update_log_file(
