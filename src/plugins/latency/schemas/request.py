@@ -218,8 +218,8 @@ class GetLatencyMetricsRequest(BaseModel):
         description="操作类型过滤：GET / SET",
     )
     max_points: int = Field(
-        default=1000,
-        description="最大返回数据点数，用于控制数据量，默认1000",
+        default=-1,
+        description="最大返回数据点数，默认-1表示返回全部数据；设置为正整数可限制返回数量",
     )
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")

@@ -212,13 +212,12 @@ class TestLogParseResult:
 
     @pytest.mark.asyncio
     async def test_get_latency_metrics(self):
-        """测试获取延迟指标时间曲线数据"""
+        """测试获取延迟指标时间曲线数据（默认返回全部数据用于画曲线）"""
         async with httpx.AsyncClient() as client:
             payload = {
                 "host": TEST_HOST,
                 "start_time": "2024-01-01 00:00:00",
                 "end_time": now(),
-                "max_points": 100,
                 "sort_by": "timestamp",
                 "sort_order": "asc"
             }
