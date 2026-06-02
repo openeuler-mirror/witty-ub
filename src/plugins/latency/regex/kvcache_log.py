@@ -32,7 +32,7 @@ REMOTE_GET_RE = re.compile(
 )
 
 REMOTE_PULL_RE = re.compile(
-    r"Processing pull object:.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
+    r"Processing pull object\[.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
 )
 
 # -------------------------------------------------------------------
