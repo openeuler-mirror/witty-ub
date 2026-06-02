@@ -462,6 +462,10 @@ async def main():
     print("全链路验证测试")
     print("=" * 70)
     
+    kb_id = None
+    log_file_id = None
+    task_id = None
+    
     try:
         # 1. 设置测试数据
         print("\n[Step 1] 设置测试数据")
@@ -473,11 +477,15 @@ async def main():
             test_result.add_step("设置测试数据", "failed", str(e))
             test_result.add_error("设置测试数据", e)
             print(f"❌ 设置测试数据失败: {e}")
-            return
+            print("继续执行后续步骤...")
         
         # 2. 上传日志文件
         print("\n[Step 2] 上传日志文件")
+        log_file_ids = []
         try:
+            if not kb_id:
+                raise Exception("知识库ID为空，无法上传")
+            
             # 可选：添加时间过滤配置
             parse_config = {
                 "start_time": "2024-01-01 00:00:00",
@@ -493,43 +501,49 @@ async def main():
             test_result.add_step("上传日志文件", "success", f"上传成功，文件ID: {log_file_ids}", result)
             print(f"✅ 上传日志文件成功: {log_file_ids}")
             
-            if not log_file_ids:
+            if log_file_ids:
+                log_file_id = log_file_ids[0]
+                print(f"✅ 日志文件ID: {log_file_id}")
+            else:
                 raise Exception("未返回 log_file_ids")
-            
-            log_file_id = log_file_ids[0]
-            print(f"✅ 日志文件ID: {log_file_id}")
-            
-            # 3. 查询对应的任务ID
-            print("\n[Step 3] 查询对应的任务ID")
-            try:
-                print("等待任务创建...")
-                task_id = None
-                for i in range(10):
-                    task_id = get_task_id_by_log_file_id(log_file_id)
-                    if task_id:
-                        break
-                    print(f"\r第 {i+1} 秒 - 等待任务创建...", end="", flush=True)
-                    time.sleep(1)
-                
-                if not task_id:
-                    raise Exception("10秒内未找到对应任务")
-                
-                test_result.add_step("查询任务ID", "success", f"找到任务ID: {task_id}")
-                print(f"\n✅ 找到任务ID: {task_id}")
-            except Exception as e:
-                test_result.add_step("查询任务ID", "failed", str(e))
-                test_result.add_error("查询任务ID", e)
-                print(f"\n❌ 查询任务ID失败: {e}")
-                return
         except Exception as e:
             test_result.add_step("上传日志文件", "failed", str(e))
             test_result.add_error("上传日志文件", e)
             print(f"❌ 上传日志文件失败: {e}")
-            return
+            print("继续执行后续步骤...")
+        
+        # 3. 查询对应的任务ID
+        print("\n[Step 3] 查询对应的任务ID")
+        try:
+            if not log_file_id:
+                raise Exception("日志文件ID为空，无法查询任务")
+            
+            print("等待任务创建...")
+            task_id = None
+            for i in range(10):
+                task_id = get_task_id_by_log_file_id(log_file_id)
+                if task_id:
+                    break
+                print(f"\r第 {i+1} 秒 - 等待任务创建...", end="", flush=True)
+                time.sleep(1)
+            
+            if not task_id:
+                raise Exception("10秒内未找到对应任务")
+            
+            test_result.add_step("查询任务ID", "success", f"找到任务ID: {task_id}")
+            print(f"\n✅ 找到任务ID: {task_id}")
+        except Exception as e:
+            test_result.add_step("查询任务ID", "failed", str(e))
+            test_result.add_error("查询任务ID", e)
+            print(f"\n❌ 查询任务ID失败: {e}")
+            print("继续执行后续步骤...")
         
         # 4. 等待任务完成
         print("\n[Step 4] 等待解析任务完成")
         try:
+            if not task_id:
+                raise Exception("任务ID为空，无法等待")
+            
             success = wait_for_task_completion(task_id)
             if success:
                 test_result.add_step("等待任务完成", "success", "任务执行成功")
@@ -541,10 +555,14 @@ async def main():
             test_result.add_step("等待任务完成", "failed", str(e))
             test_result.add_error("等待任务完成", e)
             print(f"❌ 等待任务失败: {e}")
+            print("继续执行后续步骤...")
         
         # 5. 获取日志解析结果
         print("\n[Step 5] 获取日志解析结果")
         try:
+            if not kb_id:
+                raise Exception("知识库ID为空，无法获取解析结果")
+            
             result = get_log_parse_results(kb_id)
             
             if "error" in result:
@@ -558,10 +576,14 @@ async def main():
             test_result.add_step("获取日志解析结果", "failed", str(e))
             test_result.add_error("获取日志解析结果", e)
             print(f"❌ 获取解析结果失败: {e}")
+            print("继续执行后续步骤...")
         
         # 6. 获取聚合事件
         print("\n[Step 6] 获取聚合事件")
         try:
+            if not kb_id:
+                raise Exception("知识库ID为空，无法获取聚合事件")
+            
             result = get_aggregated_events(kb_id)
             
             if "error" in result:

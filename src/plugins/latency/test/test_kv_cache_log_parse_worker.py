@@ -66,7 +66,6 @@ def _build_mock_results(
 
 async def test_kv_cache_log_parse_worker(log_dir: str = None):
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-    from latency.parse.correlation.correlator import IndexManager, WorkerUrmaCorrelator, WorkerRemotePullCorrelator
 
     if log_dir is None:
         log_dir = os.path.join(os.path.dirname(__file__), "test_data")
@@ -99,142 +98,6 @@ async def test_kv_cache_log_parse_worker(log_dir: str = None):
         logger.info(f"  operation: {r.operation}")
         logger.info(f"  is_anomalous: {r.is_anomalous}")
 
-    # 添加诊断日志：检查 parse_log 内部的关联过程
-    logger.info("\n" + "=" * 60)
-    logger.info("DIAGNOSTIC: 检查 parse_log 内部的关联过程")
-    logger.info("=" * 60)
-    
-    # 重新解析以获取中间结果
-    from latency.parse import (
-        SdkAccessLogParser,
-        WorkerAccessLogParser,
-        UrmaLogParser,
-        RemotePullLogParser,
-        LinkLogParser,
-        QueryMetaLogParser,
-        LogCorrelator,
-    )
-    from latency.common.ds_log_io import glob_paths
-    from latency.schemas.request import ParseConfig
-    import asyncio
-    
-    parsers = [
-        SdkAccessLogParser(),
-        WorkerAccessLogParser(),
-        UrmaLogParser(),
-        RemotePullLogParser(),
-        LinkLogParser(),
-        QueryMetaLogParser(),
-    ]
-    
-    parsed = {}
-    for parser in parsers:
-        paths = glob_paths([os.path.join(log_dir, p) for p in parser.patterns])
-        logger.info(f"[{parser.label}] found {len(paths)} file(s)")
-        all_entries = []
-        for path in paths:
-            pod_ip = parser.extract_pod_ip(path)
-            with open(path, 'r', errors='replace') as f:
-                for line in f:
-                    entry = parser.match_line(line, pod_ip)
-                    if entry:
-                        all_entries.append(entry)
-        parsed[parser.label] = all_entries
-        logger.info(f"  [{parser.label}] parsed {len(all_entries)} entries")
-    
-    # 检查 trace_id 分布
-    worker_entries = parsed.get("Worker access parse", [])
-    urma_entries = parsed.get("Worker urma parse", [])
-    remote_pull_entries = parsed.get("Worker remote pull parse", [])
-    
-    logger.info(f"\n--- trace_id 分布统计 ---")
-    worker_trace_ids = set(w.trace_id for w in worker_entries if w.trace_id)
-    urma_trace_ids = set(u.trace_id for u in urma_entries if u.trace_id)
-    pull_trace_ids = set(p.trace_id for p in remote_pull_entries if p.trace_id)
-    
-    logger.info(f"Worker trace_id 数量: {len(worker_trace_ids)} (总条目: {len(worker_entries)})")
-    logger.info(f"URMA trace_id 数量: {len(urma_trace_ids)} (总条目: {len(urma_entries)})")
-    logger.info(f"RemotePull trace_id 数量: {len(pull_trace_ids)} (总条目: {len(remote_pull_entries)})")
-    
-    # 检查 trace_id 重叠
-    worker_urma_overlap = worker_trace_ids & urma_trace_ids
-    worker_pull_overlap = worker_trace_ids & pull_trace_ids
-    
-    logger.info(f"\n--- trace_id 重叠检查 ---")
-    logger.info(f"Worker ∩ URMA: {len(worker_urma_overlap)} 个共同 trace_id")
-    logger.info(f"Worker ∩ RemotePull: {len(worker_pull_overlap)} 个共同 trace_id")
-    
-    if len(worker_urma_overlap) == 0:
-        logger.warning("⚠️ Worker 和 URMA 没有共同的 trace_id！")
-        if worker_entries and urma_entries:
-            logger.info(f"  Worker 示例 trace_id: {worker_entries[0].trace_id}")
-            logger.info(f"  URMA 示例 trace_id: {urma_entries[0].trace_id if urma_entries else 'N/A'}")
-    
-    # 检查 pod_ip 分布
-    worker_pod_ips = set(w.pod_ip for w in worker_entries)
-    urma_pod_ips = set(u.pod_ip for u in urma_entries if u.pod_ip)
-    worker_urma_pod_overlap = worker_pod_ips & urma_pod_ips
-    
-    logger.info(f"\n--- pod_ip 分布检查 ---")
-    logger.info(f"Worker pod_ip 数量: {len(worker_pod_ips)}")
-    logger.info(f"URMA pod_ip 数量: {len(urma_pod_ips)}")
-    logger.info(f"Worker ∩ URMA pod_ip: {len(worker_urma_pod_overlap)}")
-    
-    if len(worker_urma_pod_overlap) == 0:
-        logger.warning("⚠️ Worker 和 URMA 没有共同的 pod_ip！")
-    
-    # 构建关联器并检查中间结果
-    if worker_entries or urma_entries:
-        logger.info(f"\n--- 构建 IndexManager 和 Correlator ---")
-        index_manager = IndexManager(
-            worker_entries=worker_entries,
-            urma_entries=urma_entries,
-            remote_pull_entries=remote_pull_entries,
-            link_entries=parsed.get("Worker link parse", []),
-            query_meta_entries=parsed.get("Worker query meta parse", []),
-        )
-        
-        logger.info(f"IndexManager 索引统计:")
-        logger.info(f"  worker_by_trace: {len(index_manager.worker_by_trace)}")
-        logger.info(f"  urma_traced_by_trace: {len(index_manager.urma_traced_by_trace)}")
-        logger.info(f"  urma_untraced_by_pod: {len(index_manager.urma_untraced_by_pod)}")
-        logger.info(f"  pulls_by_trace: {len(index_manager.pulls_by_trace)}")
-        
-        # 检查 Worker Remote Pull 关联
-        worker_remote_pull_map = WorkerRemotePullCorrelator(index_manager).correlate()
-        logger.info(f"\nWorker Remote Pull 关联结果: {len(worker_remote_pull_map)} 个 Worker 关联到 Remote Pull")
-        
-        # 检查 Worker URMA 关联
-        worker_urma_correlator = WorkerUrmaCorrelator(index_manager)
-        worker_urma_map, worker_worker_urma_map = worker_urma_correlator.correlate(worker_remote_pull_map)
-        logger.info(f"Worker URMA 关联结果: {len(worker_urma_map)} 个 Worker 关联到 URMA")
-        logger.info(f"Worker Worker URMA 关联结果: {len(worker_worker_urma_map)} 个 Worker 关联到 Worker-Worker URMA")
-        
-        if len(worker_urma_map) == 0:
-            logger.warning("⚠️ Worker→URMA 关联完全失败！可能原因:")
-            if len(worker_remote_pull_map) == 0:
-                logger.warning("  1. worker_remote_pull_map 为空（Remote Pull 没有与 Worker 关联）")
-            if len(index_manager.urma_traced_by_trace) == 0:
-                logger.warning("  2. urma_traced_by_trace 为空（URMA 没有 trace_id）")
-            if len(index_manager.urma_untraced_by_pod) == 0:
-                logger.warning("  3. urma_untraced_by_pod 为空（没有未追踪的 URMA）")
-            
-            # 采样检查第一个 Worker 的关联过程
-            if worker_entries:
-                w = worker_entries[0]
-                logger.info(f"\n--- 采样检查第一个 Worker ---")
-                logger.info(f"  Worker trace_id: {w.trace_id}")
-                logger.info(f"  Worker pod_ip: {w.pod_ip}")
-                logger.info(f"  Worker object_key: {w.object_key}")
-                
-                urma_candidates = index_manager.urma_traced_by_trace.get(w.trace_id, [])
-                pulls = worker_remote_pull_map.get(0, [])
-                logger.info(f"  URMA candidates (by trace_id): {len(urma_candidates)}")
-                logger.info(f"  Remote Pulls (for this worker): {len(pulls)}")
-                
-                cached = index_manager.urma_untraced_by_pod.get(w.pod_ip)
-                logger.info(f"  Untraced URMA (by pod_ip): {'有' if cached else '无'}")
-    
     logger.info("\n=== TEST PASSED ===")
 
 
@@ -284,12 +147,11 @@ async def test_generate_aggregate_result():
     results = _build_mock_results(n=2000, spike_start=800, spike_end=1000)
 
     start = time.perf_counter()
-    agg_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
     elapsed = time.perf_counter() - start
     logger.info(f"generate_aggregate_result elapsed: {elapsed:.3f}s")
 
     logger.info(f"Aggregated events: {len(agg_events)}")
-    logger.info(f"src_dst_to_agg_id_map entries: {len(src_dst_to_agg_id_map)}")
 
     src_dst_pairs = set()
     for a in agg_events:
@@ -324,7 +186,7 @@ async def test_store_result():
     await AsyncSQLiteSingleton().init_database()
 
     results = _build_mock_results(n=500, spike_start=200, spike_end=300)
-    agg_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
     anomalous_events = await KVCacheLogParseWorker.detect_exception(results)
 
     logger.info(
