@@ -420,40 +420,6 @@ void DiagnosisToolModule::UnInitialize()
     LOG_INFO << "DiagnosisToolModule uninitialized";
 }
 
-// bool DiagnosisToolModule::VisitKvCache(FailureModeController controller)
-// {
-//     bool isValid = controller.GetFailureMode()->IsValid();
-//     if (!isValid) {
-//         return false;
-//     }
-//     visited.push_back(controller);
-//     RootCause rootCause = controller.GetFailureMode()->AnalyzeRootCause();
-//     if (rootCause.GetIsFinalRootCause()) {
-//         validRoutes.push_back(visited);
-//     } else {
-//         bool childValidFlag = false;
-//         std::vector<std::string> urmaFailureModes;
-//         for (std::string subFailureMode : controller.GetFailureMode()->GetSubFailureModes()) {
-//             // TODO: 加入visit urma的逻辑
-//             if (subFailureMode.find(MODULE_URMA) == 0) {
-//                 urmaFailureModes.push_back(subFailureMode);
-//             }
-//             else if (subFailureMode.find(MODULE_URMA) == 0) {
-//                 childValidFlag = VisitKvCache(FailureModeController(failureModeInstanceMap[subFailureMode]));
-//             }
-//         }
-//         if (urmaFailureModes.size() > 0) {
-//             // TODO: 上方controller，如何把相关信息填进去传递给StartUrma？
-//             childValidFlag = StartUrma(urmaFailureModes);
-//         }
-//         if (!childValidFlag) {
-//             validRoutes.push_back(visited);
-//         }
-//     }
-//     visited.pop_back();
-//     return true;
-// }
-
 void DiagnosisToolModule::Visit(FailureModeController controller)
 {
     // TODO:把VisitUrma的逻辑同时拆给VisitKvcache
@@ -464,38 +430,30 @@ void DiagnosisToolModule::Visit(FailureModeController controller)
     std::string failureModeId = failureMode->GetId();
     bool isValid = failureMode->IsValid();
     if (isValid) {
+        std::cout << "validFailureMode: " << failureModeId << std::endl;
         const std::vector<FailureLogInfo> &logInfos =
             urma_log_helper::GetParsedFailureLogLines(failureMode->GetFailureLogInfoCache());
-        bool allEmptyTrace = true;
-        for (FailureLogInfo info: logInfos) {
-            if (info.traceId != "") {
-                allEmptyTrace = false;
-            }
-        }
-        if (allEmptyTrace) {
-            return;
-        }
         // 若是urma的二级节点，将当前日志补到上级节点上
         if (failureModeId.find(MODULE_URMA) == 0 && childToParentFailureModes[failureModeId][0].find(MODULE_URMA) == 0) {
             std::string parentFailureModeId = childToParentFailureModes[failureModeId][0];
             FailureModeController &parentController = failureModeIdToController.at(parentFailureModeId);
             for (FailureLogInfo logInfo : logInfos) {
-                parentController.AddHitCount();
+                parentController.AddHitCount(logInfo.traceId);
                 logInfo.failureModeId = parentFailureModeId;
                 parentController.AddLogInfo(logInfo);
                 traces[logInfo.traceId].push_back(logInfo);
             }
-            allFailureModes.insert(parentFailureModeId);
         }
         for (FailureLogInfo logInfo : logInfos) {
             if (!logInfo.traceId.empty()) {
-                controller.AddHitCount();
+                controller.AddHitCount(logInfo.traceId);
                 logInfo.failureModeId = failureModeId;
                 controller.AddLogInfo(logInfo);
                 traces[logInfo.traceId].push_back(logInfo);
+                // std::cout << "append: " << traces[logInfo.traceId].back().failureModeId << std::endl;
             }
         }
-        // 若是urma的二级节点，将父节点补到allFailureModes中
+        // 若是urma的二级节点或kvcache的节点，直接加入allFailureModes
         if (failureModeId.find(MODULE_KVCACHE) == 0 || childToParentFailureModes[failureModeId][0].find(MODULE_URMA) == 0) {
             allFailureModes.insert(failureModeId);
         }
@@ -580,18 +538,20 @@ RackResult DiagnosisToolModule::Start()
             } else if (left.failureModeId.find(MODULE_URMA) == 0 && right.failureModeId.find(MODULE_KVCACHE) == 0) {
                 return false;
             } else {
-                return left.timestamp > right.timestamp;
+                return left.timestamp >= right.timestamp;
             }
         });
     }
-    //首先删除没有父节点的子节点
+    // 对trace进行后处理
     for (const auto &[traceId, trace] : traces) {
         std::unordered_set<std::string> allFailureModeIds;
         std::vector<FailureLogInfo> newTrace;
+        std::unordered_set<std::string> traceFailureModeIds;
         int traceLen = trace.size();
         for (int i = 0; i < traceLen; i++) {
             allFailureModeIds.insert(trace[i].failureModeId);
         }
+        // 首先删除没有父节点的子节点
         for (int i = 0; i < traceLen; i++) {
             std::string currFailureModeId = trace[i].failureModeId;
             bool valid = true;
@@ -605,23 +565,48 @@ RackResult DiagnosisToolModule::Start()
             }
             if (valid) {
                 newTrace.push_back(trace[i]);
+                traceFailureModeIds.insert(trace[i].failureModeId);
             }
         }
         traces[traceId] = newTrace;
+        // 将子节点加入父节点FailureModeController中
+        std::vector<std::string> historyUrmaFailureModeIds;
+        for (int i = 0; i < newTrace.size(); i++) {
+            FailureLogInfo currTrace = newTrace[i];
+            std::string currId = currTrace.failureModeId;
+            if (childToParentFailureModes.find(currId) == childToParentFailureModes.end()) {
+                continue;
+            }
+            // 若是urma二级节点，判断之前是否有上级的一级节点。若有，则上级为前一个二级节点；若无，则上级为一级节点。需避免循环。
+            if (currId.find(MODULE_URMA) == 0 && childToParentFailureModes[currId][0].find(MODULE_URMA) == 0) {
+                if (std::find(historyUrmaFailureModeIds.begin(), historyUrmaFailureModeIds.end(), currId) != 
+                    historyUrmaFailureModeIds.end()) {
+                    continue;
+                } else if (std::find(historyUrmaFailureModeIds.begin(), historyUrmaFailureModeIds.end(), 
+                    childToParentFailureModes[currId][0]) == historyUrmaFailureModeIds.end()) {
+                    historyUrmaFailureModeIds.push_back(childToParentFailureModes[currId][0]);
+                    historyUrmaFailureModeIds.push_back(currId);
+                } else {
+                    FailureModeController &parentFailureModeController =
+                        failureModeIdToController.at(historyUrmaFailureModeIds.back());
+                    parentFailureModeController.AddSubFailureModeValid(currId);
+                    historyUrmaFailureModeIds.push_back(currId);
+                    continue;
+                }
+            }
+            for (std::string parentFailureModeId: childToParentFailureModes[currId]) {
+                if (traceFailureModeIds.find(parentFailureModeId) != traceFailureModeIds.end()) {
+                    FailureModeController &parentFailureModeController =
+                        failureModeIdToController.at(parentFailureModeId);
+                    parentFailureModeController.AddSubFailureModeValid(currId);
+                }
+            }
+        }
     }
-    // 获取根节点并将子节点加入父节点FailureModeController中
+    // 获取根节点
     for (const auto &failureModeId : allFailureModes) {
         if (childToParentFailureModes.find(failureModeId) == childToParentFailureModes.end()) {
             rootFailureModes.insert(failureModeId);
-        } else {
-            for (std::string parentFailureModeId: childToParentFailureModes[failureModeId]) {
-                if (allFailureModes.find(parentFailureModeId) != allFailureModes.end()) {
-                    std::cout << "parent: " << parentFailureModeId << "; child: " << failureModeId << std::endl;
-                    FailureModeController &parentFailureModeController = failureModeIdToController.at(parentFailureModeId);
-                    parentFailureModeController.AddSubFailureModeValid(failureModeId);
-                    std::cout << "success" << std::endl;
-                }
-            }
         }
     }
 

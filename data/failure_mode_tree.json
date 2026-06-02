@@ -68,16 +68,14 @@
             "kvcache_conn_fault_028_004",
             "kvcache_conn_fault_028_005",
             "kvcache_conn_fault_028_006",
-            "kvcache_conn_fault_028_007",
-            "kvcache_conn_fault_028_008"
+            "kvcache_conn_fault_028_007"
         ],
         "kvcache_conn_fault_028_001": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"],
         "kvcache_conn_fault_028_003": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"],
         "kvcache_conn_fault_028_004": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"],
         "kvcache_conn_fault_028_005": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"],
         "kvcache_conn_fault_028_006": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"],
-        "kvcache_conn_fault_028_007": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"],
-        "kvcache_conn_fault_028_008": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"]
+        "kvcache_conn_fault_028_007": ["urma_001", "urma_052", "urma_321", "urma_413", "urma_506", "urma_546", "urma_593", "urma_694", "urma_718"]
     },
     "urma": {
         "urma_001": [
