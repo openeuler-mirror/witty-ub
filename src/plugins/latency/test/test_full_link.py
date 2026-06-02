@@ -121,6 +121,29 @@ def query_task_status(task_id: str) -> tuple[str, str]:
         return "未知", f"请求异常: {str(e)}"
 
 
+def get_task_id_by_log_file_id(log_file_id: str) -> str | None:
+    """通过日志文件ID获取任务ID"""
+    url = "http://localhost:9772/task/list"
+    payload = {
+        "page_num": 1,
+        "page_cnt": 100
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        tasks = data.get("result", {}).get("tasks", [])
+        for task in tasks:
+            if task.get("op_id") == log_file_id:
+                return task.get("id")
+        
+        return None
+    except Exception as e:
+        print(f"❌ 查询任务列表失败: {e}")
+        return None
+
+
 def wait_for_task_completion(task_id: str, timeout=30000) -> bool:
     """等待任务完成"""
     print(f"\n等待任务 {task_id} 完成（最多 {timeout} 秒）")
@@ -474,16 +497,40 @@ async def main():
                 raise Exception("未返回 log_file_ids")
             
             log_file_id = log_file_ids[0]
+            print(f"✅ 日志文件ID: {log_file_id}")
+            
+            # 3. 查询对应的任务ID
+            print("\n[Step 3] 查询对应的任务ID")
+            try:
+                print("等待任务创建...")
+                task_id = None
+                for i in range(10):
+                    task_id = get_task_id_by_log_file_id(log_file_id)
+                    if task_id:
+                        break
+                    print(f"\r第 {i+1} 秒 - 等待任务创建...", end="", flush=True)
+                    time.sleep(1)
+                
+                if not task_id:
+                    raise Exception("10秒内未找到对应任务")
+                
+                test_result.add_step("查询任务ID", "success", f"找到任务ID: {task_id}")
+                print(f"\n✅ 找到任务ID: {task_id}")
+            except Exception as e:
+                test_result.add_step("查询任务ID", "failed", str(e))
+                test_result.add_error("查询任务ID", e)
+                print(f"\n❌ 查询任务ID失败: {e}")
+                return
         except Exception as e:
             test_result.add_step("上传日志文件", "failed", str(e))
             test_result.add_error("上传日志文件", e)
             print(f"❌ 上传日志文件失败: {e}")
             return
         
-        # 3. 等待任务完成
-        print("\n[Step 3] 等待解析任务完成")
+        # 4. 等待任务完成
+        print("\n[Step 4] 等待解析任务完成")
         try:
-            success = wait_for_task_completion(log_file_id)
+            success = wait_for_task_completion(task_id)
             if success:
                 test_result.add_step("等待任务完成", "success", "任务执行成功")
             else:
@@ -495,8 +542,8 @@ async def main():
             test_result.add_error("等待任务完成", e)
             print(f"❌ 等待任务失败: {e}")
         
-        # 4. 获取日志解析结果
-        print("\n[Step 4] 获取日志解析结果")
+        # 5. 获取日志解析结果
+        print("\n[Step 5] 获取日志解析结果")
         try:
             result = get_log_parse_results(kb_id)
             
@@ -512,8 +559,8 @@ async def main():
             test_result.add_error("获取日志解析结果", e)
             print(f"❌ 获取解析结果失败: {e}")
         
-        # 5. 获取聚合事件
-        print("\n[Step 5] 获取聚合事件")
+        # 6. 获取聚合事件
+        print("\n[Step 6] 获取聚合事件")
         try:
             result = get_aggregated_events(kb_id)
             
@@ -530,8 +577,8 @@ async def main():
             print(f"❌ 获取聚合事件失败: {e}")
         
     finally:
-        # 6. 生成 HTML 报告
-        print("\n[Step 6] 生成测试报告")
+        # 7. 生成 HTML 报告
+        print("\n[Step 7] 生成测试报告")
         try:
             generate_html_report(test_result, output_html)
             print(f"✅ 测试报告已生成: {os.path.abspath(output_html)}")
