@@ -211,37 +211,37 @@ def generate_html_report(test_result: TestResult, output_path: str):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>全链路测试报告</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center; }
-        .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
-        .card { background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 20px; overflow: hidden; }
-        .card-header { padding: 15px 20px; background: #f8f9fa; border-bottom: 1px solid #e9ecef; font-weight: 600; }
-        .card-body { padding: 20px; }
-        .step { display: flex; align-items: flex-start; margin-bottom: 15px; padding: 12px; border-radius: 6px; }
-        .step:last-child { margin-bottom: 0; }
-        .step-success { background: #d4edda; border-left: 4px solid #28a745; }
-        .step-failed { background: #f8d7da; border-left: 4px solid #dc3545; }
-        .step-pending { background: #fff3cd; border-left: 4px solid #ffc107; }
-        .step-icon { font-size: 20px; margin-right: 12px; }
-        .step-content { flex: 1; }
-        .step-title { font-weight: 600; margin-bottom: 4px; }
-        .step-message { color: #666; font-size: 14px; }
-        .step-time { font-size: 12px; color: #999; }
-        .data-section { margin-top: 15px; padding-top: 15px; border-top: 1px dashed #e9ecef; }
-        .data-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
-        .data-json { background: #f8f9fa; padding: 12px; border-radius: 4px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }
-        .stat-value { font-size: 32px; font-weight: 700; }
-        .stat-label { font-size: 14px; opacity: 0.9; }
-        .table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #e9ecef; }
-        .table th { background: #f8f9fa; font-weight: 600; }
-        .table tr:hover { background: #f8f9fa; }
-        .error-list { list-style: none; }
-        .error-item { background: #f8d7da; padding: 10px; border-radius: 4px; margin-bottom: 8px; color: #721c24; }
-        .timestamp { font-size: 12px; color: #999; }
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center; }}
+        .container {{ max-width: 1200px; margin: 20px auto; padding: 0 20px; }}
+        .card {{ background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 20px; overflow: hidden; }}
+        .card-header {{ padding: 15px 20px; background: #f8f9fa; border-bottom: 1px solid #e9ecef; font-weight: 600; }}
+        .card-body {{ padding: 20px; }}
+        .step {{ display: flex; align-items: flex-start; margin-bottom: 15px; padding: 12px; border-radius: 6px; }}
+        .step:last-child {{ margin-bottom: 0; }}
+        .step-success {{ background: #d4edda; border-left: 4px solid #28a745; }}
+        .step-failed {{ background: #f8d7da; border-left: 4px solid #dc3545; }}
+        .step-pending {{ background: #fff3cd; border-left: 4px solid #ffc107; }}
+        .step-icon {{ font-size: 20px; margin-right: 12px; }}
+        .step-content {{ flex: 1; }}
+        .step-title {{ font-weight: 600; margin-bottom: 4px; }}
+        .step-message {{ color: #666; font-size: 14px; }}
+        .step-time {{ font-size: 12px; color: #999; }}
+        .data-section {{ margin-top: 15px; padding-top: 15px; border-top: 1px dashed #e9ecef; }}
+        .data-title {{ font-size: 14px; font-weight: 600; margin-bottom: 10px; }}
+        .data-json {{ background: #f8f9fa; padding: 12px; border-radius: 4px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }}
+        .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }}
+        .stat-card {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }}
+        .stat-value {{ font-size: 32px; font-weight: 700; }}
+        .stat-label {{ font-size: 14px; opacity: 0.9; }}
+        .table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+        .table th, .table td {{ padding: 12px; text-align: left; border-bottom: 1px solid #e9ecef; }}
+        .table th {{ background: #f8f9fa; font-weight: 600; }}
+        .table tr:hover {{ background: #f8f9fa; }}
+        .error-list {{ list-style: none; }}
+        .error-item {{ background: #f8d7da; padding: 10px; border-radius: 4px; margin-bottom: 8px; color: #721c24; }}
+        .timestamp {{ font-size: 12px; color: #999; }}
     </style>
 </head>
 <body>
