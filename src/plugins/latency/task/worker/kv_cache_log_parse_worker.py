@@ -5,6 +5,7 @@ import uuid
 from collections import defaultdict
 from typing import Optional
 from latency.schemas.log import LogParseResultModel
+from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.task.process_handle import ProcessHandler
