@@ -613,12 +613,8 @@ async def main():
                 raise Exception("知识库ID为空，无法上传")
             
             # 可选：添加时间过滤配置
-            parse_config = {
-                "start_time": "2024-01-01 00:00:00",
-                "end_time": "2024-12-31 23:59:59",
-                "min_elapsed_ms": 100
-            }
-            result = upload_log_files(kb_id, log_dir, parse_config)
+
+            result = upload_log_files(kb_id, log_dir)
             
             if "error" in result:
                 raise Exception(result["error"])
