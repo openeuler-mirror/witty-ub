@@ -15,6 +15,16 @@ from datetime import datetime
 # 设置 Python 路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # 使用非交互式后端
+    import matplotlib.pyplot as plt
+    from matplotlib.dates import DateFormatter
+    CAN_PLOT = True
+except ImportError:
+    CAN_PLOT = False
+    print("⚠️  matplotlib 未安装，将跳过曲线绘制")
+
 from latency.schemas.log import LogFileModel, LogKnowledgeModel
 from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
@@ -28,6 +38,7 @@ class TestResult:
         self.steps = []
         self.log_parse_results = []
         self.aggregated_events = []
+        self.latency_metrics = []
         self.errors = []
     
     def add_step(self, name, status, message, data=None):
@@ -201,6 +212,74 @@ def get_aggregated_events(kb_id: str) -> dict:
         return {"error": str(e)}
 
 
+def get_latency_metrics(kb_id: str, max_points: int = -1) -> dict:
+    """获取延迟指标时间曲线数据"""
+    url = "http://localhost:9772/log_parse_result/metrics/latency"
+    payload = {
+        "kb_id": kb_id,
+        "max_points": max_points,  # -1 表示获取全部数据
+        "sort_by": "timestamp",
+        "sort_order": "asc"
+    }
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def plot_latency_curve(metrics_data: list, output_path: str):
+    """绘制延迟曲线"""
+    if not CAN_PLOT:
+        print("⚠️  matplotlib 未安装，跳过曲线绘制")
+        return False
+    
+    if not metrics_data:
+        print("⚠️  没有数据可绘制")
+        return False
+    
+    try:
+        # 准备数据
+        timestamps = []
+        total_latency = []
+        urma_latency = []
+        query_meta_latency = []
+        
+        for item in metrics_data:
+            timestamps.append(datetime.strptime(item["timestamp"], "%Y-%m-%d %H:%M:%S"))
+            total_latency.append(item.get("total_latency_ms", 0))
+            urma_latency.append(item.get("urma_total_latency_ms", 0))
+            query_meta_latency.append(item.get("worker_query_meta_latency_ms", 0))
+        
+        # 创建图表
+        plt.figure(figsize=(12, 6))
+        
+        plt.plot(timestamps, total_latency, label='Total Latency (ms)', color='#667eea', linewidth=2)
+        plt.plot(timestamps, urma_latency, label='URMA Latency (ms)', color='#f093fb', linewidth=2)
+        plt.plot(timestamps, query_meta_latency, label='Query Meta Latency (ms)', color='#4ade80', linewidth=2)
+        
+        # 设置格式
+        plt.gcf().autofmt_xdate()
+        plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m-%d %H:%M'))
+        
+        plt.title('Latency Metrics Over Time', fontsize=14)
+        plt.xlabel('Time', fontsize=12)
+        plt.ylabel('Latency (ms)', fontsize=12)
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)
+        
+        # 保存图表
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        print(f"✅ 延迟曲线已保存: {output_path}")
+        return True
+    except Exception as e:
+        print(f"❌ 绘制曲线失败: {e}")
+        return False
+
+
 def generate_html_report(test_result: TestResult, output_path: str):
     """生成 HTML 报告"""
     html_template = """
@@ -272,6 +351,10 @@ def generate_html_report(test_result: TestResult, output_path: str):
                         <div class="stat-value">{event_count}</div>
                         <div class="stat-label">聚合事件数</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{metrics_count}</div>
+                        <div class="stat-label">延迟指标数</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -300,6 +383,14 @@ def generate_html_report(test_result: TestResult, output_path: str):
             </div>
         </div>
 
+        <!-- 延迟指标 -->
+        <div class="card">
+            <div class="card-header">📈 延迟指标</div>
+            <div class="card-body">
+                {metrics_html}
+            </div>
+        </div>
+
         <!-- 错误信息 -->
         {errors_html}
     </div>
@@ -312,6 +403,7 @@ def generate_html_report(test_result: TestResult, output_path: str):
     failed_count = sum(1 for s in test_result.steps if s["status"] == "failed")
     parse_count = len(test_result.log_parse_results)
     event_count = len(test_result.aggregated_events)
+    metrics_count = len(test_result.latency_metrics)
     
     # 生成步骤 HTML
     steps_html = ""
@@ -416,6 +508,35 @@ def generate_html_report(test_result: TestResult, output_path: str):
     else:
         events_html = "<p style='color:#999'>暂无聚合事件</p>"
     
+    # 生成延迟指标 HTML
+    if test_result.latency_metrics:
+        metrics_html = f"""
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>时间</th>
+                    <th>总延迟(ms)</th>
+                    <th>URMA延迟(ms)</th>
+                    <th>Query Meta延迟(ms)</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+        for metric in test_result.latency_metrics[:20]:  # 最多显示20条
+            metrics_html += f"""
+            <tr>
+                <td>{metric.get('timestamp', '')}</td>
+                <td>{metric.get('total_latency_ms', '')}</td>
+                <td>{metric.get('urma_total_latency_ms', '')}</td>
+                <td>{metric.get('worker_query_meta_latency_ms', '')}</td>
+            </tr>
+            """
+        metrics_html += "</tbody></table>"
+        if len(test_result.latency_metrics) > 20:
+            metrics_html += f"<p style='margin-top:10px;color:#666'>仅显示前20条，共{len(test_result.latency_metrics)}条</p>"
+    else:
+        metrics_html = "<p style='color:#999'>暂无延迟指标数据</p>"
+    
     # 生成错误信息 HTML
     if test_result.errors:
         errors_html = f"""
@@ -442,9 +563,11 @@ def generate_html_report(test_result: TestResult, output_path: str):
         failed_count=failed_count,
         parse_count=parse_count,
         event_count=event_count,
+        metrics_count=metrics_count,
         steps_html=steps_html,
         parse_results_html=parse_results_html,
         events_html=events_html,
+        metrics_html=metrics_html,
         errors_html=errors_html
     )
     
@@ -598,9 +721,42 @@ async def main():
             test_result.add_error("获取聚合事件", e)
             print(f"❌ 获取聚合事件失败: {e}")
         
+        # 7. 获取延迟指标（获取全部数据）
+        print("\n[Step 7] 获取延迟指标时间曲线数据")
+        try:
+            if not kb_id:
+                raise Exception("知识库ID为空，无法获取延迟指标")
+            
+            result = get_latency_metrics(kb_id, max_points=-1)  # max_points=-1 获取全部数据
+            
+            if "error" in result:
+                raise Exception(result["error"])
+            
+            metrics_data = result.get("result", {}).get("metrics", [])
+            test_result.latency_metrics = metrics_data
+            test_result.add_step("获取延迟指标", "success", f"获取到 {len(metrics_data)} 条延迟指标数据", result)
+            print(f"✅ 获取延迟指标成功: {len(metrics_data)} 条")
+            
+            # 8. 绘制延迟曲线
+            print("\n[Step 8] 绘制延迟曲线")
+            if metrics_data:
+                curve_path = f"latency_curve_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                success = plot_latency_curve(metrics_data, curve_path)
+                if success:
+                    test_result.add_step("绘制延迟曲线", "success", f"曲线已保存: {curve_path}")
+                else:
+                    test_result.add_step("绘制延迟曲线", "failed", "曲线绘制失败")
+            else:
+                print("⚠️  没有延迟指标数据，跳过曲线绘制")
+                test_result.add_step("绘制延迟曲线", "pending", "没有数据可绘制")
+        except Exception as e:
+            test_result.add_step("获取延迟指标", "failed", str(e))
+            test_result.add_error("获取延迟指标", e)
+            print(f"❌ 获取延迟指标失败: {e}")
+        
     finally:
-        # 7. 生成 HTML 报告
-        print("\n[Step 7] 生成测试报告")
+        # 9. 生成 HTML 报告
+        print("\n[Step 9] 生成测试报告")
         try:
             generate_html_report(test_result, output_html)
             print(f"✅ 测试报告已生成: {os.path.abspath(output_html)}")
