@@ -13,7 +13,10 @@ import json
 from datetime import datetime
 
 # 设置 Python 路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
+# 当前脚本路径: latency/test/test_full_link.py
+# 向上两级: 到达 plugins/ 目录
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 try:
     import matplotlib
@@ -23,7 +26,7 @@ try:
     CAN_PLOT = True
 except ImportError:
     CAN_PLOT = False
-    print("⚠️  matplotlib 未安装，将跳过曲线绘制")
+    print("[WARN] matplotlib 未安装，将跳过曲线绘制")
 
 from latency.schemas.log import LogFileModel, LogKnowledgeModel
 from latency.database.managers.log_file import LogFileManager
@@ -151,7 +154,7 @@ def get_task_id_by_log_file_id(log_file_id: str) -> str | None:
         
         return None
     except Exception as e:
-        print(f"❌ 查询任务列表失败: {e}")
+        print(f"[FAIL] 查询任务列表失败: {e}")
         return None
 
 
@@ -167,16 +170,16 @@ def wait_for_task_completion(task_id: str, timeout=30000) -> bool:
             print(f"\r第 {i+1:3d} 秒 - 任务状态: {status}", end="", flush=True)
         
         if status in ["successful", "successful_pending_remove"]:
-            print("\n✅ 任务完成！")
+            print("\n[OK] 任务完成！")
             return True
         
         if status == "failed":
-            print("\n❌ 任务失败！")
+            print("\n[FAIL] 任务失败！")
             return False
         
         time.sleep(1)
     
-    print("\n❌ 任务超时！")
+    print("\n[FAIL] 任务超时！")
     return False
 
 
@@ -235,11 +238,11 @@ def get_latency_metrics(max_points: int = -1, **kwargs) -> dict:
 def plot_latency_curve(metrics_data: list, output_path: str):
     """绘制延迟曲线"""
     if not CAN_PLOT:
-        print("⚠️  matplotlib 未安装，跳过曲线绘制")
+        print("[WARN] matplotlib 未安装，跳过曲线绘制")
         return False
     
     if not metrics_data:
-        print("⚠️  没有数据可绘制")
+        print("[WARN] 没有数据可绘制")
         return False
     
     try:
@@ -276,10 +279,10 @@ def plot_latency_curve(metrics_data: list, output_path: str):
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close()
         
-        print(f"✅ 延迟曲线已保存: {output_path}")
+        print(f"[OK] 延迟曲线已保存: {output_path}")
         return True
     except Exception as e:
-        print(f"❌ 绘制曲线失败: {e}")
+        print(f"[FAIL] 绘制曲线失败: {e}")
         return False
 
 
@@ -418,10 +421,10 @@ def generate_html_report(test_result: TestResult, output_path: str):
         }.get(step["status"], "step-pending")
         
         icon = {
-            "success": "✅",
-            "failed": "❌",
-            "pending": "⏳"
-        }.get(step["status"], "⏳")
+            "success": "[OK]",
+            "failed": "[FAIL]",
+            "pending": "[WAIT]"
+        }.get(step["status"], "[WAIT]")
         
         data_html = ""
         if step["data"]:
@@ -544,7 +547,7 @@ def generate_html_report(test_result: TestResult, output_path: str):
     if test_result.errors:
         errors_html = f"""
         <div class="card">
-            <div class="card-header">⚠️ 错误信息</div>
+            <div class="card-header">[WARN] 错误信息</div>
             <div class="card-body">
                 <ul class="error-list">
         """
@@ -598,11 +601,11 @@ async def main():
         try:
             kb_id = await setup_test_data()
             test_result.add_step("设置测试数据", "success", f"创建知识库成功: {kb_id}")
-            print(f"✅ 创建知识库: {kb_id}")
+            print(f"[OK] 创建知识库: {kb_id}")
         except Exception as e:
             test_result.add_step("设置测试数据", "failed", str(e))
             test_result.add_error("设置测试数据", e)
-            print(f"❌ 设置测试数据失败: {e}")
+            print(f"[FAIL] 设置测试数据失败: {e}")
             print("继续执行后续步骤...")
         
         # 2. 上传日志文件
@@ -621,17 +624,17 @@ async def main():
             
             log_file_ids = result.get("result", {}).get("log_file_ids", [])
             test_result.add_step("上传日志文件", "success", f"上传成功，文件ID: {log_file_ids}", result)
-            print(f"✅ 上传日志文件成功: {log_file_ids}")
+            print(f"[OK] 上传日志文件成功: {log_file_ids}")
             
             if log_file_ids:
                 log_file_id = log_file_ids[0]
-                print(f"✅ 日志文件ID: {log_file_id}")
+                print(f"[OK] 日志文件ID: {log_file_id}")
             else:
                 raise Exception("未返回 log_file_ids")
         except Exception as e:
             test_result.add_step("上传日志文件", "failed", str(e))
             test_result.add_error("上传日志文件", e)
-            print(f"❌ 上传日志文件失败: {e}")
+            print(f"[FAIL] 上传日志文件失败: {e}")
             print("继续执行后续步骤...")
         
         # 3. 查询对应的任务ID
@@ -653,11 +656,11 @@ async def main():
                 raise Exception("10秒内未找到对应任务")
             
             test_result.add_step("查询任务ID", "success", f"找到任务ID: {task_id}")
-            print(f"\n✅ 找到任务ID: {task_id}")
+            print(f"\n[OK] 找到任务ID: {task_id}")
         except Exception as e:
             test_result.add_step("查询任务ID", "failed", str(e))
             test_result.add_error("查询任务ID", e)
-            print(f"\n❌ 查询任务ID失败: {e}")
+            print(f"\n[FAIL] 查询任务ID失败: {e}")
             print("继续执行后续步骤...")
         
         # 4. 等待任务完成
@@ -672,11 +675,11 @@ async def main():
             else:
                 test_result.add_step("等待任务完成", "failed", "任务执行失败或超时")
                 test_result.add_error("等待任务完成", "任务执行失败")
-                print("❌ 任务执行失败")
+                print("[FAIL] 任务执行失败")
         except Exception as e:
             test_result.add_step("等待任务完成", "failed", str(e))
             test_result.add_error("等待任务完成", e)
-            print(f"❌ 等待任务失败: {e}")
+            print(f"[FAIL] 等待任务失败: {e}")
             print("继续执行后续步骤...")
         
         # 5. 获取日志解析结果
@@ -693,11 +696,11 @@ async def main():
             parse_results = result.get("result", {}).get("log_parse_results", [])
             test_result.log_parse_results = parse_results
             test_result.add_step("获取日志解析结果", "success", f"获取到 {len(parse_results)} 条解析结果", result)
-            print(f"✅ 获取解析结果成功: {len(parse_results)} 条")
+            print(f"[OK] 获取解析结果成功: {len(parse_results)} 条")
         except Exception as e:
             test_result.add_step("获取日志解析结果", "failed", str(e))
             test_result.add_error("获取日志解析结果", e)
-            print(f"❌ 获取解析结果失败: {e}")
+            print(f"[FAIL] 获取解析结果失败: {e}")
             print("继续执行后续步骤...")
         
         # 6. 获取聚合事件
@@ -714,11 +717,11 @@ async def main():
             events = result.get("result", {}).get("aggregated_events", [])
             test_result.aggregated_events = events
             test_result.add_step("获取聚合事件", "success", f"获取到 {len(events)} 条聚合事件", result)
-            print(f"✅ 获取聚合事件成功: {len(events)} 条")
+            print(f"[OK] 获取聚合事件成功: {len(events)} 条")
         except Exception as e:
             test_result.add_step("获取聚合事件", "failed", str(e))
             test_result.add_error("获取聚合事件", e)
-            print(f"❌ 获取聚合事件失败: {e}")
+            print(f"[FAIL] 获取聚合事件失败: {e}")
         
         # 7. 获取延迟指标（获取全部数据）
         print("\n[Step 7] 获取延迟指标时间曲线数据")
@@ -731,7 +734,7 @@ async def main():
             metrics_data = result.get("result", {}).get("metrics", [])
             test_result.latency_metrics = metrics_data
             test_result.add_step("获取延迟指标", "success", f"获取到 {len(metrics_data)} 条延迟指标数据", result)
-            print(f"✅ 获取延迟指标成功: {len(metrics_data)} 条")
+            print(f"[OK] 获取延迟指标成功: {len(metrics_data)} 条")
             
             # 8. 绘制延迟曲线
             print("\n[Step 8] 绘制延迟曲线")
@@ -743,21 +746,21 @@ async def main():
                 else:
                     test_result.add_step("绘制延迟曲线", "failed", "曲线绘制失败")
             else:
-                print("⚠️  没有延迟指标数据，跳过曲线绘制")
+                print("[WARN] 没有延迟指标数据，跳过曲线绘制")
                 test_result.add_step("绘制延迟曲线", "pending", "没有数据可绘制")
         except Exception as e:
             test_result.add_step("获取延迟指标", "failed", str(e))
             test_result.add_error("获取延迟指标", e)
-            print(f"❌ 获取延迟指标失败: {e}")
+            print(f"[FAIL] 获取延迟指标失败: {e}")
         
     finally:
         # 9. 生成 HTML 报告
         print("\n[Step 9] 生成测试报告")
         try:
             generate_html_report(test_result, output_html)
-            print(f"✅ 测试报告已生成: {os.path.abspath(output_html)}")
+            print(f"[OK] 测试报告已生成: {os.path.abspath(output_html)}")
         except Exception as e:
-            print(f"❌ 生成报告失败: {e}")
+            print(f"[FAIL] 生成报告失败: {e}")
     
     print("\n" + "=" * 70)
     print("全链路测试完成")
