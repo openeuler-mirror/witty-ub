@@ -212,15 +212,18 @@ def get_aggregated_events(kb_id: str) -> dict:
         return {"error": str(e)}
 
 
-def get_latency_metrics(kb_id: str, max_points: int = -1) -> dict:
+def get_latency_metrics(max_points: int = -1, **kwargs) -> dict:
     """获取延迟指标时间曲线数据"""
     url = "http://localhost:9772/log_parse_result/metrics/latency"
     payload = {
-        "kb_id": kb_id,
         "max_points": max_points,  # -1 表示获取全部数据
         "sort_by": "timestamp",
         "sort_order": "asc"
     }
+    # 添加可选参数
+    for key in ["host", "src_ip", "dst_ip", "start_time", "end_time", "operation"]:
+        if key in kwargs:
+            payload[key] = kwargs[key]
     try:
         response = requests.post(url, json=payload)
         response.raise_for_status()
@@ -724,10 +727,7 @@ async def main():
         # 7. 获取延迟指标（获取全部数据）
         print("\n[Step 7] 获取延迟指标时间曲线数据")
         try:
-            if not kb_id:
-                raise Exception("知识库ID为空，无法获取延迟指标")
-            
-            result = get_latency_metrics(kb_id, max_points=-1)  # max_points=-1 获取全部数据
+            result = get_latency_metrics(max_points=-1)  # max_points=-1 获取全部数据
             
             if "error" in result:
                 raise Exception(result["error"])
