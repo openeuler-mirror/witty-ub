@@ -309,15 +309,19 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
 
         int totalLines = 0;
         std::vector<std::string> extractedPaths;
+        std::unordered_set<std::string> writtenPaths;
         for (const auto &srcPath : matchedFiles) {
             std::string filename = std::filesystem::path(srcPath).filename().string();
             std::string outputPath = (baseDir / filename).string();
-            LOG_INFO << "Extracting logs: " << srcPath << " -> " << outputPath;
-            if (!ExtractLogLines(srcPath, outputPath, startTimestamp, endTimestamp)) {
+            bool append = writtenPaths.find(outputPath) != writtenPaths.end();
+            LOG_INFO << "Extracting logs: " << srcPath << " -> " << outputPath
+                     << (append ? " (append)" : "");
+            if (!ExtractLogLines(srcPath, outputPath, startTimestamp, endTimestamp, append)) {
                 LOG_WARN << "Failed to extract log lines from: " << srcPath;
                 return RACK_FAIL;
             }
             extractedPaths.push_back(outputPath);
+            writtenPaths.insert(outputPath);
         }
 
         std::string envValue = JoinPathsForShell(extractedPaths);
@@ -418,8 +422,8 @@ std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::strin
     return result;
 }
 
-bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std::string &outputPath, int64_t startTs,
-                                          int64_t endTs)
+bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std::string &outputPath,
+                                          int64_t startTs, int64_t endTs, bool append)
 {
     std::ifstream inFile(filePath);
     if (!inFile.is_open()) {
@@ -427,7 +431,9 @@ bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std
         return false;
     }
 
-    std::ofstream outFile(outputPath, std::ios::out | std::ios::trunc);
+    std::ios_base::openmode mode = std::ios::out;
+    mode |= append ? std::ios::app : std::ios::trunc;
+    std::ofstream outFile(outputPath, mode);
     if (!outFile.is_open()) {
         LOG_WARN << "Cannot open output file: " << outputPath;
         return false;
