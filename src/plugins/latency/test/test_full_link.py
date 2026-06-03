@@ -35,6 +35,69 @@ from latency.database.engine import AsyncSQLiteSingleton
 from latency.ENUM.task import TaskStatusEnum
 
 
+def generate_pagination_html(current_page, total_pages, table_id):
+    """生成分页HTML"""
+    if total_pages <= 1:
+        return ""
+    
+    pagination_html = f"""
+    <div class="pagination" id="pagination-{table_id}">
+        <button class="page-btn" onclick="goToPage('{table_id}', 1)" {'disabled' if current_page == 1 else ''}>
+            首页
+        </button>
+        <button class="page-btn" onclick="goToPage('{table_id}', {current_page - 1})" {'disabled' if current_page == 1 else ''}>
+            上一页
+        </button>
+        <span class="page-info">第 {current_page} / {total_pages} 页</span>
+        <button class="page-btn" onclick="goToPage('{table_id}', {current_page + 1})" {'disabled' if current_page == total_pages else ''}>
+            下一页
+        </button>
+        <button class="page-btn" onclick="goToPage('{table_id}', {total_pages})" {'disabled' if current_page == total_pages else ''}>
+            末页
+        </button>
+    </div>
+    """
+    return pagination_html
+
+
+def generate_table_html(data, headers, key_mapping, table_id, page_size=20):
+    """生成带分页的表格HTML"""
+    total_items = len(data)
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    
+    html = f"""
+    <div class="table-container">
+        <table class="table" id="table-{table_id}">
+            <thead>
+                <tr>
+    """
+    for header in headers:
+        html += f"<th>{header}</th>"
+    html += """
+                </tr>
+            </thead>
+            <tbody>
+    """
+    
+    for item in data[:page_size]:
+        html += "<tr>"
+        for key in key_mapping.values():
+            value = item.get(key, '')
+            html += f"<td>{value}</td>"
+        html += "</tr>"
+    
+    html += """
+            </tbody>
+        </table>
+    </div>
+    """
+    
+    if total_pages > 1:
+        html += generate_pagination_html(1, total_pages, table_id)
+    
+    return html, total_items
+
+
 class TestResult:
     """测试结果收集器"""
     def __init__(self):
@@ -215,7 +278,7 @@ def get_aggregated_events(kb_id: str) -> dict:
         return {"error": str(e)}
 
 
-def get_latency_metrics(max_points: int = -1, **kwargs) -> dict:
+def get_latency_metrics(max_points: int = 10000, **kwargs) -> dict:
     """获取延迟指标时间曲线数据"""
     url = "http://localhost:9772/log_parse_result/metrics/latency"
     payload = {
@@ -327,6 +390,13 @@ def generate_html_report(test_result: TestResult, output_path: str):
         .error-list {{ list-style: none; }}
         .error-item {{ background: #f8d7da; padding: 10px; border-radius: 4px; margin-bottom: 8px; color: #721c24; }}
         .timestamp {{ font-size: 12px; color: #999; }}
+        .pagination {{ display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 15px; }}
+        .page-btn {{ padding: 6px 12px; border: 1px solid #dee2e6; border-radius: 4px; background: white; cursor: pointer; }}
+        .page-btn:hover:not(:disabled) {{ background: #f8f9fa; }}
+        .page-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+        .page-btn.active {{ background: #667eea; color: white; border-color: #667eea; }}
+        .page-info {{ padding: 0 12px; color: #666; }}
+        .table-container {{ overflow-x: auto; }}
     </style>
 </head>
 <body>
@@ -400,6 +470,78 @@ def generate_html_report(test_result: TestResult, output_path: str):
         <!-- 错误信息 -->
         {errors_html}
     </div>
+    
+    <script>
+        // 分页数据缓存
+        var tableData = {{
+            "parse-results": {parse_results_json},
+            "events": {events_json},
+            "metrics": {metrics_json}
+        }};
+        
+        var tableConfig = {{
+            "parse-results": {{headers: ["ID", "源IP", "目标IP", "延迟(ms)", "时间", "类型"], keys: ["id", "src_ip", "dst_ip", "elapsed_ms", "timestamp", "entry_type"]}},
+            "events": {{headers: ["ID", "源IP", "目标IP", "事件类型", "次数", "平均延迟(ms)"], keys: ["id", "src_ip", "dst_ip", "event_type", "count", "avg_elapsed_ms"]}},
+            "metrics": {{headers: ["时间", "总延迟(ms)", "URMA延迟(ms)", "Query Meta延迟(ms)"], keys: ["timestamp", "total_latency_ms", "urma_total_latency_ms", "worker_query_meta_latency_ms"]}}
+        }};
+        
+        function goToPage(tableId, pageNum) {{
+            var data = tableData[tableId] || [];
+            var config = tableConfig[tableId];
+            var pageSize = 20;
+            var totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+            
+            if (pageNum < 1 || pageNum > totalPages) return;
+            
+            var start = (pageNum - 1) * pageSize;
+            var end = start + pageSize;
+            var pageData = data.slice(start, end);
+            
+            var table = document.getElementById('table-' + tableId);
+            var tbody = table.querySelector('tbody');
+            tbody.innerHTML = '';
+            
+            pageData.forEach(function(item) {{
+                var row = document.createElement('tr');
+                config.keys.forEach(function(key) {{
+                    var cell = document.createElement('td');
+                    cell.textContent = item[key] || '';
+                    row.appendChild(cell);
+                }});
+                tbody.appendChild(row);
+            }});
+            
+            // 更新分页按钮状态
+            var pagination = document.getElementById('pagination-' + tableId);
+            if (pagination) {{
+                var buttons = pagination.querySelectorAll('.page-btn');
+                buttons.forEach(function(btn) {{
+                    btn.disabled = false;
+                    btn.classList.remove('active');
+                }});
+                
+                var info = pagination.querySelector('.page-info');
+                if (info) {{
+                    info.textContent = '第 ' + pageNum + ' / ' + totalPages + ' 页';
+                }}
+                
+                // 禁用边界按钮
+                var firstBtn = pagination.querySelector('button:first-child');
+                var prevBtn = pagination.querySelectorAll('button')[1];
+                var nextBtn = pagination.querySelectorAll('button')[2];
+                var lastBtn = pagination.querySelectorAll('button')[3];
+                
+                if (pageNum === 1) {{
+                    firstBtn.disabled = true;
+                    prevBtn.disabled = true;
+                }}
+                if (pageNum === totalPages) {{
+                    nextBtn.disabled = true;
+                    lastBtn.disabled = true;
+                }}
+            }}
+        }}
+    </script>
 </body>
 </html>
     """
@@ -448,98 +590,58 @@ def generate_html_report(test_result: TestResult, output_path: str):
         </div>
         """
     
-    # 生成解析结果 HTML
+    # 生成解析结果 HTML（分页）
     if test_result.log_parse_results:
-        parse_results_html = f"""
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>源IP</th>
-                    <th>目标IP</th>
-                    <th>延迟(ms)</th>
-                    <th>时间</th>
-                    <th>类型</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
-        for result in test_result.log_parse_results[:20]:  # 最多显示20条
-            parse_results_html += f"""
-            <tr>
-                <td>{result.get('id', '')}</td>
-                <td>{result.get('src_ip', '')}</td>
-                <td>{result.get('dst_ip', '')}</td>
-                <td>{result.get('elapsed_ms', '')}</td>
-                <td>{result.get('timestamp', '')}</td>
-                <td>{result.get('entry_type', '')}</td>
-            </tr>
-            """
-        parse_results_html += "</tbody></table>"
-        if len(test_result.log_parse_results) > 20:
-            parse_results_html += f"<p style='margin-top:10px;color:#666'>仅显示前20条，共{len(test_result.log_parse_results)}条</p>"
+        parse_results_html, _ = generate_table_html(
+            data=test_result.log_parse_results,
+            headers=["ID", "源IP", "目标IP", "延迟(ms)", "时间", "类型"],
+            key_mapping={
+                "id": "id",
+                "src_ip": "src_ip",
+                "dst_ip": "dst_ip",
+                "elapsed_ms": "elapsed_ms",
+                "timestamp": "timestamp",
+                "entry_type": "entry_type"
+            },
+            table_id="parse-results",
+            page_size=20
+        )
     else:
         parse_results_html = "<p style='color:#999'>暂无解析结果</p>"
     
-    # 生成聚合事件 HTML
+    # 生成聚合事件 HTML（分页）
     if test_result.aggregated_events:
-        events_html = f"""
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>源IP</th>
-                    <th>目标IP</th>
-                    <th>事件类型</th>
-                    <th>次数</th>
-                    <th>平均延迟(ms)</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
-        for event in test_result.aggregated_events[:20]:
-            events_html += f"""
-            <tr>
-                <td>{event.get('id', '')}</td>
-                <td>{event.get('src_ip', '')}</td>
-                <td>{event.get('dst_ip', '')}</td>
-                <td>{event.get('event_type', '')}</td>
-                <td>{event.get('count', '')}</td>
-                <td>{event.get('avg_elapsed_ms', '')}</td>
-            </tr>
-            """
-        events_html += "</tbody></table>"
-        if len(test_result.aggregated_events) > 20:
-            events_html += f"<p style='margin-top:10px;color:#666'>仅显示前20条，共{len(test_result.aggregated_events)}条</p>"
+        events_html, _ = generate_table_html(
+            data=test_result.aggregated_events,
+            headers=["ID", "源IP", "目标IP", "事件类型", "次数", "平均延迟(ms)"],
+            key_mapping={
+                "id": "id",
+                "src_ip": "src_ip",
+                "dst_ip": "dst_ip",
+                "event_type": "event_type",
+                "count": "count",
+                "avg_elapsed_ms": "avg_elapsed_ms"
+            },
+            table_id="events",
+            page_size=20
+        )
     else:
         events_html = "<p style='color:#999'>暂无聚合事件</p>"
     
-    # 生成延迟指标 HTML
+    # 生成延迟指标 HTML（分页）
     if test_result.latency_metrics:
-        metrics_html = f"""
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>时间</th>
-                    <th>总延迟(ms)</th>
-                    <th>URMA延迟(ms)</th>
-                    <th>Query Meta延迟(ms)</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
-        for metric in test_result.latency_metrics[:20]:  # 最多显示20条
-            metrics_html += f"""
-            <tr>
-                <td>{metric.get('timestamp', '')}</td>
-                <td>{metric.get('total_latency_ms', '')}</td>
-                <td>{metric.get('urma_total_latency_ms', '')}</td>
-                <td>{metric.get('worker_query_meta_latency_ms', '')}</td>
-            </tr>
-            """
-        metrics_html += "</tbody></table>"
-        if len(test_result.latency_metrics) > 20:
-            metrics_html += f"<p style='margin-top:10px;color:#666'>仅显示前20条，共{len(test_result.latency_metrics)}条</p>"
+        metrics_html, _ = generate_table_html(
+            data=test_result.latency_metrics,
+            headers=["时间", "总延迟(ms)", "URMA延迟(ms)", "Query Meta延迟(ms)"],
+            key_mapping={
+                "timestamp": "timestamp",
+                "total_latency_ms": "total_latency_ms",
+                "urma_total_latency_ms": "urma_total_latency_ms",
+                "worker_query_meta_latency_ms": "worker_query_meta_latency_ms"
+            },
+            table_id="metrics",
+            page_size=20
+        )
     else:
         metrics_html = "<p style='color:#999'>暂无延迟指标数据</p>"
     
@@ -562,6 +664,11 @@ def generate_html_report(test_result: TestResult, output_path: str):
     else:
         errors_html = ""
     
+    # 生成 JSON 数据用于前端分页
+    parse_results_json = json.dumps(test_result.log_parse_results, ensure_ascii=False)
+    events_json = json.dumps(test_result.aggregated_events, ensure_ascii=False)
+    metrics_json = json.dumps(test_result.latency_metrics, ensure_ascii=False)
+    
     # 填充模板
     html_content = html_template.format(
         generate_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -574,7 +681,10 @@ def generate_html_report(test_result: TestResult, output_path: str):
         parse_results_html=parse_results_html,
         events_html=events_html,
         metrics_html=metrics_html,
-        errors_html=errors_html
+        errors_html=errors_html,
+        parse_results_json=parse_results_json,
+        events_json=events_json,
+        metrics_json=metrics_json
     )
     
     # 写入文件

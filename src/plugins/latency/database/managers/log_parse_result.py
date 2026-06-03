@@ -272,9 +272,6 @@ class LogParseResultManager:
         sort_order = "DESC" if req.sort_order.lower() == "desc" else "ASC"
         sql_str += f" ORDER BY {sort_by} {sort_order}"
         
-        if req.max_points != -1:
-            sql_str += " LIMIT :limit"
-            params["limit"] = req.max_points
-        
+        # 注意：不在数据库层限制返回数量，由应用层采样器处理
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return total, rows

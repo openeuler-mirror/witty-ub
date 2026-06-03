@@ -235,6 +235,10 @@ class GetLatencyMetricsMsg(BaseModel):
         default_factory=dict,
         description="实际查询的时间范围",
     )
+    sampling_info: dict = Field(
+        default_factory=dict,
+        description="采样信息：{mode, window_ms, original_count, sampled_count}"
+    )
 
 
 class GetLatencyMetricsResponse(ResponseBase):

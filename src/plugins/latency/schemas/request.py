@@ -3,6 +3,7 @@ from typing import Optional, Any
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.ENUM.sampling import SampleMode
 
 
 class ParseConfig(BaseModel):
@@ -202,24 +203,28 @@ class ListTracesByHostRequest(BaseModel):
 
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
-    host: Optional[str] = Field(default=None, description="主机名或IP地址，可选")
-    src_ip: Optional[str] = Field(default=None, description="源IP地址，可选")
-    dst_ip: Optional[str] = Field(default=None, description="目的IP地址，可选")
+    host: Optional[str] = Field(default=None, description="主机名或 IP 地址，可选")
+    src_ip: Optional[str] = Field(default=None, description="源 IP 地址，可选")
+    dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，可选")
     start_time: Optional[str] = Field(
         default=None,
-        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="开始时间，格式为 YYYY-MM-DD HH:MM:SS",
     )
     end_time: Optional[str] = Field(
         default=None,
-        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="结束时间，格式为 YYYY-MM-DD HH:MM:SS",
     )
     operation: Optional[str] = Field(
         default=None,
         description="操作类型过滤：GET / SET",
     )
     max_points: int = Field(
-        default=-1,
-        description="最大返回数据点数，默认-1表示返回全部数据；设置为正整数可限制返回数量",
+        default=1000,
+        description="最大返回数据点数，默认 1000；超过时自动触发采样；设置为 -1 返回全部数据"
+    )
+    sample_mode: SampleMode = Field(
+        default=SampleMode.MAX,
+        description="采样模式：none-不采样，max-最大值，avg-平均值，min-最小值，p99/p95-百分位"
     )
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")
