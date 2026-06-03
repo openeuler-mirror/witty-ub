@@ -316,10 +316,20 @@ def plot_latency_curve(metrics_data: list, output_path: str):
         query_meta_latency = []
         
         for item in metrics_data:
-            timestamps.append(datetime.strptime(item["timestamp"], "%Y-%m-%d %H:%M:%S"))
-            total_latency.append(item.get("total_latency_ms", 0))
-            urma_latency.append(item.get("urma_total_latency_ms", 0))
-            query_meta_latency.append(item.get("worker_query_meta_latency_ms", 0))
+            # 接口返回的字段名是 'time'，可能包含毫秒
+            time_str = item.get("time", item.get("timestamp", ""))
+            try:
+                timestamps.append(datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S.%f"))
+            except ValueError:
+                try:
+                    timestamps.append(datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S"))
+                except ValueError:
+                    print(f"[WARN] 无法解析时间戳: {time_str}")
+                    continue
+            # 接口返回的字段名不带 _ms 后缀
+            total_latency.append(item.get("total_latency", item.get("total_latency_ms", 0)))
+            urma_latency.append(item.get("urma_total_latency", item.get("urma_total_latency_ms", 0)))
+            query_meta_latency.append(item.get("worker_query_meta_latency", item.get("worker_query_meta_latency_ms", 0)))
         
         # 创建图表
         plt.figure(figsize=(12, 6))
