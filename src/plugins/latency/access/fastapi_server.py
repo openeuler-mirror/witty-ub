@@ -23,6 +23,7 @@ from latency.ENUM.general import FilePath
 from latency.config.config import Config
 from latency.task.task_handler import TaskHandler
 from latency.task.worker import *
+from latency.services.failure_mode_knowledge import FailureModeKnowledge
 from latency.routers import (
     log_file,
     log_knowledge,
@@ -31,6 +32,8 @@ from latency.routers import (
     anomalous_event,
     anomalous_event_chain,
     task,
+    failure_mode_knowledge,
+    log_failure_event_result,
 )
 from latency.database.engine import AsyncSQLiteSingleton
 
@@ -56,6 +59,8 @@ async def configure():
     app.include_router(anomalous_event.router)
     app.include_router(anomalous_event_chain.router)
     app.include_router(task.router)
+    app.include_router(failure_mode_knowledge.router)
+    app.include_router(log_failure_event_result.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
@@ -90,6 +95,7 @@ async def startup_event():
     await configure()
     await mk_dirs()
     await AsyncSQLiteSingleton().init_database()
+    await FailureModeKnowledge().init_failure_mode_knowledge()
     scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5)
     scheduler.start()
 

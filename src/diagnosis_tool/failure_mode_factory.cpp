@@ -14,7 +14,6 @@ FailureModeFactory &FailureModeFactory::Instance() noexcept
 void FailureModeFactory::Register(const std::string &typeId, Creator creator) noexcept
 {
     try {
-        std::cout << "Register: " << typeId << std::endl;
         m_creators[typeId] = std::move(creator);
     } catch (...) {
         // 注册失败，但不抛异常

@@ -15,11 +15,13 @@ if(NOT log4cplus_FOUND)
     # 如果 find_package 失败，尝试手动查找
     message(STATUS "find_package(log4cplus) failed, trying manual search...")
     
-    # 尝试常见的 Linux 安装路径
+    # 尝试常见的安装路径（包括 macOS Homebrew）
     set(POSSIBLE_PATHS
+        "/usr/local/opt/log4cplus"
         "/usr/local"
         "/usr"
         "/opt/log4cplus"
+        "/opt/homebrew/opt/log4cplus"
         "/home/${CMAKE_USER}/.local"
         "/usr/local/log4cplus"
     )
@@ -29,8 +31,10 @@ if(NOT log4cplus_FOUND)
             set(LOG4CPLUS_ROOT "${PATH}" CACHE PATH "log4cplus root directory" FORCE)
             set(LOG4CPLUS_INCLUDE_DIR "${PATH}/include" CACHE PATH "log4cplus include directory" FORCE)
             
-            # 查找库文件（Linux 使用 .a 或 .so）
-            if(EXISTS "${PATH}/lib/liblog4cplus.a")
+            # 查找库文件（支持 .a .so .dylib）
+            if(EXISTS "${PATH}/lib/liblog4cplus.dylib")
+                set(LOG4CPLUS_LIBRARIES "${PATH}/lib/liblog4cplus.dylib" CACHE FILEPATH "log4cplus library" FORCE)
+            elseif(EXISTS "${PATH}/lib/liblog4cplus.a")
                 set(LOG4CPLUS_LIBRARIES "${PATH}/lib/liblog4cplus.a" CACHE FILEPATH "log4cplus library" FORCE)
             elseif(EXISTS "${PATH}/lib/liblog4cplus.so")
                 set(LOG4CPLUS_LIBRARIES "${PATH}/lib/liblog4cplus.so" CACHE FILEPATH "log4cplus library" FORCE)

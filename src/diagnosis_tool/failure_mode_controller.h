@@ -29,7 +29,7 @@ public:
     const std::vector<FailureLogInfo> &GetLogInfos() const;
 
 private:
-    std::shared_ptr<FailureMode> failureMode;
+    std::shared_ptr<FailureMode> failureMode = nullptr;
     std::unordered_set<std::string> subFailureModesValid;    // dynamic view; for urma
     int hitCount = 0;
     std::vector<FailureLogInfo> logInfos;
