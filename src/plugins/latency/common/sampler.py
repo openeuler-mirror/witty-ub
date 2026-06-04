@@ -162,9 +162,14 @@ class LatencyMetricsSampler:
                 return min(values)
             elif mode == SampleMode.AVG:
                 return sum(values) / len(values)
-            elif mode in (SampleMode.P99, SampleMode.P95):
+            elif mode in (SampleMode.P9999, SampleMode.P99, SampleMode.P95):
                 values.sort()
-                percentile = 0.99 if mode == SampleMode.P99 else 0.95
+                if mode == SampleMode.P9999:
+                    percentile = 0.9999
+                elif mode == SampleMode.P99:
+                    percentile = 0.99
+                else:
+                    percentile = 0.95
                 index = max(0, int(len(values) * percentile) - 1)
                 return values[index]
             else:

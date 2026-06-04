@@ -223,8 +223,8 @@ class GetLatencyMetricsRequest(BaseModel):
         description="最大返回数据点数，默认 1000；超过时自动触发采样；设置为 -1 返回全部数据"
     )
     sample_mode: SampleMode = Field(
-        default=SampleMode.MAX,
-        description="采样模式：none-不采样，max-最大值，avg-平均值，min-最小值，p99/p95-百分位"
+        default=SampleMode.P99,
+        description="采样模式：none-不采样，max-最大值，avg-平均值，min-最小值，p99/p95/p9999-百分位"
     )
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")
