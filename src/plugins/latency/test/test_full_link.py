@@ -834,7 +834,7 @@ async def main():
             if "error" in result:
                 raise Exception(result["error"])
             
-            events = result.get("result", {}).get("aggregated_events", [])
+            events = result.get("result", {}).get("events", [])  # 注意：接口返回的是 events，不是 aggregated_events
             test_result.aggregated_events = events
             test_result.add_step("获取聚合事件", "success", f"获取到 {len(events)} 条聚合事件", result)
             print(f"[OK] 获取聚合事件成功: {len(events)} 条")
