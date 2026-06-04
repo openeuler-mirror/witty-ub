@@ -22,6 +22,10 @@
 #include <unistd.h>
 #include <unordered_set>
 
+#ifndef HOST_NAME_MAX
+#define HOST_NAME_MAX _POSIX_HOST_NAME_MAX
+#endif
+
 namespace lcne::common
 {
   std::string getHostname()
