@@ -413,9 +413,6 @@ RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFai
             return RACK_FAIL;
         }
         FailureModeController &controller = controllerIter->second;
-        if (controller.GetSubFailureModesValid().empty()) {
-            continue;
-        }
         roots.emplace_back(MakeViewNode(controller));
 
         std::unordered_set<std::string> path = {rootFailureModeId};
