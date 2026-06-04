@@ -265,17 +265,151 @@ async def test_store_result():
     logger.info("=== test_store_result PASSED ===\n")
 
 
+async def test_detect_exception_with_results(results: list):
+    """使用真实解析结果测试异常检测"""
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+    logger.info("\n" + "=" * 60)
+    logger.info("TEST: detect_exception (使用真实数据)")
+    logger.info("=" * 60)
+
+    if not results:
+        logger.warning("没有解析结果，跳过异常检测测试")
+        return
+
+    start = time.perf_counter()
+    events = await KVCacheLogParseWorker.detect_exception(results)
+    elapsed = time.perf_counter() - start
+    logger.info(f"detect_exception elapsed: {elapsed:.3f}s")
+
+    logger.info(f"Anomalous events: {len(events)}")
+    if events:
+        for i, e in enumerate(events[:3]):
+            logger.info(f"\n  --- Event {i} ---")
+            logger.info(f"    offset: {e.start_log_parse_offset}")
+            logger.info(f"    reason: {e.anomaly_reason[:120]}...")
+
+    logger.info("=== test_detect_exception_with_results PASSED ===\n")
+
+
+async def test_generate_aggregate_result_with_results(results: list):
+    """使用真实解析结果测试聚合"""
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+    logger.info("\n" + "=" * 60)
+    logger.info("TEST: generate_aggregate_result (使用真实数据)")
+    logger.info("=" * 60)
+
+    if not results:
+        logger.warning("没有解析结果，跳过聚合测试")
+        return
+
+    start = time.perf_counter()
+    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    elapsed = time.perf_counter() - start
+    logger.info(f"generate_aggregate_result elapsed: {elapsed:.3f}s")
+
+    logger.info(f"Aggregated events: {len(agg_events)}")
+    logger.info(f"Src-dst map entries: {len(src_dst_map)}")
+
+    src_dst_pairs = set()
+    for a in agg_events:
+        pair = (a.src_ip, a.dst_ip)
+        src_dst_pairs.add(pair)
+        logger.info(
+            f"  {a.src_ip} → {a.dst_ip} | "
+            f"cnt={a.log_parse_result_cnt}, anomaly_cnt={a.anomaly_cnt}, "
+            f"p99_total={a.p99_total_latency:.3f}ms, "
+            f"p99_urma_link={a.p99_urma_link_latency:.3f}ms"
+        )
+
+    assert len(agg_events) > 0, "Should have at least one aggregated event"
+    assert len(src_dst_pairs) == len(agg_events), "Each event should be a unique src-dst pair"
+
+    for a in agg_events:
+        assert a.p99_total_latency is not None, "p99_total_latency should be computed"
+        assert a.ave_total_latency is not None, "ave_total_latency should be computed"
+
+    logger.info("=== test_generate_aggregate_result_with_results PASSED ===\n")
+
+
+async def test_store_result_with_results(results: list, agg_events: list, anomalous_events: list):
+    """使用真实数据测试存储"""
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+    from latency.database.engine import AsyncSQLiteSingleton
+    from latency.database.managers.log_parse_result import LogParseResultManager
+    from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventManager
+    from latency.database.managers.anomalous_event import AnomalousEventManager
+    from latency.schemas.request import ListLogParseResultRequest
+    from latency.schemas.request import ListSrcDstAggregatedEventRequest
+
+    logger.info("\n" + "=" * 60)
+    logger.info("TEST: store_result (使用真实数据)")
+    logger.info("=" * 60)
+
+    if not results:
+        logger.warning("没有解析结果，跳过存储测试")
+        return
+
+    await AsyncSQLiteSingleton().init_database()
+
+    logger.info(
+        f"Storing: {len(results)} results, "
+        f"{len(agg_events)} aggregated events, "
+        f"{len(anomalous_events)} anomalous events"
+    )
+
+    start = time.perf_counter()
+    stored = await KVCacheLogParseWorker.store_result(
+        list_log_parse_results=results,
+        anomalous_events=anomalous_events,
+        anomalous_event_chains=[],
+        src_dst_aggregated_events=agg_events,
+    )
+    elapsed = time.perf_counter() - start
+    logger.info(f"store_result elapsed: {elapsed:.3f}s")
+    logger.info(f"store_result returned: {stored}")
+
+    req = ListLogParseResultRequest(page_num=1, page_cnt=1)
+    total_results, _ = await LogParseResultManager.list_log_parse_results(req)
+    logger.info(f"DB log_parse_result count: {total_results}")
+    assert total_results > 0, "Should have stored log parse results"
+
+    agg_req = ListSrcDstAggregatedEventRequest(page_num=1, page_cnt=100)
+    total_agg, agg_rows = await SrcDstAggregatedEventManager.list_aggregated_events(agg_req)
+    logger.info(f"DB aggregated_event count: {total_agg}")
+    assert total_agg > 0, "Should have stored aggregated events"
+
+    ae_list = await AnomalousEventManager.list_anomalous_events_by_log_id("test_log_id")
+    logger.info(f"DB anomalous_event count: {len(ae_list)}")
+
+    logger.info("=== test_store_result_with_results PASSED ===\n")
+
+
 async def test_all(log_dir: str = None):
     """使用真实日志或模拟数据运行所有测试"""
     if log_dir and os.path.isdir(log_dir):
         logger.info(f"使用真实日志目录进行测试: {log_dir}")
-        # 使用真实日志测试
-        await test_kv_cache_log_parse_worker(log_dir)
-        # 注意：detect_exception 和 generate_aggregate_result 需要解析后的结果
-        # 这里使用模拟数据测试其他功能
-        await test_detect_exception()
-        await test_generate_aggregate_result()
-        await test_store_result()
+        
+        # 1. 使用真实日志测试解析器
+        from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+        start = time.perf_counter()
+        results = await KVCacheLogParseWorker.parse_log(log_dir)
+        elapsed = time.perf_counter() - start
+        logger.info(f"\nParse elapsed: {elapsed:.3f}s")
+        logger.info(f"Total results: {len(results)}")
+        
+        if results:
+            # 2. 使用真实解析结果测试异常检测
+            anomalous_events = await KVCacheLogParseWorker.detect_exception(results)
+            
+            # 3. 使用真实解析结果测试聚合
+            agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+            
+            # 4. 使用真实数据测试存储
+            await test_store_result_with_results(results, agg_events, anomalous_events)
+        else:
+            logger.warning("没有解析到数据，跳过后续测试")
     else:
         # 使用模拟数据测试
         await test_detect_exception()
