@@ -12,18 +12,20 @@ class LogParseResultManager:
         sql_str = """
             INSERT INTO log_parse_result_table (
                 id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                operation, data_size, offset, is_anomalous, content,
-                anomaly_reason, anomaly_score, remark, existed_status, created_at
+                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                total_latency, c2w_latency, worker_query_meta_latency,
+                urma_total_latency, urma_link_latency, urma_inflight_count,
+                c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                remark, existed_status, created_at
             ) VALUES (
                 :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                :timestamp, :src_ip, :dst_ip, :pod_ip, :total_latency, :c2w_latency,
-                :worker_query_meta_latency, :urma_total_latency, :urma_link_latency,
-                :urma_inflight_count, :c2w_urma_latency, :w2w_urma_latency,
-                :operation, :data_size, :offset, :is_anomalous, :content,
-                :anomaly_reason, :anomaly_score, :remark, :existed_status, :created_at
+                :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
+                :total_latency, :c2w_latency, :worker_query_meta_latency,
+                :urma_total_latency, :urma_link_latency, :urma_inflight_count,
+                :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
+                :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
+                :remark, :existed_status, :created_at
             )
         """
         result = await AsyncSQLiteSingleton().execute_modify(
@@ -44,18 +46,20 @@ class LogParseResultManager:
                 sql_str = """
                     INSERT INTO log_parse_result_table (
                         id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                        timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                        worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                        urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                        operation, data_size, offset, is_anomalous, content,
-                        anomaly_reason, anomaly_score, remark, existed_status, created_at
+                        timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                        total_latency, c2w_latency, worker_query_meta_latency,
+                        urma_total_latency, urma_link_latency, urma_inflight_count,
+                        c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                        offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                        remark, existed_status, created_at
                     ) VALUES (
                         :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                        :timestamp, :src_ip, :dst_ip, :pod_ip, :total_latency, :c2w_latency,
-                        :worker_query_meta_latency, :urma_total_latency, :urma_link_latency,
-                        :urma_inflight_count, :c2w_urma_latency, :w2w_urma_latency,
-                        :operation, :data_size, :offset, :is_anomalous, :content,
-                        :anomaly_reason, :anomaly_score, :remark, :existed_status, :created_at
+                        :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
+                        :total_latency, :c2w_latency, :worker_query_meta_latency,
+                        :urma_total_latency, :urma_link_latency, :urma_inflight_count,
+                        :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
+                        :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
+                        :remark, :existed_status, :created_at
                     )
                 """
                 params = [
@@ -100,11 +104,12 @@ class LogParseResultManager:
         """分页查询日志解析结果"""
         sql_str = """
             SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                operation, data_size, offset, is_anomalous, content,
-                anomaly_reason, anomaly_score, remark, existed_status, created_at
+                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                total_latency, c2w_latency, worker_query_meta_latency,
+                urma_total_latency, urma_link_latency, urma_inflight_count,
+                c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                remark, existed_status, created_at
             FROM log_parse_result_table
             WHERE existed_status = 1
         """
@@ -148,11 +153,12 @@ class LogParseResultManager:
         """根据ID获取日志解析结果"""
         sql_str = """
             SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                operation, data_size, offset, is_anomalous, content,
-                anomaly_reason, anomaly_score, remark, existed_status, created_at
+                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                total_latency, c2w_latency, worker_query_meta_latency,
+                urma_total_latency, urma_link_latency, urma_inflight_count,
+                c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                remark, existed_status, created_at
             FROM log_parse_result_table
             WHERE id = :result_id
         """
@@ -176,6 +182,8 @@ class LogParseResultManager:
                 id,
                 trace_id,
                 pod_ip,
+                cluster_name,
+                host,
                 timestamp as time,
                 operation,
                 total_latency,
@@ -236,6 +244,8 @@ class LogParseResultManager:
         sql_str = """
             SELECT 
                 timestamp as time,
+                cluster_name,
+                host,
                 total_latency,
                 urma_total_latency,
                 worker_query_meta_latency

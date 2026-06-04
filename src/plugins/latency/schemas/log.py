@@ -211,6 +211,8 @@ class LogParseResultModel(BaseModel):
     pod_ip: Optional[str] = Field(default=None, description="Pod IP地址")
     src_ip: Optional[str] = Field(default=None, description="源IP地址")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称")
+    host: Optional[str] = Field(default=None, description="主机名称")
     is_anomalous: bool = Field(..., description="是否为异常解析结果")
     anomaly_reason: Optional[str] = Field(default=None, description="异常原因描述")
     anomaly_score: Optional[float] = Field(

@@ -30,6 +30,7 @@ class LogEntry(BaseModel):
     dst_addr: str | None = Field(default=None, description="目的地址")
     inflight_count: int | None = Field(default=None, description="在途写请求数")
     request_size: str | None = Field(default=None, description="请求大小")
+    cluster_name: str | None = Field(default=None, description="集群名称")
 
 
 class CorrelationResult(BaseModel):

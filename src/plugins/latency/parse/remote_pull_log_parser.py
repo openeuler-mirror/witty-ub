@@ -51,6 +51,7 @@ class RemotePullLogParser(LogParser):
                 pod_ip=pod_ip,
                 trace_id=trace_id,
                 entry_type=EntryType.REMOTE_PULL,
+                cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
             )
         
         if "Processing pull object[" in line:
@@ -80,6 +81,7 @@ class RemotePullLogParser(LogParser):
                 pod_ip=pod_ip,
                 trace_id=trace_id,
                 entry_type=EntryType.REMOTE_PULL,
+                cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
             )
         
         return None

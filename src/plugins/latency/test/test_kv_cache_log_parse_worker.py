@@ -82,6 +82,7 @@ def _build_mock_results(
         src_ip = f"10.0.{i % 5}.{i % 256}"
         dst_ip = f"10.1.{i % 3}.{i % 256}"
         pod_ip = f"10.2.0.{i % 10}"
+        cluster_name = f"cluster_{i % 3}"
 
         results.append(LogParseResultModel(
             log_id="test_log_id",
@@ -94,6 +95,8 @@ def _build_mock_results(
             src_ip=src_ip,
             dst_ip=dst_ip,
             pod_ip=pod_ip,
+            cluster_name=cluster_name,
+            host=None,
             timestamp=f"2025-01-01 00:{i // 60:02d}:{i % 60:02d}.000",
         ))
 
@@ -130,6 +133,8 @@ async def test_kv_cache_log_parse_worker(log_dir: str = None):
         logger.info(f"  trace_id: {r.trace_id}")
         logger.info(f"  timestamp: {r.timestamp}")
         logger.info(f"  pod_ip: {r.pod_ip}")
+        logger.info(f"  cluster_name: {r.cluster_name}")
+        logger.info(f"  host: {r.host}")
         logger.info(f"  total_latency: {r.total_latency}")
         logger.info(f"  operation: {r.operation}")
         logger.info(f"  is_anomalous: {r.is_anomalous}")

@@ -57,7 +57,7 @@ async def test_log_parser(log_dir: str = None):
 
         # 打印前几条解析的条目
         for i, entry in enumerate(entries[:3]):
-            logger.info(f"  Entry {i}: trace_id={entry.trace_id}, op={entry.operation}, elapsed={entry.elapsed_us}us")
+            logger.info(f"  Entry {i}: trace_id={entry.trace_id}, op={entry.operation}, elapsed={entry.elapsed_us}us, cluster_name={entry.cluster_name}")
 
     correlator = LogCorrelator(parsed)
     correlated = correlator.correlate()
@@ -79,6 +79,8 @@ async def test_log_parser(log_dir: str = None):
         logger.info(f"  trace_id: {r.trace_id}")
         logger.info(f"  timestamp: {r.timestamp}")
         logger.info(f"  pod_ip: {r.pod_ip}")
+        logger.info(f"  cluster_name: {r.cluster_name}")
+        logger.info(f"  host: {r.host}")
         logger.info(f"  total_latency: {r.total_latency}")
         logger.info(f"  operation: {r.operation}")
         logger.info(f"  data_size: {r.data_size}")

@@ -49,4 +49,5 @@ class UrmaLogParser(LogParser):
             pod_ip=pod_ip,
             trace_id=parsed["trace_id"],
             entry_type=EntryType.URMA,
+            cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
