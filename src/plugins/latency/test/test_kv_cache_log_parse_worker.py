@@ -1,3 +1,39 @@
+"""
+KVCacheLogParseWorker 测试脚本
+
+测试指令说明:
+==============
+
+1. 运行所有测试（使用模拟数据）:
+   python test_kv_cache_log_parse_worker.py
+   或
+   python test_kv_cache_log_parse_worker.py all
+
+2. 使用真实日志目录运行所有测试:
+   python test_kv_cache_log_parse_worker.py all /path/to/log_dir/
+
+3. 测试异常检测（滑动窗口 P99）:
+   python test_kv_cache_log_parse_worker.py detect
+
+4. 测试聚合结果生成:
+   python test_kv_cache_log_parse_worker.py aggregate
+
+5. 测试结果存储到数据库:
+   python test_kv_cache_log_parse_worker.py store
+
+6. 使用真实日志文件测试:
+   python test_kv_cache_log_parse_worker.py /path/to/log_file.log
+   或
+   python test_kv_cache_log_parse_worker.py /path/to/log_dir/
+
+测试说明:
+=========
+- test_kv_cache_log_parse_worker: 使用真实日志目录测试解析器
+- test_detect_exception: 使用模拟数据测试异常检测（滑动窗口 P99 算法）
+- test_generate_aggregate_result: 测试按 src_ip/dst_ip 分组聚合逻辑
+- test_store_result: 测试结果存储到 SQLite 数据库
+"""
+
 import sys
 import os
 import asyncio
@@ -147,11 +183,12 @@ async def test_generate_aggregate_result():
     results = _build_mock_results(n=2000, spike_start=800, spike_end=1000)
 
     start = time.perf_counter()
-    agg_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
     elapsed = time.perf_counter() - start
     logger.info(f"generate_aggregate_result elapsed: {elapsed:.3f}s")
 
     logger.info(f"Aggregated events: {len(agg_events)}")
+    logger.info(f"Src-dst map entries: {len(src_dst_map)}")
 
     src_dst_pairs = set()
     for a in agg_events:
@@ -186,7 +223,7 @@ async def test_store_result():
     await AsyncSQLiteSingleton().init_database()
 
     results = _build_mock_results(n=500, spike_start=200, spike_end=300)
-    agg_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
     anomalous_events = await KVCacheLogParseWorker.detect_exception(results)
 
     logger.info(
@@ -229,9 +266,22 @@ async def test_store_result():
 
 
 async def test_all(log_dir: str = None):
-    await test_detect_exception()
-    await test_generate_aggregate_result()
-    await test_store_result()
+    """使用真实日志或模拟数据运行所有测试"""
+    if log_dir and os.path.isdir(log_dir):
+        logger.info(f"使用真实日志目录进行测试: {log_dir}")
+        # 使用真实日志测试
+        await test_kv_cache_log_parse_worker(log_dir)
+        # 注意：detect_exception 和 generate_aggregate_result 需要解析后的结果
+        # 这里使用模拟数据测试其他功能
+        await test_detect_exception()
+        await test_generate_aggregate_result()
+        await test_store_result()
+    else:
+        # 使用模拟数据测试
+        await test_detect_exception()
+        await test_generate_aggregate_result()
+        await test_store_result()
+    
     logger.info("\n" + "=" * 60)
     logger.info("ALL TESTS PASSED")
     logger.info("=" * 60)
@@ -265,7 +315,9 @@ if __name__ == "__main__":
         elif arg == "store":
             asyncio.run(test_store_result())
         elif arg == "all":
-            asyncio.run(test_all())
+            # 支持传入日志目录
+            log_dir = sys.argv[2] if len(sys.argv) > 2 else None
+            asyncio.run(test_all(log_dir))
         elif os.path.isfile(arg):
             asyncio.run(test_data_file(arg))
         elif os.path.isdir(arg):
