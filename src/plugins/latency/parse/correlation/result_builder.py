@@ -131,7 +131,7 @@ class ParseResultBuilder:
                 src_ip=urma_info["src_ip"],
                 dst_ip=urma_info["dst_ip"],
                 pod_ip=sdk.pod_ip,
-                cluster_name=sdk.cluster_name,
+                cluster_name=worker.cluster_name if worker and worker.cluster_name else sdk.cluster_name,
                 host=None,
                 total_latency=sdk.elapsed_us / 1000,
                 c2w_latency=c2w_latency,
