@@ -150,6 +150,8 @@ class ListLogParseResultRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
+    host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",

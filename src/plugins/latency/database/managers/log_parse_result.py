@@ -123,6 +123,12 @@ class LogParseResultManager:
         if req.dst_ip:
             sql_str += " AND dst_ip LIKE :dst_ip"
             params["dst_ip"] = f"%{req.dst_ip}%"
+        if req.host:
+            sql_str += " AND host LIKE :host"
+            params["host"] = f"%{req.host}%"
+        if req.cluster_name:
+            sql_str += " AND cluster_name LIKE :cluster_name"
+            params["cluster_name"] = f"%{req.cluster_name}%"
         if req.is_anomalous is not None:
             sql_str += " AND is_anomalous = :is_anomalous"
             params["is_anomalous"] = req.is_anomalous

@@ -180,7 +180,43 @@ class TestLogParseResult:
                 "page_cnt": 10,
                 "page_num": 1,
                 "src_ip": TEST_SRC_IP,
+                "host": "test-host",      # 新增：主机名称查询
+                "cluster_name": "test-cluster",  # 新增：集群名称查询
                 "is_anomalous": False
+            }
+            response = await client.post(f"{BASE_URL}/log_parse_result/list", json=payload)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+            assert "total" in data["result"]
+            assert "log_parse_results" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_list_log_parse_results_by_cluster(self):
+        """测试根据集群名称查询日志解析结果"""
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "page_cnt": 10,
+                "page_num": 1,
+                "cluster_name": "jp",  # 根据实际集群名称查询
+                "is_anomalous": None    # 不区分异常状态
+            }
+            response = await client.post(f"{BASE_URL}/log_parse_result/list", json=payload)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+            assert "total" in data["result"]
+            assert "log_parse_results" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_list_log_parse_results_by_host(self):
+        """测试根据主机名称查询日志解析结果"""
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "page_cnt": 10,
+                "page_num": 1,
+                "host": "192.168",  # 根据主机IP或名称查询
+                "is_anomalous": None
             }
             response = await client.post(f"{BASE_URL}/log_parse_result/list", json=payload)
             assert response.status_code == 200
