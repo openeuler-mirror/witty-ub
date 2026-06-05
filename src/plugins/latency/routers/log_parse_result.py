@@ -22,6 +22,14 @@ async def list_log_parse_results(
     msg = await LogParseResultService.list_log_parse_results(req)
     return ListLogParseResultsResponse(result=msg)
 
+@router.get("/options", response_model=GetLogParseOptionsResponse)
+async def get_log_parse_options() -> GetLogParseOptionsResponse:
+    """获取日志解析选项（集群和主机名称列表）
+
+    返回数据库中已有的集群名称和主机名称列表，用于前端下拉框选项。
+    """
+    msg = await LogParseResultService.get_log_parse_options()
+    return GetLogParseOptionsResponse(result=msg)
 
 @router.get("/{result_id}", response_model=GetLogParseResultResponse)
 async def get_log_parse_result_by_id(
@@ -59,11 +67,4 @@ async def get_latency_metrics(
     return GetLatencyMetricsResponse(result=msg)
 
 
-@router.get("/options", response_model=GetLogParseOptionsResponse)
-async def get_log_parse_options() -> GetLogParseOptionsResponse:
-    """获取日志解析选项（集群和主机名称列表）
 
-    返回数据库中已有的集群名称和主机名称列表，用于前端下拉框选项。
-    """
-    msg = await LogParseResultService.get_log_parse_options()
-    return GetLogParseOptionsResponse(result=msg)
