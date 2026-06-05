@@ -291,3 +291,27 @@ class LogParseResultManager:
         # 注意：不在数据库层限制返回数量，由应用层采样器处理
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return total, rows
+
+    @staticmethod
+    async def get_cluster_list() -> list[str]:
+        """获取所有非空的集群名称列表"""
+        sql_str = """
+            SELECT DISTINCT cluster_name 
+            FROM log_parse_result_table 
+            WHERE cluster_name IS NOT NULL AND cluster_name != ''
+            ORDER BY cluster_name
+        """
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, {})
+        return [row["cluster_name"] for row in rows] if rows else []
+
+    @staticmethod
+    async def get_host_list() -> list[str]:
+        """获取所有非空的主机名称列表"""
+        sql_str = """
+            SELECT DISTINCT host 
+            FROM log_parse_result_table 
+            WHERE host IS NOT NULL AND host != ''
+            ORDER BY host
+        """
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, {})
+        return [row["host"] for row in rows] if rows else []

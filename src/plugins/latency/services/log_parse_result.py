@@ -4,6 +4,7 @@ from latency.schemas.response import (
     GetLogParseResultMsg,
     ListTracesByHostMsg,
     GetLatencyMetricsMsg,
+    GetLogParseOptionsMsg,
 )
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.common.sampler import LatencyMetricsSampler
@@ -54,3 +55,10 @@ class LogParseResultService:
             },
             sampling_info=sampling_info,
         )
+
+    @staticmethod
+    async def get_log_parse_options() -> GetLogParseOptionsMsg:
+        """获取日志解析选项（集群和主机列表）"""
+        clusters = await LogParseResultManager.get_cluster_list()
+        hosts = await LogParseResultManager.get_host_list()
+        return GetLogParseOptionsMsg(clusters=clusters, hosts=hosts)
