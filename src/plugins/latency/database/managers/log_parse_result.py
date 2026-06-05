@@ -12,18 +12,20 @@ class LogParseResultManager:
         sql_str = """
             INSERT INTO log_parse_result_table (
                 id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                operation, data_size, offset, is_anomalous, content,
-                anomaly_reason, anomaly_score, remark, existed_status, created_at
+                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                total_latency, c2w_latency, worker_query_meta_latency,
+                urma_total_latency, urma_link_latency, urma_inflight_count,
+                c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                remark, existed_status, created_at
             ) VALUES (
                 :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                :timestamp, :src_ip, :dst_ip, :pod_ip, :total_latency, :c2w_latency,
-                :worker_query_meta_latency, :urma_total_latency, :urma_link_latency,
-                :urma_inflight_count, :c2w_urma_latency, :w2w_urma_latency,
-                :operation, :data_size, :offset, :is_anomalous, :content,
-                :anomaly_reason, :anomaly_score, :remark, :existed_status, :created_at
+                :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
+                :total_latency, :c2w_latency, :worker_query_meta_latency,
+                :urma_total_latency, :urma_link_latency, :urma_inflight_count,
+                :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
+                :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
+                :remark, :existed_status, :created_at
             )
         """
         result = await AsyncSQLiteSingleton().execute_modify(
@@ -44,18 +46,20 @@ class LogParseResultManager:
                 sql_str = """
                     INSERT INTO log_parse_result_table (
                         id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                        timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                        worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                        urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                        operation, data_size, offset, is_anomalous, content,
-                        anomaly_reason, anomaly_score, remark, existed_status, created_at
+                        timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                        total_latency, c2w_latency, worker_query_meta_latency,
+                        urma_total_latency, urma_link_latency, urma_inflight_count,
+                        c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                        offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                        remark, existed_status, created_at
                     ) VALUES (
                         :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                        :timestamp, :src_ip, :dst_ip, :pod_ip, :total_latency, :c2w_latency,
-                        :worker_query_meta_latency, :urma_total_latency, :urma_link_latency,
-                        :urma_inflight_count, :c2w_urma_latency, :w2w_urma_latency,
-                        :operation, :data_size, :offset, :is_anomalous, :content,
-                        :anomaly_reason, :anomaly_score, :remark, :existed_status, :created_at
+                        :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
+                        :total_latency, :c2w_latency, :worker_query_meta_latency,
+                        :urma_total_latency, :urma_link_latency, :urma_inflight_count,
+                        :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
+                        :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
+                        :remark, :existed_status, :created_at
                     )
                 """
                 params = [
@@ -100,11 +104,12 @@ class LogParseResultManager:
         """分页查询日志解析结果"""
         sql_str = """
             SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                operation, data_size, offset, is_anomalous, content,
-                anomaly_reason, anomaly_score, remark, existed_status, created_at
+                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                total_latency, c2w_latency, worker_query_meta_latency,
+                urma_total_latency, urma_link_latency, urma_inflight_count,
+                c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                remark, existed_status, created_at
             FROM log_parse_result_table
             WHERE existed_status = 1
         """
@@ -118,6 +123,12 @@ class LogParseResultManager:
         if req.dst_ip:
             sql_str += " AND dst_ip LIKE :dst_ip"
             params["dst_ip"] = f"%{req.dst_ip}%"
+        if req.host:
+            sql_str += " AND host LIKE :host"
+            params["host"] = f"%{req.host}%"
+        if req.cluster_name:
+            sql_str += " AND cluster_name LIKE :cluster_name"
+            params["cluster_name"] = f"%{req.cluster_name}%"
         if req.is_anomalous is not None:
             sql_str += " AND is_anomalous = :is_anomalous"
             params["is_anomalous"] = req.is_anomalous
@@ -148,11 +159,12 @@ class LogParseResultManager:
         """根据ID获取日志解析结果"""
         sql_str = """
             SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, total_latency, c2w_latency,
-                worker_query_meta_latency, urma_total_latency, urma_link_latency,
-                urma_inflight_count, c2w_urma_latency, w2w_urma_latency,
-                operation, data_size, offset, is_anomalous, content,
-                anomaly_reason, anomaly_score, remark, existed_status, created_at
+                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                total_latency, c2w_latency, worker_query_meta_latency,
+                urma_total_latency, urma_link_latency, urma_inflight_count,
+                c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                remark, existed_status, created_at
             FROM log_parse_result_table
             WHERE id = :result_id
         """
@@ -176,6 +188,8 @@ class LogParseResultManager:
                 id,
                 trace_id,
                 pod_ip,
+                cluster_name,
+                host,
                 timestamp as time,
                 operation,
                 total_latency,
@@ -236,6 +250,8 @@ class LogParseResultManager:
         sql_str = """
             SELECT 
                 timestamp as time,
+                cluster_name,
+                host,
                 total_latency,
                 urma_total_latency,
                 worker_query_meta_latency
@@ -272,8 +288,30 @@ class LogParseResultManager:
         sort_order = "DESC" if req.sort_order.lower() == "desc" else "ASC"
         sql_str += f" ORDER BY {sort_by} {sort_order}"
         
-        sql_str += " LIMIT :limit"
-        params["limit"] = req.max_points
-        
+        # 注意：不在数据库层限制返回数量，由应用层采样器处理
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return total, rows
+
+    @staticmethod
+    async def get_cluster_list() -> list[str]:
+        """获取所有非空的集群名称列表"""
+        sql_str = """
+            SELECT DISTINCT cluster_name 
+            FROM log_parse_result_table 
+            WHERE cluster_name IS NOT NULL AND cluster_name != ''
+            ORDER BY cluster_name
+        """
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, {})
+        return [row["cluster_name"] for row in rows] if rows else []
+
+    @staticmethod
+    async def get_host_list() -> list[str]:
+        """获取所有非空的主机名称列表"""
+        sql_str = """
+            SELECT DISTINCT host 
+            FROM log_parse_result_table 
+            WHERE host IS NOT NULL AND host != ''
+            ORDER BY host
+        """
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, {})
+        return [row["host"] for row in rows] if rows else []

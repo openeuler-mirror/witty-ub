@@ -1,6 +1,6 @@
+"""系统配置类"""
 from pydantic import BaseModel, Field
 from uuid import uuid4
-from latency.ENUM.ds_log import OpType, AccessLogCol, StatusCode
 from latency.ENUM.general import OnlineStatus, LogLevel
 from latency.ENUM.model import ModelProvider, ModelLabel
 

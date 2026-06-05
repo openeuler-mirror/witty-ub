@@ -8,6 +8,7 @@ from latency.schemas.response import (
     GetLogParseResultResponse,
     ListTracesByHostResponse,
     GetLatencyMetricsResponse,
+    GetLogParseOptionsResponse,
 )
 from latency.services.log_parse_result import LogParseResultService
 
@@ -43,6 +44,26 @@ async def list_traces_by_host(
 async def get_latency_metrics(
     req: Annotated[GetLatencyMetricsRequest, Body()],
 ) -> GetLatencyMetricsResponse:
-    """获取延迟指标时间曲线数据（必选指标：total_latency, urma_total_latency, worker_query_meta_latency）"""
+    """获取延迟指标时间曲线数据（必选指标：total_latency, urma_total_latency, worker_query_meta_latency）
+
+    采样模式说明：
+    - none: 不采样，返回全部数据
+    - max: 时间窗口内取最大值（保留峰值特征）
+    - avg: 时间窗口内取平均值（平滑波动）
+    - min: 时间窗口内取最小值
+    - p95: 时间窗口内取 95 百分位
+    - p99: 时间窗口内取 99 百分位（SLA 监控常用）
+    - p9999: 时间窗口内取 99.99 百分位（严格 SLA 监控）
+    """
     msg = await LogParseResultService.get_latency_metrics(req)
     return GetLatencyMetricsResponse(result=msg)
+
+
+@router.get("/options", response_model=GetLogParseOptionsResponse)
+async def get_log_parse_options() -> GetLogParseOptionsResponse:
+    """获取日志解析选项（集群和主机名称列表）
+
+    返回数据库中已有的集群名称和主机名称列表，用于前端下拉框选项。
+    """
+    msg = await LogParseResultService.get_log_parse_options()
+    return GetLogParseOptionsResponse(result=msg)

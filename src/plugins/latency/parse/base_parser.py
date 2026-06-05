@@ -4,13 +4,16 @@ import os
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
+from enum import IntEnum
 import hashlib
+from typing import Optional
 
-from latency.ENUM.ds_log import OpType, AccessLogCol, StatusCode
+from latency.ENUM.ds_log import OpType, StatusCode
 from latency.common.ds_log_io import Progress, glob_paths, parse_timestamp, open_log
 from latency.regex.kvcache_log import OBJECT_KEY_RE
 from latency.schemas.ds_log import LogEntry
 from latency.schemas.log import LogFileModel
+from latency.schemas.request import ParseConfig
 
 
 logger = logging.getLogger(__name__)
@@ -18,7 +21,7 @@ logger = logging.getLogger(__name__)
 SDK_GET_OPS = frozenset({OpType.DS_KV_CLIENT_GET, OpType.DS_OBJECT_CLIENT_GET})
 WORKER_GET_OPS = frozenset({OpType.DS_POSIX_GET})
 ACCESS_LOG_MIN_PARTS = 13
-# 通用日志分隔符：竖线，支持前后带空白
+RUN_LOG_MIN_PARTS = 8
 LOG_DELIMITER = r"\s*\|\s*"
 
 
@@ -31,6 +34,68 @@ class LogParser(ABC):
         r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         re.IGNORECASE,
     )
+
+    def __init__(self, parse_config: Optional[ParseConfig] = None):
+        self.parse_config = parse_config or ParseConfig()
+        self._filtered_by_time = 0
+    
+    def _filter_by_time(self, timestamp_str: str) -> bool:
+        """
+        根据配置过滤时间
+        
+        返回 True 表示需要保留（通过过滤），返回 False 表示需要过滤掉
+        """
+        if not self.parse_config.is_time_filter_enabled():
+            return True
+        
+        try:
+            ts = parse_timestamp(timestamp_str)
+            if self.parse_config.start_time:
+                start_ts = parse_timestamp(self.parse_config.start_time)
+                if ts < start_ts:
+                    self._filtered_by_time += 1
+                    return False
+            if self.parse_config.end_time:
+                end_ts = parse_timestamp(self.parse_config.end_time)
+                if ts > end_ts:
+                    self._filtered_by_time += 1
+                    return False
+            return True
+        except Exception:
+            return True
+
+    class AccessCol(IntEnum):
+        """Access格式日志列索引
+        
+        格式: timestamp | level | filename:lineno | pod_name | pid:tid | trace_id | cluster_name | status_code | handle | elapsed | size | req_msg | resp_msg
+        """
+        TIMESTAMP = 0
+        LEVEL = 1
+        FILENAME = 2
+        POD_NAME = 3
+        PID_TID = 4
+        TRACE_ID = 5
+        CLUSTER_NAME = 6
+        STATUS_CODE = 7
+        HANDLE = 8
+        ELAPSED = 9
+        SIZE = 10
+        REQ_MSG = 11
+        RESP_MSG = 12
+
+    class RunCol(IntEnum):
+        """Run格式日志列索引
+        
+        格式: timestamp | level | filename:lineno | pod_name | pid:tid | trace_id | cluster_name | msg
+        """
+        TIMESTAMP = 0
+        LEVEL = 1
+        FILENAME = 2
+        POD_NAME = 3
+        PID_TID = 4
+        TRACE_ID = 5
+        CLUSTER_NAME = 6
+        MSG = 7
 
     @property
     def patterns(self) -> list[str]:
@@ -91,6 +156,57 @@ class LogParser(ABC):
             return []
         return re.split(LOG_DELIMITER, line.strip())
 
+    @staticmethod
+    def parse_access_line(line: str) -> dict | None:
+        """
+        解析Access格式日志行
+        
+        格式: timestamp | level | filename:lineno | pod_name | pid:tid | trace_id | cluster_name | status_code | handle | elapsed | size | req_msg | resp_msg
+        """
+        line = line.strip()
+        if not line:
+            return None
+
+        parts = LogParser.split_by_delimiter(line)
+        if len(parts) < ACCESS_LOG_MIN_PARTS or not parts[0].startswith("20"):
+            return None
+
+        col = LogParser.AccessCol
+        return {
+            "timestamp": parts[col.TIMESTAMP].strip(),
+            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
+            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
+            "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < len(parts) else "",
+            "handle": parts[col.HANDLE].strip() if col.HANDLE < len(parts) else "",
+            "elapsed": parts[col.ELAPSED].strip() if col.ELAPSED < len(parts) else "",
+            "size": parts[col.SIZE].strip() if col.SIZE < len(parts) else "",
+            "req_msg": parts[col.REQ_MSG].strip() if col.REQ_MSG < len(parts) else "",
+            "resp_msg": parts[col.RESP_MSG].strip() if col.RESP_MSG < len(parts) else "",
+        }
+
+    @staticmethod
+    def parse_run_line(line: str) -> dict | None:
+        """
+        解析Run格式日志行
+        
+        格式: timestamp | level | filename:lineno | pod_name | pid:tid | trace_id | cluster_name | msg
+        """
+        line = line.strip()
+        if not line:
+            return None
+
+        parts = LogParser.split_by_delimiter(line)
+        if len(parts) < RUN_LOG_MIN_PARTS or not parts[0].startswith("20"):
+            return None
+
+        col = LogParser.RunCol
+        return {
+            "timestamp": parts[col.TIMESTAMP].strip(),
+            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
+            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
+            "msg": parts[col.MSG].strip() if col.MSG < len(parts) else "",
+        }
+
     @abstractmethod
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
         """匹配日志行，子类需要实现"""
@@ -98,7 +214,7 @@ class LogParser(ABC):
 
 
 class AccessLogParser(LogParser):
-    """访问日志解析器基类"""
+    """访问日志解析器基类，提供Access格式日志的便捷解析能力"""
 
     @staticmethod
     def parse_status_code(raw: str) -> int:
@@ -112,63 +228,3 @@ class AccessLogParser(LogParser):
         """从请求消息中提取对象键"""
         match = OBJECT_KEY_RE.search(req_msg or "")
         return match.group(1) if match else ""
-
-    @staticmethod
-    def parse_access_line(line: str):
-        """
-        解析访问日志行，支持三种格式：
-        1. 完整管道格式：用 | 分隔，包含 timestamp | level | source | ip | code | trace_id | ... | handle | elapsed | size | req_msg | resp_msg
-        2. 简化格式：用 | 分隔，包含 status_code | handle | elapsed | size | req_msg | resp_msg
-        3. 空格分隔格式：用空格分隔，至少13列
-        """
-        # 去除首尾空白
-        line = line.strip()
-        if not line:
-            return None
-
-        if "|" in line:
-            parts = LogParser.split_by_delimiter(line)
-            if len(parts) < 5:
-                return None
-            if len(parts) >= ACCESS_LOG_MIN_PARTS - 1 and parts[0].startswith("20"):
-                handle = parts[AccessLogCol.HANDLE].strip() if AccessLogCol.HANDLE < len(parts) else ""
-                return {
-                    "timestamp": parts[AccessLogCol.TIMESTAMP].strip(),
-                    "trace_id": parts[AccessLogCol.TRACE_ID].strip() if AccessLogCol.TRACE_ID < len(parts) else "",
-                    "status_code": parts[AccessLogCol.STATUS_CODE].strip() if AccessLogCol.STATUS_CODE < len(parts) else "",
-                    "handle": handle,
-                    "elapsed": parts[AccessLogCol.ELAPSED].strip() if AccessLogCol.ELAPSED < len(parts) else "",
-                    "size": parts[AccessLogCol.SIZE].strip() if AccessLogCol.SIZE < len(parts) else "",
-                    "req_msg": parts[AccessLogCol.REQ_MSG].strip() if AccessLogCol.REQ_MSG < len(parts) else "",
-                    "resp_msg": parts[AccessLogCol.RESP_MSG].strip() if AccessLogCol.RESP_MSG < len(parts) else "",
-                }
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            content_hash = hashlib.md5(line.encode()).hexdigest()[:16]
-            trace_id = f"{content_hash[:8]}-{content_hash[8:12]}-{content_hash[12:16]}-0000-000000000000"
-            return {
-                "timestamp": timestamp,
-                "trace_id": trace_id,
-                "status_code": parts[0],
-                "handle": parts[1],
-                "elapsed": parts[2],
-                "size": parts[3],
-                "req_msg": parts[4] if len(parts) > 4 else "",
-                "resp_msg": parts[5] if len(parts) > 5 else "",
-            }
-        else:
-            if len(line) < 80 or line[0] != "2":
-                return None
-            parts = line.split()
-            if len(parts) < ACCESS_LOG_MIN_PARTS:
-                return None
-            handle = parts[AccessLogCol.HANDLE].strip()
-            return {
-                "timestamp": parts[AccessLogCol.TIMESTAMP].strip(),
-                "trace_id": parts[AccessLogCol.TRACE_ID].strip(),
-                "status_code": parts[AccessLogCol.STATUS_CODE].strip(),
-                "handle": handle,
-                "elapsed": parts[AccessLogCol.ELAPSED].strip(),
-                "size": parts[AccessLogCol.SIZE].strip(),
-                "req_msg": parts[AccessLogCol.REQ_MSG].strip(),
-                "resp_msg": parts[AccessLogCol.RESP_MSG].strip(),
-            }

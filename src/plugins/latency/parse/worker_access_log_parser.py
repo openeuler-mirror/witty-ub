@@ -46,6 +46,7 @@ class WorkerAccessLogParser(AccessLogParser):
             status_code=self.parse_status_code(parsed["status_code"]),
             resp_msg=parsed["resp_msg"],
             entry_type=EntryType.WORKER_GET,
+            cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
     def parse(self, input_dir: str) -> list[LogEntry]:

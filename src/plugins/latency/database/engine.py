@@ -117,6 +117,8 @@ table_ddl_list = {
             src_ip TEXT,
             dst_ip TEXT,
             pod_ip TEXT,
+            cluster_name TEXT,
+            host TEXT,
             total_latency REAL,
             c2w_latency REAL,
             worker_query_meta_latency REAL,
@@ -205,6 +207,38 @@ class AsyncSQLiteSingleton:
         # 初始化数据库连接
         self._init_connection()
 
+    # -------------------------- 表结构迁移 --------------------------
+    def _sync_migrate_database(self) -> bool:
+        """同步执行数据库迁移（添加新字段等）"""
+        if not self._conn:
+            self._init_connection()
+
+        # 表结构迁移语句列表
+        migrate_sql_list = [
+            # 为 log_parse_result_table 添加 cluster_name 和 host 字段
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN cluster_name TEXT"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN host TEXT"),
+        ]
+
+        try:
+            for table_name, sql in migrate_sql_list:
+                try:
+                    self._conn.execute(sql)
+                    logger.info(f"成功为 {table_name} 执行迁移: {sql}")
+                except sqlite3.OperationalError as e:
+                    # 如果字段已存在，忽略错误
+                    if "duplicate column name" in str(e).lower():
+                        logger.info(f"字段已存在，跳过迁移: {sql}")
+                    else:
+                        raise
+            self._conn.commit()
+            logger.info("数据库迁移完成")
+            return True
+        except sqlite3.Error as e:
+            self._conn.rollback()
+            logger.error(f"数据库迁移失败: {e}")
+            return False
+
     def _init_connection(self):
         """初始化数据库连接（复用连接）"""
         try:
@@ -239,6 +273,10 @@ class AsyncSQLiteSingleton:
                 self._conn.execute(ddl)
             self._conn.commit()
             logger.info("数据库初始化成功，表创建完成")
+            
+            # 执行数据库迁移
+            self._sync_migrate_database()
+            
             self._initialized = True
             return True
         except sqlite3.Error as e:

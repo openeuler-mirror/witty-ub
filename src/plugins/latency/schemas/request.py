@@ -3,6 +3,35 @@ from typing import Optional, Any
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.ENUM.sampling import SampleMode
+
+
+class ParseConfig(BaseModel):
+    """
+    日志解析配置
+    
+    用于配置解析器的行为，包括时间范围过滤、耗时阈值过滤等
+    """
+    start_time: Optional[str] = Field(
+        default=None,
+        description="日志内容时间范围开始，格式 YYYY-MM-DD HH:MM:SS"
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="日志内容时间范围结束，格式 YYYY-MM-DD HH:MM:SS"
+    )
+    min_elapsed_ms: Optional[int] = Field(
+        default=None,
+        description="最小耗时阈值（毫秒），用于过滤快速操作"
+    )
+    
+    def is_time_filter_enabled(self) -> bool:
+        """判断是否启用了时间过滤"""
+        return self.start_time is not None or self.end_time is not None
+    
+    def is_elapsed_filter_enabled(self) -> bool:
+        """判断是否启用了耗时过滤"""
+        return self.min_elapsed_ms is not None
 
 
 class CreateLogKnowledgeRequest(BaseModel):
@@ -52,6 +81,9 @@ class UpLoadLogFileConfig(BaseModel):
 class UpLoadLogFilesRequest(BaseModel):
     upload_log_file_configs: list[UpLoadLogFileConfig] = Field(
         default_factory=list, description="日志文件配置列表"
+    )
+    parse_config: Optional[ParseConfig] = Field(
+        default=None, description="全局解析配置，应用于所有上传的日志文件"
     )
 
 
@@ -118,6 +150,8 @@ class ListLogParseResultRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
+    host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
@@ -171,16 +205,16 @@ class ListTracesByHostRequest(BaseModel):
 
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
-    host: Optional[str] = Field(default=None, description="主机名或IP地址，可选")
-    src_ip: Optional[str] = Field(default=None, description="源IP地址，可选")
-    dst_ip: Optional[str] = Field(default=None, description="目的IP地址，可选")
+    host: Optional[str] = Field(default=None, description="主机名或 IP 地址，可选")
+    src_ip: Optional[str] = Field(default=None, description="源 IP 地址，可选")
+    dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，可选")
     start_time: Optional[str] = Field(
         default=None,
-        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="开始时间，格式为 YYYY-MM-DD HH:MM:SS",
     )
     end_time: Optional[str] = Field(
         default=None,
-        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="结束时间，格式为 YYYY-MM-DD HH:MM:SS",
     )
     operation: Optional[str] = Field(
         default=None,
@@ -188,7 +222,11 @@ class GetLatencyMetricsRequest(BaseModel):
     )
     max_points: int = Field(
         default=1000,
-        description="最大返回数据点数，用于控制数据量，默认1000",
+        description="最大返回数据点数，默认 1000；超过时自动触发采样；设置为 -1 返回全部数据"
+    )
+    sample_mode: SampleMode = Field(
+        default=SampleMode.P99,
+        description="采样模式：none-不采样，max-最大值，avg-平均值，min-最小值，p99/p95/p9999-百分位"
     )
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")

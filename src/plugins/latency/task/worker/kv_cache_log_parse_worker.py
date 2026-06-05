@@ -3,7 +3,9 @@ import logging
 import os
 import uuid
 from collections import defaultdict
+from typing import Optional
 from latency.schemas.log import LogParseResultModel
+from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.task.process_handle import ProcessHandler
@@ -18,6 +20,7 @@ from latency.parse import (
     ParseResultBuilder,
 )
 from latency.common.ds_log_io import glob_paths, open_log
+from latency.common.stats import stats
 from latency.detect import AnomalyDetector
 from latency.database.engine import AsyncSQLiteSingleton
 from latency.database.managers.log_parse_result import LogParseResultManager
@@ -128,7 +131,7 @@ class KVCacheLogParseWorker(BaseWorker):
             task.op_id, existed_status=0
         )
         await TaskReportManager.update_task_reports_existed_status_by_task_id(
-            task_id, status=TaskStatusEnum.PENDING
+            task_id, existed_status=TaskStatusEnum.PENDING
         )
         if task.retry_times > Config().get_config().task.task_retry_times:
             await LogFileManager.update_log_file(
@@ -153,14 +156,15 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def parse_log(
         log_dir: str,
+        parse_config: Optional[ParseConfig] = None,
     ) -> list[LogParseResultModel]:
         parsers = [
-            SdkAccessLogParser(),
-            WorkerAccessLogParser(),
-            UrmaLogParser(),
-            RemotePullLogParser(),
-            LinkLogParser(),
-            QueryMetaLogParser(),
+            SdkAccessLogParser(parse_config),
+            WorkerAccessLogParser(parse_config),
+            UrmaLogParser(parse_config),
+            RemotePullLogParser(parse_config),
+            LinkLogParser(parse_config),
+            QueryMetaLogParser(parse_config),
         ]
 
         scan_tasks = []
@@ -391,7 +395,14 @@ class KVCacheLogParseWorker(BaseWorker):
             kb_id = log_file.kb_id
 
             await BaseWorker.report(task.id, "开始解析日志 请耐心等待", 10.0)
-            list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir)
+            
+            # 从 TaskHandler 获取解析配置
+            from latency.task.task_handler import TaskHandler
+            parse_config = TaskHandler.get_task_config(task_id)
+            if parse_config:
+                logger.info(f"[任务 {task_id}] 使用解析配置: {parse_config}")
+            
+            list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir, parse_config)
             await BaseWorker.report(task.id, "完成解析日志", 70.0)
             
             # 先检测异常（填充 anomalous_event_id）

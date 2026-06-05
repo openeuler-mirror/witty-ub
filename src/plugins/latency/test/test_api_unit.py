@@ -43,17 +43,31 @@ class TestLogKnowledge:
     @pytest.mark.asyncio
     async def test_create_log_knowledge(self):
         """测试创建日志知识"""
-        async with httpx.AsyncClient() as client:
-            payload = {
-                "name": f"test_kb_{uuid.uuid4().hex[:8]}",
-                "description": "Test knowledge base"
-            }
-            response = await client.post(f"{BASE_URL}/log_kb", json=payload)
-            assert response.status_code == 200
+        import json
+        kb_name = "test_kb_" + str(uuid.uuid4()).replace("-", "")[:8]
+        payload = {
+            "name": kb_name,
+            "description": "Test knowledge base"
+        }
+        payload_json = json.dumps(payload)
+        print(f"Payload JSON: {payload_json}")
+        print(f"Payload length: {len(payload_json)}")
+        print(f"Payload repr: {repr(payload_json)}")
+        
+        # 尝试使用同步客户端
+        import httpx
+        sync_client = httpx.Client()
+        try:
+            response = sync_client.post(f"{BASE_URL}/log_kb", content=payload_json, headers={"Content-Type": "application/json"})
+            print(f"Sync Status: {response.status_code}")
+            print(f"Sync Response: {response.text}")
+            assert response.status_code == 200, f"Failed with status {response.status_code}: {response.text}"
             data = response.json()
             assert data["code"] == 200
             assert "kb_id" in data["result"]
             TestLogKnowledge.kb_id = data["result"]["kb_id"]
+        finally:
+            sync_client.close()
 
     @pytest.mark.asyncio
     async def test_list_log_knowledge(self):
@@ -180,6 +194,8 @@ class TestLogParseResult:
                 "page_cnt": 10,
                 "page_num": 1,
                 "src_ip": TEST_SRC_IP,
+                "host": "test-host",      # 新增：主机名称查询
+                "cluster_name": "test-cluster",  # 新增：集群名称查询
                 "is_anomalous": False
             }
             response = await client.post(f"{BASE_URL}/log_parse_result/list", json=payload)
@@ -188,6 +204,53 @@ class TestLogParseResult:
             assert data["code"] == 200
             assert "total" in data["result"]
             assert "log_parse_results" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_list_log_parse_results_by_cluster(self):
+        """测试根据集群名称查询日志解析结果"""
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "page_cnt": 10,
+                "page_num": 1,
+                "cluster_name": "jp",  # 根据实际集群名称查询
+                "is_anomalous": None    # 不区分异常状态
+            }
+            response = await client.post(f"{BASE_URL}/log_parse_result/list", json=payload)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+            assert "total" in data["result"]
+            assert "log_parse_results" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_list_log_parse_results_by_host(self):
+        """测试根据主机名称查询日志解析结果"""
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "page_cnt": 10,
+                "page_num": 1,
+                "host": "192.168",  # 根据主机IP或名称查询
+                "is_anomalous": None
+            }
+            response = await client.post(f"{BASE_URL}/log_parse_result/list", json=payload)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+            assert "total" in data["result"]
+            assert "log_parse_results" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_get_log_parse_options(self):
+        """测试获取日志解析选项（集群和主机列表）"""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/log_parse_result/options")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 200
+            assert "clusters" in data["result"]
+            assert "hosts" in data["result"]
+            assert isinstance(data["result"]["clusters"], list)
+            assert isinstance(data["result"]["hosts"], list)
 
     @pytest.mark.asyncio
     async def test_list_traces_by_host(self):
@@ -218,7 +281,7 @@ class TestLogParseResult:
                 "host": TEST_HOST,
                 "start_time": "2024-01-01 00:00:00",
                 "end_time": now(),
-                "max_points": 100,
+                "max_points": -1,  # 获取全部数据
                 "sort_by": "timestamp",
                 "sort_order": "asc"
             }
@@ -315,13 +378,19 @@ class TestTask:
         async with httpx.AsyncClient() as client:
             # 先获取一个log_file_id
             kb_response = await client.post(f"{BASE_URL}/log_kb/list", json={"page_cnt": 1, "page_num": 1})
+            assert kb_response.status_code == 200, f"log_kb/list failed with status {kb_response.status_code}"
             kb_data = kb_response.json()
+            assert "result" in kb_data, f"log_kb/list response has no 'result' field: {kb_data}"
+            
             if kb_data["result"]["total"] == 0:
                 pytest.skip("No knowledge base available")
             
             kb_id = kb_data["result"]["kbs"][0]["id"]
             lf_response = await client.post(f"{BASE_URL}/log_file/list/{kb_id}", json={"page_cnt": 1, "page_num": 1})
+            assert lf_response.status_code == 200, f"log_file/list/{kb_id} failed with status {lf_response.status_code}"
             lf_data = lf_response.json()
+            assert "result" in lf_data, f"log_file/list/{kb_id} response has no 'result' field: {lf_data}"
+            
             if lf_data["result"]["total"] == 0:
                 pytest.skip("No log file available")
             

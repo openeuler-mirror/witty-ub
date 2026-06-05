@@ -4,8 +4,11 @@ from latency.schemas.response import (
     GetLogParseResultMsg,
     ListTracesByHostMsg,
     GetLatencyMetricsMsg,
+    GetLogParseOptionsMsg,
 )
 from latency.database.managers.log_parse_result import LogParseResultManager
+from latency.common.sampler import LatencyMetricsSampler
+from latency.schemas.log import LatencyMetricItem
 
 
 class LogParseResultService:
@@ -30,12 +33,32 @@ class LogParseResultService:
     @staticmethod
     async def get_latency_metrics(req: GetLatencyMetricsRequest) -> GetLatencyMetricsMsg:
         """获取延迟指标时间曲线数据"""
-        total, metrics = await LogParseResultManager.get_latency_metrics(req)
+        # 从数据库获取原始数据
+        total, rows = await LogParseResultManager.get_latency_metrics(req)
+        
+        # 将数据库行转换为 LatencyMetricItem 对象
+        metrics = [LatencyMetricItem(**row) for row in rows]
+        
+        # 应用采样
+        sampled_metrics, sampling_info = LatencyMetricsSampler.sample(
+            metrics=metrics,
+            max_points=req.max_points,
+            sample_mode=req.sample_mode
+        )
+        
         return GetLatencyMetricsMsg(
             total=total,
-            metrics=metrics,
+            metrics=sampled_metrics,
             time_range={
                 "start_time": req.start_time,
                 "end_time": req.end_time,
             },
+            sampling_info=sampling_info,
         )
+
+    @staticmethod
+    async def get_log_parse_options() -> GetLogParseOptionsMsg:
+        """获取日志解析选项（集群和主机列表）"""
+        clusters = await LogParseResultManager.get_cluster_list()
+        hosts = await LogParseResultManager.get_host_list()
+        return GetLogParseOptionsMsg(clusters=clusters, hosts=hosts)

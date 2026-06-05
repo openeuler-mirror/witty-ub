@@ -13,14 +13,12 @@ NOT_FOUND_RE = re.compile(r"\bK_NOT_FOUND\b|not\s+found|notfound", re.IGNORECASE
 # -------------------------------------------------------------------
 
 URMA_RE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}.\d{6}).*?"
     r"\[URMA_ELAPSED_TOTAL\].*?cost\s+([\d.]+)ms.*?"
     r"src address:([^,]*?)\s*,\s*target address:([^,]*?)\s*,.*?"
     r"urma_inflight_wr_count:\s*(\d+)"
 )
 
 URMA_LINK_RE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}.\d{6}).*?"
     r"(?:WorkerWorkerExchangeUrmaConnectInfo finish|Worker-worker transport connection exchange success),\s*?"
     r"elapsed ms:\s*([\d.]+)"
 )
@@ -30,13 +28,11 @@ URMA_LINK_RE = re.compile(
 # -------------------------------------------------------------------
 
 REMOTE_GET_RE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}.\d{6}).*?"
     r"Remote get request:.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
 )
 
 REMOTE_PULL_RE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}.\d{6}).*?"
-    r"Processing pull object:.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
+    r"Processing pull object\[.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
 )
 
 # -------------------------------------------------------------------
@@ -44,7 +40,6 @@ REMOTE_PULL_RE = re.compile(
 # -------------------------------------------------------------------
 
 QUERY_META_RE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}.\d{6}).*?"
     r"cost:\s*([\d.]+)ms?"
 )
 

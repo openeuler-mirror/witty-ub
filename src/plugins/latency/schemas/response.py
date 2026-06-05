@@ -235,6 +235,10 @@ class GetLatencyMetricsMsg(BaseModel):
         default_factory=dict,
         description="实际查询的时间范围",
     )
+    sampling_info: dict = Field(
+        default_factory=dict,
+        description="采样信息：{mode, window_ms, original_count, sampled_count}"
+    )
 
 
 class GetLatencyMetricsResponse(ResponseBase):
@@ -288,3 +292,12 @@ class GetTaskMsg(BaseModel):
 
 class GetTaskResponse(ResponseBase):
     result: GetTaskMsg = Field(..., description="查询任务详情响应结果")
+
+
+class GetLogParseOptionsMsg(BaseModel):
+    clusters: list[str] = Field(default_factory=list, description="集群名称列表")
+    hosts: list[str] = Field(default_factory=list, description="主机名称列表")
+
+
+class GetLogParseOptionsResponse(ResponseBase):
+    result: GetLogParseOptionsMsg = Field(..., description="获取日志解析选项响应结果")
