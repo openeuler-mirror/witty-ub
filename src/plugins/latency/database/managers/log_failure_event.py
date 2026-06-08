@@ -48,7 +48,7 @@ class LogFailureEventManager:
     
     @staticmethod
     async def add_trace_failure_event(results: list[TraceFailureEventModel]) -> list[str]:
-        # TODO:添加向数据库中加入trace_failure_event的逻辑，pod_names,host_names,cluster_names转化为TEXT时，多个元素用","分割，返回添加的trace_id列表
+        # 添加向数据库中加入trace_failure_event的逻辑，pod_names,host_names,cluster_names转化为TEXT时，多个元素用","分割，返回添加的trace_id列表
         ids_added = []
         if not results:
             return ids_added
@@ -87,7 +87,7 @@ class LogFailureEventManager:
     async def list_trace_failure_events(
         req=ListTraceFailureEventResultRequest
     ) -> tuple[int, list[TraceFailureEventModel]]:
-        # TODO: 添加从数据库中查询trace故障事件的逻辑，TraceFailureEventModel的pod_names,host_names,cluster_names字段中多个元素用","分割
+        # 添加从数据库中查询trace故障事件的逻辑，TraceFailureEventModel的pod_names,host_names,cluster_names字段中多个元素用","分割
         # 若kb_id非None，从log_file_table中查询req的kb_id对应的文件id，即log_id列表，log_id的值需要属于这个列表
         # 若req的pod_names，host_names，cluster_names非None，则数据中相应pod_names，host_names，cluster_names字段中的元素需要与req的相应字段有重合
         # 若req的status_codes非空，则数据中status_code应该是属于status_codes的元素
@@ -312,7 +312,7 @@ class LogFailureEventManager:
     async def get_err_code_metrics(
         req: GetErrCodeMetricsRequest,
     ) -> tuple[int, dict[str, list[dict]]]:
-        # TODO:从trace_failure_event_table中读取满足要求的trace数据，并获取故障码的指标结果
+        # 从trace_failure_event_table中读取满足要求的trace数据，并获取故障码的指标结果
         # 首先，按照req内容对trace_failure_event_table满足要求的故障trace数据进行筛选。
         # 1.仅保留failure_mode非空的数据
         # 2.若kb_id非空，从log_file_table中查询req的kb_id对应的文件id，即log_id列表，仅保留log_id在该列表中的数据
@@ -320,9 +320,10 @@ class LogFailureEventManager:
         # 4.若host_names/cluster_names/pod_names列表非空，仅保留数据相应字段包含任意列表中元素的数据
         # 5.若start_time/end_time非空，仅保留timestamp > start_time/timestamp < end_time的数据
         # 然后，计算返回的指标数据。返回的第一个参数是每条曲线的数据点数量total，第二个参数是曲线具体数据的内容，内容是字典，字典的键是故障码，值是一个字典列表，表示一个故障码的曲线数据。
-        # 该字典的键为time和err_cnt，分别表示数据点的时间以及前后各五分钟共十分钟内，故障码的trace数量。
-        # 输出time字段的时间戳的格式为%Y-%M-%D %H:%M:%S，如2026-01-01 00:00:00，输入req的start_time/end_time字段若秒数后有微秒数，如.123456，起始和结束时间需要取整，分别是对start_time向下取整和对end_time向上取整，也就是输出的所有time都需要是整分钟
-        # 输出数据的time时间点间隔为1分钟，列表按time从小到大排序，err_cnt表示时间点前后各五分钟共十分钟内，匹配到故障码的故障trace数量总和。
+        # 该字典的键为time和err_cnt，分别表示数据点的时间以及前后各0.5秒共1秒内，故障码的trace数量。
+        # 输出time字段的时间戳的格式为%Y-%M-%D %H:%M:%S，如2026-01-01 00:00:00，输入req的start_time/end_time字段若秒数后有微秒数，如.123456，起始和结束时间需要取整，分别是对start_time向下取整和对end_time向上取整，也就是输出的所有time都需要是整秒。
+        # 输出数据的time时间点默认间隔为1秒，如果数据点超过了max_points，则动态调整时间间隔，使数据点数量不超过max_points。
+        # 列表按time从小到大排序，err_cnt表示时间点前后各0.5秒共1秒内，匹配到故障码的故障trace数量总和。
         # 请尽量保证算法的效率。
         
         try:
@@ -415,12 +416,12 @@ class LogFailureEventManager:
                 except:
                     return None
             
-            def round_down_to_minute(dt):
-                return dt.replace(second=0, microsecond=0)
+            def round_down_to_second(dt):
+                return dt.replace(microsecond=0)
             
-            def round_up_to_minute(dt):
-                if dt.second > 0 or dt.microsecond > 0:
-                    return (dt + timedelta(minutes=1)).replace(second=0, microsecond=0)
+            def round_up_to_second(dt):
+                if dt.microsecond > 0:
+                    return (dt + timedelta(seconds=1)).replace(microsecond=0)
                 return dt
             
             timestamps = []
@@ -438,14 +439,20 @@ class LogFailureEventManager:
             if req.start_time:
                 start_dt = parse_time(req.start_time)
                 if start_dt:
-                    min_time = round_down_to_minute(start_dt)
+                    min_time = round_down_to_second(start_dt)
             
             if req.end_time:
                 end_dt = parse_time(req.end_time)
                 if end_dt:
-                    max_time = round_up_to_minute(end_dt)
+                    max_time = round_up_to_second(end_dt)
             else:
-                max_time = round_up_to_minute(max_time)
+                max_time = round_up_to_second(max_time)
+            
+            total_seconds = int((max_time - min_time).total_seconds()) + 1
+            
+            sampling_interval = 1
+            if total_seconds > req.max_points:
+                sampling_interval = math.ceil(total_seconds / req.max_points)
             
             err_code_events = {}
             for ts, status_code, failure_mode in timestamps:
@@ -458,19 +465,13 @@ class LogFailureEventManager:
             result = {}
             total_points = 0
             
-            current_time = min_time
-            while current_time <= max_time:
-                current_time = round_down_to_minute(current_time)
-                total_points += 1
-                current_time += timedelta(minutes=1)
-            
             for err_code, event_times in err_code_events.items():
                 curve_data = []
                 current_time = min_time
                 
                 while current_time <= max_time:
-                    window_start = current_time - timedelta(minutes=5)
-                    window_end = current_time + timedelta(minutes=5)
+                    window_start = current_time - timedelta(seconds=0.5)
+                    window_end = current_time + timedelta(seconds=0.5)
                     
                     count = sum(1 for t in event_times if window_start <= t <= window_end)
                     
@@ -479,9 +480,11 @@ class LogFailureEventManager:
                         "err_cnt": count
                     })
                     
-                    current_time += timedelta(minutes=1)
+                    current_time += timedelta(seconds=sampling_interval)
                 
                 result[err_code] = curve_data
+                if len(curve_data) > total_points:
+                    total_points = len(curve_data)
             
             return total_points, result
         

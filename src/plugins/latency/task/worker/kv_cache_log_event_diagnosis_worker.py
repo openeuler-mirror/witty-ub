@@ -30,21 +30,18 @@ from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
 from latency.database.managers.log_file import LogFileManager
-from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.log_failure_event import LogFailureEventManager
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventManager,
 )
 from latency.database.managers.anomalous_event import AnomalousEventManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainManager
-from latency.config.config import Config
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
     LogFileModel,
     SrcDstAggregatedEventModel,
     AnomalousEventModel,
     AnomalousEventChainModel,
-    LogParseResultModel,
 )
 from latency.task.worker.base import BaseWorker
 
@@ -467,17 +464,25 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     @staticmethod
     async def _find_leaf_failure_mode(failure_modes: list[str]) -> str:
         from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
+        
         if not failure_modes:
             return ""
+        
         failure_modes_set = set(failure_modes)
+        
         for mode in failure_modes:
             failure_mode_info = await FailureModeKnowledgeManager.get_failure_mode_by_id(mode)
+            
             if not failure_mode_info or not failure_mode_info.children_failure_mode_ids:
                 return mode
+            
             children_ids = [cid.strip() for cid in failure_mode_info.children_failure_mode_ids.split(',') if cid.strip()]
+            
             has_child_in_list = any(child_id in failure_modes_set for child_id in children_ids)
+            
             if not has_child_in_list:
                 return mode
+        
         return failure_modes[0]
 
     @staticmethod
