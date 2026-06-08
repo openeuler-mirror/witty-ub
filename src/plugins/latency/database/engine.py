@@ -149,7 +149,9 @@ table_ddl_list = {
             task_type TEXT,
             status TEXT,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            duration_seconds REAL
         )
     """,
     "task_report_table": """
@@ -218,6 +220,9 @@ class AsyncSQLiteSingleton:
             # 为 log_parse_result_table 添加 cluster_name 和 host 字段
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN cluster_name TEXT"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN host TEXT"),
+            # 为 task_table 添加 completed_at 和 duration_seconds 字段
+            ("task_table", "ALTER TABLE task_table ADD COLUMN completed_at TEXT"),
+            ("task_table", "ALTER TABLE task_table ADD COLUMN duration_seconds REAL"),
         ]
 
         try:

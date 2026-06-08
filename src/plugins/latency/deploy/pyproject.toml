@@ -13,14 +13,13 @@ dependencies = [
     "uvicorn==0.21.0",
     "apscheduler==3.10.4",
     "pydantic==2.12.3",
-
     "aiohttp==3.9.5",
     "aiofiles==25.1.0",
     "chardet==4.0.0",
     "requests==2.32.2",
     "toml==0.10.2",
     "httpx==0.27.0",
-]
+    ]
 
 [project.optional-dependencies]
 dev = [
@@ -32,3 +31,6 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["../.."]
 include = ["latency*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
