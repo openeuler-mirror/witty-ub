@@ -149,7 +149,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             log_failure_events = []
             if not os.path.exists(output_log_path):
                 logger.error(f"输出日志路径不存在: {output_log_path}")
-                return False
+                return trace_id_set
             
             # 获取目录下的所有文件（排除failure_trace.log）
             log_files = []
@@ -166,7 +166,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     is_access_log = True
                 if client_access_pattern and client_access_pattern.search(log_file_name):
                     is_access_log = True
-                print(log_file_name, is_access_log)
                 
                 # 读取日志文件
                 try:
@@ -512,14 +511,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             # TODO: 运行时启用真实业务逻辑
             # file_path = log_file.file_path
             # random_str = str(uuid.uuid4()).replace("-", "")[:6]
-            random_str = "111"
+            random_str = "222"
             # result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(file_path=file_path, task=task, random_str=random_str)
             
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
             trace_id_set = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
-            print("trace_id_set: ")
-            for trace_id in trace_id_set:
-                print(trace_id)
             await KVCacheLogEventDiagnosisWorker.parse_trace_failure_events(trace_id_set=trace_id_set, log_id=log_file.id)
 
             # 以下是自带内容

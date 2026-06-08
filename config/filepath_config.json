@@ -2,6 +2,6 @@
     "ds-client-access-log-file": "ds_client_access_.*\\.log",
     "ds-client-info-log-file": "ds_client_.*\\.INFO\\.log",
     "ds-worker-access-log-file": "access\\.log",
-    "ds-worker-info-log-file": "datasystem_worker\\.INFO\\.log",
+    "ds-worker-info-log-file": "datasystem_worker\\.INFO.*\\.log",
     "resource-log-file": "resource\\.log"
 }
