@@ -232,7 +232,8 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
 {
     const char *wittyDirEnv = std::getenv("WITTY_DIR");
     std::string wittyDir = wittyDirEnv ? wittyDirEnv : DEFAULT_WITTY_DIR;
-    std::filesystem::path baseDir = std::filesystem::path(wittyDir) / "log";
+    std::string randomPathStr = randomStr.empty() ? "log" : "log_" + randomStr;
+    std::filesystem::path baseDir = std::filesystem::path(wittyDir) / randomPathStr;
     extractedLogDir = baseDir.string();
 
     std::error_code ec;

@@ -307,7 +307,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             "--ds-log-path", file_path,
             "--start-time", "2020-01-01 00:00:00",
             "--end-time", current_time,
-            "--random_str", random_str,
+            "--random-str", random_str,
         ]
         
         # 添加配置文件中的参数

@@ -87,7 +87,7 @@ private:
     int64_t startTimestamp = 0;
     int64_t endTimestamp = 0;
     std::string extractedLogDir;
-    std::string randomStr;          // 输出文件夹的随机字符串，用于多个进程同时写文件的情况
+    std::string randomStr = "";          // 输出文件夹的随机字符串，用于多个进程同时写文件的情况
 };
 
 } // namespace diag
