@@ -336,6 +336,58 @@ class TestTask:
 
     task_id = None
     log_file_id = None
+    kb_id = None
+
+    @pytest.mark.asyncio
+    async def test_setup_task_test(self):
+        """前置设置：上传日志文件用于任务测试"""
+        # 先获取或创建知识库
+        kb_response = requests.post(f"{BASE_URL}/log_kb/list", json={"page_cnt": 10, "page_num": 1})
+        assert kb_response.status_code == 200
+        kb_data = kb_response.json()
+        
+        if kb_data["result"]["total"] > 0:
+            TestTask.kb_id = kb_data["result"]["kbs"][0]["id"]
+        else:
+            payload = {"name": f"test_kb_{uuid.uuid4().hex[:8]}", "description": "Test KB for tasks"}
+            response = requests.post(f"{BASE_URL}/log_kb", json=payload)
+            assert response.status_code == 200
+            TestTask.kb_id = response.json()["result"]["kb_id"]
+        
+        # 上传本地日志文件
+        test_dir = r"e:\openeuelr\ceshi\witty-ub-dev\src\plugins\latency\test"
+        payload = {
+            "upload_log_file_configs": [
+                {
+                    "name": "access.log",
+                    "source_type": "local",
+                    "source": f"{test_dir}\\access.log"
+                },
+                {
+                    "name": "sdk.log",
+                    "source_type": "local",
+                    "source": f"{test_dir}\\sdk.log"
+                }
+            ]
+        }
+        response = requests.post(f"{BASE_URL}/log_file/{TestTask.kb_id}", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        
+        # 获取上传后的日志文件ID
+        log_file_ids = data["result"].get("log_file_ids", [])
+        if log_file_ids:
+            TestTask.log_file_id = log_file_ids[0]
+            print(f"日志文件上传成功，log_file_id: {TestTask.log_file_id}")
+        else:
+            print("日志文件上传失败，尝试获取现有文件")
+            # 如果上传失败，尝试获取已有的日志文件
+            lf_response = requests.post(f"{BASE_URL}/log_file/list/{TestTask.kb_id}", json={"page_cnt": 10, "page_num": 1})
+            if lf_response.status_code == 200:
+                lf_data = lf_response.json()
+                if lf_data["result"]["total"] > 0:
+                    TestTask.log_file_id = lf_data["result"]["log_files"][0]["id"]
 
     @pytest.mark.asyncio
     async def test_list_tasks(self):
@@ -354,42 +406,35 @@ class TestTask:
 
     @pytest.mark.asyncio
     async def test_create_task(self):
-        """测试创建任务（使用 mock 数据）"""
+        """测试创建任务"""
         
-        # 尝试获取一个 log_file_id，如果没有则创建 mock 数据
-        kb_response = requests.post(f"{BASE_URL}/log_kb/list", json={"page_cnt": 1, "page_num": 1})
-        assert kb_response.status_code == 200
-        kb_data = kb_response.json()
+        # 使用前置步骤上传的日志文件
+        if not TestTask.log_file_id:
+            # 如果前置设置没有获取到，尝试获取
+            if TestTask.kb_id:
+                lf_response = requests.post(f"{BASE_URL}/log_file/list/{TestTask.kb_id}", json={"page_cnt": 10, "page_num": 1})
+                if lf_response.status_code == 200:
+                    lf_data = lf_response.json()
+                    if lf_data["result"]["total"] > 0:
+                        TestTask.log_file_id = lf_data["result"]["log_files"][0]["id"]
         
-        kb_id = None
-        if kb_data["result"]["total"] > 0:
-            kb_id = kb_data["result"]["kbs"][0]["id"]
-        
-        # 尝试获取日志文件
-        log_file_id = None
-        if kb_id:
-            lf_response = requests.post(f"{BASE_URL}/log_file/list/{kb_id}", json={"page_cnt": 1, "page_num": 1})
-            if lf_response.status_code == 200:
-                lf_data = lf_response.json()
-                if lf_data["result"]["total"] > 0:
-                    log_file_id = lf_data["result"]["log_files"][0]["id"]
-        
-        # 如果没有日志文件，使用 mock 的 op_id（服务端应该能够处理）
-        if not log_file_id:
-            log_file_id = f"mock_log_file_{uuid.uuid4().hex[:8]}"
-            print(f"Using mock log_file_id: {log_file_id}")
+        if not TestTask.log_file_id:
+            pytest.fail("No log file available for task creation")
         
         payload = {
             "task_type": "kv_cache_log_parse_worker",
-            "op_id": log_file_id,
-            "task_name": f"test_task_{uuid.uuid4().hex[:8]}"
+            "op_id": TestTask.log_file_id,
         }
         response = requests.post(f"{BASE_URL}/task/create", json=payload)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 200
-        assert "task_id" in data["result"]
-        TestTask.task_id = data["result"]["task_id"]
+        
+        task_id = data["result"].get("task_id")
+        if not task_id:
+            pytest.fail("Task creation failed")
+        
+        TestTask.task_id = task_id
 
     @pytest.mark.asyncio
     async def test_get_task(self):
@@ -403,6 +448,15 @@ class TestTask:
         data = response.json()
         assert data["code"] == 200
         assert "task" in data["result"]
+        
+        # 验证任务字段结构
+        task = data["result"]["task"]
+        assert "id" in task
+        assert "status" in task
+        assert "created_at" in task
+        # 新增长字段验证
+        assert "completed_at" in task
+        assert "duration_seconds" in task
 
     @pytest.mark.asyncio
     async def test_stop_task(self):
@@ -415,6 +469,17 @@ class TestTask:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 200
+        
+        # 验证任务停止后时长字段被正确记录
+        get_response = requests.get(f"{BASE_URL}/task/{TestTask.task_id}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        task = get_data["result"]["task"]
+        assert task["status"].lower() == "cancelled"
+        # 验证停止后完成时间和时长被记录
+        assert task["completed_at"] is not None, "任务停止后 completed_at 应为非空"
+        assert task["duration_seconds"] is not None, "任务停止后 duration_seconds 应为非空"
+        assert task["duration_seconds"] >= 0, "任务时长应为非负数"
 
     @pytest.mark.asyncio
     async def test_delete_task(self):
@@ -429,17 +494,21 @@ class TestTask:
         assert data["code"] == 200
     
     async def _create_mock_task(self):
-        """创建一个 mock 任务（用于测试）"""
-        log_file_id = f"mock_log_file_{uuid.uuid4().hex[:8]}"
+        """创建一个任务（用于其他测试的前置条件）"""
+        if not TestTask.log_file_id:
+            pytest.fail("No log file available for task creation")
+        
         payload = {
             "task_type": "kv_cache_log_parse_worker",
-            "op_id": log_file_id,
-            "task_name": f"test_task_{uuid.uuid4().hex[:8]}"
+            "op_id": TestTask.log_file_id,
         }
         response = requests.post(f"{BASE_URL}/task/create", json=payload)
         assert response.status_code == 200
         data = response.json()
-        TestTask.task_id = data["result"]["task_id"]
+        task_id = data["result"].get("task_id")
+        if not task_id:
+            pytest.fail("Task creation failed")
+        TestTask.task_id = task_id
 
 
 if __name__ == "__main__":

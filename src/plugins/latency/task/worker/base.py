@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler
 from latency.database.managers.task import TaskManager
@@ -56,8 +57,16 @@ class BaseWorker:
             )
             return True
         else:
+            completed_at = datetime.utcnow()
+            duration_seconds = (completed_at - task.created_at).total_seconds()
+            
             await TaskManager.update_task(
-                task_id, {"status": TaskStatusEnum.FAILED.value}
+                task_id, 
+                {
+                    "status": TaskStatusEnum.FAILED.value,
+                    "completed_at": completed_at.isoformat(),
+                    "duration_seconds": duration_seconds
+                }
             )
             return False
 
@@ -67,8 +76,18 @@ class BaseWorker:
         worker_name = await BaseWorker.get_worker_name(task_id)
         ProcessHandler.remove_task(task_id)
         await BaseWorker.find_worker_class(worker_name).deinit(task_id)
+        
+        task = await TaskManager.get_task_by_task_id(task_id)
+        completed_at = datetime.utcnow()
+        duration_seconds = (completed_at - task.created_at).total_seconds()
+        
         await TaskManager.update_task(
-            task_id, {"status": TaskStatusEnum.SUCCESSFUL.value}
+            task_id, 
+            {
+                "status": TaskStatusEnum.SUCCESSFUL.value,
+                "completed_at": completed_at.isoformat(),
+                "duration_seconds": duration_seconds
+            }
         )
 
     @staticmethod
@@ -100,8 +119,16 @@ class BaseWorker:
             task.status == TaskStatusEnum.PENDING
             or task.status == TaskStatusEnum.RUNNING
         ):
+            completed_at = datetime.utcnow()
+            duration_seconds = (completed_at - task.created_at).total_seconds()
+            
             await TaskManager.update_task(
-                task_id, {"status": TaskStatusEnum.CANCELLED.value}
+                task_id, 
+                {
+                    "status": TaskStatusEnum.CANCELLED.value,
+                    "completed_at": completed_at.isoformat(),
+                    "duration_seconds": duration_seconds
+                }
             )
         return task_id is not None
 

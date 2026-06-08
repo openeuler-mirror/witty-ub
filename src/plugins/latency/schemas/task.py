@@ -34,3 +34,9 @@ class TaskModel(BaseModel):
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="任务创建时间"
     )
+    completed_at: datetime | None = Field(
+        default=None, description="任务完成时间"
+    )
+    duration_seconds: float | None = Field(
+        default=None, description="任务耗时（秒）"
+    )

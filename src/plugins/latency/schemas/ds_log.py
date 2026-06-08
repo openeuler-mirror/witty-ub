@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Optional
+from pydantic import BaseModel, Field
 
 
 class EntryType(StrEnum):
@@ -12,25 +14,25 @@ class EntryType(StrEnum):
     QUERY_META = "QUERY_META"
 
 
-class LogEntry(BaseModel):
-    timestamp: datetime = Field(..., description="时间戳")
-    trace_id: str = Field(..., description="追踪ID")
-    pod_ip: str = Field(..., description="Pod IP地址")
-    elapsed_us: float = Field(..., description="事件耗时，单位微秒")
-    log_id: str | None = Field(default=None, description="来源日志文件ID")
-    
-    entry_type: EntryType = Field(..., description="条目类型")
-    
-    operation: str | None = Field(default=None, description="操作类型")
-    data_size: str | None = Field(default=None, description="数据大小")
-    object_key: str | None = Field(default=None, description="对象键")
-    status_code: int | None = Field(default=None, description="状态码")
-    resp_msg: str | None = Field(default=None, description="响应消息")
-    src_addr: str | None = Field(default=None, description="源地址")
-    dst_addr: str | None = Field(default=None, description="目的地址")
-    inflight_count: int | None = Field(default=None, description="在途写请求数")
-    request_size: str | None = Field(default=None, description="请求大小")
-    cluster_name: str | None = Field(default=None, description="集群名称")
+@dataclass(slots=True)
+class LogEntry:
+    """日志解析条目（轻量级 dataclass，降低内存占用）"""
+    timestamp: datetime
+    trace_id: str
+    pod_ip: str
+    elapsed_us: float
+    entry_type: EntryType
+    log_id: Optional[str] = None
+    operation: Optional[str] = None
+    data_size: Optional[str] = None
+    object_key: Optional[str] = None
+    status_code: Optional[int] = None
+    resp_msg: Optional[str] = None
+    src_addr: Optional[str] = None
+    dst_addr: Optional[str] = None
+    inflight_count: Optional[int] = None
+    request_size: Optional[str] = None
+    cluster_name: Optional[str] = None
 
 
 class CorrelationResult(BaseModel):

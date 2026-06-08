@@ -124,7 +124,7 @@ class ParseResultBuilder:
                                             urma_info["urma_empty_reason"])
             is_anomalous = bool(remark) and remark != "OK"
 
-            results.append(LogParseResultModel(
+            results.append(LogParseResultModel.model_construct(
                 log_id=self.log_dir,
                 trace_id=sdk.trace_id,
                 timestamp=sdk.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if sdk.timestamp else None,
@@ -165,7 +165,7 @@ class ParseResultBuilder:
             link_list = self.correlated.worker_link_map.get(i, [])
             w2c_urma_list = self.correlated.worker_worker_urma_map.get(i, [])
 
-            results.append(LogParseResultModel(
+            results.append(LogParseResultModel.model_construct(
                 log_id=self.log_dir,
                 trace_id=w.trace_id,
                 timestamp=w.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if w.timestamp else None,
