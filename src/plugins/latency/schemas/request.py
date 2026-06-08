@@ -172,6 +172,47 @@ class ListLogParseResultRequest(BaseModel):
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
+class ListLogFailureEventResultRequest(BaseModel):
+    kb_id: Optional[str] = Field(default=None, description="日志知识库ID，用于过滤指定知识库的结果")
+    log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")
+    trace_ids: list[str] = Field(
+        default_factory=list, description="trace_id列表"
+    )
+
+class ListTraceFailureEventResultRequest(BaseModel):
+    kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
+    pod_names: Optional[list[str]] = Field(
+        default_factory=list, description="日志中包含的pod_id"
+    )
+    host_names: Optional[list[str]] = Field(
+        default_factory=list, description="日志中包含的host_name"
+    )
+    cluster_names: Optional[list[str]] = Field(
+        default_factory=list, description="日志中包含的cluster_id"
+    )
+    status_codes: Optional[list[str]] = Field(
+        default_factory=list, description="日志中包含的status_code"
+    )
+    is_anomalous: Optional[bool] = Field(
+        default=None,
+        description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
+    )
+    created_at_start: Optional[str] = Field(
+        default=None,
+        description="日志解析结果创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    created_at_end: Optional[str] = Field(
+        default=None,
+        description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    created_sorted_desc: Optional[bool] = Field(
+        default=True,
+        description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
+    )
+    page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+
+
 class ListAnomalousEventRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
@@ -231,6 +272,33 @@ class GetLatencyMetricsRequest(BaseModel):
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")
 
+class GetErrCodeMetricsRequest(BaseModel):
+    """获取故障码指标时间曲线请求"""
+    kb_id: str = Field(..., description="日志知识库ID")
+    err_codes: Optional[list[str]] = Field(
+        default_factory=list, description="主机名"
+    )
+    host_names: Optional[list[str]] = Field(
+        default_factory=list, description="主机名"
+    )
+    cluster_names: Optional[list[str]] = Field(
+        default_factory=list, description="集群名"
+    )
+    pod_names: Optional[list[str]] = Field(
+        default_factory=list, description="pod名"
+    )
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    max_points: int = Field(
+        default=1000,
+        description="最大返回数据点数，用于控制数据量，默认1000",
+    )
 
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")

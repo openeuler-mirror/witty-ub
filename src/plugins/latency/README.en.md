@@ -155,7 +155,6 @@ The following versions have been tested:
 | uvicorn | 0.21.0 |
 | apscheduler | 3.10.4 |
 | pydantic | 2.12.3 |
-
 | aiohttp | 3.9.5 |
 | aiofiles | 25.1.0 |
 | chardet | 4.0.0 |

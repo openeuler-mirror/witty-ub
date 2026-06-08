@@ -40,6 +40,9 @@ public:
     RackResult Start() override;
     // 停止模块
     void Stop() override;
+    // 生成View
+    RackResult GenerateView();
+    // 存储结果
 
 private:
     RackResult ParseDiagArgs();                     // 解析命令行参数并校验
@@ -54,6 +57,11 @@ private:
     void Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
     void StartKvcache(const std::vector<std::string> &subRootFailureModes);
     void StartUrma(const std::vector<std::string> &subRootFailureModes);
+    void StoreFailureTraces();
+    void AppendLogsToParent(const std::string &failureModeId, const std::vector<FailureLogInfo> &logInfos);
+    void ProcessLogInfos(FailureModeController &controller, const std::string &failureModeId,
+                         const std::vector<FailureLogInfo> &logInfos);
+    void ProcessSubFailureModes(const std::string &failureModeId, FailureMode *failureMode);
 
 private:
     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> failureModeJson;
@@ -79,6 +87,7 @@ private:
     int64_t startTimestamp = 0;
     int64_t endTimestamp = 0;
     std::string extractedLogDir;
+    std::string randomStr = "";          // 输出文件夹的随机字符串，用于多个进程同时写文件的情况
 };
 
 } // namespace diag
