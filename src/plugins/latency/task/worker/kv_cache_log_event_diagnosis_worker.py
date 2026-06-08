@@ -312,7 +312,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         # 添加配置文件中的参数
         for key, value in config.items():
-            cmd_args.extend([f"--{key}", value])
+            new_value = value.replace("\\", "")
+            new_value = new_value.replace(".*", "*")
+            cmd_args.extend([f"--{key}", new_value])
         
         for arg in cmd_args:
             print(arg)
