@@ -295,6 +295,10 @@ class GetErrCodeMetricsRequest(BaseModel):
         default=None,
         description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
+    max_points: int = Field(
+        default=1000,
+        description="最大返回数据点数，用于控制数据量，默认1000",
+    )
 
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")
