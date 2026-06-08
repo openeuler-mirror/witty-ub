@@ -98,7 +98,10 @@ class SlidingWindowP99Detector(DetectorBase):
             for idx in range(zone_start, zone_end + 1):
                 if is_bulk or (values[idx] is not None and values[idx] > threshold_ms):
                     anomalous_indices.append(idx)
-                    reason = f"{field_name}={values[idx]:.3f}ms > threshold {threshold_ms}ms"
+                    if values[idx] is not None:
+                        reason = f"{field_name}={values[idx]:.3f}ms > threshold {threshold_ms}ms"
+                    else:
+                        reason = f"in bulk degraded zone ({field_name} P99={p99:.3f}ms)"
                     if is_bulk and values[idx] is not None and values[idx] <= threshold_ms:
                         reason = f"in bulk degraded zone ({field_name} P99={p99:.3f}ms)"
                     reasons[idx] = reasons.get(idx, []) + [reason]

@@ -3,6 +3,7 @@ import logging
 import os
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Optional
 from latency.schemas.log import LogParseResultModel
 from latency.schemas.request import ParseConfig
@@ -19,7 +20,8 @@ from latency.parse import (
     LogCorrelator,
     ParseResultBuilder,
 )
-from latency.common.ds_log_io import glob_paths, open_log
+from latency.parse.parallel_scanner import ParallelFileScanner
+from latency.ENUM.task import TaskSplitStrategy
 from latency.common.stats import stats
 from latency.detect import AnomalyDetector
 from latency.database.engine import AsyncSQLiteSingleton
@@ -49,35 +51,15 @@ from latency.task.worker.base import BaseWorker
 
 logger = logging.getLogger(__name__)
 
-_PROGRESS_UPDATE_LINES = 100_000
 
-
-def _scan_file(parser, path: str) -> tuple[str, list]:
-    pod_ip = parser.extract_pod_ip(path)
-    log_file = LogFileModel(file_path=path, file_size=os.path.getsize(path))
-    file_name = os.path.basename(path)
-    entries = []
-    try:
-        with open_log(path) as f:
-            for line_no, line in enumerate(f, 1):
-                if line_no % _PROGRESS_UPDATE_LINES == 0:
-                    logger.info(
-                        f"[{parser.label}] scanning {file_name} | "
-                        f"line {line_no:,} | match {len(entries):,}"
-                    )
-                entry = parser.match_line(line, pod_ip)
-                if entry:
-                    entry.log_id = log_file.id
-                    entries.append(entry)
-    except EOFError:
-        logger.warning(f"Skipping corrupted file {path}")
-    except Exception as e:
-        logger.warning(f"Error reading {path}: {e}")
-    logger.info(
-        f"[{parser.label}] done {file_name} | "
-        f"lines scanned | match {len(entries):,}"
-    )
-    return parser.label, entries
+@dataclass
+class GroupStats:
+    """增量统计分组（不维护完整对象引用，降低内存峰值）"""
+    count: int = 0
+    anomaly_count: int = 0
+    anomaly_log_count: int = 0
+    first_log_id: str = ""
+    latency_values: dict[str, list[float]] = field(default_factory=dict)
 
 
 class KVCacheLogParseWorker(BaseWorker):
@@ -167,25 +149,17 @@ class KVCacheLogParseWorker(BaseWorker):
             QueryMetaLogParser(parse_config),
         ]
 
-        scan_tasks = []
-        for parser in parsers:
-            paths = glob_paths(
-                [os.path.join(log_dir, p) for p in parser.patterns]
-            )
-            logger.info(f"[{parser.label}] found {len(paths)} file(s)")
-            for path in paths:
-                scan_tasks.append(asyncio.to_thread(_scan_file, parser, path))
+        # 使用并行扫描器（文件去重 + 多进程并行）
+        scanner = ParallelFileScanner(
+            max_processes=min(os.cpu_count() or 4, 8),  # 最多 8 进程
+            split_strategy=TaskSplitStrategy.BY_FILE_SIZE,
+            use_multiprocessing=True,
+        )
 
-        total_tasks = len(scan_tasks)
-        logger.info(f"=== Stage 1/3: Scanning {total_tasks} file(s) ===")
+        logger.info("=== Stage 1/3: Scanning files with parallel scanner ===")
+        parsed = await scanner.scan_all(log_dir, parsers, parse_config)
 
-        scan_results = await asyncio.gather(*scan_tasks)
-
-        parsed: dict[str, list] = {}
-        for label, entries in scan_results:
-            parsed.setdefault(label, []).extend(entries)
-        del scan_results
-
+        # 排序解析结果
         for label in parsed:
             parsed[label].sort(key=lambda x: x.timestamp)
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
@@ -196,15 +170,22 @@ class KVCacheLogParseWorker(BaseWorker):
         logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
                      f"Worker→URMA: {len(correlated.worker_urma_map):,}")
 
-        sdk_entries = parsed.get("SDK access parse", [])
-        worker_entries = parsed.get("Worker access parse", [])
+        # 及时释放 parsed 中间结构
+        sdk_entries = parsed.pop("SDK access parse", [])
+        worker_entries = parsed.pop("Worker access parse", [])
+        del parsed
+        import gc
+        gc.collect()
+        logger.info("Released parsed entries")
 
         logger.info("=== Stage 3/3: Building parse results ===")
         builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir)
         results = builder.build()
 
-        del parsed, correlated, builder
-        logger.info("Released parsed & correlated intermediate data")
+        # 及时释放所有中间结构（降低内存峰值）
+        del sdk_entries, worker_entries, correlated, builder
+        gc.collect()
+        logger.info("Released sdk_entries, worker_entries, correlated & builder")
 
         total = len(results)
         anomalous_count = sum(1 for r in results if r.is_anomalous)
@@ -263,7 +244,7 @@ class KVCacheLogParseWorker(BaseWorker):
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
     ) -> tuple[list[SrcDstAggregatedEventModel], dict[tuple[str, str], str]]:
-        """按 src_ip/dst_ip 聚合统计，返回聚合结果和src_dst到aggregated_event_id的映射"""
+        """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
         latency_fields = [
             ("total_latency", "total_latency"),
             ("query_meta_latency", "worker_query_meta_latency"),
@@ -273,53 +254,82 @@ class KVCacheLogParseWorker(BaseWorker):
             ("w2w_urma_latency", "w2w_urma_latency"),
         ]
 
-        groups: dict[tuple[str, str], list[LogParseResultModel]] = defaultdict[tuple[str, str], list[LogParseResultModel]](list)
+        # 第一遍：增量收集统计值（不维护完整对象列表，降低内存峰值）
+        groups: dict[tuple[str, str], GroupStats] = defaultdict(
+            lambda: GroupStats(
+                latency_values={prefix: [] for prefix, _ in latency_fields}
+            )
+        )
+        
         for r in list_log_parse_results:
             src = r.src_ip or ""
             dst = r.dst_ip or ""
             if not src and not dst:
                 continue
-            groups[(src, dst)].append(r)
-
+            
+            key = (src, dst)
+            g = groups[key]
+            g.count += 1
+            if r.is_anomalous:
+                g.anomaly_count += 1
+            if r.anomalous_event_id:
+                g.anomaly_log_count += 1
+            if not g.first_log_id:
+                g.first_log_id = r.log_id or ""
+            
+            # 只收集延迟值，不保存完整对象引用
+            for prefix, field_name in latency_fields:
+                val = getattr(r, field_name)
+                if val is not None:
+                    g.latency_values[prefix].append(val)
+        
+        # 第二遍：构建聚合结果 + 反向写入 aggregated_event_id
         results: list[SrcDstAggregatedEventModel] = []
         src_dst_to_agg_id_map: dict[tuple[str, str], str] = {}
-        for (src, dst), items in groups.items():
+        
+        for (src, dst), g in groups.items():
             agg_id = str(uuid.uuid4())
             src_dst_to_agg_id_map[(src, dst)] = agg_id
-
-            log_id = items[0].log_id or ""
-            total_cnt = len(items)
-            anomaly_cnt = sum(1 for r in items if r.is_anomalous)
-            anomaly_log_cnt = sum(1 for r in items if r.anomalous_event_id)
-
+            
             agg: dict[str, float | None] = {}
-            for prefix, field_name in latency_fields:
-                values = [getattr(r, field_name) for r in items]
-                values = [v for v in values if v is not None]
-                st = stats(values)
-                agg[f"ave_{prefix}"] = st["ave"]
-                agg[f"min_{prefix}"] = st["min"]
-                agg[f"max_{prefix}"] = st["max"]
-                agg[f"p95_{prefix}"] = st["p95"]
-                agg[f"p99_{prefix}"] = st["p99"]
-
+            for prefix, _ in latency_fields:
+                values = g.latency_values[prefix]
+                if values:
+                    st = stats(values)
+                    agg[f"ave_{prefix}"] = st["ave"]
+                    agg[f"min_{prefix}"] = st["min"]
+                    agg[f"max_{prefix}"] = st["max"]
+                    agg[f"p95_{prefix}"] = st["p95"]
+                    agg[f"p99_{prefix}"] = st["p99"]
+                else:
+                    for f in [f"ave_{prefix}", f"min_{prefix}", f"max_{prefix}", f"p95_{prefix}", f"p99_{prefix}"]:
+                        agg[f] = None
+                g.latency_values[prefix] = []  # 计算完立即释放
+            
             results.append(SrcDstAggregatedEventModel(
                 id=agg_id,
                 src_ip=src,
                 dst_ip=dst,
-                log_id=log_id,
-                log_parse_result_cnt=total_cnt,
-                anomaly_log_parse_result_cnt=anomaly_log_cnt,
-                anomaly_cnt=anomaly_cnt,
+                log_id=g.first_log_id,
+                log_parse_result_cnt=g.count,
+                anomaly_log_parse_result_cnt=g.anomaly_log_count,
+                anomaly_cnt=g.anomaly_count,
                 **agg,
             ))
-
-            for r in items:
-                r.aggregated_event_id = agg_id
-
+        
+        del groups  # 释放分组字典
+        
+        # 第三遍：反向写入 aggregated_event_id（保持与原逻辑一致）
+        for r in list_log_parse_results:
+            src = r.src_ip or ""
+            dst = r.dst_ip or ""
+            key = (src, dst)
+            if key in src_dst_to_agg_id_map:
+                r.aggregated_event_id = src_dst_to_agg_id_map[key]
+        
         logger.info(f"Aggregate result: {len(results):,} endpoints from "
                      f"{len(list_log_parse_results):,} results")
-
+        
         return results, src_dst_to_agg_id_map
 
     # 存库

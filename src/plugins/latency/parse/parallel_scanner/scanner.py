@@ -263,19 +263,19 @@ class ParallelFileScanner:
         """
         汇总多个进程/组的结果
 
-        如果是多进程模式，结果已序列化为 dict，需要反序列化。
+        如果是多进程模式，结果已序列化为 tuple，需要反序列化。
         如果是 asyncio 模式，结果已经是 LogEntry 对象。
         """
         merged = defaultdict(list)
 
         for result in results:
             for label, entries in result.items():
-                if entries and isinstance(entries[0], dict):
-                    # 多进程模式：反序列化
+                if entries and isinstance(entries[0], tuple):
+                    # 多进程模式：反序列化紧凑元组
                     deserialized = [_deserialize_entry(e) for e in entries]
                     merged[label].extend(deserialized)
                 else:
-                    # asyncio 模式：直接使用
+                    # asyncio 模式：直接使用 LogEntry 对象
                     merged[label].extend(entries)
 
         logger.info(
