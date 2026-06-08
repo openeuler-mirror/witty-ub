@@ -1,0 +1,50 @@
+import re
+
+# -------------------------------------------------------------------
+# 日志内容提取正则
+# -------------------------------------------------------------------
+
+OBJECT_KEY_RE = re.compile(r"[Oo]bject_key:\[?([^\]},]+)")
+
+NOT_FOUND_RE = re.compile(r"\bK_NOT_FOUND\b|not\s+found|notfound", re.IGNORECASE)
+
+# -------------------------------------------------------------------
+# URMA相关正则
+# -------------------------------------------------------------------
+
+URMA_RE = re.compile(
+    r"\[URMA_ELAPSED_TOTAL\].*?cost\s+([\d.]+)ms.*?"
+    r"src address:([^,]*?)\s*,\s*target address:([^,]*?)\s*,.*?"
+    r"urma_inflight_wr_count:\s*(\d+)"
+)
+
+URMA_LINK_RE = re.compile(
+    r"(?:WorkerWorkerExchangeUrmaConnectInfo finish|Worker-worker transport connection exchange success),\s*?"
+    r"elapsed ms:\s*([\d.]+)"
+)
+
+# -------------------------------------------------------------------
+# 远程读写请求正则
+# -------------------------------------------------------------------
+
+REMOTE_GET_RE = re.compile(
+    r"Remote get request:.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
+)
+
+REMOTE_PULL_RE = re.compile(
+    r"Processing pull object\[.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
+)
+
+# -------------------------------------------------------------------
+# 查询元数据正则
+# -------------------------------------------------------------------
+
+QUERY_META_RE = re.compile(
+    r"cost:\s*([\d.]+)ms?"
+)
+
+# -------------------------------------------------------------------
+# 通用数值提取正则
+# -------------------------------------------------------------------
+
+LEADING_FLOAT_RE = re.compile(r"^\s*([\d.]+)(?:ms)?(?:\(|\s*$)")
