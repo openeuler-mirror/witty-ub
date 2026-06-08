@@ -4,14 +4,11 @@
 """
 
 from .scanner import ParallelFileScanner
-from .file_parser_map_builder import FileParserMapBuilder
-from .task_splitter import FileGroup, ScanTaskSplitter
+from .preprocessor import LogPreprocessor
 from latency.ENUM.task import TaskSplitStrategy
 
 __all__ = [
     "ParallelFileScanner",
-    "FileParserMapBuilder",
-    "ScanTaskSplitter",
-    "FileGroup",
+    "LogPreprocessor",
     "TaskSplitStrategy",
 ]
