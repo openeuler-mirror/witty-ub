@@ -54,7 +54,6 @@ class LogFileService:
             log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name)
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 log_file_model.file_path = upload_log_file_config.source
-
                 try:
                     log_file_model.file_size = os.path.getsize(
                         upload_log_file_config.source
@@ -144,16 +143,13 @@ class LogFileService:
                             f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
                         )
             log_file_models.append(log_file_model)
-        
         log_file_ids = await LogFileManager.add_log_files(log_file_models)
+        
         for log_file_id in log_file_ids:
             await TaskHandler.init_task(
                 task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
                 op_id=log_file_id,
-            )
-            await TaskHandler.init_task(
-                task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-                op_id=log_file_id,
+                parse_config=req.parse_config,
             )
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
