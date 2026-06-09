@@ -246,50 +246,107 @@ class LogParseResultManager:
     async def get_latency_metrics(
         req: GetLatencyMetricsRequest,
     ) -> tuple[int, list[dict]]:
-        """获取延迟指标时间曲线数据"""
-        sql_str = """
-            SELECT 
-                timestamp as time,
-                cluster_name,
-                host,
-                total_latency,
-                urma_total_latency,
-                worker_query_meta_latency
-            FROM log_parse_result_table
-            WHERE existed_status = 1
-        """
+        """获取延迟指标时间曲线数据（SQL 分桶 + JSON 存原始值）"""
+        # === 构建 WHERE 条件 ===
+        where_clauses = ["existed_status = 1"]
         params = {}
-        
+
         if req.host:
-            sql_str += " AND pod_ip = :host"
+            where_clauses.append("pod_ip = :host")
             params["host"] = req.host
         if req.src_ip:
-            sql_str += " AND src_ip LIKE :src_ip"
+            where_clauses.append("src_ip LIKE :src_ip")
             params["src_ip"] = f"%{req.src_ip}%"
         if req.dst_ip:
-            sql_str += " AND dst_ip LIKE :dst_ip"
+            where_clauses.append("dst_ip LIKE :dst_ip")
             params["dst_ip"] = f"%{req.dst_ip}%"
         if req.start_time:
-            sql_str += " AND timestamp >= :start_time"
+            where_clauses.append("timestamp >= :start_time")
             params["start_time"] = req.start_time
         if req.end_time:
-            sql_str += " AND timestamp <= :end_time"
+            where_clauses.append("timestamp <= :end_time")
             params["end_time"] = req.end_time
         if req.operation:
-            sql_str += " AND operation LIKE :operation"
+            where_clauses.append("operation LIKE :operation")
             params["operation"] = f"%{req.operation}%"
-        
-        count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
+
+        where_sql = " AND ".join(where_clauses)
+
+        # === 1. COUNT 查询 ===
+        count_sql = f"SELECT COUNT(*) as cnt FROM log_parse_result_table WHERE {where_sql}"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
-        
-        valid_sort_fields = ["timestamp", "total_latency", "urma_total_latency", "worker_query_meta_latency"]
-        sort_by = req.sort_by if req.sort_by in valid_sort_fields else "timestamp"
-        sort_order = "DESC" if req.sort_order.lower() == "desc" else "ASC"
-        sql_str += f" ORDER BY {sort_by} {sort_order}"
-        
-        # 注意：不在数据库层限制返回数量，由应用层采样器处理
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+
+        if total == 0:
+            return 0, []
+
+        # === 2. 判断是否需要分桶 ===
+        max_points = req.max_points
+        if total <= max_points or max_points == -1:
+            # 数据量小或不需要采样，直接返回原始数据
+            sql_str = f"""
+                SELECT 
+                    timestamp as time,
+                    total_latency,
+                    urma_total_latency,
+                    worker_query_meta_latency
+                FROM log_parse_result_table
+                WHERE {where_sql}
+                ORDER BY timestamp ASC
+            """
+            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            return total, rows
+
+        # === 3. 查询时间范围，计算分桶步长（毫秒级精度） ===
+        # strftime('%f') 返回 SS.SSS，取小数部分需：CAST(strftime('%f', ts) * 1000 AS INTEGER) % 1000
+        range_sql = f"""
+            SELECT 
+                MIN(CAST(strftime('%s', timestamp) AS INTEGER) * 1000 + CAST(strftime('%f', timestamp) * 1000 AS INTEGER) % 1000) as min_ms,
+                MAX(CAST(strftime('%s', timestamp) AS INTEGER) * 1000 + CAST(strftime('%f', timestamp) * 1000 AS INTEGER) % 1000) as max_ms
+            FROM log_parse_result_table
+            WHERE {where_sql}
+        """
+        range_rows = await AsyncSQLiteSingleton().execute_query(range_sql, params)
+        if not range_rows or range_rows[0]["min_ms"] is None:
+            return total, []
+
+        min_ms = float(range_rows[0]["min_ms"])
+        max_ms = float(range_rows[0]["max_ms"])
+        time_span_ms = max_ms - min_ms
+
+        if time_span_ms <= 0:
+            # 时间跨度为 0，返回单条聚合
+            sql_str = f"""
+                SELECT 
+                    MIN(timestamp) as time,
+                    JSON_GROUP_ARRAY(total_latency) as total_latency_values,
+                    JSON_GROUP_ARRAY(urma_total_latency) as urma_total_latency_values,
+                    JSON_GROUP_ARRAY(worker_query_meta_latency) as worker_query_meta_latency_values
+                FROM log_parse_result_table
+                WHERE {where_sql}
+            """
+            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            return total, rows
+
+        bucket_step_ms = time_span_ms / max_points  # 动态步长（毫秒）
+
+        # === 4. 分桶聚合查询（毫秒级精度分桶） ===
+        agg_sql = f"""
+            SELECT 
+                MIN(timestamp) as time,
+                JSON_GROUP_ARRAY(total_latency) as total_latency_values,
+                JSON_GROUP_ARRAY(urma_total_latency) as urma_total_latency_values,
+                JSON_GROUP_ARRAY(worker_query_meta_latency) as worker_query_meta_latency_values
+            FROM log_parse_result_table
+            WHERE {where_sql}
+            GROUP BY CAST(
+                (CAST(strftime('%s', timestamp) AS INTEGER) * 1000 + CAST(strftime('%f', timestamp) * 1000 AS INTEGER) % 1000)
+                / :bucket_step_ms
+            AS INTEGER)
+            ORDER BY time ASC
+        """
+        params["bucket_step_ms"] = bucket_step_ms
+        rows = await AsyncSQLiteSingleton().execute_query(agg_sql, params)
         return total, rows
 
     @staticmethod
