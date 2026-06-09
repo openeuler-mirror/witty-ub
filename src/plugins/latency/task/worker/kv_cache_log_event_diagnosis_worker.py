@@ -134,9 +134,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             worker_access_pattern = None
             client_access_pattern = None
             if "ds-worker-access-log-file" in config:
-                worker_access_pattern = re.compile(config["ds-worker-access-log-file"])
+                worker_access_pattern = re.compile(config["ds-worker-access-log-file"].replace("\\", "").replace(".*", "*"))
             if "ds-client-access-log-file" in config:
-                client_access_pattern = re.compile(config["ds-client-access-log-file"])
+                client_access_pattern = re.compile(config["ds-client-access-log-file"].replace("\\", "").replace(".*", "*"))
             
             # 遍历目录下的所有日志文件
             log_failure_events = []
@@ -164,70 +164,74 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 try:
                     with open(log_file_path, 'r', encoding='utf-8') as f:
                         for line in f:
-                            line = line.strip()
-                            if not line:
-                                continue
-                            
-                            # 解析日志行
-                            # 运行日志格式：timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | message
-                            # access log格式：timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | status_code | action | cost | data size | request param | response param
-                            parts = [part for part in line.split('|')]
-                            
-                            timestamp = parts[0].strip()
-                            level = parts[1].strip()
-                            filename = parts[2].strip()
-                            pod_name = parts[3].strip()
-                            pid_tid = parts[4].strip()
-                            trace_id = parts[5].strip() if len(parts) > 5 else ""
-                            cluster_name = parts[6].strip() if len(parts) > 6 else ""
-                            
-                            # 分离 pid 和 tid
-                            pid_tid_parts = pid_tid.split(':')
-                            if len(pid_tid_parts) == 2:
-                                pid, tid = pid_tid_parts
-                            else:
-                                pid = pid_tid
-                                tid = ""
-                            
-                            # 提取 status_code 和 message
-                            status_code = ""
-                            message = ""
-                            
-                            if is_access_log:
-                                # access log: status_code是第8列（索引7），message从第9列开始
-                                if len(parts) > 7:
-                                    status_code = parts[7].strip()
-                                    message = '|'.join(parts[8:]) if len(parts) > 8 else ""
-                                else:
-                                    logger.warning(f"access log格式不正确，字段不足: {line}")
+                            try:
+                                line = line.strip()
+                                if not line:
                                     continue
-                            else:
-                                # 非access log: message从第8列（索引7）开始
-                                message = '|'.join(parts[7:]) if len(parts) > 7 else ""
-                            
-                            # 创建 LogFailureEventModel 对象
-                            log_failure_event = LogFailureEventModel(
-                                log_id=log_id,
-                                log_file=log_file_name,
-                                raw_text=line,
-                                timestamp=timestamp.replace("T", " "),
-                                level=level,
-                                filename=filename,
-                                pod_name=pod_name,
-                                pid=pid,
-                                tid=tid,
-                                trace_id=trace_id,
-                                cluster_name=cluster_name,
-                                message=message,
-                                status_code=status_code,
-                                failure_mode=[]  # 初始为空，后面从failure_trace.log更新
-                            )
-                            log_failure_events.append(log_failure_event)
-                            if (trace_id != ""):
-                                trace_id_set.add(trace_id)
+                                
+                                # 解析日志行
+                                # 运行日志格式：timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | message
+                                # access log格式：timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | status_code | action | cost | data size | request param | response param
+                                parts = [part for part in line.split('|')]
+                                
+                                timestamp = parts[0].strip()
+                                level = parts[1].strip()
+                                filename = parts[2].strip()
+                                pod_name = parts[3].strip()
+                                pid_tid = parts[4].strip()
+                                trace_id = parts[5].strip() if len(parts) > 5 else ""
+                                cluster_name = parts[6].strip() if len(parts) > 6 else ""
+                                
+                                # 分离 pid 和 tid
+                                pid_tid_parts = pid_tid.split(':')
+                                if len(pid_tid_parts) == 2:
+                                    pid, tid = pid_tid_parts
+                                else:
+                                    pid = pid_tid
+                                    tid = ""
+                                
+                                # 提取 status_code 和 message
+                                status_code = ""
+                                message = ""
+                                
+                                if is_access_log:
+                                    # access log: status_code是第8列（索引7），message从第9列开始
+                                    if len(parts) > 7:
+                                        status_code = parts[7].strip()
+                                        message = '|'.join(parts[8:]) if len(parts) > 8 else ""
+                                    else:
+                                        logger.warning(f"access log格式不正确，字段不足: {line}")
+                                        continue
+                                else:
+                                    # 非access log: message从第8列（索引7）开始
+                                    message = '|'.join(parts[7:]) if len(parts) > 7 else ""
+                                
+                                # 创建 LogFailureEventModel 对象
+                                log_failure_event = LogFailureEventModel(
+                                    log_id=log_id,
+                                    log_file=log_file_name,
+                                    raw_text=line,
+                                    timestamp=timestamp.replace("T", " "),
+                                    level=level,
+                                    filename=filename,
+                                    pod_name=pod_name,
+                                    pid=pid,
+                                    tid=tid,
+                                    trace_id=trace_id,
+                                    cluster_name=cluster_name,
+                                    message=message,
+                                    status_code=status_code,
+                                    failure_mode=[]  # 初始为空，后面从failure_trace.log更新
+                                )
+                                log_failure_events.append(log_failure_event)
+                                if (trace_id != ""):
+                                    trace_id_set.add(trace_id)
+                            except Exception as e:
+                                logger.warning(f"读取日志文件 {log_file_path} 行失败: {line}")
+                                continue
                 
                 except Exception as e:
-                    logger.error(f"读取日志文件 {log_file_path} 失败: {e}")
+                    logger.warning(f"读取日志文件 {log_file_path} 失败: {e}")
                     continue
             
             # 批量插入日志事件到数据库
