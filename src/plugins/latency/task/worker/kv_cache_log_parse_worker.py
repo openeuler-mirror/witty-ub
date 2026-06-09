@@ -17,6 +17,7 @@ from latency.parse import (
     RemotePullLogParser,
     LinkLogParser,
     QueryMetaLogParser,
+    WorkerMetricsLogParser,  # 新增指标解析器
     LogCorrelator,
     ParseResultBuilder,
 )
@@ -147,6 +148,7 @@ class KVCacheLogParseWorker(BaseWorker):
             RemotePullLogParser(parse_config),
             LinkLogParser(parse_config),
             QueryMetaLogParser(parse_config),
+            WorkerMetricsLogParser(parse_config),  # 新增指标解析器
         ]
 
         # 使用并行扫描器（文件去重 + 多进程并行）

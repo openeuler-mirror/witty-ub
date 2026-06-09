@@ -272,6 +272,61 @@ class UrmaEmptyReasonCorrelator(BaseCorrelator):
         return reasons
 
 
+class WorkerMetricsCorrelator(BaseCorrelator):
+    def __init__(self, index_manager: IndexManager, metrics_entries: list[LogEntry]):
+        super().__init__(index_manager)
+        self.metrics_entries = metrics_entries
+        self.metrics_by_pod_trace = _group_by(metrics_entries, lambda m: (m.pod_ip, m.trace_id))
+
+    def correlate(self) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
+        sdk_process_map = {}
+        sdk_rpc_map = {}
+        local_worker_cost_map = {}
+        local_worker_lock_map = {}
+        remote_worker_cost_map = {}
+        remote_worker_rpc_map = {}
+        master_process_map = {}
+        master_rpc_map = {}
+
+        from latency.schemas.ds_log import EntryType
+
+        for i, w in enumerate(self.index_manager.worker_entries):
+            key = (w.pod_ip, w.trace_id)
+            candidates = self.metrics_by_pod_trace.get(key, [])
+            
+            if not candidates:
+                continue
+
+            for m in candidates:
+                if m.entry_type == EntryType.SDK_PROCESS:
+                    sdk_process_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.SDK_RPC:
+                    sdk_rpc_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.LOCAL_WORKER_COST:
+                    local_worker_cost_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.LOCAL_WORKER_LOCK:
+                    local_worker_lock_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.REMOTE_WORKER_COST:
+                    remote_worker_cost_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.REMOTE_WORKER_RPC:
+                    remote_worker_rpc_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.MASTER_PROCESS:
+                    master_process_map.setdefault(i, []).append(m)
+                elif m.entry_type == EntryType.MASTER_RPC:
+                    master_rpc_map.setdefault(i, []).append(m)
+
+        return (
+            sdk_process_map,
+            sdk_rpc_map,
+            local_worker_cost_map,
+            local_worker_lock_map,
+            remote_worker_cost_map,
+            remote_worker_rpc_map,
+            master_process_map,
+            master_rpc_map,
+        )
+
+
 class LogCorrelator:
     def __init__(self, parsed: dict[str, list[LogEntry]], time_window_ms: float = 100.0):
         self.sdk_entries: list[LogEntry] = parsed.get("SDK access parse", [])
@@ -280,6 +335,8 @@ class LogCorrelator:
         self.remote_pull_entries: list[LogEntry] = parsed.get("Worker remote pull parse", [])
         self.link_entries: list[LogEntry] = parsed.get("Worker link parse", [])
         self.query_meta_entries: list[LogEntry] = parsed.get("Worker query meta parse", [])
+        # 提取新增指标的解析结果
+        self.metrics_entries: list[LogEntry] = parsed.get("Worker metrics parse", [])
         self.time_window_ms = time_window_ms
         
         self.index_manager = IndexManager(
@@ -299,6 +356,18 @@ class LogCorrelator:
         sdk_urma_map = SdkUrmaCorrelator(self.index_manager, self.sdk_entries).correlate()
         worker_idx_map = WorkerIdxCorrelator(self.index_manager).correlate(sdk_worker_map)
         urma_empty_reasons = UrmaEmptyReasonCorrelator(self.index_manager).correlate(worker_urma_map)
+        
+        # 关联新增指标
+        (
+            worker_sdk_process_map,
+            worker_sdk_rpc_map,
+            worker_local_worker_cost_map,
+            worker_local_worker_lock_map,
+            worker_remote_worker_cost_map,
+            worker_remote_worker_rpc_map,
+            worker_master_process_map,
+            worker_master_rpc_map,
+        ) = WorkerMetricsCorrelator(self.index_manager, self.metrics_entries).correlate()
 
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,
@@ -308,6 +377,14 @@ class LogCorrelator:
             worker_remote_pull_map=worker_remote_pull_map,
             worker_link_map=worker_link_map,
             worker_query_meta_map=worker_query_meta_map,
+            worker_sdk_process_map=worker_sdk_process_map,
+            worker_sdk_rpc_map=worker_sdk_rpc_map,
+            worker_local_worker_cost_map=worker_local_worker_cost_map,
+            worker_local_worker_lock_map=worker_local_worker_lock_map,
+            worker_remote_worker_cost_map=worker_remote_worker_cost_map,
+            worker_remote_worker_rpc_map=worker_remote_worker_rpc_map,
+            worker_master_process_map=worker_master_process_map,
+            worker_master_rpc_map=worker_master_rpc_map,
             worker_idx_map=worker_idx_map,
             urma_empty_reasons=urma_empty_reasons,
         )

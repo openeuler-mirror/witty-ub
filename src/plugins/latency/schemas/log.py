@@ -247,6 +247,31 @@ class LogParseResultModel(BaseModel):
     w2w_urma_latency: Optional[float] = Field(
         default=None, description="W2W URMA延迟，单位毫秒"
     )
+    # 新增时延指标字段
+    sdk_process: Optional[float] = Field(
+        default=None, description="SDK处理延迟，单位毫秒"
+    )
+    sdk_rpc: Optional[float] = Field(
+        default=None, description="SDK RPC延迟，单位毫秒"
+    )
+    local_worker_cost: Optional[float] = Field(
+        default=None, description="本地Worker处理延迟，单位毫秒"
+    )
+    local_worker_lock: Optional[float] = Field(
+        default=None, description="本地Worker锁延迟，单位毫秒"
+    )
+    remote_worker_cost: Optional[float] = Field(
+        default=None, description="远程Worker处理延迟，单位毫秒"
+    )
+    remote_worker_rpc: Optional[float] = Field(
+        default=None, description="远程Worker RPC延迟，单位毫秒"
+    )
+    master_process: Optional[float] = Field(
+        default=None, description="Master处理延迟，单位毫秒"
+    )
+    master_rpc_total: Optional[float] = Field(
+        default=None, description="Master RPC总延迟，单位微秒"
+    )
     timestamp: Optional[str] = Field(default=None, description="事件时间戳")
     created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],

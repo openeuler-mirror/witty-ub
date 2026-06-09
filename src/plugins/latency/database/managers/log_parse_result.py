@@ -17,7 +17,9 @@ class LogParseResultManager:
                 urma_total_latency, urma_link_latency, urma_inflight_count,
                 c2w_urma_latency, w2w_urma_latency, operation, data_size,
                 offset, is_anomalous, content, anomaly_reason, anomaly_score,
-                remark, existed_status, created_at
+                remark, existed_status, created_at,
+                sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
+                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
             ) VALUES (
                 :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
                 :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
@@ -25,7 +27,9 @@ class LogParseResultManager:
                 :urma_total_latency, :urma_link_latency, :urma_inflight_count,
                 :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
                 :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
-                :remark, :existed_status, :created_at
+                :remark, :existed_status, :created_at,
+                :sdk_process, :sdk_rpc, :local_worker_cost, :local_worker_lock,
+                :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
             )
         """
         result = await AsyncSQLiteSingleton().execute_modify(
@@ -51,7 +55,9 @@ class LogParseResultManager:
                         urma_total_latency, urma_link_latency, urma_inflight_count,
                         c2w_urma_latency, w2w_urma_latency, operation, data_size,
                         offset, is_anomalous, content, anomaly_reason, anomaly_score,
-                        remark, existed_status, created_at
+                        remark, existed_status, created_at,
+                        sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
+                        remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
                     ) VALUES (
                         :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
                         :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
@@ -59,7 +65,9 @@ class LogParseResultManager:
                         :urma_total_latency, :urma_link_latency, :urma_inflight_count,
                         :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
                         :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
-                        :remark, :existed_status, :created_at
+                        :remark, :existed_status, :created_at,
+                        :sdk_process, :sdk_rpc, :local_worker_cost, :local_worker_lock,
+                        :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
                     )
                 """
                 params = [
@@ -109,7 +117,9 @@ class LogParseResultManager:
                 urma_total_latency, urma_link_latency, urma_inflight_count,
                 c2w_urma_latency, w2w_urma_latency, operation, data_size,
                 offset, is_anomalous, content, anomaly_reason, anomaly_score,
-                remark, existed_status, created_at
+                remark, existed_status, created_at,
+                sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
+                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
             FROM log_parse_result_table
             WHERE existed_status = 1
         """
@@ -164,7 +174,9 @@ class LogParseResultManager:
                 urma_total_latency, urma_link_latency, urma_inflight_count,
                 c2w_urma_latency, w2w_urma_latency, operation, data_size,
                 offset, is_anomalous, content, anomaly_reason, anomaly_score,
-                remark, existed_status, created_at
+                remark, existed_status, created_at,
+                sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
+                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
             FROM log_parse_result_table
             WHERE id = :result_id
         """
