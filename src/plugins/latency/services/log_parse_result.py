@@ -8,7 +8,6 @@ from latency.schemas.response import (
 )
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.common.sampler import LatencyMetricsSampler
-from latency.schemas.log import LatencyMetricItem
 
 
 class LogParseResultService:
@@ -33,17 +32,15 @@ class LogParseResultService:
     @staticmethod
     async def get_latency_metrics(req: GetLatencyMetricsRequest) -> GetLatencyMetricsMsg:
         """获取延迟指标时间曲线数据"""
-        # 从数据库获取原始数据
+        # 从数据库获取分桶数据（dict 列表）
         total, rows = await LogParseResultManager.get_latency_metrics(req)
         
-        # 将数据库行转换为 LatencyMetricItem 对象
-        metrics = [LatencyMetricItem(**row) for row in rows]
-        
-        # 应用采样
+        # 对分桶数据做聚合（JSON 数组 → 单值）或原始数据采样
         sampled_metrics, sampling_info = LatencyMetricsSampler.sample(
-            metrics=metrics,
+            metrics=rows,
             max_points=req.max_points,
-            sample_mode=req.sample_mode
+            sample_mode=req.sample_mode,
+            original_count=total,
         )
         
         return GetLatencyMetricsMsg(
