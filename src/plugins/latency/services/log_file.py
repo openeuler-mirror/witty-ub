@@ -221,4 +221,6 @@ class LogFileService:
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> GetLogFileMsg:
         log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        task_model = await TaskManager.get_current_task_by_op_id(log_file_id)
+        log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)

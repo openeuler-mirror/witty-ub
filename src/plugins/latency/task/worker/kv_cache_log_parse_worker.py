@@ -403,7 +403,9 @@ class KVCacheLogParseWorker(BaseWorker):
                 return False
             log_dir = log_file.file_path
             kb_id = log_file.kb_id
-
+            await LogFileManager.update_log_file(
+                task.op_id, {"parse_status": TaskStatusEnum.RUNNING.value}
+            )
             await BaseWorker.report(task.id, "开始解析日志 请耐心等待", 10.0)
             
             # 从 TaskHandler 获取解析配置
