@@ -155,39 +155,24 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
         return RACK_FAIL;
     }
 
-    if (getRequired("ds-client-access-log-file", dsClientAccessLogFile) != RACK_OK)
-        return RACK_FAIL;
-    if (dsClientAccessLogFile.empty()) {
-        LOG_ERROR << "--ds-client-access-log-file cannot be empty";
-        return RACK_FAIL;
+    if (getRequired("ds-client-access-log-file", dsClientAccessLogFile) != RACK_OK || dsClientAccessLogFile.empty()) {
+        LOG_ERROR << "--ds-client-access-log-file is empty";
     }
 
-    if (getRequired("ds-client-info-log-file", dsClientInfoLogFile) != RACK_OK)
-        return RACK_FAIL;
-    if (dsClientInfoLogFile.empty()) {
-        LOG_ERROR << "--ds-client-info-log-file cannot be empty";
-        return RACK_FAIL;
+    if (getRequired("ds-client-info-log-file", dsClientInfoLogFile) != RACK_OK || dsClientInfoLogFile.empty()) {
+        LOG_ERROR << "--ds-client-info-log-file is empty";
     }
 
-    if (getRequired("ds-worker-info-log-file", dsWorkerInfoLogFile) != RACK_OK)
-        return RACK_FAIL;
-    if (dsWorkerInfoLogFile.empty()) {
-        LOG_ERROR << "--ds-worker-info-log-file cannot be empty";
-        return RACK_FAIL;
+    if (getRequired("ds-worker-info-log-file", dsWorkerInfoLogFile) != RACK_OK || dsWorkerInfoLogFile.empty()) {
+        LOG_ERROR << "--ds-worker-info-log-file is empty";
     }
 
-    if (getRequired("ds-worker-access-log-file", dsWorkerAccessLogFile) != RACK_OK)
-        return RACK_FAIL;
-    if (dsWorkerAccessLogFile.empty()) {
-        LOG_ERROR << "--ds-worker-access-log-file cannot be empty";
-        return RACK_FAIL;
+    if (getRequired("ds-worker-access-log-file", dsWorkerAccessLogFile) != RACK_OK || dsWorkerAccessLogFile.empty()) {
+        LOG_ERROR << "--ds-worker-access-log-file is empty";
     }
 
-    if (getRequired("resource-log-file", resourceLogFile) != RACK_OK)
-        return RACK_FAIL;
-    if (resourceLogFile.empty()) {
-        LOG_ERROR << "--resource-log-file cannot be empty";
-        return RACK_FAIL;
+    if (getRequired("resource-log-file", resourceLogFile) != RACK_OK || resourceLogFile.empty()) {
+        LOG_ERROR << "--resource-log-file is empty";
     }
 
     if (getRequired("start-time", startTimeStr) != RACK_OK)
@@ -265,7 +250,6 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
         std::vector<std::string> matchedFiles = FindMatchingFiles(dsLogPath, entry.pattern);
         if (matchedFiles.empty()) {
             LOG_ERROR << "No files matching '" << entry.pattern << "' found under " << dsLogPath;
-            return RACK_FAIL;
         }
         LOG_INFO << "Found " << matchedFiles.size() << " file(s) matching " << entry.pattern;
 
