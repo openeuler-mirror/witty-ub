@@ -312,7 +312,7 @@ class LogFailureEventManager:
     async def get_err_code_metrics(
         req: GetErrCodeMetricsRequest,
     ) -> tuple[int, dict[str, list[dict]]]:
-        # 从trace_failure_event_table中读取满足要求的trace数据，并获取故障码的指标结果
+        # TODO:从trace_failure_event_table中读取满足要求的trace数据，并获取故障码的指标结果
         # 首先，按照req内容对trace_failure_event_table满足要求的故障trace数据进行筛选。
         # 1.仅保留failure_mode非空的数据
         # 2.若kb_id非空，从log_file_table中查询req的kb_id对应的文件id，即log_id列表，仅保留log_id在该列表中的数据
@@ -322,13 +322,15 @@ class LogFailureEventManager:
         # 然后，计算返回的指标数据。返回的第一个参数是每条曲线的数据点数量total，第二个参数是曲线具体数据的内容，内容是字典，字典的键是故障码，值是一个字典列表，表示一个故障码的曲线数据。
         # 该字典的键为time和err_cnt，分别表示数据点的时间以及前后各0.5秒共1秒内，故障码的trace数量。
         # 输出time字段的时间戳的格式为%Y-%M-%D %H:%M:%S，如2026-01-01 00:00:00，输入req的start_time/end_time字段若秒数后有微秒数，如.123456，起始和结束时间需要取整，分别是对start_time向下取整和对end_time向上取整，也就是输出的所有time都需要是整秒。
-        # 输出数据的time时间点默认间隔为1秒，如果数据点超过了max_points，则动态调整时间间隔，使数据点数量不超过max_points。
+        # 输出数据的time时间点默认间隔为1秒，首先移除所有0值数据点，如果剩余数据点仍超过max_points，则对非0数据点进行智能采样以保留曲线关键信息。
         # 列表按time从小到大排序，err_cnt表示时间点前后各0.5秒共1秒内，匹配到故障码的故障trace数量总和。
         # 请尽量保证算法的效率。
         
         try:
             from datetime import datetime, timedelta
             import math
+            import bisect
+            from collections import defaultdict
             
             log_ids = []
             if req.kb_id:
@@ -448,12 +450,6 @@ class LogFailureEventManager:
             else:
                 max_time = round_up_to_second(max_time)
             
-            total_seconds = int((max_time - min_time).total_seconds()) + 1
-            
-            sampling_interval = 1
-            if total_seconds > req.max_points:
-                sampling_interval = math.ceil(total_seconds / req.max_points)
-            
             err_code_events = {}
             for ts, status_code, failure_mode in timestamps:
                 if not status_code:
@@ -462,29 +458,81 @@ class LogFailureEventManager:
                     err_code_events[status_code] = []
                 err_code_events[status_code].append(ts)
             
+            for err_code in err_code_events:
+                err_code_events[err_code].sort()
+            
+            def sample_curve(points: list[dict], max_points: int) -> list[dict]:
+                if len(points) <= max_points:
+                    return points
+                
+                non_zero_points = [p for p in points if p['err_cnt'] > 0]
+                
+                if len(non_zero_points) <= max_points:
+                    return non_zero_points
+                
+                peak_indices = set()
+                for i in range(1, len(non_zero_points) - 1):
+                    prev_cnt = non_zero_points[i-1]['err_cnt']
+                    curr_cnt = non_zero_points[i]['err_cnt']
+                    next_cnt = non_zero_points[i+1]['err_cnt']
+                    
+                    if curr_cnt > prev_cnt and curr_cnt > next_cnt:
+                        peak_indices.add(i)
+                    elif curr_cnt < prev_cnt and curr_cnt < next_cnt:
+                        peak_indices.add(i)
+                
+                if len(peak_indices) >= max_points:
+                    sorted_peaks = sorted(peak_indices, key=lambda i: non_zero_points[i]['err_cnt'], reverse=True)
+                    selected_indices = set(sorted_peaks[:max_points])
+                    return sorted([non_zero_points[i] for i in selected_indices], key=lambda p: p['time'])
+                
+                remaining_slots = max_points - len(peak_indices)
+                non_peak_indices = [i for i in range(len(non_zero_points)) if i not in peak_indices]
+                
+                if len(non_peak_indices) <= remaining_slots:
+                    selected_indices = set(range(len(non_zero_points)))
+                    return non_zero_points
+                
+                sorted_non_peak = sorted(non_peak_indices, key=lambda i: non_zero_points[i]['err_cnt'], reverse=True)
+                selected_non_peak = set(sorted_non_peak[:remaining_slots])
+                
+                all_selected_indices = peak_indices | selected_non_peak
+                result = [non_zero_points[i] for i in sorted(all_selected_indices)]
+                
+                return result
+            
             result = {}
             total_points = 0
             
-            for err_code, event_times in err_code_events.items():
-                curve_data = []
-                current_time = min_time
+            for err_code, event_times_sorted in err_code_events.items():
+                time_count_map = defaultdict(int)
                 
-                while current_time <= max_time:
-                    window_start = current_time - timedelta(seconds=0.5)
-                    window_end = current_time + timedelta(seconds=0.5)
+                for event_time in event_times_sorted:
+                    base_second = event_time.replace(microsecond=0)
                     
-                    count = sum(1 for t in event_times if window_start <= t <= window_end)
-                    
-                    curve_data.append({
-                        "time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    for offset in [-1, 0, 1]:
+                        check_time = base_second + timedelta(seconds=offset)
+                        
+                        if min_time <= check_time <= max_time:
+                            window_start = check_time - timedelta(seconds=0.5)
+                            window_end = check_time + timedelta(seconds=0.5)
+                            
+                            if window_start <= event_time <= window_end:
+                                time_count_map[check_time] += 1
+                
+                curve_data = [
+                    {
+                        "time": time_point.strftime("%Y-%m-%d %H:%M:%S"),
                         "err_cnt": count
-                    })
-                    
-                    current_time += timedelta(seconds=sampling_interval)
+                    }
+                    for time_point, count in sorted(time_count_map.items())
+                ]
                 
-                result[err_code] = curve_data
-                if len(curve_data) > total_points:
-                    total_points = len(curve_data)
+                sampled_data = sample_curve(curve_data, req.max_points)
+                result[err_code] = sampled_data
+                
+                if len(sampled_data) > total_points:
+                    total_points = len(sampled_data)
             
             return total_points, result
         

@@ -44,6 +44,7 @@ table_ddl_list = {
             file_path TEXT,
             file_size INTEGER,
             anomaly_cnt INTEGER,
+            trace_failure_event_cnt INTEGER,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )

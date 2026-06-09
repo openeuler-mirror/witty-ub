@@ -5,6 +5,9 @@ import uuid
 import json
 import subprocess
 import re
+import shutil
+import gzip
+import zipfile
 from datetime import datetime
 from collections import defaultdict
 from latency.schemas.log import LogParseResultModel
@@ -14,13 +17,6 @@ from latency.config.config import Config
 from latency.task.process_handle import ProcessHandler
 from latency.parse import (
     SdkAccessLogParser,
-    WorkerAccessLogParser,
-    UrmaLogParser,
-    RemotePullLogParser,
-    LinkLogParser,
-    QueryMetaLogParser,
-    LogCorrelator,
-    ParseResultBuilder,
 )
 from latency.common.ds_log_io import glob_paths, open_log
 from latency.detect import AnomalyDetector
@@ -39,9 +35,6 @@ from latency.database.managers.anomalous_event_chain import AnomalousEventChainM
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
     LogFileModel,
-    SrcDstAggregatedEventModel,
-    AnomalousEventModel,
-    AnomalousEventChainModel,
 )
 from latency.task.worker.base import BaseWorker
 
@@ -352,10 +345,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
+        return True
 
     @staticmethod
-    async def parse_trace_failure_events(trace_id_set: set[str], log_id: str) -> bool:
-        # TODO:从log_failure_event_table中读取trace_id的所有log_failure_events，解析出trace_failure_events
+    async def parse_trace_failure_events(trace_id_set: set[str], log_id: str) -> int:
+        # 从log_failure_event_table中读取trace_id的所有log_failure_events，解析出trace_failure_events
         # 首先，通过list_log_failure_events读取所有满足条件的log到列表log_failure_events_list，ListLogFailureEventResultRequest的参数中，log_id为log_id，trace_ids为trace_id_set
         # 然后，构建一个字典trace_failure_events_map，字典的键为trace_id，值为TraceFailureEventModel类型的对象
         # 依次遍历log_failure_events_list中的元素log_failure_event，用于更新trace_failure_events，更新规则如下：
@@ -436,11 +430,15 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 await LogFailureEventManager.add_trace_failure_event(trace_failure_events)
                 logger.info(f"成功插入 {len(trace_failure_events)} 条trace故障事件")
             
-            return True
+            trace_failure_event_cnt = 0
+            for trace_id in trace_failure_events_map.keys():
+                if trace_failure_events_map[trace_id].failure_mode:
+                    trace_failure_event_cnt += 1
+            return trace_failure_event_cnt
             
         except Exception as e:
             logger.error(f"parse_trace_failure_events 执行失败: {e}")
-            return False
+            return 0
     
     @staticmethod
     async def _is_child_failure_mode(parent_mode: str, child_mode: str) -> bool:
@@ -487,6 +485,87 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         return failure_modes[0]
 
     @staticmethod
+    async def extract_log_file(file_path: str, random_str: str) -> str:
+        """解压所有文件到目录下"""
+        # TODO: 首先，递归扫描目录中所有文件，如果文件没有.gz结尾的，即没有压缩文件，则直接返回file_path
+        # 如果有，则extracted_log_file_path=os.path.join(witty_dir, "log_extracted_" + random_str)
+        # 然后，保持目录结构不变，将所有.gz结尾的压缩包解压到相应目录下，其他文件按原样复制到相应目录下     
+        try:
+            import rarfile
+            HAS_RARFILE = True
+        except ImportError:
+            HAS_RARFILE = False
+            logger.warning("rarfile 模块未安装，.rar 文件将不会被解压")
+        
+        has_compressed_file = False
+        compressed_extensions = ('.gz', '.zip', '.rar')
+        
+        for root, dirs, files in os.walk(file_path):
+            for file in files:
+                if file.lower().endswith(compressed_extensions):
+                    has_compressed_file = True
+                    break
+            if has_compressed_file:
+                break
+        
+        if not has_compressed_file:
+            return file_path
+        
+        extracted_log_file_path = os.path.join(witty_dir, "log_extracted_" + random_str)
+        
+        os.makedirs(extracted_log_file_path, exist_ok=True)
+        
+        for root, dirs, files in os.walk(file_path):
+            relative_path = os.path.relpath(root, file_path)
+            target_dir = os.path.join(extracted_log_file_path, relative_path)
+            
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+            
+            for file in files:
+                source_file = os.path.join(root, file)
+                file_lower = file.lower()
+                
+                if file_lower.endswith('.gz'):
+                    target_file = os.path.join(target_dir, file[:-3])
+                    try:
+                        with gzip.open(source_file, 'rb') as f_in:
+                            with open(target_file, 'wb') as f_out:
+                                shutil.copyfileobj(f_in, f_out)
+                    except Exception as e:
+                        logger.error(f"解压 .gz 文件 {source_file} 失败: {e}")
+                        continue
+                
+                elif file_lower.endswith('.zip'):
+                    try:
+                        with zipfile.ZipFile(source_file, 'r') as zip_ref:
+                            zip_ref.extractall(target_dir)
+                    except Exception as e:
+                        logger.error(f"解压 .zip 文件 {source_file} 失败: {e}")
+                        continue
+                
+                elif file_lower.endswith('.rar'):
+                    if not HAS_RARFILE:
+                        logger.warning(f"跳过 .rar 文件 {source_file}：rarfile 模块未安装")
+                        continue
+                    try:
+                        with rarfile.RarFile(source_file, 'r') as rar_ref:
+                            rar_ref.extractall(target_dir)
+                    except Exception as e:
+                        logger.error(f"解压 .rar 文件 {source_file} 失败: {e}")
+                        continue
+                
+                else:
+                    target_file = os.path.join(target_dir, file)
+                    try:
+                        shutil.copy2(source_file, target_file)
+                    except Exception as e:
+                        logger.error(f"复制文件 {source_file} 失败: {e}")
+                        continue
+        
+        return extracted_log_file_path
+        
+    @staticmethod
     async def run(task_id: str) -> bool:
         """运行任务"""
         try:
@@ -509,15 +588,25 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 return False
             
             # TODO: 运行时启用真实业务逻辑
-            # file_path = log_file.file_path
-            # random_str = str(uuid.uuid4()).replace("-", "")[:6]
-            random_str = "222"
-            # result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(file_path=file_path, task=task, random_str=random_str)
+            # random_str = "222"
+            random_str = log_file.id[:8]
+            
+            extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(log_file.file_path, random_str)
+            
+            # TODO: 运行时启用真实业务逻辑
+            result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(file_path=extracted_log_file_path, task=task, random_str=random_str)
+            # try:
+            #   if extracted_log_file_path == os.path.join(witty_dir, "log_extracted_" + random_str):
+            #       shutil.rmtree(extracted_log_file_path)
+            # except Exception as e:
+            #     logger.exception(f"删除文件夹 {extracted_log_file_path} 失败: {e}")
             
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
             trace_id_set = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
-            await KVCacheLogEventDiagnosisWorker.parse_trace_failure_events(trace_id_set=trace_id_set, log_id=log_file.id)
-
+            trace_failure_event_cnt =await KVCacheLogEventDiagnosisWorker.parse_trace_failure_events(trace_id_set=trace_id_set, log_id=log_file.id)
+            await LogFileManager.update_log_file(
+                task.op_id, {"trace_failure_event_cnt": trace_failure_event_cnt}
+            )
             # 以下是自带内容
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}

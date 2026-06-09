@@ -8,8 +8,8 @@ class LogFileManager:
     async def add_log_file(log_file: LogFileModel) -> bool:
         """添加日志文件"""
         sql_str = """
-            INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at)
-            VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :existed_status, :created_at)
+            INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at)
+            VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :trace_failure_event_cnt, :existed_status, :created_at)
         """
         result = await AsyncSQLiteSingleton().execute_modify(
             sql_str, log_file.model_dump(exclude_none=False, by_alias=True)
@@ -25,8 +25,8 @@ class LogFileManager:
             batch = log_files[i : i + batch_size]
             try:
                 sql_str = """
-                    INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at)
-                    VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :existed_status, :created_at)
+                    INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at)
+                    VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :trace_failure_event_cnt, :existed_status, :created_at)
                 """
                 params = [
                     log_file.model_dump(exclude_none=False, by_alias=True)
@@ -71,7 +71,7 @@ class LogFileManager:
     ) -> tuple[int, list[LogFileModel]]:
         """根据知识ID分页查询日志文件列表"""
         sql_str = """
-            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at
+            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at
             FROM log_file_table
             WHERE kb_id = :kb_id AND existed_status = 1
         """
@@ -101,19 +101,26 @@ class LogFileManager:
         params["limit"] = req.page_cnt
         params["offset"] = offset
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        log_files = [LogFileModel(**row) for row in rows]
+        log_files = []
+        for row in rows:
+            if row.get("trace_failure_event_cnt") is None:
+                row["trace_failure_event_cnt"] = 0
+            log_files.append(LogFileModel(**row))
         return total_count, log_files
 
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> LogFileModel | None:
         """根据日志文件ID获取日志文件信息"""
         sql_str = """
-            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at
+            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at
             FROM log_file_table
             WHERE id = :log_file_id
         """
         params = {"log_file_id": log_file_id}
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         if rows:
-            return LogFileModel(**rows[0])
+            data = rows[0]
+            if data.get("trace_failure_event_cnt") is None:
+                data["trace_failure_event_cnt"] = 0
+            return LogFileModel(**data)
         return None
