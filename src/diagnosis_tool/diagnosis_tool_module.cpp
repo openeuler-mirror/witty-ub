@@ -198,9 +198,10 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
         value = it->second;
         return RACK_OK;
     };
-    if (getRequired("ds-log-path", dsLogPath) != RACK_OK)
+    if (getRequired("ds-log-path", dsLogPath) != RACK_OK) {
         LOG_ERROR << "--ds-log-path must not be empty";
         return RACK_FAIL;
+    }
     if (dsLogPath.empty() || !std::filesystem::exists(dsLogPath) || !std::filesystem::is_directory(dsLogPath)) {
         LOG_WARN << "--ds-log-path must be an existing directory: " << dsLogPath;
         return RACK_FAIL;
@@ -560,7 +561,7 @@ void DiagnosisToolModule::StartKvcache(const std::vector<std::string> &subRootFa
             continue;
         }
         std::shared_ptr<FailureMode> subRootFailureMode = iter->second;
-        std::cout << "visit" << subRootFailureMode->GetId() << std::endl;
+        std::cout << "visit " << subRootFailureMode->GetId() << std::endl;
         Visit(FailureModeController(subRootFailureMode));
     }
 }
@@ -668,14 +669,20 @@ RackResult DiagnosisToolModule::Start()
     for (auto &[traceId, trace] : traces) {
         std::vector<FailureLogInfo> sortedTrace = trace; // 深拷贝一份
         std::sort(sortedTrace.begin(), sortedTrace.end(), [](const FailureLogInfo &left, const FailureLogInfo &right) {
-            std::cout << left.failureModeId << " comp " << right.failureModeId << std::endl;
-            if (left.failureModeId.find(MODULE_KVCACHE) == 0 && right.failureModeId.find(MODULE_URMA) == 0) {
+            bool leftKv = left.failureModeId.find(MODULE_KVCACHE) == 0;
+            bool rightKv = right.failureModeId.find(MODULE_KVCACHE) == 0;
+            bool leftUrma = left.failureModeId.find(MODULE_URMA) == 0;
+            bool rightUrma = right.failureModeId.find(MODULE_URMA) == 0;
+            if (leftKv && rightUrma) {
                 return true;
-            } else if (left.failureModeId.find(MODULE_URMA) == 0 && right.failureModeId.find(MODULE_KVCACHE) == 0) {
-                return false;
-            } else {
-                return left.timestamp >= right.timestamp;
             }
+            if (leftUrma && rightKv) {
+                return false;
+            }
+            if (left.timestamp != right.timestamp) {
+                return left.timestamp > right.timestamp; // 降序，注意是 > 不是 >=
+            }
+            return left.failureModeId < right.failureModeId; // 可选：保证同时间排序稳定
         });
         trace = std::move(sortedTrace); // 用排好序的副本替换原容器
     }
