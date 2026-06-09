@@ -54,8 +54,8 @@ class LogParseResultService:
         )
 
     @staticmethod
-    async def get_log_parse_options() -> GetLogParseOptionsMsg:
+    async def get_log_parse_options(kb_id: str | None = None) -> GetLogParseOptionsMsg:
         """获取日志解析选项（集群和主机列表）"""
-        clusters = await LogParseResultManager.get_cluster_list()
-        hosts = await LogParseResultManager.get_host_list()
+        clusters = await LogParseResultManager.get_cluster_list(kb_id)
+        hosts = await LogParseResultManager.get_host_list(kb_id)
         return GetLogParseOptionsMsg(clusters=clusters, hosts=hosts)

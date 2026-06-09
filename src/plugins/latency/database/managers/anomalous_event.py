@@ -110,24 +110,28 @@ class AnomalousEventManager:
     ) -> tuple[int, list[AnomalousEventModel]]:
         """分页查询异常事件"""
         sql_str = """
-            SELECT id, log_id, aggregated_event_id, start_log_parse_offset,
-                end_log_parse_offset, anomaly_reason, existed_status, created_at
-            FROM anomalous_event_table
-            WHERE existed_status = 1
+            SELECT ae.id, ae.log_id, ae.aggregated_event_id, ae.start_log_parse_offset,
+                ae.end_log_parse_offset, ae.anomaly_reason, ae.existed_status, ae.created_at
+            FROM anomalous_event_table ae
+            LEFT JOIN log_file_table lf ON ae.log_id = lf.id
+            WHERE ae.existed_status = 1
         """
         params = {}
+        if req.kb_id:
+            sql_str += " AND lf.kb_id = :kb_id"
+            params["kb_id"] = req.kb_id
         if req.log_id:
-            sql_str += " AND log_id = :log_id"
+            sql_str += " AND ae.log_id = :log_id"
             params["log_id"] = req.log_id
         if req.aggregated_event_id:
-            sql_str += " AND aggregated_event_id = :aggregated_event_id"
+            sql_str += " AND ae.aggregated_event_id = :aggregated_event_id"
             params["aggregated_event_id"] = req.aggregated_event_id
 
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
 
-        sql_str += " ORDER BY created_at DESC"
+        sql_str += " ORDER BY ae.created_at DESC"
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt
