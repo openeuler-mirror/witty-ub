@@ -74,7 +74,7 @@ std::string CombineLogsForQuotedEnv(const std::filesystem::path &baseDir, const 
         return JoinPathsForShell(paths);
     }
 
-    std::filesystem::path combinedPath = combinedDir / fileName;
+    std::filesystem::path combinedPath = combinedDir.append(fileName);
     std::ofstream outFile(combinedPath, std::ios::out | std::ios::trunc);
     if (!outFile.is_open()) {
         LOG_WARN << "Cannot open combined log file: " << combinedPath;
