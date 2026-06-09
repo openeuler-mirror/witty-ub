@@ -23,6 +23,7 @@
 #include <regex>
 #include <sstream>
 #include <unordered_set>
+#include <unordered_map>
 #include "failure_def.h"
 #include "failure_mode.h"
 #include "failure_mode_controller.h"
@@ -45,6 +46,55 @@ constexpr const char *FAILUREMODE_JSON_DIR = "data/failure_mode_tree.json";
 constexpr const char *EXTRACTED_LOG_BASE = "/var/witty-ub/log";
 constexpr const char *TIME_FORMAT_REGEX = R"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})";
 constexpr mode_t DIR_PERM_755 = 0755;
+
+std::string JoinPathsForShell(const std::vector<std::string> &paths)
+{
+    std::ostringstream oss;
+    for (size_t i = 0; i < paths.size(); i++) {
+        if (i > 0) {
+            oss << " ";
+        }
+        oss << paths[i];
+    }
+    return oss.str();
+}
+
+std::string CombineLogsForQuotedEnv(const std::filesystem::path &baseDir, const std::string &fileName,
+                                    const std::vector<std::string> &paths)
+{
+    if (paths.size() <= 1) {
+        return paths.empty() ? "" : paths.front();
+    }
+
+    std::filesystem::path combinedDir = baseDir / ".combined_logs";
+    std::error_code ec;
+    std::filesystem::create_directories(combinedDir, ec);
+    if (ec) {
+        LOG_WARN << "Failed to create combined log directory: " << combinedDir;
+        return JoinPathsForShell(paths);
+    }
+
+    std::filesystem::path combinedPath = combinedDir.append(fileName);
+    std::ofstream outFile(combinedPath, std::ios::out | std::ios::trunc);
+    if (!outFile.is_open()) {
+        LOG_WARN << "Cannot open combined log file: " << combinedPath;
+        return JoinPathsForShell(paths);
+    }
+
+    for (const auto &path : paths) {
+        std::ifstream inFile(path);
+        if (!inFile.is_open()) {
+            LOG_WARN << "Cannot open extracted log file for combine: " << path;
+            continue;
+        }
+        outFile << inFile.rdbuf();
+        if (outFile.tellp() > 0) {
+            outFile << '\n';
+        }
+    }
+    return combinedPath.string();
+}
+
 // 读取json文件，获取故障树
 void DiagnosisToolModule::InitializeFailureModeTree()
 {
@@ -246,6 +296,8 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
         {resourceLogFile, "WITTY_UB_RESOURCES_LOG"},
     };
 
+    std::unordered_map<std::string, std::string> extractedEnvValues;
+    std::unordered_map<std::string, std::vector<std::string>> extractedEnvPaths;
     for (const auto &entry : logFiles) {
         std::vector<std::string> matchedFiles = FindMatchingFiles(dsLogPath, entry.pattern);
         if (matchedFiles.empty()) {
@@ -254,6 +306,7 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
         LOG_INFO << "Found " << matchedFiles.size() << " file(s) matching " << entry.pattern;
 
         int totalLines = 0;
+        std::vector<std::string> extractedPaths;
         for (const auto &srcPath : matchedFiles) {
             std::string filename = std::filesystem::path(srcPath).filename().string();
             std::string outputPath = (baseDir / filename).string();
@@ -262,9 +315,12 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
                 LOG_WARN << "Failed to extract log lines from: " << srcPath;
                 return RACK_FAIL;
             }
+            extractedPaths.push_back(outputPath);
         }
 
-        std::string envValue = (baseDir / entry.pattern).string();
+        std::string envValue = JoinPathsForShell(extractedPaths);
+        extractedEnvValues[entry.envName] = envValue;
+        extractedEnvPaths[entry.envName] = extractedPaths;
         if (setenv(entry.envName.c_str(), envValue.c_str(), 1) != 0) {
             LOG_ERROR << "Failed to set " << entry.envName << " environment variable";
             return RACK_FAIL;
@@ -273,7 +329,8 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
     }
 
     // Set URMA_LOG_PATH same as WITTY_UB_WORKER_INFO_LOG
-    std::string workerLogOutputPath = (baseDir / dsWorkerInfoLogFile).string();
+    std::string workerLogOutputPath =
+        CombineLogsForQuotedEnv(baseDir, "worker_info.log", extractedEnvPaths["WITTY_UB_WORKER_INFO_LOG"]);
     if (setenv("URMA_LOG_PATH", workerLogOutputPath.c_str(), 1) != 0) {
         LOG_ERROR << "Failed to set URMA_LOG_PATH environment variable";
         return RACK_FAIL;
@@ -702,6 +759,7 @@ RackResult DiagnosisToolModule::Start()
     // 保存故障Traces的结果
     StoreFailureTraces();
     GenerateView();
+    return RACK_OK;
 }
 
 void DiagnosisToolModule::Stop()
