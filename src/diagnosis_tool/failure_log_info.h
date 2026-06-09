@@ -34,7 +34,7 @@ struct FailureLogInfo {
         return timestamp == other.timestamp && level == other.level && filename == other.filename &&
                lineNo == other.lineNo && podName == other.podName && pid == other.pid && tid == other.tid &&
                traceId == other.traceId && clusterName == other.clusterName && message == other.message &&
-               rawLog == other.rawLog;
+               rawLog == other.rawLog && failureModeId == other.failureModeId;
     }
 };
 } // namespace diag
