@@ -267,6 +267,8 @@ class AsyncSQLiteSingleton:
             # 为 task_table 添加 completed_at 和 duration_seconds 字段
             ("task_table", "ALTER TABLE task_table ADD COLUMN completed_at TEXT"),
             ("task_table", "ALTER TABLE task_table ADD COLUMN duration_seconds REAL"),
+            # 为 timestamp 字段添加索引，加速时间范围查询
+            ("log_parse_result_table", "CREATE INDEX IF NOT EXISTS idx_timestamp ON log_parse_result_table(timestamp)"),
         ]
 
         try:
@@ -276,8 +278,8 @@ class AsyncSQLiteSingleton:
                     logger.info(f"成功为 {table_name} 执行迁移: {sql}")
                 except sqlite3.OperationalError as e:
                     # 如果字段已存在，忽略错误
-                    if "duplicate column name" in str(e).lower():
-                        logger.info(f"字段已存在，跳过迁移: {sql}")
+                    if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                        logger.info(f"字段/索引已存在，跳过迁移: {sql}")
                     else:
                         raise
             self._conn.commit()

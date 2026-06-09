@@ -7,7 +7,6 @@ from latency.schemas.log import (
     AnomalousEventModel,
     AnomalousEventChainModel,
     LogParseResultModel,
-    LatencyMetricItem,
 )
 from latency.schemas.failure_mode import (
     FailureModeModel,
@@ -268,7 +267,7 @@ class ListTracesByHostResponse(ResponseBase):
 class GetLatencyMetricsMsg(BaseModel):
     """延迟指标时间曲线响应"""
     total: int = Field(..., description="符合条件的数据点总数")
-    metrics: list[LatencyMetricItem] = Field(default_factory=list, description="延迟指标时间序列数据")
+    metrics: list[dict] = Field(default_factory=list, description="延迟指标时间序列数据")
     time_range: dict = Field(
         default_factory=dict,
         description="实际查询的时间范围",
