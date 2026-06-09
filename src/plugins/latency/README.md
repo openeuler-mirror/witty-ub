@@ -119,6 +119,10 @@ latency/
 
 - Python >= 3.10
 - [uv](https://github.com/astral-sh/uv)（推荐）或 pip
+- unrar（可选，用于解压 .rar 文件）
+  - Ubuntu/Debian: `sudo apt-get install unrar`
+  - CentOS/RHEL: `sudo yum install unrar`
+  - macOS: `brew install unrar`
 
 ### 一键部署
 
