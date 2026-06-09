@@ -199,30 +199,31 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
         return RACK_OK;
     };
     if (getRequired("ds-log-path", dsLogPath) != RACK_OK)
+        LOG_ERROR << "--ds-log-path must not be empty";
         return RACK_FAIL;
     if (dsLogPath.empty() || !std::filesystem::exists(dsLogPath) || !std::filesystem::is_directory(dsLogPath)) {
-        LOG_ERROR << "--ds-log-path must be an existing directory: " << dsLogPath;
+        LOG_WARN << "--ds-log-path must be an existing directory: " << dsLogPath;
         return RACK_FAIL;
     }
 
     if (getRequired("ds-client-access-log-file", dsClientAccessLogFile) != RACK_OK || dsClientAccessLogFile.empty()) {
-        LOG_ERROR << "--ds-client-access-log-file is empty";
+        LOG_WARN << "--ds-client-access-log-file is empty";
     }
 
     if (getRequired("ds-client-info-log-file", dsClientInfoLogFile) != RACK_OK || dsClientInfoLogFile.empty()) {
-        LOG_ERROR << "--ds-client-info-log-file is empty";
+        LOG_WARN << "--ds-client-info-log-file is empty";
     }
 
     if (getRequired("ds-worker-info-log-file", dsWorkerInfoLogFile) != RACK_OK || dsWorkerInfoLogFile.empty()) {
-        LOG_ERROR << "--ds-worker-info-log-file is empty";
+        LOG_WARN << "--ds-worker-info-log-file is empty";
     }
 
     if (getRequired("ds-worker-access-log-file", dsWorkerAccessLogFile) != RACK_OK || dsWorkerAccessLogFile.empty()) {
-        LOG_ERROR << "--ds-worker-access-log-file is empty";
+        LOG_WARN << "--ds-worker-access-log-file is empty";
     }
 
     if (getRequired("resource-log-file", resourceLogFile) != RACK_OK || resourceLogFile.empty()) {
-        LOG_ERROR << "--resource-log-file is empty";
+        LOG_WARN << "--resource-log-file is empty";
     }
 
     if (getRequired("start-time", startTimeStr) != RACK_OK)
@@ -301,7 +302,7 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
     for (const auto &entry : logFiles) {
         std::vector<std::string> matchedFiles = FindMatchingFiles(dsLogPath, entry.pattern);
         if (matchedFiles.empty()) {
-            LOG_ERROR << "No files matching '" << entry.pattern << "' found under " << dsLogPath;
+            LOG_WARN << "No files matching '" << entry.pattern << "' found under " << dsLogPath;
         }
         LOG_INFO << "Found " << matchedFiles.size() << " file(s) matching " << entry.pattern;
 
