@@ -18,6 +18,7 @@ class UrmaLogParser(LogParser):
 
     label = "Worker urma parse"
     _handle_errors = True
+    _keywords = ("URMA_ELAPSED_TOTAL",)
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -27,7 +28,7 @@ class UrmaLogParser(LogParser):
         if "URMA_ELAPSED_TOTAL" not in line:
             return None
         
-        parsed = self.parse_run_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
         if not parsed:
             return None
         

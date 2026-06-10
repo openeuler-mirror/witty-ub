@@ -18,6 +18,7 @@ class LinkLogParser(LogParser):
 
     label = "Worker link parse"
     _handle_errors = True
+    _keywords = ("elapsed ms:",)
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -30,7 +31,7 @@ class LinkLogParser(LogParser):
                 and "Worker-worker transport connection exchange success" not in line):
             return None
         
-        parsed = self.parse_run_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
         if not parsed:
             return None
         
