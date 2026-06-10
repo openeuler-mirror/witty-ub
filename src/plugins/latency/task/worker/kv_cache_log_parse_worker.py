@@ -17,6 +17,7 @@ from latency.parse import (
     RemotePullLogParser,
     LinkLogParser,
     QueryMetaLogParser,
+    WorkerMetricsLogParser,  # 新增指标解析器
     LogCorrelator,
     ParseResultBuilder,
 )
@@ -137,9 +138,31 @@ class KVCacheLogParseWorker(BaseWorker):
     # 解析日志
     @staticmethod
     async def parse_log(
-        log_dir: str,
+        log_id: str = "",
         parse_config: Optional[ParseConfig] = None,
+        log_dir: str = "",  # 向后兼容参数
     ) -> list[LogParseResultModel]:
+        """解析日志文件
+
+        Args:
+            log_id: 日志文件ID（数据库中的主键）
+            parse_config: 解析配置
+            log_dir: 日志目录路径（向后兼容，优先使用 log_id）
+
+        Returns:
+            解析结果列表
+        """
+        # 优先使用 log_id，如果没有则使用 log_dir（向后兼容）
+        if log_id:
+            # 从数据库获取日志文件信息
+            from latency.database.managers.log_file import LogFileManager
+            log_file = await LogFileManager.get_log_file_by_log_file_id(log_id)
+            if not log_file:
+                raise ValueError(f"Log file with id {log_id} not found")
+            log_dir = log_file.file_path
+        elif not log_dir:
+            raise ValueError("Either log_id or log_dir must be provided")
+
         parsers = [
             SdkAccessLogParser(parse_config),
             WorkerAccessLogParser(parse_config),
@@ -147,6 +170,7 @@ class KVCacheLogParseWorker(BaseWorker):
             RemotePullLogParser(parse_config),
             LinkLogParser(parse_config),
             QueryMetaLogParser(parse_config),
+            WorkerMetricsLogParser(parse_config),  # 新增指标解析器
         ]
 
         # 使用并行扫描器（文件去重 + 多进程并行）
@@ -179,7 +203,7 @@ class KVCacheLogParseWorker(BaseWorker):
         logger.info("Released parsed entries")
 
         logger.info("=== Stage 3/3: Building parse results ===")
-        builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir)
+        builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir, log_file_id=log_id)
         results = builder.build()
 
         # 及时释放所有中间结构（降低内存峰值）
@@ -393,28 +417,21 @@ class KVCacheLogParseWorker(BaseWorker):
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
             await BaseWorker.report(task.id, "运行任务", 5.0)
-            
-            log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
-            if not log_file:
-                logger.error(f"LogFile {task.op_id} 不存在")
-                await TaskManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
-                )
-                return False
-            log_dir = log_file.file_path
-            kb_id = log_file.kb_id
 
-            await BaseWorker.report(task.id, "开始解析日志 请耐心等待", 10.0)
-            
             # 从 TaskHandler 获取解析配置
             from latency.task.task_handler import TaskHandler
             parse_config = TaskHandler.get_task_config(task_id)
             if parse_config:
                 logger.info(f"[任务 {task_id}] 使用解析配置: {parse_config}")
-            
-            list_log_parse_results = await KVCacheLogParseWorker.parse_log(log_dir, parse_config)
+
+            # 直接使用 task.op_id 作为 log_id，parse_log 内部会获取 log_file 信息
+            list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config)
             await BaseWorker.report(task.id, "完成解析日志", 70.0)
-            
+
+            # 获取 kb_id 用于后续更新知识库统计
+            log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+            kb_id = log_file.kb_id if log_file else None
+
             # 先检测异常（填充 anomalous_event_id）
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
             await BaseWorker.report(task.id, "检测异常事件", 80.0)

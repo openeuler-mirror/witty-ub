@@ -124,6 +124,7 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的聚合事件")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     created_at_start: Optional[str] = Field(
         default=None,
         description="聚合事件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
@@ -142,12 +143,14 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
 
 class ListAnomalousEventChainRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件链")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     page_cnt: int = Field(default=10, description="每页的异常事件链数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
 class ListLogParseResultRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
@@ -216,12 +219,14 @@ class ListTraceFailureEventResultRequest(BaseModel):
 class ListAnomalousEventRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     page_cnt: int = Field(default=10, description="每页的异常事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
 class ListTracesByHostRequest(BaseModel):
     host: str = Field(..., description="主机名或IP地址")
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
@@ -246,6 +251,7 @@ class ListTracesByHostRequest(BaseModel):
 
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     host: Optional[str] = Field(default=None, description="主机名或 IP 地址，可选")
     src_ip: Optional[str] = Field(default=None, description="源 IP 地址，可选")
     dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，可选")
