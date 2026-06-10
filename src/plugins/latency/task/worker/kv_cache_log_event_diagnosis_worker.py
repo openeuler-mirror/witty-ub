@@ -9,15 +9,8 @@ import shutil
 import gzip
 import zipfile
 from datetime import datetime
-from collections import defaultdict
-from latency.schemas.log import LogParseResultModel
 from latency.schemas.log_failure_event import LogFailureEventModel, TraceFailureEventModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.config.config import Config
-from latency.task.process_handle import ProcessHandler
-from latency.parse import (
-    SdkAccessLogParser,
-)
 from latency.common.ds_log_io import glob_paths, open_log
 from latency.detect import AnomalyDetector
 from latency.database.engine import AsyncSQLiteSingleton
@@ -165,13 +158,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
             config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config()
             
-            worker_access_pattern = None
-            client_access_pattern = None
-            if "ds-worker-access-log-file" in config:
-                worker_access_pattern = re.compile(config["ds-worker-access-log-file"].replace("\\", "").replace(".*", "*"))
-            if "ds-client-access-log-file" in config:
-                client_access_pattern = re.compile(config["ds-client-access-log-file"].replace("\\", "").replace(".*", "*"))
-            
             log_files = []
             for file in os.listdir(output_log_path):
                 file_path = os.path.join(output_log_path, file)
@@ -184,12 +170,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
             print(f"开始日志落库，共{len(trace_id_set)}条故障trace")
             for log_file_name, log_file_path in log_files:
-                is_access_log = False
-                if worker_access_pattern and worker_access_pattern.search(log_file_name):
-                    is_access_log = True
-                if client_access_pattern and client_access_pattern.search(log_file_name):
-                    is_access_log = True
-                
                 try:
                     with open(log_file_path, 'r', encoding='utf-8') as f:
                         for line in f:
@@ -223,17 +203,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                     tid = ""
                                 
                                 status_code = ""
-                                message = ""
-                                
-                                if is_access_log:
-                                    if len(parts) > 7:
-                                        status_code = parts[7].strip()
-                                        message = '|'.join(parts[8:]) if len(parts) > 8 else ""
-                                    else:
-                                        logger.warning(f"access log格式不正确，字段不足: {line}")
-                                        continue
-                                else:
-                                    message = '|'.join(parts[7:]) if len(parts) > 7 else ""
+                                message = '|'.join(parts[7:]) if len(parts) > 7 else ""
                                 
                                 log_failure_event = LogFailureEventModel(
                                     log_id=log_id,
@@ -247,7 +217,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                     tid=tid,
                                     trace_id=trace_id,
                                     cluster_name=cluster_name,
-                                    message=message,
+                                    message=message.strip(),
                                     status_code=status_code,
                                     failure_mode=[]
                                 )
@@ -601,7 +571,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 return False
             
             # TODO: 运行时启用真实业务逻辑
-            # random_str = "222"
             random_str = log_file.id[:8]
             
             extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(log_file.file_path, random_str)
@@ -609,11 +578,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             # TODO: 运行时启用真实业务逻辑
             print("故障诊断工具开始运行")
             result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(file_path=extracted_log_file_path, task=task, random_str=random_str)
-            # try:
-            #   if extracted_log_file_path == os.path.join(witty_dir, "log_extracted_" + random_str):
-            #       shutil.rmtree(extracted_log_file_path)
-            # except Exception as e:
-            #     logger.exception(f"删除文件夹 {extracted_log_file_path} 失败: {e}")
+            try:
+              if extracted_log_file_path == os.path.join(witty_dir, "log_extracted_" + random_str):
+                  shutil.rmtree(extracted_log_file_path)
+            except Exception as e:
+                logger.exception(f"删除文件夹 {extracted_log_file_path} 失败: {e}")
             print("故障诊断工具运行完成")
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
             trace_id_set = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
