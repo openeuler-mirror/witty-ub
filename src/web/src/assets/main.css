@@ -1975,7 +1975,14 @@ button {
   gap: 6px;
 }
 
+.trace-sub-fault-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .trace-sub-fault {
+  cursor: pointer;
   border: 1px solid #bfdbfe;
   border-radius: 999px;
   background: #eff6ff;
@@ -1983,6 +1990,26 @@ button {
   font-size: 0.74rem;
   font-weight: 700;
   padding: 4px 8px;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.trace-sub-fault:hover,
+.trace-sub-fault.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.trace-sub-fault-detail {
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 10px;
+}
+
+.trace-sub-fault-detail .trace-fault-detail-list {
+  margin-bottom: 0;
 }
 
 .failure-mode-chain-list {
