@@ -48,3 +48,31 @@ QUERY_META_RE = re.compile(
 # -------------------------------------------------------------------
 
 LEADING_FLOAT_RE = re.compile(r"^\s*([\d.]+)(?:ms)?(?:\(|\s*$)")
+
+# -------------------------------------------------------------------
+# 新增时延指标正则 (按用户需求添加)
+# -------------------------------------------------------------------
+
+# 1. sdk_process - 关键字: totalCost: Xms
+SDK_PROCESS_RE = re.compile(r"totalCost:\s*([\d.]+)ms")
+
+# 2. sdk_rpc - 关键字: Worker to master rpc QueryMeta: Xms
+SDK_RPC_RE = re.compile(r"Worker to master rpc QueryMeta:\s*([\d.]+)ms")
+
+# 3. local_worker_cost - 关键字: ProcessGetObjectRequest: Xms
+LOCAL_WORKER_COST_RE = re.compile(r"ProcessGetObjectRequest:\s*([\d.]+)ms")
+
+# 4. local_worker_lock - 关键字: worker SafeObject WLock: Xms
+LOCAL_WORKER_LOCK_RE = re.compile(r"worker SafeObject WLock:\s*([\d.]+)ms")
+
+# 5. remote_worker_cost - 关键字: [Get/RemotePull] finish ... cost: Xms
+REMOTE_WORKER_COST_RE = re.compile(r"\[(?:Get|RemotePull)\]\s+finish.*?cost:\s*([\d.]+)ms")
+
+# 6. remote_worker_rpc - 关键字: [Get] Remote done ... cost: Xms
+REMOTE_WORKER_RPC_RE = re.compile(r"\[Get\]\s+Remote done.*?cost:\s*([\d.]+)ms")
+
+# 7. master_process - 关键字: QueryMeta done ... cost: Xms
+MASTER_PROCESS_RE = re.compile(r"QueryMeta done.*?cost:\s*([\d.]+)ms")
+
+# 8. master_rpc - 关键字: [ZMQ_RPC_FRAMEWORK_SLOW] ... remote_processing_us=X
+MASTER_RPC_RE = re.compile(r"\[ZMQ_RPC_FRAMEWORK_SLOW\].*?remote_processing_us=(\d+)")

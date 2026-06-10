@@ -115,6 +115,7 @@ def _rebuild_parsers(
         RemotePullLogParser,
         LinkLogParser,
         QueryMetaLogParser,
+        WorkerMetricsLogParser,  # 新增指标解析器
     )
 
     parse_config = ParseConfig(**parse_config_dict) if parse_config_dict else None
@@ -126,6 +127,7 @@ def _rebuild_parsers(
         "RemotePullLogParser": RemotePullLogParser,
         "LinkLogParser": LinkLogParser,
         "QueryMetaLogParser": QueryMetaLogParser,
+        "WorkerMetricsLogParser": WorkerMetricsLogParser,  # 新增指标解析器
     }
 
     parsers = []

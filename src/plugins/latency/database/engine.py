@@ -136,7 +136,15 @@ table_ddl_list = {
             anomaly_score REAL,
             remark TEXT,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            sdk_process REAL,
+            sdk_rpc REAL,
+            local_worker_cost REAL,
+            local_worker_lock REAL,
+            remote_worker_cost REAL,
+            remote_worker_rpc REAL,
+            master_process REAL,
+            master_rpc_total REAL
         )
     """,
     "task_table": """
@@ -225,6 +233,15 @@ class AsyncSQLiteSingleton:
             ("task_table", "ALTER TABLE task_table ADD COLUMN duration_seconds REAL"),
             # 为 timestamp 字段添加索引，加速时间范围查询
             ("log_parse_result_table", "CREATE INDEX IF NOT EXISTS idx_timestamp ON log_parse_result_table(timestamp)"),
+            # 新增时延指标字段（用户需求）
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN sdk_process REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN sdk_rpc REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN local_worker_cost REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN local_worker_lock REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN remote_worker_cost REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN remote_worker_rpc REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_process REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_rpc_total REAL"),
         ]
 
         try:

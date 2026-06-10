@@ -6,4 +6,5 @@ from .urma_log_parser import UrmaLogParser
 from .remote_pull_log_parser import RemotePullLogParser
 from .link_log_parser import LinkLogParser
 from .query_meta_log_parser import QueryMetaLogParser
+from .worker_metrics_log_parser import WorkerMetricsLogParser  # 新增指标解析器
 from .correlation import LogCorrelator, ParseResultBuilder

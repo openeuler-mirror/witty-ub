@@ -56,6 +56,11 @@ class ParseResultBuilder:
     def _first_elapsed_us(self, entry_list: Optional[dict[int, list[LogEntry]] | list[LogEntry]], key: Optional[int]) -> Optional[float]:
         values = entry_list.get(key, []) if isinstance(entry_list, dict) else entry_list
         return values[0].elapsed_us / 1000 if values else None
+    
+    def _first_elapsed_us_raw(self, entry_list: Optional[dict[int, list[LogEntry]]], key: Optional[int]) -> Optional[float]:
+        """获取第一个条目的elapsed_us（不转换为ms）"""
+        values = entry_list.get(key, []) if isinstance(entry_list, dict) else []
+        return values[0].elapsed_us if values else None
 
     def _resolve_urma_info(self, w_idx: Optional[int], sdk_success: bool, worker_success: bool) -> dict[str, Any]:
         urma_latency: Optional[float] = None
@@ -117,6 +122,16 @@ class ParseResultBuilder:
             urma_link_latency = self._first_elapsed_us(self.correlated.worker_link_map, w_idx) if w_idx is not None else None
             c2w_urma_latency = self._first_elapsed_us(self.correlated.sdk_urma_map.get(i, []), None)
             w2w_urma_latency = self._first_elapsed_us(self.correlated.worker_worker_urma_map.get(w_idx, []), None) if w_idx is not None else None
+            
+            # 获取新增指标
+            sdk_process = self._first_elapsed_us(self.correlated.worker_sdk_process_map, w_idx) if w_idx is not None else None
+            sdk_rpc = self._first_elapsed_us(self.correlated.worker_sdk_rpc_map, w_idx) if w_idx is not None else None
+            local_worker_cost = self._first_elapsed_us(self.correlated.worker_local_worker_cost_map, w_idx) if w_idx is not None else None
+            local_worker_lock = self._first_elapsed_us(self.correlated.worker_local_worker_lock_map, w_idx) if w_idx is not None else None
+            remote_worker_cost = self._first_elapsed_us(self.correlated.worker_remote_worker_cost_map, w_idx) if w_idx is not None else None
+            remote_worker_rpc = self._first_elapsed_us(self.correlated.worker_remote_worker_rpc_map, w_idx) if w_idx is not None else None
+            master_process = self._first_elapsed_us(self.correlated.worker_master_process_map, w_idx) if w_idx is not None else None
+            master_rpc_total = self._first_elapsed_us_raw(self.correlated.worker_master_rpc_map, w_idx) if w_idx is not None else None
 
             urma_info = self._resolve_urma_info(w_idx, sdk_success, worker_success)
 
@@ -141,6 +156,15 @@ class ParseResultBuilder:
                 urma_inflight_count=urma_info["urma_inflight_count"],
                 c2w_urma_latency=c2w_urma_latency,
                 w2w_urma_latency=w2w_urma_latency,
+                # 新增指标字段
+                sdk_process=sdk_process,
+                sdk_rpc=sdk_rpc,
+                local_worker_cost=local_worker_cost,
+                local_worker_lock=local_worker_lock,
+                remote_worker_cost=remote_worker_cost,
+                remote_worker_rpc=remote_worker_rpc,
+                master_process=master_process,
+                master_rpc_total=master_rpc_total,
                 operation=sdk.operation,
                 data_size=sdk.data_size,
                 is_anomalous=is_anomalous,
@@ -164,6 +188,16 @@ class ParseResultBuilder:
             query_meta_list = self.correlated.worker_query_meta_map.get(i, [])
             link_list = self.correlated.worker_link_map.get(i, [])
             w2c_urma_list = self.correlated.worker_worker_urma_map.get(i, [])
+            
+            # 获取新增指标
+            sdk_process_list = self.correlated.worker_sdk_process_map.get(i, [])
+            sdk_rpc_list = self.correlated.worker_sdk_rpc_map.get(i, [])
+            local_worker_cost_list = self.correlated.worker_local_worker_cost_map.get(i, [])
+            local_worker_lock_list = self.correlated.worker_local_worker_lock_map.get(i, [])
+            remote_worker_cost_list = self.correlated.worker_remote_worker_cost_map.get(i, [])
+            remote_worker_rpc_list = self.correlated.worker_remote_worker_rpc_map.get(i, [])
+            master_process_list = self.correlated.worker_master_process_map.get(i, [])
+            master_rpc_total_list = self.correlated.worker_master_rpc_map.get(i, [])
 
             results.append(LogParseResultModel.model_construct(
                 log_id=self.log_dir,
@@ -180,6 +214,15 @@ class ParseResultBuilder:
                 urma_link_latency=link_list[0].elapsed_us / 1000 if link_list else None,
                 urma_inflight_count=urma_info["urma_inflight_count"],
                 w2w_urma_latency=w2c_urma_list[0].elapsed_us / 1000 if w2c_urma_list else None,
+                # 新增指标字段
+                sdk_process=sdk_process_list[0].elapsed_us / 1000 if sdk_process_list else None,
+                sdk_rpc=sdk_rpc_list[0].elapsed_us / 1000 if sdk_rpc_list else None,
+                local_worker_cost=local_worker_cost_list[0].elapsed_us / 1000 if local_worker_cost_list else None,
+                local_worker_lock=local_worker_lock_list[0].elapsed_us / 1000 if local_worker_lock_list else None,
+                remote_worker_cost=remote_worker_cost_list[0].elapsed_us / 1000 if remote_worker_cost_list else None,
+                remote_worker_rpc=remote_worker_rpc_list[0].elapsed_us / 1000 if remote_worker_rpc_list else None,
+                master_process=master_process_list[0].elapsed_us / 1000 if master_process_list else None,
+                master_rpc_total=master_rpc_total_list[0].elapsed_us if master_rpc_total_list else None,
                 operation="DS_POSIX_GET",
                 is_anomalous=is_anomalous,
                 anomaly_reason=remark if is_anomalous else None,
