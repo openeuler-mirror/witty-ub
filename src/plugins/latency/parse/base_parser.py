@@ -105,7 +105,7 @@ class LogParser(ABC):
     def parse(self, input_dir: str) -> list[LogEntry]:
         """解析目录下的日志文件"""
         entries: list[LogEntry] = []
-        paths = glob_paths([os.path.join(input_dir, p) for p in self.patterns])
+        paths = glob_paths([os.path.join(input_dir, "**", p) for p in self.patterns])
         progress = Progress(self.label, len(paths))
         for file_idx, path in enumerate(paths, 1):
             pod_ip = self.extract_pod_ip(path)
