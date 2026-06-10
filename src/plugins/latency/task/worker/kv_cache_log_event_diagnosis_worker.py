@@ -424,6 +424,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     if not trace_failure_event.status_code and log_failure_event.status_code:
                         trace_failure_event.status_code = log_failure_event.status_code
                     
+                    if trace_failure_event.status_code == "0" and log_failure_event.status_code != "0":
+                        trace_failure_event.status_code = log_failure_event.status_code
+                    
                     if log_failure_event.failure_mode:
                         new_leaf_mode = await KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
                             log_failure_event.failure_mode
