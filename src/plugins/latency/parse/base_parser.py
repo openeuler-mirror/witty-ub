@@ -174,6 +174,7 @@ class LogParser(ABC):
         col = LogParser.AccessCol
         return {
             "timestamp": parts[col.TIMESTAMP].strip(),
+            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < len(parts) else "",
             "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
             "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
             "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < len(parts) else "",
@@ -202,6 +203,7 @@ class LogParser(ABC):
         col = LogParser.RunCol
         return {
             "timestamp": parts[col.TIMESTAMP].strip(),
+            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < len(parts) else "",
             "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
             "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
             "msg": parts[col.MSG].strip() if col.MSG < len(parts) else "",
