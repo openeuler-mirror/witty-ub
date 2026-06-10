@@ -60,7 +60,7 @@ class FileParserMapBuilder:
 
         for parser in self.parsers:
             try:
-                patterns = [os.path.join(self.log_dir, p) for p in parser.patterns]
+                patterns = [os.path.join(self.log_dir, "**", p) for p in parser.patterns]
                 paths = glob_paths(patterns)
 
                 for path in paths:

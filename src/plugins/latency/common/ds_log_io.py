@@ -45,7 +45,7 @@ def glob_paths(patterns: list[str]) -> list[str]:
     paths = []
     seen = set()
     for pattern in patterns:
-        for path in glob.glob(pattern):
+        for path in glob.glob(pattern, recursive=True):
             if path not in seen:
                 paths.append(path)
                 seen.add(path)
