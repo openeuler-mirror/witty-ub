@@ -20,7 +20,7 @@ ZONE_ANOMALY_DENSITY_THRESHOLD = 0.5
 # ds-client-access-log-file 和 ds-client-info-log-file 合并为 SDK_ACCESS_LOG_PATTERNS
 # ds-worker-access-log-file 映射为 WORKER_ACCESS_LOG_PATTERNS
 # ds-worker-info-log-file 映射为 URMA_LOG_PATTERNS, REMOTE_PULL_LOG_PATTERNS, LINK_LOG_PATTERNS, QUERY_META_LOG_PATTERNS
-ds-client-access-log-file = ["SDK_*/ds_client_access_*.log", "SDK_*/ds_client_access_*.log.gz"]
+ds-client-access-log-file = ["ds_client_access*.log", "ds_client_access*.log.gz"]
 ds-client-info-log-file = []
-ds-worker-access-log-file = ["*worker_*/access.log", "*worker_*/access.log.gz"]
-ds-worker-info-log-file = ["*worker_*/datasystem_worker.INFO.*", "*worker_*/kvcache.INFO.*"]
+ds-worker-access-log-file = ["access.log", "access.log.gz"]
+ds-worker-info-log-file = ["datasystem_worker.INFO.*", "kvcache.INFO.*"]
