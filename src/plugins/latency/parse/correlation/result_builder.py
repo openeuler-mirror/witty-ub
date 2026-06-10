@@ -19,11 +19,13 @@ class ParseResultBuilder:
         worker_entries: list[LogEntry],
         correlated: CorrelationResult,
         log_dir: str = "",
+        log_file_id: str = "",
     ) -> None:
         self.sdk_entries = sdk_entries
         self.worker_entries = worker_entries
         self.correlated = correlated
         self.log_dir = log_dir
+        self.log_file_id = log_file_id  # 数据库中的日志文件ID
 
     def build(self) -> list[LogParseResultModel]:
         if self.sdk_entries:
@@ -139,8 +141,11 @@ class ParseResultBuilder:
                                             urma_info["urma_empty_reason"])
             is_anomalous = bool(remark) and remark != "OK"
 
+            # 优先使用传入的 log_file_id（数据库中的日志文件ID），其次使用 entry.log_id，最后使用 log_dir
+            log_id = self.log_file_id or sdk.log_id or self.log_dir
+
             results.append(LogParseResultModel.model_construct(
-                log_id=self.log_dir,
+                log_id=log_id,
                 trace_id=sdk.trace_id,
                 timestamp=sdk.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if sdk.timestamp else None,
                 src_ip=urma_info["src_ip"],
@@ -199,8 +204,11 @@ class ParseResultBuilder:
             master_process_list = self.correlated.worker_master_process_map.get(i, [])
             master_rpc_total_list = self.correlated.worker_master_rpc_map.get(i, [])
 
+            # 优先使用传入的 log_file_id（数据库中的日志文件ID），其次使用 entry.log_id，最后使用 log_dir
+            log_id = self.log_file_id or w.log_id or self.log_dir
+
             results.append(LogParseResultModel.model_construct(
-                log_id=self.log_dir,
+                log_id=log_id,
                 trace_id=w.trace_id,
                 timestamp=w.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if w.timestamp else None,
                 src_ip=urma_info["src_ip"],
