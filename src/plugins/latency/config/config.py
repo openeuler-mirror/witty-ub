@@ -14,7 +14,7 @@ class Config:
 
     def __init__(self) -> None:
         """读取配置文件；当PROD环境变量设置时，配置文件将在读取后删除"""
-        config_file = os.getenv("CONFIG") or "var/witty-ub/config/latency_config.toml"
+        config_file = os.getenv("CONFIG") or "/var/witty-ub/config/latency_config.toml"
         if config_file is None:
             # 使用绝对路径，基于当前文件的位置
             latency_dir = os.path.dirname(os.path.dirname(__file__))
