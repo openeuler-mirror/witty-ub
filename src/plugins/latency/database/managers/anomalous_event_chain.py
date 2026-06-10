@@ -81,21 +81,25 @@ class AnomalousEventChainManager:
     ) -> tuple[int, list[AnomalousEventChainModel]]:
         """分页查询异常事件链"""
         sql_str = """
-            SELECT id, log_id, anomalous_event_id, name, description,
-                anomaly_code, offset, existed_status, created_at
-            FROM anomalous_event_chain_table
-            WHERE existed_status = 1
+            SELECT aec.id, aec.log_id, aec.anomalous_event_id, aec.name, aec.description,
+                aec.anomaly_code, aec.offset, aec.existed_status, aec.created_at
+            FROM anomalous_event_chain_table aec
+            LEFT JOIN log_file_table lf ON aec.log_id = lf.id
+            WHERE aec.existed_status = 1
         """
         params = {}
+        if req.kb_id:
+            sql_str += " AND lf.kb_id = :kb_id"
+            params["kb_id"] = req.kb_id
         if req.log_id:
-            sql_str += " AND log_id = :log_id"
+            sql_str += " AND aec.log_id = :log_id"
             params["log_id"] = req.log_id
 
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
 
-        sql_str += " ORDER BY created_at DESC"
+        sql_str += " ORDER BY aec.created_at DESC"
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt

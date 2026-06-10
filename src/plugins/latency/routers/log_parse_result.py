@@ -1,7 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from fastapi import APIRouter, Path, Body
-from typing import Annotated
+from fastapi import APIRouter, Path, Body, Query
+from typing import Annotated, Optional
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.schemas.response import (
     ListLogParseResultsResponse,
@@ -23,12 +23,14 @@ async def list_log_parse_results(
     return ListLogParseResultsResponse(result=msg)
 
 @router.get("/options", response_model=GetLogParseOptionsResponse)
-async def get_log_parse_options() -> GetLogParseOptionsResponse:
+async def get_log_parse_options(
+    kb_id: Annotated[Optional[str], Query(description="知识库ID，用于过滤")] = None,
+) -> GetLogParseOptionsResponse:
     """获取日志解析选项（集群和主机名称列表）
 
     返回数据库中已有的集群名称和主机名称列表，用于前端下拉框选项。
     """
-    msg = await LogParseResultService.get_log_parse_options()
+    msg = await LogParseResultService.get_log_parse_options(kb_id)
     return GetLogParseOptionsResponse(result=msg)
 
 @router.get("/{result_id}", response_model=GetLogParseResultResponse)

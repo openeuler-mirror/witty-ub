@@ -331,6 +331,192 @@ class TestAnomalousEventChain:
         assert "event_chains" in data["result"]
 
 
+class TestKbIdFilter:
+    """kb_id 筛选功能测试"""
+
+    kb_id = None
+    log_file_id = None
+
+    async def _setup_kb_and_log_file(self):
+        """前置设置：创建知识库并上传日志文件"""
+        # 创建知识库
+        payload = {"name": f"test_kb_filter_{uuid.uuid4().hex[:8]}", "description": "KB for filter test"}
+        response = requests.post(f"{BASE_URL}/log_kb", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        TestKbIdFilter.kb_id = data["result"]["kb_id"]
+        
+        # 上传日志文件
+        test_dir = r"e:\openeuelr\ceshi\witty-ub-dev\src\plugins\latency\test"
+        payload = {
+            "upload_log_file_configs": [
+                {
+                    "name": "access.log",
+                    "source_type": "local",
+                    "source": f"{test_dir}\\access.log"
+                }
+            ]
+        }
+        response = requests.post(f"{BASE_URL}/log_file/{TestKbIdFilter.kb_id}", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        log_file_ids = data["result"].get("log_file_ids", [])
+        if log_file_ids:
+            TestKbIdFilter.log_file_id = log_file_ids[0]
+
+    @pytest.mark.asyncio
+    async def test_setup_kb_id_filter(self):
+        """前置设置：创建测试数据"""
+        await self._setup_kb_and_log_file()
+        assert TestKbIdFilter.kb_id is not None, "知识库创建失败"
+
+    @pytest.mark.asyncio
+    async def test_log_parse_result_list_with_kb_id(self):
+        """测试日志解析结果列表带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        # 带 kb_id 筛选
+        payload = {
+            "kb_id": TestKbIdFilter.kb_id,
+            "page_cnt": 10,
+            "page_num": 1
+        }
+        response = requests.post(f"{BASE_URL}/log_parse_result/list", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "total" in data["result"]
+        assert "log_parse_results" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_log_parse_options_with_kb_id(self):
+        """测试日志解析选项带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        # 带 kb_id 查询参数
+        response = requests.get(f"{BASE_URL}/log_parse_result/options?kb_id={TestKbIdFilter.kb_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "clusters" in data["result"]
+        assert "hosts" in data["result"]
+        assert isinstance(data["result"]["clusters"], list)
+        assert isinstance(data["result"]["hosts"], list)
+
+    @pytest.mark.asyncio
+    async def test_log_parse_options_without_kb_id(self):
+        """测试日志解析选项不带 kb_id（返回全部）"""
+        response = requests.get(f"{BASE_URL}/log_parse_result/options")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "clusters" in data["result"]
+        assert "hosts" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_traces_by_host_with_kb_id(self):
+        """测试 trace 列表带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        payload = {
+            "host": TEST_HOST,
+            "kb_id": TestKbIdFilter.kb_id,
+            "page_cnt": 10,
+            "page_num": 1,
+            "sort_by": "timestamp",
+            "sort_order": "desc"
+        }
+        response = requests.post(f"{BASE_URL}/log_parse_result/traces/host/list", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "total" in data["result"]
+        assert "traces" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_latency_metrics_with_kb_id(self):
+        """测试延迟指标带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        payload = {
+            "kb_id": TestKbIdFilter.kb_id,
+            "max_points": 100,
+            "sort_by": "timestamp",
+            "sort_order": "asc"
+        }
+        response = requests.post(f"{BASE_URL}/log_parse_result/metrics/latency", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "total" in data["result"]
+        assert "metrics" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_aggregated_event_list_with_kb_id(self):
+        """测试聚合事件列表带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        payload = {
+            "kb_id": TestKbIdFilter.kb_id,
+            "page_cnt": 10,
+            "page_num": 1
+        }
+        response = requests.post(f"{BASE_URL}/aggregated_event/list", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "total" in data["result"]
+        assert "events" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_anomalous_event_list_with_kb_id(self):
+        """测试异常事件列表带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        payload = {
+            "kb_id": TestKbIdFilter.kb_id,
+            "page_cnt": 10,
+            "page_num": 1
+        }
+        response = requests.post(f"{BASE_URL}/anomalous_event/list", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "total" in data["result"]
+        assert "events" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_anomalous_event_chain_list_with_kb_id(self):
+        """测试异常事件链列表带 kb_id 筛选"""
+        if not TestKbIdFilter.kb_id:
+            pytest.skip("No kb_id available")
+        
+        payload = {
+            "kb_id": TestKbIdFilter.kb_id,
+            "page_cnt": 10,
+            "page_num": 1
+        }
+        response = requests.post(f"{BASE_URL}/anomalous_event_chain/list", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 200
+        assert "total" in data["result"]
+        assert "event_chains" in data["result"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_kb_id_filter(self):
+        """清理测试数据"""
+        if TestKbIdFilter.kb_id:
+            response = requests.delete(f"{BASE_URL}/log_kb/{TestKbIdFilter.kb_id}")
+            assert response.status_code == 200
+
+
 class TestTask:
     """任务接口测试"""
 
