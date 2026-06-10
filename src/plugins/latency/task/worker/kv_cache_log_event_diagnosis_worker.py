@@ -283,8 +283,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                             
                             parts = line.split('|', 1)
                             if len(parts) == 2:
-                                # failure_mode = ','.join(await KVCacheLogEventDiagnosisWorker.remove_duplicates(parts[0].strip().split(",")))
-                                failure_mode = parts[0].strip()
+                                failure_mode = ','.join(await KVCacheLogEventDiagnosisWorker.remove_duplicates(parts[0].strip().split(",")))
+                                # failure_mode = parts[0].strip()
                                 raw_text = parts[1].strip()
                                 
                                 await LogFailureEventManager.update_failure_mode_by_raw_log(
