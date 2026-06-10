@@ -1,5 +1,4 @@
 import os
-import csv
 import json
 import logging
 from latency.schemas.failure_mode import FailureModeModel
@@ -23,44 +22,46 @@ class FailureModeKnowledge:
         
         failure_modes = []
         
-        kvcache_csv_path = os.path.join(data_path, "kvcache", "kvcache_conn_fault_mode.csv")
-        if os.path.exists(kvcache_csv_path):
+        kvcache_json_path = os.path.join(data_path, "kvcache", "kvcache_conn_fault_mode.json")
+        if os.path.exists(kvcache_json_path):
             try:
-                with open(kvcache_csv_path, "r", encoding="utf-8") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        failure_mode = FailureModeModel(
-                            id=row.get("故障编码", ""),
-                            name=row.get("故障名称", ""),
-                            symptom=row.get("故障现象", ""),
-                            root_cause=row.get("故障原因", ""),
-                            solution=row.get("解决办法", ""),
-                            failure_domain=row.get("故障域", ""),
-                            children_failure_mode_ids=""
-                        )
-                        failure_modes.append(failure_mode)
-                logger.info(f"成功读取 kvcache 故障模式: {len(failure_modes)} 条")
+                with open(kvcache_json_path, "r", encoding="utf-8") as f:
+                    kvcache_data = json.load(f)
+                
+                for row in kvcache_data:
+                    failure_mode = FailureModeModel(
+                        id=row.get("故障编码", ""),
+                        name=row.get("故障名称", ""),
+                        symptom=row.get("故障现象", ""),
+                        root_cause=row.get("故障原因", ""),
+                        solution=row.get("解决办法", ""),
+                        failure_domain=row.get("故障域", ""),
+                        children_failure_mode_ids=""
+                    )
+                    failure_modes.append(failure_mode)
+                logger.info(f"成功读取 kvcache 故障模式: {len(kvcache_data)} 条")
             except Exception as e:
                 logger.error(f"读取 kvcache 故障模式失败: {str(e)}")
         
-        urma_csv_path = os.path.join(data_path, "urma", "urma_failure_mode_tree.csv")
+        urma_json_path = os.path.join(data_path, "urma", "urma_failure_mode_tree.json")
         urma_count = 0
-        if os.path.exists(urma_csv_path):
+        if os.path.exists(urma_json_path):
             try:
-                with open(urma_csv_path, "r", encoding="utf-8-sig") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        failure_mode = FailureModeModel(
-                            id=row.get("故障编码", ""),
-                            name=row.get("故障名称", ""),
-                            symptom=row.get("故障表现（验证方法）", ""),
-                            root_cause=row.get("故障原因", ""),
-                            solution=row.get("解决办法", ""),
-                            failure_domain=row.get("故障域", ""),
-                            children_failure_mode_ids=""
-                        )
-                        failure_modes.append(failure_mode)
-                        urma_count += 1
+                with open(urma_json_path, "r", encoding="utf-8") as f:
+                    urma_data = json.load(f)
+                
+                for row in urma_data:
+                    failure_mode = FailureModeModel(
+                        id=row.get("故障编码", ""),
+                        name=row.get("故障名称", ""),
+                        symptom=row.get("故障表现（验证方法）", ""),
+                        root_cause=row.get("故障原因", ""),
+                        solution=row.get("解决办法", ""),
+                        failure_domain=row.get("故障域", ""),
+                        children_failure_mode_ids=""
+                    )
+                    failure_modes.append(failure_mode)
+                    urma_count += 1
                 logger.info(f"成功读取 urma 故障模式: {urma_count} 条")
             except Exception as e:
                 logger.error(f"读取 urma 故障模式失败: {str(e)}")
