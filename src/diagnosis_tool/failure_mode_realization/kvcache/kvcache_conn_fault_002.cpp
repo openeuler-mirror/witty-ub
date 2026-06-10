@@ -18,7 +18,7 @@ bool KvcacheConnFault002::IsValid()
         "gsub(/^ +| +$/,\"\",code); "
         "gsub(/^ +| +$/,\"\",action); "
         "gsub(/^ +| +$/,\"\",resp)"
-        "} action ~ /^DS_KV_CLIENT_(PUT|GET)$/ && "
+        "} "
         "(code == \"2\" || code == \"3\" || code == \"8\" || (code == \"0\" && resp != \"\")) "
         "{print $0}' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();

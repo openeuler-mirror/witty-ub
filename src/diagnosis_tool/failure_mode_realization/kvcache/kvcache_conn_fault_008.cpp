@@ -10,11 +10,15 @@ static AutoRegister<KvcacheConnFault008> g_kvcacheconnfault008("kvcache_conn_fau
 bool KvcacheConnFault008::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L384, L386, L132
-    std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk -F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG | sort | uniq -c | grep -w 7");
+    std::string grepOutput =
+        kvcache_log_helper::RunCommand("test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk "
+                                       "-F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' $WITTY_UB_CLIENT_ACCESS_LOG "
+                                       "$WITTY_UB_WORKER_ACCESS_LOG | sort | uniq -c | grep -E '[[:space:]]7$'");
     // 来源: rule f - 获取原始日志行用于trace解析，提取status_code=7的access log行
-    std::string rawOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code == \"7\" {print $0}' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG 2>/dev/null");
+    std::string rawOutput =
+        kvcache_log_helper::RunCommand("test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk "
+                                       "-F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code == \"7\" {print $0}' "
+                                       "$WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     rawOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(rawOutput);
     kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);

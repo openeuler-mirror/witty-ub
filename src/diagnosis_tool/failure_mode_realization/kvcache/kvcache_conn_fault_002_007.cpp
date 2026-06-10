@@ -1,7 +1,7 @@
 #include "kvcache_conn_fault_002_007.h"
+#include <iostream>
 #include "../../failure_mode_factory.h"
 #include "kvcache_log_helper.h"
-#include <iostream>
 
 namespace diag {
 
@@ -11,11 +11,15 @@ static AutoRegister<KvcacheConnFault002_007> g_kvcacheconnfault002_007("kvcache_
 bool KvcacheConnFault002_007::IsValid()
 {
     // 来源: .opencode/skills/kvcache-diagnosis-conn-fault-code-generalizer/references/kvcache_conn_fault_mode.md:L253, L255, L130
-    std::string grepOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk -F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG | sort | uniq -c | grep -w 3");
+    std::string grepOutput =
+        kvcache_log_helper::RunCommand("test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk "
+                                       "-F'|' '{gsub(/^ +| +$/,\"\",$8); print $8}' $WITTY_UB_CLIENT_ACCESS_LOG "
+                                       "$WITTY_UB_WORKER_ACCESS_LOG | sort | uniq -c | grep -E '[[:space:]]3$'");
     // 来源: rule f - 获取原始日志行用于trace解析，提取status_code=3的access log行
-    std::string rawOutput = kvcache_log_helper::RunCommand(
-        "test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk -F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code == \"3\" {print $0}' $WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG 2>/dev/null");
+    std::string rawOutput =
+        kvcache_log_helper::RunCommand("test -n \"$WITTY_UB_CLIENT_ACCESS_LOG$WITTY_UB_WORKER_ACCESS_LOG\" && awk "
+                                       "-F'|' 'NR>0 {code=$8; gsub(/^ +| +$/,\"\",code)} code == \"3\" {print $0}' "
+                                       "$WITTY_UB_CLIENT_ACCESS_LOG $WITTY_UB_WORKER_ACCESS_LOG 2>/dev/null");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     rawOutput = kvcache_log_helper::StripFilepathPrefixFromOutput(rawOutput);
     kvcache_log_helper::ParseFailureLogLine(rawOutput, logInfo);

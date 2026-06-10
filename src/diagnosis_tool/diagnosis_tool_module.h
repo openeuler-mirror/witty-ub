@@ -50,7 +50,7 @@ private:
     void ExtractLogLinesCount(const std::string &filePath, int64_t startTs, int64_t endTs,
                               std::ofstream &outFile, int &count);
     bool ExtractLogLines(const std::string &filePath, const std::string &outputPath,
-                         int64_t startTs, int64_t endTs);
+                         int64_t startTs, int64_t endTs, bool append = false);
     std::vector<std::string> FindMatchingFiles(const std::string &dir,
                                                const std::string &pattern); // 递归搜索匹配的文件
 
