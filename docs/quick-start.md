@@ -5,6 +5,7 @@
   - [使用指导](#使用指导)
     - [超节点系统拓扑实时感知工具witty-ub-topo使用指导](#超节点系统拓扑实时感知工具witty-ub-topo使用指导)
     - [超节点多源系统日志解析工具witty-ub-log使用指导](#超节点多源系统日志解析工具witty-ub-log使用指导)
+    - [超节点故障定界工具witty-ub-diag-tool使用指导](#超节点故障定界工具witty-ub-diag-tool使用指导)
 
 ## 编译指导
 
@@ -34,6 +35,7 @@ sudo make
 * 生成的二进制在build/src目录下
     * witty-ub-topo: 超节点系统拓扑实时感知工具，基于管理组件提供的接口或日志，采集超节点计算节点上资源拓扑信息。
     * witty-ub-log: 超节点多源系统日志解析工具，采集超节点各组件日志，识别组件故障事件及关联日志。
+    * witty-ub-diag-tool: 超节点故障定界工具，基于故障树驱动的诊断引擎，对KVCache和URMA组件日志进行多级故障定界分析，生成可视化故障分析报告。
     * 当前witty-ub-topo和witty-ub-log主要面向URMA通信场景，采集节点和URMA通信资源拓扑信息，识别URMA通信相关组件日志中的故障日志。
 ## 使用指导
 ### 超节点系统拓扑实时感知工具witty-ub-topo使用指导
@@ -52,4 +54,18 @@ sudo make
     --liburma-log-path "pod-name1:/path/to/pod-name1/umdk/urma/,pod-name2:/path/to/pod-name2/umdk/urma/" \
     --libudma-log-path "pod-name1:/log/messages/path/to/pod-name1,pod-name2:/log/messages/path/to/pod-name2" \
     --start-time "2026-03-09 00:00:00" --end-time "2026-03-10 00:00:00"
+    ```
+### 超节点故障定界工具witty-ub-diag-tool使用指导
+* 在witty-ub根目录下执行以下命令，对指定时间范围内的日志进行故障定界分析，输出可视化故障分析报告到文件```/var/witty-ub```目录下```failure-mode-view-vis.html```文件中。
+* 命令行参数详细解析请见[witty-ub故障定界工具指导](./witty-ub故障定界工具指导.md)
+    ```shell
+    ./build/src/witty-ub-diag-tool \
+      --ds-log-path /var/log/myapp \
+      --ds-client-access-log-file "client_access*.log" \
+      --ds-client-info-log-file "client_info*.log" \
+      --ds-worker-info-log-file "worker_info*.log" \
+      --ds-worker-access-log-file "worker_access*.log" \
+      --resource-log-file "resource*.log" \
+      --start-time "2026-05-13 10:00:00" \
+      --end-time "2026-05-13 11:00:00"
     ```
