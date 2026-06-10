@@ -157,7 +157,25 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     logger.error(f"解析 failure_trace.log 失败: {e}")
             
             config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config()
-            
+            worker_access_pattern = None  
+            client_access_pattern = None  
+            if "ds-worker-access-log-file" in config:  
+                worker_access_pattern = re.compile(config["ds-worker-access-log-file"])
+            if "ds-client-access-log-file" in config:  
+                client_access_pattern = re.compile(config["ds-client-access-log-file"])
+               
+            log_files = []	 
+            for file in os.listdir(output_log_path):	 
+                file_path = os.path.join(output_log_path, file)	 
+                if os.path.isfile(file_path) and file != "failure_trace.log":	 
+                    log_files.append((file, file_path))	 
+              	 
+            log_failure_events = []	 
+            total_inserted = 0	 
+            batch_size = 10000	 
+              	 
+            print(f"开始日志落库，共{len(trace_id_set)}条故障trace")	 
+
             log_files = []
             for file in os.listdir(output_log_path):
                 file_path = os.path.join(output_log_path, file)
@@ -171,6 +189,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             print(f"开始日志落库，共{len(trace_id_set)}条故障trace")
             for log_file_name, log_file_path in log_files:
                 try:
+                    is_access_log = False  
+                    if worker_access_pattern and worker_access_pattern.search(log_file_name):  
+                        is_access_log = True  
+                    if client_access_pattern and client_access_pattern.search(log_file_name):  
+                        is_access_log = True
                     with open(log_file_path, 'r', encoding='utf-8') as f:
                         for line in f:
                             try:
@@ -203,7 +226,17 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                     tid = ""
                                 
                                 status_code = ""
-                                message = '|'.join(parts[7:]) if len(parts) > 7 else ""
+                                message = ""	 
+                                   
+                                if is_access_log:
+                                    if len(parts) > 7:  
+                                        status_code = parts[7].strip()  
+                                        message = '|'.join(parts[7:]) if len(parts) > 7 else ""  
+                                    else:  
+                                        logger.warning(f"access log格式不正确，字段不足: {line}")  
+                                        continue  
+                                else:  
+                                    message = '|'.join(parts[7:]) if len(parts) > 7 else ""
                                 
                                 log_failure_event = LogFailureEventModel(
                                     log_id=log_id,
