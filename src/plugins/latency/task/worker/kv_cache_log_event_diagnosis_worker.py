@@ -134,7 +134,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         # LogFailureEventManager中加入一个update_failure_mode_by_raw_log函数来完成数据库更新的操作。
         try:
             trace_id_set = set()
-            
+            trace_failure_id = dict()
             if not os.path.exists(output_log_path):
                 logger.error(f"输出日志路径不存在: {output_log_path}")
                 return trace_id_set
@@ -152,6 +152,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                             if len(parts) == 2:
                                 raw_text = parts[1].strip()
                                 raw_parts = [part for part in raw_text.split('|')]
+                                trace_failure_id[raw_text] = parts[0].strip()
                                 if len(raw_parts) >= 6:
                                     trace_id = raw_parts[5].strip()
                                     if trace_id:
@@ -179,7 +180,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
             log_failure_events = []
             total_inserted = 0
-            batch_size = 1000
+            batch_size = 10000
             
             print(f"开始日志落库，共{len(trace_id_set)}条故障trace")
             for log_file_name, log_file_path in log_files:
@@ -237,7 +238,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                 log_failure_event = LogFailureEventModel(
                                     log_id=log_id,
                                     log_file=log_file_name,
-                                    raw_text=line,
+                                    raw_text=line.strip(),
                                     timestamp=timestamp.replace("T", " "),
                                     level=level,
                                     filename=filename,
@@ -250,6 +251,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                     status_code=status_code,
                                     failure_mode=[]
                                 )
+                                if log_failure_event.raw_text in trace_failure_id.keys():
+                                    log_failure_event.failure_mode = await KVCacheLogEventDiagnosisWorker.remove_duplicates(
+                                        trace_failure_id[log_failure_event.raw_text].split(","))
                                 log_failure_events.append(log_failure_event)
                                 
                                 if len(log_failure_events) >= batch_size:
@@ -272,33 +276,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 total_inserted += len(log_failure_events)
                 logger.info(f"最后批量插入 {len(log_failure_events)} 条日志事件，总计 {total_inserted} 条")
                 print(f"最后批量插入 {len(log_failure_events)} 条日志事件，总计 {total_inserted} 条")
-            
-            if os.path.exists(failure_trace_path):
-                try:
-                    with open(failure_trace_path, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line:
-                                continue
-                            
-                            parts = line.split('|', 1)
-                            if len(parts) == 2:
-                                failure_mode = ','.join(await KVCacheLogEventDiagnosisWorker.remove_duplicates(parts[0].strip().split(",")))
-                                # failure_mode = parts[0].strip()
-                                raw_text = parts[1].strip()
-                                
-                                await LogFailureEventManager.update_failure_mode_by_raw_log(
-                                    log_id=log_id,
-                                    raw_text=raw_text,
-                                    failure_mode=failure_mode
-                                )
-                    
-                    logger.info(f"成功更新故障模式字段")
-                    print(f"成功更新故障模式字段")
-                
-                except Exception as e:
-                    logger.error(f"解析 failure_trace.log 失败: {e}")
-        
+    
         except Exception as e:
             logger.error(f"parse_log_failure_events 执行失败: {e}")
         
@@ -623,8 +601,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 return False
             
             # TODO: 运行时启用真实业务逻辑
-            random_str = "222"
-            # random_str = log_file.id[:8]
+            # random_str = "222"
+            random_str = log_file.id[:8]
             
             extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(log_file.file_path, random_str)
             
