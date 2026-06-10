@@ -4136,7 +4136,7 @@ onBeforeUnmount(() => {
               <h1>时延监控</h1>
             </div>
             <p class="monitor-sub">
-              源 IP/目标 IP → Traces | 左侧筛选条件 | 点击折线图时间点可展开时间段
+              总时延 / 查询元数据时延 / URMA时延
             </p>
           </header>
 
@@ -4693,7 +4693,7 @@ onBeforeUnmount(() => {
               <h1>故障监控</h1>
             </div>
             <p class="monitor-sub">
-              源 IP/目标 IP → Traces | 故障码/故障描述/故障域 | 点击故障事件展开Trace
+              故障码 / 故障名称 / 故障域
             </p>
           </header>
 
