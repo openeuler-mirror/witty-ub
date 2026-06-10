@@ -103,10 +103,13 @@ class WorkerMetricsLogParser(LogParser):
         if not trace_id:
             return None
         
+        # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
+        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        
         return LogEntry(
             timestamp=parse_timestamp(parsed["timestamp"]),
             elapsed_us=elapsed_us,
-            pod_ip=pod_ip,
+            pod_ip=entry_pod_ip,
             trace_id=trace_id,
             entry_type=entry_type,
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,

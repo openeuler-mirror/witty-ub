@@ -105,7 +105,7 @@ class LogParser(ABC):
     def parse(self, input_dir: str) -> list[LogEntry]:
         """解析目录下的日志文件"""
         entries: list[LogEntry] = []
-        paths = glob_paths([os.path.join(input_dir, p) for p in self.patterns])
+        paths = glob_paths([os.path.join(input_dir, "**", p) for p in self.patterns])
         progress = Progress(self.label, len(paths))
         for file_idx, path in enumerate(paths, 1):
             pod_ip = self.extract_pod_ip(path)
@@ -174,6 +174,7 @@ class LogParser(ABC):
         col = LogParser.AccessCol
         return {
             "timestamp": parts[col.TIMESTAMP].strip(),
+            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < len(parts) else "",
             "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
             "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
             "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < len(parts) else "",
@@ -202,6 +203,7 @@ class LogParser(ABC):
         col = LogParser.RunCol
         return {
             "timestamp": parts[col.TIMESTAMP].strip(),
+            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < len(parts) else "",
             "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
             "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
             "msg": parts[col.MSG].strip() if col.MSG < len(parts) else "",

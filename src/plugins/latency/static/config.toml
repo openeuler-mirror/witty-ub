@@ -15,3 +15,12 @@ SLIDING_WINDOW_STEPS = [20, 30, 40, 50]
 
 # 区间异常密度阈值，超过此比例则整个区间标记为异常
 ZONE_ANOMALY_DENSITY_THRESHOLD = 0.5
+
+# 日志文件路径配置（可选，不配置则使用默认模式）
+# ds-client-access-log-file 和 ds-client-info-log-file 合并为 SDK_ACCESS_LOG_PATTERNS
+# ds-worker-access-log-file 映射为 WORKER_ACCESS_LOG_PATTERNS
+# ds-worker-info-log-file 映射为 URMA_LOG_PATTERNS, REMOTE_PULL_LOG_PATTERNS, LINK_LOG_PATTERNS, QUERY_META_LOG_PATTERNS
+ds-client-access-log-file = ["SDK_*/ds_client_access_*.log", "SDK_*/ds_client_access_*.log.gz"]
+ds-client-info-log-file = []
+ds-worker-access-log-file = ["*worker_*/access.log", "*worker_*/access.log.gz"]
+ds-worker-info-log-file = ["*worker_*/datasystem_worker.INFO.*", "*worker_*/kvcache.INFO.*"]

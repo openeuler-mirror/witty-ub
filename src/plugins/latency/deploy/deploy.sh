@@ -26,7 +26,22 @@ echo "[Step 1/4] Creating virtual environment at ${VENV_DIR} ..."
 if [ -d "$VENV_DIR" ]; then
     echo "  Virtual environment already exists, skipping creation."
 else
-    uv venv "$VENV_DIR" --python python3.10
+    # 优先使用系统已安装的 Python，避免从 GitHub 下载
+    PYTHON_CMD=""
+    for cmd in python3.10 python3 python; do
+        if command -v $cmd &> /dev/null; then
+            PYTHON_CMD=$cmd
+            break
+        fi
+    done
+    
+    if [ -z "$PYTHON_CMD" ]; then
+        echo "[WARN] No Python found, trying to use uv to download Python 3.10..."
+        uv venv "$VENV_DIR" --python python3.10
+    else
+        echo "  Using system Python: $(which $PYTHON_CMD) ($($PYTHON_CMD --version))"
+        $PYTHON_CMD -m venv "$VENV_DIR"
+    fi
     echo "[OK] Virtual environment created."
 fi
 
@@ -49,8 +64,8 @@ echo "[Step 4/4] Starting FastAPI service ..."
 pkill -f "latency/access/fastapi_server.py" || true
 sleep 1
 
-export PYTHONPATH="${PROJECT_DIR}/../..:${PYTHONPATH}"
-nohup "${VENV_DIR}/bin/python" "${PROJECT_DIR}/latency/access/fastapi_server.py" \
+export PYTHONPATH="${PROJECT_DIR}/..:${PYTHONPATH}"
+nohup "${VENV_DIR}/bin/python" "${PROJECT_DIR}/access/fastapi_server.py" \
     > "${PROJECT_DIR}/latency_server.log" 2>&1 &
 
 sleep 3

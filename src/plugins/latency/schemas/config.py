@@ -55,6 +55,12 @@ class DSLogAnalyzerConfig(BaseModel):
     urma_link_p99_threshold_ms: float = Field(default=1.0, alias="URMA_LINK_P99_THRESHOLD_MS", description="URMA建链时延P99阈值，单位毫秒")
     query_meta_p99_threshold_ms: float = Field(default=1.0, alias="QUERY_META_P99_THRESHOLD_MS", description="Worker QueryMeta时延P99阈值，单位毫秒")
 
+    # 日志文件路径配置
+    ds_client_access_log_file: list[str] = Field(default=[], alias="ds-client-access-log-file", description="SDK客户端访问日志文件匹配模式")
+    ds_client_info_log_file: list[str] = Field(default=[], alias="ds-client-info-log-file", description="SDK客户端信息日志文件匹配模式")
+    ds_worker_access_log_file: list[str] = Field(default=[], alias="ds-worker-access-log-file", description="Worker访问日志文件匹配模式")
+    ds_worker_info_log_file: list[str] = Field(default=[], alias="ds-worker-info-log-file", description="Worker信息日志文件匹配模式")
+
 
 class ConfigModel(BaseModel):
     service: ServiceConfig = Field(

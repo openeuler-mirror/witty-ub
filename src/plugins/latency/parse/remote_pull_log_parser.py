@@ -41,6 +41,8 @@ class RemotePullLogParser(LogParser):
             if not m:
                 return None
             src_addr, dst_addr = m.groups()
+            # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
+            entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
             return LogEntry(
                 timestamp=parse_timestamp(parsed["timestamp"]),
                 elapsed_us=0,
@@ -48,7 +50,7 @@ class RemotePullLogParser(LogParser):
                 request_size="",
                 src_addr=src_addr.strip(),
                 dst_addr=dst_addr.strip(),
-                pod_ip=pod_ip,
+                pod_ip=entry_pod_ip,
                 trace_id=trace_id,
                 entry_type=EntryType.REMOTE_PULL,
                 cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
@@ -71,6 +73,8 @@ class RemotePullLogParser(LogParser):
             if not m:
                 return None
             src_addr, dst_addr = m.groups()
+            # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
+            entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
             return LogEntry(
                 timestamp=parse_timestamp(parsed["timestamp"]),
                 elapsed_us=0,
@@ -78,7 +82,7 @@ class RemotePullLogParser(LogParser):
                 request_size="",
                 src_addr=src_addr.strip(),
                 dst_addr=dst_addr.strip(),
-                pod_ip=pod_ip,
+                pod_ip=entry_pod_ip,
                 trace_id=trace_id,
                 entry_type=EntryType.REMOTE_PULL,
                 cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,

@@ -37,12 +37,14 @@ class WorkerAccessLogParser(AccessLogParser):
         trace_id = parsed["trace_id"]
         if not trace_id:
             return None
+        # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
+        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         return LogEntry(
             timestamp=parse_timestamp(parsed["timestamp"]),
             elapsed_us=elapsed,
             object_key=self.extract_object_key(parsed["req_msg"]),
             trace_id=trace_id,
-            pod_ip=pod_ip,
+            pod_ip=entry_pod_ip,
             status_code=self.parse_status_code(parsed["status_code"]),
             resp_msg=parsed["resp_msg"],
             entry_type=EntryType.WORKER_GET,
