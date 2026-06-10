@@ -35,6 +35,35 @@ class LogFailureEventManager:
         return ids_added
     
     @staticmethod
+    async def add_log_failure_event_if_not_exist(results: list[LogFailureEventModel]) -> list[str]:
+        ids_added = []
+        if not results:
+            return ids_added
+        
+        batch_size = 1024
+        for i in range(0, len(results), batch_size):
+            batch = results[i : i + batch_size]
+            try:
+                sql_str = """
+                    INSERT INTO log_failure_event_table 
+                    (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
+                    SELECT :id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM log_failure_event_table WHERE raw_text = :raw_text
+                    )
+                """
+                params = []
+                for log_failure_event in batch:
+                    param = log_failure_event.model_dump(exclude_none=False, by_alias=True)
+                    param["failure_mode"] = ",".join(param.get("failure_mode", []))
+                    params.append(param)
+                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                ids_added.extend([log_failure_event.id for log_failure_event in batch])
+            except Exception as e:
+                print(f"批量添加故障模式知识失败，错误信息: {str(e)}")
+        return ids_added
+    
+    @staticmethod
     async def update_failure_mode_by_raw_log(log_id: str, raw_text: str, failure_mode: str) -> bool:
         """根据原始日志更新故障模式"""
         sql_str = """

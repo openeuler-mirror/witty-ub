@@ -15,8 +15,6 @@ echo "Entering build directory and running cmake..."
 cd build
 
 cmake .. \
-  -DCMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang \
-  -DCMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++ \
   -DCMAKE_CXX_STANDARD=17 \
   -DCMAKE_CXX_STANDARD_REQUIRED=ON \
   -DCMAKE_CXX_FLAGS="-DHOST_NAME_MAX=255" \
