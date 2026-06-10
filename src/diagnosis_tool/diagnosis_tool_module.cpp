@@ -359,6 +359,10 @@ void DiagnosisToolModule::ExtractLogLinesCount(const std::string &filePath, int6
     bool inRange = false;
     std::regex timePattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})");
     while (std::getline(inFile, line)) {
+        // 去除 Windows 风格换行符遗留的回车符 (^M)，避免污染最后一列数据
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         std::smatch match;
         if (!std::regex_search(line, match, timePattern)) {
             if (inRange) {
@@ -446,6 +450,10 @@ bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std
     std::regex timePattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})");
     while (std::getline(inFile, line)) {
         totalLines++;
+        // 去除 Windows 风格换行符遗留的回车符 (^M)，避免污染最后一列数据
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         std::smatch match;
         if (!std::regex_search(line, match, timePattern)) {
             if (inRange) {
