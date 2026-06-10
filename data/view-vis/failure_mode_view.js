@@ -82,17 +82,6 @@ function traceModeIds(trace) {
   return new Set(scopedTraceLogs(trace).map(log => log.failure_mode_id).filter(Boolean));
 }
 
-function traceEdgeKeys(trace) {
-  const keys = new Set();
-  const logs = scopedTraceLogs(trace);
-  for (let index = 0; index + 1 < logs.length; index += 1) {
-    const src = logs[index].failure_mode_id;
-    const dst = logs[index + 1].failure_mode_id;
-    if (src && dst) keys.add(`${src}->${dst}`);
-  }
-  return keys;
-}
-
 function traceMatchesQuery(trace) {
   if (!state.query) return true;
   const logs = scopedTraceLogs(trace);
@@ -290,7 +279,6 @@ function render() {
   const related = new Set();
   const trace = selectedTrace();
   const traceModes = traceModeIds(trace);
-  const traceEdges = traceEdgeKeys(trace);
   if (state.selected) {
     related.add(state.selected.uid);
     state.edges.forEach(edge => {
@@ -305,7 +293,7 @@ function render() {
     if (!src || !dst) continue;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const selected = state.selected && (edge.src === state.selected.uid || edge.dst === state.selected.uid);
-    const inTrace = traceEdges.has(`${src.id}->${dst.id}`);
+    const inTrace = traceModes.has(src.id) && traceModes.has(dst.id);
     const dim = trace && !inTrace;
     path.setAttribute("class", `edge${selected ? " selected" : ""}${inTrace ? " trace" : ""}${dim ? " dim" : ""}`);
     path.setAttribute("d", edgePath(src, dst));
