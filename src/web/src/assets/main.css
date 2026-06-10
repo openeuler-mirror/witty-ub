@@ -1615,6 +1615,14 @@ button {
   gap: 8px;
 }
 
+.fault-detail-table .trace-actions-cell {
+  vertical-align: middle;
+}
+
+.fault-detail-table .trace-actions-cell .trace-actions {
+  min-height: 100%;
+}
+
 .trace-analysis-actions {
   display: flex;
   align-items: center;

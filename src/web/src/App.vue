@@ -4765,21 +4765,23 @@ onBeforeUnmount(() => {
                         </td>
                         <td>{{ trace.faultType }}</td>
                         <td>{{ trace.faultDomain }}</td>
-                        <td class="trace-actions">
-                          <button
-                            class="metric-action-btn detail-action-btn"
-                            type="button"
-                            @click="openFaultTraceDialog(trace)"
-                          >
-                            查看链路
-                          </button>
-                          <button
-                            class="metric-action-btn"
-                            type="button"
-                            @click="openTraceFilterDialog(trace)"
-                          >
-                            ➕ 筛选
-                          </button>
+                        <td class="trace-actions-cell">
+                          <div class="trace-actions">
+                            <button
+                              class="metric-action-btn detail-action-btn"
+                              type="button"
+                              @click="openFaultTraceDialog(trace)"
+                            >
+                              查看链路
+                            </button>
+                            <button
+                              class="metric-action-btn"
+                              type="button"
+                              @click="openTraceFilterDialog(trace)"
+                            >
+                              ➕ 筛选
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     </template>
