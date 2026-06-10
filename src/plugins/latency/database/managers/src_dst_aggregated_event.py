@@ -165,7 +165,7 @@ class SrcDstAggregatedEventManager:
         total = count_rows[0]["cnt"] if count_rows else 0
 
         sort_order = "DESC" if req.created_sorted_desc else "ASC"
-        sql_str += f" ORDER BY created_at {sort_order}"
+        sql_str += f" ORDER BY ae.created_at {sort_order}"
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt
