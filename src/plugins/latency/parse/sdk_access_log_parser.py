@@ -33,8 +33,8 @@ class SdkAccessLogParser(AccessLogParser):
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in SDK_GET_OPS:
             return None
+        ts = parse_timestamp(parsed["timestamp"])
         if self.start_time or self.end_time:
-            ts = parse_timestamp(parsed["timestamp"])
             if (self.start_time and ts < self.start_time) or (self.end_time and ts > self.end_time):
                 self._filtered_by_time += 1
                 return None
