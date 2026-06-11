@@ -1,0 +1,18 @@
+[Unit]
+Description=Witty-UB Latency Plugin Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/witty-ub/latency
+Environment=PYTHONPATH=/var/witty-ub
+ExecStart=/var/witty-ub/latency/.venv/bin/python /var/witty-ub/latency/access/fastapi_server.py
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
