@@ -236,9 +236,11 @@ def _serialize_entry(entry) -> tuple:
     相比 dict 格式节省约 80% 序列化体积：
     - dict: ~1.5KB/entry (含 key 字符串)
     - tuple: ~200 bytes/entry (纯值)
+
+    timestamp 存储为 float (UNIX 时间戳)，避免 ISO 字符串解析开销
     """
     return (
-        entry.timestamp.isoformat() if entry.timestamp else None,  # 0
+        entry.timestamp.timestamp() if entry.timestamp else None,  # 0 - float
         entry.operation,                                           # 1
         entry.elapsed_us,                                          # 2
         entry.data_size,                                           # 3
@@ -266,15 +268,10 @@ def _deserialize_entry(t: tuple):
     from datetime import datetime
     from latency.schemas.ds_log import LogEntry, EntryType
 
-    # 反序列化时间戳
     timestamp = None
-    if t[0]:
-        try:
-            timestamp = datetime.fromisoformat(t[0])
-        except Exception:
-            pass
+    if t[0] is not None:
+        timestamp = datetime.fromtimestamp(t[0])
 
-    # 反序列化 entry_type
     entry_type = t[9]
     if isinstance(entry_type, str):
         try:
