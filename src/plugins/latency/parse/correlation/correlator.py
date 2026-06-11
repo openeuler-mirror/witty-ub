@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from bisect import bisect_left, bisect_right
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, Tuple
 
 from latency.schemas.ds_log import (
@@ -352,31 +351,13 @@ class LogCorrelator:
     def correlate(self) -> CorrelationResult:
         im = self.index_manager
 
-        # Phase 1: 6 个独立关联器并行执行
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            f_remote_pull = pool.submit(WorkerRemotePullCorrelator(im).correlate)
-            f_link = pool.submit(WorkerLinkCorrelator(im).correlate)
-            f_query_meta = pool.submit(WorkerQueryMetaCorrelator(im).correlate)
-            f_sdk_worker = pool.submit(SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate)
-            f_sdk_urma = pool.submit(SdkUrmaCorrelator(im, self.sdk_entries).correlate)
-            f_metrics = pool.submit(WorkerMetricsCorrelator(im, self.metrics_entries).correlate)
-
-            worker_remote_pull_map = f_remote_pull.result()
-            worker_link_map = f_link.result()
-            worker_query_meta_map = f_query_meta.result()
-            sdk_worker_map = f_sdk_worker.result()
-            sdk_urma_map = f_sdk_urma.result()
-            worker_metrics_result = f_metrics.result()
-
-        # Phase 2: 依赖 Phase 1 结果的关联器并行执行
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_urma = pool.submit(WorkerUrmaCorrelator(im).correlate, worker_remote_pull_map)
-            f_idx = pool.submit(WorkerIdxCorrelator(im).correlate, sdk_worker_map)
-
-            worker_urma_map, worker_worker_urma_map = f_urma.result()
-            worker_idx_map = f_idx.result()
-
-        # Phase 3: 依赖 Phase 2 结果
+        worker_remote_pull_map = WorkerRemotePullCorrelator(im).correlate()
+        worker_link_map = WorkerLinkCorrelator(im).correlate()
+        worker_query_meta_map = WorkerQueryMetaCorrelator(im).correlate()
+        worker_urma_map, worker_worker_urma_map = WorkerUrmaCorrelator(im).correlate(worker_remote_pull_map)
+        sdk_worker_map = SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate()
+        sdk_urma_map = SdkUrmaCorrelator(im, self.sdk_entries).correlate()
+        worker_idx_map = WorkerIdxCorrelator(im).correlate(sdk_worker_map)
         urma_empty_reasons = UrmaEmptyReasonCorrelator(im).correlate(worker_urma_map)
 
         (
@@ -388,7 +369,7 @@ class LogCorrelator:
             worker_remote_worker_rpc_map,
             worker_master_process_map,
             worker_master_rpc_map,
-        ) = worker_metrics_result
+        ) = WorkerMetricsCorrelator(im, self.metrics_entries).correlate()
 
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,
