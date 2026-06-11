@@ -14,11 +14,7 @@ from latency.task.process_handle import ProcessHandler
 from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
-    UrmaLogParser,
-    RemotePullLogParser,
-    LinkLogParser,
-    QueryMetaLogParser,
-    WorkerMetricsLogParser,  # 新增指标解析器
+    WorkerInfoParser,
     LogCorrelator,
     ParseResultBuilder,
 )
@@ -169,11 +165,7 @@ class KVCacheLogParseWorker(BaseWorker):
         parsers = [
             SdkAccessLogParser(parse_config),
             WorkerAccessLogParser(parse_config),
-            UrmaLogParser(parse_config),
-            RemotePullLogParser(parse_config),
-            LinkLogParser(parse_config),
-            QueryMetaLogParser(parse_config),
-            WorkerMetricsLogParser(parse_config),  # 新增指标解析器
+            WorkerInfoParser(parse_config),
         ]
 
         # 使用并行扫描器（文件去重 + 多进程并行）

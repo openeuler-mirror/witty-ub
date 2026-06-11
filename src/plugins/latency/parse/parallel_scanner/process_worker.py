@@ -81,7 +81,8 @@ def _rebuild_parsers(
         RemotePullLogParser,
         LinkLogParser,
         QueryMetaLogParser,
-        WorkerMetricsLogParser,  # 新增指标解析器
+        WorkerMetricsLogParser,
+        WorkerInfoParser,
     )
 
     parse_config = ParseConfig(**parse_config_dict) if parse_config_dict else None
@@ -93,7 +94,8 @@ def _rebuild_parsers(
         "RemotePullLogParser": RemotePullLogParser,
         "LinkLogParser": LinkLogParser,
         "QueryMetaLogParser": QueryMetaLogParser,
-        "WorkerMetricsLogParser": WorkerMetricsLogParser,  # 新增指标解析器
+        "WorkerMetricsLogParser": WorkerMetricsLogParser,
+        "WorkerInfoParser": WorkerInfoParser,
     }
 
     parsers = []
@@ -112,6 +114,9 @@ def _scan_file_multi(
     parsers: list,
     path: str,
 ) -> dict[str, list]:
+    if len(parsers) == 1 and hasattr(parsers[0], 'scan_file'):
+        return parsers[0].scan_file(path)
+
     results: dict[str, list] = {p.label: [] for p in parsers}
 
     try:
