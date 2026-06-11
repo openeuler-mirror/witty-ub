@@ -142,6 +142,7 @@ class KVCacheLogParseWorker(BaseWorker):
         log_id: str = "",
         parse_config: Optional[ParseConfig] = None,
         log_dir: str = "",  # 向后兼容参数
+        task_id: str = "",  # 用于上报分阶段耗时到 TaskReport
     ) -> list[LogParseResultModel]:
         """解析日志文件
 
@@ -149,6 +150,7 @@ class KVCacheLogParseWorker(BaseWorker):
             log_id: 日志文件ID（数据库中的主键）
             parse_config: 解析配置
             log_dir: 日志目录路径（向后兼容，优先使用 log_id）
+            task_id: 任务ID（用于上报分阶段耗时）
 
         Returns:
             解析结果列表
@@ -176,9 +178,10 @@ class KVCacheLogParseWorker(BaseWorker):
 
         # 使用并行扫描器（文件去重 + 多进程并行）
         scanner = ParallelFileScanner(
-            max_processes=min(os.cpu_count() or 4, 8),  # 最多 8 进程
+            max_processes=os.cpu_count(),
             split_strategy=TaskSplitStrategy.BY_FILE_SIZE,
             use_multiprocessing=True,
+            decompress=False,
         )
 
         logger.info("=== Stage 1/3: Scanning files with parallel scanner ===")
@@ -234,6 +237,16 @@ class KVCacheLogParseWorker(BaseWorker):
             f"  Build results:      {t_build:7.1f}s ({t_build/t_total*100:5.1f}%)"
         )
 
+        if task_id:
+            pct_scan = t_scan / t_total * 100
+            pct_sort = t_sort / t_total * 100
+            pct_corr = t_corr / t_total * 100
+            pct_build = t_build / t_total * 100
+            await BaseWorker.report(task_id, f"[parse_log] Scan+deserialize: {t_scan:.1f}s ({pct_scan:.1f}%)", t_scan)
+            await BaseWorker.report(task_id, f"[parse_log] Sort entries: {t_sort:.1f}s ({pct_sort:.1f}%)", t_sort)
+            await BaseWorker.report(task_id, f"[parse_log] Correlate: {t_corr:.1f}s ({pct_corr:.1f}%)", t_corr)
+            await BaseWorker.report(task_id, f"[parse_log] Build results: {t_build:.1f}s ({pct_build:.1f}%)", t_build)
+            await BaseWorker.report(task_id, f"[parse_log] Total: {t_total:.1f}s, {total} results", 0.0)
         return results
 
     # 异常事件检测
@@ -445,7 +458,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
             # 直接使用 task.op_id 作为 log_id，parse_log 内部会获取 log_file 信息
             t_run_start = time.perf_counter()
-            list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config)
+            list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config, task_id=task_id)
             t_parse = time.perf_counter() - t_run_start
             await BaseWorker.report(task.id, "完成解析日志", 70.0)
 
@@ -510,15 +523,24 @@ class KVCacheLogParseWorker(BaseWorker):
 
             # 全流程耗时汇总
             t_total = t_parse + t_detect + t_agg + t_store
+            pct_p = t_parse / t_total * 100
+            pct_d = t_detect / t_total * 100
+            pct_a = t_agg / t_total * 100
+            pct_s = t_store / t_total * 100
             logger.info(
                 f"============================================================\n"
                 f"=== [TASK TIMING] Total: {t_total:.1f}s ===\n"
-                f"  [1] Parse log:       {t_parse:7.1f}s ({t_parse/t_total*100:5.1f}%)\n"
-                f"  [2] Detect anomaly:  {t_detect:7.1f}s ({t_detect/t_total*100:5.1f}%)\n"
-                f"  [3] Aggregate result:{t_agg:7.1f}s ({t_agg/t_total*100:5.1f}%)\n"
-                f"  [4] Store to DB:     {t_store:7.1f}s ({t_store/t_total*100:5.1f}%)\n"
+                f"  [1] Parse log:       {t_parse:7.1f}s ({pct_p:5.1f}%)\n"
+                f"  [2] Detect anomaly:  {t_detect:7.1f}s ({pct_d:5.1f}%)\n"
+                f"  [3] Aggregate result:{t_agg:7.1f}s ({pct_a:5.1f}%)\n"
+                f"  [4] Store to DB:     {t_store:7.1f}s ({pct_s:5.1f}%)\n"
                 f"============================================================"
             )
+            await BaseWorker.report(task.id, f"[TASK] Parse log: {t_parse:.1f}s ({pct_p:.1f}%)", t_parse)
+            await BaseWorker.report(task.id, f"[TASK] Detect anomaly: {t_detect:.1f}s ({pct_d:.1f}%)", t_detect)
+            await BaseWorker.report(task.id, f"[TASK] Aggregate result: {t_agg:.1f}s ({pct_a:.1f}%)", t_agg)
+            await BaseWorker.report(task.id, f"[TASK] Store to DB: {t_store:.1f}s ({pct_s:.1f}%)", t_store)
+            await BaseWorker.report(task.id, f"[TASK] Total: {t_total:.1f}s", 0.0)
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")

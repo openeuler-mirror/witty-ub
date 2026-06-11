@@ -16,6 +16,7 @@ from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskSplitStrategy
 
 from .file_parser_map_builder import FileParserMapBuilder
+from .preprocessor import LogPreprocessor
 from .process_worker import process_worker_func, _deserialize_entry
 from .task_splitter import FileGroup, ScanTaskSplitter
 
@@ -61,16 +62,19 @@ class ParallelFileScanner:
         max_processes: Optional[int] = None,
         split_strategy: TaskSplitStrategy = TaskSplitStrategy.BY_FILE_SIZE,
         use_multiprocessing: bool = True,
+        decompress: bool = False,
     ):
         """
         参数:
             max_processes: 最大进程数（默认 CPU 核数）
             split_strategy: 任务分组策略
             use_multiprocessing: 是否使用多进程（False 则用 asyncio）
+            decompress: 是否预解压 .gz 文件（False 则在 worker 中直接流式解压）
         """
         self.max_processes = max_processes or (os.cpu_count() or 4)
         self.split_strategy = split_strategy
         self.use_multiprocessing = use_multiprocessing
+        self.decompress = decompress
         self.metrics = ScanMetrics()
 
     async def scan_all(
@@ -94,7 +98,11 @@ class ParallelFileScanner:
 
         # Step 1: 构建文件-解析器映射
         map_start = time.perf_counter()
-        builder = FileParserMapBuilder(log_dir, parsers)
+        gz_mapping = {}
+        if self.decompress:
+            preprocessor = LogPreprocessor()
+            gz_mapping = await preprocessor.decompress_all(log_dir)
+        builder = FileParserMapBuilder(log_dir, parsers, gz_mapping=gz_mapping)
         file_parser_map = builder.build()
         self.metrics.build_map_time_ms = (time.perf_counter() - map_start) * 1000
 
