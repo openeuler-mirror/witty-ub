@@ -25,6 +25,7 @@ def process_worker_func(
     group_id: int,
     parsers_info: list[dict],
     parse_config_dict: Optional[dict] = None,
+    scan_scope: Optional[dict] = None,
 ) -> dict[str, list[dict]]:
 
     import logging
@@ -40,6 +41,7 @@ def process_worker_func(
     logger.info(f"Started processing group {group_id} with {len(file_group_files)} files")
 
     parsers = _rebuild_parsers(parsers_info, parse_config_dict)
+    _apply_scan_scope(parsers, scan_scope)
 
     merged = defaultdict(list)
     for path, parser_indices in file_group_files:
@@ -108,6 +110,13 @@ def _rebuild_parsers(
             logger.warning(f"Unknown parser class: {class_name}")
 
     return parsers
+
+
+def _apply_scan_scope(parsers: list, scan_scope: Optional[dict]) -> None:
+    for parser in parsers:
+        setter = getattr(parser, "set_scan_scope", None)
+        if setter:
+            setter(scan_scope)
 
 
 def _scan_file_multi(

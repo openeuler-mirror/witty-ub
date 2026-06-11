@@ -51,6 +51,27 @@ class WorkerInfoParser(LogParser):
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
+        self._scan_scope_enabled = False
+        self._target_trace_ids: set[str] = set()
+        self._target_pod_trace_keys: set[tuple[str, str]] = set()
+        self._target_pod_ips: set[str] = set()
+
+    def set_scan_scope(self, scan_scope: Optional[dict]) -> None:
+        """Limit INFO parsing to traces/pods that can contribute to final results."""
+        if not scan_scope:
+            self._scan_scope_enabled = False
+            self._target_trace_ids = set()
+            self._target_pod_trace_keys = set()
+            self._target_pod_ips = set()
+            return
+
+        self._scan_scope_enabled = bool(scan_scope.get("enabled"))
+        self._target_trace_ids = set(scan_scope.get("trace_ids") or ())
+        self._target_pod_trace_keys = {
+            (pod_ip, trace_id)
+            for pod_ip, trace_id in (scan_scope.get("pod_trace_keys") or ())
+        }
+        self._target_pod_ips = set(scan_scope.get("pod_ips") or ())
 
     def scan_file(self, path: str) -> dict[str, list[LogEntry]]:
         """扫描单个 Run-format 日志文件，返回按原始 label 分组的 entries"""
@@ -83,7 +104,8 @@ class WorkerInfoParser(LogParser):
                     line_count += 1
                     if not line or line[0] != "2":
                         continue
-                    if not self._any_keyword_in(line):
+                    label = self._label_for_line(line)
+                    if not label:
                         continue
 
                     parts = line.split("|")
@@ -92,11 +114,14 @@ class WorkerInfoParser(LogParser):
                         continue
 
                     parsed = self._build_run(parts, plen)
+                    entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+                    if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
+                        continue
                     ts = parse_timestamp(parsed["timestamp"])
                     if not self._filter_by_time(ts):
                         continue
 
-                    label, entry = self._dispatch(line, parsed, ts, pod_ip)
+                    entry = self._dispatch(label, parsed, ts, pod_ip)
                     if entry:
                         entry.log_id = log_file.id
                         results[label].append(entry)
@@ -117,7 +142,8 @@ class WorkerInfoParser(LogParser):
         """兼容单行匹配接口（非热路径）"""
         if not line or line[0] != "2":
             return None
-        if not self._any_keyword_in(line):
+        label = self._label_for_line(line)
+        if not label:
             return None
 
         parts = line.split("|")
@@ -126,26 +152,64 @@ class WorkerInfoParser(LogParser):
             return None
 
         parsed = self._build_run(parts, plen)
+        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
+            return None
         ts = parse_timestamp(parsed["timestamp"])
         if not self._filter_by_time(ts):
             return None
 
-        _, entry = self._dispatch(line, parsed, ts, pod_ip)
-        return entry
+        return self._dispatch(label, parsed, ts, pod_ip)
 
-    def _dispatch(self, line: str, parsed: dict, ts, pod_ip: str) -> tuple[str, LogEntry | None]:
+    def _dispatch(self, label: str, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
         """if/elif 关键字分派到对应的提取逻辑"""
+        if label == URMA_LABEL:
+            return self._parse_urma(parsed, ts, pod_ip)
+        if label == REMOTE_PULL_LABEL:
+            msg = parsed["msg"]
+            if "Remote get request" in msg:
+                return self._parse_remote_get(parsed, ts, pod_ip)
+            return self._parse_remote_pull(parsed, ts, pod_ip)
+        if label == LINK_LABEL:
+            return self._parse_link(parsed, ts, pod_ip)
+        if label == QUERY_META_LABEL:
+            return self._parse_query_meta(parsed, ts, pod_ip)
+        if label == METRICS_LABEL:
+            return self._parse_metrics(parsed, ts, pod_ip)
+        return None
+
+    def _scope_allows(self, label: str, trace_id: str, pod_ip: str) -> bool:
+        if not self._scan_scope_enabled:
+            return True
+
+        if label == URMA_LABEL:
+            if pod_ip in self._target_pod_ips:
+                return True
+            if trace_id:
+                return trace_id in self._target_trace_ids
+            return False
+
+        if label in (QUERY_META_LABEL, METRICS_LABEL):
+            return bool(trace_id) and (pod_ip, trace_id) in self._target_pod_trace_keys
+
+        if label in (REMOTE_PULL_LABEL, LINK_LABEL):
+            return bool(trace_id) and trace_id in self._target_trace_ids
+
+        return True
+
+    @staticmethod
+    def _label_for_line(line: str) -> str | None:
         if "URMA_ELAPSED_TOTAL" in line:
-            return URMA_LABEL, self._parse_urma(parsed, ts, pod_ip)
-        if "Remote get request" in line:
-            return REMOTE_PULL_LABEL, self._parse_remote_get(parsed, ts, pod_ip)
-        if "Processing pull object[" in line:
-            return REMOTE_PULL_LABEL, self._parse_remote_pull(parsed, ts, pod_ip)
+            return URMA_LABEL
+        if "Remote get request" in line or "Processing pull object[" in line:
+            return REMOTE_PULL_LABEL
         if "elapsed ms:" in line:
-            return LINK_LABEL, self._parse_link(parsed, ts, pod_ip)
+            return LINK_LABEL
         if "Master query done" in line:
-            return QUERY_META_LABEL, self._parse_query_meta(parsed, ts, pod_ip)
-        return METRICS_LABEL, self._parse_metrics(parsed, ts, pod_ip)
+            return QUERY_META_LABEL
+        if WorkerInfoParser._any_metrics_keyword_in(line):
+            return METRICS_LABEL
+        return None
 
     # ---- 各类型提取逻辑 (从对应 parser 提取) ----
 
@@ -311,6 +375,13 @@ class WorkerInfoParser(LogParser):
     @staticmethod
     def _any_keyword_in(line: str) -> bool:
         for kw in ALL_KEYWORDS:
+            if kw in line:
+                return True
+        return False
+
+    @staticmethod
+    def _any_metrics_keyword_in(line: str) -> bool:
+        for kw in ALL_KEYWORDS[5:]:
             if kw in line:
                 return True
         return False

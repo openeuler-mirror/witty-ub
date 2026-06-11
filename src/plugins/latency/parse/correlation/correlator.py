@@ -54,9 +54,11 @@ class IndexManager:
             for trace_id, entries in self.worker_by_trace.items()
         }
         self.worker_by_trace_object = dict(self.worker_by_trace_object)
+        self.worker_index_by_id = {
+            id(entry): idx
+            for idx, entry in enumerate(self.worker_entries)
+        }
 
-        self.urma_traced_by_trace = defaultdict(list)
-        self.urma_traced_by_pod_trace = defaultdict(list)
         self.urma_by_dst_trace = defaultdict(list)
         self.urma_by_trace_endpoint = defaultdict(list)
         self.urma_untraced_by_pod: dict[str, tuple[list[LogEntry], list[datetime] | None]] = {}
@@ -68,8 +70,6 @@ class IndexManager:
         for u in self.urma_entries:
             self.urma_count_by_pod[u.pod_ip] += 1
             if u.trace_id:
-                self.urma_traced_by_trace[u.trace_id].append(u)
-                self.urma_traced_by_pod_trace[(u.pod_ip, u.trace_id)].append(u)
                 self.urma_by_dst_trace[(u.dst_addr, u.trace_id)].append(u)
                 self.urma_by_trace_endpoint[(u.trace_id, u.src_addr, u.dst_addr)].append(u)
                 self.traced_count_by_pod[u.pod_ip] += 1
@@ -85,24 +85,12 @@ class IndexManager:
             entries.sort(key=lambda x: x.timestamp)
             self.urma_untraced_by_pod[pod_ip] = (entries, [e.timestamp for e in entries])
 
-        for entries in self.urma_traced_by_trace.values():
-            entries.sort(key=lambda x: x.timestamp)
-        for entries in self.urma_traced_by_pod_trace.values():
-            entries.sort(key=lambda x: x.timestamp)
         for entries in self.urma_by_dst_trace.values():
             entries.sort(key=lambda x: x.timestamp)
 
-        self.urma_traced_by_trace = dict(self.urma_traced_by_trace)
-        self.urma_traced_by_pod_trace = dict(self.urma_traced_by_pod_trace)
         self.urma_by_dst_trace = dict(self.urma_by_dst_trace)
         self.urma_by_trace_endpoint = dict(self.urma_by_trace_endpoint)
 
-        self.pulls_by_trace = _group_by(self.remote_pull_entries, lambda p: p.trace_id)
-        self.pulls_by_trace_object = _group_by(
-            self.remote_pull_entries,
-            lambda p: (p.trace_id, p.object_key),
-            lambda p: bool(p.trace_id and p.object_key),
-        )
         self.links_by_trace = _group_by(self.link_entries, lambda l: l.trace_id)
         self.links_by_pod_trace = _group_by(self.link_entries, lambda l: (l.pod_ip, l.trace_id))
         self.best_link_by_trace = {
@@ -113,14 +101,10 @@ class IndexManager:
             key: max(entries, key=lambda x: x.elapsed_us)
             for key, entries in self.links_by_pod_trace.items()
         }
-        self.metas_by_pod_trace = _group_by(self.query_meta_entries, lambda m: (m.pod_ip, m.trace_id))
-
-        for entries in self.metas_by_pod_trace.values():
-            entries.sort(key=lambda x: x.timestamp)
-        self.metas_ts_by_pod_trace = {
-            key: [entry.timestamp for entry in entries]
-            for key, entries in self.metas_by_pod_trace.items()
-        }
+    def iter_worker_items(self, worker_indices: set[int] | None = None):
+        if worker_indices is None:
+            return enumerate(self.worker_entries)
+        return ((idx, self.worker_entries[idx]) for idx in worker_indices)
 
 
 class BaseCorrelator(ABC):
@@ -133,15 +117,16 @@ class BaseCorrelator(ABC):
 
 
 class WorkerRemotePullCorrelator(BaseCorrelator):
-    def correlate(self) -> dict[int, list[LogEntry]]:
+    def correlate(self, worker_indices: set[int] | None = None) -> dict[int, list[LogEntry]]:
+        pulls_by_trace, pulls_by_trace_object = self._build_pull_indexes(worker_indices)
         results = {}
-        for i, w in enumerate(self.index_manager.worker_entries):
-            candidates = self.index_manager.pulls_by_trace.get(w.trace_id, [])
+        for i, w in self.index_manager.iter_worker_items(worker_indices):
+            candidates = pulls_by_trace.get(w.trace_id, [])
             if not candidates:
                 continue
             choices = candidates
             if w.object_key:
-                choices = self.index_manager.pulls_by_trace_object.get(
+                choices = pulls_by_trace_object.get(
                     (w.trace_id, w.object_key),
                     candidates,
                 )
@@ -149,11 +134,37 @@ class WorkerRemotePullCorrelator(BaseCorrelator):
                 results[i] = choices
         return results
 
+    def _build_pull_indexes(
+        self,
+        worker_indices: set[int] | None,
+    ) -> tuple[dict[str, list[LogEntry]], dict[tuple[str, str], list[LogEntry]]]:
+        target_trace_ids = None
+        target_trace_objects = None
+        if worker_indices is not None:
+            target_trace_ids = set()
+            target_trace_objects = set()
+            for _, worker in self.index_manager.iter_worker_items(worker_indices):
+                target_trace_ids.add(worker.trace_id)
+                if worker.object_key:
+                    target_trace_objects.add((worker.trace_id, worker.object_key))
+
+        pulls_by_trace = defaultdict(list)
+        pulls_by_trace_object = defaultdict(list)
+        for pull in self.index_manager.remote_pull_entries:
+            if target_trace_ids is not None and pull.trace_id not in target_trace_ids:
+                continue
+            pulls_by_trace[pull.trace_id].append(pull)
+            if pull.trace_id and pull.object_key:
+                key = (pull.trace_id, pull.object_key)
+                if target_trace_objects is None or key in target_trace_objects:
+                    pulls_by_trace_object[key].append(pull)
+        return dict(pulls_by_trace), dict(pulls_by_trace_object)
+
 
 class WorkerLinkCorrelator(BaseCorrelator):
-    def correlate(self) -> dict[int, list[LogEntry]]:
+    def correlate(self, worker_indices: set[int] | None = None) -> dict[int, list[LogEntry]]:
         results = {}
-        for i, w in enumerate(self.index_manager.worker_entries):
+        for i, w in self.index_manager.iter_worker_items(worker_indices):
             best = self.index_manager.best_link_by_trace.get(w.trace_id)
             if best is None:
                 best = self.index_manager.best_link_by_pod_trace.get((w.pod_ip, w.trace_id))
@@ -163,15 +174,16 @@ class WorkerLinkCorrelator(BaseCorrelator):
 
 
 class WorkerQueryMetaCorrelator(BaseCorrelator):
-    def correlate(self) -> dict[int, list[LogEntry]]:
+    def correlate(self, worker_indices: set[int] | None = None) -> dict[int, list[LogEntry]]:
+        metas_by_pod_trace, metas_ts_by_pod_trace = self._build_meta_indexes(worker_indices)
         results = {}
-        for i, w in enumerate(self.index_manager.worker_entries):
+        for i, w in self.index_manager.iter_worker_items(worker_indices):
             key = (w.pod_ip, w.trace_id)
-            candidates = self.index_manager.metas_by_pod_trace.get(key, [])
+            candidates = metas_by_pod_trace.get(key, [])
             if not candidates:
                 continue
             start = w.timestamp - timedelta(microseconds=w.elapsed_us)
-            ts_list = self.index_manager.metas_ts_by_pod_trace.get(key, [])
+            ts_list = metas_ts_by_pod_trace.get(key, [])
             lo = bisect_left(ts_list, start)
             hi = bisect_right(ts_list, w.timestamp)
             if lo < hi:
@@ -191,17 +203,47 @@ class WorkerQueryMetaCorrelator(BaseCorrelator):
             results[i] = [best]
         return results
 
+    def _build_meta_indexes(
+        self,
+        worker_indices: set[int] | None,
+    ) -> tuple[dict[tuple[str, str], list[LogEntry]], dict[tuple[str, str], list[datetime]]]:
+        target_pod_traces = None
+        if worker_indices is not None:
+            target_pod_traces = {
+                (worker.pod_ip, worker.trace_id)
+                for _, worker in self.index_manager.iter_worker_items(worker_indices)
+            }
+
+        metas_by_pod_trace = defaultdict(list)
+        for meta in self.index_manager.query_meta_entries:
+            key = (meta.pod_ip, meta.trace_id)
+            if target_pod_traces is not None and key not in target_pod_traces:
+                continue
+            metas_by_pod_trace[key].append(meta)
+
+        for entries in metas_by_pod_trace.values():
+            entries.sort(key=lambda x: x.timestamp)
+        metas_ts_by_pod_trace = {
+            key: [entry.timestamp for entry in entries]
+            for key, entries in metas_by_pod_trace.items()
+        }
+        return dict(metas_by_pod_trace), metas_ts_by_pod_trace
+
 
 class WorkerUrmaCorrelator(BaseCorrelator):
     def __init__(self, index_manager: IndexManager):
         super().__init__(index_manager)
         self.worker_entries = index_manager.worker_entries
 
-    def correlate(self, worker_remote_pull_map: dict[int, list[LogEntry]]) -> tuple[dict[int, list[LogEntry]], dict[int, list[LogEntry]]]:
+    def correlate(
+        self,
+        worker_remote_pull_map: dict[int, list[LogEntry]],
+        worker_indices: set[int] | None = None,
+    ) -> tuple[dict[int, list[LogEntry]], dict[int, list[LogEntry]]]:
         results = {}
         worker_worker_results = {}
 
-        for i, w in enumerate(self.worker_entries):
+        for i, w in self.index_manager.iter_worker_items(worker_indices):
             remote_matched = self._match_urma_by_remote_pull(
                 self.index_manager.urma_by_trace_endpoint,
                 w.trace_id,
@@ -333,7 +375,7 @@ class WorkerIdxCorrelator(BaseCorrelator):
         self.worker_entries = index_manager.worker_entries
 
     def correlate(self, sdk_worker_map: dict[int, LogEntry]) -> dict[int, int]:
-        worker_to_idx = {id(w): i for i, w in enumerate(self.worker_entries)}
+        worker_to_idx = self.index_manager.worker_index_by_id
         return {sdk_i: worker_to_idx[id(w)] for sdk_i, w in sdk_worker_map.items() if w}
 
 
@@ -342,9 +384,13 @@ class UrmaEmptyReasonCorrelator(BaseCorrelator):
         super().__init__(index_manager)
         self.worker_entries = index_manager.worker_entries
 
-    def correlate(self, worker_urma_map: dict[int, list[LogEntry]]) -> dict[int, str]:
+    def correlate(
+        self,
+        worker_urma_map: dict[int, list[LogEntry]],
+        worker_indices: set[int] | None = None,
+    ) -> dict[int, str]:
         reasons = {}
-        for i, w in enumerate(self.worker_entries):
+        for i, w in self.index_manager.iter_worker_items(worker_indices):
             if i in worker_urma_map:
                 continue
             if self.index_manager.urma_count_by_pod[w.pod_ip] == 0:
@@ -360,15 +406,29 @@ class UrmaEmptyReasonCorrelator(BaseCorrelator):
 
 
 class WorkerMetricsCorrelator(BaseCorrelator):
-    def __init__(self, index_manager: IndexManager, metrics_entries: list[LogEntry]):
+    def __init__(
+        self,
+        index_manager: IndexManager,
+        metrics_entries: list[LogEntry],
+        target_pod_traces: set[tuple[str, str]] | None = None,
+    ):
         super().__init__(index_manager)
         self.metrics_entries = metrics_entries
-        self.metrics_by_pod_trace_type = _group_by(
-            metrics_entries,
-            lambda m: (m.pod_ip, m.trace_id, m.entry_type),
-        )
+        metrics_by_pod_trace_type = defaultdict(list)
+        if target_pod_traces is None:
+            for m in metrics_entries:
+                metrics_by_pod_trace_type[(m.pod_ip, m.trace_id, m.entry_type)].append(m)
+        else:
+            for m in metrics_entries:
+                pod_trace = (m.pod_ip, m.trace_id)
+                if pod_trace in target_pod_traces:
+                    metrics_by_pod_trace_type[(m.pod_ip, m.trace_id, m.entry_type)].append(m)
+        self.metrics_by_pod_trace_type = dict(metrics_by_pod_trace_type)
 
-    def correlate(self) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
+    def correlate(
+        self,
+        worker_indices: set[int] | None = None,
+    ) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
         sdk_process_map = {}
         sdk_rpc_map = {}
         local_worker_cost_map = {}
@@ -378,7 +438,7 @@ class WorkerMetricsCorrelator(BaseCorrelator):
         master_process_map = {}
         master_rpc_map = {}
 
-        for i, w in enumerate(self.index_manager.worker_entries):
+        for i, w in self.index_manager.iter_worker_items(worker_indices):
             pod_trace = (w.pod_ip, w.trace_id)
             values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.SDK_PROCESS))
             if values:
@@ -439,6 +499,8 @@ class LogCorrelator:
         )
         self.index_build_seconds = time.perf_counter() - index_start
         self.stage_timings: list[tuple[str, float]] = []
+        self.worker_scope_count = len(self.worker_entries)
+        self.worker_scope_pod_trace_count = 0
         logger.info(
             "Correlate index build: %.3fs (sdk=%d, worker=%d, urma=%d, pull=%d, link=%d, meta=%d, metrics=%d)",
             self.index_build_seconds,
@@ -462,22 +524,6 @@ class LogCorrelator:
     def correlate(self) -> CorrelationResult:
         im = self.index_manager
 
-        worker_remote_pull_map = self._timed_stage(
-            "worker_remote_pull",
-            lambda: WorkerRemotePullCorrelator(im).correlate(),
-        )
-        worker_link_map = self._timed_stage(
-            "worker_link",
-            lambda: WorkerLinkCorrelator(im).correlate(),
-        )
-        worker_query_meta_map = self._timed_stage(
-            "worker_query_meta",
-            lambda: WorkerQueryMetaCorrelator(im).correlate(),
-        )
-        worker_urma_map, worker_worker_urma_map = self._timed_stage(
-            "worker_urma",
-            lambda: WorkerUrmaCorrelator(im).correlate(worker_remote_pull_map),
-        )
         sdk_worker_map = self._timed_stage(
             "sdk_worker",
             lambda: SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate(),
@@ -490,9 +536,41 @@ class LogCorrelator:
             "worker_idx",
             lambda: WorkerIdxCorrelator(im).correlate(sdk_worker_map),
         )
+        worker_indices = set(worker_idx_map.values()) if self.sdk_entries else None
+        target_pod_traces = None
+        if worker_indices is not None:
+            target_pod_traces = {
+                (im.worker_entries[idx].pod_ip, im.worker_entries[idx].trace_id)
+                for idx in worker_indices
+            }
+            self.worker_scope_count = len(worker_indices)
+            self.worker_scope_pod_trace_count = len(target_pod_traces)
+            logger.info(
+                "Correlate worker scope: %d/%d workers, %d pod-trace keys",
+                len(worker_indices),
+                len(self.worker_entries),
+                len(target_pod_traces),
+            )
+
+        worker_remote_pull_map = self._timed_stage(
+            "worker_remote_pull",
+            lambda: WorkerRemotePullCorrelator(im).correlate(worker_indices),
+        )
+        worker_link_map = self._timed_stage(
+            "worker_link",
+            lambda: WorkerLinkCorrelator(im).correlate(worker_indices),
+        )
+        worker_query_meta_map = self._timed_stage(
+            "worker_query_meta",
+            lambda: WorkerQueryMetaCorrelator(im).correlate(worker_indices),
+        )
+        worker_urma_map, worker_worker_urma_map = self._timed_stage(
+            "worker_urma",
+            lambda: WorkerUrmaCorrelator(im).correlate(worker_remote_pull_map, worker_indices),
+        )
         urma_empty_reasons = self._timed_stage(
             "urma_empty_reasons",
-            lambda: UrmaEmptyReasonCorrelator(im).correlate(worker_urma_map),
+            lambda: UrmaEmptyReasonCorrelator(im).correlate(worker_urma_map, worker_indices),
         )
 
         (
@@ -506,7 +584,11 @@ class LogCorrelator:
             worker_master_rpc_map,
         ) = self._timed_stage(
             "worker_metrics",
-            lambda: WorkerMetricsCorrelator(im, self.metrics_entries).correlate(),
+            lambda: WorkerMetricsCorrelator(
+                im,
+                self.metrics_entries,
+                target_pod_traces,
+            ).correlate(worker_indices),
         )
 
         return CorrelationResult(
