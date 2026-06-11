@@ -85,7 +85,7 @@ class KVCacheLogParseWorker(BaseWorker):
         task = TaskModel(
             kb_id=log_kb_model.id,
             op_id=op_id,
-            task_name=f"解析日志文件 {log_file_model.name}",
+            task_name=f"Parse log file: {log_file_model.name}",
             task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
             status=TaskStatusEnum.PENDING,
         )
@@ -93,7 +93,7 @@ class KVCacheLogParseWorker(BaseWorker):
         await LogFileManager.update_log_file(
             log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
-        await BaseWorker.report(task.id, "初始化任务", 0.0)
+        await BaseWorker.report(task.id, "Task initialized", 0.0)
         return task.id
 
     @staticmethod
@@ -122,13 +122,13 @@ class KVCacheLogParseWorker(BaseWorker):
                 task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
             )
             logger.warning(
-                f"任务 {task_id} 重试次数 {task.retry_times} 已超过最大重试次数 {Config().get_config().task.task_retry_times}"
+                f"Task {task_id} retry count {task.retry_times} exceeded max retries {Config().get_config().task.task_retry_times}"
             )
             return False
         await LogFileManager.update_log_file(
             task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
-        await BaseWorker.report(task.id, "重新初始化任务", 0.0)
+        await BaseWorker.report(task.id, "Task reinitialized", 0.0)
         return True
 
     @staticmethod
@@ -442,25 +442,25 @@ class KVCacheLogParseWorker(BaseWorker):
         try:
             task = await TaskManager.get_task_by_task_id(task_id)
             if not task:
-                logger.error(f"任务 {task_id} 不存在")
+                logger.error(f"Task {task_id} not found")
                 return False
             
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
-            await BaseWorker.report(task.id, "运行任务", 5.0)
+            await BaseWorker.report(task.id, "Task running", 5.0)
 
             # 从 TaskHandler 获取解析配置
             from latency.task.task_handler import TaskHandler
             parse_config = TaskHandler.get_task_config(task_id)
             if parse_config:
-                logger.info(f"[任务 {task_id}] 使用解析配置: {parse_config}")
+                logger.info(f"[Task {task_id}] Using parse config: {parse_config}")
 
             # 直接使用 task.op_id 作为 log_id，parse_log 内部会获取 log_file 信息
             t_run_start = time.perf_counter()
             list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config, task_id=task_id)
             t_parse = time.perf_counter() - t_run_start
-            await BaseWorker.report(task.id, "完成解析日志", 70.0)
+            await BaseWorker.report(task.id, "Log parse completed", 70.0)
 
             # 获取 kb_id 用于后续更新知识库统计
             log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
@@ -470,13 +470,13 @@ class KVCacheLogParseWorker(BaseWorker):
             t_detect_start = time.perf_counter()
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
             t_detect = time.perf_counter() - t_detect_start
-            await BaseWorker.report(task.id, "检测异常事件", 80.0)
+            await BaseWorker.report(task.id, "Anomaly detection done", 80.0)
             
             # 再生成聚合事件（此时 anomalous_event_id 已填充）
             t_agg_start = time.perf_counter()
             src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
             t_agg = time.perf_counter() - t_agg_start
-            await BaseWorker.report(task.id, "生成聚合事件", 85.0)
+            await BaseWorker.report(task.id, "Aggregate events done", 85.0)
             
             # 更新异常事件的 aggregated_event_id
             for event in anomalous_events:
@@ -488,7 +488,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst), "")
             
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
-            await BaseWorker.report(task.id, "匹配故障事件", 90.0)
+            await BaseWorker.report(task.id, "Fault matching done", 90.0)
 
             t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
@@ -498,10 +498,10 @@ class KVCacheLogParseWorker(BaseWorker):
                 src_dst_aggregated_events=src_dst_aggregated_events,
             )
             t_store = time.perf_counter() - t_store_start
-            await BaseWorker.report(task.id, "存库", 95.0)
+            await BaseWorker.report(task.id, "Results stored", 95.0)
             
             if not stored:
-                logger.warning(f"任务 {task_id} 存库部分失败，但仍标记为成功")
+                logger.warning(f"Task {task_id} store partially failed, still marking as successful")
 
             await LogFileManager.update_log_file(
                 task.op_id, {"anomaly_cnt": len(anomalous_events)}
@@ -519,7 +519,7 @@ class KVCacheLogParseWorker(BaseWorker):
             await LogFileManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
-            await BaseWorker.report(task.id, "任务成功", 100.0)
+            await BaseWorker.report(task.id, "Task completed successfully", 100.0)
 
             # 全流程耗时汇总
             t_total = t_parse + t_detect + t_agg + t_store
@@ -543,7 +543,7 @@ class KVCacheLogParseWorker(BaseWorker):
             await BaseWorker.report(task.id, f"[TASK] Total: {t_total:.1f}s", 0.0)
             return True
         except Exception as e:
-            logger.exception(f"任务 {task_id} 执行失败: {e}")
+            logger.exception(f"Task {task_id} failed: {e}")
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
