@@ -1,6 +1,4 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
-import os
-import signal
 import multiprocessing
 import uuid
 import asyncio
@@ -87,8 +85,8 @@ class ProcessHandler:
             try:
                 if process.is_alive():
                     pid = process.pid
-                    os.kill(pid, signal.SIGKILL)
-                    info = f"进程 {task_id} ({pid}) 被杀死。"
+                    process.kill()
+                    info = f"任务 {task_id} ({pid}) 被杀死。"
                     logger.info(f"[ProcessHandler] %s", info)
             except Exception as e:
                 warning = f"杀死进程 {task_id} 失败: {e}"
