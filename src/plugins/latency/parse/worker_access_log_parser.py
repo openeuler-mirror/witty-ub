@@ -1,8 +1,12 @@
 """Worker访问日志解析器"""
 
+from datetime import datetime
+from typing import Optional
+
 from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log_file import WORKER_ACCESS_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry, EntryType
+from latency.schemas.request import ParseConfig
 from latency.parse.base_parser import AccessLogParser, WORKER_GET_OPS, logger
 
 
@@ -16,9 +20,26 @@ class WorkerAccessLogParser(AccessLogParser):
     label = "Worker access parse"
     _keywords = ("DS_POSIX_GET",)
 
-    def __init__(self, start_time=None, end_time=None):
-        self.start_time = start_time
-        self.end_time = end_time
+    def __init__(
+        self,
+        parse_config: Optional[ParseConfig] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ):
+        # Backward compatible: older callers passed start_time as the first arg.
+        if isinstance(parse_config, ParseConfig):
+            super().__init__(parse_config)
+            self.start_time = self._start_dt
+            self.end_time = self._end_dt
+        else:
+            super().__init__(None)
+            if parse_config is not None:
+                # Legacy positional form: WorkerAccessLogParser(start_time, end_time)
+                self.start_time = parse_config
+                self.end_time = start_time
+            else:
+                self.start_time = start_time
+                self.end_time = end_time
         self._filtered_by_time = 0
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
@@ -26,11 +47,6 @@ class WorkerAccessLogParser(AccessLogParser):
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in WORKER_GET_OPS:
             return None
-        ts = parse_timestamp(parsed["timestamp"])
-        if self.start_time or self.end_time:
-            if (self.start_time and ts < self.start_time) or (self.end_time and ts > self.end_time):
-                self._filtered_by_time += 1
-                return None
         try:
             elapsed = int(parsed["elapsed"])
         except ValueError:
@@ -38,6 +54,11 @@ class WorkerAccessLogParser(AccessLogParser):
         trace_id = parsed["trace_id"]
         if not trace_id:
             return None
+        ts = parse_timestamp(parsed["timestamp"])
+        if self.start_time or self.end_time:
+            if (self.start_time and ts < self.start_time) or (self.end_time and ts > self.end_time):
+                self._filtered_by_time += 1
+                return None
         # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         return LogEntry(

@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime, timedelta
 from collections import defaultdict
 from bisect import bisect_left, bisect_right
@@ -6,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional, Tuple
 
 from latency.schemas.ds_log import (
+    EntryType,
     LogEntry,
     CorrelationResult,
 )
@@ -88,6 +90,10 @@ class IndexManager:
 
         for entries in self.metas_by_pod_trace.values():
             entries.sort(key=lambda x: x.timestamp)
+        self.metas_ts_by_pod_trace = {
+            key: [entry.timestamp for entry in entries]
+            for key, entries in self.metas_by_pod_trace.items()
+        }
 
 
 class BaseCorrelator(ABC):
@@ -130,11 +136,12 @@ class WorkerQueryMetaCorrelator(BaseCorrelator):
     def correlate(self) -> dict[int, list[LogEntry]]:
         results = {}
         for i, w in enumerate(self.index_manager.worker_entries):
-            candidates = self.index_manager.metas_by_pod_trace.get((w.pod_ip, w.trace_id), [])
+            key = (w.pod_ip, w.trace_id)
+            candidates = self.index_manager.metas_by_pod_trace.get(key, [])
             if not candidates:
                 continue
             start = w.timestamp - timedelta(microseconds=w.elapsed_us)
-            ts_list = [e.timestamp for e in candidates]
+            ts_list = self.index_manager.metas_ts_by_pod_trace.get(key, [])
             lo = bisect_left(ts_list, start)
             hi = bisect_right(ts_list, w.timestamp)
             in_range = candidates[lo:hi] if lo < hi else []
@@ -287,7 +294,10 @@ class WorkerMetricsCorrelator(BaseCorrelator):
     def __init__(self, index_manager: IndexManager, metrics_entries: list[LogEntry]):
         super().__init__(index_manager)
         self.metrics_entries = metrics_entries
-        self.metrics_by_pod_trace = _group_by(metrics_entries, lambda m: (m.pod_ip, m.trace_id))
+        self.metrics_by_pod_trace_type = _group_by(
+            metrics_entries,
+            lambda m: (m.pod_ip, m.trace_id, m.entry_type),
+        )
 
     def correlate(self) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
         sdk_process_map = {}
@@ -299,32 +309,32 @@ class WorkerMetricsCorrelator(BaseCorrelator):
         master_process_map = {}
         master_rpc_map = {}
 
-        from latency.schemas.ds_log import EntryType
-
         for i, w in enumerate(self.index_manager.worker_entries):
-            key = (w.pod_ip, w.trace_id)
-            candidates = self.metrics_by_pod_trace.get(key, [])
-            
-            if not candidates:
-                continue
-
-            for m in candidates:
-                if m.entry_type == EntryType.SDK_PROCESS:
-                    sdk_process_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.SDK_RPC:
-                    sdk_rpc_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.LOCAL_WORKER_COST:
-                    local_worker_cost_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.LOCAL_WORKER_LOCK:
-                    local_worker_lock_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.REMOTE_WORKER_COST:
-                    remote_worker_cost_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.REMOTE_WORKER_RPC:
-                    remote_worker_rpc_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.MASTER_PROCESS:
-                    master_process_map.setdefault(i, []).append(m)
-                elif m.entry_type == EntryType.MASTER_RPC:
-                    master_rpc_map.setdefault(i, []).append(m)
+            pod_trace = (w.pod_ip, w.trace_id)
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.SDK_PROCESS))
+            if values:
+                sdk_process_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.SDK_RPC))
+            if values:
+                sdk_rpc_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.LOCAL_WORKER_COST))
+            if values:
+                local_worker_cost_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.LOCAL_WORKER_LOCK))
+            if values:
+                local_worker_lock_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.REMOTE_WORKER_COST))
+            if values:
+                remote_worker_cost_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.REMOTE_WORKER_RPC))
+            if values:
+                remote_worker_rpc_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.MASTER_PROCESS))
+            if values:
+                master_process_map[i] = values
+            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.MASTER_RPC))
+            if values:
+                master_rpc_map[i] = values
 
         return (
             sdk_process_map,
@@ -349,7 +359,8 @@ class LogCorrelator:
         # 提取新增指标的解析结果
         self.metrics_entries: list[LogEntry] = parsed.get("Worker metrics parse", [])
         self.time_window_ms = time_window_ms
-        
+
+        index_start = time.perf_counter()
         self.index_manager = IndexManager(
             worker_entries=self.worker_entries,
             urma_entries=self.urma_entries,
@@ -357,18 +368,60 @@ class LogCorrelator:
             link_entries=self.link_entries,
             query_meta_entries=self.query_meta_entries,
         )
+        logger.info(
+            "Correlate index build: %.3fs (sdk=%d, worker=%d, urma=%d, pull=%d, link=%d, meta=%d, metrics=%d)",
+            time.perf_counter() - index_start,
+            len(self.sdk_entries),
+            len(self.worker_entries),
+            len(self.urma_entries),
+            len(self.remote_pull_entries),
+            len(self.link_entries),
+            len(self.query_meta_entries),
+            len(self.metrics_entries),
+        )
+
+    @staticmethod
+    def _timed_stage(stage_name: str, func):
+        start = time.perf_counter()
+        result = func()
+        logger.info("Correlate stage %-20s %.3fs", stage_name + ":", time.perf_counter() - start)
+        return result
 
     def correlate(self) -> CorrelationResult:
         im = self.index_manager
 
-        worker_remote_pull_map = WorkerRemotePullCorrelator(im).correlate()
-        worker_link_map = WorkerLinkCorrelator(im).correlate()
-        worker_query_meta_map = WorkerQueryMetaCorrelator(im).correlate()
-        worker_urma_map, worker_worker_urma_map = WorkerUrmaCorrelator(im).correlate(worker_remote_pull_map)
-        sdk_worker_map = SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate()
-        sdk_urma_map = SdkUrmaCorrelator(im, self.sdk_entries).correlate()
-        worker_idx_map = WorkerIdxCorrelator(im).correlate(sdk_worker_map)
-        urma_empty_reasons = UrmaEmptyReasonCorrelator(im).correlate(worker_urma_map)
+        worker_remote_pull_map = self._timed_stage(
+            "worker_remote_pull",
+            lambda: WorkerRemotePullCorrelator(im).correlate(),
+        )
+        worker_link_map = self._timed_stage(
+            "worker_link",
+            lambda: WorkerLinkCorrelator(im).correlate(),
+        )
+        worker_query_meta_map = self._timed_stage(
+            "worker_query_meta",
+            lambda: WorkerQueryMetaCorrelator(im).correlate(),
+        )
+        worker_urma_map, worker_worker_urma_map = self._timed_stage(
+            "worker_urma",
+            lambda: WorkerUrmaCorrelator(im).correlate(worker_remote_pull_map),
+        )
+        sdk_worker_map = self._timed_stage(
+            "sdk_worker",
+            lambda: SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate(),
+        )
+        sdk_urma_map = self._timed_stage(
+            "sdk_urma",
+            lambda: SdkUrmaCorrelator(im, self.sdk_entries).correlate(),
+        )
+        worker_idx_map = self._timed_stage(
+            "worker_idx",
+            lambda: WorkerIdxCorrelator(im).correlate(sdk_worker_map),
+        )
+        urma_empty_reasons = self._timed_stage(
+            "urma_empty_reasons",
+            lambda: UrmaEmptyReasonCorrelator(im).correlate(worker_urma_map),
+        )
 
         (
             worker_sdk_process_map,
@@ -379,7 +432,10 @@ class LogCorrelator:
             worker_remote_worker_rpc_map,
             worker_master_process_map,
             worker_master_rpc_map,
-        ) = WorkerMetricsCorrelator(im, self.metrics_entries).correlate()
+        ) = self._timed_stage(
+            "worker_metrics",
+            lambda: WorkerMetricsCorrelator(im, self.metrics_entries).correlate(),
+        )
 
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,
