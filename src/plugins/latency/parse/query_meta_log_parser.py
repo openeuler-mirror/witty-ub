@@ -32,7 +32,8 @@ class QueryMetaLogParser(LogParser):
         if not parsed:
             return None
         
-        if not self._filter_by_time(parsed["timestamp"]):
+        ts = parse_timestamp(parsed["timestamp"])
+        if not self._filter_by_time(ts):
             return None
         
         msg = parsed["msg"]
@@ -48,7 +49,7 @@ class QueryMetaLogParser(LogParser):
         # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         return LogEntry(
-            timestamp=parse_timestamp(parsed["timestamp"]),
+            timestamp=ts,
             elapsed_us=float(elapsed_ms) * 1000,
             pod_ip=entry_pod_ip,
             trace_id=trace_id,

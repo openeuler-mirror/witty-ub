@@ -36,31 +36,22 @@ class LogParser(ABC):
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         self.parse_config = parse_config or ParseConfig()
         self._filtered_by_time = 0
+        self._start_dt = None
+        self._end_dt = None
+        if parse_config and parse_config.is_time_filter_enabled():
+            if parse_config.start_time:
+                self._start_dt = parse_timestamp(parse_config.start_time)
+            if parse_config.end_time:
+                self._end_dt = parse_timestamp(parse_config.end_time)
     
-    def _filter_by_time(self, timestamp_str: str) -> bool:
-        """
-        根据配置过滤时间
-        
-        返回 True 表示需要保留（通过过滤），返回 False 表示需要过滤掉
-        """
-        if not self.parse_config.is_time_filter_enabled():
-            return True
-        
-        try:
-            ts = parse_timestamp(timestamp_str)
-            if self.parse_config.start_time:
-                start_ts = parse_timestamp(self.parse_config.start_time)
-                if ts < start_ts:
-                    self._filtered_by_time += 1
-                    return False
-            if self.parse_config.end_time:
-                end_ts = parse_timestamp(self.parse_config.end_time)
-                if ts > end_ts:
-                    self._filtered_by_time += 1
-                    return False
-            return True
-        except Exception:
-            return True
+    def _filter_by_time(self, ts: datetime) -> bool:
+        if self._start_dt is not None and ts < self._start_dt:
+            self._filtered_by_time += 1
+            return False
+        if self._end_dt is not None and ts > self._end_dt:
+            self._filtered_by_time += 1
+            return False
+        return True
 
     class AccessCol(IntEnum):
         """Access格式日志列索引

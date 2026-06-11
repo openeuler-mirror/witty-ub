@@ -103,7 +103,8 @@ class WorkerMetricsLogParser(LogParser):
         if not parsed:
             return None
         
-        if not self._filter_by_time(parsed["timestamp"]):
+        ts = parse_timestamp(parsed["timestamp"])
+        if not self._filter_by_time(ts):
             return None
         
         trace_id = parsed["trace_id"]
@@ -114,7 +115,7 @@ class WorkerMetricsLogParser(LogParser):
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         
         return LogEntry(
-            timestamp=parse_timestamp(parsed["timestamp"]),
+            timestamp=ts,
             elapsed_us=elapsed_us,
             pod_ip=entry_pod_ip,
             trace_id=trace_id,

@@ -57,7 +57,12 @@ def process_worker_func(
         f"{len(merged)} parsers, "
         f"{total_entries:,} total entries"
     )
-    return dict(merged)
+
+    serialized = {
+        label: [_serialize_entry(e) for e in entries]
+        for label, entries in merged.items()
+    }
+    return serialized
 
 
 def _rebuild_parsers(
@@ -214,3 +219,59 @@ def _any_keyword_in(line: str, keywords: tuple[str, ...]) -> bool:
         if kw in line:
             return True
     return False
+
+
+def _serialize_entry(entry) -> tuple:
+    return (
+        entry.timestamp.timestamp() if entry.timestamp else None,
+        entry.operation,
+        entry.elapsed_us,
+        entry.data_size,
+        entry.object_key,
+        entry.trace_id,
+        entry.pod_ip,
+        entry.status_code,
+        entry.resp_msg,
+        entry.entry_type.value if entry.entry_type else None,
+        entry.cluster_name,
+        entry.src_addr,
+        entry.dst_addr,
+        entry.inflight_count,
+        entry.request_size,
+        entry.log_id,
+    )
+
+
+def _deserialize_entry(t: tuple):
+    from datetime import datetime
+    from latency.schemas.ds_log import LogEntry, EntryType
+
+    timestamp = None
+    if t[0] is not None:
+        timestamp = datetime.fromtimestamp(t[0])
+
+    entry_type = t[9]
+    if isinstance(entry_type, str):
+        try:
+            entry_type = EntryType(entry_type)
+        except Exception:
+            entry_type = None
+
+    return LogEntry(
+        timestamp=timestamp,
+        operation=t[1],
+        elapsed_us=t[2],
+        data_size=t[3],
+        object_key=t[4],
+        trace_id=t[5],
+        pod_ip=t[6],
+        status_code=t[7],
+        resp_msg=t[8],
+        entry_type=entry_type,
+        cluster_name=t[10],
+        src_addr=t[11],
+        dst_addr=t[12],
+        inflight_count=t[13],
+        request_size=t[14],
+        log_id=t[15],
+    )

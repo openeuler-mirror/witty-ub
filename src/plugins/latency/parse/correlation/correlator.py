@@ -41,21 +41,30 @@ class IndexManager:
 
     def _build_indexes(self):
         self.worker_by_trace = _group_by(self.worker_entries, lambda w: w.trace_id)
-        self.urma_traced_by_trace = _group_by(self.urma_entries, lambda u: u.trace_id, lambda u: u.trace_id)
-        self.urma_traced_by_pod_trace = _group_by(self.urma_entries, lambda u: (u.pod_ip, u.trace_id), lambda u: u.trace_id)
-        self.urma_by_dst_trace = _group_by(self.urma_entries, lambda u: (u.dst_addr, u.trace_id), lambda u: u.trace_id)
-        self.pulls_by_trace = _group_by(self.remote_pull_entries, lambda p: p.trace_id)
-        self.links_by_trace = _group_by(self.link_entries, lambda l: l.trace_id)
-        self.links_by_pod_trace = _group_by(self.link_entries, lambda l: (l.pod_ip, l.trace_id))
-        self.metas_by_pod_trace = _group_by(self.query_meta_entries, lambda m: (m.pod_ip, m.trace_id))
 
+        self.urma_traced_by_trace = defaultdict(list)
+        self.urma_traced_by_pod_trace = defaultdict(list)
+        self.urma_by_dst_trace = defaultdict(list)
         self.urma_untraced_by_pod: dict[str, tuple[list[LogEntry], list[datetime] | None]] = {}
+        self.urma_count_by_pod: dict[str, int] = defaultdict(int)
+        self.traced_count_by_pod: dict[str, int] = defaultdict(int)
+        self.untraced_count_by_pod: dict[str, int] = defaultdict(int)
+        self.traced_count_by_pod_trace: dict[tuple[str, str], int] = defaultdict(int)
+
         for u in self.urma_entries:
+            self.urma_count_by_pod[u.pod_ip] += 1
             if u.trace_id:
-                continue
-            if u.pod_ip not in self.urma_untraced_by_pod:
-                self.urma_untraced_by_pod[u.pod_ip] = ([], None)
-            self.urma_untraced_by_pod[u.pod_ip][0].append(u)
+                self.urma_traced_by_trace[u.trace_id].append(u)
+                self.urma_traced_by_pod_trace[(u.pod_ip, u.trace_id)].append(u)
+                self.urma_by_dst_trace[(u.dst_addr, u.trace_id)].append(u)
+                self.traced_count_by_pod[u.pod_ip] += 1
+                self.traced_count_by_pod_trace[(u.pod_ip, u.trace_id)] += 1
+            else:
+                if u.pod_ip not in self.urma_untraced_by_pod:
+                    self.urma_untraced_by_pod[u.pod_ip] = ([], None)
+                self.urma_untraced_by_pod[u.pod_ip][0].append(u)
+                self.untraced_count_by_pod[u.pod_ip] += 1
+
         for pod_ip in self.urma_untraced_by_pod:
             entries = self.urma_untraced_by_pod[pod_ip][0]
             entries.sort(key=lambda x: x.timestamp)
@@ -67,20 +76,18 @@ class IndexManager:
             entries.sort(key=lambda x: x.timestamp)
         for entries in self.urma_by_dst_trace.values():
             entries.sort(key=lambda x: x.timestamp)
+
+        self.urma_traced_by_trace = dict(self.urma_traced_by_trace)
+        self.urma_traced_by_pod_trace = dict(self.urma_traced_by_pod_trace)
+        self.urma_by_dst_trace = dict(self.urma_by_dst_trace)
+
+        self.pulls_by_trace = _group_by(self.remote_pull_entries, lambda p: p.trace_id)
+        self.links_by_trace = _group_by(self.link_entries, lambda l: l.trace_id)
+        self.links_by_pod_trace = _group_by(self.link_entries, lambda l: (l.pod_ip, l.trace_id))
+        self.metas_by_pod_trace = _group_by(self.query_meta_entries, lambda m: (m.pod_ip, m.trace_id))
+
         for entries in self.metas_by_pod_trace.values():
             entries.sort(key=lambda x: x.timestamp)
-
-        self.urma_count_by_pod: dict[str, int] = defaultdict(int)
-        self.traced_count_by_pod: dict[str, int] = defaultdict(int)
-        self.untraced_count_by_pod: dict[str, int] = defaultdict(int)
-        self.traced_count_by_pod_trace: dict[tuple[str, str], int] = defaultdict(int)
-        for u in self.urma_entries:
-            self.urma_count_by_pod[u.pod_ip] += 1
-            if u.trace_id:
-                self.traced_count_by_pod[u.pod_ip] += 1
-                self.traced_count_by_pod_trace[(u.pod_ip, u.trace_id)] += 1
-            else:
-                self.untraced_count_by_pod[u.pod_ip] += 1
 
 
 class BaseCorrelator(ABC):
@@ -127,9 +134,12 @@ class WorkerQueryMetaCorrelator(BaseCorrelator):
             if not candidates:
                 continue
             start = w.timestamp - timedelta(microseconds=w.elapsed_us)
-            in_range = [entry for entry in candidates if start <= entry.timestamp <= w.timestamp]
-            choices = in_range or candidates
-            best = min(choices, key=lambda x: abs(x.timestamp - w.timestamp).total_seconds())
+            ts_list = [e.timestamp for e in candidates]
+            lo = bisect_left(ts_list, start)
+            hi = bisect_right(ts_list, w.timestamp)
+            in_range = candidates[lo:hi] if lo < hi else []
+            choices = in_range if in_range else candidates
+            best = min(choices, key=lambda x: abs((x.timestamp - w.timestamp).total_seconds()))
             results[i] = [best]
         return results
 
