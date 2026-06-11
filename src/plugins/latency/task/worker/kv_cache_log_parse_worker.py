@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -181,16 +182,22 @@ class KVCacheLogParseWorker(BaseWorker):
         )
 
         logger.info("=== Stage 1/3: Scanning files with parallel scanner ===")
+        t0 = time.perf_counter()
         parsed = await scanner.scan_all(log_dir, parsers, parse_config)
+        t_scan = time.perf_counter() - t0
 
         # 排序解析结果
+        t_sort_start = time.perf_counter()
         for label in parsed:
             parsed[label].sort(key=lambda x: x.timestamp)
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
+        t_sort = time.perf_counter() - t_sort_start
 
         logger.info("=== Stage 2/3: Correlating entries ===")
+        t_corr_start = time.perf_counter()
         correlator = LogCorrelator(parsed)
         correlated = correlator.correlate()
+        t_corr = time.perf_counter() - t_corr_start
         logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
                      f"Worker→URMA: {len(correlated.worker_urma_map):,}")
 
@@ -203,8 +210,10 @@ class KVCacheLogParseWorker(BaseWorker):
         logger.info("Released parsed entries")
 
         logger.info("=== Stage 3/3: Building parse results ===")
+        t_build_start = time.perf_counter()
         builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir, log_file_id=log_id)
         results = builder.build()
+        t_build = time.perf_counter() - t_build_start
 
         # 及时释放所有中间结构（降低内存峰值）
         del sdk_entries, worker_entries, correlated, builder
@@ -214,6 +223,16 @@ class KVCacheLogParseWorker(BaseWorker):
         total = len(results)
         anomalous_count = sum(1 for r in results if r.is_anomalous)
         logger.info(f"Parse complete: {total:,} results, {anomalous_count:,} anomalous")
+
+        # 分阶段耗时报告
+        t_total = t_scan + t_sort + t_corr + t_build
+        logger.info(
+            f"=== [parse_log] Timing Breakdown (total={t_total:.1f}s) ===\n"
+            f"  Scan + deserialize: {t_scan:7.1f}s ({t_scan/t_total*100:5.1f}%)\n"
+            f"  Sort entries:       {t_sort:7.1f}s ({t_sort/t_total*100:5.1f}%)\n"
+            f"  Correlate:          {t_corr:7.1f}s ({t_corr/t_total*100:5.1f}%)\n"
+            f"  Build results:      {t_build:7.1f}s ({t_build/t_total*100:5.1f}%)"
+        )
 
         return results
 
@@ -425,7 +444,9 @@ class KVCacheLogParseWorker(BaseWorker):
                 logger.info(f"[任务 {task_id}] 使用解析配置: {parse_config}")
 
             # 直接使用 task.op_id 作为 log_id，parse_log 内部会获取 log_file 信息
+            t_run_start = time.perf_counter()
             list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config)
+            t_parse = time.perf_counter() - t_run_start
             await BaseWorker.report(task.id, "完成解析日志", 70.0)
 
             # 获取 kb_id 用于后续更新知识库统计
@@ -433,11 +454,15 @@ class KVCacheLogParseWorker(BaseWorker):
             kb_id = log_file.kb_id if log_file else None
 
             # 先检测异常（填充 anomalous_event_id）
+            t_detect_start = time.perf_counter()
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
+            t_detect = time.perf_counter() - t_detect_start
             await BaseWorker.report(task.id, "检测异常事件", 80.0)
             
             # 再生成聚合事件（此时 anomalous_event_id 已填充）
+            t_agg_start = time.perf_counter()
             src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
+            t_agg = time.perf_counter() - t_agg_start
             await BaseWorker.report(task.id, "生成聚合事件", 85.0)
             
             # 更新异常事件的 aggregated_event_id
@@ -452,12 +477,14 @@ class KVCacheLogParseWorker(BaseWorker):
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
             await BaseWorker.report(task.id, "匹配故障事件", 90.0)
 
+            t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
                 list_log_parse_results=list_log_parse_results,
                 anomalous_events=anomalous_events,
                 anomalous_event_chains=anomalous_event_chains or [],
                 src_dst_aggregated_events=src_dst_aggregated_events,
             )
+            t_store = time.perf_counter() - t_store_start
             await BaseWorker.report(task.id, "存库", 95.0)
             
             if not stored:
@@ -480,6 +507,18 @@ class KVCacheLogParseWorker(BaseWorker):
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
             await BaseWorker.report(task.id, "任务成功", 100.0)
+
+            # 全流程耗时汇总
+            t_total = t_parse + t_detect + t_agg + t_store
+            logger.info(
+                f"============================================================\n"
+                f"=== [TASK TIMING] Total: {t_total:.1f}s ===\n"
+                f"  [1] Parse log:       {t_parse:7.1f}s ({t_parse/t_total*100:5.1f}%)\n"
+                f"  [2] Detect anomaly:  {t_detect:7.1f}s ({t_detect/t_total*100:5.1f}%)\n"
+                f"  [3] Aggregate result:{t_agg:7.1f}s ({t_agg/t_total*100:5.1f}%)\n"
+                f"  [4] Store to DB:     {t_store:7.1f}s ({t_store/t_total*100:5.1f}%)\n"
+                f"============================================================"
+            )
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")

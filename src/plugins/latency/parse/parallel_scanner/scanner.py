@@ -260,28 +260,26 @@ class ParallelFileScanner:
     def _merge_results(
         results: list[dict[str, list]],
     ) -> dict[str, list]:
-        """
-        汇总多个进程/组的结果
-
-        如果是多进程模式，结果已序列化为 tuple，需要反序列化。
-        如果是 asyncio 模式，结果已经是 LogEntry 对象。
-        """
         merged = defaultdict(list)
+        t0 = time.perf_counter()
+        total_deserialized = 0
 
         for result in results:
             for label, entries in result.items():
                 if entries and isinstance(entries[0], tuple):
-                    # 多进程模式：反序列化紧凑元组
                     deserialized = [_deserialize_entry(e) for e in entries]
                     merged[label].extend(deserialized)
+                    total_deserialized += len(deserialized)
                 else:
-                    # asyncio 模式：直接使用 LogEntry 对象
                     merged[label].extend(entries)
 
+        merge_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             f"Results merged: {len(results)} groups, "
             f"{len(merged)} parsers, "
-            f"{sum(len(e) for e in merged.values()):,} total entries"
+            f"{sum(len(e) for e in merged.values()):,} total entries, "
+            f"{total_deserialized:,} deserialized, "
+            f"merge={merge_ms:.0f}ms"
         )
 
         return dict(merged)
