@@ -17,7 +17,7 @@ from latency.ENUM.task import TaskSplitStrategy
 
 from .file_parser_map_builder import FileParserMapBuilder
 from .preprocessor import LogPreprocessor
-from .process_worker import process_worker_func, _deserialize_entry
+from .process_worker import process_worker_func
 from .task_splitter import FileGroup, ScanTaskSplitter
 
 logger = logging.getLogger(__name__)
@@ -270,23 +270,16 @@ class ParallelFileScanner:
     ) -> dict[str, list]:
         merged = defaultdict(list)
         t0 = time.perf_counter()
-        total_deserialized = 0
 
         for result in results:
             for label, entries in result.items():
-                if entries and isinstance(entries[0], tuple):
-                    deserialized = [_deserialize_entry(e) for e in entries]
-                    merged[label].extend(deserialized)
-                    total_deserialized += len(deserialized)
-                else:
-                    merged[label].extend(entries)
+                merged[label].extend(entries)
 
         merge_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             f"Results merged: {len(results)} groups, "
             f"{len(merged)} parsers, "
             f"{sum(len(e) for e in merged.values()):,} total entries, "
-            f"{total_deserialized:,} deserialized, "
             f"merge={merge_ms:.0f}ms"
         )
 

@@ -51,18 +51,13 @@ def process_worker_func(
         except Exception as e:
             logger.warning(f"Failed to scan {path}: {e}")
 
-    serialized = {
-        label: [_serialize_entry(e) for e in entries]
-        for label, entries in merged.items()
-    }
-
-    total_entries = sum(len(entries) for entries in serialized.values())
+    total_entries = sum(len(entries) for entries in merged.values())
     logger.info(
         f"Group {group_id} completed: "
-        f"{len(serialized)} parsers, "
+        f"{len(merged)} parsers, "
         f"{total_entries:,} total entries"
     )
-    return serialized
+    return dict(merged)
 
 
 def _rebuild_parsers(
@@ -157,35 +152,34 @@ def _scan_file_multi(
 
                 parts = line.split("|")
                 plen = len(parts)
-                parsed_run = None
-                parsed_access = None
 
-                for i, parser in enumerate(parsers):
-                    keywords = parser_keywords[i]
-                    if keywords and not _any_keyword_in(line, keywords):
-                        continue
+                parser_idx = -1
+                for i, kws in enumerate(parser_keywords):
+                    if kws and _any_keyword_in(line, kws):
+                        parser_idx = i
+                        break
 
-                    if plen >= 13:
-                        if parsed_access is None:
-                            parsed_access = _build_parsed_access(parts, plen)
-                        parser._pre_parsed = parsed_access
-                    elif plen >= 8:
-                        if parsed_run is None:
-                            parsed_run = _build_parsed_run(parts, plen)
-                        parser._pre_parsed = parsed_run
+                if parser_idx < 0:
+                    continue
 
-                    try:
-                        entry = parser.match_line(line, pod_ip)
-                        if entry:
-                            entry.log_id = log_file.id
-                            results[parser.label].append(entry)
-                            match_counts[parser.label] += 1
-                    except Exception as e:
-                        logger.warning(
-                            f"[{parser.label}] error on {file_name}:{line_no}: {e}"
-                        )
-                    finally:
-                        parser._pre_parsed = None
+                parser = parsers[parser_idx]
+                if plen >= 13:
+                    parser._pre_parsed = _build_parsed_access(parts, plen)
+                elif plen >= 8:
+                    parser._pre_parsed = _build_parsed_run(parts, plen)
+
+                try:
+                    entry = parser.match_line(line, pod_ip)
+                    if entry:
+                        entry.log_id = log_file.id
+                        results[parser.label].append(entry)
+                        match_counts[parser.label] += 1
+                except Exception as e:
+                    logger.warning(
+                        f"[{parser.label}] error on {file_name}:{line_no}: {e}"
+                    )
+                finally:
+                    parser._pre_parsed = None
 
     except EOFError:
         logger.warning(f"Skipping corrupted file {path}")
@@ -220,80 +214,3 @@ def _any_keyword_in(line: str, keywords: tuple[str, ...]) -> bool:
         if kw in line:
             return True
     return False
-
-
-# LogEntry 紧凑元组序列化格式
-# 索引: 0=timestamp, 1=operation, 2=elapsed_us, 3=data_size, 4=object_key,
-#       5=trace_id, 6=pod_ip, 7=status_code, 8=resp_msg, 9=entry_type,
-#       10=cluster_name, 11=src_addr, 12=dst_addr, 13=inflight_count,
-#       14=request_size, 15=log_id
-
-
-def _serialize_entry(entry) -> tuple:
-    """
-    将 LogEntry 序列化为紧凑元组
-
-    相比 dict 格式节省约 80% 序列化体积：
-    - dict: ~1.5KB/entry (含 key 字符串)
-    - tuple: ~200 bytes/entry (纯值)
-
-    timestamp 存储为 float (UNIX 时间戳)，避免 ISO 字符串解析开销
-    """
-    return (
-        entry.timestamp.timestamp() if entry.timestamp else None,  # 0 - float
-        entry.operation,                                           # 1
-        entry.elapsed_us,                                          # 2
-        entry.data_size,                                           # 3
-        entry.object_key,                                          # 4
-        entry.trace_id,                                            # 5
-        entry.pod_ip,                                              # 6
-        entry.status_code,                                         # 7
-        entry.resp_msg,                                            # 8
-        entry.entry_type.value if entry.entry_type else None,      # 9
-        entry.cluster_name,                                        # 10
-        entry.src_addr,                                            # 11
-        entry.dst_addr,                                            # 12
-        entry.inflight_count,                                      # 13
-        entry.request_size,                                        # 14
-        entry.log_id,                                              # 15
-    )
-
-
-def _deserialize_entry(t: tuple):
-    """
-    将紧凑元组反序列化为 LogEntry
-
-    用于主进程接收结果后重建对象
-    """
-    from datetime import datetime
-    from latency.schemas.ds_log import LogEntry, EntryType
-
-    timestamp = None
-    if t[0] is not None:
-        timestamp = datetime.fromtimestamp(t[0])
-
-    entry_type = t[9]
-    if isinstance(entry_type, str):
-        try:
-            entry_type = EntryType(entry_type)
-        except Exception:
-            entry_type = None
-
-    return LogEntry(
-        timestamp=timestamp,
-        operation=t[1],
-        elapsed_us=t[2],
-        data_size=t[3],
-        object_key=t[4],
-        trace_id=t[5],
-        pod_ip=t[6],
-        status_code=t[7],
-        resp_msg=t[8],
-        entry_type=entry_type,
-        cluster_name=t[10],
-        src_addr=t[11],
-        dst_addr=t[12],
-        inflight_count=t[13],
-        request_size=t[14],
-        log_id=t[15],
-    )

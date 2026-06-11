@@ -51,7 +51,7 @@ class SdkAccessLogParser(AccessLogParser):
         # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         return LogEntry(
-            timestamp=parse_timestamp(parsed["timestamp"]),
+            timestamp=ts,
             operation=parsed["handle"],
             elapsed_us=elapsed,
             data_size=parsed["size"],
