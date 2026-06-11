@@ -186,6 +186,7 @@ class KVCacheLogParseWorker(BaseWorker):
         for label in parsed:
             parsed[label].sort(key=lambda x: x.timestamp)
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
+        entry_counts = {label: len(entries) for label, entries in parsed.items()}
         t_sort = time.perf_counter() - t_sort_start
 
         logger.info("=== Stage 2/3: Correlating entries ===")
@@ -195,6 +196,28 @@ class KVCacheLogParseWorker(BaseWorker):
         t_corr = time.perf_counter() - t_corr_start
         logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
                      f"Worker→URMA: {len(correlated.worker_urma_map):,}")
+        correlate_index_seconds = correlator.index_build_seconds
+        correlate_stage_timings = list(correlator.stage_timings)
+        metric_worker_indices = set()
+        for metric_map in (
+            correlated.worker_sdk_process_map,
+            correlated.worker_sdk_rpc_map,
+            correlated.worker_local_worker_cost_map,
+            correlated.worker_local_worker_lock_map,
+            correlated.worker_remote_worker_cost_map,
+            correlated.worker_remote_worker_rpc_map,
+            correlated.worker_master_process_map,
+            correlated.worker_master_rpc_map,
+        ):
+            metric_worker_indices.update(metric_map.keys())
+        correlate_match_counts = {
+            "sdk_worker": len(correlated.sdk_worker_map),
+            "sdk_urma": len(correlated.sdk_urma_map),
+            "worker_urma": len(correlated.worker_urma_map),
+            "worker_link": len(correlated.worker_link_map),
+            "worker_meta": len(correlated.worker_query_meta_map),
+            "worker_metrics": len(metric_worker_indices),
+        }
 
         # 及时释放 parsed 中间结构
         sdk_entries = parsed.pop("SDK access parse", [])
@@ -235,8 +258,93 @@ class KVCacheLogParseWorker(BaseWorker):
             pct_corr = t_corr / t_total * 100
             pct_build = t_build / t_total * 100
             await BaseWorker.report(task_id, f"[parse_log] Scan+deserialize: {t_scan:.1f}s ({pct_scan:.1f}%)", t_scan)
+            metrics = scanner.metrics
+            scan_overhead_s = max(
+                0.0,
+                metrics.total_time_ms
+                - metrics.build_map_time_ms
+                - metrics.split_time_ms
+                - metrics.scan_time_ms,
+            ) / 1000
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.summary] "
+                    f"files={metrics.total_files}, processes={metrics.total_processes}, "
+                    f"entries={metrics.total_entries}, total={metrics.total_time_ms/1000:.1f}s"
+                ),
+                metrics.total_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.build_map] {metrics.build_map_time_ms/1000:.3f}s",
+                metrics.build_map_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.split] {metrics.split_time_ms/1000:.3f}s",
+                metrics.split_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.worker_exec] {metrics.scan_time_ms/1000:.1f}s",
+                metrics.scan_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.merge_overhead] {scan_overhead_s:.1f}s",
+                scan_overhead_s,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.entries] "
+                    f"sdk={entry_counts.get('SDK access parse', 0)}, "
+                    f"worker={entry_counts.get('Worker access parse', 0)}, "
+                    f"urma={entry_counts.get('Worker urma parse', 0)}, "
+                    f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
+                    f"link={entry_counts.get('Worker link parse', 0)}, "
+                    f"meta={entry_counts.get('Worker query meta parse', 0)}, "
+                    f"metrics={entry_counts.get('Worker metrics parse', 0)}"
+                ),
+                0.0,
+            )
             await BaseWorker.report(task_id, f"[parse_log] Sort entries: {t_sort:.1f}s ({pct_sort:.1f}%)", t_sort)
             await BaseWorker.report(task_id, f"[parse_log] Correlate: {t_corr:.1f}s ({pct_corr:.1f}%)", t_corr)
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][correlate.index] "
+                    f"{correlate_index_seconds:.3f}s "
+                    f"sdk={entry_counts.get('SDK access parse', 0)}, "
+                    f"worker={entry_counts.get('Worker access parse', 0)}, "
+                    f"urma={entry_counts.get('Worker urma parse', 0)}, "
+                    f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
+                    f"link={entry_counts.get('Worker link parse', 0)}, "
+                    f"meta={entry_counts.get('Worker query meta parse', 0)}, "
+                    f"metrics={entry_counts.get('Worker metrics parse', 0)}"
+                ),
+                correlate_index_seconds,
+            )
+            for stage_name, elapsed in correlate_stage_timings:
+                await BaseWorker.report(
+                    task_id,
+                    f"[perf][correlate.{stage_name}] {elapsed:.3f}s",
+                    elapsed,
+                )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][correlate.matches] "
+                    f"sdk_worker={correlate_match_counts['sdk_worker']}/{entry_counts.get('SDK access parse', 0)}, "
+                    f"sdk_urma={correlate_match_counts['sdk_urma']}/{entry_counts.get('SDK access parse', 0)}, "
+                    f"worker_urma={correlate_match_counts['worker_urma']}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"worker_link={correlate_match_counts['worker_link']}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"worker_meta={correlate_match_counts['worker_meta']}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"worker_metrics={correlate_match_counts['worker_metrics']}/{entry_counts.get('Worker access parse', 0)}"
+                ),
+                0.0,
+            )
             await BaseWorker.report(task_id, f"[parse_log] Build results: {t_build:.1f}s ({pct_build:.1f}%)", t_build)
             await BaseWorker.report(task_id, f"[parse_log] Total: {t_total:.1f}s, {total} results", 0.0)
         return results
@@ -453,6 +561,11 @@ class KVCacheLogParseWorker(BaseWorker):
             list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config, task_id=task_id)
             t_parse = time.perf_counter() - t_run_start
             await BaseWorker.report(task.id, "Log parse completed", 70.0)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][parse.results] rows={len(list_log_parse_results)}",
+                0.0,
+            )
 
             # 获取 kb_id 用于后续更新知识库统计
             log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
@@ -463,12 +576,26 @@ class KVCacheLogParseWorker(BaseWorker):
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
             t_detect = time.perf_counter() - t_detect_start
             await BaseWorker.report(task.id, "Anomaly detection done", 80.0)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][detect.summary] results={len(list_log_parse_results)}, events={len(anomalous_events)}, time={t_detect:.3f}s",
+                t_detect,
+            )
             
             # 再生成聚合事件（此时 anomalous_event_id 已填充）
             t_agg_start = time.perf_counter()
             src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
             t_agg = time.perf_counter() - t_agg_start
             await BaseWorker.report(task.id, "Aggregate events done", 85.0)
+            await BaseWorker.report(
+                task.id,
+                (
+                    "[perf][aggregate.summary] "
+                    f"results={len(list_log_parse_results)}, endpoints={len(src_dst_aggregated_events)}, "
+                    f"time={t_agg:.3f}s"
+                ),
+                t_agg,
+            )
             
             # 更新异常事件的 aggregated_event_id
             for event in anomalous_events:
@@ -481,6 +608,11 @@ class KVCacheLogParseWorker(BaseWorker):
             
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
             await BaseWorker.report(task.id, "Fault matching done", 90.0)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][fault.summary] events={len(anomalous_events)}, chains={len(anomalous_event_chains or [])}",
+                0.0,
+            )
 
             t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
@@ -491,6 +623,18 @@ class KVCacheLogParseWorker(BaseWorker):
             )
             t_store = time.perf_counter() - t_store_start
             await BaseWorker.report(task.id, "Results stored", 95.0)
+            await BaseWorker.report(
+                task.id,
+                (
+                    "[perf][store.summary] "
+                    f"parse_results={len(list_log_parse_results)}, "
+                    f"aggregated={len(src_dst_aggregated_events)}, "
+                    f"anomalous={len(anomalous_events)}, "
+                    f"chains={len(anomalous_event_chains or [])}, "
+                    f"stored={stored}, time={t_store:.3f}s"
+                ),
+                t_store,
+            )
             
             if not stored:
                 logger.warning(f"Task {task_id} store partially failed, still marking as successful")
