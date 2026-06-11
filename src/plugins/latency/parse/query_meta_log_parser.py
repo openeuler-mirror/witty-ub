@@ -18,6 +18,7 @@ class QueryMetaLogParser(LogParser):
 
     label = "Worker query meta parse"
     _handle_errors = True
+    _keywords = ("Master query done",)
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -27,7 +28,7 @@ class QueryMetaLogParser(LogParser):
         if "Master query done" not in line:
             return None
         
-        parsed = self.parse_run_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
         if not parsed:
             return None
         

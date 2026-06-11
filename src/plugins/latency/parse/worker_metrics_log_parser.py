@@ -27,6 +27,13 @@ class WorkerMetricsLogParser(LogParser):
 
     label = "Worker metrics parse"
     _handle_errors = True
+    _keywords = (
+        "totalCost:", "Worker to master rpc QueryMeta:",
+        "ProcessGetObjectRequest:", "worker SafeObject WLock:",
+        "[Get] finish", "[RemotePull] finish",
+        "[Get] Remote done", "QueryMeta done",
+        "[ZMQ_RPC_FRAMEWORK_SLOW]",
+    )
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -92,7 +99,7 @@ class WorkerMetricsLogParser(LogParser):
         
         entry_type, elapsed_us = result
         
-        parsed = self.parse_run_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
         if not parsed:
             return None
         

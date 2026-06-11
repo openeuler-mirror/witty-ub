@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 def _group_by(entries, key_fn, filter_fn=None) -> dict:
-    index: dict = {}
+    index: dict = defaultdict(list)
     for entry in entries:
         if filter_fn and not filter_fn(entry):
             continue
         k = key_fn(entry)
-        index.setdefault(k, []).append(entry)
-    return index
+        index[k].append(entry)
+    return dict(index)
 
 
 class IndexManager:
@@ -207,11 +207,12 @@ class SdkWorkerCorrelator(BaseCorrelator):
             candidates = self.index_manager.worker_by_trace.get(sdk.trace_id, [])
             if not candidates:
                 continue
+            sdk_ts = sdk.timestamp.timestamp()
             best = None
             best_dt = None
             for w in candidates:
-                dt_us = abs((w.timestamp - sdk.timestamp).total_seconds()) * 1000000
-                if 0 <= dt_us <= window_us:
+                dt_us = abs(w.timestamp.timestamp() - sdk_ts) * 1_000_000
+                if dt_us <= window_us:
                     if best_dt is None or dt_us < best_dt:
                         best = w
                         best_dt = dt_us
@@ -348,16 +349,17 @@ class LogCorrelator:
         )
 
     def correlate(self) -> CorrelationResult:
-        worker_remote_pull_map = WorkerRemotePullCorrelator(self.index_manager).correlate()
-        worker_link_map = WorkerLinkCorrelator(self.index_manager).correlate()
-        worker_query_meta_map = WorkerQueryMetaCorrelator(self.index_manager).correlate()
-        worker_urma_map, worker_worker_urma_map = WorkerUrmaCorrelator(self.index_manager).correlate(worker_remote_pull_map)
-        sdk_worker_map = SdkWorkerCorrelator(self.index_manager, self.sdk_entries, self.time_window_ms).correlate()
-        sdk_urma_map = SdkUrmaCorrelator(self.index_manager, self.sdk_entries).correlate()
-        worker_idx_map = WorkerIdxCorrelator(self.index_manager).correlate(sdk_worker_map)
-        urma_empty_reasons = UrmaEmptyReasonCorrelator(self.index_manager).correlate(worker_urma_map)
-        
-        # 关联新增指标
+        im = self.index_manager
+
+        worker_remote_pull_map = WorkerRemotePullCorrelator(im).correlate()
+        worker_link_map = WorkerLinkCorrelator(im).correlate()
+        worker_query_meta_map = WorkerQueryMetaCorrelator(im).correlate()
+        worker_urma_map, worker_worker_urma_map = WorkerUrmaCorrelator(im).correlate(worker_remote_pull_map)
+        sdk_worker_map = SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate()
+        sdk_urma_map = SdkUrmaCorrelator(im, self.sdk_entries).correlate()
+        worker_idx_map = WorkerIdxCorrelator(im).correlate(sdk_worker_map)
+        urma_empty_reasons = UrmaEmptyReasonCorrelator(im).correlate(worker_urma_map)
+
         (
             worker_sdk_process_map,
             worker_sdk_rpc_map,
@@ -367,7 +369,7 @@ class LogCorrelator:
             worker_remote_worker_rpc_map,
             worker_master_process_map,
             worker_master_rpc_map,
-        ) = WorkerMetricsCorrelator(self.index_manager, self.metrics_entries).correlate()
+        ) = WorkerMetricsCorrelator(im, self.metrics_entries).correlate()
 
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,

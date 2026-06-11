@@ -6,10 +6,8 @@
 3. 返回序列化后的结果
 """
 
-import asyncio
 import logging
 import os
-import traceback
 from collections import defaultdict
 from typing import Optional
 
@@ -28,20 +26,9 @@ def process_worker_func(
     parsers_info: list[dict],
     parse_config_dict: Optional[dict] = None,
 ) -> dict[str, list[dict]]:
-    """
-    子进程工作函数
 
-    参数:
-        file_group_files: 文件组 [(path, parser_indices), ...]
-        group_id: 组 ID
-        parsers_info: 解析器信息列表 [{"label": ..., "class_name": ...}, ...]
-        parse_config_dict: 解析配置（dict 格式以便 pickle）
-
-    返回:
-        {parser_label: [serialized_entries]}
-        每个 entry 已序列化为 dict
-    """
-    # 子进程配置日志
+    import logging
+    logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -52,51 +39,30 @@ def process_worker_func(
 
     logger.info(f"Started processing group {group_id} with {len(file_group_files)} files")
 
-    # 重建解析器
     parsers = _rebuild_parsers(parsers_info, parse_config_dict)
 
-    async def _scan_group():
-        """异步扫描文件组"""
-        tasks = []
-        for path, parser_indices in file_group_files:
-            group_parsers = [parsers[idx] for idx in parser_indices]
-            tasks.append(
-                asyncio.to_thread(_scan_file_multi, group_parsers, path)
-            )
-
-        results = await asyncio.gather(*tasks)
-
-        # 汇总结果
-        merged = defaultdict(list)
-        for result in results:
+    merged = defaultdict(list)
+    for path, parser_indices in file_group_files:
+        group_parsers = [parsers[idx] for idx in parser_indices]
+        try:
+            result = _scan_file_multi(group_parsers, path)
             for label, entries in result.items():
                 merged[label].extend(entries)
+        except Exception as e:
+            logger.warning(f"Failed to scan {path}: {e}")
 
-        return dict(merged)
+    serialized = {
+        label: [_serialize_entry(e) for e in entries]
+        for label, entries in merged.items()
+    }
 
-    loop = asyncio.new_event_loop()
-    try:
-        results = loop.run_until_complete(_scan_group())
-
-        # 序列化结果（LogEntry → 紧凑元组）
-        serialized = {
-            label: [_serialize_entry(e) for e in entries]
-            for label, entries in results.items()
-        }
-
-        total_entries = sum(len(entries) for entries in serialized.values())
-        logger.info(
-            f"Group {group_id} completed: "
-            f"{len(serialized)} parsers, "
-            f"{total_entries:,} total entries"
-        )
-        return serialized
-
-    except Exception as e:
-        logger.exception(f"Group {group_id} failed: {e}")
-        raise
-    finally:
-        loop.close()
+    total_entries = sum(len(entries) for entries in serialized.values())
+    logger.info(
+        f"Group {group_id} completed: "
+        f"{len(serialized)} parsers, "
+        f"{total_entries:,} total entries"
+    )
+    return serialized
 
 
 def _rebuild_parsers(
@@ -146,22 +112,8 @@ def _scan_file_multi(
     parsers: list,
     path: str,
 ) -> dict[str, list]:
-    """
-    用多个解析器同时扫描单个文件
-
-    核心优化：文件只读取一次，每行被多个解析器匹配
-
-    参数:
-        parsers: 负责该文件的解析器列表
-        path: 文件路径
-
-    返回:
-        {parser_label: [entries]}
-    """
-    # 初始化结果容器
     results: dict[str, list] = {p.label: [] for p in parsers}
 
-    # 同一文件的 pod_ip 相同
     try:
         pod_ip = parsers[0].extract_pod_ip(path)
     except Exception as e:
@@ -179,19 +131,49 @@ def _scan_file_multi(
     line_count = 0
     match_counts = {p.label: 0 for p in parsers}
 
+    parser_keywords = [
+        getattr(p, '_keywords', None) for p in parsers
+    ]
+    # 合并所有解析器关键词为扁平元组，用于行级快速跳过
+    all_keywords = tuple(
+        kw for kws in parser_keywords if kws for kw in kws
+    ) if any(parser_keywords) else ()
+
     try:
         with open_log(path) as f:
             for line_no, line in enumerate(f, 1):
                 line_count += 1
 
-                # 进度日志
                 if line_no % _PROGRESS_UPDATE_LINES == 0:
                     logger.info(
                         f"[Multi] scanning {file_name} | line {line_no:,}"
                     )
 
-                # 核心：每个解析器尝试匹配当前行
-                for parser in parsers:
+                if not line or line[0] != "2":
+                    continue
+
+                if all_keywords and not _any_keyword_in(line, all_keywords):
+                    continue
+
+                parts = line.split("|")
+                plen = len(parts)
+                parsed_run = None
+                parsed_access = None
+
+                for i, parser in enumerate(parsers):
+                    keywords = parser_keywords[i]
+                    if keywords and not _any_keyword_in(line, keywords):
+                        continue
+
+                    if plen >= 13:
+                        if parsed_access is None:
+                            parsed_access = _build_parsed_access(parts, plen)
+                        parser._pre_parsed = parsed_access
+                    elif plen >= 8:
+                        if parsed_run is None:
+                            parsed_run = _build_parsed_run(parts, plen)
+                        parser._pre_parsed = parsed_run
+
                     try:
                         entry = parser.match_line(line, pod_ip)
                         if entry:
@@ -202,13 +184,14 @@ def _scan_file_multi(
                         logger.warning(
                             f"[{parser.label}] error on {file_name}:{line_no}: {e}"
                         )
+                    finally:
+                        parser._pre_parsed = None
 
     except EOFError:
         logger.warning(f"Skipping corrupted file {path}")
     except Exception as e:
         logger.warning(f"Error reading {path}: {e}")
 
-    # 输出统计
     for parser in parsers:
         label = parser.label
         logger.info(
@@ -217,6 +200,26 @@ def _scan_file_multi(
         )
 
     return results
+
+
+def _build_parsed_access(parts: list[str], plen: int) -> dict:
+    col = (0, 3, 5, 6, 7, 8, 9, 10, 11, 12)
+    keys = ("timestamp", "pod_name", "trace_id", "cluster_name",
+            "status_code", "handle", "elapsed", "size", "req_msg", "resp_msg")
+    return {k: parts[idx].strip() if idx < plen else "" for k, idx in zip(keys, col)}
+
+
+def _build_parsed_run(parts: list[str], plen: int) -> dict:
+    col = (0, 3, 5, 6, 7)
+    keys = ("timestamp", "pod_name", "trace_id", "cluster_name", "msg")
+    return {k: parts[idx].strip() if idx < plen else "" for k, idx in zip(keys, col)}
+
+
+def _any_keyword_in(line: str, keywords: tuple[str, ...]) -> bool:
+    for kw in keywords:
+        if kw in line:
+            return True
+    return False
 
 
 # LogEntry 紧凑元组序列化格式
@@ -233,9 +236,11 @@ def _serialize_entry(entry) -> tuple:
     相比 dict 格式节省约 80% 序列化体积：
     - dict: ~1.5KB/entry (含 key 字符串)
     - tuple: ~200 bytes/entry (纯值)
+
+    timestamp 存储为 float (UNIX 时间戳)，避免 ISO 字符串解析开销
     """
     return (
-        entry.timestamp.isoformat() if entry.timestamp else None,  # 0
+        entry.timestamp.timestamp() if entry.timestamp else None,  # 0 - float
         entry.operation,                                           # 1
         entry.elapsed_us,                                          # 2
         entry.data_size,                                           # 3
@@ -263,15 +268,10 @@ def _deserialize_entry(t: tuple):
     from datetime import datetime
     from latency.schemas.ds_log import LogEntry, EntryType
 
-    # 反序列化时间戳
     timestamp = None
-    if t[0]:
-        try:
-            timestamp = datetime.fromisoformat(t[0])
-        except Exception:
-            pass
+    if t[0] is not None:
+        timestamp = datetime.fromtimestamp(t[0])
 
-    # 反序列化 entry_type
     entry_type = t[9]
     if isinstance(entry_type, str):
         try:

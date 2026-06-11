@@ -15,6 +15,7 @@ class SdkAccessLogParser(AccessLogParser):
         return SDK_ACCESS_LOG_PATTERNS
 
     label = "SDK access parse"
+    _keywords = ("DS_KV_CLIENT_GET", "DS_OBJECT_CLIENT_GET")
 
     def __init__(self, start_time=None, end_time=None, min_total_time_ms=None):
         self.start_time = start_time
@@ -29,7 +30,7 @@ class SdkAccessLogParser(AccessLogParser):
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
         """匹配SDK GET操作日志行"""
-        parsed = self.parse_access_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in SDK_GET_OPS:
             return None
         if self.start_time or self.end_time:

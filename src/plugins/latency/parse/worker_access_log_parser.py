@@ -14,6 +14,7 @@ class WorkerAccessLogParser(AccessLogParser):
         return WORKER_ACCESS_LOG_PATTERNS
 
     label = "Worker access parse"
+    _keywords = ("DS_POSIX_GET",)
 
     def __init__(self, start_time=None, end_time=None):
         self.start_time = start_time
@@ -22,7 +23,7 @@ class WorkerAccessLogParser(AccessLogParser):
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
         """匹配Worker GET操作日志行"""
-        parsed = self.parse_access_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in WORKER_GET_OPS:
             return None
         if self.start_time or self.end_time:

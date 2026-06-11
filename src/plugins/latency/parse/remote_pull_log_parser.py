@@ -18,6 +18,7 @@ class RemotePullLogParser(LogParser):
 
     label = "Worker remote pull parse"
     _handle_errors = True
+    _keywords = ("Remote get request", "Processing pull object[")
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -25,7 +26,7 @@ class RemotePullLogParser(LogParser):
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
         """匹配RemotePull日志行"""
         if "Remote get request" in line:
-            parsed = self.parse_run_line(line)
+            parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
             if not parsed:
                 return None
             
@@ -57,7 +58,7 @@ class RemotePullLogParser(LogParser):
             )
         
         if "Processing pull object[" in line:
-            parsed = self.parse_run_line(line)
+            parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
             if not parsed:
                 return None
             
