@@ -54,7 +54,11 @@ async def list_traces_by_host(
 async def get_latency_metrics(
     req: Annotated[GetLatencyMetricsRequest, Body()],
 ) -> GetLatencyMetricsResponse:
-    """获取延迟指标时间曲线数据（必选指标：total_latency, urma_total_latency, worker_query_meta_latency）
+    """获取延迟指标时间曲线数据
+
+    支持指标：total_latency, urma_total_latency, worker_query_meta_latency,
+    sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
+    remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
 
     采样模式说明：
     - none: 不采样，返回全部数据

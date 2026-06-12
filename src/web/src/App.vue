@@ -70,6 +70,14 @@ type LatencyMetricItem = {
   total_latency?: number | null
   worker_query_meta_latency?: number | null
   urma_total_latency?: number | null
+  sdk_process?: number | null
+  sdk_rpc?: number | null
+  local_worker_cost?: number | null
+  local_worker_lock?: number | null
+  remote_worker_cost?: number | null
+  remote_worker_rpc?: number | null
+  master_process?: number | null
+  master_rpc_total?: number | null
   [key: string]: unknown
 }
 
@@ -550,9 +558,78 @@ const latencySeriesConfig = [
     label: 'URMA总时延',
     color: '#fac858',
   },
+  {
+    key: 'sdk_process',
+    label: 'SDK处理时延',
+    color: '#ee6666',
+  },
+  {
+    key: 'sdk_rpc',
+    label: 'SDK RPC时延',
+    color: '#73c0de',
+  },
+  {
+    key: 'local_worker_cost',
+    label: '本地Worker处理时延',
+    color: '#3ba272',
+  },
+  {
+    key: 'local_worker_lock',
+    label: '本地Worker锁时延',
+    color: '#fc8452',
+  },
+  {
+    key: 'remote_worker_cost',
+    label: '远程Worker处理时延',
+    color: '#9a60b4',
+  },
+  {
+    key: 'remote_worker_rpc',
+    label: '远程Worker RPC时延',
+    color: '#ea7ccc',
+  },
+  {
+    key: 'master_process',
+    label: 'Master处理时延',
+    color: '#48b8d0',
+  },
+  {
+    key: 'master_rpc_total',
+    label: 'Master RPC总时延',
+    color: '#7b9ce1',
+  },
 ] as const
 
 type LatencyMetricKey = (typeof latencySeriesConfig)[number]['key']
+
+const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
+  'total_latency',
+  'worker_query_meta_latency',
+  'urma_total_latency',
+])
+const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
+
+const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
+  const next = new Set(visibleLatencyKeys.value)
+  if (next.has(key)) {
+    if (next.size > 1) {
+      next.delete(key)
+    }
+  } else {
+    next.add(key)
+  }
+  visibleLatencyKeys.value = next
+}
+
+const isLatencySeriesVisible = (key: LatencyMetricKey) => visibleLatencyKeys.value.has(key)
+
+const selectAllLatencySeries = () => {
+  visibleLatencyKeys.value = new Set(latencySeriesConfig.map((s) => s.key))
+}
+
+const deselectAllLatencySeries = () => {
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig[0].key])
+}
 
 const latencyPercentileOptions = [
   { value: 'p99', label: 'P99', abnormalThreshold: 2 },
@@ -770,15 +847,16 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     if (chartRange && (time < chartRange.startTime || time > chartRange.endTime)) return
 
     const bucketStart = Math.floor(date.getTime() / bucketMs) * bucketMs
-    const bucket = buckets.get(bucketStart) ?? {
-      total_latency: [],
-      worker_query_meta_latency: [],
-      urma_total_latency: [],
-    }
+    const bucket = buckets.get(bucketStart) ?? Object.fromEntries(
+      latencySeriesConfig.map((s) => [s.key, []]),
+    ) as Record<LatencyMetricKey, number[]>
 
     latencySeriesConfig.forEach((series) => {
-      const value = result[series.key]
+      let value = result[series.key]
       if (typeof value === 'number' && Number.isFinite(value)) {
+        if (series.key === 'master_rpc_total') {
+          value = value / 1000
+        }
         bucket[series.key].push(value)
       }
     })
@@ -788,11 +866,9 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 
   const chartBuckets: LatencyChartBucket[] = []
   for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
-    const groupedValues = buckets.get(time) ?? {
-      total_latency: [],
-      worker_query_meta_latency: [],
-      urma_total_latency: [],
-    }
+    const groupedValues = buckets.get(time) ?? Object.fromEntries(
+      latencySeriesConfig.map((s) => [s.key, []]),
+    ) as Record<LatencyMetricKey, number[]>
 
     const values = latencySeriesConfig.reduce(
       (acc, series) => {
@@ -891,8 +967,15 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 
       const values = latencySeriesConfig.reduce(
         (acc, series) => {
-          const value = metric[series.key]
-          acc[series.key] = typeof value === 'number' && Number.isFinite(value) ? value : null
+          let value = metric[series.key]
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            if (series.key === 'master_rpc_total') {
+              value = value / 1000
+            }
+            acc[series.key] = value
+          } else {
+            acc[series.key] = null
+          }
           return acc
         },
         {} as Record<LatencyMetricKey, number | null>,
@@ -1046,16 +1129,17 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
   const labels = buckets.map((bucket) => bucket.label)
   const markAreaData = getLatencyMarkAreas(buckets)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
+  const visibleSeries = latencySeriesConfig.filter((s) => isLatencySeriesVisible(s.key))
 
   return {
-    color: latencySeriesConfig.map((series) => series.color),
+    color: visibleSeries.map((series) => series.color),
     tooltip: {
       trigger: 'axis',
       valueFormatter: (value) =>
         typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
     },
     legend: {
-      data: latencySeriesConfig.map((series) => series.label),
+      data: visibleSeries.map((series) => series.label),
       top: 0,
       itemGap: 18,
       itemWidth: 18,
@@ -1126,7 +1210,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
         fontSize: 12,
       },
     },
-    series: latencySeriesConfig.map((series) => ({
+    series: visibleSeries.map((series, index) => ({
       name: series.label,
       type: 'line',
       smooth: true,
@@ -1136,15 +1220,19 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
         width: 2,
       },
       data: buckets.map((bucket) => bucket.values[series.key]),
-      markArea: {
-        silent: false,
-        data: markAreaData,
-        itemStyle: {
-          color: 'rgba(239,68,68,0.25)',
-          borderColor: '#ef4444',
-          borderWidth: 1,
-        },
-      },
+      ...(index === 0
+        ? {
+            markArea: {
+              silent: false,
+              data: markAreaData,
+              itemStyle: {
+                color: 'rgba(239,68,68,0.25)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+              },
+            },
+          }
+        : {}),
     })),
   }
 }
@@ -1187,7 +1275,7 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
         fontSize: 12,
       },
     },
-    series: latencySeriesConfig.map((series) => ({
+    series: latencySeriesConfig.filter((s) => isLatencySeriesVisible(s.key)).map((series, index) => ({
       name: series.label,
       type: 'line',
       smooth: true,
@@ -1197,15 +1285,19 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
         width: 2,
       },
       data: points.map((point) => point.values[series.key]),
-      markArea: {
-        silent: true,
-        data: markAreaData,
-        itemStyle: {
-          color: 'rgba(239,68,68,0.25)',
-          borderColor: '#ef4444',
-          borderWidth: 1,
-        },
-      },
+      ...(index === 0
+        ? {
+            markArea: {
+              silent: true,
+              data: markAreaData,
+              itemStyle: {
+                color: 'rgba(239,68,68,0.25)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+              },
+            },
+          }
+        : {}),
     })),
   }
 }
@@ -3691,7 +3783,7 @@ const syncAggregateLatencyScroll = (event: Event) => {
 }
 
 watch(
-  [latencyChartBuckets, isLatencyChartLoading, latencyChartError, activePage],
+  [latencyChartBuckets, isLatencyChartLoading, latencyChartError, activePage, visibleLatencyKeys],
   () => {
     void nextTick(renderLatencyEchart)
   },
@@ -3704,6 +3796,7 @@ watch(
     isDetailLatencyChartLoading,
     detailLatencyChartError,
     selectedAggregatedEvent,
+    visibleLatencyKeys,
   ],
   () => {
     void nextTick(renderDetailLatencyEchart)
@@ -4136,7 +4229,7 @@ onBeforeUnmount(() => {
               <h1>时延监控</h1>
             </div>
             <p class="monitor-sub">
-              总时延 / 查询元数据时延 / URMA时延
+              支持 11 项时延指标曲线，可交互选择展示
             </p>
           </header>
 
@@ -4166,6 +4259,39 @@ onBeforeUnmount(() => {
                     重置
                   </button>
                 </div>
+              </div>
+              <div class="latency-series-toggle">
+                <span class="latency-series-toggle-label">曲线选择：</span>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-all"
+                  type="button"
+                  @click="selectAllLatencySeries"
+                >
+                  全选
+                </button>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-none"
+                  type="button"
+                  @click="deselectAllLatencySeries"
+                >
+                  清空
+                </button>
+                <label
+                  v-for="series in latencySeriesConfig"
+                  :key="series.key"
+                  class="latency-series-checkbox"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="isLatencySeriesVisible(series.key)"
+                    @change="toggleLatencySeriesVisibility(series.key)"
+                  />
+                  <span
+                    class="latency-series-color-dot"
+                    :style="{ backgroundColor: series.color }"
+                  ></span>
+                  {{ series.label }}
+                </label>
               </div>
               <div class="latency-chart-panel">
                 <div v-if="isLatencyChartLoading" class="chart-state">
@@ -5498,6 +5624,39 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-detail-chart">
             <div class="aggregate-detail-chart-title">时延趋势（P99）</div>
+            <div class="latency-series-toggle">
+              <span class="latency-series-toggle-label">曲线选择：</span>
+              <button
+                class="latency-series-toggle-btn latency-series-toggle-all"
+                type="button"
+                @click="selectAllLatencySeries"
+              >
+                全选
+              </button>
+              <button
+                class="latency-series-toggle-btn latency-series-toggle-none"
+                type="button"
+                @click="deselectAllLatencySeries"
+              >
+                清空
+              </button>
+              <label
+                v-for="series in latencySeriesConfig"
+                :key="series.key"
+                class="latency-series-checkbox"
+              >
+                <input
+                  type="checkbox"
+                  :checked="isLatencySeriesVisible(series.key)"
+                  @change="toggleLatencySeriesVisibility(series.key)"
+                />
+                <span
+                  class="latency-series-color-dot"
+                  :style="{ backgroundColor: series.color }"
+                ></span>
+                {{ series.label }}
+              </label>
+            </div>
             <div class="latency-chart-panel detail-latency-chart-panel">
               <div v-if="isDetailLatencyChartLoading" class="chart-state detail-chart-state">
                 正在加载时延趋势...
