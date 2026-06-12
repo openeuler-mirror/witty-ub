@@ -43,6 +43,18 @@ class LogEntry:
     request_size: Optional[str] = None
     cluster_name: Optional[str] = None
 
+    def __reduce__(self):
+        return (
+            LogEntry,
+            (
+                self.timestamp, self.trace_id, self.pod_ip, self.elapsed_us,
+                self.entry_type, self.log_id, self.operation, self.data_size,
+                self.object_key, self.status_code, self.resp_msg,
+                self.src_addr, self.dst_addr, self.inflight_count,
+                self.request_size, self.cluster_name,
+            ),
+        )
+
 
 class CorrelationResult(BaseModel):
     sdk_worker_map: dict = Field(default_factory=dict, description="sdk_idx → LogEntry (WORKER_GET)")

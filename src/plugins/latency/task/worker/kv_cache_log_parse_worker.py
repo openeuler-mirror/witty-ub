@@ -14,11 +14,7 @@ from latency.task.process_handle import ProcessHandler
 from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
-    UrmaLogParser,
-    RemotePullLogParser,
-    LinkLogParser,
-    QueryMetaLogParser,
-    WorkerMetricsLogParser,  # 新增指标解析器
+    WorkerInfoParser,
     LogCorrelator,
     ParseResultBuilder,
 )
@@ -136,6 +132,80 @@ class KVCacheLogParseWorker(BaseWorker):
         """析构任务"""
         return task_id
 
+    @staticmethod
+    def _new_parallel_scanner() -> ParallelFileScanner:
+        return ParallelFileScanner(
+            max_processes=os.cpu_count(),
+            split_strategy=TaskSplitStrategy.BY_FILE_SIZE,
+            use_multiprocessing=True,
+            decompress=False,
+        )
+
+    @staticmethod
+    def _build_worker_access_scan_scope(parsed: dict[str, list]) -> dict:
+        sdk_entries = parsed.get("SDK access parse", [])
+
+        # 没有 SDK 时走 Worker-only 结果构建，必须保持 Worker access 全量扫描。
+        if not sdk_entries:
+            return {
+                "enabled": False,
+                "_stats": {
+                    "sdk_traces": 0,
+                },
+            }
+
+        trace_ids = {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        return {
+            "enabled": True,
+            "trace_ids": list(trace_ids),
+            "_stats": {
+                "sdk_traces": len(trace_ids),
+            },
+        }
+
+    @staticmethod
+    def _build_worker_info_scan_scope(parsed: dict[str, list]) -> dict:
+        sdk_entries = parsed.get("SDK access parse", [])
+        worker_entries = parsed.get("Worker access parse", [])
+
+        # 没有 SDK 时走 Worker-only 结果构建，必须保持 INFO 全量扫描。
+        if not sdk_entries:
+            return {
+                "enabled": False,
+                "_stats": {
+                    "sdk_traces": 0,
+                    "worker_scope": len(worker_entries),
+                    "pod_trace_scope": 0,
+                    "pod_scope": 0,
+                },
+            }
+
+        trace_ids = {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        pod_trace_keys = set()
+        pod_ips = set()
+        worker_scope = 0
+        for worker in worker_entries:
+            if worker.trace_id not in trace_ids:
+                continue
+            worker_scope += 1
+            if worker.pod_ip and worker.trace_id:
+                pod_trace_keys.add((worker.pod_ip, worker.trace_id))
+            if worker.pod_ip:
+                pod_ips.add(worker.pod_ip)
+
+        return {
+            "enabled": True,
+            "trace_ids": list(trace_ids),
+            "pod_trace_keys": list(pod_trace_keys),
+            "pod_ips": list(pod_ips),
+            "_stats": {
+                "sdk_traces": len(trace_ids),
+                "worker_scope": worker_scope,
+                "pod_trace_scope": len(pod_trace_keys),
+                "pod_scope": len(pod_ips),
+            },
+        }
+
     # 解析日志
     @staticmethod
     async def parse_log(
@@ -166,34 +236,74 @@ class KVCacheLogParseWorker(BaseWorker):
         elif not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
 
-        parsers = [
-            SdkAccessLogParser(parse_config),
-            WorkerAccessLogParser(parse_config),
-            UrmaLogParser(parse_config),
-            RemotePullLogParser(parse_config),
-            LinkLogParser(parse_config),
-            QueryMetaLogParser(parse_config),
-            WorkerMetricsLogParser(parse_config),  # 新增指标解析器
-        ]
+        sdk_parsers = [SdkAccessLogParser(parse_config)]
+        worker_access_parsers = [WorkerAccessLogParser(parse_config)]
+        info_parsers = [WorkerInfoParser(parse_config)]
 
-        # 使用并行扫描器（文件去重 + 多进程并行）
-        scanner = ParallelFileScanner(
-            max_processes=os.cpu_count(),
-            split_strategy=TaskSplitStrategy.BY_FILE_SIZE,
-            use_multiprocessing=True,
-            decompress=False,
-        )
+        sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
+        worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
+        info_scanner = KVCacheLogParseWorker._new_parallel_scanner()
 
         logger.info("=== Stage 1/3: Scanning files with parallel scanner ===")
-        t0 = time.perf_counter()
-        parsed = await scanner.scan_all(log_dir, parsers, parse_config)
-        t_scan = time.perf_counter() - t0
+        t_scan_start = time.perf_counter()
+        parsed = await sdk_scanner.scan_all(log_dir, sdk_parsers, parse_config)
+
+        t_worker_access_scope_start = time.perf_counter()
+        worker_access_scan_scope = KVCacheLogParseWorker._build_worker_access_scan_scope(parsed)
+        t_worker_access_scope = time.perf_counter() - t_worker_access_scope_start
+        worker_access_scope_stats = worker_access_scan_scope.get("_stats", {})
+        logger.info(
+            "Worker access scan scope: enabled=%s, sdk_traces=%d",
+            worker_access_scan_scope.get("enabled", False),
+            worker_access_scope_stats.get("sdk_traces", 0),
+        )
+
+        worker_access_parsed = await worker_access_scanner.scan_all(
+            log_dir,
+            worker_access_parsers,
+            parse_config,
+            scan_scope=worker_access_scan_scope,
+        )
+        parsed.update(worker_access_parsed)
+
+        t_info_scope_start = time.perf_counter()
+        info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(parsed)
+        t_info_scope = time.perf_counter() - t_info_scope_start
+        info_scope_stats = info_scan_scope.get("_stats", {})
+        logger.info(
+            "Worker INFO scan scope: enabled=%s, sdk_traces=%d, worker_scope=%d, pod_trace_scope=%d, pod_scope=%d",
+            info_scan_scope.get("enabled", False),
+            info_scope_stats.get("sdk_traces", 0),
+            info_scope_stats.get("worker_scope", 0),
+            info_scope_stats.get("pod_trace_scope", 0),
+            info_scope_stats.get("pod_scope", 0),
+        )
+
+        skip_info_scan = (
+            info_scan_scope.get("enabled", False)
+            and not info_scan_scope.get("trace_ids")
+            and not info_scan_scope.get("pod_ips")
+        )
+        if skip_info_scan:
+            info_parsed = {}
+            logger.info("Skipping Worker INFO scan because SDK trace scope is empty")
+        else:
+            info_parsed = await info_scanner.scan_all(
+                log_dir,
+                info_parsers,
+                parse_config,
+                scan_scope=info_scan_scope,
+            )
+            parsed.update(info_parsed)
+
+        t_scan = time.perf_counter() - t_scan_start
 
         # 排序解析结果
         t_sort_start = time.perf_counter()
         for label in parsed:
             parsed[label].sort(key=lambda x: x.timestamp)
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
+        entry_counts = {label: len(entries) for label, entries in parsed.items()}
         t_sort = time.perf_counter() - t_sort_start
 
         logger.info("=== Stage 2/3: Correlating entries ===")
@@ -203,6 +313,30 @@ class KVCacheLogParseWorker(BaseWorker):
         t_corr = time.perf_counter() - t_corr_start
         logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
                      f"Worker→URMA: {len(correlated.worker_urma_map):,}")
+        correlate_index_seconds = correlator.index_build_seconds
+        correlate_stage_timings = list(correlator.stage_timings)
+        correlate_worker_scope_count = correlator.worker_scope_count
+        correlate_worker_scope_pod_trace_count = correlator.worker_scope_pod_trace_count
+        metric_worker_indices = set()
+        for metric_map in (
+            correlated.worker_sdk_process_map,
+            correlated.worker_sdk_rpc_map,
+            correlated.worker_local_worker_cost_map,
+            correlated.worker_local_worker_lock_map,
+            correlated.worker_remote_worker_cost_map,
+            correlated.worker_remote_worker_rpc_map,
+            correlated.worker_master_process_map,
+            correlated.worker_master_rpc_map,
+        ):
+            metric_worker_indices.update(metric_map.keys())
+        correlate_match_counts = {
+            "sdk_worker": len(correlated.sdk_worker_map),
+            "sdk_urma": len(correlated.sdk_urma_map),
+            "worker_urma": len(correlated.worker_urma_map),
+            "worker_link": len(correlated.worker_link_map),
+            "worker_meta": len(correlated.worker_query_meta_map),
+            "worker_metrics": len(metric_worker_indices),
+        }
 
         # 及时释放 parsed 中间结构
         sdk_entries = parsed.pop("SDK access parse", [])
@@ -243,8 +377,166 @@ class KVCacheLogParseWorker(BaseWorker):
             pct_corr = t_corr / t_total * 100
             pct_build = t_build / t_total * 100
             await BaseWorker.report(task_id, f"[parse_log] Scan+deserialize: {t_scan:.1f}s ({pct_scan:.1f}%)", t_scan)
+            sdk_metrics = sdk_scanner.metrics
+            worker_access_metrics = worker_access_scanner.metrics
+            info_metrics = info_scanner.metrics
+            scan_build_map_s = (
+                sdk_metrics.build_map_time_ms
+                + worker_access_metrics.build_map_time_ms
+                + info_metrics.build_map_time_ms
+            ) / 1000
+            scan_split_s = (
+                sdk_metrics.split_time_ms
+                + worker_access_metrics.split_time_ms
+                + info_metrics.split_time_ms
+            ) / 1000
+            scan_worker_exec_s = (
+                sdk_metrics.scan_time_ms
+                + worker_access_metrics.scan_time_ms
+                + info_metrics.scan_time_ms
+            ) / 1000
+            scan_merge_overhead_s = max(
+                0.0,
+                t_scan
+                - t_worker_access_scope
+                - t_info_scope
+                - scan_build_map_s
+                - scan_split_s
+                - scan_worker_exec_s,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.summary] "
+                    f"phases=3, files={sdk_metrics.total_files + worker_access_metrics.total_files + info_metrics.total_files}, "
+                    f"processes={sdk_metrics.total_processes}+{worker_access_metrics.total_processes}+{info_metrics.total_processes}, "
+                    f"entries={sdk_metrics.total_entries + worker_access_metrics.total_entries + info_metrics.total_entries}, "
+                    f"total={t_scan:.1f}s"
+                ),
+                t_scan,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.sdk] "
+                    f"files={sdk_metrics.total_files}, processes={sdk_metrics.total_processes}, "
+                    f"entries={sdk_metrics.total_entries}, total={sdk_metrics.total_time_ms/1000:.1f}s"
+                ),
+                sdk_metrics.total_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.worker_access_scope] "
+                    f"enabled={worker_access_scan_scope.get('enabled', False)}, "
+                    f"sdk_traces={worker_access_scope_stats.get('sdk_traces', 0)}, "
+                    f"time={t_worker_access_scope:.3f}s"
+                ),
+                t_worker_access_scope,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.worker_access] "
+                    f"files={worker_access_metrics.total_files}, processes={worker_access_metrics.total_processes}, "
+                    f"entries={worker_access_metrics.total_entries}, total={worker_access_metrics.total_time_ms/1000:.1f}s"
+                ),
+                worker_access_metrics.total_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.info_scope] "
+                    f"enabled={info_scan_scope.get('enabled', False)}, "
+                    f"sdk_traces={info_scope_stats.get('sdk_traces', 0)}, "
+                    f"worker_scope={info_scope_stats.get('worker_scope', 0)}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"pod_trace_scope={info_scope_stats.get('pod_trace_scope', 0)}, "
+                    f"pods={info_scope_stats.get('pod_scope', 0)}, "
+                    f"time={t_info_scope:.3f}s"
+                ),
+                t_info_scope,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.info] "
+                    f"files={info_metrics.total_files}, processes={info_metrics.total_processes}, "
+                    f"entries={info_metrics.total_entries}, total={info_metrics.total_time_ms/1000:.1f}s"
+                ),
+                info_metrics.total_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.build_map] {scan_build_map_s:.3f}s",
+                scan_build_map_s,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.split] {scan_split_s:.3f}s",
+                scan_split_s,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.worker_exec] {scan_worker_exec_s:.1f}s",
+                scan_worker_exec_s,
+            )
+            await BaseWorker.report(
+                task_id,
+                f"[perf][scan.merge_overhead] {scan_merge_overhead_s:.1f}s",
+                scan_merge_overhead_s,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.entries] "
+                    f"sdk={entry_counts.get('SDK access parse', 0)}, "
+                    f"worker={entry_counts.get('Worker access parse', 0)}, "
+                    f"urma={entry_counts.get('Worker urma parse', 0)}, "
+                    f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
+                    f"link={entry_counts.get('Worker link parse', 0)}, "
+                    f"meta={entry_counts.get('Worker query meta parse', 0)}, "
+                    f"metrics={entry_counts.get('Worker metrics parse', 0)}"
+                ),
+                0.0,
+            )
             await BaseWorker.report(task_id, f"[parse_log] Sort entries: {t_sort:.1f}s ({pct_sort:.1f}%)", t_sort)
             await BaseWorker.report(task_id, f"[parse_log] Correlate: {t_corr:.1f}s ({pct_corr:.1f}%)", t_corr)
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][correlate.index] "
+                    f"{correlate_index_seconds:.3f}s "
+                    f"sdk={entry_counts.get('SDK access parse', 0)}, "
+                    f"worker={entry_counts.get('Worker access parse', 0)}, "
+                    f"urma={entry_counts.get('Worker urma parse', 0)}, "
+                    f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
+                    f"link={entry_counts.get('Worker link parse', 0)}, "
+                    f"meta={entry_counts.get('Worker query meta parse', 0)}, "
+                    f"metrics={entry_counts.get('Worker metrics parse', 0)}"
+                ),
+                correlate_index_seconds,
+            )
+            for stage_name, elapsed in correlate_stage_timings:
+                await BaseWorker.report(
+                    task_id,
+                    f"[perf][correlate.{stage_name}] {elapsed:.3f}s",
+                    elapsed,
+                )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][correlate.matches] "
+                    f"worker_scope={correlate_worker_scope_count}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"pod_trace_scope={correlate_worker_scope_pod_trace_count}, "
+                    f"sdk_worker={correlate_match_counts['sdk_worker']}/{entry_counts.get('SDK access parse', 0)}, "
+                    f"sdk_urma={correlate_match_counts['sdk_urma']}/{entry_counts.get('SDK access parse', 0)}, "
+                    f"worker_urma={correlate_match_counts['worker_urma']}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"worker_link={correlate_match_counts['worker_link']}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"worker_meta={correlate_match_counts['worker_meta']}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"worker_metrics={correlate_match_counts['worker_metrics']}/{entry_counts.get('Worker access parse', 0)}"
+                ),
+                0.0,
+            )
             await BaseWorker.report(task_id, f"[parse_log] Build results: {t_build:.1f}s ({pct_build:.1f}%)", t_build)
             await BaseWorker.report(task_id, f"[parse_log] Total: {t_total:.1f}s, {total} results", 0.0)
         return results
@@ -461,6 +753,11 @@ class KVCacheLogParseWorker(BaseWorker):
             list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config, task_id=task_id)
             t_parse = time.perf_counter() - t_run_start
             await BaseWorker.report(task.id, "Log parse completed", 70.0)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][parse.results] rows={len(list_log_parse_results)}",
+                0.0,
+            )
 
             # 获取 kb_id 用于后续更新知识库统计
             log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
@@ -471,12 +768,26 @@ class KVCacheLogParseWorker(BaseWorker):
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
             t_detect = time.perf_counter() - t_detect_start
             await BaseWorker.report(task.id, "Anomaly detection done", 80.0)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][detect.summary] results={len(list_log_parse_results)}, events={len(anomalous_events)}, time={t_detect:.3f}s",
+                t_detect,
+            )
             
             # 再生成聚合事件（此时 anomalous_event_id 已填充）
             t_agg_start = time.perf_counter()
             src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
             t_agg = time.perf_counter() - t_agg_start
             await BaseWorker.report(task.id, "Aggregate events done", 85.0)
+            await BaseWorker.report(
+                task.id,
+                (
+                    "[perf][aggregate.summary] "
+                    f"results={len(list_log_parse_results)}, endpoints={len(src_dst_aggregated_events)}, "
+                    f"time={t_agg:.3f}s"
+                ),
+                t_agg,
+            )
             
             # 更新异常事件的 aggregated_event_id
             for event in anomalous_events:
@@ -489,6 +800,11 @@ class KVCacheLogParseWorker(BaseWorker):
             
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
             await BaseWorker.report(task.id, "Fault matching done", 90.0)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][fault.summary] events={len(anomalous_events)}, chains={len(anomalous_event_chains or [])}",
+                0.0,
+            )
 
             t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
@@ -499,6 +815,18 @@ class KVCacheLogParseWorker(BaseWorker):
             )
             t_store = time.perf_counter() - t_store_start
             await BaseWorker.report(task.id, "Results stored", 95.0)
+            await BaseWorker.report(
+                task.id,
+                (
+                    "[perf][store.summary] "
+                    f"parse_results={len(list_log_parse_results)}, "
+                    f"aggregated={len(src_dst_aggregated_events)}, "
+                    f"anomalous={len(anomalous_events)}, "
+                    f"chains={len(anomalous_event_chains or [])}, "
+                    f"stored={stored}, time={t_store:.3f}s"
+                ),
+                t_store,
+            )
             
             if not stored:
                 logger.warning(f"Task {task_id} store partially failed, still marking as successful")
