@@ -142,6 +142,28 @@ class KVCacheLogParseWorker(BaseWorker):
         )
 
     @staticmethod
+    def _build_worker_access_scan_scope(parsed: dict[str, list]) -> dict:
+        sdk_entries = parsed.get("SDK access parse", [])
+
+        # 没有 SDK 时走 Worker-only 结果构建，必须保持 Worker access 全量扫描。
+        if not sdk_entries:
+            return {
+                "enabled": False,
+                "_stats": {
+                    "sdk_traces": 0,
+                },
+            }
+
+        trace_ids = {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        return {
+            "enabled": True,
+            "trace_ids": list(trace_ids),
+            "_stats": {
+                "sdk_traces": len(trace_ids),
+            },
+        }
+
+    @staticmethod
     def _build_worker_info_scan_scope(parsed: dict[str, list]) -> dict:
         sdk_entries = parsed.get("SDK access parse", [])
         worker_entries = parsed.get("Worker access parse", [])
@@ -214,32 +236,47 @@ class KVCacheLogParseWorker(BaseWorker):
         elif not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
 
-        access_parsers = [
-            SdkAccessLogParser(parse_config),
-            WorkerAccessLogParser(parse_config),
-        ]
+        sdk_parsers = [SdkAccessLogParser(parse_config)]
+        worker_access_parsers = [WorkerAccessLogParser(parse_config)]
         info_parsers = [WorkerInfoParser(parse_config)]
 
-        access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
+        sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
+        worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
         info_scanner = KVCacheLogParseWorker._new_parallel_scanner()
 
         logger.info("=== Stage 1/3: Scanning files with parallel scanner ===")
         t_scan_start = time.perf_counter()
-        t_access_scan_start = time.perf_counter()
-        parsed = await access_scanner.scan_all(log_dir, access_parsers, parse_config)
-        t_access_scan = time.perf_counter() - t_access_scan_start
+        parsed = await sdk_scanner.scan_all(log_dir, sdk_parsers, parse_config)
 
-        t_scope_start = time.perf_counter()
+        t_worker_access_scope_start = time.perf_counter()
+        worker_access_scan_scope = KVCacheLogParseWorker._build_worker_access_scan_scope(parsed)
+        t_worker_access_scope = time.perf_counter() - t_worker_access_scope_start
+        worker_access_scope_stats = worker_access_scan_scope.get("_stats", {})
+        logger.info(
+            "Worker access scan scope: enabled=%s, sdk_traces=%d",
+            worker_access_scan_scope.get("enabled", False),
+            worker_access_scope_stats.get("sdk_traces", 0),
+        )
+
+        worker_access_parsed = await worker_access_scanner.scan_all(
+            log_dir,
+            worker_access_parsers,
+            parse_config,
+            scan_scope=worker_access_scan_scope,
+        )
+        parsed.update(worker_access_parsed)
+
+        t_info_scope_start = time.perf_counter()
         info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(parsed)
-        t_scope = time.perf_counter() - t_scope_start
-        scope_stats = info_scan_scope.get("_stats", {})
+        t_info_scope = time.perf_counter() - t_info_scope_start
+        info_scope_stats = info_scan_scope.get("_stats", {})
         logger.info(
             "Worker INFO scan scope: enabled=%s, sdk_traces=%d, worker_scope=%d, pod_trace_scope=%d, pod_scope=%d",
             info_scan_scope.get("enabled", False),
-            scope_stats.get("sdk_traces", 0),
-            scope_stats.get("worker_scope", 0),
-            scope_stats.get("pod_trace_scope", 0),
-            scope_stats.get("pod_scope", 0),
+            info_scope_stats.get("sdk_traces", 0),
+            info_scope_stats.get("worker_scope", 0),
+            info_scope_stats.get("pod_trace_scope", 0),
+            info_scope_stats.get("pod_scope", 0),
         )
 
         skip_info_scan = (
@@ -249,17 +286,14 @@ class KVCacheLogParseWorker(BaseWorker):
         )
         if skip_info_scan:
             info_parsed = {}
-            t_info_scan = 0.0
             logger.info("Skipping Worker INFO scan because SDK trace scope is empty")
         else:
-            t_info_scan_start = time.perf_counter()
             info_parsed = await info_scanner.scan_all(
                 log_dir,
                 info_parsers,
                 parse_config,
                 scan_scope=info_scan_scope,
             )
-            t_info_scan = time.perf_counter() - t_info_scan_start
             parsed.update(info_parsed)
 
         t_scan = time.perf_counter() - t_scan_start
@@ -343,21 +377,29 @@ class KVCacheLogParseWorker(BaseWorker):
             pct_corr = t_corr / t_total * 100
             pct_build = t_build / t_total * 100
             await BaseWorker.report(task_id, f"[parse_log] Scan+deserialize: {t_scan:.1f}s ({pct_scan:.1f}%)", t_scan)
-            access_metrics = access_scanner.metrics
+            sdk_metrics = sdk_scanner.metrics
+            worker_access_metrics = worker_access_scanner.metrics
             info_metrics = info_scanner.metrics
             scan_build_map_s = (
-                access_metrics.build_map_time_ms + info_metrics.build_map_time_ms
+                sdk_metrics.build_map_time_ms
+                + worker_access_metrics.build_map_time_ms
+                + info_metrics.build_map_time_ms
             ) / 1000
             scan_split_s = (
-                access_metrics.split_time_ms + info_metrics.split_time_ms
+                sdk_metrics.split_time_ms
+                + worker_access_metrics.split_time_ms
+                + info_metrics.split_time_ms
             ) / 1000
             scan_worker_exec_s = (
-                access_metrics.scan_time_ms + info_metrics.scan_time_ms
+                sdk_metrics.scan_time_ms
+                + worker_access_metrics.scan_time_ms
+                + info_metrics.scan_time_ms
             ) / 1000
             scan_merge_overhead_s = max(
                 0.0,
                 t_scan
-                - t_scope
+                - t_worker_access_scope
+                - t_info_scope
                 - scan_build_map_s
                 - scan_split_s
                 - scan_worker_exec_s,
@@ -366,9 +408,9 @@ class KVCacheLogParseWorker(BaseWorker):
                 task_id,
                 (
                     "[perf][scan.summary] "
-                    f"phases=2, files={access_metrics.total_files + info_metrics.total_files}, "
-                    f"processes={access_metrics.total_processes}+{info_metrics.total_processes}, "
-                    f"entries={access_metrics.total_entries + info_metrics.total_entries}, "
+                    f"phases=3, files={sdk_metrics.total_files + worker_access_metrics.total_files + info_metrics.total_files}, "
+                    f"processes={sdk_metrics.total_processes}+{worker_access_metrics.total_processes}+{info_metrics.total_processes}, "
+                    f"entries={sdk_metrics.total_entries + worker_access_metrics.total_entries + info_metrics.total_entries}, "
                     f"total={t_scan:.1f}s"
                 ),
                 t_scan,
@@ -376,24 +418,43 @@ class KVCacheLogParseWorker(BaseWorker):
             await BaseWorker.report(
                 task_id,
                 (
-                    "[perf][scan.access] "
-                    f"files={access_metrics.total_files}, processes={access_metrics.total_processes}, "
-                    f"entries={access_metrics.total_entries}, total={access_metrics.total_time_ms/1000:.1f}s"
+                    "[perf][scan.sdk] "
+                    f"files={sdk_metrics.total_files}, processes={sdk_metrics.total_processes}, "
+                    f"entries={sdk_metrics.total_entries}, total={sdk_metrics.total_time_ms/1000:.1f}s"
                 ),
-                access_metrics.total_time_ms / 1000,
+                sdk_metrics.total_time_ms / 1000,
             )
             await BaseWorker.report(
                 task_id,
                 (
-                    "[perf][scan.scope] "
-                    f"enabled={info_scan_scope.get('enabled', False)}, "
-                    f"sdk_traces={scope_stats.get('sdk_traces', 0)}, "
-                    f"worker_scope={scope_stats.get('worker_scope', 0)}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"pod_trace_scope={scope_stats.get('pod_trace_scope', 0)}, "
-                    f"pods={scope_stats.get('pod_scope', 0)}, "
-                    f"time={t_scope:.3f}s"
+                    "[perf][scan.worker_access_scope] "
+                    f"enabled={worker_access_scan_scope.get('enabled', False)}, "
+                    f"sdk_traces={worker_access_scope_stats.get('sdk_traces', 0)}, "
+                    f"time={t_worker_access_scope:.3f}s"
                 ),
-                t_scope,
+                t_worker_access_scope,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.worker_access] "
+                    f"files={worker_access_metrics.total_files}, processes={worker_access_metrics.total_processes}, "
+                    f"entries={worker_access_metrics.total_entries}, total={worker_access_metrics.total_time_ms/1000:.1f}s"
+                ),
+                worker_access_metrics.total_time_ms / 1000,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][scan.info_scope] "
+                    f"enabled={info_scan_scope.get('enabled', False)}, "
+                    f"sdk_traces={info_scope_stats.get('sdk_traces', 0)}, "
+                    f"worker_scope={info_scope_stats.get('worker_scope', 0)}/{entry_counts.get('Worker access parse', 0)}, "
+                    f"pod_trace_scope={info_scope_stats.get('pod_trace_scope', 0)}, "
+                    f"pods={info_scope_stats.get('pod_scope', 0)}, "
+                    f"time={t_info_scope:.3f}s"
+                ),
+                t_info_scope,
             )
             await BaseWorker.report(
                 task_id,

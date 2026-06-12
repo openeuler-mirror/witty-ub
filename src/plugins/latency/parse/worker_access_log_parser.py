@@ -41,18 +41,30 @@ class WorkerAccessLogParser(AccessLogParser):
                 self.start_time = start_time
                 self.end_time = end_time
         self._filtered_by_time = 0
+        self._scan_scope_enabled = False
+        self._target_trace_ids: set[str] = set()
+
+    def set_scan_scope(self, scan_scope: Optional[dict]) -> None:
+        if not scan_scope:
+            self._scan_scope_enabled = False
+            self._target_trace_ids = set()
+            return
+        self._scan_scope_enabled = bool(scan_scope.get("enabled"))
+        self._target_trace_ids = set(scan_scope.get("trace_ids") or ())
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
         """匹配Worker GET操作日志行"""
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in WORKER_GET_OPS:
             return None
+        trace_id = parsed["trace_id"]
+        if not trace_id:
+            return None
+        if self._scan_scope_enabled and trace_id not in self._target_trace_ids:
+            return None
         try:
             elapsed = int(parsed["elapsed"])
         except ValueError:
-            return None
-        trace_id = parsed["trace_id"]
-        if not trace_id:
             return None
         ts = parse_timestamp(parsed["timestamp"])
         if self.start_time or self.end_time:
