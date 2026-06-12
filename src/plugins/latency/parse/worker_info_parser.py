@@ -104,8 +104,14 @@ class WorkerInfoParser(LogParser):
                     line_count += 1
                     if not line or line[0] != "2":
                         continue
-                    label = self._label_for_line(line)
+                    allow_pod_scoped_labels = (
+                        not self._scan_scope_enabled
+                        or pod_ip in self._target_pod_ips
+                    )
+                    label = self._label_for_line(line, allow_pod_scoped_labels)
                     if not label:
+                        continue
+                    if not self._file_scope_may_allow(label, pod_ip):
                         continue
 
                     parts = line.split("|")
@@ -183,11 +189,9 @@ class WorkerInfoParser(LogParser):
             return True
 
         if label == URMA_LABEL:
-            if pod_ip in self._target_pod_ips:
-                return True
             if trace_id:
                 return trace_id in self._target_trace_ids
-            return False
+            return pod_ip in self._target_pod_ips
 
         if label in (QUERY_META_LABEL, METRICS_LABEL):
             return bool(trace_id) and (pod_ip, trace_id) in self._target_pod_trace_keys
@@ -197,14 +201,31 @@ class WorkerInfoParser(LogParser):
 
         return True
 
+    def _file_scope_may_allow(self, label: str, pod_ip: str) -> bool:
+        if not self._scan_scope_enabled:
+            return True
+
+        if label in (QUERY_META_LABEL, METRICS_LABEL):
+            return pod_ip in self._target_pod_ips
+
+        if label == URMA_LABEL:
+            return pod_ip in self._target_pod_ips or bool(self._target_trace_ids)
+
+        if label in (REMOTE_PULL_LABEL, LINK_LABEL):
+            return bool(self._target_trace_ids)
+
+        return True
+
     @staticmethod
-    def _label_for_line(line: str) -> str | None:
+    def _label_for_line(line: str, allow_pod_scoped_labels: bool = True) -> str | None:
         if "URMA_ELAPSED_TOTAL" in line:
             return URMA_LABEL
         if "Remote get request" in line or "Processing pull object[" in line:
             return REMOTE_PULL_LABEL
         if "elapsed ms:" in line:
             return LINK_LABEL
+        if not allow_pod_scoped_labels:
+            return None
         if "Master query done" in line:
             return QUERY_META_LABEL
         if WorkerInfoParser._any_metrics_keyword_in(line):
