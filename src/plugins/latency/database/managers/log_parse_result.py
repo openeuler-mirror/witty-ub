@@ -311,13 +311,20 @@ class LogParseResultManager:
         # === 2. 判断是否需要分桶 ===
         max_points = req.max_points
         if total <= max_points or max_points == -1:
-            # 数据量小或不需要采样，直接返回原始数据
             sql_str = f"""
                 SELECT 
                     lpr.timestamp as time,
                     lpr.total_latency,
                     lpr.urma_total_latency,
-                    lpr.worker_query_meta_latency
+                    lpr.worker_query_meta_latency,
+                    lpr.sdk_process,
+                    lpr.sdk_rpc,
+                    lpr.local_worker_cost,
+                    lpr.local_worker_lock,
+                    lpr.remote_worker_cost,
+                    lpr.remote_worker_rpc,
+                    lpr.master_process,
+                    lpr.master_rpc_total
                 FROM log_parse_result_table lpr
                 LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
                 WHERE {where_sql}
@@ -345,13 +352,20 @@ class LogParseResultManager:
         time_span_ms = max_ms - min_ms
 
         if time_span_ms <= 0:
-            # 时间跨度为 0，返回单条聚合
             sql_str = f"""
                 SELECT 
                     MIN(lpr.timestamp) as time,
                     JSON_GROUP_ARRAY(lpr.total_latency) as total_latency_values,
                     JSON_GROUP_ARRAY(lpr.urma_total_latency) as urma_total_latency_values,
-                    JSON_GROUP_ARRAY(lpr.worker_query_meta_latency) as worker_query_meta_latency_values
+                    JSON_GROUP_ARRAY(lpr.worker_query_meta_latency) as worker_query_meta_latency_values,
+                    JSON_GROUP_ARRAY(lpr.sdk_process) as sdk_process_values,
+                    JSON_GROUP_ARRAY(lpr.sdk_rpc) as sdk_rpc_values,
+                    JSON_GROUP_ARRAY(lpr.local_worker_cost) as local_worker_cost_values,
+                    JSON_GROUP_ARRAY(lpr.local_worker_lock) as local_worker_lock_values,
+                    JSON_GROUP_ARRAY(lpr.remote_worker_cost) as remote_worker_cost_values,
+                    JSON_GROUP_ARRAY(lpr.remote_worker_rpc) as remote_worker_rpc_values,
+                    JSON_GROUP_ARRAY(lpr.master_process) as master_process_values,
+                    JSON_GROUP_ARRAY(lpr.master_rpc_total) as master_rpc_total_values
                 FROM log_parse_result_table lpr
                 LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
                 WHERE {where_sql}
@@ -367,7 +381,15 @@ class LogParseResultManager:
                 MIN(lpr.timestamp) as time,
                 JSON_GROUP_ARRAY(lpr.total_latency) as total_latency_values,
                 JSON_GROUP_ARRAY(lpr.urma_total_latency) as urma_total_latency_values,
-                JSON_GROUP_ARRAY(lpr.worker_query_meta_latency) as worker_query_meta_latency_values
+                JSON_GROUP_ARRAY(lpr.worker_query_meta_latency) as worker_query_meta_latency_values,
+                JSON_GROUP_ARRAY(lpr.sdk_process) as sdk_process_values,
+                JSON_GROUP_ARRAY(lpr.sdk_rpc) as sdk_rpc_values,
+                JSON_GROUP_ARRAY(lpr.local_worker_cost) as local_worker_cost_values,
+                JSON_GROUP_ARRAY(lpr.local_worker_lock) as local_worker_lock_values,
+                JSON_GROUP_ARRAY(lpr.remote_worker_cost) as remote_worker_cost_values,
+                JSON_GROUP_ARRAY(lpr.remote_worker_rpc) as remote_worker_rpc_values,
+                JSON_GROUP_ARRAY(lpr.master_process) as master_process_values,
+                JSON_GROUP_ARRAY(lpr.master_rpc_total) as master_rpc_total_values
             FROM log_parse_result_table lpr
             LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
             WHERE {where_sql}
