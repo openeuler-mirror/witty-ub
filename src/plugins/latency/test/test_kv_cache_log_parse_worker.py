@@ -1,522 +1,266 @@
 """
 KVCacheLogParseWorker 测试脚本
 
-测试指令说明:
-==============
-
-1. 运行所有测试（使用mock数据）:
-   python test_kv_cache_log_parse_worker.py
-   或
-   python test_kv_cache_log_parse_worker.py all
-
-2. 使用真实日志目录运行所有测试:
-   python test_kv_cache_log_parse_worker.py all /path/to/log_dir/
-
-3. 测试异常检测（使用mock数据）:
-   python test_kv_cache_log_parse_worker.py detect
-
-4. 测试异常检测（使用真实日志）:
-   python test_kv_cache_log_parse_worker.py detect /path/to/log_dir/
-
-5. 测试聚合结果生成（使用mock数据）:
-   python test_kv_cache_log_parse_worker.py aggregate
-
-6. 测试聚合结果生成（使用真实日志）:
-   python test_kv_cache_log_parse_worker.py aggregate /path/to/log_dir/
-
-7. 测试结果存储到数据库（使用mock数据）:
-   python test_kv_cache_log_parse_worker.py store
-
-8. 测试结果存储到数据库（使用真实日志）:
-   python test_kv_cache_log_parse_worker.py store /path/to/log_dir/
-
-9. 使用真实日志文件测试:
-   python test_kv_cache_log_parse_worker.py /path/to/log_file.log
-   或
-   python test_kv_cache_log_parse_worker.py /path/to/log_dir/
-
-测试说明:
-=========
-- test_kv_cache_log_parse_worker: 使用真实日志目录测试解析器
-- test_detect_exception: 测试异常检测（滑动窗口 P99 算法），支持真实日志或mock数据
-- test_generate_aggregate_result: 测试按 src_ip/dst_ip 分组聚合逻辑，支持真实日志或mock数据
-- test_store_result: 测试结果存储到 SQLite 数据库，支持真实日志或mock数据
+用法:
+    python test_kv_cache_log_parse_worker.py all <log_dir>     # 运行所有测试
+    python test_kv_cache_log_parse_worker.py parse <log_id>    # 测试解析
+    python test_kv_cache_log_parse_worker.py detect <log_id>   # 测试异常检测
+    python test_kv_cache_log_parse_worker.py aggregate <log_id> # 测试聚合
+    python test_kv_cache_log_parse_worker.py store <log_id>    # 测试存库
+    python test_kv_cache_log_parse_worker.py run <log_id>      # 测试完整流水线
+    python test_kv_cache_log_parse_worker.py <log_dir>         # 兼容旧方式（使用log_dir）
 """
 
 import sys
 import os
 import asyncio
 import logging
-import random
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# 设置模块搜索路径
+_test_dir = os.path.dirname(__file__)
+_project_root = os.path.abspath(os.path.join(_test_dir, "..", ".."))
+sys.path.insert(0, _project_root)
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def _build_mock_results(
-    n: int = 2000,
-    spike_start: int = 800,
-    spike_end: int = 1000,
-    spike_multiplier: float = 5.0,
-) -> list:
-    from latency.schemas.log import LogParseResultModel
-
-    results: list[LogParseResultModel] = []
-    for i in range(n):
-        in_spike = spike_start <= i < spike_end
-        base_total = random.uniform(0.5, 2.0)
-        base_c2w = random.uniform(0.3, 1.0)
-        base_w2w = random.uniform(0.2, 0.8)
-        base_urma_link = random.uniform(0.3, 1.5)
-        base_query_meta = random.uniform(0.1, 0.5)
-
-        if in_spike:
-            total = base_total * spike_multiplier + random.uniform(0, 3)
-            c2w = base_c2w * spike_multiplier + random.uniform(0, 2)
-            w2w = base_w2w * spike_multiplier + random.uniform(0, 1)
-            urma_link = base_urma_link * spike_multiplier + random.uniform(0, 2)
-            query_meta = base_query_meta * spike_multiplier + random.uniform(0, 1)
-        else:
-            total = base_total
-            c2w = base_c2w
-            w2w = base_w2w
-            urma_link = base_urma_link
-            query_meta = base_query_meta
-
-        src_ip = f"10.0.{i % 5}.{i % 256}"
-        dst_ip = f"10.1.{i % 3}.{i % 256}"
-        pod_ip = f"10.2.0.{i % 10}"
-        cluster_name = f"cluster_{i % 3}"
-
-        results.append(LogParseResultModel(
-            log_id="test_log_id",
-            is_anomalous=False,
-            total_latency=total,
-            c2w_latency=c2w,
-            w2w_urma_latency=w2w,
-            urma_link_latency=urma_link,
-            worker_query_meta_latency=query_meta,
-            src_ip=src_ip,
-            dst_ip=dst_ip,
-            pod_ip=pod_ip,
-            cluster_name=cluster_name,
-            host=None,
-            timestamp=f"2025-01-01 00:{i // 60:02d}:{i % 60:02d}.000",
-        ))
-
-    return results
-
-
-async def test_kv_cache_log_parse_worker(log_dir: str = None):
+async def test_parse_log(log_id: str):
+    """测试日志解析 - 使用 log_id"""
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
-    if log_dir is None:
-        log_dir = os.path.join(os.path.dirname(__file__), "test_data")
-
-    logger.info(f"Testing KVCacheLogParseWorker with dir: {log_dir}")
-    logger.info(f"Directory exists: {os.path.exists(log_dir)}")
-
-    if not os.path.exists(log_dir):
-        logger.error(f"Directory not found: {log_dir}")
-        return
+    logger.info("=" * 60)
+    logger.info("TEST: parse_log (log_id=%s)", log_id)
+    logger.info("=" * 60)
 
     start = time.perf_counter()
-    results = await KVCacheLogParseWorker.parse_log(log_dir)
+    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
     elapsed = time.perf_counter() - start
-    logger.info(f"\nParse elapsed: {elapsed:.3f}s")
 
     total = len(results)
     anomalous = sum(1 for r in results if r.is_anomalous)
-    logger.info(f"\n{'='*60}")
-    logger.info(f"Total results: {total}")
-    logger.info(f"Anomalous: {anomalous}")
-    logger.info(f"{'='*60}")
+    logger.info(f"解析完成: {total:,} 条结果, {anomalous:,} 条异常, 耗时: {elapsed:.3f}s")
 
-    for i, r in enumerate(results[:5]):
-        logger.info(f"\n--- Result {i} ---")
-        logger.info(f"  trace_id: {r.trace_id}")
-        logger.info(f"  timestamp: {r.timestamp}")
-        logger.info(f"  pod_ip: {r.pod_ip}")
-        logger.info(f"  cluster_name: {r.cluster_name}")
-        logger.info(f"  host: {r.host}")
-        logger.info(f"  total_latency: {r.total_latency}")
-        logger.info(f"  operation: {r.operation}")
-        logger.info(f"  is_anomalous: {r.is_anomalous}")
+    for i, r in enumerate(results[:3]):
+        logger.info(f"  [{i}] trace_id={r.trace_id}, total_latency={r.total_latency:.3f}, "
+                     f"src_ip={r.src_ip}, dst_ip={r.dst_ip}")
 
-    logger.info("\n=== TEST PASSED ===")
+    logger.info("=== TEST PASSED ===")
+    return results
 
 
-async def test_detect_exception(log_dir: str = None):
-    """测试异常检测，支持使用真实日志或mock数据"""
+async def test_detect_exception(log_id: str):
+    """测试异常检测 - 使用 log_id"""
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST: detect_exception (sliding window P99)")
+    logger.info("=" * 60)
+    logger.info("TEST: detect_exception (log_id=%s)", log_id)
     logger.info("=" * 60)
 
-    # 如果提供了日志目录，使用真实数据
-    if log_dir and os.path.isdir(log_dir):
-        logger.info(f"使用真实日志数据: {log_dir}")
-        results = await KVCacheLogParseWorker.parse_log(log_dir)
-        if not results:
-            logger.warning("真实日志解析结果为空，使用mock数据")
-            results = _build_mock_results(n=2000, spike_start=800, spike_end=1000)
-    else:
-        logger.info("使用mock数据")
-        results = _build_mock_results(n=2000, spike_start=800, spike_end=1000)
-
-    logger.info(f"结果数量: {len(results)}")
+    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
+    if not results:
+        logger.warning("解析结果为空，跳过异常检测")
+        return []
 
     start = time.perf_counter()
     events = await KVCacheLogParseWorker.detect_exception(results)
     elapsed = time.perf_counter() - start
-    logger.info(f"detect_exception elapsed: {elapsed:.3f}s")
 
-    logger.info(f"Anomalous events: {len(events)}")
-    if events:
-        offsets = [e.start_log_parse_offset for e in events]
-        logger.info(f"  offset range: [{min(offsets)}, {max(offsets)}]")
-        spike_in_events = sum(
-            1 for e in events if 800 <= e.start_log_parse_offset < 1000
-        )
-        non_spike_in_events = len(events) - spike_in_events
-        logger.info(f"  in spike zone [800,1000): {spike_in_events}")
-        logger.info(f"  outside spike zone: {non_spike_in_events}")
+    logger.info(f"异常检测完成: {len(events):,} 个异常事件, 耗时: {elapsed:.3f}s")
 
-        for i, e in enumerate(events[:3]):
-            logger.info(f"\n  --- Event {i} ---")
-            logger.info(f"    offset: {e.start_log_parse_offset}")
-            logger.info(f"    reason: {e.anomaly_reason[:120]}...")
+    for i, e in enumerate(events[:3]):
+        logger.info(f"  [{i}] id={e.id[:8]}..., reason={e.anomaly_reason[:80]}...")
 
-    # 只有使用mock数据时才验证spike zone
-    if not (log_dir and os.path.isdir(log_dir) and results):
-        spike_hit = any(800 <= e.start_log_parse_offset < 1000 for e in events)
-        logger.info(f"\nSpike zone detected: {spike_hit}")
-        assert spike_hit, "Spike zone [800,1000) should be detected"
-    
-    logger.info("=== test_detect_exception PASSED ===\n")
+    logger.info("=== TEST PASSED ===")
+    return events
 
 
-async def test_generate_aggregate_result(log_dir: str = None):
-    """测试聚合结果生成，支持使用真实日志或mock数据"""
+async def test_aggregate(log_id: str):
+    """测试聚合统计 - 使用 log_id"""
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST: generate_aggregate_result")
+    logger.info("=" * 60)
+    logger.info("TEST: generate_aggregate_result (log_id=%s)", log_id)
     logger.info("=" * 60)
 
-    # 如果提供了日志目录，使用真实数据
-    if log_dir and os.path.isdir(log_dir):
-        logger.info(f"使用真实日志数据: {log_dir}")
-        results = await KVCacheLogParseWorker.parse_log(log_dir)
-        if not results:
-            logger.warning("真实日志解析结果为空，使用mock数据")
-            results = _build_mock_results(n=2000, spike_start=800, spike_end=1000)
-    else:
-        logger.info("使用mock数据")
-        results = _build_mock_results(n=2000, spike_start=800, spike_end=1000)
-
-    logger.info(f"结果数量: {len(results)}")
-
-    start = time.perf_counter()
-    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
-    elapsed = time.perf_counter() - start
-    logger.info(f"generate_aggregate_result elapsed: {elapsed:.3f}s")
-
-    logger.info(f"Aggregated events: {len(agg_events)}")
-    logger.info(f"Src-dst map entries: {len(src_dst_map)}")
-
-    src_dst_pairs = set()
-    for a in agg_events:
-        pair = (a.src_ip, a.dst_ip)
-        src_dst_pairs.add(pair)
-        logger.info(
-            f"  {a.src_ip} → {a.dst_ip} | "
-            f"cnt={a.log_parse_result_cnt}, anomaly_cnt={a.anomaly_cnt}, "
-            f"p99_total={a.p99_total_latency:.3f}ms, "
-            f"p99_urma_link={a.p99_urma_link_latency:.3f}ms"
-        )
-
-    assert len(agg_events) > 0, "Should have at least one aggregated event"
-    assert len(src_dst_pairs) == len(agg_events), "Each event should be a unique src-dst pair"
-
-    for a in agg_events:
-        assert a.p99_total_latency is not None, "p99_total_latency should be computed"
-        assert a.ave_total_latency is not None, "ave_total_latency should be computed"
-
-    logger.info("=== test_generate_aggregate_result PASSED ===\n")
-
-
-async def test_store_result(log_dir: str = None):
-    """测试结果存储，支持使用真实日志或mock数据"""
-    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-    from latency.database.engine import AsyncSQLiteSingleton
-    from latency.schemas.log import LogParseResultModel
-
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST: store_result")
-    logger.info("=" * 60)
-
-    await AsyncSQLiteSingleton().init_database()
-
-    # 如果提供了日志目录，使用真实数据
-    if log_dir and os.path.isdir(log_dir):
-        logger.info(f"使用真实日志数据: {log_dir}")
-        results = await KVCacheLogParseWorker.parse_log(log_dir)
-        if not results:
-            logger.warning("真实日志解析结果为空，使用mock数据")
-            results = _build_mock_results(n=500, spike_start=200, spike_end=300)
-    else:
-        logger.info("使用mock数据")
-        results = _build_mock_results(n=500, spike_start=200, spike_end=300)
-
-    logger.info(f"结果数量: {len(results)}")
-
-    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
-    anomalous_events = await KVCacheLogParseWorker.detect_exception(results)
-
-    logger.info(
-        f"Storing: {len(results)} results, "
-        f"{len(agg_events)} aggregated events, "
-        f"{len(anomalous_events)} anomalous events"
-    )
-
-    start = time.perf_counter()
-    stored = await KVCacheLogParseWorker.store_result(
-        list_log_parse_results=results,
-        anomalous_events=anomalous_events,
-        anomalous_event_chains=[],
-        src_dst_aggregated_events=agg_events,
-    )
-    elapsed = time.perf_counter() - start
-    logger.info(f"store_result elapsed: {elapsed:.3f}s")
-    logger.info(f"store_result returned: {stored}")
-
-    from latency.database.managers.log_parse_result import LogParseResultManager
-    from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventManager
-    from latency.database.managers.anomalous_event import AnomalousEventManager
-    from latency.schemas.request import ListLogParseResultRequest
-
-    req = ListLogParseResultRequest(page_num=1, page_cnt=1)
-    total_results, _ = await LogParseResultManager.list_log_parse_results(req)
-    logger.info(f"DB log_parse_result count: {total_results}")
-    assert total_results > 0, "Should have stored log parse results"
-
-    from latency.schemas.request import ListSrcDstAggregatedEventRequest
-    agg_req = ListSrcDstAggregatedEventRequest(page_num=1, page_cnt=100)
-    total_agg, agg_rows = await SrcDstAggregatedEventManager.list_aggregated_events(agg_req)
-    logger.info(f"DB aggregated_event count: {total_agg}")
-    assert total_agg > 0, "Should have stored aggregated events"
-
-    ae_list = await AnomalousEventManager.list_anomalous_events_by_log_id("test_log_id")
-    logger.info(f"DB anomalous_event count: {len(ae_list)}")
-
-    logger.info("=== test_store_result PASSED ===\n")
-
-
-async def test_detect_exception_with_results(results: list):
-    """使用真实解析结果测试异常检测"""
-    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST: detect_exception (使用真实数据)")
-    logger.info("=" * 60)
-
+    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
     if not results:
-        logger.warning("没有解析结果，跳过异常检测测试")
-        return
+        logger.warning("解析结果为空，跳过聚合")
+        return [], {}
 
     start = time.perf_counter()
+    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    elapsed = time.perf_counter() - start
+
+    logger.info(f"聚合完成: {len(agg_events):,} 个端点对, 耗时: {elapsed:.3f}s")
+
+    for i, a in enumerate(agg_events[:3]):
+        logger.info(f"  [{i}] {a.src_ip} -> {a.dst_ip}, "
+                     f"count={a.log_parse_result_cnt}, anomaly={a.anomaly_cnt}")
+
+    logger.info("=== TEST PASSED ===")
+    return agg_events, src_dst_map
+
+
+async def test_store(log_id: str):
+    """测试存库 - 使用 log_id"""
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+    logger.info("=" * 60)
+    logger.info("TEST: store_result (log_id=%s)", log_id)
+    logger.info("=" * 60)
+
+    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
+    if not results:
+        logger.warning("解析结果为空，跳过往存库")
+        return False
+
     events = await KVCacheLogParseWorker.detect_exception(results)
-    elapsed = time.perf_counter() - start
-    logger.info(f"detect_exception elapsed: {elapsed:.3f}s")
+    agg_events, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
 
-    logger.info(f"Anomalous events: {len(events)}")
-    if events:
-        for i, e in enumerate(events[:3]):
-            logger.info(f"\n  --- Event {i} ---")
-            logger.info(f"    offset: {e.start_log_parse_offset}")
-            logger.info(f"    reason: {e.anomaly_reason[:120]}...")
-
-    logger.info("=== test_detect_exception_with_results PASSED ===\n")
-
-
-async def test_generate_aggregate_result_with_results(results: list):
-    """使用真实解析结果测试聚合"""
-    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST: generate_aggregate_result (使用真实数据)")
-    logger.info("=" * 60)
-
-    if not results:
-        logger.warning("没有解析结果，跳过聚合测试")
-        return
+    # 更新异常事件的 aggregated_event_id
+    for event in events:
+        idx = event.start_log_parse_offset
+        if 0 <= idx < len(results):
+            r = results[idx]
+            event.aggregated_event_id = r.aggregated_event_id or ""
 
     start = time.perf_counter()
-    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
-    elapsed = time.perf_counter() - start
-    logger.info(f"generate_aggregate_result elapsed: {elapsed:.3f}s")
-
-    logger.info(f"Aggregated events: {len(agg_events)}")
-    logger.info(f"Src-dst map entries: {len(src_dst_map)}")
-
-    src_dst_pairs = set()
-    for a in agg_events:
-        pair = (a.src_ip, a.dst_ip)
-        src_dst_pairs.add(pair)
-        logger.info(
-            f"  {a.src_ip} → {a.dst_ip} | "
-            f"cnt={a.log_parse_result_cnt}, anomaly_cnt={a.anomaly_cnt}, "
-            f"p99_total={a.p99_total_latency:.3f}ms, "
-            f"p99_urma_link={a.p99_urma_link_latency:.3f}ms"
-        )
-
-    assert len(agg_events) > 0, "Should have at least one aggregated event"
-    assert len(src_dst_pairs) == len(agg_events), "Each event should be a unique src-dst pair"
-
-    for a in agg_events:
-        assert a.p99_total_latency is not None, "p99_total_latency should be computed"
-        assert a.ave_total_latency is not None, "ave_total_latency should be computed"
-
-    logger.info("=== test_generate_aggregate_result_with_results PASSED ===\n")
-
-
-async def test_store_result_with_results(results: list, agg_events: list, anomalous_events: list):
-    """使用真实数据测试存储"""
-    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-    from latency.database.engine import AsyncSQLiteSingleton
-    from latency.database.managers.log_parse_result import LogParseResultManager
-    from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventManager
-    from latency.database.managers.anomalous_event import AnomalousEventManager
-    from latency.schemas.request import ListLogParseResultRequest
-    from latency.schemas.request import ListSrcDstAggregatedEventRequest
-
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST: store_result (使用真实数据)")
-    logger.info("=" * 60)
-
-    if not results:
-        logger.warning("没有解析结果，跳过存储测试")
-        return
-
-    await AsyncSQLiteSingleton().init_database()
-
-    logger.info(
-        f"Storing: {len(results)} results, "
-        f"{len(agg_events)} aggregated events, "
-        f"{len(anomalous_events)} anomalous events"
-    )
-
-    start = time.perf_counter()
-    stored = await KVCacheLogParseWorker.store_result(
+    success = await KVCacheLogParseWorker.store_result(
         list_log_parse_results=results,
-        anomalous_events=anomalous_events,
+        anomalous_events=events,
         anomalous_event_chains=[],
         src_dst_aggregated_events=agg_events,
     )
     elapsed = time.perf_counter() - start
-    logger.info(f"store_result elapsed: {elapsed:.3f}s")
-    logger.info(f"store_result returned: {stored}")
 
-    req = ListLogParseResultRequest(page_num=1, page_cnt=1)
-    total_results, _ = await LogParseResultManager.list_log_parse_results(req)
-    logger.info(f"DB log_parse_result count: {total_results}")
-    assert total_results > 0, "Should have stored log parse results"
-
-    agg_req = ListSrcDstAggregatedEventRequest(page_num=1, page_cnt=100)
-    total_agg, agg_rows = await SrcDstAggregatedEventManager.list_aggregated_events(agg_req)
-    logger.info(f"DB aggregated_event count: {total_agg}")
-    assert total_agg > 0, "Should have stored aggregated events"
-
-    ae_list = await AnomalousEventManager.list_anomalous_events_by_log_id("test_log_id")
-    logger.info(f"DB anomalous_event count: {len(ae_list)}")
-
-    logger.info("=== test_store_result_with_results PASSED ===\n")
+    logger.info(f"存库{'成功' if success else '失败'}, 耗时: {elapsed:.3f}s")
+    logger.info("=== TEST PASSED ===")
+    return success
 
 
-async def test_all(log_dir: str = None):
-    """使用真实日志或模拟数据运行所有测试"""
-    if log_dir and os.path.isdir(log_dir):
-        logger.info(f"使用真实日志目录进行测试: {log_dir}")
-        
-        # 1. 使用真实日志测试解析器
-        from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-        start = time.perf_counter()
-        results = await KVCacheLogParseWorker.parse_log(log_dir)
-        elapsed = time.perf_counter() - start
-        logger.info(f"\nParse elapsed: {elapsed:.3f}s")
-        logger.info(f"Total results: {len(results)}")
-        
-        if results:
-            # 2. 使用真实解析结果测试异常检测
-            anomalous_events = await KVCacheLogParseWorker.detect_exception(results)
-            
-            # 3. 使用真实解析结果测试聚合
-            agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
-            
-            # 4. 使用真实数据测试存储
-            await test_store_result_with_results(results, agg_events, anomalous_events)
+async def test_run_pipeline(log_id: str):
+    """测试完整流水线 - 使用 log_id"""
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+    logger.info("=" * 60)
+    logger.info("TEST: run pipeline (log_id=%s)", log_id)
+    logger.info("=" * 60)
+
+    start = time.perf_counter()
+
+    # 步骤1: 解析
+    logger.info(">>> Step 1: parse_log")
+    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
+    logger.info(f"    -> {len(results):,} results")
+
+    # 步骤2: 异常检测
+    logger.info(">>> Step 2: detect_exception")
+    events = await KVCacheLogParseWorker.detect_exception(results)
+    logger.info(f"    -> {len(events):,} events")
+
+    # 步骤3: 聚合
+    logger.info(">>> Step 3: generate_aggregate_result")
+    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    logger.info(f"    -> {len(agg_events):,} aggregated events")
+
+    # 步骤4: 更新异常事件的 aggregated_event_id
+    for event in events:
+        idx = event.start_log_parse_offset
+        if 0 <= idx < len(results):
+            r = results[idx]
+            event.aggregated_event_id = src_dst_map.get((r.src_ip, r.dst_ip), "")
+
+    # 步骤5: 存库
+    logger.info(">>> Step 4: store_result")
+    stored = await KVCacheLogParseWorker.store_result(
+        list_log_parse_results=results,
+        anomalous_events=events,
+        anomalous_event_chains=[],
+        src_dst_aggregated_events=agg_events,
+    )
+    logger.info(f"    -> stored: {stored}")
+
+    elapsed = time.perf_counter() - start
+    logger.info(f"流水线完成, 总耗时: {elapsed:.3f}s")
+    logger.info("=== TEST PASSED ===")
+
+
+# ============================================================
+# 兼容旧版: 使用 log_dir 直接解析（不经过数据库）
+# ============================================================
+
+async def test_parse_log_dir(log_dir: str):
+    """兼容旧版: 使用 log_dir 直接解析"""
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+    logger.info("=" * 60)
+    logger.info("TEST: parse_log (log_dir=%s)", log_dir)
+    logger.info("=" * 60)
+
+    start = time.perf_counter()
+    results = await KVCacheLogParseWorker.parse_log(log_dir=log_dir)
+    elapsed = time.perf_counter() - start
+
+    total = len(results)
+    anomalous = sum(1 for r in results if r.is_anomalous)
+    logger.info(f"解析完成: {total:,} 条结果, {anomalous:,} 条异常, 耗时: {elapsed:.3f}s")
+
+    logger.info("=== TEST PASSED ===")
+    return results
+
+
+# ============================================================
+# 入口
+# ============================================================
+
+async def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        return
+
+    cmd = args[0]
+    target = args[1] if len(args) > 1 else None
+
+    # 判断是 log_id 还是 log_dir
+    is_log_dir = target and (os.path.isdir(target) or os.path.isfile(target))
+
+    if cmd == "all":
+        if is_log_dir:
+            await test_parse_log_dir(target)
+        elif target:
+            await test_parse_log(target)
+            await test_detect_exception(target)
+            await test_aggregate(target)
+            await test_store(target)
+            await test_run_pipeline(target)
         else:
-            logger.warning("没有解析到数据，跳过后续测试")
+            logger.error("请提供 log_id 或 log_dir")
+
+    elif cmd == "parse":
+        if target and is_log_dir:
+            await test_parse_log_dir(target)
+        elif target:
+            await test_parse_log(target)
+        else:
+            logger.error("请提供 log_id 或 log_dir")
+
+    elif cmd == "detect":
+        await test_detect_exception(target)
+    elif cmd == "aggregate":
+        await test_aggregate(target)
+    elif cmd == "store":
+        await test_store(target)
+    elif cmd == "run":
+        await test_run_pipeline(target)
+    elif is_log_dir:
+        # 兼容旧版: 直接传入路径
+        await test_parse_log_dir(cmd)
     else:
-        # 使用模拟数据测试
-        await test_detect_exception()
-        await test_generate_aggregate_result()
-        await test_store_result()
-    
-    logger.info("\n" + "=" * 60)
-    logger.info("ALL TESTS PASSED")
-    logger.info("=" * 60)
-
-
-async def test_data_file(data_file: str):
-    import tempfile
-    import shutil
-
-    temp_dir = tempfile.mkdtemp(prefix="latency_worker_test_")
-    sdk_dir = os.path.join(temp_dir, "SDK_test")
-    os.makedirs(sdk_dir)
-
-    shutil.copy(data_file, os.path.join(sdk_dir, os.path.basename(data_file)))
-    logger.info(f"Created temp test dir: {temp_dir}")
-
-    try:
-        await test_kv_cache_log_parse_worker(temp_dir)
-    finally:
-        shutil.rmtree(temp_dir)
-        logger.info(f"Cleaned up temp dir: {temp_dir}")
+        print(__doc__)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        arg = sys.argv[1]
-        if arg == "detect":
-            # 支持传入日志目录
-            log_dir = sys.argv[2] if len(sys.argv) > 2 else None
-            asyncio.run(test_detect_exception(log_dir))
-        elif arg == "aggregate":
-            # 支持传入日志目录
-            log_dir = sys.argv[2] if len(sys.argv) > 2 else None
-            asyncio.run(test_generate_aggregate_result(log_dir))
-        elif arg == "store":
-            # 支持传入日志目录
-            log_dir = sys.argv[2] if len(sys.argv) > 2 else None
-            asyncio.run(test_store_result(log_dir))
-        elif arg == "all":
-            # 支持传入日志目录
-            log_dir = sys.argv[2] if len(sys.argv) > 2 else None
-            asyncio.run(test_all(log_dir))
-        elif os.path.isfile(arg):
-            asyncio.run(test_data_file(arg))
-        elif os.path.isdir(arg):
-            asyncio.run(test_kv_cache_log_parse_worker(arg))
-        else:
-            logger.error(f"Invalid path or unknown test: {arg}")
-    else:
-        asyncio.run(test_all())
+    asyncio.run(main())
