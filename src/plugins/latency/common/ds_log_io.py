@@ -53,12 +53,14 @@ def glob_paths(patterns: list[str]) -> list[str]:
 
 
 def parse_timestamp(ts: str) -> datetime:
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f"):
-        try:
-            return datetime.strptime(ts, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"Invalid timestamp: {ts}")
+    try:
+        return datetime(
+            int(ts[0:4]), int(ts[5:7]), int(ts[8:10]),
+            int(ts[11:13]), int(ts[14:16]), int(ts[17:19]),
+            int(ts[20:26]) if len(ts) > 20 else 0,
+        )
+    except (ValueError, IndexError):
+        raise ValueError(f"Invalid timestamp: {ts}")
 
 
 def open_log(path: str):
