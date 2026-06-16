@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure026> g_urma("urma_026");
 
 bool UrmaFailure026::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'get_bonding_eid_by_target_eid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid param'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_uninit' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete global context.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure026::IsValid()
 
 std::string UrmaFailure026::GetName() const
 {
-    return "get_bonding_eid_by_target_eid 校验 EID 无效导致获取流程拒绝继续执行";
+    return "context清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure026::GetRootCauseDesc() const
 {
-    return "get_bonding_eid_by_target_eid 在执行获取前发现调用方传入的 EID "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销context相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure026::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure026::GetFixSuggDesc() const
 
 std::string UrmaFailure026::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid param";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_uninit，Failed to delete global context.。";
 }
 
 std::string UrmaFailure026::GetId() const

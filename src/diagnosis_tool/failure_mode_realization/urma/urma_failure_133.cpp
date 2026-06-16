@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure133> g_urma("urma_133");
 
 bool UrmaFailure133::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Not allowed to bind local jetty: of mode: with remote jetty: of mode'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure133::IsValid()
 
 std::string UrmaFailure133::GetName() const
 {
-    return "urma_bind_jetty 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "URMA context、Jetty对象无效导致删除Jetty失败";
 }
 
 std::string UrmaFailure133::GetRootCauseDesc() const
 {
-    return "urma_bind_jetty 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数用于删除Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure133::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure133::GetFixSuggDesc() const
 
 std::string UrmaFailure133::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Not allowed to bind local jetty: of mode: with remote jetty: of mode";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty，Invalid parameter。";
 }
 
 std::string UrmaFailure133::GetId() const

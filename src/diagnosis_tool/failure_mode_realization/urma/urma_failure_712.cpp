@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure712> g_urma("urma_712");
 
 bool UrmaFailure712::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_comp_default' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete comp type'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ioctl_wait_notify' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'wait notify ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure712::IsValid()
 
 std::string UrmaFailure712::GetName() const
 {
-    return "bondp_delete_comp_default 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "执行wait notify驱动命令的ioctl调用返回失败";
 }
 
 std::string UrmaFailure712::GetRootCauseDesc() const
 {
-    return "bondp_delete_comp_default 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数通过ioctl向URMA内核驱动提交执行wait "
+           "notify驱动命令请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果。";
 }
 
 RootCause UrmaFailure712::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure712::GetFixSuggDesc() const
 
 std::string UrmaFailure712::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete comp type";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ioctl_wait_notify，wait notify ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure712::GetId() const

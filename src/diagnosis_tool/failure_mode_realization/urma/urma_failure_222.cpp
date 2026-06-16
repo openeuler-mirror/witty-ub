@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure222> g_urma("urma_222");
 
 bool UrmaFailure222::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_v_conn_init' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to init sender slide window in bdp_v_conn_table_add'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_flush_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure222::IsValid()
 
 std::string UrmaFailure222::GetName() const
 {
-    return "bdp_v_conn_init 更新 映射表 映射结构失败导致资源索引不可用";
+    return "URMA context、设备对象、sysfs设备信息、provider操作表无效导致刷出Jetty失败";
 }
 
 std::string UrmaFailure222::GetRootCauseDesc() const
 {
-    return "bdp_v_conn_init 需要维护 映射表 "
-           "到物理资源或虚拟资源的映射关系，但哈希表创建、插入、删除或查找失败，后续无法通过标识定位正确资源。";
+    return "函数用于刷出Jetty，调用方传入的URMA "
+           "context、设备对象、sysfs设备信息、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure222::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure222::GetFixSuggDesc() const
 
 std::string UrmaFailure222::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to init sender slide window in bdp_v_conn_table_add";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_flush_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure222::GetId() const

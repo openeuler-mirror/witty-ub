@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure490> g_urma("urma_490");
 
 bool UrmaFailure490::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_get_uasid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_read' \"$URMA_LOG_PATH\" 2>/dev/null "
+                                    "| grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure490::IsValid()
 
 std::string UrmaFailure490::GetName() const
 {
-    return "urma_get_uasid 校验 URMA 对象 无效导致获取流程拒绝继续执行";
+    return "JFS对象、WR对象无效导致读取JFS失败";
 }
 
 std::string UrmaFailure490::GetRootCauseDesc() const
 {
-    return "urma_get_uasid 在执行获取前发现调用方传入的 URMA 对象 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于读取JFS，调用方传入的JFS对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure490::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure490::GetFixSuggDesc() const
 
 std::string UrmaFailure490::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_read，Invalid parameter.。";
 }
 
 std::string UrmaFailure490::GetId() const

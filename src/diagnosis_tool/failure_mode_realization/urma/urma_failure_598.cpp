@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure598> g_urma("urma_598");
 
 bool UrmaFailure598::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_unimport_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pjfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete pjfc' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure598::IsValid()
 
 std::string UrmaFailure598::GetName() const
 {
-    return "urma_unimport_jetty 校验 目标 Jetty 无效导致导入流程拒绝继续执行";
+    return "物理 JFC清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure598::GetRootCauseDesc() const
 {
-    return "urma_unimport_jetty 在执行导入前发现调用方传入的 目标 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销物理 JFC相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure598::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure598::GetFixSuggDesc() const
 
 std::string UrmaFailure598::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pjfc，Failed to delete pjfc，, ret:。";
 }
 
 std::string UrmaFailure598::GetId() const

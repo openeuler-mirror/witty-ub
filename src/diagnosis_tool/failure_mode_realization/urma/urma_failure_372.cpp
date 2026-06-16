@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure372> g_urma("urma_372");
 bool UrmaFailure372::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_alloc_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'failed to exec ops->alloc_jfc'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_alloc_jfr, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure372::IsValid()
 
 std::string UrmaFailure372::GetName() const
 {
-    return "urma_alloc_jfc 分配 JFC 临时参数失败导致分配流程无法继续";
+    return "ioctl相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure372::GetRootCauseDesc() const
 {
-    return "urma_alloc_jfc 需要为 JFC 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数在分配ioctl前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure372::AnalyzeRootCause()
@@ -40,7 +38,8 @@ std::string UrmaFailure372::GetFixSuggDesc() const
 
 std::string UrmaFailure372::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：failed to exec ops->alloc_jfc";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jfs，ioctl failed in urma_cmd_alloc_jfr, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure372::GetId() const

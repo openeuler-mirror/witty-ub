@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure753> g_urma("urma_753");
 
 bool UrmaFailure753::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'bad jetty index exceed array length, bad_jetty_index:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jfc_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure753::IsValid()
 
 std::string UrmaFailure753::GetName() const
 {
-    return "urma_cmd_delete_jetty_batch 校验 Jetty 业务条件不满足导致删除流程拒绝继续执行";
+    return "URMA context无效导致设置JFC失败";
 }
 
 std::string UrmaFailure753::GetRootCauseDesc() const
 {
-    return "urma_cmd_delete_jetty_batch 在执行删除时发现 Jetty "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数用于设置JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure753::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure753::GetFixSuggDesc() const
 
 std::string UrmaFailure753::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：bad jetty index exceed array length, bad_jetty_index";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jfc_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure753::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure689> g_urma("urma_689");
 
 bool UrmaFailure689::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_post_jfr_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_notifier' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure689::IsValid()
 
 std::string UrmaFailure689::GetName() const
 {
-    return "urma_post_jfr_wr 校验 JFR 无效导致投递流程拒绝继续执行";
+    return "URMA context、provider操作表、provider未提供ack_notify操作实现无效导致删除Notifier失败";
 }
 
 std::string UrmaFailure689::GetRootCauseDesc() const
 {
-    return "urma_post_jfr_wr 在执行投递前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于删除Notifier，调用方传入的URMA "
+           "context、provider操作表、provider未提供ack_notify操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure689::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure689::GetFixSuggDesc() const
 
 std::string UrmaFailure689::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_notifier，Invalid parameter.。";
 }
 
 std::string UrmaFailure689::GetId() const

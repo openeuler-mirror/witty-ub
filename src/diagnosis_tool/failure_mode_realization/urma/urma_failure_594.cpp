@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure594> g_urma("urma_594");
 
 bool UrmaFailure594::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_unimport_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pjfce' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to delete pjfce' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure594::IsValid()
 
 std::string UrmaFailure594::GetName() const
 {
-    return "urma_unimport_jfr 校验 JFR 无效导致导入流程拒绝继续执行";
+    return "JFCE清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure594::GetRootCauseDesc() const
 {
-    return "urma_unimport_jfr 在执行导入前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数负责释放或撤销JFCE相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure594::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure594::GetFixSuggDesc() const
 
 std::string UrmaFailure594::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pjfce，Failed to delete pjfce，, ret:。";
 }
 
 std::string UrmaFailure594::GetId() const

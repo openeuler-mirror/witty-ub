@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure719> g_urma("urma_719");
 
 bool UrmaFailure719::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_vseg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to unregister segment, token_id:' | "
-        "grep -F ', handle:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_modify_jfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'modify pjfc fail, index:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure719::IsValid()
 
 std::string UrmaFailure719::GetName() const
 {
-    return "bondp_delete_vseg 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "修改物理 JFC过程中依赖步骤失败";
 }
 
 std::string UrmaFailure719::GetRootCauseDesc() const
 {
-    return "bondp_delete_vseg 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数用于修改物理 "
+           "JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
 }
 
 RootCause UrmaFailure719::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure719::GetFixSuggDesc() const
 
 std::string UrmaFailure719::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to unregister segment, token_id:, handle";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_modify_jfc，modify pjfc fail, index:，, ret:。";
 }
 
 std::string UrmaFailure719::GetId() const

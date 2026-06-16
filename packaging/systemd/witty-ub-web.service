@@ -1,0 +1,17 @@
+[Unit]
+Description=witty-ub web frontend
+After=network.target
+
+[Service]
+Type=simple
+RuntimeDirectory=witty-ub-web
+LogsDirectory=witty-ub-web
+ExecStartPre=/usr/sbin/nginx -t -c /etc/witty-ub/web/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/witty-ub/web/nginx.conf -g "daemon off;"
+ExecReload=/usr/sbin/nginx -c /etc/witty-ub/web/nginx.conf -s reload
+ExecStop=/usr/sbin/nginx -c /etc/witty-ub/web/nginx.conf -s quit
+KillMode=mixed
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

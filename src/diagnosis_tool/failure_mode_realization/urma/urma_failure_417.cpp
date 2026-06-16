@@ -9,10 +9,8 @@ static AutoRegister<UrmaFailure417> g_urma("urma_417");
 bool UrmaFailure417::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to create jfce, dev_name:' | "
-        "grep -F ', eid_idx:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_user_ctl_query_port' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'The object does not belong to current context.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure417::IsValid()
 
 std::string UrmaFailure417::GetName() const
 {
-    return "urma_create_jfce 执行创建 设备 失败导致当前资源状态无法推进";
+    return "查询context过程中依赖步骤失败";
 }
 
 std::string UrmaFailure417::GetRootCauseDesc() const
 {
-    return "urma_create_jfce 调用下层 provider、bond 组件或系统接口处理 设备 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于查询context，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA"
+           "操作失败。";
 }
 
 RootCause UrmaFailure417::AnalyzeRootCause()
@@ -36,12 +34,13 @@ RootCause UrmaFailure417::AnalyzeRootCause()
 
 std::string UrmaFailure417::GetFixSuggDesc() const
 {
-    return "当前预期不会出现，如果 fd 超规格可能导致失败，此时需要修改系统 fd 规格数，或者减小应用创建 jfce 的数量";
+    return "无";
 }
 
 std::string UrmaFailure417::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Failed to create jfce, dev_name: , eid_idx";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_user_ctl_query_port，The object does not belong to current "
+           "context.。";
 }
 
 std::string UrmaFailure417::GetId() const

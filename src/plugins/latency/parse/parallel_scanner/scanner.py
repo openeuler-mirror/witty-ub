@@ -16,6 +16,7 @@ from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskSplitStrategy
 
 from .file_parser_map_builder import FileParserMapBuilder
+from .preprocessor import LogPreprocessor
 from .process_worker import process_worker_func, _deserialize_entry
 from .task_splitter import FileGroup, ScanTaskSplitter
 
@@ -61,16 +62,19 @@ class ParallelFileScanner:
         max_processes: Optional[int] = None,
         split_strategy: TaskSplitStrategy = TaskSplitStrategy.BY_FILE_SIZE,
         use_multiprocessing: bool = True,
+        decompress: bool = False,
     ):
         """
         参数:
             max_processes: 最大进程数（默认 CPU 核数）
             split_strategy: 任务分组策略
             use_multiprocessing: 是否使用多进程（False 则用 asyncio）
+            decompress: 是否预解压 .gz 文件（False 则在 worker 中直接流式解压）
         """
         self.max_processes = max_processes or (os.cpu_count() or 4)
         self.split_strategy = split_strategy
         self.use_multiprocessing = use_multiprocessing
+        self.decompress = decompress
         self.metrics = ScanMetrics()
 
     async def scan_all(
@@ -78,6 +82,7 @@ class ParallelFileScanner:
         log_dir: str,
         parsers: list,
         parse_config: Optional[ParseConfig] = None,
+        scan_scope: Optional[dict] = None,
     ) -> dict[str, list]:
         """
         扫描所有日志文件
@@ -94,7 +99,11 @@ class ParallelFileScanner:
 
         # Step 1: 构建文件-解析器映射
         map_start = time.perf_counter()
-        builder = FileParserMapBuilder(log_dir, parsers)
+        gz_mapping = {}
+        if self.decompress:
+            preprocessor = LogPreprocessor()
+            gz_mapping = await preprocessor.decompress_all(log_dir)
+        builder = FileParserMapBuilder(log_dir, parsers, gz_mapping=gz_mapping)
         file_parser_map = builder.build()
         self.metrics.build_map_time_ms = (time.perf_counter() - map_start) * 1000
 
@@ -126,17 +135,17 @@ class ParallelFileScanner:
         if self.use_multiprocessing and len(file_groups) > 1:
             try:
                 results = await self._scan_with_multiprocessing(
-                    file_groups, parsers, log_dir, parse_config
+                    file_groups, parsers, log_dir, parse_config, scan_scope
                 )
             except Exception as e:
                 logger.warning(
                     f"Multiprocessing failed, fallback to asyncio: {e}"
                 )
                 results = await self._scan_with_asyncio(
-                    file_groups, parsers
+                    file_groups, parsers, scan_scope
                 )
         else:
-            results = await self._scan_with_asyncio(file_groups, parsers)
+            results = await self._scan_with_asyncio(file_groups, parsers, scan_scope)
 
         self.metrics.scan_time_ms = (time.perf_counter() - scan_start) * 1000
 
@@ -159,6 +168,7 @@ class ParallelFileScanner:
         parsers: list,
         log_dir: str,
         parse_config: Optional[ParseConfig],
+        scan_scope: Optional[dict],
     ) -> list[dict[str, list[dict]]]:
         """
         使用多进程执行扫描
@@ -193,6 +203,7 @@ class ParallelFileScanner:
                     group.group_id,
                     parsers_info,
                     parse_config_dict,
+                    scan_scope,
                 )
                 futures.append(future)
 
@@ -204,6 +215,7 @@ class ParallelFileScanner:
         self,
         file_groups: list[FileGroup],
         parsers: list,
+        scan_scope: Optional[dict] = None,
     ) -> list[dict[str, list]]:
         """
         使用 asyncio 执行扫描（单进程模式 / 降级模式）
@@ -226,7 +238,7 @@ class ParallelFileScanner:
         tasks = []
         for group in file_groups:
             task = asyncio.create_task(
-                self._scan_group_asyncio(group, parsers)
+                self._scan_group_asyncio(group, parsers, scan_scope)
             )
             tasks.append(task)
 
@@ -236,9 +248,12 @@ class ParallelFileScanner:
         self,
         file_group: FileGroup,
         parsers: list,
+        scan_scope: Optional[dict] = None,
     ) -> dict[str, list]:
         """异步扫描单个文件组（单进程模式）"""
-        from .process_worker import _scan_file_multi
+        from .process_worker import _apply_scan_scope, _scan_file_multi
+
+        _apply_scan_scope(parsers, scan_scope)
 
         tasks = []
         for path, parser_indices in file_group.files:
@@ -260,28 +275,26 @@ class ParallelFileScanner:
     def _merge_results(
         results: list[dict[str, list]],
     ) -> dict[str, list]:
-        """
-        汇总多个进程/组的结果
-
-        如果是多进程模式，结果已序列化为 tuple，需要反序列化。
-        如果是 asyncio 模式，结果已经是 LogEntry 对象。
-        """
         merged = defaultdict(list)
+        t0 = time.perf_counter()
+        total_deserialized = 0
 
         for result in results:
             for label, entries in result.items():
                 if entries and isinstance(entries[0], tuple):
-                    # 多进程模式：反序列化紧凑元组
                     deserialized = [_deserialize_entry(e) for e in entries]
                     merged[label].extend(deserialized)
+                    total_deserialized += len(deserialized)
                 else:
-                    # asyncio 模式：直接使用 LogEntry 对象
                     merged[label].extend(entries)
 
+        merge_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             f"Results merged: {len(results)} groups, "
             f"{len(merged)} parsers, "
-            f"{sum(len(e) for e in merged.values()):,} total entries"
+            f"{sum(len(e) for e in merged.values()):,} total entries, "
+            f"{total_deserialized:,} deserialized, "
+            f"merge={merge_ms:.0f}ms"
         )
 
         return dict(merged)

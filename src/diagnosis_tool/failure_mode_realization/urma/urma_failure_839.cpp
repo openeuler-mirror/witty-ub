@@ -8,12 +8,9 @@ static AutoRegister<UrmaFailure839> g_urma("urma_839");
 
 bool UrmaFailure839::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_del_jfr_p_vjetty_info_without_lock' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete p_vjfr_id node[' | "
-        "grep -F ']: ret' | "
-        "grep -F 'pjfr_id:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ack_notify' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -21,14 +18,13 @@ bool UrmaFailure839::IsValid()
 
 std::string UrmaFailure839::GetName() const
 {
-    return "bondp_del_jfr_p_vjetty_info_without_lock 执行处理 Jetty 失败导致当前资源状态无法推进";
+    return "URMA context、provider操作表、provider未提供ack_notify操作实现无效导致确认context失败";
 }
 
 std::string UrmaFailure839::GetRootCauseDesc() const
 {
-    return "bondp_del_jfr_p_vjetty_info_without_lock 调用下层 provider、bond 组件或系统接口处理 Jetty "
-           "时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于确认context，调用方传入的URMA "
+           "context、provider操作表、provider未提供ack_notify操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure839::AnalyzeRootCause()
@@ -43,7 +39,7 @@ std::string UrmaFailure839::GetFixSuggDesc() const
 
 std::string UrmaFailure839::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete p_vjfr_id node[]: ret pjfr_id";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ack_notify，Invalid parameter.。";
 }
 
 std::string UrmaFailure839::GetId() const

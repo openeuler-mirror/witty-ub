@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure004> g_urma("urma_004");
 
 bool UrmaFailure004::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_register_provider_ops' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'init_target_active_indices' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to find connected port'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure004::IsValid()
 
 std::string UrmaFailure004::GetName() const
 {
-    return "urma_register_provider_ops 校验 provider 无效导致注册流程拒绝继续执行";
+    return "未找到可用于初始化端口的有效对象或路由";
 }
 
 std::string UrmaFailure004::GetRootCauseDesc() const
 {
-    return "urma_register_provider_ops 在执行注册前发现调用方传入的 provider "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在初始化端口过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定"
+           "位目标。";
 }
 
 RootCause UrmaFailure004::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure004::GetFixSuggDesc() const
 
 std::string UrmaFailure004::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：init_target_active_indices，Failed to find connected port。";
 }
 
 std::string UrmaFailure004::GetId() const

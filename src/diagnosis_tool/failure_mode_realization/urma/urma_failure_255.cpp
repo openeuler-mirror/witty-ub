@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure255> g_urma("urma_255");
 
 bool UrmaFailure255::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'init_general_slave_devices' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to get slave device info'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unbind_jetty_async' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure255::IsValid()
 
 std::string UrmaFailure255::GetName() const
 {
-    return "init_general_slave_devices 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "URMA context、provider操作表、Jetty对象、目标Jetty对象无效导致解绑Jetty失败";
 }
 
 std::string UrmaFailure255::GetRootCauseDesc() const
 {
-    return "init_general_slave_devices 在初始化或注册设备时未能打开 provider "
-           "动态库、获取动态库路径、匹配驱动名称或完成 provider 注册，导致 URMA 用户态无法绑定对应设备的 provider "
-           "操作集。";
+    return "函数用于解绑Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure255::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure255::GetFixSuggDesc() const
 
 std::string UrmaFailure255::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to get slave device info";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unbind_jetty_async，Invalid parameter.。";
 }
 
 std::string UrmaFailure255::GetId() const

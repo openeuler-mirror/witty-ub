@@ -1,0 +1,572 @@
+from latency.schemas.log_failure_event import LogFailureEventModel, TraceFailureEventModel
+from latency.database.engine import AsyncSQLiteSingleton
+from latency.schemas.request import (
+    ListLogFailureEventResultRequest,
+    ListTraceFailureEventResultRequest,
+    GetErrCodeMetricsRequest
+)
+
+
+class LogFailureEventManager:
+    @staticmethod
+    async def add_log_failure_event(results: list[LogFailureEventModel]) -> list[str]:
+        ids_added = []
+        if not results:
+            return ids_added
+        
+        batch_size = 1024
+        for i in range(0, len(results), batch_size):
+            batch = results[i : i + batch_size]
+            try:
+                sql_str = """
+                    INSERT OR REPLACE INTO log_failure_event_table 
+                    (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
+                    VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
+                """
+                params = []
+                for log_failure_event in batch:
+                    param = log_failure_event.model_dump(exclude_none=False, by_alias=True)
+                    param["failure_mode"] = ",".join(param.get("failure_mode", []))
+                    params.append(param)
+                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                ids_added.extend([log_failure_event.id for log_failure_event in batch])
+            except Exception as e:
+                print(f"批量添加故障模式知识失败，错误信息: {str(e)}")
+        return ids_added
+    
+    @staticmethod
+    async def add_log_failure_event_if_not_exist(results: list[LogFailureEventModel]) -> list[str]:
+        ids_added = []
+        if not results:
+            return ids_added
+        
+        batch_size = 1024
+        for i in range(0, len(results), batch_size):
+            batch = results[i : i + batch_size]
+            try:
+                sql_str = """
+                    INSERT INTO log_failure_event_table 
+                    (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
+                    SELECT :id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM log_failure_event_table WHERE raw_text = :raw_text
+                    )
+                """
+                params = []
+                for log_failure_event in batch:
+                    param = log_failure_event.model_dump(exclude_none=False, by_alias=True)
+                    param["failure_mode"] = ",".join(param.get("failure_mode", []))
+                    params.append(param)
+                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                ids_added.extend([log_failure_event.id for log_failure_event in batch])
+            except Exception as e:
+                print(f"批量添加故障模式知识失败，错误信息: {str(e)}")
+        return ids_added
+    
+    @staticmethod
+    async def update_failure_mode_by_raw_log(log_id: str, raw_text: str, failure_mode: str) -> bool:
+        """根据原始日志更新故障模式"""
+        sql_str = """
+            UPDATE log_failure_event_table 
+            SET failure_mode = :failure_mode
+            WHERE log_id = :log_id AND raw_text = :raw_text
+        """
+        params = {"log_id": log_id, "raw_text": raw_text, "failure_mode": failure_mode}
+        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return result
+    
+    @staticmethod
+    async def add_trace_failure_event(results: list[TraceFailureEventModel]) -> list[str]:
+        # 添加向数据库中加入trace_failure_event的逻辑，pod_names,host_names,cluster_names转化为TEXT时，多个元素用","分割，返回添加的trace_id列表
+        ids_added = []
+        if not results:
+            return ids_added
+        
+        batch_size = 1024
+        for i in range(0, len(results), batch_size):
+            batch = results[i : i + batch_size]
+            try:
+                sql_str = """
+                    INSERT OR REPLACE INTO trace_failure_event_table 
+                    (id, log_id, trace_id, pod_names, host_names, cluster_names, timestamp, status_code, failure_mode)
+                    VALUES (:id, :log_id, :trace_id, :pod_names, :host_names, :cluster_names, :timestamp, :status_code, :failure_mode)
+                """
+                params = []
+                for trace_failure_event in batch:
+                    param = {
+                        "id": trace_failure_event.id,
+                        "log_id": trace_failure_event.log_id,
+                        "trace_id": trace_failure_event.trace_id,
+                        "pod_names": ",".join(trace_failure_event.pod_names),
+                        "host_names": ",".join(trace_failure_event.host_names),
+                        "cluster_names": ",".join(trace_failure_event.cluster_names),
+                        "timestamp": trace_failure_event.timestamp,
+                        "status_code": trace_failure_event.status_code,
+                        "failure_mode": trace_failure_event.failure_mode
+                    }
+                    params.append(param)
+                
+                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                ids_added.extend([trace_failure_event.trace_id for trace_failure_event in batch])
+            except Exception as e:
+                print(f"批量添加trace故障事件失败，错误信息: {str(e)}")
+        return ids_added
+    
+    @staticmethod
+    async def list_trace_failure_events(
+        req=ListTraceFailureEventResultRequest
+    ) -> tuple[int, list[TraceFailureEventModel]]:
+        # 添加从数据库中查询trace故障事件的逻辑，TraceFailureEventModel的pod_names,host_names,cluster_names字段中多个元素用","分割
+        # 若kb_id非None，从log_file_table中查询req的kb_id对应的文件id，即log_id列表，log_id的值需要属于这个列表
+        # 若req的pod_names，host_names，cluster_names非None，则数据中相应pod_names，host_names，cluster_names字段中的元素需要与req的相应字段有重合
+        # 若req的status_codes非空，则数据中status_code应该是属于status_codes的元素
+        # 若is_anonymous非空，则需要筛选failure_mode字段非空的数据
+        # 若created_at_end/created_at_start非空，则数据的timestamp字段的时间需要小于created_at_end/大于created_at_start
+        # 若created_sorted_desc为True，则返回的数据列表按timestamp降序，否则升序
+        # page_cnt和page_num分别表示返回的数据页每行的数据量以及页码
+        try:
+            log_ids = []
+            
+            if req.kb_id is not None:
+                log_id_sql = """
+                    SELECT id FROM log_file_table 
+                    WHERE kb_id = :kb_id AND existed_status = 1
+                """
+                log_id_results = await AsyncSQLiteSingleton().execute_query(
+                    log_id_sql, {"kb_id": req.kb_id}
+                )
+                log_ids = [result["id"] for result in log_id_results]
+            
+            sql_str = """
+                SELECT id, log_id, trace_id, pod_names, host_names, cluster_names, 
+                    timestamp, status_code, failure_mode
+                FROM trace_failure_event_table
+                WHERE 1=1
+            """
+            params = {}
+            
+            if log_ids:
+                placeholders = ', '.join([f':log_id_{i}' for i in range(len(log_ids))])
+                sql_str += f" AND log_id IN ({placeholders})"
+                for i, log_id in enumerate(log_ids):
+                    params[f'log_id_{i}'] = log_id
+            
+            if req.pod_names:
+                pod_conditions = []
+                for i, pod_name in enumerate(req.pod_names):
+                    pod_conditions.append(f"(pod_names = :pod_name_exact_{i} OR pod_names LIKE :pod_name_start_{i} OR pod_names LIKE :pod_name_middle_{i} OR pod_names LIKE :pod_name_end_{i})")
+                    params[f'pod_name_exact_{i}'] = pod_name
+                    params[f'pod_name_start_{i}'] = f"{pod_name},%"
+                    params[f'pod_name_middle_{i}'] = f"%,{pod_name},%"
+                    params[f'pod_name_end_{i}'] = f"%,{pod_name}"
+                sql_str += f" AND ({' OR '.join(pod_conditions)})"
+            
+            if req.host_names:
+                host_conditions = []
+                for i, host_name in enumerate(req.host_names):
+                    host_conditions.append(f"(host_names = :host_name_exact_{i} OR host_names LIKE :host_name_start_{i} OR host_names LIKE :host_name_middle_{i} OR host_names LIKE :host_name_end_{i})")
+                    params[f'host_name_exact_{i}'] = host_name
+                    params[f'host_name_start_{i}'] = f"{host_name},%"
+                    params[f'host_name_middle_{i}'] = f"%,{host_name},%"
+                    params[f'host_name_end_{i}'] = f"%,{host_name}"
+                sql_str += f" AND ({' OR '.join(host_conditions)})"
+            
+            if req.cluster_names:
+                cluster_conditions = []
+                for i, cluster_name in enumerate(req.cluster_names):
+                    cluster_conditions.append(f"(cluster_names = :cluster_name_exact_{i} OR cluster_names LIKE :cluster_name_start_{i} OR cluster_names LIKE :cluster_name_middle_{i} OR cluster_names LIKE :cluster_name_end_{i})")
+                    params[f'cluster_name_exact_{i}'] = cluster_name
+                    params[f'cluster_name_start_{i}'] = f"{cluster_name},%"
+                    params[f'cluster_name_middle_{i}'] = f"%,{cluster_name},%"
+                    params[f'cluster_name_end_{i}'] = f"%,{cluster_name}"
+                sql_str += f" AND ({' OR '.join(cluster_conditions)})"
+            
+            if req.status_codes:
+                placeholders = ', '.join([f':status_code_{i}' for i in range(len(req.status_codes))])
+                sql_str += f" AND status_code IN ({placeholders})"
+                for i, status_code in enumerate(req.status_codes):
+                    params[f'status_code_{i}'] = status_code
+            
+            if req.is_anomalous is not None:
+                if req.is_anomalous:
+                    sql_str += " AND failure_mode IS NOT NULL AND failure_mode != ''"
+                else:
+                    sql_str += " AND (failure_mode IS NULL OR failure_mode = '')"
+            
+            if req.created_at_start:
+                sql_str += " AND timestamp >= :created_at_start"
+                params['created_at_start'] = req.created_at_start
+            
+            if req.created_at_end:
+                sql_str += " AND timestamp <= :created_at_end"
+                params['created_at_end'] = req.created_at_end
+            
+            order_direction = "DESC" if req.created_sorted_desc else "ASC"
+            sql_str += f" ORDER BY timestamp {order_direction}"
+            
+            count_sql = f"SELECT COUNT(*) as total FROM ({sql_str})"
+            count_result = await AsyncSQLiteSingleton().execute_query(count_sql, params)
+            total = count_result[0]["total"] if count_result else 0
+            
+            offset = (req.page_num - 1) * req.page_cnt
+            sql_str += f" LIMIT :limit OFFSET :offset"
+            params['limit'] = req.page_cnt
+            params['offset'] = offset
+            
+            results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            
+            trace_failure_events = []
+            for result in results:
+                pod_names_list = [name.strip() for name in result["pod_names"].split(',') if name.strip()] if result["pod_names"] else []
+                host_names_list = [name.strip() for name in result["host_names"].split(',') if name.strip()] if result["host_names"] else []
+                cluster_names_list = [name.strip() for name in result["cluster_names"].split(',') if name.strip()] if result["cluster_names"] else []
+                
+                trace_failure_event = TraceFailureEventModel(
+                    id=result["id"],
+                    log_id=result["log_id"],
+                    trace_id=result["trace_id"],
+                    pod_names=pod_names_list,
+                    host_names=host_names_list,
+                    cluster_names=cluster_names_list,
+                    timestamp=result["timestamp"],
+                    status_code=result["status_code"] if result["status_code"] else "",
+                    failure_mode=result["failure_mode"] if result["failure_mode"] else ""
+                )
+                trace_failure_events.append(trace_failure_event)
+            
+            return total, trace_failure_events
+        
+        except Exception as e:
+            print(f"查询trace故障事件失败，错误信息: {str(e)}")
+            return 0, []
+
+    @staticmethod
+    async def list_log_failure_events(
+        req=ListLogFailureEventResultRequest
+    ) -> tuple[int, list[LogFailureEventModel]]:
+        # 添加从数据库中查询log故障事件的逻辑
+        # 输入的参数有kb_id和trace_id，其中kb_id可能是None
+        # 首先若kb_id非None，从log_file_table中查询req的kb_id对应的文件id，即log_id列表
+        # 然后，在log_failure_event_table中查询相应数据，构建list[LogFailureEventModel]。查询条件是，log_id属于log_id列表（若没有log_id列表，则所有log_id都符合条件），trace_id等于输入req的trace_id
+        # 其中，failure_mode字段在LogFailureEventModel中是str列表，它是从sql语句查询的failure_mode字段结果，按","进行分割得到的字符串列表
+        # 输出的log列表按照时间，从先到后排序，对应ist[LogFailureEventModel]
+        # 输出的第一个int参数是列表的长度
+        
+        try:
+            log_ids = []
+            
+            # 如果 kb_id 非 None，查询对应的 log_id 列表
+            if req.kb_id is not None:
+                log_id_sql = """
+                    SELECT id FROM log_file_table 
+                    WHERE kb_id = :kb_id AND existed_status = 1
+                """
+                log_id_results = await AsyncSQLiteSingleton().execute_query(
+                    log_id_sql, {"kb_id": req.kb_id}
+                )
+                log_ids = [result["id"] for result in log_id_results]
+            
+            # 如果log_id非None，将log_id加入筛选条件
+            if req.log_id is not None:
+                log_ids.append(req.log_id)
+            
+            # 构建查询 log_failure_event_table 的 SQL
+            sql_str = """
+                SELECT id, log_id, log_file, raw_text, host_name, timestamp, level, 
+                       filename, pod_name, pid, tid, trace_id, cluster_name, 
+                       message, status_code, failure_mode
+                FROM log_failure_event_table
+                WHERE 1=1
+            """
+            params = {}
+            
+            # 添加 log_id 过滤条件
+            if log_ids:
+                placeholders = ', '.join([f':log_id_{i}' for i in range(len(log_ids))])
+                sql_str += f" AND log_id IN ({placeholders})"
+                for i, log_id in enumerate(log_ids):
+                    params[f'log_id_{i}'] = log_id
+            
+            # 添加 trace_id 过滤条件
+            if req.trace_ids is not None:
+                placeholders = ",".join([f':trace_id_{i}' for i in range(len(req.trace_ids))])
+                sql_str += f" AND trace_id IN ({placeholders})"
+                for i, trace_id in enumerate(req.trace_ids):
+                    params[f'trace_id_{i}'] = trace_id
+            
+            # 按时间排序
+            sql_str += " ORDER BY timestamp ASC"
+            
+            # 执行查询
+            results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            
+            # 构建 LogFailureEventModel 列表
+            log_failure_events = []
+            for result in results:
+                # 将 failure_mode 从字符串按 "," 分割成列表
+                failure_mode_str = result.get("failure_mode", "")
+                if failure_mode_str:
+                    failure_mode_list = [fm.strip() for fm in failure_mode_str.split(',') if fm.strip()]
+                else:
+                    failure_mode_list = []
+                
+                # 创建 LogFailureEventModel 对象
+                log_failure_event = LogFailureEventModel(
+                    id=result["id"],
+                    log_id=result["log_id"],
+                    log_file=result["log_file"],
+                    raw_text=result["raw_text"],
+                    host_name=result["host_name"],
+                    timestamp=result["timestamp"],
+                    level=result["level"],
+                    filename=result["filename"],
+                    pod_name=result["pod_name"],
+                    pid=result["pid"],
+                    tid=result["tid"],
+                    trace_id=result["trace_id"],
+                    cluster_name=result["cluster_name"],
+                    message=result["message"],
+                    status_code=result["status_code"],
+                    failure_mode=failure_mode_list
+                )
+                log_failure_events.append(log_failure_event)
+            
+            return len(log_failure_events), log_failure_events
+        
+        except Exception as e:
+            print(f"查询日志故障事件失败，错误信息: {str(e)}")
+            return 0, []
+
+    @staticmethod
+    async def get_err_code_metrics(
+        req: GetErrCodeMetricsRequest,
+    ) -> tuple[int, dict[str, list[dict]]]:
+        # TODO:从trace_failure_event_table中读取满足要求的trace数据，并获取故障码的指标结果
+        # 首先，按照req内容对trace_failure_event_table满足要求的故障trace数据进行筛选。
+        # 1.仅保留failure_mode非空的数据
+        # 2.若kb_id非空，从log_file_table中查询req的kb_id对应的文件id，即log_id列表，仅保留log_id在该列表中的数据
+        # 3.若err_codes非空，仅保留status_code在该列表中的数据
+        # 4.若host_names/cluster_names/pod_names列表非空，仅保留数据相应字段包含任意列表中元素的数据
+        # 5.若start_time/end_time非空，仅保留timestamp > start_time/timestamp < end_time的数据
+        # 然后，计算返回的指标数据。返回的第一个参数是每条曲线的数据点数量total，第二个参数是曲线具体数据的内容，内容是字典，字典的键是故障码，值是一个字典列表，表示一个故障码的曲线数据。
+        # 该字典的键为time和err_cnt，分别表示数据点的时间以及前后各0.5秒共1秒内，故障码的trace数量。
+        # 输出time字段的时间戳的格式为%Y-%M-%D %H:%M:%S，如2026-01-01 00:00:00，输入req的start_time/end_time字段若秒数后有微秒数，如.123456，起始和结束时间需要取整，分别是对start_time向下取整和对end_time向上取整，也就是输出的所有time都需要是整秒。
+        # 输出数据的time时间点默认间隔为1秒，首先移除所有0值数据点，如果剩余数据点仍超过max_points，则对非0数据点进行智能采样以保留曲线关键信息。
+        # 列表按time从小到大排序，err_cnt表示时间点前后各0.5秒共1秒内，匹配到故障码的故障trace数量总和。
+        # 请尽量保证算法的效率。
+        
+        try:
+            from datetime import datetime, timedelta
+            import math
+            import bisect
+            from collections import defaultdict
+            
+            log_ids = []
+            if req.kb_id:
+                log_id_sql = """
+                    SELECT id FROM log_file_table 
+                    WHERE kb_id = :kb_id AND existed_status = 1
+                """
+                log_id_results = await AsyncSQLiteSingleton().execute_query(
+                    log_id_sql, {"kb_id": req.kb_id}
+                )
+                log_ids = [result["id"] for result in log_id_results]
+            
+            sql_str = """
+                SELECT trace_id, failure_mode, status_code, timestamp, 
+                       pod_names, host_names, cluster_names
+                FROM trace_failure_event_table
+                WHERE failure_mode IS NOT NULL AND failure_mode != ''
+            """
+            params = {}
+            
+            if log_ids:
+                placeholders = ', '.join([f':log_id_{i}' for i in range(len(log_ids))])
+                sql_str += f" AND log_id IN ({placeholders})"
+                for i, log_id in enumerate(log_ids):
+                    params[f'log_id_{i}'] = log_id
+            
+            if req.err_codes:
+                placeholders = ', '.join([f':err_code_{i}' for i in range(len(req.err_codes))])
+                sql_str += f" AND status_code IN ({placeholders})"
+                for i, err_code in enumerate(req.err_codes):
+                    params[f'err_code_{i}'] = err_code
+            
+            if req.pod_names:
+                pod_conditions = []
+                for i, pod_name in enumerate(req.pod_names):
+                    pod_conditions.append(f"(pod_names = :pod_name_exact_{i} OR pod_names LIKE :pod_name_start_{i} OR pod_names LIKE :pod_name_middle_{i} OR pod_names LIKE :pod_name_end_{i})")
+                    params[f'pod_name_exact_{i}'] = pod_name
+                    params[f'pod_name_start_{i}'] = f"{pod_name},%"
+                    params[f'pod_name_middle_{i}'] = f"%,{pod_name},%"
+                    params[f'pod_name_end_{i}'] = f"%,{pod_name}"
+                sql_str += f" AND ({' OR '.join(pod_conditions)})"
+            
+            if req.host_names:
+                host_conditions = []
+                for i, host_name in enumerate(req.host_names):
+                    host_conditions.append(f"(host_names = :host_name_exact_{i} OR host_names LIKE :host_name_start_{i} OR host_names LIKE :host_name_middle_{i} OR host_names LIKE :host_name_end_{i})")
+                    params[f'host_name_exact_{i}'] = host_name
+                    params[f'host_name_start_{i}'] = f"{host_name},%"
+                    params[f'host_name_middle_{i}'] = f"%,{host_name},%"
+                    params[f'host_name_end_{i}'] = f"%,{host_name}"
+                sql_str += f" AND ({' OR '.join(host_conditions)})"
+            
+            if req.cluster_names:
+                cluster_conditions = []
+                for i, cluster_name in enumerate(req.cluster_names):
+                    cluster_conditions.append(f"(cluster_names = :cluster_name_exact_{i} OR cluster_names LIKE :cluster_name_start_{i} OR cluster_names LIKE :cluster_name_middle_{i} OR cluster_names LIKE :cluster_name_end_{i})")
+                    params[f'cluster_name_exact_{i}'] = cluster_name
+                    params[f'cluster_name_start_{i}'] = f"{cluster_name},%"
+                    params[f'cluster_name_middle_{i}'] = f"%,{cluster_name},%"
+                    params[f'cluster_name_end_{i}'] = f"%,{cluster_name}"
+                sql_str += f" AND ({' OR '.join(cluster_conditions)})"
+            
+            if req.start_time:
+                sql_str += " AND timestamp >= :start_time"
+                params['start_time'] = req.start_time
+            
+            if req.end_time:
+                sql_str += " AND timestamp <= :end_time"
+                params['end_time'] = req.end_time
+            
+            sql_str += " ORDER BY timestamp ASC"
+            
+            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            
+            if not rows:
+                return 0, {}
+            
+            def parse_time(time_str):
+                if not time_str:
+                    return None
+                try:
+                    if '.' in time_str:
+                        time_str = time_str.split('.')[0]
+                    return datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                    return None
+            
+            def round_down_to_second(dt):
+                return dt.replace(microsecond=0)
+            
+            def round_up_to_second(dt):
+                if dt.microsecond > 0:
+                    return (dt + timedelta(seconds=1)).replace(microsecond=0)
+                return dt
+            
+            timestamps = []
+            for row in rows:
+                ts = parse_time(row["timestamp"])
+                if ts:
+                    timestamps.append((ts, row["status_code"], row["failure_mode"]))
+            
+            if not timestamps:
+                return 0, {}
+            
+            min_time = min(ts[0] for ts in timestamps)
+            max_time = max(ts[0] for ts in timestamps)
+            
+            if req.start_time:
+                start_dt = parse_time(req.start_time)
+                if start_dt:
+                    min_time = round_down_to_second(start_dt)
+            
+            if req.end_time:
+                end_dt = parse_time(req.end_time)
+                if end_dt:
+                    max_time = round_up_to_second(end_dt)
+            else:
+                max_time = round_up_to_second(max_time)
+            
+            err_code_events = {}
+            for ts, status_code, failure_mode in timestamps:
+                if not status_code:
+                    status_code = "UNKNOWN"
+                if status_code not in err_code_events:
+                    err_code_events[status_code] = []
+                err_code_events[status_code].append(ts)
+            
+            for err_code in err_code_events:
+                err_code_events[err_code].sort()
+            
+            def sample_curve(points: list[dict], max_points: int) -> list[dict]:
+                if len(points) <= max_points:
+                    return points
+                
+                non_zero_points = [p for p in points if p['err_cnt'] > 0]
+                
+                if len(non_zero_points) <= max_points:
+                    return non_zero_points
+                
+                peak_indices = set()
+                for i in range(1, len(non_zero_points) - 1):
+                    prev_cnt = non_zero_points[i-1]['err_cnt']
+                    curr_cnt = non_zero_points[i]['err_cnt']
+                    next_cnt = non_zero_points[i+1]['err_cnt']
+                    
+                    if curr_cnt > prev_cnt and curr_cnt > next_cnt:
+                        peak_indices.add(i)
+                    elif curr_cnt < prev_cnt and curr_cnt < next_cnt:
+                        peak_indices.add(i)
+                
+                if len(peak_indices) >= max_points:
+                    sorted_peaks = sorted(peak_indices, key=lambda i: non_zero_points[i]['err_cnt'], reverse=True)
+                    selected_indices = set(sorted_peaks[:max_points])
+                    return sorted([non_zero_points[i] for i in selected_indices], key=lambda p: p['time'])
+                
+                remaining_slots = max_points - len(peak_indices)
+                non_peak_indices = [i for i in range(len(non_zero_points)) if i not in peak_indices]
+                
+                if len(non_peak_indices) <= remaining_slots:
+                    selected_indices = set(range(len(non_zero_points)))
+                    return non_zero_points
+                
+                sorted_non_peak = sorted(non_peak_indices, key=lambda i: non_zero_points[i]['err_cnt'], reverse=True)
+                selected_non_peak = set(sorted_non_peak[:remaining_slots])
+                
+                all_selected_indices = peak_indices | selected_non_peak
+                result = [non_zero_points[i] for i in sorted(all_selected_indices)]
+                
+                return result
+            
+            result = {}
+            total_points = 0
+            
+            for err_code, event_times_sorted in err_code_events.items():
+                time_count_map = defaultdict(int)
+                
+                for event_time in event_times_sorted:
+                    base_second = event_time.replace(microsecond=0)
+                    
+                    for offset in [-1, 0, 1]:
+                        check_time = base_second + timedelta(seconds=offset)
+                        
+                        if min_time <= check_time <= max_time:
+                            window_start = check_time - timedelta(seconds=0.5)
+                            window_end = check_time + timedelta(seconds=0.5)
+                            
+                            if window_start <= event_time <= window_end:
+                                time_count_map[check_time] += 1
+                
+                curve_data = [
+                    {
+                        "time": time_point.strftime("%Y-%m-%d %H:%M:%S"),
+                        "err_cnt": count
+                    }
+                    for time_point, count in sorted(time_count_map.items())
+                ]
+                
+                sampled_data = sample_curve(curve_data, req.max_points)
+                result[err_code] = sampled_data
+                
+                if len(sampled_data) > total_points:
+                    total_points = len(sampled_data)
+            
+            return total_points, result
+        
+        except Exception as e:
+            print(f"获取故障码指标失败，错误信息: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return 0, {}

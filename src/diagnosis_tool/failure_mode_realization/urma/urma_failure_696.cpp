@@ -9,9 +9,7 @@ static AutoRegister<UrmaFailure696> g_urma("urma_696");
 bool UrmaFailure696::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete bdp_jfc'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'set_fd_noblock' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +17,13 @@ bool UrmaFailure696::IsValid()
 
 std::string UrmaFailure696::GetName() const
 {
-    return "bondp_delete_jfc 执行删除 JFC 失败导致当前资源状态无法推进";
+    return "设置文件描述符过程中依赖步骤失败";
 }
 
 std::string UrmaFailure696::GetRootCauseDesc() const
 {
-    return "bondp_delete_jfc 调用下层 provider、bond 组件或系统接口处理 JFC 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于设置文件描述符，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure696::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure696::GetFixSuggDesc() const
 
 std::string UrmaFailure696::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete bdp_jfc";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：set_fd_noblock，ret:。";
 }
 
 std::string UrmaFailure696::GetId() const

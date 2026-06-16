@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure220> g_urma("urma_220");
 
 bool UrmaFailure220::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_create_comp' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to create comp' | "
-        "grep -F ', type:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_flush_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,14 @@ bool UrmaFailure220::IsValid()
 
 std::string UrmaFailure220::GetName() const
 {
-    return "bondp_create_comp 执行创建 URMA 对象 失败导致当前资源状态无法推进";
+    return "URMA context、provider操作表、目标Jetty对象、provider未提供import_jetty_ex操作实现无效导致刷出Jetty失败";
 }
 
 std::string UrmaFailure220::GetRootCauseDesc() const
 {
-    return "bondp_create_comp 调用下层 provider、bond 组件或系统接口处理 URMA 对象 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于刷出Jetty，调用方传入的URMA "
+           "context、provider操作表、目标Jetty对象、provider未提供import_jetty_"
+           "ex操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure220::AnalyzeRootCause()
@@ -41,7 +40,7 @@ std::string UrmaFailure220::GetFixSuggDesc() const
 
 std::string UrmaFailure220::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to create comp , type";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_flush_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure220::GetId() const

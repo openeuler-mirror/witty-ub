@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure355> g_urma("urma_355");
 
 bool UrmaFailure355::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_free_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'update_mapping_hash_table' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to alloc topo_map'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure355::IsValid()
 
 std::string UrmaFailure355::GetName() const
 {
-    return "urma_cmd_free_jetty 校验 context 无效导致释放流程拒绝继续执行";
+    return "URMA资源相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure355::GetRootCauseDesc() const
 {
-    return "urma_cmd_free_jetty 在执行释放前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在分配URMA资源前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure355::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure355::GetFixSuggDesc() const
 
 std::string UrmaFailure355::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：update_mapping_hash_table，Failed to alloc topo_map。";
 }
 
 std::string UrmaFailure355::GetId() const

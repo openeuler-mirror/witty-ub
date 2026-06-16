@@ -19,7 +19,7 @@
 namespace diag {
 namespace {
 constexpr const char *DEFAULT_OUTPUT_PATH = "/var/witty-ub/failure-mode-view-vis.html";
-constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/usr/share/witty-ub/data/view-vis";
+constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/var/witty-ub/data/view-vis";
 constexpr const char *VIEW_VIS_SOURCE_RESOURCE_DIR = "data/view-vis";
 constexpr const char *HTML_TEMPLATE_NAME = "failure_mode_view.html";
 constexpr const char *CSS_RESOURCE_NAME = "failure_mode_view.css";
@@ -413,9 +413,6 @@ RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFai
             return RACK_FAIL;
         }
         FailureModeController &controller = controllerIter->second;
-        if (controller.GetSubFailureModesValid().empty()) {
-            continue;
-        }
         roots.emplace_back(MakeViewNode(controller));
 
         std::unordered_set<std::string> path = {rootFailureModeId};

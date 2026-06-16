@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure660> g_urma("urma_660");
 
 bool UrmaFailure660::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_wait_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfs' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'jfs still actived, please deactived first'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure660::IsValid()
 
 std::string UrmaFailure660::GetName() const
 {
-    return "urma_cmd_wait_jfc 校验 JFCE 无效导致等待流程拒绝继续执行";
+    return "释放JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure660::GetRootCauseDesc() const
 {
-    return "urma_cmd_wait_jfc 在执行等待前发现调用方传入的 JFCE 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于释放JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure660::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure660::GetFixSuggDesc() const
 
 std::string UrmaFailure660::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfs，jfs still actived, please deactived first。";
 }
 
 std::string UrmaFailure660::GetId() const

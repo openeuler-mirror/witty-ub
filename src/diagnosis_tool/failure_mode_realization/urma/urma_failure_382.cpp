@@ -9,10 +9,8 @@ static AutoRegister<UrmaFailure382> g_urma("urma_382");
 bool UrmaFailure382::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to create jfs, dev_name:' | "
-        "grep -F ', eid_idx:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_alloc_jfr, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,12 @@ bool UrmaFailure382::IsValid()
 
 std::string UrmaFailure382::GetName() const
 {
-    return "urma_create_jfs 执行创建 设备 失败导致当前资源状态无法推进";
+    return "ioctl相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure382::GetRootCauseDesc() const
 {
-    return "urma_create_jfs 调用下层 provider、bond 组件或系统接口处理 设备 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数在分配ioctl前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure382::AnalyzeRootCause()
@@ -41,7 +38,8 @@ std::string UrmaFailure382::GetFixSuggDesc() const
 
 std::string UrmaFailure382::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Failed to create jfs, dev_name: , eid_idx";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jfr，ioctl failed in urma_cmd_alloc_jfr, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure382::GetId() const

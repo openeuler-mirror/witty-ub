@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure231> g_urma("urma_231");
 bool UrmaFailure231::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'set_cas_wr_ptseg_pjetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'tjetty in WR is NULL'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not allowed "
+        "to bind local jetty:' | grep -F ', with remote jetty:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure231::IsValid()
 
 std::string UrmaFailure231::GetName() const
 {
-    return "set_cas_wr_ptseg_pjetty 执行设置 目标 Jetty 失败导致当前资源状态无法推进";
+    return "绑定Jetty过程中依赖步骤失败";
 }
 
 std::string UrmaFailure231::GetRootCauseDesc() const
 {
-    return "set_cas_wr_ptseg_pjetty 调用下层 provider、bond 组件或系统接口处理 目标 Jetty 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
+           "作失败。";
 }
 
 RootCause UrmaFailure231::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure231::GetFixSuggDesc() const
 
 std::string UrmaFailure231::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：tjetty in WR is NULL";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty，Not allowed to bind local jetty:，, with remote "
+           "jetty:。";
 }
 
 std::string UrmaFailure231::GetId() const

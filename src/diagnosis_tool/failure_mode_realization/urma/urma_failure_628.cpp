@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure628> g_urma("urma_628");
 bool UrmaFailure628::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'schedule_next_route_in_matrix_server_singlepath' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid single path port. Single path mode only support RC and need to call bind_jetty'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
+        "failed in urma_cmd_delete_jfr, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure628::IsValid()
 
 std::string UrmaFailure628::GetName() const
 {
-    return "schedule_next_route_in_matrix_server_singlepath 校验 context 业务条件不满足导致调度流程拒绝继续执行";
+    return "删除ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure628::GetRootCauseDesc() const
 {
-    return "schedule_next_route_in_matrix_server_singlepath 在执行调度时发现 context "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure628::AnalyzeRootCause()
@@ -41,8 +39,8 @@ std::string UrmaFailure628::GetFixSuggDesc() const
 
 std::string UrmaFailure628::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid single path port. Single path mode only support RC and need to "
-           "call bind_jetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfr，ioctl failed in urma_cmd_delete_jfr, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure628::GetId() const

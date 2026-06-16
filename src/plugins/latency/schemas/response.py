@@ -8,6 +8,14 @@ from latency.schemas.log import (
     AnomalousEventChainModel,
     LogParseResultModel,
 )
+from latency.schemas.failure_mode import (
+    FailureModeModel,
+)
+from latency.schemas.log_failure_event import (
+    LogFailureEventModel,
+    TraceFailureEventModel,
+    ErrCodeMetricItem,
+)
 from latency.schemas.task import TaskModel
 
 
@@ -123,6 +131,14 @@ class GetLogFileResponse(ResponseBase):
     result: GetLogFileMsg = Field(..., description="查询日志文件详情响应结果")
 
 
+class GetFailureModeMsg(BaseModel):
+    failure_mode: Optional[FailureModeModel] = Field(default=None, description="故障模式详情")
+
+
+class GetFailureModeResponse(ResponseBase):
+    result: GetFailureModeMsg = Field(..., description="查询故障模式详情响应结果")
+
+
 class ListSrcDstAggregatedEventMsg(BaseModel):
     total: int = Field(..., description="符合条件的聚合事件总数")
     events: list[SrcDstAggregatedEventModel] = Field(
@@ -197,6 +213,28 @@ class ListLogParseResultsResponse(ResponseBase):
     )
 
 
+class ListLogFailureEventResultMsg(BaseModel):
+    total: int = Field(..., description="符合条件的log解析结果总数")
+    log_failure_event_results: list[LogFailureEventModel] = Field(
+        default_factory=list, description="故障日志结果列表"
+    )
+
+class ListLogFailureEventResultResponse(ResponseBase):
+    result: ListLogFailureEventResultMsg = Field(
+        ..., description="查询故障日志列表响应结果"
+    )
+
+class ListTraceFailureEventResultMsg(BaseModel):
+    total: int = Field(..., description="符合条件的trace解析结果总数")
+    trace_failure_event_results: list[TraceFailureEventModel] = Field(
+        default_factory=list, description="故障Trace结果列表"
+    )
+
+class ListTraceFailureEventResultReponse(ResponseBase):
+    result: ListTraceFailureEventResultMsg = Field(
+        ..., description="查询故障Trace列表响应结果"
+    )
+
 class GetLogParseResultMsg(BaseModel):
     log_parse_result: Optional[LogParseResultModel] = Field(
         default=None, description="日志解析结果详情"
@@ -243,6 +281,18 @@ class GetLatencyMetricsMsg(BaseModel):
 class GetLatencyMetricsResponse(ResponseBase):
     result: GetLatencyMetricsMsg = Field(..., description="获取延迟指标时间曲线响应结果")
 
+
+class GetErrCodeMetricsMsg(BaseModel):
+    """故障码指标时间曲线响应"""
+    total: int = Field(..., description="符合条件的数据点总数")
+    metrics: dict[str, list[ErrCodeMetricItem]] = Field(default_factory=dict, description="故障码指标时间序列数据")
+    time_range: dict = Field(
+        default_factory=dict,
+        description="实际查询的时间范围",
+    )
+
+class GetErrCodeMetricsResponse(ResponseBase):
+    result: GetErrCodeMetricsMsg = Field(..., description="获取故障码指标时间曲线响应结果")
 
 class StopOrRunLogParseMsg(BaseModel):
     success: bool = Field(..., description="操作是否成功")

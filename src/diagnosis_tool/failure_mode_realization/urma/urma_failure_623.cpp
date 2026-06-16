@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure623> g_urma("urma_623");
 bool UrmaFailure623::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_get_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'bondp get error epoll_event: 0x'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'ioctl failed in urma_cmd_delete_jfs_batch , ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure623::IsValid()
 
 std::string UrmaFailure623::GetName() const
 {
-    return "bondp_get_async_event 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "删除ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure623::GetRootCauseDesc() const
 {
-    return "bondp_get_async_event 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure623::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure623::GetFixSuggDesc() const
 
 std::string UrmaFailure623::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：bondp get error epoll_event: 0x";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs_batch，ioctl failed in urma_cmd_delete_jfs_batch , "
+           "ret:，, errno:。";
 }
 
 std::string UrmaFailure623::GetId() const

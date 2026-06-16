@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure813> g_urma("urma_813");
 
 bool UrmaFailure813::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_modify_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_modify_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure813::IsValid()
 
 std::string UrmaFailure813::GetName() const
 {
-    return "urma_cmd_modify_jfr 校验 context 无效导致修改流程拒绝继续执行";
+    return "URMA context、设备对象、JFR对象无效导致修改JFR失败";
 }
 
 std::string UrmaFailure813::GetRootCauseDesc() const
 {
-    return "urma_cmd_modify_jfr 在执行修改前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于修改JFR，调用方传入的URMA context、设备对象、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure813::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure813::GetFixSuggDesc() const
 
 std::string UrmaFailure813::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_modify_jfr，Invalid parameter.。";
 }
 
 std::string UrmaFailure813::GetId() const

@@ -9,12 +9,8 @@ static AutoRegister<UrmaFailure409> g_urma("urma_409");
 bool UrmaFailure409::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfr cfg out of range, depth:' | "
-        "grep -F ', max_depth:' | "
-        "grep -F ', sge:' | "
-        "grep -F ', max_sge:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'[DRV_ERR]Failed to free token_id, dev_name:' | grep -F ', eid_idx:' | grep -F ', tid:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -22,14 +18,12 @@ bool UrmaFailure409::IsValid()
 
 std::string UrmaFailure409::GetName() const
 {
-    return "urma_alloc_jfr 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "Token清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure409::GetRootCauseDesc() const
 {
-    return "urma_alloc_jfr 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数负责释放或撤销Token相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure409::AnalyzeRootCause()
@@ -44,7 +38,8 @@ std::string UrmaFailure409::GetFixSuggDesc() const
 
 std::string UrmaFailure409::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfr cfg out of range, depth:, max_depth:, sge:, max_sge";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_token_id，[DRV_ERR]Failed to free token_id, dev_name:，, "
+           "eid_idx:，, tid:，, ret:。";
 }
 
 std::string UrmaFailure409::GetId() const

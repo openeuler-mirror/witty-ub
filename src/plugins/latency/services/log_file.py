@@ -151,6 +151,11 @@ class LogFileService:
                 op_id=log_file_id,
                 parse_config=req.parse_config,
             )
+            await TaskHandler.init_task(  
+                  task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,  
+                  op_id=log_file_id,
+                  parse_config=req.parse_config
+            )
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod

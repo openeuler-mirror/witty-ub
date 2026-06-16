@@ -5,7 +5,6 @@ import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import IntEnum
-import hashlib
 from typing import Optional
 
 from latency.ENUM.ds_log import OpType, StatusCode
@@ -22,7 +21,6 @@ SDK_GET_OPS = frozenset({OpType.DS_KV_CLIENT_GET, OpType.DS_OBJECT_CLIENT_GET})
 WORKER_GET_OPS = frozenset({OpType.DS_POSIX_GET})
 ACCESS_LOG_MIN_PARTS = 13
 RUN_LOG_MIN_PARTS = 8
-LOG_DELIMITER = r"\s*\|\s*"
 
 
 class LogParser(ABC):
@@ -38,31 +36,22 @@ class LogParser(ABC):
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         self.parse_config = parse_config or ParseConfig()
         self._filtered_by_time = 0
+        self._start_dt = None
+        self._end_dt = None
+        if parse_config and parse_config.is_time_filter_enabled():
+            if parse_config.start_time:
+                self._start_dt = parse_timestamp(parse_config.start_time)
+            if parse_config.end_time:
+                self._end_dt = parse_timestamp(parse_config.end_time)
     
-    def _filter_by_time(self, timestamp_str: str) -> bool:
-        """
-        根据配置过滤时间
-        
-        返回 True 表示需要保留（通过过滤），返回 False 表示需要过滤掉
-        """
-        if not self.parse_config.is_time_filter_enabled():
-            return True
-        
-        try:
-            ts = parse_timestamp(timestamp_str)
-            if self.parse_config.start_time:
-                start_ts = parse_timestamp(self.parse_config.start_time)
-                if ts < start_ts:
-                    self._filtered_by_time += 1
-                    return False
-            if self.parse_config.end_time:
-                end_ts = parse_timestamp(self.parse_config.end_time)
-                if ts > end_ts:
-                    self._filtered_by_time += 1
-                    return False
-            return True
-        except Exception:
-            return True
+    def _filter_by_time(self, ts: datetime) -> bool:
+        if self._start_dt is not None and ts < self._start_dt:
+            self._filtered_by_time += 1
+            return False
+        if self._end_dt is not None and ts > self._end_dt:
+            self._filtered_by_time += 1
+            return False
+        return True
 
     class AccessCol(IntEnum):
         """Access格式日志列索引
@@ -148,65 +137,51 @@ class LogParser(ABC):
     
     @staticmethod
     def split_by_delimiter(line: str) -> list[str]:
-        """
-        按通用竖线分隔符拆分日志行，自动处理分隔符前后空白
-        返回拆分后的字段列表
-        """
         if not line:
             return []
-        return re.split(LOG_DELIMITER, line.strip())
+        return line.split("|")
 
     @staticmethod
     def parse_access_line(line: str) -> dict | None:
-        """
-        解析Access格式日志行
-        
-        格式: timestamp | level | filename:lineno | pod_name | pid:tid | trace_id | cluster_name | status_code | handle | elapsed | size | req_msg | resp_msg
-        """
-        line = line.strip()
-        if not line:
+        if not line or line[0] != "2":
             return None
 
-        parts = LogParser.split_by_delimiter(line)
-        if len(parts) < ACCESS_LOG_MIN_PARTS or not parts[0].startswith("20"):
+        parts = line.split("|")
+        if len(parts) < ACCESS_LOG_MIN_PARTS:
             return None
 
         col = LogParser.AccessCol
+        plen = len(parts)
         return {
             "timestamp": parts[col.TIMESTAMP].strip(),
-            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < len(parts) else "",
-            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
-            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
-            "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < len(parts) else "",
-            "handle": parts[col.HANDLE].strip() if col.HANDLE < len(parts) else "",
-            "elapsed": parts[col.ELAPSED].strip() if col.ELAPSED < len(parts) else "",
-            "size": parts[col.SIZE].strip() if col.SIZE < len(parts) else "",
-            "req_msg": parts[col.REQ_MSG].strip() if col.REQ_MSG < len(parts) else "",
-            "resp_msg": parts[col.RESP_MSG].strip() if col.RESP_MSG < len(parts) else "",
+            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < plen else "",
+            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < plen else "",
+            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < plen else "",
+            "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < plen else "",
+            "handle": parts[col.HANDLE].strip() if col.HANDLE < plen else "",
+            "elapsed": parts[col.ELAPSED].strip() if col.ELAPSED < plen else "",
+            "size": parts[col.SIZE].strip() if col.SIZE < plen else "",
+            "req_msg": parts[col.REQ_MSG].strip() if col.REQ_MSG < plen else "",
+            "resp_msg": parts[col.RESP_MSG].strip() if col.RESP_MSG < plen else "",
         }
 
     @staticmethod
     def parse_run_line(line: str) -> dict | None:
-        """
-        解析Run格式日志行
-        
-        格式: timestamp | level | filename:lineno | pod_name | pid:tid | trace_id | cluster_name | msg
-        """
-        line = line.strip()
-        if not line:
+        if not line or line[0] != "2":
             return None
 
-        parts = LogParser.split_by_delimiter(line)
-        if len(parts) < RUN_LOG_MIN_PARTS or not parts[0].startswith("20"):
+        parts = line.split("|")
+        if len(parts) < RUN_LOG_MIN_PARTS:
             return None
 
         col = LogParser.RunCol
+        plen = len(parts)
         return {
             "timestamp": parts[col.TIMESTAMP].strip(),
-            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < len(parts) else "",
-            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < len(parts) else "",
-            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < len(parts) else "",
-            "msg": parts[col.MSG].strip() if col.MSG < len(parts) else "",
+            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < plen else "",
+            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < plen else "",
+            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < plen else "",
+            "msg": parts[col.MSG].strip() if col.MSG < plen else "",
         }
 
     @abstractmethod

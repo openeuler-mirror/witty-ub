@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure285> g_urma("urma_285");
 
 bool UrmaFailure285::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'create_topo_map' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to alloc topo_map'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jetty' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Jetty state is wrong in deactive_jetty.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure285::IsValid()
 
 std::string UrmaFailure285::GetName() const
 {
-    return "create_topo_map 分配 拓扑信息 临时参数失败导致创建流程无法继续";
+    return "Jetty数据通路处理失败";
 }
 
 std::string UrmaFailure285::GetRootCauseDesc() const
 {
-    return "create_topo_map 需要为 拓扑信息 构造命令参数、资源描述或临时缓存，但内存分配返回失败，后续 provider "
-           "调用或驱动命令缺少必要入参，因此当前 URMA 操作被阻断。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure285::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure285::GetFixSuggDesc() const
 
 std::string UrmaFailure285::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to alloc topo_map";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jetty，Jetty state is wrong in deactive_jetty.。";
 }
 
 std::string UrmaFailure285::GetId() const

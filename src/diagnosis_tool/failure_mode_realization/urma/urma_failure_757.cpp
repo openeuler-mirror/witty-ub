@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure757> g_urma("urma_757");
 
 bool UrmaFailure757::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_free_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'jfc still actived, please deactived first'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_unadvise_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure757::IsValid()
 
 std::string UrmaFailure757::GetName() const
 {
-    return "urma_free_jfc 执行释放 JFC 失败导致当前资源状态无法推进";
+    return "URMA context、JFS对象无效导致设置JFR失败";
 }
 
 std::string UrmaFailure757::GetRootCauseDesc() const
 {
-    return "urma_free_jfc 调用下层 provider、bond 组件或系统接口处理 JFC 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于设置JFR，调用方传入的URMA context、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure757::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure757::GetFixSuggDesc() const
 
 std::string UrmaFailure757::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：jfc still actived, please deactived first";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_unadvise_jfr，Invalid parameter。";
 }
 
 std::string UrmaFailure757::GetId() const

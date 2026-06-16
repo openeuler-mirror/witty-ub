@@ -1,7 +1,0 @@
-# journalctl
--- Logs begin at ... --
-May 06 13:26:00 worker-node datasystem-worker[12345]: exited with code 139
-# dmesg_no_oom
-
-# pgrep_worker
-

@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure731> g_urma("urma_731");
 
 bool UrmaFailure731::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_free_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'ioctl failed in urma_cmd_free_jfs , ret:' | "
-        "grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_set_bonding_mode' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid context.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,12 @@ bool UrmaFailure731::IsValid()
 
 std::string UrmaFailure731::GetName() const
 {
-    return "urma_cmd_free_jfs URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "URMA context无效导致设置context失败";
 }
 
 std::string UrmaFailure731::GetRootCauseDesc() const
 {
-    return "urma_cmd_free_jfs 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFS 状态。";
+    return "函数用于设置context，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure731::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure731::GetFixSuggDesc() const
 
 std::string UrmaFailure731::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：ioctl failed in urma_cmd_free_jfs , ret:, errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_set_bonding_mode，Invalid context.。";
 }
 
 std::string UrmaFailure731::GetId() const

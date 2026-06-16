@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure449> g_urma("urma_449");
 bool UrmaFailure449::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to exec ops->set_jetty_opt'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ioctl_get_async_event' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'get async event ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure449::IsValid()
 
 std::string UrmaFailure449::GetName() const
 {
-    return "urma_set_jetty_opt 执行设置 Jetty 失败导致当前资源状态无法推进";
+    return "执行get async event驱动命令的ioctl调用返回失败";
 }
 
 std::string UrmaFailure449::GetRootCauseDesc() const
 {
-    return "urma_set_jetty_opt 调用下层 provider、bond 组件或系统接口处理 Jetty 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数通过ioctl向URMA内核驱动提交执行get async "
+           "event驱动命令请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果。";
 }
 
 RootCause UrmaFailure449::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure449::GetFixSuggDesc() const
 
 std::string UrmaFailure449::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to exec ops->set_jetty_opt";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ioctl_get_async_event，get async event ioctl failed, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure449::GetId() const

@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure433> g_urma("urma_433");
 
 bool UrmaFailure433::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, index' | "
-        "grep -F 'jetty in the array is NULL'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_query_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'ioctl failed, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,14 +18,13 @@ bool UrmaFailure433::IsValid()
 
 std::string UrmaFailure433::GetName() const
 {
-    return "urma_delete_jetty_batch 校验 Jetty 无效导致删除流程拒绝继续执行";
+    return "查询ioctl的ioctl调用返回失败";
 }
 
 std::string UrmaFailure433::GetRootCauseDesc() const
 {
-    return "urma_delete_jetty_batch 在执行删除前发现调用方传入的 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数通过ioctl向URMA内核驱动提交查询ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
+           "。";
 }
 
 RootCause UrmaFailure433::AnalyzeRootCause()
@@ -42,7 +39,7 @@ std::string UrmaFailure433::GetFixSuggDesc() const
 
 std::string UrmaFailure433::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter, index jetty in the array is NULL";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_query_jfr，ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure433::GetId() const

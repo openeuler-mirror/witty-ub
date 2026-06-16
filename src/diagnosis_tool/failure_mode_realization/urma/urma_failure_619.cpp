@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure619> g_urma("urma_619");
 
 bool UrmaFailure619::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_wait_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'v_jfce_table is NULL'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfs_batch' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure619::IsValid()
 
 std::string UrmaFailure619::GetName() const
 {
-    return "bondp_wait_jfc 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "JFS对象无效导致删除JFS失败";
 }
 
 std::string UrmaFailure619::GetRootCauseDesc() const
 {
-    return "bondp_wait_jfc 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数用于删除JFS，调用方传入的JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure619::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure619::GetFixSuggDesc() const
 
 std::string UrmaFailure619::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：v_jfce_table is NULL";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs_batch，Invalid parameter。";
 }
 
 std::string UrmaFailure619::GetId() const

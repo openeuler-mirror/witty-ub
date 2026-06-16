@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure571> g_urma("urma_571");
 bool UrmaFailure571::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bdp_r_v2p_token_id_del_idx_lockless' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to find node, index:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_health_calc_primary_interval_us' \"$URMA_LOG_PATH\" 2>/dev/null "
+        "| grep -F 'Health check epoll_wait failed, errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure571::IsValid()
 
 std::string UrmaFailure571::GetName() const
 {
-    return "bdp_r_v2p_token_id_del_idx_lockless 执行处理 token_id 失败导致当前资源状态无法推进";
+    return "健康检查数据通路处理失败";
 }
 
 std::string UrmaFailure571::GetRootCauseDesc() const
 {
-    return "bdp_r_v2p_token_id_del_idx_lockless 调用下层 provider、bond 组件或系统接口处理 token_id "
-           "时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure571::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure571::GetFixSuggDesc() const
 
 std::string UrmaFailure571::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to find node, index";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_health_calc_primary_interval_us，Health check epoll_wait failed, "
+           "errno:。";
 }
 
 std::string UrmaFailure571::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure053> g_urma("urma_053");
 bool UrmaFailure053::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_get_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_add_jfs_p_vjetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | grep "
+        "-F 'Failed to add p_vjfs_id[' | grep -F ']: ret:' | grep -F ', p_jfs_id:' | grep -F ', v_jfs_id:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure053::IsValid()
 
 std::string UrmaFailure053::GetName() const
 {
-    return "urma_cmd_get_jfr_opt 校验 JFR 无效导致获取流程拒绝继续执行";
+    return "执行虚拟 JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure053::GetRootCauseDesc() const
 {
-    return "urma_cmd_get_jfr_opt 在执行获取前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行虚拟 "
+           "JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
 }
 
 RootCause UrmaFailure053::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure053::GetFixSuggDesc() const
 
 std::string UrmaFailure053::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_add_jfs_p_vjetty_id_info，Failed to add p_vjfs_id[，]: ret:，, "
+           "p_jfs_id:，, v_jfs_id:。";
 }
 
 std::string UrmaFailure053::GetId() const

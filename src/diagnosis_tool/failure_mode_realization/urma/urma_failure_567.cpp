@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure567> g_urma("urma_567");
 
 bool UrmaFailure567::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_unimport_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid bdp tjetty'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'schedule_send_balance' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid min_active_count.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure567::IsValid()
 
 std::string UrmaFailure567::GetName() const
 {
-    return "bondp_unimport_jetty 校验 目标 Jetty 无效导致导入流程拒绝继续执行";
+    return "执行URMA资源所需输入对象无效导致激活组件失败";
 }
 
 std::string UrmaFailure567::GetRootCauseDesc() const
 {
-    return "bondp_unimport_jetty 在执行导入前发现调用方传入的 目标 Jetty "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于激活组件，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure567::AnalyzeRootCause()
@@ -41,7 +38,7 @@ std::string UrmaFailure567::GetFixSuggDesc() const
 
 std::string UrmaFailure567::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid bdp tjetty";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_send_balance，Invalid min_active_count.。";
 }
 
 std::string UrmaFailure567::GetId() const

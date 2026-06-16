@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure399> g_urma("urma_399");
 
 bool UrmaFailure399::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfr_batch' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to alloc memory.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure399::IsValid()
 
 std::string UrmaFailure399::GetName() const
 {
-    return "urma_create_jfr 校验 context 无效导致创建流程拒绝继续执行";
+    return "JFR相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure399::GetRootCauseDesc() const
 {
-    return "urma_create_jfr 在执行创建前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数在分配JFR前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure399::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure399::GetFixSuggDesc() const
 
 std::string UrmaFailure399::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr_batch，Failed to alloc memory.。";
 }
 
 std::string UrmaFailure399::GetId() const

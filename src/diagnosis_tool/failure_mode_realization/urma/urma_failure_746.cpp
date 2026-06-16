@@ -8,13 +8,9 @@ static AutoRegister<UrmaFailure746> g_urma("urma_746");
 
 bool UrmaFailure746::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_free_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'There is jfc event and it must be acked, jfc_comp:' | "
-        "grep -F ', comp:' | "
-        "grep -F ', jfc_async:' | "
-        "grep -F ', async:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jfs_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -22,13 +18,12 @@ bool UrmaFailure746::IsValid()
 
 std::string UrmaFailure746::GetName() const
 {
-    return "urma_cmd_free_jfc URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "URMA context、JFS对象无效导致设置JFS失败";
 }
 
 std::string UrmaFailure746::GetRootCauseDesc() const
 {
-    return "urma_cmd_free_jfc 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFC 状态。";
+    return "函数用于设置JFS，调用方传入的URMA context、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure746::AnalyzeRootCause()
@@ -43,8 +38,7 @@ std::string UrmaFailure746::GetFixSuggDesc() const
 
 std::string UrmaFailure746::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：There is jfc event and it must be acked, jfc_comp:, comp:, jfc_async:, "
-           "async";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jfs_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure746::GetId() const

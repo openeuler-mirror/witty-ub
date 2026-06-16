@@ -36,6 +36,7 @@ struct ProcessIds {
 };
 
 struct ParsedLogLineParts {
+    std::string rawLog;
     std::vector<std::string> fields;
     std::string message;
     int64_t timestamp;
@@ -149,6 +150,7 @@ std::optional<ProcessIds> ParseProcessIds(const std::vector<std::string> &fields
 
 void FillFailureLogInfo(const ParsedLogLineParts &parts, FailureLogInfo &logInfo)
 {
+    logInfo.rawLog = parts.rawLog;
     logInfo.timestamp = parts.timestamp;
     logInfo.level = parts.level;
     logInfo.filename = parts.fileLocation.filename;
@@ -161,8 +163,9 @@ void FillFailureLogInfo(const ParsedLogLineParts &parts, FailureLogInfo &logInfo
     logInfo.message = parts.message;
 }
 
-bool ParseSingleFailureLogLine(const std::string &line, FailureLogInfo &logInfo)
+bool ParseSingleFailureLogLine(std::string &line, FailureLogInfo &logInfo)
 {
+    std::string rawLog = line;
     std::vector<size_t> separators;
     if (!FindLogHeaderSeparators(line, separators)) {
         return false;
@@ -186,6 +189,7 @@ bool ParseSingleFailureLogLine(const std::string &line, FailureLogInfo &logInfo)
     }
 
     ParsedLogLineParts parts {
+        rawLog,
         fields,
         Trim(line.substr(separators.back() + 1)),
         *timestamp,

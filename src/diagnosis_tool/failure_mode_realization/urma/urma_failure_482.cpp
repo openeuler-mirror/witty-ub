@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure482> g_urma("urma_482");
 bool UrmaFailure482::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter with err dev or ops'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_sysfs_with_index' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'Failed to parse eid value, dev name:' | grep -F ', eid idx:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure482::IsValid()
 
 std::string UrmaFailure482::GetName() const
 {
-    return "urma_create_context 校验 context 无效导致创建流程拒绝继续执行";
+    return "EID信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure482::GetRootCauseDesc() const
 {
-    return "urma_create_context 在执行创建前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数需要从sysfs获取EID信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或能力初始"
+           "化。";
 }
 
 RootCause UrmaFailure482::AnalyzeRootCause()
@@ -36,12 +34,13 @@ RootCause UrmaFailure482::AnalyzeRootCause()
 
 std::string UrmaFailure482::GetFixSuggDesc() const
 {
-    return "当前不会触发";
+    return "无";
 }
 
 std::string UrmaFailure482::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter with err dev or ops";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_sysfs_with_index，Failed to parse eid value, dev name:，, eid "
+           "idx:。";
 }
 
 std::string UrmaFailure482::GetId() const

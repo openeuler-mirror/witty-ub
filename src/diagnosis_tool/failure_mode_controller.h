@@ -21,17 +21,19 @@ public:
     StepType GetNextStep();
     std::shared_ptr<FailureMode> GetFailureMode();
     void AddSubFailureModeValid(const std::string& subFailureModeId);
-    void AddHitCount();
+    void AddHitCount(std::string traceId);
     void AddLogInfo(const FailureLogInfo &logInfo);
+    bool HasTraceId(std::string traceId);
     std::unordered_set<std::string>& GetSubFailureModesValid();
     int GetHitCount();
     const std::vector<FailureLogInfo> &GetLogInfos() const;
 
 private:
-    std::shared_ptr<FailureMode> failureMode;
+    std::shared_ptr<FailureMode> failureMode = nullptr;
     std::unordered_set<std::string> subFailureModesValid;    // dynamic view; for urma
     int hitCount = 0;
     std::vector<FailureLogInfo> logInfos;
+    std::unordered_set<std::string> traceIds;
 };
 
 } // namespace diag

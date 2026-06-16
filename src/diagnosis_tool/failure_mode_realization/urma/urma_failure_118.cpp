@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure118> g_urma("urma_118");
 
 bool UrmaFailure118::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_active_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, trans_mode:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_jfc_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'output length too large, out.len=' | grep -F ', buf.len='");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure118::IsValid()
 
 std::string UrmaFailure118::GetName() const
 {
-    return "urma_active_jfr 校验 JFR 无效导致激活流程拒绝继续执行";
+    return "获取JFC过程中依赖步骤失败";
 }
 
 std::string UrmaFailure118::GetRootCauseDesc() const
 {
-    return "urma_active_jfr 在执行激活前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于获取JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure118::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure118::GetFixSuggDesc() const
 
 std::string UrmaFailure118::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter, trans_mode";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_jfc_opt，output length too large, out.len=，, buf.len=。";
 }
 
 std::string UrmaFailure118::GetId() const

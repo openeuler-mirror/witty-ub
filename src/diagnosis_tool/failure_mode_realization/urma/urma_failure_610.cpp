@@ -8,13 +8,9 @@ static AutoRegister<UrmaFailure610> g_urma("urma_610");
 
 bool UrmaFailure610::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to free token_id, dev_name:' | "
-        "grep -F ', eid_idx:' | "
-        "grep -F ', tid:' | "
-        "grep -F ', ret:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_vcontext' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to urma_cmd_delete_context'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -22,13 +18,12 @@ bool UrmaFailure610::IsValid()
 
 std::string UrmaFailure610::GetName() const
 {
-    return "urma_free_token_id 执行释放 设备 失败导致当前资源状态无法推进";
+    return "context清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure610::GetRootCauseDesc() const
 {
-    return "urma_free_token_id 调用下层 provider、bond 组件或系统接口处理 设备 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数负责释放或撤销context相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure610::AnalyzeRootCause()
@@ -43,7 +38,7 @@ std::string UrmaFailure610::GetFixSuggDesc() const
 
 std::string UrmaFailure610::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Failed to free token_id, dev_name: , eid_idx: , tid: , ret";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_vcontext，Failed to urma_cmd_delete_context。";
 }
 
 std::string UrmaFailure610::GetId() const

@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -39,12 +40,28 @@ public:
     RackResult Start() override;
     // 停止模块
     void Stop() override;
+    // 生成View
+    RackResult GenerateView();
+    // 存储结果
 
 private:
-    bool VisitKvCache(FailureModeController controller);
-    bool VisitUrma(FailureModeController controller);   // 构建urma tree静态图和traces命中表
+    RackResult ParseDiagArgs();                     // 解析命令行参数并校验
+    RackResult ExtractLogsByTimeWindow();           // 根据时间窗提取日志
+    void ExtractLogLinesCount(const std::string &filePath, int64_t startTs, int64_t endTs,
+                              std::ofstream &outFile, int &count);
+    bool ExtractLogLines(const std::string &filePath, const std::string &outputPath,
+                         int64_t startTs, int64_t endTs, bool append = false);
+    std::vector<std::string> FindMatchingFiles(const std::string &dir,
+                                               const std::string &pattern); // 递归搜索匹配的文件
+
+    void Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
     void StartKvcache(const std::vector<std::string> &subRootFailureModes);
     void StartUrma(const std::vector<std::string> &subRootFailureModes);
+    void StoreFailureTraces();
+    void AppendLogsToParent(const std::string &failureModeId, const std::vector<FailureLogInfo> &logInfos);
+    void ProcessLogInfos(FailureModeController &controller, const std::string &failureModeId,
+                         const std::vector<FailureLogInfo> &logInfos);
+    void ProcessSubFailureModes(const std::string &failureModeId, FailureMode *failureMode);
 
 private:
     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> failureModeJson;
@@ -55,8 +72,22 @@ private:
         failureModeIdToController; // (failureLogInfo ->) failureModeId -> failureModeController (-> failureMode)
     std::unordered_map<std::string, std::vector<FailureLogInfo>> traces; // traceId -> logs
     std::unordered_set<std::string> allFailureModes;                     // failureModeId
-    std::unordered_set<std::string> childFailureModes;                   // failureModeId
     std::unordered_set<std::string> rootFailureModes;                    // failureModeId
+    std::unordered_map<std::string, std::vector<std::string>> childToParentFailureModes;
+
+    // 命令行参数
+    std::string dsLogPath;               // --ds-log-path
+    std::string dsClientAccessLogFile;   // --ds-client-access-log-file
+    std::string dsClientInfoLogFile;     // --ds-client-info-log-file
+    std::string dsWorkerInfoLogFile;     // --ds-worker-info-log-file
+    std::string dsWorkerAccessLogFile;
+    std::string resourceLogFile;         // --resource-log-file
+    std::string startTimeStr;
+    std::string endTimeStr;
+    int64_t startTimestamp = 0;
+    int64_t endTimestamp = 0;
+    std::string extractedLogDir;
+    std::string randomStr = "";          // 输出文件夹的随机字符串，用于多个进程同时写文件的情况
 };
 
 } // namespace diag

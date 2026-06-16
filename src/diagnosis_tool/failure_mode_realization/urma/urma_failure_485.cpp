@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure485> g_urma("urma_485");
 
 bool UrmaFailure485::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_create_context' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F '[DRV_ERR]Failed to create urma context'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_device_attr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to open urma cdev, path'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure485::IsValid()
 
 std::string UrmaFailure485::GetName() const
 {
-    return "urma_create_context 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure485::GetRootCauseDesc() const
 {
-    return "urma_create_context 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数需要从sysfs获取字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或"
+           "能力初始化。";
 }
 
 RootCause UrmaFailure485::AnalyzeRootCause()
@@ -35,12 +34,12 @@ RootCause UrmaFailure485::AnalyzeRootCause()
 
 std::string UrmaFailure485::GetFixSuggDesc() const
 {
-    return "当前不会触发";
+    return "无";
 }
 
 std::string UrmaFailure485::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：[DRV_ERR]Failed to create urma context";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_device_attr，Failed to open urma cdev, path。";
 }
 
 std::string UrmaFailure485::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure017> g_urma("urma_017");
 
 bool UrmaFailure017::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bind_jetty_single_path' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'No valid direct route'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_v_conn_init' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to init slide window in bdp_v_conn_table_add'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure017::IsValid()
 
 std::string UrmaFailure017::GetName() const
 {
-    return "bind_jetty_single_path 校验 Jetty 业务条件不满足导致绑定流程拒绝继续执行";
+    return "初始化URMA资源过程中依赖步骤失败";
 }
 
 std::string UrmaFailure017::GetRootCauseDesc() const
 {
-    return "bind_jetty_single_path 在执行绑定时发现 Jetty "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
+           "RMA操作失败。";
 }
 
 RootCause UrmaFailure017::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure017::GetFixSuggDesc() const
 
 std::string UrmaFailure017::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：No valid direct route";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bdp_v_conn_init，Failed to init slide window in bdp_v_conn_table_add。";
 }
 
 std::string UrmaFailure017::GetId() const

@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure341> g_urma("urma_341");
 bool UrmaFailure341::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' \"$URMA_LOG_PATH\" 2>/dev/null | grep "
+        "-F 'Failed to add ctx async fd to health epoll, errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure341::IsValid()
 
 std::string UrmaFailure341::GetName() const
 {
-    return "urma_cmd_set_jfr_opt 校验 JFR 无效导致设置流程拒绝继续执行";
+    return "context数据通路处理失败";
 }
 
 std::string UrmaFailure341::GetRootCauseDesc() const
 {
-    return "urma_cmd_set_jfr_opt 在执行设置前发现调用方传入的 JFR 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure341::AnalyzeRootCause()
@@ -40,7 +39,8 @@ std::string UrmaFailure341::GetFixSuggDesc() const
 
 std::string UrmaFailure341::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_health_check_ctx，Failed to add ctx async fd to health "
+           "epoll, errno:。";
 }
 
 std::string UrmaFailure341::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure012> g_urma("urma_012");
 
 bool UrmaFailure012::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_import_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Multi-path jetty only support CTP, tp_type:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init jetty recv wr buf'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure012::IsValid()
 
 std::string UrmaFailure012::GetName() const
 {
-    return "bondp_import_jetty 校验 Jetty 业务条件不满足导致导入流程拒绝继续执行";
+    return "Jetty数据通路处理失败";
 }
 
 std::string UrmaFailure012::GetRootCauseDesc() const
 {
-    return "bondp_import_jetty 在执行导入时发现 Jetty "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure012::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure012::GetFixSuggDesc() const
 
 std::string UrmaFailure012::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Multi-path jetty only support CTP, tp_type";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jetty_p_vjetty_info，Failed to init jetty recv wr buf。";
 }
 
 std::string UrmaFailure012::GetId() const

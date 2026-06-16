@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure641> g_urma("urma_641");
 bool UrmaFailure641::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Data cannot be transferred between jettys in different matrix server mode'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'jfc not from the same dev, cannot delete in a batch, index:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,12 @@ bool UrmaFailure641::IsValid()
 
 std::string UrmaFailure641::GetName() const
 {
-    return "post_send_check_valid 校验 context 业务条件不满足导致投递流程拒绝继续执行";
+    return "JFC清理阶段下层释放操作失败";
 }
 
 std::string UrmaFailure641::GetRootCauseDesc() const
 {
-    return "post_send_check_valid 在执行投递时发现 context "
-           "的传输模式、绑定关系、路由选择、数量限制或设备属性与当前操作要求不一致，因此直接返回错误，避免建立错误的资"
-           "源关系或下发不被支持的请求。";
+    return "函数负责释放或撤销JFC相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
 }
 
 RootCause UrmaFailure641::AnalyzeRootCause()
@@ -41,7 +38,8 @@ std::string UrmaFailure641::GetFixSuggDesc() const
 
 std::string UrmaFailure641::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Data cannot be transferred between jettys in different matrix server mode";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，jfc not from the same dev, cannot delete in "
+           "a batch, index:。";
 }
 
 std::string UrmaFailure641::GetId() const

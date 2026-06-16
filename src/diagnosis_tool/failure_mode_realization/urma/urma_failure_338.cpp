@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure338> g_urma("urma_338");
 
 bool UrmaFailure338::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_start_health_check_thread' "
+                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create health check thread'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure338::IsValid()
 
 std::string UrmaFailure338::GetName() const
 {
-    return "urma_cmd_alloc_jfr 校验 context 无效导致分配流程拒绝继续执行";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure338::GetRootCauseDesc() const
 {
-    return "urma_cmd_alloc_jfr 在执行分配前发现调用方传入的 context 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure338::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure338::GetFixSuggDesc() const
 
 std::string UrmaFailure338::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_start_health_check_thread，Failed to create health check thread。";
 }
 
 std::string UrmaFailure338::GetId() const

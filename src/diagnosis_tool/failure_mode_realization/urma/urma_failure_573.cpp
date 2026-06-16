@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure573> g_urma("urma_573");
 
 bool UrmaFailure573::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_unregister_seg' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete vseg, token_id:' | "
-        "grep -F ', handle:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Jfc state is wrong in deactive_jfc.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure573::IsValid()
 
 std::string UrmaFailure573::GetName() const
 {
-    return "bondp_unregister_seg 装载或匹配 provider 失败导致设备驱动能力不可用";
+    return "JFC数据通路处理失败";
 }
 
 std::string UrmaFailure573::GetRootCauseDesc() const
 {
-    return "bondp_unregister_seg 在初始化或注册设备时未能打开 provider 动态库、获取动态库路径、匹配驱动名称或完成 "
-           "provider 注册，导致 URMA 用户态无法绑定对应设备的 provider 操作集。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure573::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure573::GetFixSuggDesc() const
 
 std::string UrmaFailure573::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete vseg, token_id:, handle";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfc，Jfc state is wrong in deactive_jfc.。";
 }
 
 std::string UrmaFailure573::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure414> g_urma("urma_414");
 
 bool UrmaFailure414::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to exec ops->set_jfr_opt'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_query_jfr' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'query pjfr fail, index:' | grep -F ', ret:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,13 @@ bool UrmaFailure414::IsValid()
 
 std::string UrmaFailure414::GetName() const
 {
-    return "urma_set_jfr_opt 执行设置 JFR 失败导致当前资源状态无法推进";
+    return "查询物理 JFR过程中依赖步骤失败";
 }
 
 std::string UrmaFailure414::GetRootCauseDesc() const
 {
-    return "urma_set_jfr_opt 调用下层 provider、bond 组件或系统接口处理 JFR 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于查询物理 "
+           "JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
 }
 
 RootCause UrmaFailure414::AnalyzeRootCause()
@@ -40,7 +39,7 @@ std::string UrmaFailure414::GetFixSuggDesc() const
 
 std::string UrmaFailure414::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to exec ops->set_jfr_opt";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_query_jfr，query pjfr fail, index:，, ret:。";
 }
 
 std::string UrmaFailure414::GetId() const

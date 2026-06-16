@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure799> g_urma("urma_799");
 
 bool UrmaFailure799::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter, index:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jfs_opt' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Failed to exec ops->set_jfs_opt.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure799::IsValid()
 
 std::string UrmaFailure799::GetName() const
 {
-    return "urma_delete_jetty_batch 校验 context 无效导致删除流程拒绝继续执行";
+    return "设置JFS过程中依赖步骤失败";
 }
 
 std::string UrmaFailure799::GetRootCauseDesc() const
 {
-    return "urma_delete_jetty_batch 在执行删除前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于设置JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure799::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure799::GetFixSuggDesc() const
 
 std::string UrmaFailure799::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter, index";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfs_opt，Failed to exec ops->set_jfs_opt.。";
 }
 
 std::string UrmaFailure799::GetId() const

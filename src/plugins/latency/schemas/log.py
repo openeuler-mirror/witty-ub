@@ -38,6 +38,7 @@ class LogFileModel(BaseModel):
     file_path: str = Field(default="", description="日志文件路径")
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
+    trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
     task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"
@@ -285,3 +286,11 @@ class LatencyMetricItem(BaseModel):
     total_latency: Optional[float] = Field(default=None, description="总延迟，单位毫秒")
     urma_total_latency: Optional[float] = Field(default=None, description="URMA总延迟，单位毫秒")
     worker_query_meta_latency: Optional[float] = Field(default=None, description="Worker查询元数据延迟，单位毫秒")
+    sdk_process: Optional[float] = Field(default=None, description="SDK处理延迟，单位毫秒")
+    sdk_rpc: Optional[float] = Field(default=None, description="SDK RPC延迟，单位毫秒")
+    local_worker_cost: Optional[float] = Field(default=None, description="本地Worker处理延迟，单位毫秒")
+    local_worker_lock: Optional[float] = Field(default=None, description="本地Worker锁延迟，单位毫秒")
+    remote_worker_cost: Optional[float] = Field(default=None, description="远程Worker处理延迟，单位毫秒")
+    remote_worker_rpc: Optional[float] = Field(default=None, description="远程Worker RPC延迟，单位毫秒")
+    master_process: Optional[float] = Field(default=None, description="Master处理延迟，单位毫秒")
+    master_rpc_total: Optional[float] = Field(default=None, description="Master RPC总延迟，单位微秒")

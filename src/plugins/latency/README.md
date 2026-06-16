@@ -119,6 +119,10 @@ latency/
 
 - Python >= 3.10
 - [uv](https://github.com/astral-sh/uv)（推荐）或 pip
+- unrar（可选，用于解压 .rar 文件）
+  - Ubuntu/Debian: `sudo apt-get install unrar`
+  - CentOS/RHEL: `sudo yum install unrar`
+  - macOS: `brew install unrar`
 
 ### 一键部署
 
@@ -172,7 +176,6 @@ python latency/access/fastapi_server.py
 | uvicorn | 0.21.0 |
 | apscheduler | 3.10.4 |
 | pydantic | 2.12.3 |
-
 | aiohttp | 3.9.5 |
 | aiofiles | 25.1.0 |
 | chardet | 4.0.0 |

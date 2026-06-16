@@ -8,10 +8,8 @@ static AutoRegister<UrmaFailure768> g_urma("urma_768");
 
 bool UrmaFailure768::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_delete_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+    std::string grepOutput = urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_opt_valid' "
+                                                         "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'invalid opt len'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +17,12 @@ bool UrmaFailure768::IsValid()
 
 std::string UrmaFailure768::GetName() const
 {
-    return "urma_delete_jfs 校验 JFS 无效导致删除流程拒绝继续执行";
+    return "执行URMA资源所需输入对象无效导致执行JFS失败";
 }
 
 std::string UrmaFailure768::GetRootCauseDesc() const
 {
-    return "urma_delete_jfs 在执行删除前发现调用方传入的 JFS 不满足当前操作要求，通常是对象为空、状态不匹配或与 "
-           "provider 能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行JFS，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure768::AnalyzeRootCause()
@@ -40,7 +37,7 @@ std::string UrmaFailure768::GetFixSuggDesc() const
 
 std::string UrmaFailure768::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_opt_valid，invalid opt len。";
 }
 
 std::string UrmaFailure768::GetId() const

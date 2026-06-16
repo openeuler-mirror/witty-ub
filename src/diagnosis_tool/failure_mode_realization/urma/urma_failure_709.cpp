@@ -8,14 +8,9 @@ static AutoRegister<UrmaFailure709> g_urma("urma_709");
 
 bool UrmaFailure709::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'remove_remote_jetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to del bdp_r_p2v_vjetty_id[' | "
-        "grep -F ']: ret:' | "
-        "grep -F ', jetty_id: (' | "
-        "grep -F ', uasid:' | "
-        "grep -F ', id:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_wait_jfc' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Faile to wait jfc non-block, ret:' | grep -F ', errno:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -23,13 +18,13 @@ bool UrmaFailure709::IsValid()
 
 std::string UrmaFailure709::GetName() const
 {
-    return "remove_remote_jetty_id_info 执行处理 Jetty 失败导致当前资源状态无法推进";
+    return "等待JFC过程中依赖步骤失败";
 }
 
 std::string UrmaFailure709::GetRootCauseDesc() const
 {
-    return "remove_remote_jetty_id_info 调用下层 provider、bond 组件或系统接口处理 Jetty 时返回失败，当前分支携带 "
-           "ret/errno 等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于等待JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
+           "失败。";
 }
 
 RootCause UrmaFailure709::AnalyzeRootCause()
@@ -44,7 +39,7 @@ std::string UrmaFailure709::GetFixSuggDesc() const
 
 std::string UrmaFailure709::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to del bdp_r_p2v_vjetty_id[]: ret: , jetty_id";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_wait_jfc，Faile to wait jfc non-block, ret:，, errno:。";
 }
 
 std::string UrmaFailure709::GetId() const

@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure293> g_urma("urma_293");
 
 bool UrmaFailure293::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'deepcopy_cas_wr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to deepcopy dst sge'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ack_notify' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'alloc jetty list failed.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,13 +18,12 @@ bool UrmaFailure293::IsValid()
 
 std::string UrmaFailure293::GetName() const
 {
-    return "deepcopy_cas_wr 执行复制 WR 失败导致当前资源状态无法推进";
+    return "Jetty相关临时结构或命令参数分配失败";
 }
 
 std::string UrmaFailure293::GetRootCauseDesc() const
 {
-    return "deepcopy_cas_wr 调用下层 provider、bond 组件或系统接口处理 WR 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数在分配Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
 }
 
 RootCause UrmaFailure293::AnalyzeRootCause()
@@ -40,7 +38,7 @@ std::string UrmaFailure293::GetFixSuggDesc() const
 
 std::string UrmaFailure293::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to deepcopy dst sge";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ack_notify，alloc jetty list failed.。";
 }
 
 std::string UrmaFailure293::GetId() const

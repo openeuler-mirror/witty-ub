@@ -24,6 +24,17 @@ table_ddl_list = {
             updated_at TEXT NOT NULL
         )
     """,
+    "failure_mode_knowledge_table": """
+        CREATE TABLE IF NOT EXISTS failure_mode_knowledge_table (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            symptom TEXT,
+            root_cause TEXT,
+            solution TEXT,
+            failure_domain TEXT,
+            children_failure_mode_ids TEXT
+        )
+    """,
     "log_file_table": """
         CREATE TABLE IF NOT EXISTS log_file_table (
             id TEXT PRIMARY KEY,
@@ -33,6 +44,7 @@ table_ddl_list = {
             file_path TEXT,
             file_size INTEGER,
             anomaly_cnt INTEGER,
+            trace_failure_event_cnt INTEGER,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
@@ -145,6 +157,39 @@ table_ddl_list = {
             remote_worker_rpc REAL,
             master_process REAL,
             master_rpc_total REAL
+        )
+    """,
+    "log_failure_event_table": """
+        CREATE TABLE IF NOT EXISTS log_failure_event_table(
+            id TEXT PRIMARY KEY,
+            log_id TEXT,
+            log_file TEXT,
+            raw_text TEXT,
+            host_name TEXT DEFAULT 'Unknown',
+            timestamp TEXT,
+            level TEXT,
+            filename TEXT,
+            pod_name TEXT,
+            pid TEXT,
+            tid TEXT,
+            trace_id TEXT,
+            cluster_name TEXT,
+            message TEXT,
+            status_code TEXT,
+            failure_mode TEXT
+        )
+    """,
+    "trace_failure_event_table": """
+        CREATE TABLE IF NOT EXISTS trace_failure_event_table(
+            id TEXT PRIMARY KEY,
+            log_id TEXT,
+            trace_id TEXT,
+            pod_names TEXT,
+            host_names TEXT,
+            cluster_names TEXT,
+            timestamp TEXT,
+            status_code TEXT,
+            failure_mode TEXT
         )
     """,
     "task_table": """

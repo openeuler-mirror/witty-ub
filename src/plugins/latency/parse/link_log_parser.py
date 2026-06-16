@@ -18,6 +18,7 @@ class LinkLogParser(LogParser):
 
     label = "Worker link parse"
     _handle_errors = True
+    _keywords = ("elapsed ms:",)
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -30,11 +31,12 @@ class LinkLogParser(LogParser):
                 and "Worker-worker transport connection exchange success" not in line):
             return None
         
-        parsed = self.parse_run_line(line)
+        parsed = getattr(self, '_pre_parsed', None) or self.parse_run_line(line)
         if not parsed:
             return None
         
-        if not self._filter_by_time(parsed["timestamp"]):
+        ts = parse_timestamp(parsed["timestamp"])
+        if not self._filter_by_time(ts):
             return None
         
         msg = parsed["msg"]
@@ -51,7 +53,7 @@ class LinkLogParser(LogParser):
         # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         return LogEntry(
-            timestamp=parse_timestamp(parsed["timestamp"]),
+            timestamp=ts,
             elapsed_us=float(elapsed_ms) * 1000,
             pod_ip=entry_pod_ip,
             trace_id=trace_id,

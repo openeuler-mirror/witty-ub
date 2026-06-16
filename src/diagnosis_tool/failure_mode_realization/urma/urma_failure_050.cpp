@@ -9,9 +9,8 @@ static AutoRegister<UrmaFailure050> g_urma("urma_050");
 bool UrmaFailure050::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_import_jfr_ex' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid parameter'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_start_perf' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Urma perf "
+        "failed to initialize performance record context'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure050::IsValid()
 
 std::string UrmaFailure050::GetName() const
 {
-    return "urma_cmd_import_jfr_ex 校验 context 无效导致导入流程拒绝继续执行";
+    return "初始化context过程中依赖步骤失败";
 }
 
 std::string UrmaFailure050::GetRootCauseDesc() const
 {
-    return "urma_cmd_import_jfr_ex 在执行导入前发现调用方传入的 context "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于初始化context，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次UR"
+           "MA操作失败。";
 }
 
 RootCause UrmaFailure050::AnalyzeRootCause()
@@ -41,7 +39,8 @@ std::string UrmaFailure050::GetFixSuggDesc() const
 
 std::string UrmaFailure050::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid parameter";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_start_perf，Urma perf failed to initialize performance record "
+           "context。";
 }
 
 std::string UrmaFailure050::GetId() const

@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure254> g_urma("urma_254");
 
 bool UrmaFailure254::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'init_slave_context_fd' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'failed to add fd:' | "
-        "grep -F ', errno:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_async' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,16 @@ bool UrmaFailure254::IsValid()
 
 std::string UrmaFailure254::GetName() const
 {
-    return "init_slave_context_fd 管理 epoll fd 失败导致 JFCE 事件聚合不可用";
+    return "URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象、provider未提供bind_jetty_"
+           "async操作实现无效导致绑定Jetty失败";
 }
 
 std::string UrmaFailure254::GetRootCauseDesc() const
 {
-    return "init_slave_context_fd 在 bond 模式下需要把物理 JFCE fd 加入或移出虚拟 JFCE 的 epoll 集合，但 epoll "
-           "系统调用失败，完成事件无法被统一监听和分发。";
+    return "函数用于绑定Jetty，调用方传入的URMA "
+           "context、provider操作表、Jetty对象、目标Jetty对象、provider未提供bind_jetty_"
+           "async操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure254::AnalyzeRootCause()
@@ -41,7 +42,7 @@ std::string UrmaFailure254::GetFixSuggDesc() const
 
 std::string UrmaFailure254::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：failed to add fd: , errno";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_async，Invalid parameter.。";
 }
 
 std::string UrmaFailure254::GetId() const

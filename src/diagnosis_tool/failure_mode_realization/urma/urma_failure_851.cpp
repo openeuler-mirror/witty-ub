@@ -8,10 +8,9 @@ static AutoRegister<UrmaFailure851> g_urma("urma_851");
 
 bool UrmaFailure851::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_handle_cr_no_store' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Invalid cr error status:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_advise_jfr_async' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -19,14 +18,13 @@ bool UrmaFailure851::IsValid()
 
 std::string UrmaFailure851::GetName() const
 {
-    return "bondp_handle_cr_no_store 校验 WR 无效导致处理流程拒绝继续执行";
+    return "URMA context、provider操作表、JFS对象无效导致执行JFR失败";
 }
 
 std::string UrmaFailure851::GetRootCauseDesc() const
 {
-    return "bondp_handle_cr_no_store 在执行处理前发现调用方传入的 WR "
-           "不满足当前操作要求，通常是对象为空、状态不匹配或与 provider "
-           "能力不一致，因此直接返回错误以避免继续访问非法资源。";
+    return "函数用于执行JFR，调用方传入的URMA "
+           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure851::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure851::GetFixSuggDesc() const
 
 std::string UrmaFailure851::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Invalid cr error status";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_advise_jfr_async，Invalid parameter.。";
 }
 
 std::string UrmaFailure851::GetId() const

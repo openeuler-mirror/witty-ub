@@ -26,14 +26,23 @@ body {
   overflow: auto;
 }
 .side { border-right: 1px solid var(--line); }
-.detail { border-left: 1px solid var(--line); }
+.detail {
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
+  border-left: 1px solid var(--line);
+}
 h1 {
   margin: 0 0 18px;
   font-size: 20px;
 }
 h2 {
+  flex: none;
   margin: 0 0 14px;
   font-size: 18px;
+}
+#detailBody {
+  min-height: 0;
 }
 label {
   display: block;
@@ -274,28 +283,53 @@ button.primary {
   display: grid;
   gap: 10px;
 }
+.trace-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.trace-detail .trace-path {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.trace-detail .trace-path .trace-steps {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 3px;
+}
 .trace-step {
+  position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
 }
 .step-index {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   color: #fff;
-  background: var(--focus);
-  font-size: 12px;
+  border: 2px solid #fff;
+  background: linear-gradient(135deg, #d97706, var(--focus));
+  box-shadow: 0 2px 7px rgba(180, 83, 9, 0.28);
+  font-size: 11px;
   font-weight: 750;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .step-body {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 8px;
+  padding: 9px 10px;
   background: #fafcff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 .step-body strong,
 .step-body span,
@@ -329,6 +363,9 @@ button.primary {
     max-height: none;
     border: 0;
     border-bottom: 1px solid var(--line);
+  }
+  .trace-detail .trace-path .trace-steps {
+    max-height: 50vh;
   }
   #graph {
     height: 70vh;

@@ -26,8 +26,16 @@ struct FailureLogInfo {
     std::string traceId;
     std::string clusterName;
     std::string message;
+    std::string failureModeId;
+    std::string rawLog;
 
-    std::string failureModeId; // 该日志对应的故障模式ID
+    bool operator==(const FailureLogInfo &other) const
+    {
+        return timestamp == other.timestamp && level == other.level && filename == other.filename &&
+               lineNo == other.lineNo && podName == other.podName && pid == other.pid && tid == other.tid &&
+               traceId == other.traceId && clusterName == other.clusterName && message == other.message &&
+               rawLog == other.rawLog;
+    }
 };
 } // namespace diag
 

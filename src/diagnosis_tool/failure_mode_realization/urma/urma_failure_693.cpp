@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure693> g_urma("urma_693");
 
 bool UrmaFailure693::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'bondp_delete_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to delete jfce[' | "
-        "grep -F '], still in use. use_cnt:'");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_context' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'Invalid parameter.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure693::IsValid()
 
 std::string UrmaFailure693::GetName() const
 {
-    return "bondp_delete_jfce 执行删除 JFCE 失败导致当前资源状态无法推进";
+    return "URMA context、设备对象、provider操作表无效导致删除context失败";
 }
 
 std::string UrmaFailure693::GetRootCauseDesc() const
 {
-    return "bondp_delete_jfce 调用下层 provider、bond 组件或系统接口处理 JFCE 时返回失败，当前分支携带 ret/errno "
-           "等错误结果退出，导致该资源的创建、导入、修改、投递或清理状态无法继续推进。";
+    return "函数用于删除context，调用方传入的URMA "
+           "context、设备对象、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
 }
 
 RootCause UrmaFailure693::AnalyzeRootCause()
@@ -36,12 +34,12 @@ RootCause UrmaFailure693::AnalyzeRootCause()
 
 std::string UrmaFailure693::GetFixSuggDesc() const
 {
-    return "无";
+    return "当前不会触发";
 }
 
 std::string UrmaFailure693::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：Failed to delete jfce[], still in use. use_cnt";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_context，Invalid parameter.。";
 }
 
 std::string UrmaFailure693::GetId() const

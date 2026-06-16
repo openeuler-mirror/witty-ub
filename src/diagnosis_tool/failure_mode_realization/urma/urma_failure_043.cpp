@@ -8,11 +8,9 @@ static AutoRegister<UrmaFailure043> g_urma("urma_043");
 
 bool UrmaFailure043::IsValid()
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_cmd_get_jfc_opt' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'output length too large, out.len=' | "
-        "grep -F ', buf.len='");
+    std::string grepOutput =
+        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_provider' \"$URMA_LOG_PATH\" "
+                                    "2>/dev/null | grep -F 'open failed, err:'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,13 +18,13 @@ bool UrmaFailure043::IsValid()
 
 std::string UrmaFailure043::GetName() const
 {
-    return "urma_cmd_get_jfc_opt URMA 控制面命令 ioctl 下发内核驱动失败导致用户态操作中断";
+    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
 }
 
 std::string UrmaFailure043::GetRootCauseDesc() const
 {
-    return "urma_cmd_get_jfc_opt 通过 fd 向内核驱动下发URMA 控制面命令请求时，ioctl "
-           "返回失败，说明内核驱动没有完成对应控制面动作，用户态无法取得或更新 JFC 状态。";
+    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
+           "致URMA无法完成设备发现或能力初始化。";
 }
 
 RootCause UrmaFailure043::AnalyzeRootCause()
@@ -41,7 +39,7 @@ std::string UrmaFailure043::GetFixSuggDesc() const
 
 std::string UrmaFailure043::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：output length too large, out.len=, buf.len=";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_provider，open failed, err:。";
 }
 
 std::string UrmaFailure043::GetId() const

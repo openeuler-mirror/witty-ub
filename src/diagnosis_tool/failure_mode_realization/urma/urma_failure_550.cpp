@@ -9,10 +9,8 @@ static AutoRegister<UrmaFailure550> g_urma("urma_550");
 bool UrmaFailure550::IsValid()
 {
     std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && "
-        "grep -F 'urma_parse_port_attr' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'snprintf failed, path:' | "
-        "grep -F ', port_num:'");
+        "test -n \"$URMA_LOG_PATH\" && grep -F 'post_send_check_jfs_wr_valid' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
+        "'when set write_wr, either of src/dst num_sge/sge has been set zero or NULL.'");
     FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
     urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
     return !grepOutput.empty();
@@ -20,14 +18,13 @@ bool UrmaFailure550::IsValid()
 
 std::string UrmaFailure550::GetName() const
 {
-    return "urma_parse_port_attr 读取或解析 sysfs 设备/EID/端口信息失败导致设备信息不可用";
+    return "WR数据通路处理失败";
 }
 
 std::string UrmaFailure550::GetRootCauseDesc() const
 {
-    return "urma_parse_port_attr 依赖 sysfs 中的设备、EID、端口、能力或 cdev 路径信息枚举 URMA "
-           "设备并构建设备属性，但文件打开、读取、格式化路径或内容解析失败，导致设备、端口或 EID "
-           "信息无法被用户态正确使用。";
+    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
+           "中断。";
 }
 
 RootCause UrmaFailure550::AnalyzeRootCause()
@@ -42,7 +39,8 @@ std::string UrmaFailure550::GetFixSuggDesc() const
 
 std::string UrmaFailure550::GetValidationMethodDesc() const
 {
-    return "在 URMA_LOG_PATH 中匹配关键日志：snprintf failed, path: , port_num";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：post_send_check_jfs_wr_valid，when set write_wr, either of src/dst "
+           "num_sge/sge has been set zero or NULL.。";
 }
 
 std::string UrmaFailure550::GetId() const
