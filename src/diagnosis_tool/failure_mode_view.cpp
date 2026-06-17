@@ -18,7 +18,8 @@
 
 namespace diag {
 namespace {
-constexpr const char *DEFAULT_OUTPUT_PATH = "/var/witty-ub/failure-mode-view-vis.html";
+constexpr const char *HTML_OUTPUT_FILENAME = "failure-mode-view-vis.html";
+constexpr const char *DEFAULT_OUTPUT_DIR = "/var/witty-ub";
 constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/var/witty-ub/data/view-vis";
 constexpr const char *VIEW_VIS_SOURCE_RESOURCE_DIR = "data/view-vis";
 constexpr const char *HTML_TEMPLATE_NAME = "failure_mode_view.html";
@@ -312,9 +313,10 @@ std::string BuildHtml(const Json::Value &root)
     return htmlTemplate;
 }
 
-RackResult WriteHtml(const std::string &html)
+RackResult WriteHtml(const std::string &html, const std::string &outputDir)
 {
-    const std::filesystem::path outputPath = DEFAULT_OUTPUT_PATH;
+    std::filesystem::path outputPath = std::filesystem::path(
+        outputDir.empty() ? DEFAULT_OUTPUT_DIR : outputDir) / HTML_OUTPUT_FILENAME;
     std::error_code ec;
     std::filesystem::create_directories(outputPath.parent_path(), ec);
     if (ec) {
@@ -335,8 +337,8 @@ RackResult WriteHtml(const std::string &html)
         LOG_ERROR << "failed to write failure mode view html: " << outputPath;
         return RACK_FAIL;
     }
-    if (::chmod(DEFAULT_OUTPUT_PATH, OUTPUT_FILE_PERM_640) != 0) {
-        LOG_ERROR << "failed to set file mode 0640 for failure mode view html: " << DEFAULT_OUTPUT_PATH;
+    if (::chmod(outputPath.c_str(), OUTPUT_FILE_PERM_640) != 0) {
+        LOG_ERROR << "failed to set file mode 0640 for failure mode view html: " << outputPath;
         return RACK_FAIL;
     }
     return RACK_OK;
@@ -458,17 +460,19 @@ RackResult FailureModeView::BuildSubTree(
     return RACK_OK;
 }
 
-RackResult FailureModeView::Dump() const
+RackResult FailureModeView::Dump(const std::string &outputDir) const
 {
     const std::string html = BuildHtml(BuildRootJson(roots, traces_));
     if (html.empty()) {
         return RACK_FAIL;
     }
-    RackResult ret = WriteHtml(html);
+    RackResult ret = WriteHtml(html, outputDir);
     if (ret != RACK_OK) {
         return ret;
     }
-    LOG_INFO << "generated visualized failure mode view: " << DEFAULT_OUTPUT_PATH;
+    std::filesystem::path outputPath =
+        std::filesystem::path(outputDir.empty() ? DEFAULT_OUTPUT_DIR : outputDir) / HTML_OUTPUT_FILENAME;
+    LOG_INFO << "generated visualized failure mode view: " << outputPath;
     return RACK_OK;
 }
 } // namespace diag
