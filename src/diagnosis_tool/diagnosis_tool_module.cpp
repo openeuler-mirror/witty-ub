@@ -88,9 +88,18 @@ std::string CombineLogsForQuotedEnv(const std::filesystem::path &baseDir, const 
             continue;
         }
         outFile << inFile.rdbuf();
+        if (!outFile.good()) {
+            LOG_WARN << "Failed to write to combined log file (disk full?): " << combinedPath;
+            return JoinPathsForShell(paths);
+        }
         if (outFile.tellp() > 0) {
             outFile << '\n';
         }
+    }
+    outFile.close();
+    if (outFile.fail()) {
+        LOG_WARN << "Failed to close combined log file (disk full?): " << combinedPath;
+        return JoinPathsForShell(paths);
     }
     return combinedPath.string();
 }
@@ -384,9 +393,17 @@ void DiagnosisToolModule::ExtractLogLinesCount(const std::string &filePath, int6
             inRange = true;
             count++;
             outFile << line << '\n';
+            if (!outFile.good()) {
+                LOG_ERROR << "Failed to write to output file (disk full?): " << filePath;
+                return;
+            }
         } else {
             inRange = false;
         }
+    }
+    outFile.close();
+    if (outFile.fail()) {
+        LOG_ERROR << "Failed to close output file (disk full?): " << filePath;
     }
 }
 
@@ -475,9 +492,19 @@ bool DiagnosisToolModule::ExtractLogLines(const std::string &filePath, const std
             inRange = true;
             matchedLines++;
             outFile << line << '\n';
+            if (!outFile.good()) {
+                LOG_ERROR << "Failed to write extracted log line to output file (disk full?): " << outputPath;
+                return false;
+            }
         } else {
             inRange = false;
         }
+    }
+
+    outFile.close();
+    if (outFile.fail()) {
+        LOG_ERROR << "Failed to close output file (disk full?): " << outputPath;
+        return false;
     }
 
     LOG_INFO << "Extracted " << matchedLines << " / " << totalLines << " lines from " << filePath;
@@ -637,10 +664,18 @@ void DiagnosisToolModule::StoreFailureTraces()
             }
 
             outFile << failureModeIdsStr << " | " << logInfo.rawLog << "\n";
+            if (!outFile.good()) {
+                LOG_ERROR << "Failed to write failure trace to output file (disk full?): " << tracesFile;
+                return;
+            }
         }
     }
 
     outFile.close();
+    if (outFile.fail()) {
+        LOG_ERROR << "Failed to close failure trace output file (disk full?): " << tracesFile;
+        return;
+    }
     LOG_INFO << "Stored failure traces to: " << tracesFile;
 }
 
