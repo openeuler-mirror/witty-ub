@@ -15,9 +15,21 @@ type LogKnowledge = {
   updated_at?: string
 }
 
+type TaskReportModel = {
+  task_id?: string
+  progress?: number | string | null
+  message?: string | null
+  created_at?: string | null
+}
+
 type TaskModel = {
   id: string
   status?: string
+  task_type?: string
+  task_reports?: TaskReportModel[]
+  created_at?: string
+  completed_at?: string | null
+  duration_seconds?: number | null
 }
 
 type LogFileModel = {
@@ -39,6 +51,8 @@ type LogParseResultModel = {
   id: string
   anomalous_event_id?: string | null
   is_anomalous?: boolean | number | null
+  anomaly_reason?: string | null
+  remark?: string | null
   timestamp?: string | null
   created_at?: string
   trace_id?: string | null
@@ -58,8 +72,17 @@ type LogParseResultModel = {
   total_latency?: number | null
   worker_query_meta_latency?: number | null
   urma_total_latency?: number | null
+  urma_link_latency?: number | null
   c2w_urma_latency?: number | null
   w2w_urma_latency?: number | null
+  sdk_process?: number | null
+  sdk_rpc?: number | null
+  local_worker_cost?: number | null
+  local_worker_lock?: number | null
+  remote_worker_cost?: number | null
+  remote_worker_rpc?: number | null
+  master_process?: number | null
+  master_rpc_total?: number | null
   [key: string]: unknown
 }
 
@@ -148,6 +171,17 @@ type TraceDetailRow = {
   sdkMs: number | null
   reqDelay: number | null
   respDelay: number | null
+  urmaLinkLatency: number | null
+  c2wUrmaLatency: number | null
+  w2wUrmaLatency: number | null
+  sdkProcess: number | null
+  sdkRpc: number | null
+  localWorkerCost: number | null
+  localWorkerLock: number | null
+  remoteWorkerCost: number | null
+  remoteWorkerRpc: number | null
+  masterProcess: number | null
+  masterRpcTotal: number | null
   faultCode?: string
   faultType?: string
   faultDomain?: string
@@ -178,6 +212,11 @@ type FaultDetailRow = {
   faultCodes: string[]
 }
 
+type TraceRawLogColumn = {
+  label: string
+  value: string
+}
+
 type TraceLogRow = {
   time: string
   level: 'INFO' | 'ERROR'
@@ -190,6 +229,9 @@ type TraceLogRow = {
   failureModeIds: string[]
   faultType?: string
   faultDomain?: string
+  rawText: string
+  formatName: string
+  rawColumns: TraceRawLogColumn[]
 }
 
 type LogFailureEventResultModel = {
@@ -238,6 +280,8 @@ type FailureModeKnowledgeModel = {
 
 type ParseResultTableRow = {
   id: string
+  logStatus: LogDisplayStatus
+  statusReason: string
   time: string
   traceId: string
   podIp: string
@@ -250,11 +294,23 @@ type ParseResultTableRow = {
   urmaLinkLatency: number | null
   c2wUrmaLatency: number | null
   w2wUrmaLatency: number | null
+  sdkProcess: number | null
+  sdkRpc: number | null
+  localWorkerCost: number | null
+  localWorkerLock: number | null
+  remoteWorkerCost: number | null
+  remoteWorkerRpc: number | null
+  masterProcess: number | null
+  masterRpcTotal: number | null
   raw: LogParseResultModel
 }
 
+type LogDisplayStatus = 'failed' | 'timeout' | 'normal'
+
 type AbnormalTraceRow = {
   id: string
+  logStatus: LogDisplayStatus
+  statusReason: string
   time: string
   traceId: string
   podIp: string
@@ -267,6 +323,14 @@ type AbnormalTraceRow = {
   urmaLinkLatency: number | null
   c2wUrmaLatency: number | null
   w2wUrmaLatency: number | null
+  sdkProcess: number | null
+  sdkRpc: number | null
+  localWorkerCost: number | null
+  localWorkerLock: number | null
+  remoteWorkerCost: number | null
+  remoteWorkerRpc: number | null
+  masterProcess: number | null
+  masterRpcTotal: number | null
   raw: LogParseResultModel
 }
 
@@ -319,7 +383,9 @@ type LogParseOptions = {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const assetPageSize = 10
 const logFilesPageSize = 10
-const logFilesPollIntervalMs = 10_000
+const logFilesPollIntervalMs = 3_000
+const severeLogTimeoutThresholdMs = 150
+const isFaultCodeFeatureEnabled = false
 
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
@@ -541,7 +607,9 @@ const isLatencyEventListFilterMode = computed(
 const shouldShowTraceListFilters = computed(
   () => activePage.value === 'asset' || isAbnormalMonitorPage.value,
 )
-const shouldShowFaultCodeFilter = computed(() => isAbnormalMonitorPage.value)
+const shouldShowFaultCodeFilter = computed(
+  () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
+)
 const latencySeriesConfig = [
   {
     key: 'total_latency',
@@ -699,6 +767,100 @@ const aggregatedLatencyColumns = [
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
 
+type ProblemLogLatencyKey =
+  | 'totalLatency'
+  | 'queryMetaLatency'
+  | 'urmaTotalLatency'
+  | 'urmaLinkLatency'
+  | 'c2wUrmaLatency'
+  | 'w2wUrmaLatency'
+
+const problemLogLatencyColumns = [
+  { key: 'totalLatency', label: '总时延 (ms)', metric: 'total_latency' },
+  { key: 'queryMetaLatency', label: '查询元数据时延 (ms)', metric: 'query_meta_latency' },
+  { key: 'urmaTotalLatency', label: 'URMA总时延 (ms)', metric: 'urma_total_latency' },
+  { key: 'urmaLinkLatency', label: 'URMA建链时延 (ms)', metric: 'urma_link_latency' },
+  { key: 'c2wUrmaLatency', label: 'C2W URMA时延 (ms)', metric: 'c2w_urma_latency' },
+  { key: 'w2wUrmaLatency', label: 'W2W URMA时延 (ms)', metric: 'w2w_urma_latency' },
+] as const satisfies readonly {
+  key: ProblemLogLatencyKey
+  label: string
+  metric: AggregatedLatencyKey
+}[]
+
+type ProblemLogLatencyColumn = (typeof problemLogLatencyColumns)[number]
+
+type TraceDelayKey =
+  | 'sdkMs'
+  | 'reqDelay'
+  | 'respDelay'
+  | 'urmaLinkLatency'
+  | 'c2wUrmaLatency'
+  | 'w2wUrmaLatency'
+  | 'sdkProcess'
+  | 'sdkRpc'
+  | 'localWorkerCost'
+  | 'localWorkerLock'
+  | 'remoteWorkerCost'
+  | 'remoteWorkerRpc'
+  | 'masterProcess'
+  | 'masterRpcTotal'
+
+const traceDelayColumns = [
+  { key: 'sdkMs', label: '总时延 (ms)', metric: 'total_latency', threshold: 150, unit: 'ms' },
+  {
+    key: 'reqDelay',
+    label: '查询元数据时延 (ms)',
+    metric: 'query_meta_latency',
+    threshold: 150,
+    unit: 'ms',
+  },
+  {
+    key: 'respDelay',
+    label: 'URMA总时延 (ms)',
+    metric: 'urma_total_latency',
+    threshold: 150,
+    unit: 'ms',
+  },
+  {
+    key: 'urmaLinkLatency',
+    label: 'URMA建链时延 (ms)',
+    metric: 'urma_link_latency',
+    threshold: 150,
+    unit: 'ms',
+  },
+  {
+    key: 'c2wUrmaLatency',
+    label: 'C2W URMA时延 (ms)',
+    metric: 'c2w_urma_latency',
+    threshold: 100,
+    unit: 'ms',
+  },
+  {
+    key: 'w2wUrmaLatency',
+    label: 'W2W URMA时延 (ms)',
+    metric: 'w2w_urma_latency',
+    threshold: 100,
+    unit: 'ms',
+  },
+  { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'remoteWorkerRpc', label: '远端Worker RPC时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'masterProcess', label: 'Master处理时延 (ms)', threshold: 150, unit: 'ms' },
+  { key: 'masterRpcTotal', label: 'Master RPC总时延 (us)', threshold: 150000, unit: 'us' },
+] as const satisfies readonly {
+  key: TraceDelayKey
+  label: string
+  metric?: AggregatedLatencyKey
+  threshold: number
+  unit: 'ms' | 'us'
+}[]
+
+type TraceDelayColumn = (typeof traceDelayColumns)[number]
+
 type LatencyChartBucket = {
   time: number
   label: string
@@ -725,6 +887,15 @@ const maxBucketMetricValue = (values: number[]) => {
   if (values.length === 0) return null
   return Math.max(...values)
 }
+
+const createEmptyLatencyMetricBuckets = (): Record<LatencyMetricKey, number[]> =>
+  latencySeriesConfig.reduce(
+    (acc, series) => {
+      acc[series.key] = []
+      return acc
+    },
+    {} as Record<LatencyMetricKey, number[]>,
+  )
 
 const parseMetricDate = (result: {
   time?: string | null
@@ -757,8 +928,10 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayValue = (value?: number | null) =>
-  value === null ? 'null' : `${formatMetricValue(value)} ms`
+const formatTraceDelayColumnValue = (
+  value: number | null | undefined,
+  column: TraceDelayColumn,
+) => (typeof value === 'number' && Number.isFinite(value) ? `${formatMetricValue(value)} ${column.unit}` : '未解析')
 
 const getAggregatedLatencyValue = (
   row: LatencyDetailRow,
@@ -782,14 +955,35 @@ const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | 
   return value > (column?.threshold ?? 150)
 }
 
+const getProblemLogLatencyValue = (
+  row: AbnormalTraceRow | ParseResultTableRow,
+  column: ProblemLogLatencyColumn,
+) => row[column.key]
+
+const getTraceDelayValue = (trace: TraceDetailRow | null | undefined, column: TraceDelayColumn) =>
+  trace ? trace[column.key] : null
+
 const isTraceDelayAbnormal = (
-  metric: 'sdkMs' | 'reqDelay' | 'respDelay',
-  value?: number | null,
+  trace: TraceDetailRow | null | undefined,
+  column: TraceDelayColumn,
 ) => {
+  const value = getTraceDelayValue(trace, column)
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
-  if (metric === 'sdkMs') return value > 300
-  return value > 150
+  if ('metric' in column && column.metric) return isLatencyMetricAbnormal(column.metric, value)
+  return value > column.threshold
 }
+
+const getTraceDelayStatusLabel = (
+  trace: TraceDetailRow | null | undefined,
+  column: TraceDelayColumn,
+) => {
+  const value = getTraceDelayValue(trace, column)
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
+}
+
+const getTraceDelayLabel = (column: TraceDelayColumn) =>
+  column.label.replace(/\s*\((?:ms|us)\)$/, '')
 
 const minuteMs = 60 * 1000
 const latencyBucketCandidatesMs = [
@@ -847,9 +1041,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     if (chartRange && (time < chartRange.startTime || time > chartRange.endTime)) return
 
     const bucketStart = Math.floor(date.getTime() / bucketMs) * bucketMs
-    const bucket = buckets.get(bucketStart) ?? Object.fromEntries(
-      latencySeriesConfig.map((s) => [s.key, []]),
-    ) as Record<LatencyMetricKey, number[]>
+    const bucket = buckets.get(bucketStart) ?? createEmptyLatencyMetricBuckets()
 
     latencySeriesConfig.forEach((series) => {
       let value = result[series.key]
@@ -866,9 +1058,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 
   const chartBuckets: LatencyChartBucket[] = []
   for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
-    const groupedValues = buckets.get(time) ?? Object.fromEntries(
-      latencySeriesConfig.map((s) => [s.key, []]),
-    ) as Record<LatencyMetricKey, number[]>
+    const groupedValues = buckets.get(time) ?? createEmptyLatencyMetricBuckets()
 
     const values = latencySeriesConfig.reduce(
       (acc, series) => {
@@ -1681,12 +1871,81 @@ const getRecordNullableNumber = (record: Record<string, unknown>, keys: string[]
   return null
 }
 
-const isRecordAnomalous = (record: Record<string, unknown>) => {
-  const value = record.is_anomalous
-  if (typeof value === 'boolean') return value
-  if (typeof value === 'number') return value === 1
-  if (typeof value === 'string') return ['true', '1', 'yes'].includes(value.toLowerCase())
-  return false
+const latencyMetricRecordKeys: Record<AggregatedLatencyKey, string[]> = {
+  total_latency: ['total_latency'],
+  query_meta_latency: ['query_meta_latency', 'worker_query_meta_latency'],
+  urma_total_latency: ['urma_total_latency'],
+  urma_link_latency: ['urma_link_latency'],
+  c2w_urma_latency: ['c2w_urma_latency'],
+  w2w_urma_latency: ['w2w_urma_latency'],
+}
+
+const getLogFailureReason = (record: Record<string, unknown>) => {
+  const remark = getRecordString(record, ['remark'], '').trim()
+  if (remark && remark.toUpperCase() !== 'OK') return remark
+
+  const anomalyReason = getRecordString(record, ['anomaly_reason'], '').trim()
+  if (anomalyReason && !anomalyReason.toLowerCase().includes('threshold')) return anomalyReason
+
+  const level = getRecordString(record, ['log_level', 'level'], '').toUpperCase()
+  if (level === 'ERROR') {
+    return getRecordString(record, ['message', 'msg', 'content'], 'ERROR')
+  }
+
+  return ''
+}
+
+const getSevereTimeoutMetric = (record: Record<string, unknown>) => {
+  const candidates: Array<{ key: AggregatedLatencyKey; label: string; value: number }> = []
+
+  aggregatedLatencyColumns.forEach((column) => {
+    const value = getRecordNullableNumber(record, latencyMetricRecordKeys[column.key])
+    if (
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      isLatencyMetricAbnormal(column.key, value)
+    ) {
+      candidates.push({
+        key: column.key,
+        label: column.label,
+        value,
+      })
+    }
+  })
+
+  candidates.sort((first, second) => second.value - first.value)
+
+  return candidates[0] ?? null
+}
+
+const getLogDisplayStatus = (record: Record<string, unknown>): LogDisplayStatus => {
+  if (getLogFailureReason(record)) return 'failed'
+  if (getSevereTimeoutMetric(record)) return 'timeout'
+  return 'normal'
+}
+
+const shouldDisplayProblemLog = (record: Record<string, unknown>) =>
+  getLogDisplayStatus(record) !== 'normal'
+
+const getLogDisplayReason = (record: Record<string, unknown>) => {
+  const failureReason = getLogFailureReason(record)
+  if (failureReason) return failureReason
+
+  const timeoutMetric = getSevereTimeoutMetric(record)
+  if (timeoutMetric) {
+    return `${timeoutMetric.label} ${formatMetricValue(timeoutMetric.value)} ms`
+  }
+
+  return 'OK'
+}
+
+const getLogStatusLabel = (status: LogDisplayStatus) => {
+  const labels: Record<LogDisplayStatus, string> = {
+    failed: '失败',
+    timeout: '严重超时',
+    normal: '正常',
+  }
+  return labels[status]
 }
 
 const normalizeTraceOperation = (operation: string) => {
@@ -1719,16 +1978,29 @@ const getLogResultTrace = (result: LogParseResultModel): TraceDetailRow => {
       'respDelay',
       'rspDelay',
     ]),
+    urmaLinkLatency: getRecordNullableNumber(record, ['urma_link_latency']),
+    c2wUrmaLatency: getRecordNullableNumber(record, ['c2w_urma_latency']),
+    w2wUrmaLatency: getRecordNullableNumber(record, ['w2w_urma_latency']),
+    sdkProcess: getRecordNullableNumber(record, ['sdk_process']),
+    sdkRpc: getRecordNullableNumber(record, ['sdk_rpc']),
+    localWorkerCost: getRecordNullableNumber(record, ['local_worker_cost']),
+    localWorkerLock: getRecordNullableNumber(record, ['local_worker_lock']),
+    remoteWorkerCost: getRecordNullableNumber(record, ['remote_worker_cost']),
+    remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
+    masterProcess: getRecordNullableNumber(record, ['master_process']),
+    masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
   }
 }
 
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value
-    .filter((result) => isRecordAnomalous(result as Record<string, unknown>))
+    .filter((result) => shouldDisplayProblemLog(result as Record<string, unknown>))
     .map((result) => {
       const record = result as Record<string, unknown>
       return {
         id: getRecordString(record, ['id', 'trace_id', 'traceId']),
+        logStatus: getLogDisplayStatus(record),
+        statusReason: getLogDisplayReason(record),
         time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
         traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
         podIp: getRecordString(record, ['pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']),
@@ -1758,6 +2030,14 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
         urmaLinkLatency: getRecordNullableNumber(record, ['urma_link_latency']),
         c2wUrmaLatency: getRecordNullableNumber(record, ['c2w_urma_latency']),
         w2wUrmaLatency: getRecordNullableNumber(record, ['w2w_urma_latency']),
+        sdkProcess: getRecordNullableNumber(record, ['sdk_process']),
+        sdkRpc: getRecordNullableNumber(record, ['sdk_rpc']),
+        localWorkerCost: getRecordNullableNumber(record, ['local_worker_cost']),
+        localWorkerLock: getRecordNullableNumber(record, ['local_worker_lock']),
+        remoteWorkerCost: getRecordNullableNumber(record, ['remote_worker_cost']),
+        remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
+        masterProcess: getRecordNullableNumber(record, ['master_process']),
+        masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
         raw: result,
       }
     }),
@@ -1771,40 +2051,6 @@ const detailParseResultsPageWindow = computed(() =>
 )
 
 const detailParseResultsBadgeCount = computed(() => detailParseResultsTotal.value)
-
-const logsByTrace = computed<Record<string, TraceLogRow[]>>(() => {
-  const grouped: Record<string, TraceLogRow[]> = {}
-  latencyResults.value.forEach((result) => {
-    const record = result as Record<string, unknown>
-    const trace = getLogResultTrace(result)
-    const level = getRecordString(record, ['log_level', 'level'], 'INFO').toUpperCase()
-    const row: TraceLogRow = {
-      time: trace.time,
-      level: level === 'ERROR' ? 'ERROR' : 'INFO',
-      filename: getRecordString(record, ['filename', 'file_name', 'source_file']),
-      podIp: trace.podIp,
-      pidTid: getRecordString(record, ['pid_tid', 'pidTid', 'thread_id', 'tid']),
-      traceId: trace.traceId,
-      clusterName: getRecordString(record, ['cluster_name', 'clusterName', 'cluster'], '-'),
-      message: getRecordString(record, ['message', 'msg', 'content'], ''),
-      failureModeIds: [],
-      faultType: getRecordString(record, ['fault_type', 'anomaly_desc'], ''),
-      faultDomain: getRecordString(record, ['fault_domain', 'anomaly_domain'], ''),
-    }
-    const traceLogs = grouped[trace.traceId] ?? []
-    traceLogs.push(row)
-    grouped[trace.traceId] = traceLogs
-  })
-
-  Object.values(grouped).forEach((logs) => {
-    logs.sort(
-      (a, b) =>
-        (parseFilterDate(a.time)?.getTime() ?? 0) - (parseFilterDate(b.time)?.getTime() ?? 0),
-    )
-  })
-
-  return grouped
-})
 
 const faultTraceByLatencyPair = computed<Record<string, TraceDetailRow[]>>(() => {
   const grouped: Record<string, TraceDetailRow[]> = {}
@@ -1860,17 +2106,173 @@ const faultDetailRows = computed<FaultDetailRow[]>(() =>
   }),
 )
 
-const sortTraceLogsByTimeDesc = (logs: TraceLogRow[]) =>
+const getTraceLogTimeValue = (log: TraceLogRow) => parseFilterDate(log.time)?.getTime() ?? 0
+
+const sortTraceLogsByFile = (logs: TraceLogRow[]) =>
   [...logs].sort(
     (a, b) =>
-      (parseFilterDate(b.time)?.getTime() ?? 0) - (parseFilterDate(a.time)?.getTime() ?? 0),
+      a.filename.localeCompare(b.filename, undefined, { numeric: true }) ||
+      getTraceLogTimeValue(a) - getTraceLogTimeValue(b) ||
+      a.pidTid.localeCompare(b.pidTid, undefined, { numeric: true }) ||
+      a.message.localeCompare(b.message),
   )
+
+const getTraceLogDisplayFilename = (record: Record<string, unknown>) =>
+  getRecordString(record, ['log_file', 'source_file', 'file_path', 'filename', 'file_name'], '-')
+
+const runLogHeaders = [
+  'Time',
+  'level',
+  'filename',
+  'pod_name',
+  'pid:tid',
+  'trace_id',
+  'cluster_name',
+  'message',
+]
+
+const accessLogHeaders = [
+  'Time',
+  'level',
+  'filename',
+  'pod_name',
+  'pid:tid',
+  'trace_id',
+  'cluster_name',
+  'status_code',
+  'action',
+  'cost',
+  'data size',
+  'request param',
+  'response param',
+]
+
+const resourceLogHeaders = [
+  'Time',
+  'level',
+  'filename',
+  'pod_name',
+  'pid:tid',
+  'trace_id',
+  'cluster_name',
+  'shm info',
+  'spill disk info',
+  'client nums',
+  'object nums',
+  'object total datasize',
+  'WorkerOcService threadpool',
+  'WorkerWorkerOcService threadpool',
+  'MasterWorkerOcService threadpool',
+  'MasterOcService threadpool',
+  'write ETCD queue',
+  'ETCDrequest success rate',
+  'OBSrequest success rate',
+  'Master AsyncTask threadpool',
+  'stream nums',
+  'ClientWorkerSCService threadpool',
+  'WorkerWorkerSCService threadpool',
+  'MasterWorkerSCService threadpool',
+  'MasterSCService threadpool',
+  'remote stream push success rate',
+  'shared disk info',
+  'scLocalCache info',
+  'Cache Hit Info',
+]
+
+const streamCacheMetricHeaders = [
+  'Time',
+  'level',
+  'filename',
+  'pod_name',
+  'pid:tid',
+  'trace_id',
+  'cluster_name',
+  'sc_metric',
+]
+
+const splitRawLogText = (rawText: string) =>
+  rawText
+    .split(/\s*\|\s*/)
+    .map((part) => part.trim())
+    .filter((part, index, parts) => part || index < parts.length - 1)
+
+const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
+  const normalizedHeaders = [...headers]
+  while (normalizedHeaders.length < fields.length) {
+    normalizedHeaders.push(`extra_${normalizedHeaders.length - headers.length + 1}`)
+  }
+  return fields.map((value, index) => ({
+    label: normalizedHeaders[index] || `field_${index + 1}`,
+    value: value || '-',
+  }))
+}
+
+const buildTraceRawColumns = (
+  rawText: string,
+  logFile: string,
+  sourceFilename: string,
+): { formatName: string; columns: TraceRawLogColumn[] } => {
+  const fields = splitRawLogText(rawText)
+  if (fields.length === 0) {
+    return {
+      formatName: '原始日志',
+      columns: [{ label: 'raw_text', value: rawText || '-' }],
+    }
+  }
+
+  if (fields.length >= resourceLogHeaders.length) {
+    return {
+      formatName: '资源日志',
+      columns: normalizeTraceLogColumns(resourceLogHeaders, fields),
+    }
+  }
+
+  if (fields.length >= accessLogHeaders.length) {
+    return {
+      formatName: '访问日志',
+      columns: normalizeTraceLogColumns(accessLogHeaders, [
+        ...fields.slice(0, accessLogHeaders.length - 1),
+        fields.slice(accessLogHeaders.length - 1).join(' | '),
+      ]),
+    }
+  }
+
+  const hint = `${logFile} ${sourceFilename} ${fields[7] ?? ''}`.toLowerCase()
+  if (fields.length === streamCacheMetricHeaders.length && hint.includes('sc')) {
+    return {
+      formatName: '流缓存数据日志',
+      columns: normalizeTraceLogColumns(streamCacheMetricHeaders, fields),
+    }
+  }
+
+  if (fields.length >= runLogHeaders.length) {
+    return {
+      formatName: '运行日志',
+      columns: normalizeTraceLogColumns(runLogHeaders, [
+        ...fields.slice(0, runLogHeaders.length - 1),
+        fields.slice(runLogHeaders.length - 1).join(' | '),
+      ]),
+    }
+  }
+
+  return {
+    formatName: '未知格式日志',
+    columns: normalizeTraceLogColumns(
+      Array.from({ length: fields.length }, (_, index) => `field_${index + 1}`),
+      fields,
+    ),
+  }
+}
 
 const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
   const record = result as Record<string, unknown>
   const level = getRecordString(record, ['level', 'log_level'], 'INFO').toUpperCase()
   const pid = getRecordString(record, ['pid'], '')
   const tid = getRecordString(record, ['tid'], '')
+  const logFile = getTraceLogDisplayFilename(record)
+  const sourceFilename = getRecordString(record, ['filename', 'file_name'], '-')
+  const rawText = getRecordString(record, ['raw_text', 'rawText', 'content'], '')
+  const rawLog = buildTraceRawColumns(rawText, logFile, sourceFilename)
   const failureModes = Array.isArray(result.failure_mode)
     ? result.failure_mode.filter((item): item is string => typeof item === 'string' && Boolean(item))
     : []
@@ -1878,7 +2280,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
   return {
     time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
     level: level === 'ERROR' ? 'ERROR' : 'INFO',
-    filename: getRecordString(record, ['filename', 'file_name', 'log_file']),
+    filename: logFile,
     podIp: getRecordString(record, ['pod_ip', 'pod_name', 'pod_id', 'podId', 'pod']),
     pidTid: pid || tid ? `${pid || '-'}:${tid || '-'}` : getRecordString(record, ['pid_tid'], '-'),
     traceId: getRecordString(record, ['trace_id', 'traceId']),
@@ -1887,6 +2289,9 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     failureModeIds: failureModes,
     faultType: failureModes.join(', '),
     faultDomain: getRecordString(record, ['status_code'], ''),
+    rawText,
+    formatName: rawLog.formatName,
+    rawColumns: rawLog.columns,
   }
 }
 
@@ -1901,10 +2306,9 @@ const getTraceLogFailureModeLabels = (log: TraceLogRow) =>
 const getTraceLogs = (trace?: TraceDetailRow | null) => {
   if (!trace) return []
   const traceId = trace.traceId
-  if (Object.prototype.hasOwnProperty.call(traceFailureLogsByTrace.value, traceId)) {
-    return traceFailureLogsByTrace.value[traceId] ?? []
-  }
-  return logsByTrace.value[traceId] ?? []
+  return Object.prototype.hasOwnProperty.call(traceFailureLogsByTrace.value, traceId)
+    ? sortTraceLogsByFile(traceFailureLogsByTrace.value[traceId] ?? [])
+    : []
 }
 
 const getSelectedTraceLogs = () => getTraceLogs(selectedTrace.value)
@@ -2098,6 +2502,17 @@ const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceT
     sdkMs: null,
     reqDelay: null,
     respDelay: null,
+    urmaLinkLatency: null,
+    c2wUrmaLatency: null,
+    w2wUrmaLatency: null,
+    sdkProcess: null,
+    sdkRpc: null,
+    localWorkerCost: null,
+    localWorkerLock: null,
+    remoteWorkerCost: null,
+    remoteWorkerRpc: null,
+    masterProcess: null,
+    masterRpcTotal: null,
     faultCode: getRecordString(record, ['status_code', 'statusCode'], ''),
     faultType: failureMode?.name || '-',
     faultDomain: failureMode?.failure_domain || '-',
@@ -2154,6 +2569,17 @@ const openParseResultChain = (row: ParseResultTableRow) => {
       'respDelay',
       'rspDelay',
     ]),
+    urmaLinkLatency: row.urmaLinkLatency,
+    c2wUrmaLatency: row.c2wUrmaLatency,
+    w2wUrmaLatency: row.w2wUrmaLatency,
+    sdkProcess: row.sdkProcess,
+    sdkRpc: row.sdkRpc,
+    localWorkerCost: row.localWorkerCost,
+    localWorkerLock: row.localWorkerLock,
+    remoteWorkerCost: row.remoteWorkerCost,
+    remoteWorkerRpc: row.remoteWorkerRpc,
+    masterProcess: row.masterProcess,
+    masterRpcTotal: row.masterRpcTotal,
   })
   void loadTraceFailureLogs(row.traceId)
 }
@@ -2294,6 +2720,17 @@ const viewAbnormalTraceLink = (row: AbnormalTraceRow) => {
     sdkMs: row.totalLatency,
     reqDelay: row.queryMetaLatency,
     respDelay: row.urmaTotalLatency,
+    urmaLinkLatency: row.urmaLinkLatency,
+    c2wUrmaLatency: row.c2wUrmaLatency,
+    w2wUrmaLatency: row.w2wUrmaLatency,
+    sdkProcess: row.sdkProcess,
+    sdkRpc: row.sdkRpc,
+    localWorkerCost: row.localWorkerCost,
+    localWorkerLock: row.localWorkerLock,
+    remoteWorkerCost: row.remoteWorkerCost,
+    remoteWorkerRpc: row.remoteWorkerRpc,
+    masterProcess: row.masterProcess,
+    masterRpcTotal: row.masterRpcTotal,
   }
   openTraceDialog(traceRow)
   void loadTraceFailureLogs(row.traceId)
@@ -2361,7 +2798,11 @@ const confirmTraceFilterDialog = () => {
     addTraceBoardValue(trace.traceId)
   }
   const faultCode = trace.faultCode ?? ''
-  if (traceFilterDialog.addFaultCode && isTraceFilterValueAvailable(faultCode)) {
+  if (
+    isFaultCodeFeatureEnabled &&
+    traceFilterDialog.addFaultCode &&
+    isTraceFilterValueAvailable(faultCode)
+  ) {
     addUniqueFilterItem('faultCode', faultCode)
   }
 
@@ -2411,8 +2852,10 @@ const applyGlobalFilters = () => {
     } else {
       void loadLatencyDetail(1)
     }
-    void loadFaultChart()
-    void loadFaultTraceEvents(1)
+    if (isFaultCodeFeatureEnabled) {
+      void loadFaultChart()
+      void loadFaultTraceEvents(1)
+    }
   }
 }
 
@@ -2487,7 +2930,7 @@ const loadTraceFailureLogs = async (traceId: string, shouldLoadFailureModes = fa
     }
     traceFailureLogsByTrace.value = {
       ...traceFailureLogsByTrace.value,
-      [traceId]: sortTraceLogsByTimeDesc(events.map(toTraceLogRow)),
+      [traceId]: sortTraceLogsByFile(events.map(toTraceLogRow)),
     }
   } catch (error) {
     traceFailureLogsByTrace.value = {
@@ -2860,10 +3303,12 @@ const loadDetailParseResults = async (
           kb_id: assetId,
           src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
-          is_anomalous: true,
           page_cnt: 20,
           page_num: pageNum,
-          created_sorted_desc: true,
+          sort_by: 'error_priority',
+          sort_order: 'desc',
+          severe_timeout_threshold_ms: severeLogTimeoutThresholdMs,
+          exclude_normal: true,
         }),
       },
     )
@@ -2988,6 +3433,8 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
   const record = result as Record<string, unknown>
   return {
     id: result.id,
+    logStatus: getLogDisplayStatus(record),
+    statusReason: getLogDisplayReason(record),
     time: result.timestamp ?? result.created_at ?? '-',
     traceId: result.trace_id ?? '-',
     podIp: result.pod_ip ?? '-',
@@ -3002,6 +3449,14 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     urmaLinkLatency: getRecordNullableNumber(record, ['urma_link_latency']),
     c2wUrmaLatency: getRecordNullableNumber(record, ['c2w_urma_latency']),
     w2wUrmaLatency: getRecordNullableNumber(record, ['w2w_urma_latency']),
+    sdkProcess: getRecordNullableNumber(record, ['sdk_process']),
+    sdkRpc: getRecordNullableNumber(record, ['sdk_rpc']),
+    localWorkerCost: getRecordNullableNumber(record, ['local_worker_cost']),
+    localWorkerLock: getRecordNullableNumber(record, ['local_worker_lock']),
+    remoteWorkerCost: getRecordNullableNumber(record, ['remote_worker_cost']),
+    remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
+    masterProcess: getRecordNullableNumber(record, ['master_process']),
+    masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
     raw: result,
   }
 }
@@ -3079,10 +3534,12 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     const filters = appliedFilters.value
     const body: Record<string, unknown> = {
       kb_id: assetId,
-      is_anomalous: true,
       page_cnt: 100,
       page_num: pageNum,
-      created_sorted_desc: true,
+      sort_by: 'error_priority',
+      sort_order: 'desc',
+      severe_timeout_threshold_ms: severeLogTimeoutThresholdMs,
+      exclude_normal: true,
       created_at_start: formatDateTime(filters.startTime),
       created_at_end: formatDateTime(filters.endTime),
       cluster_name: getLogParseFilterValue(filters.clusters),
@@ -3106,13 +3563,14 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     }
 
     abnormalTraceRows.value = (result.log_parse_results ?? []).map(toAbnormalTraceRow)
+    abnormalTraceRows.value = abnormalTraceRows.value.filter((row) => row.logStatus !== 'normal')
     abnormalTracesTotal.value = total
     abnormalTracesPage.value = pageNum
   } catch (error) {
     abnormalTraceRows.value = []
     abnormalTracesTotal.value = 0
     abnormalTracesPage.value = 1
-    abnormalTracesError.value = error instanceof Error ? error.message : '加载异常 Trace 失败'
+    abnormalTracesError.value = error instanceof Error ? error.message : '加载日志列表失败'
   } finally {
     isAbnormalTracesLoading.value = false
   }
@@ -3387,7 +3845,68 @@ const statusBadgeClass = (s: string) => {
   return map[s] || 'status-pending'
 }
 
-const getLogFileTaskStatus = (file: LogFileModel) => file.task?.status ?? ''
+const getLogFileTaskStatus = (file: LogFileModel) => file.task?.status ?? file.parse_status ?? ''
+
+const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
+
+const getTaskReportProgress = (report: TaskReportModel | null) => {
+  if (!report) return null
+  const value = report.progress
+  if (typeof value === 'number' && Number.isFinite(value)) return clampProgress(value)
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+    return clampProgress(Number(value))
+  }
+  return null
+}
+
+const getTaskReportTime = (report: TaskReportModel) => {
+  if (!report.created_at) return 0
+  const time = Date.parse(report.created_at)
+  return Number.isFinite(time) ? time : 0
+}
+
+const getLogFileTaskReports = (file: LogFileModel) => file.task?.task_reports ?? []
+
+const getLatestLogFileTaskReport = (file: LogFileModel) => {
+  const reports = getLogFileTaskReports(file)
+  if (reports.length === 0) return null
+  return (
+    [...reports].sort(
+    (first, second) => getTaskReportTime(second) - getTaskReportTime(first),
+    )[0] ?? null
+  )
+}
+
+const getLogFileProgress = (file: LogFileModel) => {
+  const reportProgress = getTaskReportProgress(getLatestLogFileTaskReport(file))
+  if (reportProgress !== null) return reportProgress
+
+  const status = getLogFileTaskStatus(file)
+  if (status === 'successful' || status === 'successful_pending_remove') return 100
+  return 0
+}
+
+const getLogFileProgressText = (file: LogFileModel) =>
+  `${Math.round(getLogFileProgress(file))}%`
+
+const getLogFileProgressMessage = (file: LogFileModel) => {
+  const latestReport = getLatestLogFileTaskReport(file)
+  const message = latestReport?.message?.trim()
+  if (message) return message
+  return statusLabel(getLogFileTaskStatus(file))
+}
+
+const shouldShowLogFileProgress = (file: LogFileModel) =>
+  Boolean(file.task || getLogFileTaskStatus(file))
+
+const getLogFileProgressClass = (file: LogFileModel) => {
+  const status = getLogFileTaskStatus(file)
+  if (status === 'failed' || status === 'failed_pending_remove') return 'failed'
+  if (status === 'successful' || status === 'successful_pending_remove') return 'successful'
+  if (status === 'cancelled') return 'cancelled'
+  if (status === 'running') return 'running'
+  return 'pending'
+}
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
 
@@ -3688,11 +4207,16 @@ const loadFaultPage = async () => {
 }
 
 const loadAbnormalMonitorPage = async () => {
-  await Promise.all([loadLatencyPage(), loadFaultPage()])
+  if (isFaultCodeFeatureEnabled) {
+    await Promise.all([loadLatencyPage(), loadFaultPage()])
+    return
+  }
+  await loadLatencyPage()
 }
 
 const openMonitorPage = async (section: 'latency' | 'fault' = 'latency') => {
   if (!selectedAssetId.value) return
+  const targetSection = isFaultCodeFeatureEnabled ? section : 'latency'
   const shouldLoadMonitorData = !isAbnormalMonitorPage.value
 
   if (shouldLoadMonitorData) {
@@ -3705,7 +4229,7 @@ const openMonitorPage = async (section: 'latency' | 'fault' = 'latency') => {
   }
 
   await nextTick()
-  document.getElementById(section === 'fault' ? 'kv-fault' : 'kv-latency')?.scrollIntoView({
+  document.getElementById(targetSection === 'fault' ? 'kv-fault' : 'kv-latency')?.scrollIntoView({
     behavior: 'smooth',
     block: 'start',
   })
@@ -3936,6 +4460,7 @@ onBeforeUnmount(() => {
         <div class="nav-title">章节导航</div>
         <div class="monitor-nav-list">
           <button
+            v-if="isFaultCodeFeatureEnabled"
             class="monitor-nav-item"
             :class="{ disabled: !selectedAssetId }"
             type="button"
@@ -4322,7 +4847,7 @@ onBeforeUnmount(() => {
                     type="button"
                     @click="setActiveAggregateTab('trace')"
                   >
-                    异常Trace列表
+                    错误日志列表
                   </button>
                   <button
                     class="aggregate-tab-item"
@@ -4346,6 +4871,7 @@ onBeforeUnmount(() => {
                   </select>
                 </label>
                 <div v-else class="abnormal-trace-filter-actions">
+                  <span class="log-sort-hint">仅失败/严重超时 · 阶段时延已展示</span>
                   <button
                     class="ghost-btn compact-action-btn"
                     type="button"
@@ -4559,12 +5085,21 @@ onBeforeUnmount(() => {
                 <div class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
                     <div class="abnormal-left-grid aggregate-table-header">
+                      <div class="aggregate-cell">状态</div>
+                      <div class="aggregate-cell">错误原因</div>
                       <div class="aggregate-cell">时间</div>
                       <div class="aggregate-cell">Trace ID</div>
                       <div class="aggregate-cell">Pod IP</div>
                       <div class="aggregate-cell">操作类型</div>
                       <div class="aggregate-cell">集群</div>
                       <div class="aggregate-cell">主机 IP</div>
+                      <div
+                        v-for="column in problemLogLatencyColumns"
+                        :key="column.key"
+                        class="aggregate-cell"
+                      >
+                        {{ column.label }}
+                      </div>
                     </div>
                     <template
                       v-if="
@@ -4578,12 +5113,41 @@ onBeforeUnmount(() => {
                         :key="`${row.id}-fixed`"
                         class="abnormal-left-grid aggregate-body-row"
                       >
+                        <div class="aggregate-cell">
+                          <span
+                            class="log-status-badge"
+                            :class="`log-status-${row.logStatus}`"
+                            :title="row.statusReason"
+                          >
+                            {{ getLogStatusLabel(row.logStatus) }}
+                          </span>
+                        </div>
+                        <div class="aggregate-cell log-reason-cell" :title="row.statusReason">
+                          {{ row.statusReason }}
+                        </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
                         <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
                         <div class="aggregate-cell">{{ row.podIp }}</div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
                         <div class="aggregate-cell">{{ row.host }}</div>
+                        <div
+                          v-for="column in problemLogLatencyColumns"
+                          :key="column.key"
+                          class="aggregate-cell"
+                        >
+                          <span
+                            class="metric-value"
+                            :class="{
+                              abnormal: isLatencyMetricAbnormal(
+                                column.metric,
+                                getProblemLogLatencyValue(row, column),
+                              ),
+                            }"
+                          >
+                            {{ formatNullableMetricValue(getProblemLogLatencyValue(row, column)) }}
+                          </span>
+                        </div>
                       </div>
                     </template>
                   </div>
@@ -4738,7 +5302,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-if="isAbnormalTracesLoading" class="aggregate-table-state">
-                  正在加载异常Trace...
+                  正在加载日志...
                 </div>
                 <div
                   v-else-if="abnormalTracesError"
@@ -4747,13 +5311,13 @@ onBeforeUnmount(() => {
                   {{ abnormalTracesError }}
                 </div>
                 <div v-else-if="abnormalTraceRows.length === 0" class="aggregate-table-state">
-                  暂无异常Trace数据
+                  暂无失败或严重超时日志
                 </div>
                 <div
                   v-else-if="getFilteredAbnormalTraceRows().length === 0"
                   class="aggregate-table-state"
                 >
-                  无匹配异常Trace
+                  无匹配日志
                 </div>
                 <div v-if="abnormalTracesTotal > 100" class="aggregate-pagination">
                   <button
@@ -4764,7 +5328,7 @@ onBeforeUnmount(() => {
                   >
                     上一页
                   </button>
-                  <span class="pagination-pages" aria-label="异常 Trace 页码">
+                  <span class="pagination-pages" aria-label="日志页码">
                     <button
                       v-for="pageNum in abnormalTracesPageWindow"
                       :key="`abnormal-traces-page-${pageNum}`"
@@ -4795,7 +5359,7 @@ onBeforeUnmount(() => {
                       type="number"
                       min="1"
                       :max="abnormalTracesPageCount"
-                      aria-label="跳转异常 Trace 页码"
+                      aria-label="跳转日志页码"
                       @keyup.enter="jumpAbnormalTracesPage"
                     />
                     <button
@@ -4813,7 +5377,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section id="kv-fault" class="monitor-section">
+        <section v-if="isFaultCodeFeatureEnabled" id="kv-fault" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>故障监控</h1>
@@ -5105,27 +5669,55 @@ onBeforeUnmount(() => {
           <div v-else class="log-file-list">
             <div v-for="file in logFiles" :key="file.id" class="log-file-item">
               <div class="log-file-info">
-                <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
-                <span class="log-file-meta">
-                  <span class="log-file-time">创建时间：{{ file.created_at || '-' }}</span>
-                  <span
-                    class="status-badge"
-                    :class="statusBadgeClass(getLogFileTaskStatus(file))"
-                    >{{ statusLabel(getLogFileTaskStatus(file)) }}</span
+                <div class="log-file-summary">
+                  <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
+                  <span class="log-file-meta">
+                    <span class="log-file-time">创建时间：{{ file.created_at || '-' }}</span>
+                    <span
+                      class="status-badge"
+                      :class="statusBadgeClass(getLogFileTaskStatus(file))"
+                      >{{ statusLabel(getLogFileTaskStatus(file)) }}</span
+                    >
+                    <span
+                      v-if="isSuccessfulLogFileTask(file) && isLogFileDetailLoaded(file)"
+                      class="anomaly-badge"
+                      :class="getLogFileAnomalyCountClass(file)"
+                      >{{ getLogFileAnomalyCountText(file) }}</span
+                    >
+                    <span
+                      v-if="isSuccessfulLogFileTask(file) && isLogFileDetailLoaded(file)"
+                      class="anomaly-badge"
+                      :class="getLogFileTraceFailureEventCountClass(file)"
+                      >{{ getLogFileTraceFailureEventCountText(file) }}</span
+                    >
+                  </span>
+                </div>
+                <div
+                  v-if="shouldShowLogFileProgress(file)"
+                  class="log-file-progress"
+                  :class="`progress-${getLogFileProgressClass(file)}`"
+                >
+                  <div class="log-file-progress-info">
+                    <span class="log-file-progress-message">
+                      解析进度：{{ getLogFileProgressMessage(file) }}
+                    </span>
+                    <span class="log-file-progress-percent">
+                      {{ getLogFileProgressText(file) }}
+                    </span>
+                  </div>
+                  <div
+                    class="log-file-progress-track"
+                    role="progressbar"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    :aria-valuenow="Math.round(getLogFileProgress(file))"
                   >
-                  <span
-                    v-if="isSuccessfulLogFileTask(file) && isLogFileDetailLoaded(file)"
-                    class="anomaly-badge"
-                    :class="getLogFileAnomalyCountClass(file)"
-                    >{{ getLogFileAnomalyCountText(file) }}</span
-                  >
-                  <span
-                    v-if="isSuccessfulLogFileTask(file) && isLogFileDetailLoaded(file)"
-                    class="anomaly-badge"
-                    :class="getLogFileTraceFailureEventCountClass(file)"
-                    >{{ getLogFileTraceFailureEventCountText(file) }}</span
-                  >
-                </span>
+                    <div
+                      class="log-file-progress-bar"
+                      :style="{ width: `${getLogFileProgress(file)}%` }"
+                    ></div>
+                  </div>
+                </div>
               </div>
               <div class="log-file-actions">
                 <button
@@ -5379,7 +5971,9 @@ onBeforeUnmount(() => {
               <strong>主机 IP:</strong>
               {{ traceFilterDialog.trace?.host || 'null' }}
             </span>
-            <span><strong>故障码:</strong> {{ traceFilterDialog.trace?.faultCode || '-' }}</span>
+            <span v-if="isFaultCodeFeatureEnabled">
+              <strong>故障码:</strong> {{ traceFilterDialog.trace?.faultCode || '-' }}
+            </span>
             <span><strong>Trace ID:</strong> {{ traceFilterDialog.trace?.traceId }}</span>
           </div>
           <div class="trace-filter-options">
@@ -5399,7 +5993,7 @@ onBeforeUnmount(() => {
               />
               <span>添加主机IP</span>
             </label>
-            <label class="trace-filter-option">
+            <label v-if="isFaultCodeFeatureEnabled" class="trace-filter-option">
               <input
                 v-model="traceFilterDialog.addFaultCode"
                 type="checkbox"
@@ -5685,19 +6279,28 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-parse-results">
             <div class="aggregate-parse-results-header">
-              <h3>异常Trace列表</h3>
+              <h3>错误日志 / 阶段时延</h3>
               <span class="parse-result-count">{{ detailParseResultsBadgeCount }} 条</span>
             </div>
             <div class="parse-result-table-wrapper detail-abnormal-trace-wrapper">
               <div class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
                 <div class="aggregate-fixed-left">
                   <div class="abnormal-left-grid aggregate-table-header">
+                    <div class="aggregate-cell">状态</div>
+                    <div class="aggregate-cell">错误原因</div>
                     <div class="aggregate-cell">时间</div>
                     <div class="aggregate-cell">Trace ID</div>
                     <div class="aggregate-cell">Pod IP</div>
                     <div class="aggregate-cell">操作类型</div>
                     <div class="aggregate-cell">集群</div>
                     <div class="aggregate-cell">主机 IP</div>
+                    <div
+                      v-for="column in problemLogLatencyColumns"
+                      :key="column.key"
+                      class="aggregate-cell"
+                    >
+                      {{ column.label }}
+                    </div>
                   </div>
                   <template
                     v-if="
@@ -5711,12 +6314,41 @@ onBeforeUnmount(() => {
                       :key="`${row.id}-fixed`"
                       class="abnormal-left-grid aggregate-body-row"
                     >
+                      <div class="aggregate-cell">
+                        <span
+                          class="log-status-badge"
+                          :class="`log-status-${row.logStatus}`"
+                          :title="row.statusReason"
+                        >
+                          {{ getLogStatusLabel(row.logStatus) }}
+                        </span>
+                      </div>
+                      <div class="aggregate-cell log-reason-cell" :title="row.statusReason">
+                        {{ row.statusReason }}
+                      </div>
                       <div class="aggregate-cell">{{ row.time }}</div>
                       <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
                       <div class="aggregate-cell">{{ row.podIp }}</div>
                       <div class="aggregate-cell">{{ row.operation }}</div>
                       <div class="aggregate-cell">{{ row.clusterName }}</div>
                       <div class="aggregate-cell">{{ row.host }}</div>
+                      <div
+                        v-for="column in problemLogLatencyColumns"
+                        :key="column.key"
+                        class="aggregate-cell"
+                      >
+                        <span
+                          class="metric-value"
+                          :class="{
+                            abnormal: isLatencyMetricAbnormal(
+                              column.metric,
+                              getProblemLogLatencyValue(row, column),
+                            ),
+                          }"
+                        >
+                          {{ formatNullableMetricValue(getProblemLogLatencyValue(row, column)) }}
+                        </span>
+                      </div>
                     </div>
                   </template>
                 </div>
@@ -5860,7 +6492,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div v-if="isDetailParseResultsLoading" class="aggregate-table-state">
-                正在加载解析结果...
+                正在加载日志...
               </div>
               <div
                 v-else-if="detailParseResultsError"
@@ -5869,7 +6501,7 @@ onBeforeUnmount(() => {
                 {{ detailParseResultsError }}
               </div>
               <div v-else-if="detailParseResultRows.length === 0" class="aggregate-table-state">
-                暂无异常解析结果
+                暂无失败或严重超时日志
               </div>
             </div>
             <div class="parse-result-pagination">
@@ -5943,93 +6575,102 @@ onBeforeUnmount(() => {
         <div class="modal-body trace-modal-body">
           <section>
             <h3 class="trace-section-title">📋 运行日志</h3>
-            <div class="trace-log-table-wrapper">
-              <table class="trace-log-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Level</th>
-                    <th>Filename</th>
-                    <th>PodIP</th>
-                    <th>PID:TID</th>
-                    <th>ClusterName</th>
-                    <th>Message</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="isTraceLogsLoading">
-                    <td colspan="7" class="trace-empty">正在加载运行日志...</td>
-                  </tr>
-                  <tr v-else-if="traceLogsError">
-                    <td colspan="7" class="trace-empty metric-table-error">{{ traceLogsError }}</td>
-                  </tr>
-                  <tr v-else-if="getSelectedTraceLogs().length === 0">
-                    <td colspan="7" class="trace-empty">无对应故障日志</td>
-                  </tr>
-                  <template v-else>
-                    <tr
-                      v-for="log in getSelectedTraceLogs()"
-                      :key="`${log.time}-${log.pidTid}`"
-                      :class="log.level === 'ERROR' ? 'log-error' : 'log-info'"
+            <div class="trace-log-list">
+              <div v-if="isTraceLogsLoading" class="trace-empty">正在加载运行日志...</div>
+              <div
+                v-else-if="traceLogsError && getSelectedTraceLogs().length === 0"
+                class="trace-empty metric-table-error"
+              >
+                {{ traceLogsError }}
+              </div>
+              <div v-else-if="getSelectedTraceLogs().length === 0" class="trace-empty">
+                暂无匹配日志
+              </div>
+              <template v-else>
+                <article
+                  v-for="log in getSelectedTraceLogs()"
+                  :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                  class="trace-raw-log-item"
+                  :class="log.level === 'ERROR' ? 'log-error' : 'log-info'"
+                >
+                  <div class="trace-raw-log-meta">
+                    <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
+                      {{ log.level }}
+                    </span>
+                    <span>{{ log.time }}</span>
+                    <span>{{ log.formatName }}</span>
+                    <span class="trace-raw-log-file">{{ log.filename }}</span>
+                    <span
+                      v-if="log.level === 'ERROR' && log.faultType && log.faultDomain"
+                      class="fault-tag"
                     >
-                      <td>{{ log.time }}</td>
-                      <td :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
-                        {{ log.level }}
-                      </td>
-                      <td>{{ log.filename }}</td>
-                      <td>{{ log.podIp }}</td>
-                      <td>{{ log.pidTid }}</td>
-                      <td>{{ log.clusterName }}</td>
-                      <td>
-                        {{ log.message }}
-                        <span
-                          v-if="log.level === 'ERROR' && log.faultType && log.faultDomain"
-                          class="fault-tag"
-                        >
-                          🔴 {{ log.faultType }}/{{ log.faultDomain }}
-                        </span>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
+                      🔴 {{ log.faultType }}/{{ log.faultDomain }}
+                    </span>
+                  </div>
+                  <div class="trace-raw-log-table-wrapper">
+                    <table class="trace-raw-log-table">
+                      <tbody>
+                        <tr>
+                          <th>格式</th>
+                          <td
+                            v-for="(column, columnIndex) in log.rawColumns"
+                            :key="`${column.label}-${columnIndex}`"
+                          >
+                            {{ column.label }}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th>内容</th>
+                          <td
+                            v-for="(column, columnIndex) in log.rawColumns"
+                            :key="`${column.label}-${columnIndex}`"
+                            :title="column.value"
+                          >
+                            {{ column.value }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </template>
             </div>
           </section>
 
           <section>
             <h3 class="trace-section-title">⏱️ 时延明细</h3>
-            <table class="trace-delay-table">
-              <thead>
-                <tr>
-                  <th>总时延 (ms)</th>
-                  <th>查询元数据时延 (ms)</th>
-                  <th>URMA总时延 (ms)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td
-                    :class="{ 'delay-timeout': isTraceDelayAbnormal('sdkMs', selectedTrace.sdkMs) }"
-                  >
-                    {{ formatTraceDelayValue(selectedTrace.sdkMs) }}
-                  </td>
-                  <td
-                    :class="{
-                      'delay-timeout': isTraceDelayAbnormal('reqDelay', selectedTrace.reqDelay),
-                    }"
-                  >
-                    {{ formatTraceDelayValue(selectedTrace.reqDelay) }}
-                  </td>
-                  <td
-                    :class="{
-                      'delay-timeout': isTraceDelayAbnormal('respDelay', selectedTrace.respDelay),
-                    }"
-                  >
-                    {{ formatTraceDelayValue(selectedTrace.respDelay) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="trace-delay-table-wrapper">
+              <table class="trace-delay-table">
+                <thead>
+                  <tr>
+                    <th>阶段</th>
+                    <th>时延</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="column in traceDelayColumns" :key="column.key">
+                    <td class="trace-stage-name">{{ getTraceDelayLabel(column) }}</td>
+                    <td
+                      :class="{ 'delay-timeout': isTraceDelayAbnormal(selectedTrace, column) }"
+                    >
+                      {{
+                        formatTraceDelayColumnValue(
+                          getTraceDelayValue(selectedTrace, column),
+                          column,
+                        )
+                      }}
+                    </td>
+                    <td
+                      class="trace-stage-status"
+                      :class="{ 'delay-timeout': isTraceDelayAbnormal(selectedTrace, column) }"
+                    >
+                      {{ getTraceDelayStatusLabel(selectedTrace, column) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       </section>
@@ -6047,63 +6688,72 @@ onBeforeUnmount(() => {
         <div class="modal-body trace-modal-body">
           <section>
             <h3 class="trace-section-title">📋 运行日志</h3>
-            <div class="trace-log-table-wrapper">
-              <table class="trace-log-table fault-trace-log-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Level</th>
-                    <th>Filename</th>
-                    <th>PodIP</th>
-                    <th>PID:TID</th>
-                    <th>ClusterName</th>
-                    <th>Message</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="isTraceLogsLoading">
-                    <td colspan="7" class="trace-empty">正在加载运行日志...</td>
-                  </tr>
-                  <tr v-else-if="traceLogsError">
-                    <td colspan="7" class="trace-empty metric-table-error">{{ traceLogsError }}</td>
-                  </tr>
-                  <tr v-else-if="getSelectedFaultTraceLogs().length === 0">
-                    <td colspan="7" class="trace-empty">暂无运行日志</td>
-                  </tr>
-                  <template v-else>
-                    <tr
-                      v-for="log in getSelectedFaultTraceLogs()"
-                      :key="`${log.time}-${log.pidTid}`"
-                      :class="[
-                        log.level === 'ERROR' ? 'log-error' : 'log-info',
-                        { 'log-failure-mode': log.failureModeIds.length > 0 },
-                      ]"
+            <div class="trace-log-list">
+              <div v-if="isTraceLogsLoading" class="trace-empty">正在加载运行日志...</div>
+              <div
+                v-else-if="traceLogsError && getSelectedFaultTraceLogs().length === 0"
+                class="trace-empty metric-table-error"
+              >
+                {{ traceLogsError }}
+              </div>
+              <div v-else-if="getSelectedFaultTraceLogs().length === 0" class="trace-empty">
+                暂无匹配日志
+              </div>
+              <template v-else>
+                <article
+                  v-for="log in getSelectedFaultTraceLogs()"
+                  :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                  class="trace-raw-log-item"
+                  :class="[
+                    log.level === 'ERROR' ? 'log-error' : 'log-info',
+                    { 'log-failure-mode': log.failureModeIds.length > 0 },
+                  ]"
+                >
+                  <div class="trace-raw-log-meta">
+                    <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
+                      {{ log.level }}
+                    </span>
+                    <span>{{ log.time }}</span>
+                    <span>{{ log.formatName }}</span>
+                    <span class="trace-raw-log-file">{{ log.filename }}</span>
+                    <button
+                      v-for="mode in getTraceLogFailureModeLabels(log)"
+                      :key="mode.id"
+                      type="button"
+                      class="failure-mode-tag"
+                      :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
+                      @click="selectFaultTraceFailureMode(mode.id)"
                     >
-                      <td>{{ log.time }}</td>
-                      <td :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
-                        {{ log.level }}
-                      </td>
-                      <td>{{ log.filename }}</td>
-                      <td>{{ log.podIp }}</td>
-                      <td>{{ log.pidTid }}</td>
-                      <td>{{ log.clusterName }}</td>
-                      <td class="trace-message-cell">
-                        <span>{{ log.message }}</span>
-                        <button
-                          v-for="mode in getTraceLogFailureModeLabels(log)"
-                          :key="mode.id"
-                          type="button"
-                          class="failure-mode-tag"
-                          :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
-                          @click="selectFaultTraceFailureMode(mode.id)"
-                        >
-                          🔴 {{ mode.label }}
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
+                      🔴 {{ mode.label }}
+                    </button>
+                  </div>
+                  <div class="trace-raw-log-table-wrapper">
+                    <table class="trace-raw-log-table">
+                      <tbody>
+                        <tr>
+                          <th>格式</th>
+                          <td
+                            v-for="(column, columnIndex) in log.rawColumns"
+                            :key="`${column.label}-${columnIndex}`"
+                          >
+                            {{ column.label }}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th>内容</th>
+                          <td
+                            v-for="(column, columnIndex) in log.rawColumns"
+                            :key="`${column.label}-${columnIndex}`"
+                            :title="column.value"
+                          >
+                            {{ column.value }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </template>
             </div>
           </section>
 
