@@ -74,16 +74,6 @@ class LogFailureEventManager:
         params = {"log_id": log_id, "raw_text": raw_text, "failure_mode": failure_mode}
         result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
         return result
-
-    @staticmethod
-    async def delete_unclassified_log_events_by_log_id(log_id: str) -> bool:
-        """删除指定日志文件下未归类的上下文日志"""
-        sql_str = """
-            DELETE FROM log_failure_event_table
-            WHERE log_id = :log_id
-              AND (failure_mode IS NULL OR failure_mode = '')
-        """
-        return await AsyncSQLiteSingleton().execute_modify(sql_str, {"log_id": log_id})
     
     @staticmethod
     async def add_trace_failure_event(results: list[TraceFailureEventModel]) -> list[str]:
@@ -279,9 +269,6 @@ class LogFailureEventManager:
             # 如果log_id非None，将log_id加入筛选条件
             if req.log_id is not None:
                 log_ids.append(req.log_id)
-
-            if req.kb_id is not None and not log_ids:
-                return 0, []
             
             # 构建查询 log_failure_event_table 的 SQL
             sql_str = """
@@ -301,14 +288,14 @@ class LogFailureEventManager:
                     params[f'log_id_{i}'] = log_id
             
             # 添加 trace_id 过滤条件
-            if req.trace_ids:
+            if req.trace_ids is not None:
                 placeholders = ",".join([f':trace_id_{i}' for i in range(len(req.trace_ids))])
                 sql_str += f" AND trace_id IN ({placeholders})"
                 for i, trace_id in enumerate(req.trace_ids):
                     params[f'trace_id_{i}'] = trace_id
             
-            # 按日志文件聚合，再按时间排序，便于前端按文件展示链路日志
-            sql_str += " ORDER BY log_file ASC, timestamp ASC, pid ASC, tid ASC"
+            # 按时间排序
+            sql_str += " ORDER BY timestamp ASC"
             
             # 执行查询
             results = await AsyncSQLiteSingleton().execute_query(sql_str, params)

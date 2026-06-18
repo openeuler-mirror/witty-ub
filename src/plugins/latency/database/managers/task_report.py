@@ -65,10 +65,9 @@ class TaskReportManager:
             return []
         placeholders = ", ".join(["?"] * len(task_ids))
         sql_str = f"""
-            SELECT task_id, progress, message, created_at
+            SELECT task_id, progress, message
             FROM task_report_table
             WHERE task_id IN ({placeholders})
-            ORDER BY created_at DESC
         """
         results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(task_ids))
         return [TaskReportModel(**result) for result in results]
