@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import time
@@ -10,7 +9,7 @@ from latency.schemas.log import LogParseResultModel
 from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
-from latency.task.process_handle import ProcessHandler
+from latency.common.trace_context import collect_trace_context_logs
 from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
@@ -22,7 +21,6 @@ from latency.parse.parallel_scanner import ParallelFileScanner
 from latency.ENUM.task import TaskSplitStrategy
 from latency.common.stats import stats
 from latency.detect import AnomalyDetector
-from latency.database.engine import AsyncSQLiteSingleton
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
@@ -34,20 +32,26 @@ from latency.database.managers.src_dst_aggregated_event import (
 )
 from latency.database.managers.anomalous_event import AnomalousEventManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainManager
-from latency.config.config import Config
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
-    LogFileModel,
     SrcDstAggregatedEventModel,
     AnomalousEventModel,
     AnomalousEventChainModel,
-    LogParseResultModel,
 )
 from latency.task.worker.base import BaseWorker
 
 
 
 logger = logging.getLogger(__name__)
+
+TRACE_CONTEXT_TIMEOUT_THRESHOLDS_MS = {
+    "total_latency": 150.0,
+    "worker_query_meta_latency": 150.0,
+    "urma_total_latency": 150.0,
+    "urma_link_latency": 150.0,
+    "c2w_urma_latency": 100.0,
+    "w2w_urma_latency": 100.0,
+}
 
 
 @dataclass
@@ -571,6 +575,56 @@ class KVCacheLogParseWorker(BaseWorker):
         )
         return events
 
+    @staticmethod
+    def _is_failure_result(result: LogParseResultModel) -> bool:
+        remark = (result.remark or "").strip()
+        if remark and remark.upper() != "OK":
+            return True
+
+        anomaly_reason = (result.anomaly_reason or "").strip()
+        if anomaly_reason and "threshold" not in anomaly_reason.lower():
+            return True
+
+        return False
+
+    @staticmethod
+    def _is_timeout_result(result: LogParseResultModel) -> bool:
+        for field_name, threshold in TRACE_CONTEXT_TIMEOUT_THRESHOLDS_MS.items():
+            value = getattr(result, field_name, None)
+            if isinstance(value, (int, float)) and value > threshold:
+                return True
+        return False
+
+    @staticmethod
+    def _collect_context_trace_ids(
+        list_log_parse_results: list[LogParseResultModel],
+    ) -> set[str]:
+        trace_ids: set[str] = set()
+        for result in list_log_parse_results:
+            trace_id = (result.trace_id or "").strip()
+            if not trace_id:
+                continue
+            if (
+                KVCacheLogParseWorker._is_failure_result(result)
+                or KVCacheLogParseWorker._is_timeout_result(result)
+            ):
+                trace_ids.add(trace_id)
+        return trace_ids
+
+    @staticmethod
+    async def store_trace_context_logs(
+        log_id: str,
+        log_dir: str,
+        list_log_parse_results: list[LogParseResultModel],
+    ) -> int:
+        trace_ids = KVCacheLogParseWorker._collect_context_trace_ids(list_log_parse_results)
+        return await collect_trace_context_logs(
+            log_id=log_id,
+            log_dir=log_dir,
+            trace_ids=trace_ids,
+            clear_existing=True,
+        )
+
     # 异常事件匹配故障
     @staticmethod
     async def match_fault(
@@ -827,6 +881,26 @@ class KVCacheLogParseWorker(BaseWorker):
                 ),
                 t_store,
             )
+
+            if log_file:
+                t_context_start = time.perf_counter()
+                context_log_count = await KVCacheLogParseWorker.store_trace_context_logs(
+                    log_id=task.op_id,
+                    log_dir=log_file.file_path,
+                    list_log_parse_results=list_log_parse_results,
+                )
+                t_context = time.perf_counter() - t_context_start
+                if context_log_count:
+                    await BaseWorker.report(
+                        task.id,
+                        f"Trace context logs stored: {context_log_count}",
+                        97.0,
+                    )
+                await BaseWorker.report(
+                    task.id,
+                    f"[perf][trace_context.summary] rows={context_log_count}, time={t_context:.3f}s",
+                    t_context,
+                )
             
             if not stored:
                 logger.warning(f"Task {task_id} store partially failed, still marking as successful")
