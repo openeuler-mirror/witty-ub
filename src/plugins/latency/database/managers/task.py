@@ -1,4 +1,4 @@
-from latency.ENUM.task import TaskStatusEnum
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.task import TaskModel
 from latency.database.engine import AsyncSQLiteSingleton
 
@@ -201,34 +201,50 @@ class TaskManager:
         return [TaskModel(**result) for result in results]
 
     @staticmethod
-    async def list_current_tasks_by_op_ids(op_ids: list[str]) -> list[TaskModel]:
+    async def list_current_tasks_by_op_ids(
+        op_ids: list[str],
+        task_type: TaskTypeEnum | None = None,
+    ) -> list[TaskModel]:
         """根据操作ID列表获取每个操作ID对应的最新的任务信息"""
         if not op_ids:
             return []
         placeholders = ", ".join(["?"] * len(op_ids))
+        params = list(op_ids)
+        task_type_filter = ""
+        if task_type:
+            task_type_filter = " AND task_type = ?"
+            params.append(task_type.value)
         sql_str = f"""
             SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
             FROM (
                 SELECT *, ROW_NUMBER() OVER (PARTITION BY op_id ORDER BY created_at DESC) as rn
                 FROM task_table
-                WHERE op_id IN ({placeholders})
+                WHERE op_id IN ({placeholders}){task_type_filter}
             ) sub
             WHERE rn = 1
         """
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(op_ids))
+        results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(params))
         return [TaskModel(**result) for result in results]
 
     @staticmethod
-    async def get_current_task_by_op_id(op_id: str) -> TaskModel | None:
+    async def get_current_task_by_op_id(
+        op_id: str,
+        task_type: TaskTypeEnum | None = None,
+    ) -> TaskModel | None:
         """根据操作ID获取最新的任务信息（适用于一个操作可能对应多个任务的场景，获取最新的任务）"""
         sql_str = """
             SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
             FROM task_table
             WHERE op_id = :op_id
+        """
+        params = {"op_id": op_id}
+        if task_type:
+            sql_str += " AND task_type = :task_type"
+            params["task_type"] = task_type.value
+        sql_str += """
             ORDER BY created_at DESC
             LIMIT 1
         """
-        params = {"op_id": op_id}
         results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         if results:
             return TaskModel(**results[0])
