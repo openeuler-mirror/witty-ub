@@ -1,29 +1,24 @@
 #include "urma_failure_678.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure678> g_urma("urma_678");
 
-bool UrmaFailure678::IsValid()
+bool UrmaFailure678::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'[DRV_ERR]Failed to delete jfr, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', status:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("set_fd_noblock") != std::string::npos && message.find("ret:") != std::string::npos;
 }
 
 std::string UrmaFailure678::GetName() const
 {
-    return "JFR清理阶段下层释放操作失败";
+    return "文件描述符、noblock状态不满足要求导致设置文件描述符、noblock失败";
 }
 
 std::string UrmaFailure678::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "set_fd_noblock执行设置文件描述符、noblock时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure678::AnalyzeRootCause()
@@ -38,13 +33,11 @@ std::string UrmaFailure678::GetFixSuggDesc() const
 
 std::string UrmaFailure678::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr，[DRV_ERR]Failed to delete jfr, dev_name:，, "
-           "eid_idx:，, id:，, status:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：set_fd_noblock，ret:。";
 }
 
 std::string UrmaFailure678::GetId() const
 {
     return "urma_678";
 }
-
 } // namespace diag

@@ -1,29 +1,25 @@
 #include "urma_failure_360.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure360> g_urma("urma_360");
 
-bool UrmaFailure360::IsValid()
+bool UrmaFailure360::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_token_id' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_jfce") != std::string::npos &&
+           message.find("Failed to delete pjfce.") != std::string::npos;
 }
 
 std::string UrmaFailure360::GetName() const
 {
-    return "URMA context、Segment对象无效导致分配Token失败";
+    return "下层资源删除失败导致删除JFCE失败";
 }
 
 std::string UrmaFailure360::GetRootCauseDesc() const
 {
-    return "函数用于分配Token，调用方传入的URMA context、Segment对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_delete_jfce清理JFCE时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure360::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure360::GetFixSuggDesc() const
 
 std::string UrmaFailure360::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_token_id，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfce，Failed to delete pjfce.。";
 }
 
 std::string UrmaFailure360::GetId() const
 {
     return "urma_360";
 }
-
 } // namespace diag

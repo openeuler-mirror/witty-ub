@@ -1,29 +1,25 @@
 #include "urma_failure_603.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure603> g_urma("urma_603");
 
-bool UrmaFailure603::IsValid()
+bool UrmaFailure603::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to "
-        "delete jfs[' | grep -F '], still in use. use_cnt:' | grep -F 'u'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jetty_grp") != std::string::npos &&
+           message.find("jetty grp in use, jetty_cnt:") != std::string::npos;
 }
 
 std::string UrmaFailure603::GetName() const
 {
-    return "JFS清理阶段下层释放操作失败";
+    return "Jetty组仍被引用导致删除Jetty组失败";
 }
 
 std::string UrmaFailure603::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFS相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_delete_jetty_grp在释放Jetty组前检查到引用计数未清零，说明仍有上层对象或事件处理流程占用该资源。";
 }
 
 RootCause UrmaFailure603::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure603::GetFixSuggDesc() const
 
 std::string UrmaFailure603::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfs，Failed to delete jfs[，], still in use. use_cnt:，u。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_grp，jetty grp in use, jetty_cnt:。";
 }
 
 std::string UrmaFailure603::GetId() const
 {
     return "urma_603";
 }
-
 } // namespace diag

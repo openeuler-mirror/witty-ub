@@ -1,29 +1,25 @@
 #include "urma_failure_759.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure759> g_urma("urma_759");
 
-bool UrmaFailure759::IsValid()
+bool UrmaFailure759::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jfr_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_context_opt") != std::string::npos &&
+           message.find("Invalid option name.") != std::string::npos;
 }
 
 std::string UrmaFailure759::GetName() const
 {
-    return "URMA context、JFR对象无效导致设置JFR失败";
+    return "context状态不满足要求导致设置context失败";
 }
 
 std::string UrmaFailure759::GetRootCauseDesc() const
 {
-    return "函数用于设置JFR，调用方传入的URMA context、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_set_context_opt执行设置context时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure759::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure759::GetFixSuggDesc() const
 
 std::string UrmaFailure759::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jfr_opt，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_context_opt，Invalid option name.。";
 }
 
 std::string UrmaFailure759::GetId() const
 {
     return "urma_759";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_568.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure568> g_urma("urma_568");
 
-bool UrmaFailure568::IsValid()
+bool UrmaFailure568::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'schedule_send_balance' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Unsupported bonding level:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jfs_batch") != std::string::npos &&
+           message.find("Failed to delete jfs batch.") != std::string::npos;
 }
 
 std::string UrmaFailure568::GetName() const
 {
-    return "激活设备过程中依赖步骤失败";
+    return "下层资源删除失败导致删除JFS失败";
 }
 
 std::string UrmaFailure568::GetRootCauseDesc() const
 {
-    return "函数用于激活设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_delete_jfs_batch清理JFS时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure568::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure568::GetFixSuggDesc() const
 
 std::string UrmaFailure568::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_send_balance，Unsupported bonding level:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfs_batch，Failed to delete jfs batch.。";
 }
 
 std::string UrmaFailure568::GetId() const
 {
     return "urma_568";
 }
-
 } // namespace diag

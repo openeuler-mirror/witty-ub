@@ -1,29 +1,25 @@
 #include "urma_failure_570.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure570> g_urma("urma_570");
 
-bool UrmaFailure570::IsValid()
+bool UrmaFailure570::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'schedule_recv' "
-                                                         "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'No active port'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_deactive_jfs") != std::string::npos &&
+           message.find("jfs state is wrong in deactive_jfs.") != std::string::npos;
 }
 
 std::string UrmaFailure570::GetName() const
 {
-    return "激活端口过程中依赖步骤失败";
+    return "JFS状态不满足要求导致去激活JFS失败";
 }
 
 std::string UrmaFailure570::GetRootCauseDesc() const
 {
-    return "函数用于激活端口，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_deactive_jfs执行去激活JFS时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure570::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure570::GetFixSuggDesc() const
 
 std::string UrmaFailure570::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_recv，No active port。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfs，jfs state is wrong in deactive_jfs.。";
 }
 
 std::string UrmaFailure570::GetId() const
 {
     return "urma_570";
 }
-
 } // namespace diag

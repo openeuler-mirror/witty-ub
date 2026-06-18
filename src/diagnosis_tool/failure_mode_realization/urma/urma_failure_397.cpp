@@ -1,31 +1,26 @@
 #include "urma_failure_397.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure397> g_urma("urma_397");
 
-bool UrmaFailure397::IsValid()
+bool UrmaFailure397::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'jfs cfg out "
-        "of range, depth:' | grep -F ', max_depth:' | grep -F ', inline_data:' | grep -F ', max_inline_len:' | grep -F "
-        "', sge:' | grep -F 'hu, max_sge:' | grep -F ', rsge:' | grep -F 'hu, max_rsge:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("convert_jfs_vwr_to_pwr") != std::string::npos &&
+           message.find("Unsupported send opcode") != std::string::npos;
 }
 
 std::string UrmaFailure397::GetName() const
 {
-    return "分配JFS过程中依赖步骤失败";
+    return "provider未提供convert_jfs_vwr_to_pwr操作实现导致convertconvert、JFS、VWR失败";
 }
 
 std::string UrmaFailure397::GetRootCauseDesc() const
 {
-    return "函数用于分配JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "convert_jfs_vwr_to_"
+           "pwr需要通过provider操作表完成convertconvert、JFS、VWR，当前设备provider缺少对应回调或能力不支持该操作。";
 }
 
 RootCause UrmaFailure397::AnalyzeRootCause()
@@ -40,13 +35,11 @@ std::string UrmaFailure397::GetFixSuggDesc() const
 
 std::string UrmaFailure397::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jfs，jfs cfg out of range, depth:，, max_depth:，, "
-           "inline_data:，, max_inline_len:，, sge:，hu, max_sge:，, rsge:，hu, max_rsge:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：convert_jfs_vwr_to_pwr，Unsupported send opcode。";
 }
 
 std::string UrmaFailure397::GetId() const
 {
     return "urma_397";
 }
-
 } // namespace diag

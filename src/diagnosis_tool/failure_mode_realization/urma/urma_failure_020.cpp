@@ -1,29 +1,26 @@
 #include "urma_failure_020.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure020> g_urma("urma_020");
 
-bool UrmaFailure020::IsValid()
+bool UrmaFailure020::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_provider_bond_init' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Provider Bond register ops failed.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_provider_bond_init") != std::string::npos &&
+           message.find("Provider Bond register ops failed.") != std::string::npos;
 }
 
 std::string UrmaFailure020::GetName() const
 {
-    return "设备注册时下层资源准备失败";
+    return "下层注册或导入返回失败导致初始化provider、Bond资源失败";
 }
 
 std::string UrmaFailure020::GetRootCauseDesc() const
 {
-    return "函数负责注册设备，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_provider_bond_"
+           "init在初始化provider、Bond资源时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure020::AnalyzeRootCause()
@@ -45,5 +42,4 @@ std::string UrmaFailure020::GetId() const
 {
     return "urma_020";
 }
-
 } // namespace diag

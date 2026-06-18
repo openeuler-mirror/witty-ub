@@ -1,30 +1,25 @@
 #include "urma_failure_419.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure419> g_urma("urma_419");
 
-bool UrmaFailure419::IsValid()
+bool UrmaFailure419::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_get_async_event' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'epoll_wait no event or err.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfc_batch") != std::string::npos &&
+           message.find("bad jfc index exceed array length, bad_jfc_index:") != std::string::npos;
 }
 
 std::string UrmaFailure419::GetName() const
 {
-    return "epoll数据通路处理失败";
+    return "JFC状态不满足要求导致删除JFC失败";
 }
 
 std::string UrmaFailure419::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_cmd_delete_jfc_batch执行删除JFC时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure419::AnalyzeRootCause()
@@ -39,12 +34,12 @@ std::string UrmaFailure419::GetFixSuggDesc() const
 
 std::string UrmaFailure419::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_get_async_event，epoll_wait no event or err.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，bad jfc index exceed array length, "
+           "bad_jfc_index:。";
 }
 
 std::string UrmaFailure419::GetId() const
 {
     return "urma_419";
 }
-
 } // namespace diag

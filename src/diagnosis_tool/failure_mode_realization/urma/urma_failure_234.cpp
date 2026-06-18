@@ -1,30 +1,26 @@
 #include "urma_failure_234.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure234> g_urma("urma_234");
 
-bool UrmaFailure234::IsValid()
+bool UrmaFailure234::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_ex' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not "
-        "allowed to bind local jetty:' | grep -F ', with remote jetty:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_context") != std::string::npos &&
+           message.find("Failed to get topo info, change to general mode") != std::string::npos;
 }
 
 std::string UrmaFailure234::GetName() const
 {
-    return "绑定Jetty过程中依赖步骤失败";
+    return "下层查询返回失败导致创建context失败";
 }
 
 std::string UrmaFailure234::GetRootCauseDesc() const
 {
-    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "bondp_create_"
+           "context需要从provider、驱动或缓存中获取context状态，查询结果失败会导致调用方无法取得有效信息。";
 }
 
 RootCause UrmaFailure234::AnalyzeRootCause()
@@ -39,13 +35,11 @@ std::string UrmaFailure234::GetFixSuggDesc() const
 
 std::string UrmaFailure234::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_ex，Not allowed to bind local jetty:，, with remote "
-           "jetty:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_context，Failed to get topo info, change to general mode。";
 }
 
 std::string UrmaFailure234::GetId() const
 {
     return "urma_234";
 }
-
 } // namespace diag

@@ -1,29 +1,26 @@
 #include "urma_failure_044.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure044> g_urma("urma_044");
 
-bool UrmaFailure044::IsValid()
+bool UrmaFailure044::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_register_provider_ops' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_register_provider_ops") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure044::GetName() const
 {
-    return "注册URMA资源所需输入对象无效导致注册URMA资源失败";
+    return "provider_ops、名称无效导致注册provider、OPS失败";
 }
 
 std::string UrmaFailure044::GetRootCauseDesc() const
 {
-    return "函数用于注册URMA资源，调用方传入的注册URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_register_provider_ops用于注册provider、OPS，调用方传入的provider_"
+           "ops、名称不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure044::AnalyzeRootCause()
@@ -45,5 +42,4 @@ std::string UrmaFailure044::GetId() const
 {
     return "urma_044";
 }
-
 } // namespace diag

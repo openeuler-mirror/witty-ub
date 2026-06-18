@@ -1,30 +1,25 @@
 #include "urma_failure_004.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure004> g_urma("urma_004");
 
-bool UrmaFailure004::IsValid()
+bool UrmaFailure004::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'init_target_active_indices' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to find connected port'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("init_target_active_indices") != std::string::npos &&
+           message.find("Failed to find connected port") != std::string::npos;
 }
 
 std::string UrmaFailure004::GetName() const
 {
-    return "未找到可用于初始化端口的有效对象或路由";
+    return "初始化target、indices执行失败导致初始化target、indices失败";
 }
 
 std::string UrmaFailure004::GetRootCauseDesc() const
 {
-    return "函数在初始化端口过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定"
-           "位目标。";
+    return "init_target_active_indices初始化目标端有效端口索引时未找到可连通端口，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure004::AnalyzeRootCause()
@@ -46,5 +41,4 @@ std::string UrmaFailure004::GetId() const
 {
     return "urma_004";
 }
-
 } // namespace diag

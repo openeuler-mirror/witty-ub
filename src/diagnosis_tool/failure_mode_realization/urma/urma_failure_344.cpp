@@ -1,29 +1,26 @@
 #include "urma_failure_344.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure344> g_urma("urma_344");
 
-bool UrmaFailure344::IsValid()
+bool UrmaFailure344::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vcontext' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to create remote_v2p_token_id_table'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_alloc_token_id_ex") != std::string::npos &&
+           message.find("dev not support token id table mode.") != std::string::npos;
 }
 
 std::string UrmaFailure344::GetName() const
 {
-    return "Token创建时下层资源准备失败";
+    return "provider未提供_t操作实现导致分配Token ID、ID失败";
 }
 
 std::string UrmaFailure344::GetRootCauseDesc() const
 {
-    return "函数负责创建Token，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_alloc_token_id_ex需要通过provider操作表完成分配Token "
+           "ID、ID，当前设备provider缺少对应回调或能力不支持该操作。";
 }
 
 RootCause UrmaFailure344::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure344::GetFixSuggDesc() const
 
 std::string UrmaFailure344::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vcontext，Failed to create remote_v2p_token_id_table。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_token_id_ex，dev not support token id table mode.。";
 }
 
 std::string UrmaFailure344::GetId() const
 {
     return "urma_344";
 }
-
 } // namespace diag

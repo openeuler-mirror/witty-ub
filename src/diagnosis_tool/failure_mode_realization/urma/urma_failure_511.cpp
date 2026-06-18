@@ -1,29 +1,26 @@
 #include "urma_failure_511.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure511> g_urma("urma_511");
 
-bool UrmaFailure511::IsValid()
+bool UrmaFailure511::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pseg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to unregister pseg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_jetty") != std::string::npos &&
+           message.find("Failed to delete jetty[") != std::string::npos &&
+           message.find("], still in use. use_cnt:") != std::string::npos;
 }
 
 std::string UrmaFailure511::GetName() const
 {
-    return "Segment清理阶段下层释放操作失败";
+    return "Jetty仍被引用导致删除Jetty失败";
 }
 
 std::string UrmaFailure511::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Segment相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "bondp_delete_jetty在释放Jetty前检查到引用计数未清零，说明仍有上层对象或事件处理流程占用该资源。";
 }
 
 RootCause UrmaFailure511::AnalyzeRootCause()
@@ -38,12 +35,12 @@ std::string UrmaFailure511::GetFixSuggDesc() const
 
 std::string UrmaFailure511::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pseg，Failed to unregister pseg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jetty，Failed to delete jetty[，], still in use. "
+           "use_cnt:。";
 }
 
 std::string UrmaFailure511::GetId() const
 {
     return "urma_511";
 }
-
 } // namespace diag

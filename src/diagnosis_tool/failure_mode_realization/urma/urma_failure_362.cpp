@@ -1,29 +1,25 @@
 #include "urma_failure_362.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure362> g_urma("urma_362");
 
-bool UrmaFailure362::IsValid()
+bool UrmaFailure362::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_token_id_ex' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_pjfc") != std::string::npos &&
+           message.find("Failed to create pjfc") != std::string::npos;
 }
 
 std::string UrmaFailure362::GetName() const
 {
-    return "URMA context无效导致分配Token失败";
+    return "下层资源创建失败导致创建物理JFC失败";
 }
 
 std::string UrmaFailure362::GetRootCauseDesc() const
 {
-    return "函数用于分配Token，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_pjfc在创建物理JFC过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure362::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure362::GetFixSuggDesc() const
 
 std::string UrmaFailure362::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_token_id_ex，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjfc，Failed to create pjfc。";
 }
 
 std::string UrmaFailure362::GetId() const
 {
     return "urma_362";
 }
-
 } // namespace diag

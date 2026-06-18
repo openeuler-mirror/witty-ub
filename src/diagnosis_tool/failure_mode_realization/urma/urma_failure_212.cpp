@@ -1,30 +1,25 @@
 #include "urma_failure_212.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure212> g_urma("urma_212");
 
-bool UrmaFailure212::IsValid()
+bool UrmaFailure212::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_batch' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jetty_grp") != std::string::npos &&
+           message.find("max_jetty_in_jetty_grp") != std::string::npos && message.find("is err.") != std::string::npos;
 }
 
 std::string UrmaFailure212::GetName() const
 {
-    return "URMA context、provider操作表、Jetty对象无效导致删除Jetty失败";
+    return "Jetty组状态不满足要求导致创建Jetty组失败";
 }
 
 std::string UrmaFailure212::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，调用方传入的URMA "
-           "context、provider操作表、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_create_jetty_grp执行创建Jetty组时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure212::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure212::GetFixSuggDesc() const
 
 std::string UrmaFailure212::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_batch，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_grp，max_jetty_in_jetty_grp，is err.。";
 }
 
 std::string UrmaFailure212::GetId() const
 {
     return "urma_212";
 }
-
 } // namespace diag

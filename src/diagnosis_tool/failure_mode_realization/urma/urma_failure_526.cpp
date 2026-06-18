@@ -1,29 +1,25 @@
 #include "urma_failure_526.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure526> g_urma("urma_526");
 
-bool UrmaFailure526::IsValid()
+bool UrmaFailure526::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pseg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to import pseg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfs_batch") != std::string::npos &&
+           message.find("jfs not from the same dev, cannot delete in a batch, index:") != std::string::npos;
 }
 
 std::string UrmaFailure526::GetName() const
 {
-    return "Segment导入时下层资源准备失败";
+    return "JFS状态不满足要求导致删除JFS失败";
 }
 
 std::string UrmaFailure526::GetRootCauseDesc() const
 {
-    return "函数负责导入Segment，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_cmd_delete_jfs_batch执行删除JFS时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure526::AnalyzeRootCause()
@@ -38,12 +34,13 @@ std::string UrmaFailure526::GetFixSuggDesc() const
 
 std::string UrmaFailure526::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pseg，Failed to import pseg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs_batch，jfs not from the same dev, cannot delete in "
+           "a batch"
+           ", index:。";
 }
 
 std::string UrmaFailure526::GetId() const
 {
     return "urma_526";
 }
-
 } // namespace diag

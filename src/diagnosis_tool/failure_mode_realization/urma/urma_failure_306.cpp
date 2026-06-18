@@ -1,30 +1,26 @@
 #include "urma_failure_306.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure306> g_urma("urma_306");
 
-bool UrmaFailure306::IsValid()
+bool UrmaFailure306::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_tpn' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter with max_netaddr_cnt as 0.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_health_check_ctx") != std::string::npos &&
+           message.find("Failed to register health ctx globally") != std::string::npos;
 }
 
 std::string UrmaFailure306::GetName() const
 {
-    return "URMA context、设备对象、sysfs设备信息无效导致获取TPN失败";
+    return "下层注册或导入返回失败导致创建health、context失败";
 }
 
 std::string UrmaFailure306::GetRootCauseDesc() const
 {
-    return "函数用于获取TPN，调用方传入的URMA "
-           "context、设备对象、sysfs设备信息不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_health_check_"
+           "ctx在创建health、context时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure306::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure306::GetFixSuggDesc() const
 
 std::string UrmaFailure306::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_tpn，Invalid parameter with max_netaddr_cnt as 0.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_health_check_ctx，Failed to register health ctx globally。";
 }
 
 std::string UrmaFailure306::GetId() const
 {
     return "urma_306";
 }
-
 } // namespace diag

@@ -1,31 +1,25 @@
 #include "urma_failure_296.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure296> g_urma("urma_296");
 
-bool UrmaFailure296::IsValid()
+bool UrmaFailure296::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_grp' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_pjfr") != std::string::npos &&
+           message.find("Failed to import tjfr") != std::string::npos;
 }
 
 std::string UrmaFailure296::GetName() const
 {
-    return "URMA context、provider操作表、provider未提供delete_jetty_grp操作实现无效导致删除Jetty失败";
+    return "下层注册或导入返回失败导致导入物理JFR失败";
 }
 
 std::string UrmaFailure296::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，调用方传入的URMA "
-           "context、provider操作表、provider未提供delete_jetty_"
-           "grp操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_import_pjfr在导入物理JFR时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure296::AnalyzeRootCause()
@@ -40,12 +34,11 @@ std::string UrmaFailure296::GetFixSuggDesc() const
 
 std::string UrmaFailure296::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_grp，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_pjfr，Failed to import tjfr。";
 }
 
 std::string UrmaFailure296::GetId() const
 {
     return "urma_296";
 }
-
 } // namespace diag

@@ -1,29 +1,26 @@
 #include "urma_failure_378.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure378> g_urma("urma_378");
 
-bool UrmaFailure378::IsValid()
+bool UrmaFailure378::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_alloc_jfc, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("post_send_check_jfs_wr_valid") != std::string::npos &&
+           message.find("when set faa_wr, either src or dst is NULL.") != std::string::npos;
 }
 
 std::string UrmaFailure378::GetName() const
 {
-    return "ioctl相关临时结构或命令参数分配失败";
+    return "JFS、工作请求、valid状态不满足要求导致投递JFS、工作请求、valid失败";
 }
 
 std::string UrmaFailure378::GetRootCauseDesc() const
 {
-    return "函数在分配ioctl前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "post_send_check_jfs_wr_"
+           "valid执行投递JFS、工作请求、valid时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure378::AnalyzeRootCause()
@@ -38,13 +35,12 @@ std::string UrmaFailure378::GetFixSuggDesc() const
 
 std::string UrmaFailure378::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jfc，ioctl failed in urma_cmd_alloc_jfc, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：post_send_check_jfs_wr_valid，when set faa_wr, either src or dst is "
+           "NULL.。";
 }
 
 std::string UrmaFailure378::GetId() const
 {
     return "urma_378";
 }
-
 } // namespace diag

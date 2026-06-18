@@ -1,29 +1,25 @@
 #include "urma_failure_553.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure553> g_urma("urma_553");
 
-bool UrmaFailure553::IsValid()
+bool UrmaFailure553::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'post_send_check_valid' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Try to call post_send api by invalid comp_type:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jetty_batch") != std::string::npos &&
+           message.find("bad jetty index exceed array length, bad_jetty_index:") != std::string::npos;
 }
 
 std::string UrmaFailure553::GetName() const
 {
-    return "WR对象无效导致投递组件失败";
+    return "Jetty状态不满足要求导致删除Jetty失败";
 }
 
 std::string UrmaFailure553::GetRootCauseDesc() const
 {
-    return "函数用于投递组件，调用方传入的WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_delete_jetty_batch执行删除Jetty时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure553::AnalyzeRootCause()
@@ -38,13 +34,13 @@ std::string UrmaFailure553::GetFixSuggDesc() const
 
 std::string UrmaFailure553::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：post_send_check_valid，Try to call post_send api by invalid "
-           "comp_type:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty_batch，bad jetty index exceed array length, "
+           "bad_jetty_in"
+           "dex:。";
 }
 
 std::string UrmaFailure553::GetId() const
 {
     return "urma_553";
 }
-
 } // namespace diag

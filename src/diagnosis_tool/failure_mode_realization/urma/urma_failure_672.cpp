@@ -1,30 +1,26 @@
 #include "urma_failure_672.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure672> g_urma("urma_672");
 
-bool UrmaFailure672::IsValid()
+bool UrmaFailure672::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'jfr still actived, please deactived first'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_user_ctl_set_bonding_mode_legacy") != std::string::npos &&
+           message.find("Invalid aggr mode:") != std::string::npos;
 }
 
 std::string UrmaFailure672::GetName() const
 {
-    return "释放JFR过程中依赖步骤失败";
+    return "USER、CTL、bonding状态不满足要求导致设置USER、CTL、bonding失败";
 }
 
 std::string UrmaFailure672::GetRootCauseDesc() const
 {
-    return "函数用于释放JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "bondp_user_ctl_set_bonding_mode_"
+           "legacy执行设置USER、CTL、bonding时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure672::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure672::GetFixSuggDesc() const
 
 std::string UrmaFailure672::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfr，jfr still actived, please deactived first。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_user_ctl_set_bonding_mode_legacy，Invalid aggr mode:。";
 }
 
 std::string UrmaFailure672::GetId() const
 {
     return "urma_672";
 }
-
 } // namespace diag

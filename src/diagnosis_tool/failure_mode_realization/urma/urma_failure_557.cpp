@@ -1,30 +1,26 @@
 #include "urma_failure_557.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure557> g_urma("urma_557");
 
-bool UrmaFailure557::IsValid()
+bool UrmaFailure557::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_and_store' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to convert jfs wr'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_deactive_jetty") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure557::GetName() const
 {
-    return "JFS数据通路处理失败";
+    return "Jetty、URMA context、dev_fd无效导致去激活Jetty失败";
 }
 
 std::string UrmaFailure557::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_cmd_deactive_jetty用于去激活Jetty，调用方传入的Jetty、URMA "
+           "context、dev_fd不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure557::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure557::GetFixSuggDesc() const
 
 std::string UrmaFailure557::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_and_store，Failed to convert jfs wr。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_deactive_jetty，Invalid parameter。";
 }
 
 std::string UrmaFailure557::GetId() const
 {
     return "urma_557";
 }
-
 } // namespace diag

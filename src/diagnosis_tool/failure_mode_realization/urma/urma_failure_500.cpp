@@ -1,30 +1,27 @@
 #include "urma_failure_500.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure500> g_urma("urma_500");
 
-bool UrmaFailure500::IsValid()
+bool UrmaFailure500::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_eid' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to query eid.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_del_jfs_p_vjetty_info_without_lock") != std::string::npos &&
+           message.find("Failed to delete p_vjfs_id node[") != std::string::npos &&
+           message.find("]: ret:") != std::string::npos && message.find("pjfs_id:") != std::string::npos;
 }
 
 std::string UrmaFailure500::GetName() const
 {
-    return "查询EID过程中依赖步骤失败";
+    return "下层资源删除失败导致delDEL、JFS、vjetty失败";
 }
 
 std::string UrmaFailure500::GetRootCauseDesc() const
 {
-    return "函数用于查询EID，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "bondp_del_jfs_p_vjetty_info_without_"
+           "lock清理DEL、JFS、vjetty时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure500::AnalyzeRootCause()
@@ -39,12 +36,13 @@ std::string UrmaFailure500::GetFixSuggDesc() const
 
 std::string UrmaFailure500::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_eid，Failed to query eid.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info_without_lock，Failed to delete p_vjfs_id "
+           "node[，]: "
+           "ret:，pjfs_id:。";
 }
 
 std::string UrmaFailure500::GetId() const
 {
     return "urma_500";
 }
-
 } // namespace diag

@@ -1,29 +1,25 @@
 #include "urma_failure_049.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure049> g_urma("urma_049");
 
-bool UrmaFailure049::IsValid()
+bool UrmaFailure049::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_uninit' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_start_perf") != std::string::npos &&
+           message.find("Urma perf failed to initialize performance record context") != std::string::npos;
 }
 
 std::string UrmaFailure049::GetName() const
 {
-    return "执行URMA资源所需输入对象无效导致释放设备失败";
+    return "startstart、PERF执行失败导致startstart、PERF失败";
 }
 
 std::string UrmaFailure049::GetRootCauseDesc() const
 {
-    return "函数用于释放设备，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_start_perf执行startstart、PERF时依赖的startstart、PERF步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure049::AnalyzeRootCause()
@@ -38,12 +34,12 @@ std::string UrmaFailure049::GetFixSuggDesc() const
 
 std::string UrmaFailure049::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_uninit，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_start_perf，Urma perf failed to initialize performance record "
+           "context。";
 }
 
 std::string UrmaFailure049::GetId() const
 {
     return "urma_049";
 }
-
 } // namespace diag

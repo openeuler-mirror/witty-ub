@@ -1,29 +1,26 @@
 #include "urma_failure_320.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure320> g_urma("urma_320");
 
-bool UrmaFailure320::IsValid()
+bool UrmaFailure320::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_post_jetty_recv_wr' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("import_pseg") != std::string::npos &&
+           message.find("Failed to import seg (") != std::string::npos && message.find(",") != std::string::npos &&
+           message.find(")") != std::string::npos;
 }
 
 std::string UrmaFailure320::GetName() const
 {
-    return "Jetty对象、WR对象无效导致投递Jetty失败";
+    return "下层注册或导入返回失败导致导入PSEG失败";
 }
 
 std::string UrmaFailure320::GetRootCauseDesc() const
 {
-    return "函数用于投递Jetty，调用方传入的Jetty对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "import_pseg在导入PSEG时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure320::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure320::GetFixSuggDesc() const
 
 std::string UrmaFailure320::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_post_jetty_recv_wr，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：import_pseg，Failed to import seg (，,，)。";
 }
 
 std::string UrmaFailure320::GetId() const
 {
     return "urma_320";
 }
-
 } // namespace diag

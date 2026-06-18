@@ -1,29 +1,25 @@
 #include "urma_failure_055.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure055> g_urma("urma_055");
 
-bool UrmaFailure055::IsValid()
+bool UrmaFailure055::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create bondp comp'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_jetty") != std::string::npos &&
+           message.find("RM jetty import requires drv_ext.vjetty.") != std::string::npos;
 }
 
 std::string UrmaFailure055::GetName() const
 {
-    return "组件创建时下层资源准备失败";
+    return "Jetty状态不满足要求导致导入Jetty失败";
 }
 
 std::string UrmaFailure055::GetRootCauseDesc() const
 {
-    return "函数负责创建组件，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_import_jetty执行导入Jetty时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure055::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure055::GetFixSuggDesc() const
 
 std::string UrmaFailure055::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info，Failed to create bondp comp。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_jetty，RM jetty import requires drv_ext.vjetty.。";
 }
 
 std::string UrmaFailure055::GetId() const
 {
     return "urma_055";
 }
-
 } // namespace diag

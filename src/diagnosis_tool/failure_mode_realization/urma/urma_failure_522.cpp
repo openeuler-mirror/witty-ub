@@ -1,29 +1,26 @@
 #include "urma_failure_522.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure522> g_urma("urma_522");
 
-bool UrmaFailure522::IsValid()
+bool UrmaFailure522::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'import_pseg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to import seg ('");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfs") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure522::GetName() const
 {
-    return "Segment导入时下层资源准备失败";
+    return "JFS、URMA context、dev_fd无效导致删除JFS失败";
 }
 
 std::string UrmaFailure522::GetRootCauseDesc() const
 {
-    return "函数负责导入Segment，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_cmd_delete_jfs用于删除JFS，调用方传入的JFS、URMA "
+           "context、dev_fd不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure522::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure522::GetFixSuggDesc() const
 
 std::string UrmaFailure522::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：import_pseg，Failed to import seg (。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs，Invalid parameter。";
 }
 
 std::string UrmaFailure522::GetId() const
 {
     return "urma_522";
 }
-
 } // namespace diag

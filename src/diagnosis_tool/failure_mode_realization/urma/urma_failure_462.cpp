@@ -1,30 +1,25 @@
 #include "urma_failure_462.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure462> g_urma("urma_462");
 
-bool UrmaFailure462::IsValid()
+bool UrmaFailure462::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_jfr_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to exec ops->get_jfr_opt.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jfc_opt") != std::string::npos &&
+           message.find("Failed to exec ops->set_jfc_opt.") != std::string::npos;
 }
 
 std::string UrmaFailure462::GetName() const
 {
-    return "获取JFR过程中依赖步骤失败";
+    return "设置JFC执行失败导致设置JFC失败";
 }
 
 std::string UrmaFailure462::GetRootCauseDesc() const
 {
-    return "函数用于获取JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "urma_set_jfc_opt执行设置JFC时依赖的设置JFC步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure462::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure462::GetFixSuggDesc() const
 
 std::string UrmaFailure462::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_jfr_opt，Failed to exec ops->get_jfr_opt.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfc_opt，Failed to exec ops->set_jfc_opt.。";
 }
 
 std::string UrmaFailure462::GetId() const
 {
     return "urma_462";
 }
-
 } // namespace diag

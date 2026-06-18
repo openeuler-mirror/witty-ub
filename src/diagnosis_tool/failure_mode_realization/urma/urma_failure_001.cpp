@@ -1,11 +1,11 @@
 #include "urma_failure_001.h"
+
 #include "../../failure_mode_factory.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure001> g_urma("urma_001");
 
-bool UrmaFailure001::IsValid()
+bool UrmaFailure001::IsValid(const std::vector<std::string> &fields)
 {
     return true;
 }
@@ -39,5 +39,4 @@ std::string UrmaFailure001::GetId() const
 {
     return "urma_001";
 }
-
 } // namespace diag

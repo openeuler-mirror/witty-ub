@@ -1,29 +1,26 @@
 #include "urma_failure_609.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure609> g_urma("urma_609");
 
-bool UrmaFailure609::IsValid()
+bool UrmaFailure609::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to delete pjfr'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_create_context") != std::string::npos &&
+           message.find("Failed to query eid.") != std::string::npos;
 }
 
 std::string UrmaFailure609::GetName() const
 {
-    return "物理 JFR清理阶段下层释放操作失败";
+    return "下层查询返回失败导致创建context失败";
 }
 
 std::string UrmaFailure609::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销物理 JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_cmd_create_"
+           "context需要从provider、驱动或缓存中获取context状态，查询结果失败会导致调用方无法取得有效信息。";
 }
 
 RootCause UrmaFailure609::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure609::GetFixSuggDesc() const
 
 std::string UrmaFailure609::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfr，Failed to delete pjfr。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_context，Failed to query eid.。";
 }
 
 std::string UrmaFailure609::GetId() const
 {
     return "urma_609";
 }
-
 } // namespace diag

@@ -1,29 +1,25 @@
 #include "urma_failure_443.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure443> g_urma("urma_443");
 
-bool UrmaFailure443::IsValid()
+bool UrmaFailure443::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_net_addr_list' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jfc") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure443::GetName() const
 {
-    return "URMA context无效导致获取ioctl失败";
+    return "URMA context、JFC配置无效导致创建JFC失败";
 }
 
 std::string UrmaFailure443::GetRootCauseDesc() const
 {
-    return "函数用于获取ioctl，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_create_jfc用于创建JFC，调用方传入的URMA context、JFC配置不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure443::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure443::GetFixSuggDesc() const
 
 std::string UrmaFailure443::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_net_addr_list，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jfc，Invalid parameter.。";
 }
 
 std::string UrmaFailure443::GetId() const
 {
     return "urma_443";
 }
-
 } // namespace diag

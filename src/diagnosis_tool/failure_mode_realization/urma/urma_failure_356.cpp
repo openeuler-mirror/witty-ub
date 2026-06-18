@@ -1,29 +1,25 @@
 #include "urma_failure_356.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure356> g_urma("urma_356");
 
-bool UrmaFailure356::IsValid()
+bool UrmaFailure356::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'update_mapping_hash_table' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Failed to create eid_mapping_hash_table'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_vjfce") != std::string::npos &&
+           message.find("Fail to create epoll_fd for vjfce.") != std::string::npos;
 }
 
 std::string UrmaFailure356::GetName() const
 {
-    return "EID创建时下层资源准备失败";
+    return "epoll文件描述符创建或注册失败导致创建虚拟JFCE失败";
 }
 
 std::string UrmaFailure356::GetRootCauseDesc() const
 {
-    return "函数负责创建EID，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_create_vjfce需要将URMA事件fd纳入epoll管理，系统调用失败会导致完成事件无法被统一监听。";
 }
 
 RootCause UrmaFailure356::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure356::GetFixSuggDesc() const
 
 std::string UrmaFailure356::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：update_mapping_hash_table，Failed to create eid_mapping_hash_table。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vjfce，Fail to create epoll_fd for vjfce.。";
 }
 
 std::string UrmaFailure356::GetId() const
 {
     return "urma_356";
 }
-
 } // namespace diag

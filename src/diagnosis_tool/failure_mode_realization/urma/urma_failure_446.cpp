@@ -1,29 +1,25 @@
 #include "urma_failure_446.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure446> g_urma("urma_446");
 
-bool UrmaFailure446::IsValid()
+bool UrmaFailure446::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_ip_by_eid' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_modify_jfc") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure446::GetName() const
 {
-    return "URMA context无效导致获取EID失败";
+    return "JFC、属性参数无效导致修改JFC失败";
 }
 
 std::string UrmaFailure446::GetRootCauseDesc() const
 {
-    return "函数用于获取EID，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_modify_jfc用于修改JFC，调用方传入的JFC、属性参数不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure446::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure446::GetFixSuggDesc() const
 
 std::string UrmaFailure446::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_ip_by_eid，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_modify_jfc，Invalid parameter.。";
 }
 
 std::string UrmaFailure446::GetId() const
 {
     return "urma_446";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_708.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure708> g_urma("urma_708");
 
-bool UrmaFailure708::IsValid()
+bool UrmaFailure708::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_deactive_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_deactive_jfr, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jfs_opt") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure708::GetName() const
 {
-    return "去激活ioctl的ioctl调用返回失败";
+    return "JFS、缓冲区、len无效导致设置JFS失败";
 }
 
 std::string UrmaFailure708::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交去激活ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结"
-           "果。";
+    return "urma_set_jfs_opt用于设置JFS，调用方传入的JFS、缓冲区、len不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure708::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure708::GetFixSuggDesc() const
 
 std::string UrmaFailure708::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_deactive_jfr，ioctl failed in urma_cmd_deactive_jfr, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfs_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure708::GetId() const
 {
     return "urma_708";
 }
-
 } // namespace diag

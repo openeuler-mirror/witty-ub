@@ -1,30 +1,26 @@
 #include "urma_failure_253.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure253> g_urma("urma_253");
 
-bool UrmaFailure253::IsValid()
+bool UrmaFailure253::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_async' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not "
-        "allowed to bind local jetty:' | grep -F ', with remote jetty:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jetty") != std::string::npos &&
+           message.find("[DRV_ERR]create_jetty failed, dev_name:") != std::string::npos &&
+           message.find(", eid_idx:") != std::string::npos;
 }
 
 std::string UrmaFailure253::GetName() const
 {
-    return "绑定Jetty过程中依赖步骤失败";
+    return "下层资源创建失败导致创建Jetty失败";
 }
 
 std::string UrmaFailure253::GetRootCauseDesc() const
 {
-    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_create_jetty在创建Jetty过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure253::AnalyzeRootCause()
@@ -39,13 +35,12 @@ std::string UrmaFailure253::GetFixSuggDesc() const
 
 std::string UrmaFailure253::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_async，Not allowed to bind local jetty:，, with remote "
-           "jetty:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty，[DRV_ERR]create_jetty failed, dev_name:，, "
+           "eid_idx:。";
 }
 
 std::string UrmaFailure253::GetId() const
 {
     return "urma_253";
 }
-
 } // namespace diag

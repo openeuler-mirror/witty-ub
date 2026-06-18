@@ -1,30 +1,25 @@
 #include "urma_failure_705.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure705> g_urma("urma_705");
 
-bool UrmaFailure705::IsValid()
+bool UrmaFailure705::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_deactive_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_active_jfc, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_wait_notify") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure705::GetName() const
 {
-    return "激活ioctl的ioctl调用返回失败";
+    return "ret无效导致WAIT、notify失败";
 }
 
 std::string UrmaFailure705::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交激活ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "urma_cmd_wait_notify用于WAIT、notify，调用方传入的ret不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure705::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure705::GetFixSuggDesc() const
 
 std::string UrmaFailure705::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_deactive_jfc，ioctl failed in urma_cmd_active_jfc, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_wait_notify，Invalid parameter。";
 }
 
 std::string UrmaFailure705::GetId() const
 {
     return "urma_705";
 }
-
 } // namespace diag

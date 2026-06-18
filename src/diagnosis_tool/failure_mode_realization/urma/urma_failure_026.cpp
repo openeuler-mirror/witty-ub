@@ -1,29 +1,25 @@
 #include "urma_failure_026.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure026> g_urma("urma_026");
 
-bool UrmaFailure026::IsValid()
+bool UrmaFailure026::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_uninit' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to delete global context.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_uninit") != std::string::npos &&
+           message.find("Failed to delete global context.") != std::string::npos;
 }
 
 std::string UrmaFailure026::GetName() const
 {
-    return "context清理阶段下层释放操作失败";
+    return "下层资源删除失败导致uninituninit失败";
 }
 
 std::string UrmaFailure026::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销context相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "bondp_uninit清理uninit时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure026::AnalyzeRootCause()
@@ -45,5 +41,4 @@ std::string UrmaFailure026::GetId() const
 {
     return "urma_026";
 }
-
 } // namespace diag

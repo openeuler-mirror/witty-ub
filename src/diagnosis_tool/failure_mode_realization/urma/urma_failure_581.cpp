@@ -1,29 +1,25 @@
 #include "urma_failure_581.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure581> g_urma("urma_581");
 
-bool UrmaFailure581::IsValid()
+bool UrmaFailure581::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_write' \"$URMA_LOG_PATH\" 2>/dev/null "
-                                    "| grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jfr_batch") != std::string::npos &&
+           message.find("Failed to delete jfr batch.") != std::string::npos;
 }
 
 std::string UrmaFailure581::GetName() const
 {
-    return "JFS对象无效导致获取JFS失败";
+    return "下层资源删除失败导致删除JFR失败";
 }
 
 std::string UrmaFailure581::GetRootCauseDesc() const
 {
-    return "函数用于获取JFS，调用方传入的JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_delete_jfr_batch清理JFR时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure581::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure581::GetFixSuggDesc() const
 
 std::string UrmaFailure581::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_write，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr_batch，Failed to delete jfr batch.。";
 }
 
 std::string UrmaFailure581::GetId() const
 {
     return "urma_581";
 }
-
 } // namespace diag

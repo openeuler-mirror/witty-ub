@@ -1,30 +1,25 @@
 #include "urma_failure_404.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure404> g_urma("urma_404");
 
-bool UrmaFailure404::IsValid()
+bool UrmaFailure404::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jfr' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'jfr cfg out "
-        "of range, depth:' | grep -F ', max_depth:' | grep -F ', sge:' | grep -F ', max_sge:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_health_check_ctx") != std::string::npos &&
+           message.find("Failed to add ctx async fd to health epoll, errno:") != std::string::npos;
 }
 
 std::string UrmaFailure404::GetName() const
 {
-    return "分配JFR过程中依赖步骤失败";
+    return "epoll文件描述符创建或注册失败导致创建health、context失败";
 }
 
 std::string UrmaFailure404::GetRootCauseDesc() const
 {
-    return "函数用于分配JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "bondp_create_health_check_ctx需要将URMA事件fd纳入epoll管理，系统调用失败会导致完成事件无法被统一监听。";
 }
 
 RootCause UrmaFailure404::AnalyzeRootCause()
@@ -39,13 +34,13 @@ std::string UrmaFailure404::GetFixSuggDesc() const
 
 std::string UrmaFailure404::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jfr，jfr cfg out of range, depth:，, max_depth:，, sge:，, "
-           "max_sge:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_health_check_ctx，Failed to add ctx async fd to health "
+           "epoll, err"
+           "no:。";
 }
 
 std::string UrmaFailure404::GetId() const
 {
     return "urma_404";
 }
-
 } // namespace diag

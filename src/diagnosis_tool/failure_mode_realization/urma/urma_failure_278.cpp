@@ -1,30 +1,25 @@
 #include "urma_failure_278.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure278> g_urma("urma_278");
 
-bool UrmaFailure278::IsValid()
+bool UrmaFailure278::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_open_drivers") != std::string::npos &&
+           message.find("Failed to get dl addr:") != std::string::npos;
 }
 
 std::string UrmaFailure278::GetName() const
 {
-    return "URMA context、provider操作表、Jetty对象无效导致激活Jetty失败";
+    return "下层查询返回失败导致打开drivers失败";
 }
 
 std::string UrmaFailure278::GetRootCauseDesc() const
 {
-    return "函数用于激活Jetty，调用方传入的URMA "
-           "context、provider操作表、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_open_drivers需要从provider、驱动或缓存中获取drivers状态，查询结果失败会导致调用方无法取得有效信息。";
 }
 
 RootCause UrmaFailure278::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure278::GetFixSuggDesc() const
 
 std::string UrmaFailure278::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_drivers，Failed to get dl addr:。";
 }
 
 std::string UrmaFailure278::GetId() const
 {
     return "urma_278";
 }
-
 } // namespace diag

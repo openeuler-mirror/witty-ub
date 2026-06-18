@@ -1,30 +1,25 @@
 #include "urma_failure_101.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure101> g_urma("urma_101");
 
-bool UrmaFailure101::IsValid()
+bool UrmaFailure101::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_flush_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to flush pjetty['");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jetty") != std::string::npos &&
+           message.find("Failed to delete jetty because it has remote jetty, try unbind first") != std::string::npos;
 }
 
 std::string UrmaFailure101::GetName() const
 {
-    return "物理 Jetty数据通路处理失败";
+    return "下层资源删除失败导致删除Jetty失败";
 }
 
 std::string UrmaFailure101::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_delete_jetty清理Jetty时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure101::AnalyzeRootCause()
@@ -39,12 +34,13 @@ std::string UrmaFailure101::GetFixSuggDesc() const
 
 std::string UrmaFailure101::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_flush_jetty，Failed to flush pjetty[。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty，Failed to delete jetty because it has remote jetty, "
+           "try unb"
+           "ind first。";
 }
 
 std::string UrmaFailure101::GetId() const
 {
     return "urma_101";
 }
-
 } // namespace diag

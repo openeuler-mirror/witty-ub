@@ -1,29 +1,27 @@
 #include "urma_failure_610.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure610> g_urma("urma_610");
 
-bool UrmaFailure610::IsValid()
+bool UrmaFailure610::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_vcontext' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to urma_cmd_delete_context'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_modify_jfs") != std::string::npos &&
+           message.find("ioctl failed in urma_cmd_modify_jfs, ret:") != std::string::npos &&
+           message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure610::GetName() const
 {
-    return "context清理阶段下层释放操作失败";
+    return "修改JFS ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure610::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销context相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_cmd_modify_"
+           "jfs通过ioctl向驱动提交修改JFS命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure610::AnalyzeRootCause()
@@ -38,12 +36,12 @@ std::string UrmaFailure610::GetFixSuggDesc() const
 
 std::string UrmaFailure610::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_vcontext，Failed to urma_cmd_delete_context。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_modify_jfs，ioctl failed in urma_cmd_modify_jfs, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure610::GetId() const
 {
     return "urma_610";
 }
-
 } // namespace diag

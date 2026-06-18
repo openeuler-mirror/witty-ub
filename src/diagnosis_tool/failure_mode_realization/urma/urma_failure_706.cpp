@@ -1,30 +1,25 @@
 #include "urma_failure_706.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure706> g_urma("urma_706");
 
-bool UrmaFailure706::IsValid()
+bool UrmaFailure706::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_jfr_opt' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_set_jfr_opt, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_check_opt_valid") != std::string::npos &&
+           message.find("invalid opt len") != std::string::npos;
 }
 
 std::string UrmaFailure706::GetName() const
 {
-    return "设置ioctl的ioctl调用返回失败";
+    return "valid状态不满足要求导致校验valid失败";
 }
 
 std::string UrmaFailure706::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交设置ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "urma_check_opt_valid执行校验valid时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure706::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure706::GetFixSuggDesc() const
 
 std::string UrmaFailure706::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jfr_opt，ioctl failed in urma_cmd_set_jfr_opt, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_opt_valid，invalid opt len。";
 }
 
 std::string UrmaFailure706::GetId() const
 {
     return "urma_706";
 }
-
 } // namespace diag

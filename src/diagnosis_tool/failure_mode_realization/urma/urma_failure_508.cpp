@@ -1,29 +1,25 @@
 #include "urma_failure_508.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure508> g_urma("urma_508");
 
-bool UrmaFailure508::IsValid()
+bool UrmaFailure508::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'RM jfr import requires drv_ext.vjfs'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_jfr") != std::string::npos &&
+           message.find("Failed to delete pjfr") != std::string::npos;
 }
 
 std::string UrmaFailure508::GetName() const
 {
-    return "JFR导入时下层资源准备失败";
+    return "下层资源删除失败导致删除JFR失败";
 }
 
 std::string UrmaFailure508::GetRootCauseDesc() const
 {
-    return "函数负责导入JFR，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_delete_jfr清理JFR时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure508::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure508::GetFixSuggDesc() const
 
 std::string UrmaFailure508::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pjfr，RM jfr import requires drv_ext.vjfs。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfr，Failed to delete pjfr。";
 }
 
 std::string UrmaFailure508::GetId() const
 {
     return "urma_508";
 }
-
 } // namespace diag

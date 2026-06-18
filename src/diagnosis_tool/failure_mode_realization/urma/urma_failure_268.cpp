@@ -1,29 +1,27 @@
 #include "urma_failure_268.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure268> g_urma("urma_268");
 
-bool UrmaFailure268::IsValid()
+bool UrmaFailure268::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to exec urma_delete_jetty_to_jetty_grp.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_net_addr_list") != std::string::npos &&
+           message.find("Failed to get netaddr list, ret:") != std::string::npos &&
+           message.find(", max_netaddr_cnt:") != std::string::npos;
 }
 
 std::string UrmaFailure268::GetName() const
 {
-    return "Jetty清理阶段下层释放操作失败";
+    return "下层查询返回失败导致获取NET、ADDR、列表失败";
 }
 
 std::string UrmaFailure268::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_get_net_addr_"
+           "list需要从provider、驱动或缓存中获取NET、ADDR、列表状态，查询结果失败会导致调用方无法取得有效信息。";
 }
 
 RootCause UrmaFailure268::AnalyzeRootCause()
@@ -38,12 +36,12 @@ std::string UrmaFailure268::GetFixSuggDesc() const
 
 std::string UrmaFailure268::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jetty_opt，Failed to exec urma_delete_jetty_to_jetty_grp.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_net_addr_list，Failed to get netaddr list, ret:，, "
+           "max_netaddr_cnt:。";
 }
 
 std::string UrmaFailure268::GetId() const
 {
     return "urma_268";
 }
-
 } // namespace diag

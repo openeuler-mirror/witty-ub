@@ -1,30 +1,25 @@
 #include "urma_failure_005.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure005> g_urma("urma_005");
 
-bool UrmaFailure005::IsValid()
+bool UrmaFailure005::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init active indices'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jfs") != std::string::npos &&
+           message.find("Failed to init active indices") != std::string::npos;
 }
 
 std::string UrmaFailure005::GetName() const
 {
-    return "初始化JFS过程中依赖步骤失败";
+    return "创建JFS执行失败导致创建JFS失败";
 }
 
 std::string UrmaFailure005::GetRootCauseDesc() const
 {
-    return "函数用于初始化JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "bondp_create_jfs创建JFS时初始化端口索引或WR缓冲区失败，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure005::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure005::GetFixSuggDesc() const
 
 std::string UrmaFailure005::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info，Failed to init active indices。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jfs，Failed to init active indices。";
 }
 
 std::string UrmaFailure005::GetId() const
 {
     return "urma_005";
 }
-
 } // namespace diag

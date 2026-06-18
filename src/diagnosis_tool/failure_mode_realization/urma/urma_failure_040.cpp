@@ -1,30 +1,26 @@
 #include "urma_failure_040.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure040> g_urma("urma_040");
 
-bool UrmaFailure040::IsValid()
+bool UrmaFailure040::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_close_provider' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'close failed, err:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_close_provider") != std::string::npos &&
+           message.find("close failed, err:") != std::string::npos;
 }
 
 std::string UrmaFailure040::GetName() const
 {
-    return "执行URMA资源过程中依赖步骤失败";
+    return "closeclose、provider执行失败导致closeclose、provider失败";
 }
 
 std::string UrmaFailure040::GetRootCauseDesc() const
 {
-    return "函数用于执行URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
-           "A操作失败。";
+    return "urma_close_"
+           "provider执行closeclose、provider时依赖的closeclose、provider步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure040::AnalyzeRootCause()
@@ -46,5 +42,4 @@ std::string UrmaFailure040::GetId() const
 {
     return "urma_040";
 }
-
 } // namespace diag

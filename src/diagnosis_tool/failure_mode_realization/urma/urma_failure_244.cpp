@@ -1,30 +1,25 @@
 #include "urma_failure_244.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure244> g_urma("urma_244");
 
-bool UrmaFailure244::IsValid()
+bool UrmaFailure244::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unadvise_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_jfs_opt") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure244::GetName() const
 {
-    return "URMA context、设备对象、provider操作表、Jetty对象、目标Jetty对象无效导致执行Jetty失败";
+    return "JFS无效导致获取JFS失败";
 }
 
 std::string UrmaFailure244::GetRootCauseDesc() const
 {
-    return "函数用于执行Jetty，调用方传入的URMA "
-           "context、设备对象、provider操作表、Jetty对象、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_get_jfs_opt用于获取JFS，调用方传入的JFS不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure244::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure244::GetFixSuggDesc() const
 
 std::string UrmaFailure244::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unadvise_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_jfs_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure244::GetId() const
 {
     return "urma_244";
 }
-
 } // namespace diag

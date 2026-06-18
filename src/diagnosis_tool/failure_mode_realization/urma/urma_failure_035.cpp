@@ -1,29 +1,25 @@
 #include "urma_failure_035.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure035> g_urma("urma_035");
 
-bool UrmaFailure035::IsValid()
+bool UrmaFailure035::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bdp_slide_wnd_uninit' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid param wnd'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bdp_slide_wnd_uninit") != std::string::npos &&
+           message.find("Invalid param wnd") != std::string::npos;
 }
 
 std::string UrmaFailure035::GetName() const
 {
-    return "执行URMA资源所需输入对象无效导致释放URMA资源失败";
+    return "BDP、slide、WND状态不满足要求导致bdpBDP、slide、WND失败";
 }
 
 std::string UrmaFailure035::GetRootCauseDesc() const
 {
-    return "函数用于释放URMA资源，调用方传入的执行URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bdp_slide_wnd_uninit执行bdpBDP、slide、WND时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure035::AnalyzeRootCause()
@@ -45,5 +41,4 @@ std::string UrmaFailure035::GetId() const
 {
     return "urma_035";
 }
-
 } // namespace diag

@@ -1,29 +1,26 @@
 #include "urma_failure_695.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure695> g_urma("urma_695");
 
-bool UrmaFailure695::IsValid()
+bool UrmaFailure695::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'set_fd_noblock' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'flags:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_active_jfr") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure695::GetName() const
 {
-    return "设置文件描述符过程中依赖步骤失败";
+    return "JFR、URMA context、dev_fd无效导致激活JFR失败";
 }
 
 std::string UrmaFailure695::GetRootCauseDesc() const
 {
-    return "函数用于设置文件描述符，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
-           "RMA操作失败。";
+    return "urma_cmd_active_jfr用于激活JFR，调用方传入的JFR、URMA "
+           "context、dev_fd不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure695::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure695::GetFixSuggDesc() const
 
 std::string UrmaFailure695::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：set_fd_noblock，flags:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_active_jfr，Invalid parameter。";
 }
 
 std::string UrmaFailure695::GetId() const
 {
     return "urma_695";
 }
-
 } // namespace diag

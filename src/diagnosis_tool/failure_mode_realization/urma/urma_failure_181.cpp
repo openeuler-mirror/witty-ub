@@ -1,30 +1,26 @@
 #include "urma_failure_181.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure181> g_urma("urma_181");
 
-bool UrmaFailure181::IsValid()
+bool UrmaFailure181::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_create_jetty_grp") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure181::GetName() const
 {
-    return "URMA context、provider操作表、provider未提供unimport_jfr操作实现无效导致解除导入JFR失败";
+    return "URMA context、dev_fd、jetty_grp、配置参数无效导致创建Jetty组失败";
 }
 
 std::string UrmaFailure181::GetRootCauseDesc() const
 {
-    return "函数用于解除导入JFR，调用方传入的URMA "
-           "context、provider操作表、provider未提供unimport_jfr操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_create_jetty_grp用于创建Jetty组，调用方传入的URMA "
+           "context、dev_fd、jetty_grp、配置参数不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure181::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure181::GetFixSuggDesc() const
 
 std::string UrmaFailure181::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_jfr，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jetty_grp，Invalid parameter。";
 }
 
 std::string UrmaFailure181::GetId() const
 {
     return "urma_181";
 }
-
 } // namespace diag

@@ -1,30 +1,27 @@
 #include "urma_failure_535.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure535> g_urma("urma_535");
 
-bool UrmaFailure535::IsValid()
+bool UrmaFailure535::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_seg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfr") != std::string::npos &&
+           message.find("ioctl failed in urma_cmd_delete_jfr, ret:") != std::string::npos &&
+           message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure535::GetName() const
 {
-    return "URMA context、provider操作表无效导致解除导入Segment失败";
+    return "删除JFR ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure535::GetRootCauseDesc() const
 {
-    return "函数用于解除导入Segment，调用方传入的URMA "
-           "context、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_delete_"
+           "jfr通过ioctl向驱动提交删除JFR命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure535::AnalyzeRootCause()
@@ -39,12 +36,12 @@ std::string UrmaFailure535::GetFixSuggDesc() const
 
 std::string UrmaFailure535::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_seg，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfr，ioctl failed in urma_cmd_delete_jfr, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure535::GetId() const
 {
     return "urma_535";
 }
-
 } // namespace diag

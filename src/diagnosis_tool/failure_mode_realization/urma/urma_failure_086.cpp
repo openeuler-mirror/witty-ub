@@ -1,29 +1,26 @@
 #include "urma_failure_086.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure086> g_urma("urma_086");
 
-bool UrmaFailure086::IsValid()
+bool UrmaFailure086::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pjetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to import pjetty'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_unbind_jetty_async") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure086::GetName() const
 {
-    return "物理 Jetty导入时下层资源准备失败";
+    return "Jetty、URMA context、dev_fd、remote_jetty无效导致解绑Jetty失败";
 }
 
 std::string UrmaFailure086::GetRootCauseDesc() const
 {
-    return "函数负责导入物理 Jetty，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_cmd_unbind_jetty_async用于解绑Jetty，调用方传入的Jetty、URMA "
+           "context、dev_fd、remote_jetty不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure086::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure086::GetFixSuggDesc() const
 
 std::string UrmaFailure086::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pjetty，Failed to import pjetty。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_unbind_jetty_async，Invalid parameter。";
 }
 
 std::string UrmaFailure086::GetId() const
 {
     return "urma_086";
 }
-
 } // namespace diag

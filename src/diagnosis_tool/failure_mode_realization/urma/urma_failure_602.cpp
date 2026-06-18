@@ -1,29 +1,25 @@
 #include "urma_failure_602.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure602> g_urma("urma_602");
 
-bool UrmaFailure602::IsValid()
+bool UrmaFailure602::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pjfs' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to delete pjfs' | grep -F ', ret:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jetty_grp") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure602::GetName() const
 {
-    return "物理 JFS清理阶段下层释放操作失败";
+    return "jetty_grp无效导致删除Jetty组失败";
 }
 
 std::string UrmaFailure602::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销物理 JFS相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_delete_jetty_grp用于删除Jetty组，调用方传入的jetty_grp不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure602::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure602::GetFixSuggDesc() const
 
 std::string UrmaFailure602::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pjfs，Failed to delete pjfs，, ret:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_grp，Invalid parameter.。";
 }
 
 std::string UrmaFailure602::GetId() const
 {
     return "urma_602";
 }
-
 } // namespace diag

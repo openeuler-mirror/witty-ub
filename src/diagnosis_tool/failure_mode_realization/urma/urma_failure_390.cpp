@@ -1,30 +1,26 @@
 #include "urma_failure_390.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure390> g_urma("urma_390");
 
-bool UrmaFailure390::IsValid()
+bool UrmaFailure390::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'jfc cfg depth of range, depth:' | grep -F ', max_depth:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_post_recv_wr_and_store") != std::string::npos &&
+           message.find("Failed to post recv wr") != std::string::npos;
 }
 
 std::string UrmaFailure390::GetName() const
 {
-    return "分配JFC过程中依赖步骤失败";
+    return "数据通路操作返回失败导致投递工作请求、AND、store失败";
 }
 
 std::string UrmaFailure390::GetRootCauseDesc() const
 {
-    return "函数用于分配JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "bondp_post_recv_wr_and_"
+           "store执行数据收发相关操作时，下层队列、完成队列或provider返回错误，导致请求无法正常提交或回收。";
 }
 
 RootCause UrmaFailure390::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure390::GetFixSuggDesc() const
 
 std::string UrmaFailure390::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jfc，jfc cfg depth of range, depth:，, max_depth:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_and_store，Failed to post recv wr。";
 }
 
 std::string UrmaFailure390::GetId() const
 {
     return "urma_390";
 }
-
 } // namespace diag

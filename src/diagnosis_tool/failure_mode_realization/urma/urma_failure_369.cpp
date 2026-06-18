@@ -1,29 +1,25 @@
 #include "urma_failure_369.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure369> g_urma("urma_369");
 
-bool UrmaFailure369::IsValid()
+bool UrmaFailure369::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_jfc") != std::string::npos &&
+           message.find("Failed to delete pjfc") != std::string::npos;
 }
 
 std::string UrmaFailure369::GetName() const
 {
-    return "URMA context、JFR对象无效导致创建JFR失败";
+    return "下层资源删除失败导致删除JFC失败";
 }
 
 std::string UrmaFailure369::GetRootCauseDesc() const
 {
-    return "函数用于创建JFR，调用方传入的URMA context、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_delete_jfc清理JFC时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure369::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure369::GetFixSuggDesc() const
 
 std::string UrmaFailure369::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jfr，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfc，Failed to delete pjfc。";
 }
 
 std::string UrmaFailure369::GetId() const
 {
     return "urma_369";
 }
-
 } // namespace diag

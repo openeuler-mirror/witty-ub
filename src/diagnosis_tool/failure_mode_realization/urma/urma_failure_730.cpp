@@ -1,29 +1,26 @@
 #include "urma_failure_730.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure730> g_urma("urma_730");
 
-bool UrmaFailure730::IsValid()
+bool UrmaFailure730::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_ack_async_event' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_unadvise_jetty") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure730::GetName() const
 {
-    return "确认URMA资源所需输入对象无效导致确认URMA资源失败";
+    return "unadvise、Jetty无效导致unadviseunadvise、Jetty失败";
 }
 
 std::string UrmaFailure730::GetRootCauseDesc() const
 {
-    return "函数用于确认URMA资源，调用方传入的确认URMA资源所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_unadvise_"
+           "jetty用于unadviseunadvise、Jetty，调用方传入的unadvise、Jetty不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure730::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure730::GetFixSuggDesc() const
 
 std::string UrmaFailure730::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_ack_async_event，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unadvise_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure730::GetId() const
 {
     return "urma_730";
 }
-
 } // namespace diag

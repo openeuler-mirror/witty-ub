@@ -1,29 +1,26 @@
 #include "urma_failure_447.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure447> g_urma("urma_447");
 
-bool UrmaFailure447::IsValid()
+bool UrmaFailure447::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_smac' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_free_jfc") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure447::GetName() const
 {
-    return "URMA context无效导致获取context失败";
+    return "provider未提供modify_jfc操作实现无效导致释放JFC失败";
 }
 
 std::string UrmaFailure447::GetRootCauseDesc() const
 {
-    return "函数用于获取context，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_free_jfc用于释放JFC，调用方传入的provider未提供modify_"
+           "jfc操作实现不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure447::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure447::GetFixSuggDesc() const
 
 std::string UrmaFailure447::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_smac，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfc，Invalid parameter.。";
 }
 
 std::string UrmaFailure447::GetId() const
 {
     return "urma_447";
 }
-
 } // namespace diag

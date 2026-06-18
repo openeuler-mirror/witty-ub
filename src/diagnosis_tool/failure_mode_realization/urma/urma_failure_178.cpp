@@ -1,30 +1,26 @@
 #include "urma_failure_178.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure178> g_urma("urma_178");
 
-bool UrmaFailure178::IsValid()
+bool UrmaFailure178::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_tp_attr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed in ioctl get_tp_attr, ret:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_alloc_jfr") != std::string::npos &&
+           message.find("ioctl failed in urma_cmd_alloc_jfr, ret:") != std::string::npos &&
+           message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure178::GetName() const
 {
-    return "获取ioctl的ioctl调用返回失败";
+    return "JFR临时结构分配失败导致分配JFR失败";
 }
 
 std::string UrmaFailure178::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交获取ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "urma_cmd_alloc_jfr执行分配JFR前需要准备JFR临时结构，内存或资源分配失败会阻断后续URMA操作。";
 }
 
 RootCause UrmaFailure178::AnalyzeRootCause()
@@ -39,12 +35,12 @@ std::string UrmaFailure178::GetFixSuggDesc() const
 
 std::string UrmaFailure178::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_tp_attr，Failed in ioctl get_tp_attr, ret:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jfr，ioctl failed in urma_cmd_alloc_jfr, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure178::GetId() const
 {
     return "urma_178";
 }
-
 } // namespace diag

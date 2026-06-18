@@ -1,30 +1,25 @@
 #include "urma_failure_711.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure711> g_urma("urma_711");
 
-bool UrmaFailure711::IsValid()
+bool UrmaFailure711::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ioctl_wait_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'wait jfc ioctl failed, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jfs_opt") != std::string::npos &&
+           message.find("Failed to exec urma_jfr_set_options.") != std::string::npos;
 }
 
 std::string UrmaFailure711::GetName() const
 {
-    return "执行wait jfc驱动命令的ioctl调用返回失败";
+    return "设置JFS执行失败导致设置JFS失败";
 }
 
 std::string UrmaFailure711::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交执行wait "
-           "jfc驱动命令请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果。";
+    return "urma_set_jfs_opt执行设置JFS时依赖的设置JFS步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure711::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure711::GetFixSuggDesc() const
 
 std::string UrmaFailure711::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ioctl_wait_jfc，wait jfc ioctl failed, ret:，, errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfs_opt，Failed to exec urma_jfr_set_options.。";
 }
 
 std::string UrmaFailure711::GetId() const
 {
     return "urma_711";
 }
-
 } // namespace diag

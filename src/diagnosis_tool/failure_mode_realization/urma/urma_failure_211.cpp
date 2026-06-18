@@ -1,29 +1,26 @@
 #include "urma_failure_211.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure211> g_urma("urma_211");
 
-bool UrmaFailure211::IsValid()
+bool UrmaFailure211::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'[DRV_ERR]Failed to delete jetty, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', ret:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jetty_grp") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure211::GetName() const
 {
-    return "Jetty清理阶段下层释放操作失败";
+    return "provider未提供ack_notify操作实现无效导致创建Jetty组失败";
 }
 
 std::string UrmaFailure211::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_create_jetty_grp用于创建Jetty组，调用方传入的provider未提供ack_"
+           "notify操作实现不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure211::AnalyzeRootCause()
@@ -38,13 +35,11 @@ std::string UrmaFailure211::GetFixSuggDesc() const
 
 std::string UrmaFailure211::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty，[DRV_ERR]Failed to delete jetty, dev_name:，, "
-           "eid_idx:，, id:，, ret:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_grp，Invalid parameter.。";
 }
 
 std::string UrmaFailure211::GetId() const
 {
     return "urma_211";
 }
-
 } // namespace diag

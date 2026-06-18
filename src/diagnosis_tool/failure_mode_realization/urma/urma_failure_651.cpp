@@ -1,30 +1,26 @@
 #include "urma_failure_651.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure651> g_urma("urma_651");
 
-bool UrmaFailure651::IsValid()
+bool UrmaFailure651::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("read_eid_sysfs_with_index") != std::string::npos &&
+           message.find("Failed to read sysfs file") != std::string::npos;
 }
 
 std::string UrmaFailure651::GetName() const
 {
-    return "URMA context、provider操作表、provider未提供free_jfc操作实现无效导致释放JFC失败";
+    return "设备EID信息读取或解析失败导致读取EID、sysfs信息、WITH失败";
 }
 
 std::string UrmaFailure651::GetRootCauseDesc() const
 {
-    return "函数用于释放JFC，调用方传入的URMA "
-           "context、provider操作表、provider未提供free_jfc操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "read_eid_sysfs_with_"
+           "index需要从sysfs获取设备EID信息，路径不存在、内容读取失败或字段解析异常会导致设备信息不可用。";
 }
 
 RootCause UrmaFailure651::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure651::GetFixSuggDesc() const
 
 std::string UrmaFailure651::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfc，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_sysfs_with_index，Failed to read sysfs file。";
 }
 
 std::string UrmaFailure651::GetId() const
 {
     return "urma_651";
 }
-
 } // namespace diag
