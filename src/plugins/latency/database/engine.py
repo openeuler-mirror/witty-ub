@@ -192,6 +192,18 @@ table_ddl_list = {
             failure_mode TEXT
         )
     """,
+    "trace_failure_event_table_idx_log_id": """
+        CREATE INDEX IF NOT EXISTS idx_trace_log_id ON trace_failure_event_table(log_id)
+    """,
+    "trace_failure_event_table_idx_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_trace_timestamp ON trace_failure_event_table(timestamp)
+    """,
+    "trace_failure_event_table_idx_status_code": """
+        CREATE INDEX IF NOT EXISTS idx_trace_status_code ON trace_failure_event_table(status_code)
+    """,
+    "trace_failure_event_table_idx_log_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_trace_log_timestamp ON trace_failure_event_table(log_id, timestamp)
+    """,
     "task_table": """
         CREATE TABLE IF NOT EXISTS task_table (
             id TEXT PRIMARY KEY,

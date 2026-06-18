@@ -3,7 +3,9 @@ from latency.database.engine import AsyncSQLiteSingleton
 from latency.schemas.request import (
     ListLogFailureEventResultRequest,
     ListTraceFailureEventResultRequest,
-    GetErrCodeMetricsRequest
+    GetErrCodeMetricsRequest,
+    ListTimeAggregatedFailureEventRequest,
+    ListPodAggregatedFailureEventRequest,
 )
 
 
@@ -570,3 +572,255 @@ class LogFailureEventManager:
             import traceback
             traceback.print_exc()
             return 0, {}
+
+    @staticmethod
+    async def list_time_aggregated_failure_events(
+        req: ListTimeAggregatedFailureEventRequest
+    ) -> tuple[int, list[str], list[dict]]:
+        # TODO: 添加从trace_failure_event_table数据库中查询每个时段故障码总数和详细情况的逻辑
+        # 首先，对created_at_start到created_at_end按照interval的时间间隔进行遍历，每一段时间
+        # 对应第三个返回值表示的统计结果中的一条数据，数据条数对应第一个返回值；若最后一段不够一个完整时间段，也向上补齐
+        # 对于每一个时间段，统计ListTimeAggregatedFailureEventRequest数据库中，kb_id为req的kb_id，timestamp出现在时间段内的数据中，
+        # 各个故障码的出现条数，其中trace的时间对应timestamp字段，故障码对应status_code。
+        # 第三个返回值统计结果中，每个dict对应的键有start_time, end_time, 故障码字符串，以及"all"，值为每个时间段的开始时间、结束时间、故障码出现的次数，以及所有故障码出现次数的总和
+        # 完成聚合后，遍历得到的统计结果，将除了"all"以外的所有故障码按转化为数字后的从小到大进行排序，第二个返回值表示排序后的故障码
+        # 列表，列表第一个值是"all"，其余的是排序后的故障码字符串
+        # req的sort_by, created_sorted_desc表示排序的依据和升降序。若sort_by为timestamp，则将统计结果按start_time字段排序，若created_sorted_desc为true，则降序排序，若为false，则升序排序
+        # req的page_num和page_cnt表示返回结果是第几页和每页多少行
+        from datetime import datetime, timedelta
+        from collections import defaultdict
+        
+        try:
+            log_ids = []
+            if req.kb_id:
+                log_id_sql = """
+                    SELECT id FROM log_file_table 
+                    WHERE kb_id = :kb_id AND existed_status = 1
+                """
+                log_id_results = await AsyncSQLiteSingleton().execute_query(
+                    log_id_sql, {"kb_id": req.kb_id}
+                )
+                log_ids = [result["id"] for result in log_id_results]
+            
+            if not log_ids and req.kb_id:
+                return 0, ["all"], []
+            
+            if req.interval == "second":
+                time_format_sql = "%Y-%m-%d %H:%M:%S"
+            elif req.interval == "hour":
+                time_format_sql = "%Y-%m-%d %H:00:00"
+            else:
+                time_format_sql = "%Y-%m-%d %H:%M:00"
+            
+            sql_str = f"""
+                SELECT 
+                    strftime('{time_format_sql}', timestamp) as time_bucket,
+                    status_code,
+                    COUNT(*) as cnt
+                FROM trace_failure_event_table
+                WHERE 1=1
+            """
+            params = {}
+            
+            if log_ids:
+                placeholders = ', '.join([f':log_id_{i}' for i in range(len(log_ids))])
+                sql_str += f" AND log_id IN ({placeholders})"
+                for i, log_id in enumerate(log_ids):
+                    params[f'log_id_{i}'] = log_id
+            
+            if req.created_at_start:
+                sql_str += " AND timestamp >= :start_time"
+                params['start_time'] = req.created_at_start
+            
+            if req.created_at_end:
+                sql_str += " AND timestamp <= :end_time"
+                params['end_time'] = req.created_at_end
+            
+            sql_str += " GROUP BY time_bucket, status_code"
+            
+            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            
+            if not rows:
+                return 0, ["all"], []
+            
+            interval_delta = {
+                "second": timedelta(seconds=1),
+                "minute": timedelta(minutes=1),
+                "hour": timedelta(hours=1),
+            }.get(req.interval, timedelta(minutes=1))
+            
+            time_buckets: dict[str, dict[str, int]] = defaultdict(dict)
+            all_status_codes = set()
+            
+            for row in rows:
+                time_bucket = row["time_bucket"]
+                status_code = row["status_code"] or ""
+                cnt = row["cnt"]
+                if status_code:
+                    time_buckets[time_bucket][status_code] = cnt
+                    all_status_codes.add(status_code)
+            
+            try:
+                sorted_codes = sorted(list(all_status_codes), key=lambda x: int(x) if x.isdigit() else x)
+            except:
+                sorted_codes = sorted(list(all_status_codes))
+            
+            err_codes = ["all"] + sorted_codes
+            
+            time_format = "%Y-%m-%d %H:%M:%S"
+            results = []
+            for time_bucket, code_counts in time_buckets.items():
+                bucket_start = datetime.strptime(time_bucket, time_format)
+                bucket_end = bucket_start + interval_delta
+                total_cnt = sum(code_counts.values())
+                result = {
+                    "start_time": time_bucket,
+                    "end_time": bucket_end.strftime(time_format),
+                    "status_code_cnt": {"all": total_cnt}
+                }
+                for code in sorted_codes:
+                    cnt = code_counts.get(code, 0)
+                    if cnt > 0:
+                        result["status_code_cnt"][code] = cnt
+                results.append(result)
+            
+            if req.sort_by == "timestamp":
+                results.sort(key=lambda x: x["start_time"], reverse=req.created_sorted_desc)
+            total = len(results)
+            start_idx = (req.page_num - 1) * req.page_cnt
+            end_idx = start_idx + req.page_cnt
+            results = results[start_idx:end_idx]
+            
+            return total, err_codes, results
+            
+        except Exception as e:
+            print(f"查询时间段聚合故障事件失败，错误信息: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return 0, ["all"], []
+    
+    @staticmethod
+    async def list_pod_aggregated_failure_events(
+        req: ListPodAggregatedFailureEventRequest
+    ) -> tuple[int, list[dict]]:
+        # TODO: 添加从trace_failure_event_table数据库中读取满足要求的数据，并按pod进行聚合统计故障码出现次数的逻辑
+        # 首先，筛选timestamp在req的created_at_start到created_at_end之间，kb_id为req的kb_id的所有数据
+        # 按照pod_names对结果进行聚合，形成一个列表，即第二个返回值的结果列表，第一个返回值表示列表的长度。
+        # 列表中每一项是一个dict，存储一个pod的故障码信息。键有pod_name，对应查询结果的pod_names字段，以及status_code_cnt，对应故障码的统计
+        # 其中，status_code_cnt是一个dict，键是all以及所有故障码字符串，值是所有故障码出现次数总和以及各个故障码出现次数。
+        # 数据库中的pod_names字段可能有多个由","分割的pod_name，因为一个trace可能是跨pod的。对于这种情况，需要将这条trace的故障码计数
+        # 拆分到各个pod的故障码计数中，也就是将各个pod_name对应的该故障码计数都加1。最终的结果中，pod_name应该都是单独的pod，没有多个pod的情况
+        # 对查询结果进行排序，req的sort_by字段表示了结果列表的排序依据，为all或其他故障码，created_sorted_desc表示排序升序还是降序，True表示降序，False表示升序。
+        # 如果排序依据的故障码在排序比较的两条结果中都没有出现，那么就按照all的数量进行排序
+        # req的page_num和page_cnt表示返回结果是第几页和每页多少行
+        # 请你在完成代码时注意计算的效率问题
+        
+        from collections import defaultdict
+        
+        try:
+            log_ids = []
+            if req.kb_id:
+                log_id_sql = """
+                    SELECT id FROM log_file_table 
+                    WHERE kb_id = :kb_id AND existed_status = 1
+                """
+                log_id_results = await AsyncSQLiteSingleton().execute_query(
+                    log_id_sql, {"kb_id": req.kb_id}
+                )
+                log_ids = [result["id"] for result in log_id_results]
+            
+            if not log_ids and req.kb_id:
+                return 0, []
+            
+            sql_str = """
+                SELECT pod_names, status_code, COUNT(*) as cnt
+                FROM trace_failure_event_table
+                WHERE 1=1
+            """
+            params = {}
+            
+            if log_ids:
+                placeholders = ', '.join([f':log_id_{i}' for i in range(len(log_ids))])
+                sql_str += f" AND log_id IN ({placeholders})"
+                for i, log_id in enumerate(log_ids):
+                    params[f'log_id_{i}'] = log_id
+            
+            if req.created_at_start:
+                sql_str += " AND timestamp >= :start_time"
+                params['start_time'] = req.created_at_start
+            
+            if req.created_at_end:
+                sql_str += " AND timestamp <= :end_time"
+                params['end_time'] = req.created_at_end
+            
+            sql_str += " AND pod_names IS NOT NULL AND pod_names != ''"
+            sql_str += " AND status_code IS NOT NULL AND status_code != ''"
+            
+            sql_str += " GROUP BY pod_names, status_code"
+            
+            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            
+            if not rows:
+                return 0, []
+            
+            pod_status_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            all_status_codes = set()
+            
+            for row in rows:
+                pod_names_str = row["pod_names"]
+                status_code = row["status_code"]
+                cnt = row["cnt"]
+                
+                pod_names_list = [name.strip() for name in pod_names_str.split(',') if name.strip()]
+                
+                for pod_name in pod_names_list:
+                    pod_status_counts[pod_name][status_code] += cnt
+                    pod_status_counts[pod_name]["all"] += cnt
+                    all_status_codes.add(status_code)
+            
+            try:
+                sorted_codes = sorted(list(all_status_codes), key=lambda x: int(x) if x.isdigit() else x)
+            except:
+                sorted_codes = sorted(list(all_status_codes))
+            
+            results = []
+            for pod_name, code_counts in pod_status_counts.items():
+                result = {
+                    "pod_name": pod_name,
+                    "status_code_cnt": {"all": code_counts.get("all", 0)}
+                }
+                for code in sorted_codes:
+                    cnt = code_counts.get(code, 0)
+                    if cnt > 0:
+                        result["status_code_cnt"][code] = cnt
+                results.append(result)
+            
+            sort_key = req.sort_by
+            if sort_key == "all" or sort_key not in ["all"] + sorted_codes:
+                results.sort(
+                    key=lambda x: x["status_code_cnt"].get("all", 0),
+                    reverse=req.created_sorted_desc
+                )
+            else:
+                def sort_func(x):
+                    primary = x["status_code_cnt"].get(sort_key, 0)
+                    secondary = x["status_code_cnt"].get("all", 0)
+                    if primary == 0:
+                        return (0, secondary)
+                    else:
+                        return (1, primary)
+                
+                results.sort(key=sort_func, reverse=req.created_sorted_desc)
+            
+            total = len(results)
+            start_idx = (req.page_num - 1) * req.page_cnt
+            end_idx = start_idx + req.page_cnt
+            results = results[start_idx:end_idx]
+            
+            return total, results
+        
+        except Exception as e:
+            print(f"查询pod聚合故障事件失败，错误信息: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return 0, []
