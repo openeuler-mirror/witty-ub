@@ -34,3 +34,12 @@ class ErrCodeMetricItem(BaseModel):
     """延迟指标数据点（用于时间曲线）"""
     time: str = Field(..., description="时间戳")
     err_cnt: int = Field(..., description="故障码计数")
+
+class PodAggregatedFailureEventModel(BaseModel):
+    pod_name: str = Field(..., description="容器名")
+    status_code_cnt: dict = Field(..., description="故障码计数")
+
+class TimeAggregatedFailureEventModel(BaseModel):
+    start_time: str = Field(..., description="开始时间")
+    end_time: str = Field(..., description="结束时间")
+    status_code_cnt: dict = Field(..., description="故障码计数")

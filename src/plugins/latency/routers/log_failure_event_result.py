@@ -3,11 +3,15 @@ from typing import Annotated
 from latency.schemas.request import (
     ListLogFailureEventResultRequest,
     ListTraceFailureEventResultRequest,
+    ListTimeAggregatedFailureEventRequest,
+    ListPodAggregatedFailureEventRequest,
     GetErrCodeMetricsRequest
 )
 from latency.schemas.response import (
     ListLogFailureEventResultResponse,
     ListTraceFailureEventResultReponse,
+    ListTimeAggregatedFailureEventResponse,
+    ListPodAggregatedFailureEventResponse,
     GetErrCodeMetricsResponse
 )
 from latency.services.log_failure_event_result import LogFailureEventResultService
@@ -28,6 +32,20 @@ async def list_trace_failure_event_results(
 ) -> ListTraceFailureEventResultReponse:
     msg = await LogFailureEventResultService.list_trace_failure_event_result(req=req)
     return ListTraceFailureEventResultReponse(result=msg)
+
+@router.post("/list_time_aggregated_failure_events", response_model=ListTimeAggregatedFailureEventResponse)
+async def list_time_aggregated_failure_event_results(
+    req: Annotated[ListTimeAggregatedFailureEventRequest, Body()],
+) -> ListTimeAggregatedFailureEventResponse:
+    msg = await LogFailureEventResultService.list_time_aggregated_failure_event_result(req=req)
+    return ListTimeAggregatedFailureEventResponse(result=msg)
+
+@router.post("/list_pod_aggregated_failure_events", response_model=ListPodAggregatedFailureEventResponse)
+async def list_pod_aggregated_failure_event_results(
+    req: Annotated[ListPodAggregatedFailureEventRequest, Body()],
+) -> ListPodAggregatedFailureEventResponse:
+    msg = await LogFailureEventResultService.list_pod_aggregated_failure_event_result(req=req)
+    return ListPodAggregatedFailureEventResponse(result=msg)
 
 @router.post("/metrics/err_code", response_model=GetErrCodeMetricsResponse)
 async def get_err_code_metrics(
