@@ -13,20 +13,36 @@ file(GLOB KVCACHE_FAILURE_MODE_SOURCES failure_mode_realization/kvcache/kvcache_
 
 add_library(diagnosis_tool STATIC
     diagnosis_tool_module.cpp
+    failure_log_helper.cpp
+    failure_log_info.cpp
     failure_mode_controller.cpp
     failure_mode_factory.cpp
-    failure_mode.cpp
     failure_mode_view.cpp
-    failure_mode_realization/kvcache/kvcache_log_helper.cpp
-    failure_mode_realization/urma/urma_log_helper.cpp
+    failure_mode.cpp
     ${KVCACHE_FAILURE_MODE_SOURCES}
     ${URMA_FAILURE_MODE_SOURCES}
 )
 target_include_directories(diagnosis_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 find_package(jsoncpp QUIET)
+find_library(RE2_LIBRARY NAMES re2 REQUIRED)
+
 if(jsoncpp_FOUND)
-    target_link_libraries(diagnosis_tool PUBLIC include ubse_context jsoncpp_lib)
+    target_link_libraries(diagnosis_tool
+        PUBLIC
+            include
+            ubse_context
+            jsoncpp_lib
+            ${RE2_LIBRARY}
+    )
 else()
     target_include_directories(diagnosis_tool PUBLIC /usr/include/jsoncpp)
-    target_link_libraries(diagnosis_tool PUBLIC include ubse_context -ljsoncpp -lstdc++fs)
+    target_link_libraries(diagnosis_tool
+        PUBLIC
+            include
+            ubse_context
+            jsoncpp
+            stdc++fs
+            ${RE2_LIBRARY}
+    )
 endif()
