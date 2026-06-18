@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 
 class LogFileService:
     @staticmethod
+    def get_upload_path(*paths: str) -> str:
+        latency_dir = os.path.dirname(os.path.dirname(__file__))
+        full_path = os.path.join(latency_dir, FilePath.FILE_UPLOAD_PATH.value, *paths)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        return full_path
+
+    @staticmethod
     async def get_readable_dir_size(folder_path: str) -> int:
         total = 0
         for root, _, files in os.walk(folder_path):
@@ -60,7 +67,7 @@ class LogFileService:
                     )
                 except (FileNotFoundError, OSError):
                     log_file_model.file_size = 0
-            elif upload_log_file_config.source_type == SourceType.remote:
+            elif upload_log_file_config.source_type == SourceType.REMOTE:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
                 try:
                     async with aiohttp.ClientSession() as session:
@@ -69,8 +76,8 @@ class LogFileService:
                         ) as response:
                             response.raise_for_status()
                             content = await response.read()
-                    local_zip_file_path = os.path.join(
-                        FilePath.FILE_UPLOAD_PATH.value, log_file_model.id + ".zip"
+                    local_zip_file_path = LogFileService.get_upload_path(
+                        log_file_model.id + ".zip"
                     )
                     async with aiofiles.open(local_zip_file_path, "wb") as f:
                         await f.write(content)
@@ -78,16 +85,17 @@ class LogFileService:
                     logger.error(
                         f"下载远程日志文件失败，URL: {upload_log_file_config.source}, 错误信息: {str(e)}"
                     )
+                    continue
                 if not ZipHandler.is_zip_file(local_zip_file_path):
                     logger.error(
                         f"下载的远程日志文件不是有效的ZIP文件，URL: {upload_log_file_config.source}"
                     )
                     continue
-                extracted_file_path = os.path.join(
-                    FilePath.FILE_UPLOAD_PATH.value, log_file_model.id
+                extracted_file_path = LogFileService.get_upload_path(
+                    log_file_model.id, ""
                 )
                 try:
-                    ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
+                    await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
                     log_file_model.file_path = extracted_file_path
                     log_file_model.file_size = (
                         await LogFileService.get_readable_dir_size(extracted_file_path)
@@ -103,10 +111,10 @@ class LogFileService:
                         logger.error(
                             f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
                         )
-            elif upload_log_file_config.source_type == SourceType.upload:
+            elif upload_log_file_config.source_type == SourceType.UPLOAD:
                 uploaded_file: UploadFile = upload_log_file_config.source
-                local_zip_file_path = os.path.join(
-                    FilePath.FILE_UPLOAD_PATH.value, log_file_model.id + ".zip"
+                local_zip_file_path = LogFileService.get_upload_path(
+                    log_file_model.id + ".zip"
                 )
                 try:
                     async with aiofiles.open(local_zip_file_path, "wb") as f:
@@ -122,11 +130,11 @@ class LogFileService:
                         f"上传的日志文件不是有效的ZIP文件，文件名: {uploaded_file.filename}"
                     )
                     continue
-                extracted_file_path = os.path.join(
-                    FilePath.FILE_UPLOAD_PATH.value, log_file_model.id
+                extracted_file_path = LogFileService.get_upload_path(
+                    log_file_model.id, ""
                 )
                 try:
-                    ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
+                    await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
                     log_file_model.file_path = extracted_file_path
                     log_file_model.file_size = (
                         await LogFileService.get_readable_dir_size(extracted_file_path)
@@ -202,7 +210,18 @@ class LogFileService:
     async def list_log_files(kb_id: str, req: ListLogFilesRequest) -> ListLogFilesMsg:
         total, log_file_models = await LogFileManager.list_log_files(kb_id, req)
         log_file_model_ids = [log_file_model.id for log_file_model in log_file_models]
-        tasks = await TaskManager.list_current_tasks_by_op_ids(log_file_model_ids)
+        tasks = await TaskManager.list_current_tasks_by_op_ids(
+            log_file_model_ids,
+            TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        )
+        task_op_ids = {task.op_id for task in tasks}
+        fallback_op_ids = [
+            log_file_model_id
+            for log_file_model_id in log_file_model_ids
+            if log_file_model_id not in task_op_ids
+        ]
+        if fallback_op_ids:
+            tasks.extend(await TaskManager.list_current_tasks_by_op_ids(fallback_op_ids))
         task_dict = {task.op_id: task for task in tasks}
         task_reports = await TaskReportManager.list_task_reports_by_task_ids(
             [task.id for task in tasks]
@@ -226,6 +245,15 @@ class LogFileService:
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> GetLogFileMsg:
         log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
-        task_model = await TaskManager.get_current_task_by_op_id(log_file_id)
+        task_model = await TaskManager.get_current_task_by_op_id(
+            log_file_id,
+            TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        )
+        if not task_model:
+            task_model = await TaskManager.get_current_task_by_op_id(log_file_id)
+        if task_model:
+            task_model.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
+                [task_model.id]
+            )
         log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)

@@ -151,6 +151,7 @@ class ListAnomalousEventChainRequest(BaseModel):
 class ListLogParseResultRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    trace_id: Optional[str] = Field(default=None, description="Trace ID，用于过滤指定链路的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
@@ -170,6 +171,22 @@ class ListLogParseResultRequest(BaseModel):
     created_sorted_desc: bool = Field(
         default=True,
         description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
+    )
+    sort_by: str = Field(
+        default="created_at",
+        description="排序字段，支持created_at、timestamp、total_latency、error_priority。error_priority表示失败日志优先，其次严重超时日志按总时延降序",
+    )
+    sort_order: str = Field(
+        default="desc",
+        description="排序方向，desc表示降序，asc表示升序；error_priority模式下仅用于普通日志的兜底时间排序",
+    )
+    severe_timeout_threshold_ms: float = Field(
+        default=150.0,
+        description="严重超时阈值，单位毫秒；仅sort_by=error_priority时用于区分超时日志和普通日志",
+    )
+    exclude_normal: bool = Field(
+        default=False,
+        description="是否排除正常日志，仅返回失败日志或严重超时日志",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
