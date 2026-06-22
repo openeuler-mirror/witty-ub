@@ -467,7 +467,7 @@ RackResult DiagnosisToolModule::AnalyzeAccessLogs()
         std::ifstream ifs(accessLogPath);
         while (std::getline(ifs, logLine)) {
             std::vector<std::string_view> fieldViews;
-            log_helper::SplitView(fieldViews, logLine, log_helper::DELIM, /*keepEmpty=*/true);
+            log_helper::SplitView(fieldViews, logLine, log_helper::DELIM, true);
             if (fieldViews.size() != ACCESS_FIELDS_SIZE) {
                 continue;
             }
@@ -550,7 +550,7 @@ RackResult DiagnosisToolModule::AnalyzeRuntimeLogs()
             auto failureMode = controller.GetFailureMode(); // kvcache_002、006等
             const auto &subFailureModeIds = failureMode->GetSubFailureModes();
             std::vector<std::string_view> fieldViews;
-            log_helper::SplitView(fieldViews, logLine, log_helper::DELIM, /*keepEmpty=*/true);
+            log_helper::SplitView(fieldViews, logLine, log_helper::DELIM, true);
             if (fieldViews.size() != RUNTIME_FIELDS_SIZE) {
                 continue;
             }

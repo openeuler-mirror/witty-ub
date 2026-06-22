@@ -21,13 +21,15 @@
 #include "failure_mode.h"
 
 namespace diag {
+using TraceIdToFailureLogInfoMap = std::unordered_map<std::string, std::shared_ptr<FailureLogInfo>>;
+
 class FailureModeController final {
 public:
     explicit FailureModeController(std::shared_ptr<FailureMode> failureMode);
     ~FailureModeController() = default;
     std::shared_ptr<FailureMode> GetFailureMode() const;
     int GetHitCount() const;
-    const std::unordered_map<std::string, std::shared_ptr<FailureLogInfo>> &GetTraceIdToFailureLogInfo() const;
+    const TraceIdToFailureLogInfoMap &GetTraceIdToFailureLogInfo() const;
     const std::unordered_set<std::string> &GetSubValidFailureModeIds() const;
     void Hit(const std::string &traceId, std::shared_ptr<FailureLogInfo> failureLogInfo);
     void InsertSubValidFailureModeId(const std::string &failureModeId);
@@ -35,7 +37,7 @@ public:
 private:
     std::shared_ptr<FailureMode> failureMode_;
     int hitCount_;
-    std::unordered_map<std::string, std::shared_ptr<FailureLogInfo>> traceIdToFailureLogInfo_;
+    TraceIdToFailureLogInfoMap traceIdToFailureLogInfo_;
     std::unordered_set<std::string> subValidFailureModeIds_;
 };
 } // namespace diag

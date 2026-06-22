@@ -90,8 +90,7 @@ Json::Value LogInfoToJson(const std::shared_ptr<FailureLogInfo> logInfo)
         logJson["data_size"] = accessInfo->dataSize;
         logJson["req_msg"] = accessInfo->reqMsg;
         logJson["resp_msg"] = accessInfo->respMsg;
-    }
-    else if (auto logInfoRuntime = std::dynamic_pointer_cast<FailureLogInfoRuntime>(logInfoTmp)) {
+    } else if (auto logInfoRuntime = std::dynamic_pointer_cast<FailureLogInfoRuntime>(logInfoTmp)) {
         logJson["message"] = logInfoRuntime->message;
     }
     return logJson;

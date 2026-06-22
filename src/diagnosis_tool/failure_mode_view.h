@@ -30,7 +30,7 @@ struct FailureModeViewNodeData {
     int hitCount;
     std::unordered_map<std::string, std::shared_ptr<FailureLogInfo>> traceIdToFailureLogInfo;
 
-    FailureModeViewNodeData(const FailureModeController &controller);
+    explicit FailureModeViewNodeData(const FailureModeController &controller);
 };
 
 class FailureModeViewNode final {

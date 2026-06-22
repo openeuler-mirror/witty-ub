@@ -14,9 +14,9 @@
 
 #include "failure_log_helper.h"
 
-#include <charconv>
-#include <cctype>
 #include <fnmatch.h>
+#include <cctype>
+#include <charconv>
 #include <system_error>
 
 namespace diag {

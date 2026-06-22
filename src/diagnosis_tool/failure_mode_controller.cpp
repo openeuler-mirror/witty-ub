@@ -29,8 +29,7 @@ int FailureModeController::GetHitCount() const
     return hitCount_;
 }
 
-const std::unordered_map<std::string, std::shared_ptr<FailureLogInfo>> &
-FailureModeController::GetTraceIdToFailureLogInfo() const
+const TraceIdToFailureLogInfoMap &FailureModeController::GetTraceIdToFailureLogInfo() const
 {
     return traceIdToFailureLogInfo_;
 }

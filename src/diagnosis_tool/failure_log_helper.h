@@ -22,7 +22,8 @@ namespace log_helper {
 inline constexpr std::string_view DELIM = " | ";
 
 bool WildcardMatch(const std::string &pattern, const std::string &path);
-void SplitView(std::vector<std::string_view> &out, std::string_view str, std::string_view delim, bool keepEmpty = false);
+void SplitView(std::vector<std::string_view> &out, std::string_view str, std::string_view delim,
+               bool keepEmpty = false);
 bool ExtractSingleField(std::string_view &out, std::string_view str, std::string_view delim, int idx);
 bool IsDigit(char ch);
 bool IsTimestampTAt(std::string_view line, size_t pos);
