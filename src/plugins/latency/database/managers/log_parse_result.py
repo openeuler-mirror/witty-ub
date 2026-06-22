@@ -131,9 +131,6 @@ class LogParseResultManager:
         if req.log_id:
             sql_str += " AND lpr.log_id = :log_id"
             params["log_id"] = req.log_id
-        if req.trace_id:
-            sql_str += " AND lpr.trace_id = :trace_id"
-            params["trace_id"] = req.trace_id
         if req.src_ip:
             sql_str += " AND lpr.src_ip LIKE :src_ip"
             params["src_ip"] = f"%{req.src_ip}%"
@@ -156,73 +153,12 @@ class LogParseResultManager:
             sql_str += " AND lpr.created_at <= :created_at_end"
             params["created_at_end"] = req.created_at_end
 
-        sort_by = (req.sort_by or "created_at").lower()
-        failure_predicate = """
-            (
-                UPPER(TRIM(COALESCE(lpr.remark, ''))) NOT IN ('', 'OK')
-                OR (
-                    TRIM(COALESCE(lpr.anomaly_reason, '')) != ''
-                    AND LOWER(lpr.anomaly_reason) NOT LIKE '%threshold%'
-                )
-            )
-        """
-        timeout_predicate = """
-            (
-                COALESCE(lpr.total_latency, 0) > :severe_timeout_threshold_ms
-                OR COALESCE(lpr.worker_query_meta_latency, 0) > :severe_timeout_threshold_ms
-                OR COALESCE(lpr.urma_total_latency, 0) > :severe_timeout_threshold_ms
-                OR COALESCE(lpr.urma_link_latency, 0) > :severe_timeout_threshold_ms
-                OR COALESCE(lpr.c2w_urma_latency, 0) > :urma_hop_timeout_threshold_ms
-                OR COALESCE(lpr.w2w_urma_latency, 0) > :urma_hop_timeout_threshold_ms
-            )
-        """
-        latency_sort_expr = """
-            MAX(
-                COALESCE(lpr.total_latency, -1),
-                COALESCE(lpr.worker_query_meta_latency, -1),
-                COALESCE(lpr.urma_total_latency, -1),
-                COALESCE(lpr.urma_link_latency, -1),
-                COALESCE(lpr.c2w_urma_latency, -1),
-                COALESCE(lpr.w2w_urma_latency, -1)
-            )
-        """
-        if req.exclude_normal:
-            params["severe_timeout_threshold_ms"] = max(req.severe_timeout_threshold_ms, 0)
-            params["urma_hop_timeout_threshold_ms"] = 100.0
-            sql_str += f" AND ({failure_predicate} OR {timeout_predicate})"
-
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
 
-        if sort_by == "error_priority":
-            normal_sort_order = "ASC" if req.sort_order.lower() == "asc" else "DESC"
-            params["severe_timeout_threshold_ms"] = max(req.severe_timeout_threshold_ms, 0)
-            params["urma_hop_timeout_threshold_ms"] = 100.0
-            sql_str += f"""
-                ORDER BY
-                    CASE WHEN {failure_predicate} THEN 0 ELSE 1 END ASC,
-                    CASE WHEN {timeout_predicate} THEN 0 ELSE 1 END ASC,
-                    CASE
-                        WHEN {failure_predicate} OR {timeout_predicate}
-                        THEN {latency_sort_expr}
-                        ELSE NULL
-                    END DESC,
-                    lpr.timestamp {normal_sort_order},
-                    lpr.created_at {normal_sort_order}
-            """
-        else:
-            sort_fields = {
-                "created_at": "lpr.created_at",
-                "timestamp": "lpr.timestamp",
-                "total_latency": "lpr.total_latency",
-            }
-            sort_expr = sort_fields.get(sort_by, "lpr.created_at")
-            if sort_by == "created_at":
-                sort_order = "DESC" if req.created_sorted_desc else "ASC"
-            else:
-                sort_order = "ASC" if req.sort_order.lower() == "asc" else "DESC"
-            sql_str += f" ORDER BY {sort_expr} {sort_order}, lpr.created_at DESC"
+        sort_order = "DESC" if req.created_sorted_desc else "ASC"
+        sql_str += f" ORDER BY lpr.created_at {sort_order}"
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt

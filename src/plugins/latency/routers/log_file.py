@@ -8,14 +8,12 @@ from fastapi import (
     Body,
     File,
     UploadFile,
-    Request,
     HTTPException,
     status,
 )
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from typing import Annotated, Optional
 import urllib
-import json
 from httpx import AsyncClient
 import os
 from latency.schemas.log import LogFileModel
@@ -40,45 +38,8 @@ router = APIRouter(prefix="/log_file", tags=["log_file"])
 @router.post("/{kb_id}", response_model=UploadLogFilesResponse)
 async def upload_log_files(
     kb_id: Annotated[str, Path()],
-    request: Request,
+    req: Annotated[UpLoadLogFilesRequest, Body()],
 ) -> UploadLogFilesResponse:
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        raw_configs = form.get("upload_log_file_configs")
-        if not isinstance(raw_configs, str):
-            raise HTTPException(status_code=400, detail="缺少上传文件配置")
-
-        try:
-            configs = json.loads(raw_configs)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail="上传文件配置不是有效JSON") from exc
-
-        uploaded_files = form.getlist("file")
-        file_index = 0
-        for config in configs:
-            if config.get("source_type") != "upload":
-                continue
-            if file_index >= len(uploaded_files):
-                raise HTTPException(status_code=400, detail="缺少上传文件")
-            uploaded_file = uploaded_files[file_index]
-            file_index += 1
-            if not hasattr(uploaded_file, "read") or not hasattr(uploaded_file, "filename"):
-                raise HTTPException(status_code=400, detail="上传文件格式不正确")
-            config["name"] = config.get("name") or uploaded_file.filename
-            config["source"] = uploaded_file
-
-        payload = {"upload_log_file_configs": configs}
-        raw_parse_config = form.get("parse_config")
-        if isinstance(raw_parse_config, str) and raw_parse_config.strip():
-            try:
-                payload["parse_config"] = json.loads(raw_parse_config)
-            except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=400, detail="解析配置不是有效JSON") from exc
-        req = UpLoadLogFilesRequest.model_validate(payload)
-    else:
-        req = UpLoadLogFilesRequest.model_validate(await request.json())
-
     upload_log_files_msg = await LogFileService.upload_log_files(kb_id, req)
     return UploadLogFilesResponse(result=upload_log_files_msg)
 
