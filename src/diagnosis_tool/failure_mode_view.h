@@ -51,7 +51,7 @@ public:
     RackResult Build(const std::unordered_set<std::string> &rootFailureModes,
                      std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
                      const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces);
-    RackResult Dump() const;
+    RackResult Dump(const std::string &outputDir = "") const;
 
 private:
     RackResult BuildSubTree(FailureModeViewNode &parentNode, const std::string &parentFailureModeId,

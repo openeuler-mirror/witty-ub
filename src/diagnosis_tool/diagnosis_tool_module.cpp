@@ -687,7 +687,7 @@ RackResult DiagnosisToolModule::GenerateView()
         LOG_ERROR << "failed to build failure mode view";
         return RACK_FAIL;
     }
-    ret = view.Dump();
+    ret = view.Dump(extractedLogDir);
     if (ret != RACK_OK) {
         LOG_ERROR << "failed to dump failure mode view";
     }
