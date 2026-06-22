@@ -21,6 +21,8 @@
 
 namespace diag {
 namespace log_helper {
+constexpr size_t TIMESTAMP_T_SIZE = 19;
+
 bool WildcardMatch(const std::string &pattern, const std::string &path)
 {
     return fnmatch(pattern.c_str(), path.c_str(), 0) == 0;
@@ -78,6 +80,47 @@ bool ExtractSingleField(std::string_view &out, std::string_view str, std::string
     const std::size_t end = str.find(delim, begin);
     out = str.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
     return true;
+}
+
+bool IsDigit(char ch)
+{
+    return ch >= '0' && ch <= '9';
+}
+
+bool IsTimestampTAt(std::string_view line, size_t pos)
+{
+    return pos + TIMESTAMP_T_SIZE <= line.size() && IsDigit(line[pos]) && IsDigit(line[pos + 1]) &&
+           IsDigit(line[pos + 2]) && IsDigit(line[pos + 3]) && line[pos + 4] == '-' && IsDigit(line[pos + 5]) &&
+           IsDigit(line[pos + 6]) && line[pos + 7] == '-' && IsDigit(line[pos + 8]) && IsDigit(line[pos + 9]) &&
+           line[pos + 10] == 'T' && IsDigit(line[pos + 11]) && IsDigit(line[pos + 12]) && line[pos + 13] == ':' &&
+           IsDigit(line[pos + 14]) && IsDigit(line[pos + 15]) && line[pos + 16] == ':' && IsDigit(line[pos + 17]) &&
+           IsDigit(line[pos + 18]);
+}
+
+std::string_view FindTimestampT(std::string_view line)
+{
+    size_t searchPos = 0;
+    while (true) {
+        const size_t tPos = line.find('T', searchPos);
+        if (tPos == std::string_view::npos) {
+            return {};
+        }
+        if (tPos >= 10) {
+            const size_t timestampPos = tPos - 10;
+            if (IsTimestampTAt(line, timestampPos)) {
+                return line.substr(timestampPos, TIMESTAMP_T_SIZE);
+            }
+        }
+        searchPos = tPos + 1;
+    }
+}
+
+std::string ToTimestampTBound(std::string timestamp)
+{
+    if (timestamp.size() > 10 && timestamp[10] == ' ') {
+        timestamp[10] = 'T';
+    }
+    return timestamp;
 }
 
 std::string_view TrimView(std::string_view str)

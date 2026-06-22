@@ -41,7 +41,6 @@ constexpr const char *LOG_TYPE_RUNTIME = "runtime";
 constexpr const char *MODULE_KVCACHE = "kvcache_conn";
 constexpr const char *MODULE_URMA = "urma";
 constexpr const char *TIME_PATTERN = R"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})";
-constexpr const char *TIME_PATTERN_T = R"((\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}))";
 constexpr const char *DEFAULT_WITTY_DIR = "/var/witty-ub";
 constexpr const char *FAILURE_MODE_TREE_JSON_PATH = "data/failure_mode_tree.json";
 constexpr mode_t DIR_PERM_755 = 0755;
@@ -305,6 +304,8 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
     int totalLines = 0;
     int matchedLines = 0;
     bool inRange = false;
+    const std::string startTimeT = log_helper::ToTimestampTBound(startTimeStr_);
+    const std::string endTimeT = log_helper::ToTimestampTBound(endTimeStr_);
 
     while (std::getline(inFile, line)) {
         totalLines++;
@@ -312,25 +313,18 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
             line.pop_back();
         }
 
-        std::string timeStr;
-        if (!re2::RE2::PartialMatch(line, TIME_PATTERN_T, &timeStr)) {
+        std::string_view timeStr = log_helper::FindTimestampT(line);
+        if (timeStr.empty()) {
             if (inRange) {
                 outFile << line << '\n';
             }
             continue;
         }
 
-        auto ts = failure::DatetimeStrToTimestamp(timeStr);
-        if (!ts.has_value()) {
-            if (inRange) {
-                outFile << line << '\n';
-            }
-            continue;
-        }
-        if (*ts > endTimestamp_) {
+        if (timeStr > endTimeT) {
             break;
         }
-        if (*ts < startTimestamp_) {
+        if (timeStr < startTimeT) {
             inRange = false;
             continue;
         }
