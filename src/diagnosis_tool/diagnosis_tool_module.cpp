@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 #include <unordered_set>
 
 #include <json/json.h>
@@ -471,15 +472,19 @@ RackResult DiagnosisToolModule::AnalyzeAccessLogs()
         std::string logLine;
         std::ifstream ifs(accessLogPath);
         while (std::getline(ifs, logLine)) {
-            std::vector<std::string> fields;
-            log_helper::Split(fields, logLine, log_helper::DELIM, /*keepEmpty=*/true);
-            if (fields.size() != ACCESS_FIELDS_SIZE) {
+            std::vector<std::string_view> fieldViews;
+            log_helper::SplitView(fieldViews, logLine, log_helper::DELIM, /*keepEmpty=*/true);
+            if (fieldViews.size() != ACCESS_FIELDS_SIZE) {
                 continue;
             }
-            int statusCode = std::stoi(fields[STATUSCODE_IDX]);
-            if (statusCode == 0 && fields[RESPMSG_IDX].empty()) {
+            int statusCode = 0;
+            if (!log_helper::ParseInt(fieldViews[STATUSCODE_IDX], statusCode)) {
                 continue;
             }
+            if (statusCode == 0 && fieldViews[RESPMSG_IDX].empty()) {
+                continue;
+            }
+            std::vector<std::string> fields = log_helper::ToStringFields(fieldViews);
             for (const std::string &failureModeId : moduleToRootFailureModeIds_[MODULE_KVCACHE]) {
                 FailureModeController &controller = failureModeIdToController_.at(failureModeId);
                 auto failureMode = controller.GetFailureMode();
@@ -526,25 +531,42 @@ RackResult DiagnosisToolModule::AnalyzeRuntimeLogs()
         std::string logLine;
         std::ifstream ifs(runtimeLogPath);
         while (std::getline(ifs, logLine)) {
-            std::vector<std::string> fields;
-            log_helper::Split(fields, logLine, log_helper::DELIM, /*keepEmpty=*/true);
-            if (fields.size() != RUNTIME_FIELDS_SIZE) {
+            std::string_view traceId;
+            if (!log_helper::ExtractSingleField(traceId, logLine, log_helper::DELIM, TRACEID_IDX) || traceId.empty()) {
                 continue;
             }
-            const std::string &traceId = fields[TRACEID_IDX];
-            if (traceIdToStatusCode_.find(traceId) == traceIdToStatusCode_.end()) {
+            auto traceIdToStatusCodeIt = traceIdToStatusCode_.find(std::string(traceId));
+            if (traceIdToStatusCodeIt == traceIdToStatusCode_.end()) {
                 continue;
             }
-            int statusCode = traceIdToStatusCode_.at(traceId);
+            int statusCode = traceIdToStatusCodeIt->second;
             if (KVCACHE_FAILURE_002_STATUSCODE.find(statusCode) != KVCACHE_FAILURE_002_STATUSCODE.end()) {
                 continue; // kvcache_002中故障码为2/3/8的故障已识别过
             }
-            const std::string &failureModeId = statusCodeToFailureModeId_.at(statusCode);
-            const FailureModeController &controller = failureModeIdToController_.at(failureModeId);
+            auto statusCodeToFailureModeIdIt = statusCodeToFailureModeId_.find(statusCode);
+            if (statusCodeToFailureModeIdIt == statusCodeToFailureModeId_.end()) {
+                continue;
+            }
+            const std::string &failureModeId = statusCodeToFailureModeIdIt->second;
+            auto failureModeIdToControllerIt = failureModeIdToController_.find(failureModeId);
+            if (failureModeIdToControllerIt == failureModeIdToController_.end()) {
+                continue;
+            }
+            const FailureModeController &controller = failureModeIdToControllerIt->second;
             auto failureMode = controller.GetFailureMode(); // kvcache_002、006等
             const auto &subFailureModeIds = failureMode->GetSubFailureModes();
+            std::vector<std::string_view> fieldViews;
+            log_helper::SplitView(fieldViews, logLine, log_helper::DELIM, /*keepEmpty=*/true);
+            if (fieldViews.size() != RUNTIME_FIELDS_SIZE) {
+                continue;
+            }
+            std::vector<std::string> fields = log_helper::ToStringFields(fieldViews);
             for (const std::string &subFailureModeId : subFailureModeIds) {
-                FailureModeController &subController = failureModeIdToController_.at(subFailureModeId);
+                const auto subFailureModeIdToControllerIt = failureModeIdToController_.find(subFailureModeId);
+                if (subFailureModeIdToControllerIt == failureModeIdToController_.end()) {
+                    continue;
+                }
+                FailureModeController &subController = subFailureModeIdToControllerIt->second;
                 auto subFailureMode = subController.GetFailureMode(); // kvcache_002_001、006_001等
                 if (!subFailureMode->IsValid(fields)) {
                     continue;
@@ -567,12 +589,20 @@ RackResult DiagnosisToolModule::AnalyzeRuntimeLogs()
                 continue;
             }
             for (const std::string &failureModeId : moduleToRootFailureModeIds_[MODULE_URMA]) {
-                const FailureModeController &controller = failureModeIdToController_.at(failureModeId);
+                const auto failureModeIdToControllerIt = failureModeIdToController_.find(failureModeId);
+                if (failureModeIdToControllerIt == failureModeIdToController_.end()) {
+                    continue;
+                }
+                const FailureModeController &controller = failureModeIdToControllerIt->second;
                 auto failureMode = controller.GetFailureMode();
                 auto subFailureModeIds = failureMode->GetSubFailureModes();
                 bool matchedSubFailureMode = false;
                 for (const std::string &subFailureModeId : subFailureModeIds) {
-                    FailureModeController &subController = failureModeIdToController_.at(subFailureModeId);
+                    const auto subFailureModeIdToControllerIt = failureModeIdToController_.find(subFailureModeId);
+                    if (subFailureModeIdToControllerIt == failureModeIdToController_.end()) {
+                        continue;
+                    }
+                    FailureModeController &subController = subFailureModeIdToControllerIt->second;
                     auto subFailureMode = subController.GetFailureMode();
                     if (!subFailureMode->IsValid(fields)) {
                         continue;

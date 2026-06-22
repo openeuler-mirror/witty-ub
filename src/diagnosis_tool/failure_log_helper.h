@@ -22,7 +22,11 @@ namespace log_helper {
 inline constexpr std::string_view DELIM = " | ";
 
 bool WildcardMatch(const std::string &pattern, const std::string &path);
-void Split(std::vector<std::string> &out, const std::string &str, std::string_view delim, bool keepEmpty = false);
+void SplitView(std::vector<std::string_view> &out, std::string_view str, std::string_view delim, bool keepEmpty = false);
+bool ExtractSingleField(std::string_view &out, std::string_view str, std::string_view delim, int idx);
+std::string_view TrimView(std::string_view str);
+bool ParseInt(std::string_view str, int &value);
+std::vector<std::string> ToStringFields(const std::vector<std::string_view> &fieldViews);
 std::string Trim(const std::string &str);
 } // namespace log_helper
 } // namespace diag
