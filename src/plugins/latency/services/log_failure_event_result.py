@@ -92,7 +92,6 @@ class LogFailureEventResultService:
     @staticmethod
     async def list_pod_aggregated_failure_event_result(req: ListPodAggregatedFailureEventRequest) -> ListPodAggregatedFailureEventMsg:
         total, results = await LogFailureEventManager.list_pod_aggregated_failure_events(req)
-        print(results)
         events = [PodAggregatedFailureEventModel(**r) for r in results]
         return ListPodAggregatedFailureEventMsg(total=total, events=events)
 
