@@ -1,30 +1,26 @@
 #include "urma_failure_096.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure096> g_urma("urma_096");
 
-bool UrmaFailure096::IsValid()
+bool UrmaFailure096::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_no_store' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'WR->tjetty is NULL'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_import_jfr") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure096::GetName() const
 {
-    return "WR数据通路处理失败";
+    return "URMA context、URMA设备、设备sysfs信息、provider操作表无效导致导入JFR失败";
 }
 
 std::string UrmaFailure096::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_import_jfr用于导入JFR，调用方传入的URMA "
+           "context、URMA设备、设备sysfs信息、provider操作表不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure096::AnalyzeRootCause()
@@ -34,17 +30,16 @@ RootCause UrmaFailure096::AnalyzeRootCause()
 
 std::string UrmaFailure096::GetFixSuggDesc() const
 {
-    return "无";
+    return "UDMA错误定界；建链交换信息失败，可重试";
 }
 
 std::string UrmaFailure096::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_no_store，WR->tjetty is NULL。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_import_jfr，Invalid parameter.。";
 }
 
 std::string UrmaFailure096::GetId() const
 {
     return "urma_096";
 }
-
 } // namespace diag

@@ -1,29 +1,26 @@
 #include "urma_failure_199.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure199> g_urma("urma_199");
 
-bool UrmaFailure199::IsValid()
+bool UrmaFailure199::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_modify_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jetty_check_trans_mode") != std::string::npos &&
+           message.find("Invalid parameter, trans_mode:") != std::string::npos;
 }
 
 std::string UrmaFailure199::GetName() const
 {
-    return "URMA context、Jetty对象无效导致修改Jetty失败";
+    return "Jetty、trans、MODE无效导致创建Jetty、trans、MODE失败";
 }
 
 std::string UrmaFailure199::GetRootCauseDesc() const
 {
-    return "函数用于修改Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_create_jetty_check_trans_"
+           "mode用于创建Jetty、trans、MODE，调用方传入的Jetty、trans、MODE不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure199::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure199::GetFixSuggDesc() const
 
 std::string UrmaFailure199::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_modify_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_check_trans_mode，Invalid parameter, trans_mode:。";
 }
 
 std::string UrmaFailure199::GetId() const
 {
     return "urma_199";
 }
-
 } // namespace diag

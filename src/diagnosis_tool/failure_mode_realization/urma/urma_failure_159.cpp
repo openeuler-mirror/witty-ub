@@ -1,29 +1,25 @@
 #include "urma_failure_159.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure159> g_urma("urma_159");
 
-bool UrmaFailure159::IsValid()
+bool UrmaFailure159::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_jetty_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_pcontext") != std::string::npos &&
+           message.find("failed to add fd:") != std::string::npos && message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure159::GetName() const
 {
-    return "URMA context、Jetty对象无效导致获取Jetty失败";
+    return "创建pcontext执行失败导致创建pcontext失败";
 }
 
 std::string UrmaFailure159::GetRootCauseDesc() const
 {
-    return "函数用于获取Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_pcontext执行创建pcontext时依赖的创建pcontext步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure159::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure159::GetFixSuggDesc() const
 
 std::string UrmaFailure159::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_jetty_opt，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pcontext，failed to add fd:，, errno:。";
 }
 
 std::string UrmaFailure159::GetId() const
 {
     return "urma_159";
 }
-
 } // namespace diag

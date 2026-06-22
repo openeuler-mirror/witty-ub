@@ -1,30 +1,25 @@
 #include "urma_failure_144.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure144> g_urma("urma_144");
 
-bool UrmaFailure144::IsValid()
+bool UrmaFailure144::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_unimport_jetty' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_pjetty") != std::string::npos &&
+           message.find("Failed to create pjetty") != std::string::npos;
 }
 
 std::string UrmaFailure144::GetName() const
 {
-    return "URMA context、目标Jetty对象无效导致解除导入Jetty失败";
+    return "下层资源创建失败导致创建pjetty失败";
 }
 
 std::string UrmaFailure144::GetRootCauseDesc() const
 {
-    return "函数用于解除导入Jetty，调用方传入的URMA "
-           "context、目标Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_pjetty在创建pjetty过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure144::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure144::GetFixSuggDesc() const
 
 std::string UrmaFailure144::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_unimport_jetty，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjetty，Failed to create pjetty。";
 }
 
 std::string UrmaFailure144::GetId() const
 {
     return "urma_144";
 }
-
 } // namespace diag

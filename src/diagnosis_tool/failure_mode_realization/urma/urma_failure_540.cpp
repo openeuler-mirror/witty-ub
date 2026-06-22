@@ -1,30 +1,27 @@
 #include "urma_failure_540.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure540> g_urma("urma_540");
 
-bool UrmaFailure540::IsValid()
+bool UrmaFailure540::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_seg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'dev not support token id table mode.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfr_batch") != std::string::npos &&
+           message.find("ioctl failed in urma_cmd_delete_jfr_batch , ret:") != std::string::npos &&
+           message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure540::GetName() const
 {
-    return "解除导入设备过程中依赖步骤失败";
+    return "删除JFR ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure540::GetRootCauseDesc() const
 {
-    return "函数用于解除导入设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
-           "A操作失败。";
+    return "urma_cmd_delete_jfr_"
+           "batch通过ioctl向驱动提交删除JFR命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure540::AnalyzeRootCause()
@@ -39,12 +36,13 @@ std::string UrmaFailure540::GetFixSuggDesc() const
 
 std::string UrmaFailure540::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_seg，dev not support token id table mode.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfr_batch，ioctl failed in urma_cmd_delete_jfr_batch , "
+           "ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure540::GetId() const
 {
     return "urma_540";
 }
-
 } // namespace diag

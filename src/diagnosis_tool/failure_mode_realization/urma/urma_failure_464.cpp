@@ -1,30 +1,25 @@
 #include "urma_failure_464.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure464> g_urma("urma_464");
 
-bool UrmaFailure464::IsValid()
+bool UrmaFailure464::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_seg_cfg' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Atomic "
-        "access should be config with read and write access.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_jfc_opt") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure464::GetName() const
 {
-    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
+    return "JFC无效导致获取JFC失败";
 }
 
 std::string UrmaFailure464::GetRootCauseDesc() const
 {
-    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
-           "致URMA无法完成设备发现或能力初始化。";
+    return "urma_get_jfc_opt用于获取JFC，调用方传入的JFC不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure464::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure464::GetFixSuggDesc() const
 
 std::string UrmaFailure464::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_seg_cfg，Atomic access should be config with read and write "
-           "access.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_jfc_opt，Invalid parameter.。";
 }
 
 std::string UrmaFailure464::GetId() const
 {
     return "urma_464";
 }
-
 } // namespace diag

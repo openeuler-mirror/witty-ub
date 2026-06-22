@@ -1,30 +1,26 @@
 #include "urma_failure_312.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure312> g_urma("urma_312");
 
-bool UrmaFailure312::IsValid()
+bool UrmaFailure312::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_tp_list' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_vseg") != std::string::npos &&
+           message.find("Failed to unregister segment, token_id:") != std::string::npos &&
+           message.find(", handle:") != std::string::npos;
 }
 
 std::string UrmaFailure312::GetName() const
 {
-    return "URMA context、provider操作表、provider未提供get_tp_list操作实现无效导致获取TP失败";
+    return "下层注册或导入返回失败导致删除VSEG失败";
 }
 
 std::string UrmaFailure312::GetRootCauseDesc() const
 {
-    return "函数用于获取TP，调用方传入的URMA "
-           "context、provider操作表、provider未提供get_tp_list操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_delete_vseg在删除VSEG时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure312::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure312::GetFixSuggDesc() const
 
 std::string UrmaFailure312::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_tp_list，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_vseg，Failed to unregister segment, token_id:，, handle:。";
 }
 
 std::string UrmaFailure312::GetId() const
 {
     return "urma_312";
 }
-
 } // namespace diag

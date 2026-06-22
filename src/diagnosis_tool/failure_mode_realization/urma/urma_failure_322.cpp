@@ -1,29 +1,25 @@
 #include "urma_failure_322.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure322> g_urma("urma_322");
 
-bool UrmaFailure322::IsValid()
+bool UrmaFailure322::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjfce' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to create pjfce'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_seg") != std::string::npos &&
+           message.find("Failed to lookup v2p_token_id, ret:") != std::string::npos;
 }
 
 std::string UrmaFailure322::GetName() const
 {
-    return "epoll创建时下层资源准备失败";
+    return "导入Segment执行失败导致导入Segment失败";
 }
 
 std::string UrmaFailure322::GetRootCauseDesc() const
 {
-    return "函数负责创建epoll，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_import_seg执行导入Segment时依赖的导入Segment步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure322::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure322::GetFixSuggDesc() const
 
 std::string UrmaFailure322::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjfce，Failed to create pjfce。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_seg，Failed to lookup v2p_token_id, ret:。";
 }
 
 std::string UrmaFailure322::GetId() const
 {
     return "urma_322";
 }
-
 } // namespace diag

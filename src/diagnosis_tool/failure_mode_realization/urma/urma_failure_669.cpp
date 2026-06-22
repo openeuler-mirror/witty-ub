@@ -1,30 +1,25 @@
 #include "urma_failure_669.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure669> g_urma("urma_669");
 
-bool UrmaFailure669::IsValid()
+bool UrmaFailure669::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfs_batch' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter, index:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_modify_jfr") != std::string::npos &&
+           message.find("modify pjfr fail, index:") != std::string::npos && message.find(", ret:") != std::string::npos;
 }
 
 std::string UrmaFailure669::GetName() const
 {
-    return "URMA context、设备对象、sysfs设备信息、provider操作表、JFS对象无效导致删除JFS失败";
+    return "修改JFR执行失败导致修改JFR失败";
 }
 
 std::string UrmaFailure669::GetRootCauseDesc() const
 {
-    return "函数用于删除JFS，调用方传入的URMA "
-           "context、设备对象、sysfs设备信息、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_modify_jfr执行修改JFR时依赖的修改JFR步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure669::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure669::GetFixSuggDesc() const
 
 std::string UrmaFailure669::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfs_batch，Invalid parameter, index:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_modify_jfr，modify pjfr fail, index:，, ret:。";
 }
 
 std::string UrmaFailure669::GetId() const
 {
     return "urma_669";
 }
-
 } // namespace diag

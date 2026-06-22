@@ -1,6 +1,21 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+ * witty-ub is licensed under the Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *     http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
+ * PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
+
 #define MODULE_NAME "DIAGNOSIS"
 
 #include "failure_mode_view.h"
+
+#include <algorithm>
+#include <filesystem>
 
 #include <sys/stat.h>
 
@@ -17,7 +32,6 @@
 #include "logger.h"
 
 namespace diag {
-namespace {
 constexpr const char *HTML_OUTPUT_FILENAME = "failure-mode-view-vis.html";
 constexpr const char *DEFAULT_OUTPUT_DIR = "/var/witty-ub";
 constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/var/witty-ub/data/view-vis";
@@ -31,22 +45,8 @@ constexpr const char *JS_PLACEHOLDER = "__FAILURE_MODE_VIEW_JS__";
 constexpr mode_t OUTPUT_FILE_PERM_640 = 0640;
 constexpr const int MICROSECONDS_UNIT = 1000000;
 constexpr const int MICROSECONDS_LEN = 6;
-using TraceView = std::pair<std::string, const std::vector<FailureLogInfo> *>;
 
-FailureModeViewNode MakeViewNode(FailureModeController &controller)
-{
-    auto failureMode = controller.GetFailureMode();
-    FailureModeViewNodeData data{
-        failureMode->GetId(),
-        failureMode->GetName(),
-        failureMode->GetRootCauseDesc(),
-        failureMode->GetFixSuggDesc(),
-        failureMode->GetValidationMethodDesc(),
-        controller.GetHitCount(),
-        controller.GetLogInfos(),
-    };
-    return FailureModeViewNode(std::move(data));
-}
+using TraceView = std::pair<std::string, const std::vector<std::shared_ptr<FailureLogInfo>> *>;
 
 std::string FormatLogTime(int64_t timestamp)
 {
@@ -66,42 +66,54 @@ std::string FormatLogTime(int64_t timestamp)
     return oss.str();
 }
 
-Json::Value LogInfoToJson(const FailureLogInfo &logInfo)
+Json::Value LogInfoToJson(const std::shared_ptr<FailureLogInfo> logInfo)
 {
     Json::Value logJson(Json::objectValue);
-    logJson["time"] = FormatLogTime(logInfo.timestamp);
-    logJson["timestamp"] = Json::Int64(logInfo.timestamp);
-    logJson["failure_mode_id"] = logInfo.failureModeId;
-    logJson["filename"] = logInfo.filename;
-    logJson["line_no"] = logInfo.lineNo;
-    logJson["pod_name"] = logInfo.podName;
-    logJson["pid"] = logInfo.pid;
-    logJson["tid"] = logInfo.tid;
-    logJson["trace_id"] = logInfo.traceId;
-    logJson["cluster_name"] = logInfo.clusterName;
-    logJson["message"] = logInfo.message;
+    logJson["time"] = FormatLogTime(logInfo->timestamp);
+    logJson["timestamp"] = Json::Int64(logInfo->timestamp);
+    logJson["failure_mode_id"] = Json::Value(Json::arrayValue);
+    for (const std::string &failureModeId : logInfo->failureModeIds) {
+        logJson["failure_mode_id"].append(failureModeId);
+    }
+    logJson["filename"] = logInfo->filename;
+    logJson["line_no"] = logInfo->lineNo;
+    logJson["pod_name"] = logInfo->podName;
+    logJson["pid"] = logInfo->pid;
+    logJson["tid"] = logInfo->tid;
+    logJson["trace_id"] = logInfo->traceId;
+    logJson["cluster_name"] = logInfo->clusterName;
+    auto logInfoTmp = logInfo;
+    if (auto accessInfo = std::dynamic_pointer_cast<FailureLogInfoAccess>(logInfoTmp)) {
+        logJson["status_code"] = accessInfo->statusCode;
+        logJson["action"] = accessInfo->action;
+        logJson["cost"] = accessInfo->cost;
+        logJson["data_size"] = accessInfo->dataSize;
+        logJson["req_msg"] = accessInfo->reqMsg;
+        logJson["resp_msg"] = accessInfo->respMsg;
+    } else if (auto logInfoRuntime = std::dynamic_pointer_cast<FailureLogInfoRuntime>(logInfoTmp)) {
+        logJson["message"] = logInfoRuntime->message;
+    }
     return logJson;
 }
 
-Json::Value TraceToJson(const std::string &traceId, const std::vector<FailureLogInfo> &trace)
+Json::Value TraceToJson(const std::string &traceId, const std::vector<std::shared_ptr<FailureLogInfo>> &trace)
 {
     Json::Value traceJson(Json::objectValue);
     traceJson["trace_id"] = traceId;
     traceJson["logs"] = Json::Value(Json::arrayValue);
 
-    std::vector<const FailureLogInfo *> logInfos;
+    std::vector<std::shared_ptr<FailureLogInfo>> logInfos;
     logInfos.reserve(trace.size());
-    for (const FailureLogInfo &logInfo : trace) {
-        logInfos.push_back(&logInfo);
+    for (const auto &logInfo : trace) {
+        logInfos.push_back(logInfo);
     }
-    std::sort(logInfos.begin(), logInfos.end(), [](const FailureLogInfo *left, const FailureLogInfo *right) {
-        return left->timestamp > right->timestamp;
-    });
+    std::sort(logInfos.begin(), logInfos.end(),
+              [](const auto &left, const auto &right) { return left->timestamp > right->timestamp; });
 
     if (!logInfos.empty()) {
         int64_t startTime = logInfos.front()->timestamp;
         int64_t endTime = logInfos.front()->timestamp;
-        for (const FailureLogInfo *logInfo : logInfos) {
+        for (const auto &logInfo : logInfos) {
             startTime = std::min(startTime, logInfo->timestamp);
             endTime = std::max(endTime, logInfo->timestamp);
         }
@@ -116,8 +128,8 @@ Json::Value TraceToJson(const std::string &traceId, const std::vector<FailureLog
         traceJson["mode_count"] = Json::UInt64(0);
     }
 
-    for (const FailureLogInfo *logInfo : logInfos) {
-        traceJson["logs"].append(LogInfoToJson(*logInfo));
+    for (const auto &logInfo : logInfos) {
+        traceJson["logs"].append(LogInfoToJson(logInfo));
     }
     return traceJson;
 }
@@ -193,17 +205,17 @@ bool ReplaceFirst(std::string &content, const std::string &placeholder, const st
 
 bool CompareFailureModeViewNode(const FailureModeViewNode *left, const FailureModeViewNode *right)
 {
-    if (left->GetId() != right->GetId()) {
-        return left->GetId() < right->GetId();
+    if (left->GetData().id != right->GetData().id) {
+        return left->GetData().id < right->GetData().id;
     }
-    return left->GetName() < right->GetName();
+    return left->GetData().name < right->GetData().name;
 }
 
-int64_t GetLatestTraceTimestamp(const std::vector<FailureLogInfo> &trace)
+int64_t GetLatestTraceTimestamp(const std::vector<std::shared_ptr<FailureLogInfo>> &trace)
 {
     int64_t latest = 0;
-    for (const FailureLogInfo &logInfo : trace) {
-        latest = std::max(latest, logInfo.timestamp);
+    for (const auto &logInfo : trace) {
+        latest = std::max(latest, logInfo->timestamp);
     }
     return latest;
 }
@@ -221,41 +233,35 @@ bool CompareTraceView(const TraceView &left, const TraceView &right)
 Json::Value NodeToJson(const FailureModeViewNode &node)
 {
     Json::Value nodeJson(Json::objectValue);
-    nodeJson["id"] = node.GetId();
-    nodeJson["name"] = node.GetName();
-    nodeJson["cause"] = node.GetCause();
-    nodeJson["suggestion"] = node.GetSuggestion();
-    nodeJson["validation"] = node.GetValidation();
-    nodeJson["hit_count"] = node.GetHitCount();
-    nodeJson["log_infos"] = Json::Value(Json::arrayValue);
+    nodeJson["id"] = node.GetData().id;
+    nodeJson["name"] = node.GetData().name;
+    nodeJson["cause"] = node.GetData().cause;
+    nodeJson["suggestion"] = node.GetData().suggestion;
+    nodeJson["validation"] = node.GetData().validation;
+    nodeJson["hit_count"] = node.GetData().hitCount;
+
+    nodeJson["log_info"] = Json::objectValue;
+    for (const auto &[traceId, logInfo] : node.GetData().traceIdToFailureLogInfo) {
+        nodeJson["log_info"][traceId] = LogInfoToJson(logInfo);
+    }
+
     nodeJson["children"] = Json::Value(Json::arrayValue);
-
-    std::vector<const FailureLogInfo *> logInfos;
-    logInfos.reserve(node.GetLogInfos().size());
-    for (const FailureLogInfo &logInfo : node.GetLogInfos()) {
-        logInfos.push_back(&logInfo);
-    }
-    std::sort(logInfos.begin(), logInfos.end(), [](const FailureLogInfo *left, const FailureLogInfo *right) {
-        return left->timestamp > right->timestamp;
-    });
-    for (const FailureLogInfo *logInfo : logInfos) {
-        nodeJson["log_infos"].append(LogInfoToJson(*logInfo));
-    }
-
     std::vector<const FailureModeViewNode *> children;
-    children.reserve(node.GetSubFailureModeNodes().size());
-    for (const FailureModeViewNode &child : node.GetSubFailureModeNodes()) {
+    children.reserve(node.GetSubNodes().size());
+    for (const FailureModeViewNode &child : node.GetSubNodes()) {
         children.push_back(&child);
     }
     std::sort(children.begin(), children.end(), CompareFailureModeViewNode);
     for (const FailureModeViewNode *child : children) {
         nodeJson["children"].append(NodeToJson(*child));
     }
+
     return nodeJson;
 }
 
-Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots,
-                          const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces)
+Json::Value BuildRootJson(
+    const std::vector<FailureModeViewNode> &roots,
+    const std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>> &traceIdToFailureLogInfos)
 {
     Json::Value root(Json::objectValue);
     root["trees"] = Json::Value(Json::arrayValue);
@@ -272,8 +278,8 @@ Json::Value BuildRootJson(const std::vector<FailureModeViewNode> &roots,
     }
 
     std::vector<TraceView> sortedTraces;
-    sortedTraces.reserve(traces.size());
-    for (const auto &[traceId, trace] : traces) {
+    sortedTraces.reserve(traceIdToFailureLogInfos.size());
+    for (const auto &[traceId, trace] : traceIdToFailureLogInfos) {
         sortedTraces.emplace_back(traceId, &trace);
     }
     std::sort(sortedTraces.begin(), sortedTraces.end(), CompareTraceView);
@@ -315,8 +321,8 @@ std::string BuildHtml(const Json::Value &root)
 
 RackResult WriteHtml(const std::string &html, const std::string &outputDir)
 {
-    std::filesystem::path outputPath = std::filesystem::path(
-        outputDir.empty() ? DEFAULT_OUTPUT_DIR : outputDir) / HTML_OUTPUT_FILENAME;
+    std::filesystem::path outputPath =
+        std::filesystem::path(outputDir.empty() ? DEFAULT_OUTPUT_DIR : outputDir) / HTML_OUTPUT_FILENAME;
     std::error_code ec;
     std::filesystem::create_directories(outputPath.parent_path(), ec);
     if (ec) {
@@ -343,82 +349,53 @@ RackResult WriteHtml(const std::string &html, const std::string &outputDir)
     }
     return RACK_OK;
 }
-} // namespace
 
-FailureModeViewNode::FailureModeViewNode(FailureModeViewNodeData data)
-    : id_(std::move(data.id)),
-      name_(std::move(data.name)),
-      cause_(std::move(data.cause)),
-      suggestion_(std::move(data.suggestion)),
-      validation_(std::move(data.validation)),
-      hitCount_(data.hitCount),
-      logInfos_(std::move(data.logInfos))
+FailureModeViewNodeData::FailureModeViewNodeData(const FailureModeController &controller)
+    : id(controller.GetFailureMode()->GetId()),
+      name(controller.GetFailureMode()->GetName()),
+      cause(controller.GetFailureMode()->GetRootCauseDesc()),
+      suggestion(controller.GetFailureMode()->GetFixSuggDesc()),
+      validation(controller.GetFailureMode()->GetValidationMethodDesc()),
+      hitCount(controller.GetHitCount()),
+      traceIdToFailureLogInfo(controller.GetTraceIdToFailureLogInfo())
 {
 }
 
-FailureModeViewNode &FailureModeViewNode::AddSubFailureModeNode(FailureModeViewNode subFailureModeNode)
+FailureModeViewNode::FailureModeViewNode(FailureModeViewNodeData &&data) : data_(std::move(data)) {}
+
+const FailureModeViewNodeData &FailureModeViewNode::GetData() const
 {
-    subFailureModeNodes_.emplace_back(std::move(subFailureModeNode));
-    return subFailureModeNodes_.back();
+    return data_;
 }
 
-const std::string &FailureModeViewNode::GetId() const
+void FailureModeViewNode::AddSubNode(const FailureModeViewNode &subNode)
 {
-    return id_;
+    subNodes_.push_back(subNode);
 }
 
-const std::string &FailureModeViewNode::GetName() const
+const std::vector<FailureModeViewNode> &FailureModeViewNode::GetSubNodes() const
 {
-    return name_;
+    return subNodes_;
 }
 
-const std::string &FailureModeViewNode::GetCause() const
+RackResult FailureModeView::Build(
+    const std::unordered_set<std::string> &rootFailureModes,
+    const std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+    const std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>> &traceIdToFailureLogInfos)
 {
-    return cause_;
-}
-
-const std::string &FailureModeViewNode::GetSuggestion() const
-{
-    return suggestion_;
-}
-
-const std::string &FailureModeViewNode::GetValidation() const
-{
-    return validation_;
-}
-
-int FailureModeViewNode::GetHitCount() const
-{
-    return hitCount_;
-}
-
-const std::vector<FailureLogInfo> &FailureModeViewNode::GetLogInfos() const
-{
-    return logInfos_;
-}
-
-const std::vector<FailureModeViewNode> &FailureModeViewNode::GetSubFailureModeNodes() const
-{
-    return subFailureModeNodes_;
-}
-
-RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFailureModes,
-                                  std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
-                                  const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces)
-{
-    roots.clear();
-    traces_ = traces;
-    roots.reserve(rootFailureModes.size());
+    roots_.clear();
+    traceIdToFailureLogInfos_ = traceIdToFailureLogInfos;
+    roots_.reserve(rootFailureModes.size());
     for (const std::string &rootFailureModeId : rootFailureModes) {
-        auto controllerIter = failureModeIdToController.find(rootFailureModeId);
-        if (controllerIter == failureModeIdToController.end()) {
+        auto it = failureModeIdToController.find(rootFailureModeId);
+        if (it == failureModeIdToController.end()) {
             return RACK_FAIL;
         }
-        FailureModeController &controller = controllerIter->second;
-        roots.emplace_back(MakeViewNode(controller));
+        const FailureModeController &controller = it->second;
+        roots_.emplace_back(FailureModeViewNodeData{controller});
 
         std::unordered_set<std::string> path = {rootFailureModeId};
-        RackResult ret = BuildSubTree(roots.back(), rootFailureModeId, failureModeIdToController, path);
+        RackResult ret = BuildSubTree(roots_.back(), rootFailureModeId, failureModeIdToController, path);
         if (ret != RACK_OK) {
             return ret;
         }
@@ -426,9 +403,25 @@ RackResult FailureModeView::Build(const std::unordered_set<std::string> &rootFai
     return RACK_OK;
 }
 
+RackResult FailureModeView::Dump(const std::string &outputDir) const
+{
+    const std::string html = BuildHtml(BuildRootJson(roots_, traceIdToFailureLogInfos_));
+    if (html.empty()) {
+        return RACK_FAIL;
+    }
+    RackResult ret = WriteHtml(html, outputDir);
+    if (ret != RACK_OK) {
+        return ret;
+    }
+    std::filesystem::path outputPath =
+        std::filesystem::path(outputDir.empty() ? DEFAULT_OUTPUT_DIR : outputDir) / HTML_OUTPUT_FILENAME;
+    LOG_INFO << "generated visualized failure mode view: " << outputPath;
+    return RACK_OK;
+}
+
 RackResult FailureModeView::BuildSubTree(
     FailureModeViewNode &parentNode, const std::string &parentFailureModeId,
-    std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+    const std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
     std::unordered_set<std::string> &path)
 {
     auto parentControllerIter = failureModeIdToController.find(parentFailureModeId);
@@ -436,8 +429,8 @@ RackResult FailureModeView::BuildSubTree(
         return RACK_FAIL;
     }
 
-    std::vector<std::string> subFailureModeIds(parentControllerIter->second.GetSubFailureModesValid().begin(),
-                                               parentControllerIter->second.GetSubFailureModesValid().end());
+    std::vector<std::string> subFailureModeIds(parentControllerIter->second.GetSubValidFailureModeIds().begin(),
+                                               parentControllerIter->second.GetSubValidFailureModeIds().end());
     std::sort(subFailureModeIds.begin(), subFailureModeIds.end());
 
     for (const std::string &subFailureModeId : subFailureModeIds) {
@@ -449,30 +442,15 @@ RackResult FailureModeView::BuildSubTree(
             continue;
         }
 
-        FailureModeViewNode &childNode = parentNode.AddSubFailureModeNode(MakeViewNode(childControllerIter->second));
+        FailureModeViewNode childNode(FailureModeViewNodeData{childControllerIter->second});
         path.insert(subFailureModeId);
         RackResult ret = BuildSubTree(childNode, subFailureModeId, failureModeIdToController, path);
         path.erase(subFailureModeId);
         if (ret != RACK_OK) {
             return ret;
         }
+        parentNode.AddSubNode(childNode);
     }
-    return RACK_OK;
-}
-
-RackResult FailureModeView::Dump(const std::string &outputDir) const
-{
-    const std::string html = BuildHtml(BuildRootJson(roots, traces_));
-    if (html.empty()) {
-        return RACK_FAIL;
-    }
-    RackResult ret = WriteHtml(html, outputDir);
-    if (ret != RACK_OK) {
-        return ret;
-    }
-    std::filesystem::path outputPath =
-        std::filesystem::path(outputDir.empty() ? DEFAULT_OUTPUT_DIR : outputDir) / HTML_OUTPUT_FILENAME;
-    LOG_INFO << "generated visualized failure mode view: " << outputPath;
     return RACK_OK;
 }
 } // namespace diag

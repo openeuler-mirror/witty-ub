@@ -1,30 +1,25 @@
 #include "urma_failure_728.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure728> g_urma("urma_728");
 
-bool UrmaFailure728::IsValid()
+bool UrmaFailure728::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_user_ctl' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Unsupported opcode, opcode:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_modify_jetty") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure728::GetName() const
 {
-    return "设置context过程中依赖步骤失败";
+    return "Jetty、属性参数无效导致修改Jetty失败";
 }
 
 std::string UrmaFailure728::GetRootCauseDesc() const
 {
-    return "函数用于设置context，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA"
-           "操作失败。";
+    return "urma_modify_jetty用于修改Jetty，调用方传入的Jetty、属性参数不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure728::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure728::GetFixSuggDesc() const
 
 std::string UrmaFailure728::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_user_ctl，Unsupported opcode, opcode:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_modify_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure728::GetId() const
 {
     return "urma_728";
 }
-
 } // namespace diag

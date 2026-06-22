@@ -1,30 +1,25 @@
 #include "urma_failure_183.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure183> g_urma("urma_183");
 
-bool UrmaFailure183::IsValid()
+bool UrmaFailure183::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_create_jetty_check_trans_mode' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'UB dev should use share jfr!'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_alloc_jetty") != std::string::npos &&
+           message.find("failed to fill jetty cfg") != std::string::npos;
 }
 
 std::string UrmaFailure183::GetName() const
 {
-    return "创建设备过程中依赖步骤失败";
+    return "分配Jetty执行失败导致分配Jetty失败";
 }
 
 std::string UrmaFailure183::GetRootCauseDesc() const
 {
-    return "函数用于创建设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_cmd_alloc_jetty执行分配Jetty时依赖的分配Jetty步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure183::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure183::GetFixSuggDesc() const
 
 std::string UrmaFailure183::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_check_trans_mode，UB dev should use share jfr!。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jetty，failed to fill jetty cfg。";
 }
 
 std::string UrmaFailure183::GetId() const
 {
     return "urma_183";
 }
-
 } // namespace diag

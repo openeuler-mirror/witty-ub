@@ -1,29 +1,26 @@
 #include "urma_failure_653.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure653> g_urma("urma_653");
 
-bool UrmaFailure653::IsValid()
+bool UrmaFailure653::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'jfc is deactived, can not delete.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_ioctl_get_eid_list") != std::string::npos &&
+           message.find("Failed to open urma cdev with path") != std::string::npos;
 }
 
 std::string UrmaFailure653::GetName() const
 {
-    return "JFC清理阶段下层释放操作失败";
+    return "设备EID信息读取或解析失败导致获取ioctl、EID、列表失败";
 }
 
 std::string UrmaFailure653::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFC相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_ioctl_get_eid_"
+           "list需要从sysfs获取设备EID信息，路径不存在、内容读取失败或字段解析异常会导致设备信息不可用。";
 }
 
 RootCause UrmaFailure653::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure653::GetFixSuggDesc() const
 
 std::string UrmaFailure653::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfc，jfc is deactived, can not delete.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ioctl_get_eid_list，Failed to open urma cdev with path。";
 }
 
 std::string UrmaFailure653::GetId() const
 {
     return "urma_653";
 }
-
 } // namespace diag

@@ -10,84 +10,87 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef DIAGNOSIS_TOOL_MODULE_H
+#define DIAGNOSIS_TOOL_MODULE_H
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
 #include "rack_error.h"
 #include "rack_module.h"
 #include "failure_log_info.h"
-#include "failure_mode.h"
 #include "failure_mode_controller.h"
 
 namespace diag {
 using namespace rack::module;
 
-// 诊断模块，继承RackModule，执行故障树判断逻辑
 class DiagnosisToolModule final : public RackModule {
 public:
     DiagnosisToolModule();
     ~DiagnosisToolModule() override = default;
-    // 初始化故障树Json
-    void InitializeFailureModeTree();
-    // 初始化模块
+
     RackResult Initialize() override;
-    // 反初始化模块
     void UnInitialize() override;
-    // 启动模块
     RackResult Start() override;
-    // 停止模块
     void Stop() override;
-    // 生成View
-    RackResult GenerateView();
-    // 存储结果
 
 private:
-    RackResult ParseDiagArgs();                     // 解析命令行参数并校验
-    RackResult ExtractLogsByTimeWindow();           // 根据时间窗提取日志
-    void ExtractLogLinesCount(const std::string &filePath, int64_t startTs, int64_t endTs,
-                              std::ofstream &outFile, int &count);
-    bool ExtractLogLines(const std::string &filePath, const std::string &outputPath,
-                         int64_t startTs, int64_t endTs, bool append = false);
-    std::vector<std::string> FindMatchingFiles(const std::string &dir,
-                                               const std::string &pattern); // 递归搜索匹配的文件
-
-    void Visit(FailureModeController controller);   // 构建tree静态图和traces命中表
-    void StartKvcache(const std::vector<std::string> &subRootFailureModes);
-    void StartUrma(const std::vector<std::string> &subRootFailureModes);
-    void StoreFailureTraces();
-    void AppendLogsToParent(const std::string &failureModeId, const std::vector<FailureLogInfo> &logInfos);
-    void ProcessLogInfos(FailureModeController &controller, const std::string &failureModeId,
-                         const std::vector<FailureLogInfo> &logInfos);
-    void ProcessSubFailureModes(const std::string &failureModeId, FailureMode *failureMode);
+    RackResult ParseDiagArgs();
+    RackResult ConfigureMergedPath();
+    RackResult ExtractLogsByTimeWindow();
+    std::vector<std::string> FindMatchingFiles(const std::string &dir, const std::string &pattern);
+    bool ExtractLogLinesByTimeWindow(const std::string &inputPath, const std::string &outputPath, bool append = false);
+    RackResult SetEnvVars();
+    RackResult BuildFailureModeTree();
+    RackResult BuildLogTypeToPathMap();
+    RackResult AnalyzeAccessLogs();
+    RackResult AnalyzeRuntimeLogs();
+    RackResult MergeFailureModeByTraceId();
+    RackResult StoreFailureTraces();
+    RackResult GenerateFailureModeView();
 
 private:
-    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> failureModeJson;
-    std::unordered_map<std::string, std::shared_ptr<FailureMode>> failureModeInstanceMap;
-    std::unordered_map<std::string, std::vector<std::string>> subRootFailureModesMap;
-
-    std::unordered_map<std::string, FailureModeController>
-        failureModeIdToController; // (failureLogInfo ->) failureModeId -> failureModeController (-> failureMode)
-    std::unordered_map<std::string, std::vector<FailureLogInfo>> traces; // traceId -> logs
-    std::unordered_set<std::string> allFailureModes;                     // failureModeId
-    std::unordered_set<std::string> rootFailureModes;                    // failureModeId
-    std::unordered_map<std::string, std::vector<std::string>> childToParentFailureModes;
-
     // 命令行参数
-    std::string dsLogPath;               // --ds-log-path
-    std::string dsClientAccessLogFile;   // --ds-client-access-log-file
-    std::string dsClientInfoLogFile;     // --ds-client-info-log-file
-    std::string dsWorkerInfoLogFile;     // --ds-worker-info-log-file
-    std::string dsWorkerAccessLogFile;
-    std::string resourceLogFile;         // --resource-log-file
-    std::string startTimeStr;
-    std::string endTimeStr;
-    int64_t startTimestamp = 0;
-    int64_t endTimestamp = 0;
-    std::string extractedLogDir;
-    std::string randomStr = "";          // 输出文件夹的随机字符串，用于多个进程同时写文件的情况
-};
+    std::string dsLogPath_;
+    std::string dsClientAccessLogFile_;
+    std::string dsClientInfoLogFile_;
+    std::string dsWorkerAccessLogFile_;
+    std::string dsWorkerInfoLogFile_;
+    std::string resourceLogFile_;
+    std::string startTimeStr_;
+    std::string endTimeStr_;
+    std::string randomStr_;
 
+    int64_t startTimestamp_;
+    int64_t endTimestamp_;
+
+    std::string mergedLogDir_;
+
+    // 映射表
+    std::unordered_map<std::string, std::vector<std::string>> logTypeToPath_; // log type (access/runtime) -> path
+    std::unordered_map<std::string, FailureModeController>
+        failureModeIdToController_; // failure mode id -> failure mode controller (-> failure mode)
+    std::unordered_map<std::string, std::vector<std::string>>
+        childToParentFailureModeIds_; // child failure mode id -> parent failure mode id[]
+    std::unordered_map<std::string, std::vector<std::string>>
+        moduleToRootFailureModeIds_; // module name -> root failure mode id[]
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>>
+        failureModeJson_; // original json data
+    std::unordered_map<int, std::string>
+        statusCodeToFailureModeId_;                            // status code -> failure mode id (第一轮筛选的结果)
+    std::unordered_map<std::string, int> traceIdToStatusCode_; // trace id -> status code (第一轮筛选的结果)
+    std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>>
+        traceIdToUrmaFailureLogInfos_; // trace id -> urma failure log info[]（用于临时存放urma故障日志，最终会合并到下一个表）
+    std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>>
+        traceIdToFailureLogInfos_; // trace id -> failure log info[]（最终结果）
+    std::unordered_map<std::string, std::vector<std::string>>
+        traceIdToFailureModeIds_;                             // trace id -> failure mode id[]（最终结果）
+    std::unordered_set<std::string> rootValidFailureModeIds_; // failureModeId
+};
 } // namespace diag
+
+#endif

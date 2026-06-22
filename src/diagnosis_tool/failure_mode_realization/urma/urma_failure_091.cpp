@@ -1,30 +1,25 @@
 #include "urma_failure_091.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure091> g_urma("urma_091");
 
-bool UrmaFailure091::IsValid()
+bool UrmaFailure091::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unbind_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to unbind tjetty ['");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_get_tp_attr") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure091::GetName() const
 {
-    return "解绑Jetty过程中依赖步骤失败";
+    return "TP、ATTR无效导致获取TP、ATTR失败";
 }
 
 std::string UrmaFailure091::GetRootCauseDesc() const
 {
-    return "函数用于解绑Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_cmd_get_tp_attr用于获取TP、ATTR，调用方传入的TP、ATTR不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure091::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure091::GetFixSuggDesc() const
 
 std::string UrmaFailure091::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unbind_jetty，Failed to unbind tjetty [。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_tp_attr，Invalid parameter.。";
 }
 
 std::string UrmaFailure091::GetId() const
 {
     return "urma_091";
 }
-
 } // namespace diag

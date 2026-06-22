@@ -1,30 +1,26 @@
 #include "urma_failure_481.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure481> g_urma("urma_481");
 
-bool UrmaFailure481::IsValid()
+bool UrmaFailure481::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_sysfs_with_index' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to read sysfs file'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jetty_check_jfc") != std::string::npos &&
+           message.find("Invalid parameter, jfc is NULL in jfs_cfg.") != std::string::npos;
 }
 
 std::string UrmaFailure481::GetName() const
 {
-    return "EID信息的sysfs读取或解析失败";
+    return "Jetty、JFC无效导致创建Jetty、JFC失败";
 }
 
 std::string UrmaFailure481::GetRootCauseDesc() const
 {
-    return "函数需要从sysfs获取EID信息来构建设备上下文，文件打开、读取或内容解析失败导致URMA无法完成设备发现或能力初始"
-           "化。";
+    return "urma_create_jetty_check_"
+           "jfc用于创建Jetty、JFC，调用方传入的Jetty、JFC不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure481::AnalyzeRootCause()
@@ -39,12 +35,12 @@ std::string UrmaFailure481::GetFixSuggDesc() const
 
 std::string UrmaFailure481::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_sysfs_with_index，Failed to read sysfs file。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_check_jfc，Invalid parameter, jfc is NULL in "
+           "jfs_cfg.。";
 }
 
 std::string UrmaFailure481::GetId() const
 {
     return "urma_481";
 }
-
 } // namespace diag

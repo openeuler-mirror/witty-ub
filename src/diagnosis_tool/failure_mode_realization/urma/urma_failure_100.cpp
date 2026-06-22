@@ -1,30 +1,25 @@
 #include "urma_failure_100.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure100> g_urma("urma_100");
 
-bool UrmaFailure100::IsValid()
+bool UrmaFailure100::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'handle_recv_cr_with_store' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Failed to find local jetty, idx:' | grep -F ', id:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_free_jetty") != std::string::npos &&
+           message.find("Failed to delete jetty because it has remote jetty, try unbind first") != std::string::npos;
 }
 
 std::string UrmaFailure100::GetName() const
 {
-    return "未找到可用于获取Jetty的有效对象或路由";
+    return "下层资源删除失败导致释放Jetty失败";
 }
 
 std::string UrmaFailure100::GetRootCauseDesc() const
 {
-    return "函数在获取Jetty过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
-           "目标。";
+    return "urma_free_jetty清理Jetty时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure100::AnalyzeRootCause()
@@ -39,12 +34,13 @@ std::string UrmaFailure100::GetFixSuggDesc() const
 
 std::string UrmaFailure100::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：handle_recv_cr_with_store，Failed to find local jetty, idx:，, id:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jetty，Failed to delete jetty because it has remote jetty, "
+           "try unbin"
+           "d first。";
 }
 
 std::string UrmaFailure100::GetId() const
 {
     return "urma_100";
 }
-
 } // namespace diag

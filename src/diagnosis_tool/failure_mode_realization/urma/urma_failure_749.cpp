@@ -1,29 +1,26 @@
 #include "urma_failure_749.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure749> g_urma("urma_749");
 
-bool UrmaFailure749::IsValid()
+bool UrmaFailure749::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_deactive_jfs' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("check_valid_jfr_wr") != std::string::npos &&
+           message.find("There are invalid parameters.") != std::string::npos;
 }
 
 std::string UrmaFailure749::GetName() const
 {
-    return "URMA context、JFS对象无效导致去激活JFS失败";
+    return "valid、JFR、工作请求无效导致校验valid、JFR、工作请求失败";
 }
 
 std::string UrmaFailure749::GetRootCauseDesc() const
 {
-    return "函数用于去激活JFS，调用方传入的URMA context、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "check_valid_jfr_"
+           "wr用于校验valid、JFR、工作请求，调用方传入的valid、JFR、工作请求不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure749::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure749::GetFixSuggDesc() const
 
 std::string UrmaFailure749::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_deactive_jfs，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：check_valid_jfr_wr，There are invalid parameters.。";
 }
 
 std::string UrmaFailure749::GetId() const
 {
     return "urma_749";
 }
-
 } // namespace diag

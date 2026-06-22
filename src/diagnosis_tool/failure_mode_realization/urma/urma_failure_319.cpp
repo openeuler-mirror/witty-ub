@@ -1,29 +1,27 @@
 #include "urma_failure_319.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure319> g_urma("urma_319");
 
-bool UrmaFailure319::IsValid()
+bool UrmaFailure319::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_post_jetty_send_wr' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_unregister_seg_inner") != std::string::npos &&
+           message.find("Failed to delete pseg for vseg, token_id:") != std::string::npos &&
+           message.find(", handle:") != std::string::npos;
 }
 
 std::string UrmaFailure319::GetName() const
 {
-    return "Jetty对象、WR对象无效导致投递Jetty失败";
+    return "下层资源删除失败导致注销Segment、inner失败";
 }
 
 std::string UrmaFailure319::GetRootCauseDesc() const
 {
-    return "函数用于投递Jetty，调用方传入的Jetty对象、WR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_unregister_seg_"
+           "inner清理Segment、inner时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure319::AnalyzeRootCause()
@@ -38,12 +36,13 @@ std::string UrmaFailure319::GetFixSuggDesc() const
 
 std::string UrmaFailure319::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_post_jetty_send_wr，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unregister_seg_inner，Failed to delete pseg for vseg, "
+           "token_id:，, handle"
+           ":。";
 }
 
 std::string UrmaFailure319::GetId() const
 {
     return "urma_319";
 }
-
 } // namespace diag

@@ -1,30 +1,27 @@
 #include "urma_failure_395.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure395> g_urma("urma_395");
 
-bool UrmaFailure395::IsValid()
+bool UrmaFailure395::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jfs' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter, trans_mode:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("handle_recv_cr_with_store") != std::string::npos &&
+           message.find("Failed to find local jetty, idx:") != std::string::npos &&
+           message.find(", id:") != std::string::npos;
 }
 
 std::string UrmaFailure395::GetName() const
 {
-    return "URMA context、provider操作表、JFS对象无效导致分配JFS失败";
+    return "接收handle、CR、WITH执行失败导致接收handle、CR、WITH失败";
 }
 
 std::string UrmaFailure395::GetRootCauseDesc() const
 {
-    return "函数用于分配JFS，调用方传入的URMA "
-           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "handle_recv_cr_with_"
+           "store执行接收handle、CR、WITH时依赖的接收handle、CR、WITH步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure395::AnalyzeRootCause()
@@ -39,12 +36,11 @@ std::string UrmaFailure395::GetFixSuggDesc() const
 
 std::string UrmaFailure395::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jfs，Invalid parameter, trans_mode:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：handle_recv_cr_with_store，Failed to find local jetty, idx:，, id:。";
 }
 
 std::string UrmaFailure395::GetId() const
 {
     return "urma_395";
 }
-
 } // namespace diag

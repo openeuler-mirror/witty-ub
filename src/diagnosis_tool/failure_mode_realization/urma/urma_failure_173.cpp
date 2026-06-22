@@ -1,29 +1,26 @@
 #include "urma_failure_173.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure173> g_urma("urma_173");
 
-bool UrmaFailure173::IsValid()
+bool UrmaFailure173::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_set_tp_attr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_create_jfr") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure173::GetName() const
 {
-    return "URMA context无效导致设置TP失败";
+    return "URMA context、dev_fd、JFR、配置参数无效导致创建JFR失败";
 }
 
 std::string UrmaFailure173::GetRootCauseDesc() const
 {
-    return "函数用于设置TP，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_create_jfr用于创建JFR，调用方传入的URMA "
+           "context、dev_fd、JFR、配置参数不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure173::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure173::GetFixSuggDesc() const
 
 std::string UrmaFailure173::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_tp_attr，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jfr，Invalid parameter。";
 }
 
 std::string UrmaFailure173::GetId() const
 {
     return "urma_173";
 }
-
 } // namespace diag

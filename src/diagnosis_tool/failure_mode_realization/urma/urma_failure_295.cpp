@@ -1,29 +1,25 @@
 #include "urma_failure_295.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure295> g_urma("urma_295");
 
-bool UrmaFailure295::IsValid()
+bool UrmaFailure295::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_grp' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jetty") != std::string::npos &&
+           message.find("Failed to register health check seg for jetty creation") != std::string::npos;
 }
 
 std::string UrmaFailure295::GetName() const
 {
-    return "URMA context无效导致删除Jetty失败";
+    return "下层注册或导入返回失败导致创建Jetty失败";
 }
 
 std::string UrmaFailure295::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_jetty在创建Jetty时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure295::AnalyzeRootCause()
@@ -38,12 +34,12 @@ std::string UrmaFailure295::GetFixSuggDesc() const
 
 std::string UrmaFailure295::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_grp，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jetty，Failed to register health check seg for jetty "
+           "creation。";
 }
 
 std::string UrmaFailure295::GetId() const
 {
     return "urma_295";
 }
-
 } // namespace diag

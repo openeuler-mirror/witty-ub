@@ -1,30 +1,25 @@
 #include "urma_failure_499.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure499> g_urma("urma_499");
 
-bool UrmaFailure499::IsValid()
+bool UrmaFailure499::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_query_eid' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter with err dev or ops.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_pjfs") != std::string::npos &&
+           message.find("Failed to delete pjfs") != std::string::npos && message.find(", ret:") != std::string::npos;
 }
 
 std::string UrmaFailure499::GetName() const
 {
-    return "设备对象、sysfs设备信息、provider操作表无效导致查询设备失败";
+    return "下层资源删除失败导致删除物理JFS失败";
 }
 
 std::string UrmaFailure499::GetRootCauseDesc() const
 {
-    return "函数用于查询设备，调用方传入的设备对象、sysfs设备信息、provider操作表不满足接口前置条件，无法继续完成本次UR"
-           "MA操作。";
+    return "bondp_delete_pjfs清理物理JFS时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure499::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure499::GetFixSuggDesc() const
 
 std::string UrmaFailure499::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_eid，Invalid parameter with err dev or ops.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pjfs，Failed to delete pjfs，, ret:。";
 }
 
 std::string UrmaFailure499::GetId() const
 {
     return "urma_499";
 }
-
 } // namespace diag

@@ -1,29 +1,25 @@
 #include "urma_failure_214.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure214> g_urma("urma_214");
 
-bool UrmaFailure214::IsValid()
+bool UrmaFailure214::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Invalid parameter, index' | grep -F 'jetty in the array is NULL.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_alloc_device") != std::string::npos &&
+           message.find("snprintf failed") != std::string::npos;
 }
 
 std::string UrmaFailure214::GetName() const
 {
-    return "Jetty对象无效导致删除Jetty失败";
+    return "分配设备执行失败导致分配设备失败";
 }
 
 std::string UrmaFailure214::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，调用方传入的Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_alloc_device执行分配设备时依赖的分配设备步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure214::AnalyzeRootCause()
@@ -38,13 +34,11 @@ std::string UrmaFailure214::GetFixSuggDesc() const
 
 std::string UrmaFailure214::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_batch，Invalid parameter, index，jetty in the array "
-           "is NULL.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_device，snprintf failed。";
 }
 
 std::string UrmaFailure214::GetId() const
 {
     return "urma_214";
 }
-
 } // namespace diag

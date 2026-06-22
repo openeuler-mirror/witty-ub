@@ -1,31 +1,26 @@
 #include "urma_failure_286.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure286> g_urma("urma_286");
 
-bool UrmaFailure286::IsValid()
+bool UrmaFailure286::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_device_by_eid") != std::string::npos &&
+           message.find("urma get device list failed!") != std::string::npos;
 }
 
 std::string UrmaFailure286::GetName() const
 {
-    return "URMA context、provider操作表、Jetty对象、provider未提供deactive_jetty操作实现无效导致去激活Jetty失败";
+    return "下层查询返回失败导致获取设备、EID失败";
 }
 
 std::string UrmaFailure286::GetRootCauseDesc() const
 {
-    return "函数用于去激活Jetty，调用方传入的URMA "
-           "context、provider操作表、Jetty对象、provider未提供deactive_"
-           "jetty操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_get_device_by_"
+           "eid需要从provider、驱动或缓存中获取设备、EID状态，查询结果失败会导致调用方无法取得有效信息。";
 }
 
 RootCause UrmaFailure286::AnalyzeRootCause()
@@ -40,12 +35,11 @@ std::string UrmaFailure286::GetFixSuggDesc() const
 
 std::string UrmaFailure286::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_device_by_eid，urma get device list failed!。";
 }
 
 std::string UrmaFailure286::GetId() const
 {
     return "urma_286";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_480.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure480> g_urma("urma_480");
 
-bool UrmaFailure480::IsValid()
+bool UrmaFailure480::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'read_eid_sysfs_with_index' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'snprintf failed, eid idx:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jfce") != std::string::npos &&
+           message.find("[DRV_ERR]Failed to delete jfce, ret:") != std::string::npos;
 }
 
 std::string UrmaFailure480::GetName() const
 {
-    return "读取EID过程中依赖步骤失败";
+    return "下层资源删除失败导致删除JFCE失败";
 }
 
 std::string UrmaFailure480::GetRootCauseDesc() const
 {
-    return "函数用于读取EID，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "urma_delete_jfce清理JFCE时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure480::AnalyzeRootCause()
@@ -34,17 +29,16 @@ RootCause UrmaFailure480::AnalyzeRootCause()
 
 std::string UrmaFailure480::GetFixSuggDesc() const
 {
-    return "无";
+    return "当前不会触发";
 }
 
 std::string UrmaFailure480::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：read_eid_sysfs_with_index，snprintf failed, eid idx:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfce，[DRV_ERR]Failed to delete jfce, ret:。";
 }
 
 std::string UrmaFailure480::GetId() const
 {
     return "urma_480";
 }
-
 } // namespace diag

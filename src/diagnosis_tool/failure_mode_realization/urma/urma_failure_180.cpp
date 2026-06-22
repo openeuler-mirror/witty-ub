@@ -1,30 +1,25 @@
 #include "urma_failure_180.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure180> g_urma("urma_180");
 
-bool UrmaFailure180::IsValid()
+bool UrmaFailure180::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_create_jetty") != std::string::npos &&
+           message.find("failed to fill jetty cfg") != std::string::npos;
 }
 
 std::string UrmaFailure180::GetName() const
 {
-    return "URMA context、provider操作表无效导致解除导入JFR失败";
+    return "创建Jetty执行失败导致创建Jetty失败";
 }
 
 std::string UrmaFailure180::GetRootCauseDesc() const
 {
-    return "函数用于解除导入JFR，调用方传入的URMA "
-           "context、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_create_jetty创建Jetty时初始化端口索引或收发WR缓冲区失败，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure180::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure180::GetFixSuggDesc() const
 
 std::string UrmaFailure180::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_jfr，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jetty，failed to fill jetty cfg。";
 }
 
 std::string UrmaFailure180::GetId() const
 {
     return "urma_180";
 }
-
 } // namespace diag

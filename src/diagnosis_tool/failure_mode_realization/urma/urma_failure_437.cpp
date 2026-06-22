@@ -1,29 +1,25 @@
 #include "urma_failure_437.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure437> g_urma("urma_437");
 
-bool UrmaFailure437::IsValid()
+bool UrmaFailure437::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_jfc_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid out buffer from kernel.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_set_jetty_opt") != std::string::npos &&
+           message.find("jetty->jetty_cfg.shared.jfc is not exist") != std::string::npos;
 }
 
 std::string UrmaFailure437::GetName() const
 {
-    return "URMA context无效导致获取JFC失败";
+    return "Jetty状态不满足要求导致设置Jetty失败";
 }
 
 std::string UrmaFailure437::GetRootCauseDesc() const
 {
-    return "函数用于获取JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_set_jetty_opt执行设置Jetty时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure437::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure437::GetFixSuggDesc() const
 
 std::string UrmaFailure437::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_jfc_opt，Invalid out buffer from kernel.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_jetty_opt，jetty->jetty_cfg.shared.jfc is not exist。";
 }
 
 std::string UrmaFailure437::GetId() const
 {
     return "urma_437";
 }
-
 } // namespace diag

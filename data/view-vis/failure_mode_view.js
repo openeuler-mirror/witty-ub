@@ -56,6 +56,20 @@ function traces() {
   return Array.isArray(FAILURE_MODE_VIEW_DATA.traces) ? FAILURE_MODE_VIEW_DATA.traces : [];
 }
 
+function modeIdsFromLog(log) {
+  const value = log?.failure_mode_id;
+  if (Array.isArray(value)) {
+    return value.map(id => String(id || "").trim()).filter(Boolean);
+  }
+  const id = String(value || "").trim();
+  return id ? [id] : [];
+}
+
+function modeIdText(log) {
+  const ids = modeIdsFromLog(log);
+  return ids.length ? ids.join(", ") : "(unknown)";
+}
+
 function selectedTrace() {
   if (!state.selectedTraceId) return null;
   return currentTraces().find(trace => trace.trace_id === state.selectedTraceId) || null;
@@ -67,7 +81,7 @@ function currentTreeModeIds() {
 
 function scopedTraceLogs(trace) {
   const modeIds = currentTreeModeIds();
-  return (trace?.logs || []).filter(log => modeIds.has(log.failure_mode_id));
+  return (trace?.logs || []).filter(log => modeIdsFromLog(log).some(id => modeIds.has(id)));
 }
 
 function traceInCurrentTree(trace) {
@@ -79,7 +93,7 @@ function currentTraces() {
 }
 
 function traceModeIds(trace) {
-  return new Set(scopedTraceLogs(trace).map(log => log.failure_mode_id).filter(Boolean));
+  return new Set(scopedTraceLogs(trace).flatMap(modeIdsFromLog));
 }
 
 function traceMatchesQuery(trace) {
@@ -89,7 +103,18 @@ function traceMatchesQuery(trace) {
     trace.trace_id,
     trace.start_time,
     trace.end_time,
-    ...logs.flatMap(log => [log.failure_mode_id, log.message, log.pod_name, log.cluster_name])
+    trace.duration_us,
+    ...logs.flatMap(log => [
+      modeIdText(log),
+      log.message,
+      log.req_msg,
+      log.resp_msg,
+      log.action,
+      log.filename,
+      log.line_no,
+      log.pod_name,
+      log.cluster_name
+    ])
   ].join(" ").toLowerCase();
   return text.includes(state.query);
 }
@@ -220,7 +245,77 @@ function edgePath(src, dst) {
 
 function matchesQuery(node) {
   if (!state.query) return true;
-  return [node.id, node.name].join(" ").toLowerCase().includes(state.query);
+  return [node.id, node.name, node.cause, node.suggestion, node.validation].join(" ").toLowerCase().includes(state.query);
+}
+
+function sortedLogs(logs) {
+  return [...logs].sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0));
+}
+
+function normalizeTraceLogs(traceId, value) {
+  const logs = Array.isArray(value) ? value : [value];
+  return sortedLogs(logs.filter(Boolean).map(log => ({
+    ...log,
+    trace_id: log?.trace_id || traceId
+  })));
+}
+
+function nodeTraceLogGroups(node) {
+  if (Array.isArray(node.log_infos)) {
+    const groups = new Map();
+    for (const log of node.log_infos) {
+      const traceId = log?.trace_id || "(empty)";
+      groups.set(traceId, [...(groups.get(traceId) || []), log]);
+    }
+    return [...groups.entries()].map(([traceId, logs]) => ({
+      traceId,
+      logs: sortedLogs(logs)
+    })).sort(compareTraceLogGroups);
+  }
+  if (node.log_info && typeof node.log_info === "object") {
+    return Object.entries(node.log_info).map(([traceId, value]) => ({
+      traceId,
+      logs: normalizeTraceLogs(traceId, value)
+    })).filter(group => group.logs.length > 0).sort(compareTraceLogGroups);
+  }
+  return [];
+}
+
+function compareTraceLogGroups(left, right) {
+  const leftLatest = Math.max(...left.logs.map(log => Number(log.timestamp || 0)), 0);
+  const rightLatest = Math.max(...right.logs.map(log => Number(log.timestamp || 0)), 0);
+  if (leftLatest !== rightLatest) {
+    return rightLatest - leftLatest;
+  }
+  return left.traceId.localeCompare(right.traceId);
+}
+
+function logSummary(log) {
+  return log?.message || log?.action || log?.req_msg || log?.resp_msg || "";
+}
+
+function renderLogFields(log) {
+  const fields = [
+    ["Time", log.time],
+    ["Mode IDs", modeIdText(log)],
+    ["Trace ID", log.trace_id],
+    ["File", log.filename ? `${log.filename}${log.line_no ? `:${log.line_no}` : ""}` : ""],
+    ["Pod", log.pod_name],
+    ["PID", log.pid],
+    ["TID", log.tid],
+    ["Cluster", log.cluster_name],
+    ["Status", log.status_code],
+    ["Action", log.action],
+    ["Cost", log.cost],
+    ["Data size", log.data_size],
+    ["Message", log.message],
+    ["Request", log.req_msg],
+    ["Response", log.resp_msg]
+  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+
+  return fields.map(([label, value]) => `
+    <div class="log-field"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>
+  `).join("");
 }
 
 function renderTabs() {
@@ -255,11 +350,15 @@ function renderTraceList() {
   }
 
   visibleTraces.forEach(trace => {
+    const logs = scopedTraceLogs(trace);
+    const modeCount = traceModeIds(trace).size;
     const button = document.createElement("button");
     button.type = "button";
     button.className = `trace-item${trace.trace_id === state.selectedTraceId ? " active" : ""}`;
     button.innerHTML = `
       <strong>${esc(trace.trace_id || "(empty)")}</strong>
+      <span>${esc(trace.start_time || "")}${trace.end_time ? ` - ${esc(trace.end_time)}` : ""}</span>
+      <em>${esc(logs.length)} logs · ${esc(modeCount)} modes · ${esc(trace.duration_us || 0)} us</em>
     `;
     button.addEventListener("click", () => {
       state.selectedTraceId = trace.trace_id;
@@ -352,19 +451,21 @@ function render() {
 }
 
 function showNode(node) {
-  const logs = Array.isArray(node.log_infos) ? node.log_infos : [];
-  const logRows = logs.length ? logs.map(log => `
-    <div class="log-row">
-      <div class="log-fields">
-        <div class="log-field"><span>Time</span><strong>${esc(log.time)}</strong></div>
-        <div class="log-field"><span>Pod</span><strong>${esc(log.pod_name)}</strong></div>
-        <div class="log-field"><span>PID</span><strong>${esc(log.pid)}</strong></div>
-        <div class="log-field"><span>TID</span><strong>${esc(log.tid)}</strong></div>
-        <div class="log-field"><span>Trace ID</span><strong>${esc(log.trace_id)}</strong></div>
-        <div class="log-field"><span>Cluster</span><strong>${esc(log.cluster_name)}</strong></div>
-        <div class="log-field"><span>Message</span><strong>${esc(log.message)}</strong></div>
+  const traceGroups = nodeTraceLogGroups(node);
+  const logRows = traceGroups.length ? traceGroups.map(group => `
+    <section class="trace-log-group">
+      <div class="trace-log-heading">
+        <strong>${esc(group.traceId || "(empty)")}</strong>
+        <span>${esc(group.logs.length)} log${group.logs.length === 1 ? "" : "s"}</span>
       </div>
-    </div>
+      ${group.logs.map(log => `
+        <div class="log-row">
+          <div class="log-fields">
+            ${renderLogFields(log)}
+          </div>
+        </div>
+      `).join("")}
+    </section>
   `).join("") : `<div class="empty-logs">No matched logs.</div>`;
 
   detailTitle.textContent = "Failure Mode";
@@ -376,7 +477,8 @@ function showNode(node) {
     <div class="kv"><span>Root cause</span><div>${esc(node.cause || "None")}</div></div>
     <div class="kv"><span>Suggestion</span><div>${esc(node.suggestion || "None")}</div></div>
     <div class="kv"><span>Validation</span><div>${esc(node.validation || "None")}</div></div>
-    <div class="kv"><span>Matched logs</span><div class="log-list">${logRows}</div></div>
+    <div class="kv"><span>Matched traces</span><strong>${esc(traceGroups.length)}</strong></div>
+    <div class="kv"><span>Matched logs by trace</span><div class="log-list trace-log-list">${logRows}</div></div>
   `;
 }
 
@@ -386,9 +488,10 @@ function showTrace(trace) {
     <div class="trace-step">
       <div class="step-index">${index + 1}</div>
       <div class="step-body">
-        <strong>${esc(log.failure_mode_id || "(unknown)")}</strong>
+        <strong>${esc(modeIdText(log))}</strong>
         <span>${esc(log.time || "")}</span>
-        <p>${esc(log.message || "")}</p>
+        <p>${esc(logSummary(log) || "No message")}</p>
+        <small>${esc(log.filename || "")}${log.line_no ? `:${esc(log.line_no)}` : ""}</small>
         <small>${esc(log.pod_name || "")} · ${esc(log.pid || "")}:${esc(log.tid || "")} · ${esc(log.cluster_name || "")}</small>
       </div>
     </div>
@@ -401,6 +504,7 @@ function showTrace(trace) {
     <div class="kv"><span>Start</span><strong>${esc(trace.start_time || "")}</strong></div>
     <div class="kv"><span>End</span><strong>${esc(trace.end_time || "")}</strong></div>
     <div class="kv"><span>Duration</span><strong>${esc(trace.duration_us || 0)} us</strong></div>
+    <div class="kv"><span>Logs</span><strong>${esc(logs.length)} / ${esc(trace.mode_count || 0)}</strong></div>
     <div class="kv trace-path"><span>Failure path</span><div class="trace-steps">${rows}</div></div>
   `;
 }

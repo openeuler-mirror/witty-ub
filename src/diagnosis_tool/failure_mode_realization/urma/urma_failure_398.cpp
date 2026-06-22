@@ -1,29 +1,26 @@
 #include "urma_failure_398.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure398> g_urma("urma_398");
 
-bool UrmaFailure398::IsValid()
+bool UrmaFailure398::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'[DRV_ERR]Failed to create jfr, dev_name:' | grep -F ', eid_idex:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("schedule_send_balance") != std::string::npos &&
+           message.find("Invalid min_active_count.") != std::string::npos;
 }
 
 std::string UrmaFailure398::GetName() const
 {
-    return "JFR创建时下层资源准备失败";
+    return "schedule、balance状态不满足要求导致发送schedule、balance失败";
 }
 
 std::string UrmaFailure398::GetRootCauseDesc() const
 {
-    return "函数负责创建JFR，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "schedule_send_"
+           "balance执行发送schedule、balance时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure398::AnalyzeRootCause()
@@ -38,13 +35,11 @@ std::string UrmaFailure398::GetFixSuggDesc() const
 
 std::string UrmaFailure398::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfs，[DRV_ERR]Failed to create jfr, dev_name:，, "
-           "eid_idex:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_send_balance，Invalid min_active_count.。";
 }
 
 std::string UrmaFailure398::GetId() const
 {
     return "urma_398";
 }
-
 } // namespace diag

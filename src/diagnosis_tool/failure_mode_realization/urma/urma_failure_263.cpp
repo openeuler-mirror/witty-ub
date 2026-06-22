@@ -1,29 +1,26 @@
 #include "urma_failure_263.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure263> g_urma("urma_263");
 
-bool UrmaFailure263::IsValid()
+bool UrmaFailure263::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_alloc_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'alloc_jetty failed.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_register_seg") != std::string::npos &&
+           message.find("[DRV_ERR]register seg failed, dev_name:") != std::string::npos &&
+           message.find(", eid_idx:") != std::string::npos;
 }
 
 std::string UrmaFailure263::GetName() const
 {
-    return "Jetty相关临时结构或命令参数分配失败";
+    return "下层注册或导入返回失败导致注册Segment失败";
 }
 
 std::string UrmaFailure263::GetRootCauseDesc() const
 {
-    return "函数在分配Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "urma_register_seg在注册Segment时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure263::AnalyzeRootCause()
@@ -38,12 +35,12 @@ std::string UrmaFailure263::GetFixSuggDesc() const
 
 std::string UrmaFailure263::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jetty，alloc_jetty failed.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_register_seg，[DRV_ERR]register seg failed, dev_name:，, "
+           "eid_idx:。";
 }
 
 std::string UrmaFailure263::GetId() const
 {
     return "urma_263";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_053.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure053> g_urma("urma_053");
 
-bool UrmaFailure053::IsValid()
+bool UrmaFailure053::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_add_jfs_p_vjetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | grep "
-        "-F 'Failed to add p_vjfs_id[' | grep -F ']: ret:' | grep -F ', p_jfs_id:' | grep -F ', v_jfs_id:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_jetty") != std::string::npos &&
+           message.find("Failed to alloc target jetty") != std::string::npos;
 }
 
 std::string UrmaFailure053::GetName() const
 {
-    return "执行虚拟 JFS过程中依赖步骤失败";
+    return "bondparget jetty分配失败导致导入Jetty失败";
 }
 
 std::string UrmaFailure053::GetRootCauseDesc() const
 {
-    return "函数用于执行虚拟 "
-           "JFS，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
+    return "bondp_import_jetty执行导入Jetty前需要准备bondparget jetty，内存或资源分配失败会阻断后续URMA操作。";
 }
 
 RootCause UrmaFailure053::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure053::GetFixSuggDesc() const
 
 std::string UrmaFailure053::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_add_jfs_p_vjetty_id_info，Failed to add p_vjfs_id[，]: ret:，, "
-           "p_jfs_id:，, v_jfs_id:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_jetty，Failed to alloc target jetty。";
 }
 
 std::string UrmaFailure053::GetId() const
 {
     return "urma_053";
 }
-
 } // namespace diag

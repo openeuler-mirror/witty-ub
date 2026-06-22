@@ -1,29 +1,25 @@
 #include "urma_failure_194.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure194> g_urma("urma_194");
 
-bool UrmaFailure194::IsValid()
+bool UrmaFailure194::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_create_jetty_check_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Invalid parameter, jfr cfg is null or jfc is NULL with non shared jfr flag.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jfr") != std::string::npos &&
+           message.find("Invalid parameter, trans_mode:") != std::string::npos;
 }
 
 std::string UrmaFailure194::GetName() const
 {
-    return "JFR对象无效导致创建JFR失败";
+    return "URMA context、JFR配置、JFC无效导致创建JFR失败";
 }
 
 std::string UrmaFailure194::GetRootCauseDesc() const
 {
-    return "函数用于创建JFR，调用方传入的JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_create_jfr用于创建JFR，调用方传入的URMA context、JFR配置、JFC不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure194::AnalyzeRootCause()
@@ -38,13 +34,11 @@ std::string UrmaFailure194::GetFixSuggDesc() const
 
 std::string UrmaFailure194::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_check_jfc，Invalid parameter, jfr cfg is null or jfc "
-           "is NULL with non shared jfr flag.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jfr，Invalid parameter, trans_mode:。";
 }
 
 std::string UrmaFailure194::GetId() const
 {
     return "urma_194";
 }
-
 } // namespace diag

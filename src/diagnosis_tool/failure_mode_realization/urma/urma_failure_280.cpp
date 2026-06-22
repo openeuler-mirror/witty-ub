@@ -1,30 +1,25 @@
 #include "urma_failure_280.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure280> g_urma("urma_280");
 
-bool UrmaFailure280::IsValid()
+bool UrmaFailure280::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Jetty state is wrong in active_jetty.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_eid_list") != std::string::npos && message.find("max eid cnt") != std::string::npos &&
+           message.find("is err") != std::string::npos;
 }
 
 std::string UrmaFailure280::GetName() const
 {
-    return "Jetty数据通路处理失败";
+    return "EID、列表状态不满足要求导致获取EID、列表失败";
 }
 
 std::string UrmaFailure280::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_get_eid_list执行获取EID、列表时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure280::AnalyzeRootCause()
@@ -34,17 +29,16 @@ RootCause UrmaFailure280::AnalyzeRootCause()
 
 std::string UrmaFailure280::GetFixSuggDesc() const
 {
-    return "无";
+    return "lsmod | grep udma；urma_admin show -a 查看UB设备是否存在，部署完成后重试";
 }
 
 std::string UrmaFailure280::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jetty，Jetty state is wrong in active_jetty.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_eid_list，max eid cnt，is err。";
 }
 
 std::string UrmaFailure280::GetId() const
 {
     return "urma_280";
 }
-
 } // namespace diag

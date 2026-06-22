@@ -1,29 +1,25 @@
 #include "urma_failure_518.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure518> g_urma("urma_518");
 
-bool UrmaFailure518::IsValid()
+bool UrmaFailure518::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vseg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to create pseg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_context") != std::string::npos &&
+           message.find("Failed to delete pcontext") != std::string::npos;
 }
 
 std::string UrmaFailure518::GetName() const
 {
-    return "Segment创建时下层资源准备失败";
+    return "下层资源删除失败导致删除context失败";
 }
 
 std::string UrmaFailure518::GetRootCauseDesc() const
 {
-    return "函数负责创建Segment，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_delete_context清理context时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure518::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure518::GetFixSuggDesc() const
 
 std::string UrmaFailure518::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vseg，Failed to create pseg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_context，Failed to delete pcontext。";
 }
 
 std::string UrmaFailure518::GetId() const
 {
     return "urma_518";
 }
-
 } // namespace diag

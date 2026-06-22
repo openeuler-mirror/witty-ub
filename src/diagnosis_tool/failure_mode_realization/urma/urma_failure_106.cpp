@@ -1,30 +1,25 @@
 #include "urma_failure_106.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure106> g_urma("urma_106");
 
-bool UrmaFailure106::IsValid()
+bool UrmaFailure106::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'import_check_tseg_by_import_result' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'No valid imported route for health check seg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_unimport_jetty") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure106::GetName() const
 {
-    return "未找到可用于导入路由的有效对象或路由";
+    return "目标Jetty无效导致取消导入Jetty失败";
 }
 
 std::string UrmaFailure106::GetRootCauseDesc() const
 {
-    return "函数在导入路由过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
-           "目标。";
+    return "urma_unimport_jetty用于取消导入Jetty，调用方传入的目标Jetty不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure106::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure106::GetFixSuggDesc() const
 
 std::string UrmaFailure106::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：import_check_tseg_by_import_result，No valid imported route for health "
-           "check seg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure106::GetId() const
 {
     return "urma_106";
 }
-
 } // namespace diag

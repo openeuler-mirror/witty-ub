@@ -1,29 +1,26 @@
 #include "urma_failure_608.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure608> g_urma("urma_608");
 
-bool UrmaFailure608::IsValid()
+bool UrmaFailure608::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to delete_vjfr'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_start_health_check_thread") != std::string::npos &&
+           message.find("Failed to create health check thread") != std::string::npos;
 }
 
 std::string UrmaFailure608::GetName() const
 {
-    return "虚拟 JFR清理阶段下层释放操作失败";
+    return "sysfs路径信息读取或解析失败导致校验start、health、thread失败";
 }
 
 std::string UrmaFailure608::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销虚拟 JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "bondp_start_health_check_"
+           "thread需要从sysfs获取sysfs路径信息，路径不存在、内容读取失败或字段解析异常会导致设备信息不可用。";
 }
 
 RootCause UrmaFailure608::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure608::GetFixSuggDesc() const
 
 std::string UrmaFailure608::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfr，Failed to delete_vjfr。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_start_health_check_thread，Failed to create health check thread。";
 }
 
 std::string UrmaFailure608::GetId() const
 {
     return "urma_608";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_358.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure358> g_urma("urma_358");
 
-bool UrmaFailure358::IsValid()
+bool UrmaFailure358::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_context' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to query eid.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jfce") != std::string::npos &&
+           message.find("Failed to create pjfce.") != std::string::npos;
 }
 
 std::string UrmaFailure358::GetName() const
 {
-    return "查询EID过程中依赖步骤失败";
+    return "下层资源创建失败导致创建JFCE失败";
 }
 
 std::string UrmaFailure358::GetRootCauseDesc() const
 {
-    return "函数用于查询EID，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "bondp_create_jfce在创建JFCE过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure358::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure358::GetFixSuggDesc() const
 
 std::string UrmaFailure358::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_context，Failed to query eid.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jfce，Failed to create pjfce.。";
 }
 
 std::string UrmaFailure358::GetId() const
 {
     return "urma_358";
 }
-
 } // namespace diag

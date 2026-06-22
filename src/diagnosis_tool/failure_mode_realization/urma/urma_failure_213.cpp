@@ -1,29 +1,25 @@
 #include "urma_failure_213.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure213> g_urma("urma_213");
 
-bool UrmaFailure213::IsValid()
+bool UrmaFailure213::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_batch' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to alloc memory.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_jetty_grp") != std::string::npos &&
+           message.find("create_jetty_grp failed.") != std::string::npos;
 }
 
 std::string UrmaFailure213::GetName() const
 {
-    return "Jetty相关临时结构或命令参数分配失败";
+    return "下层资源创建失败导致创建Jetty组失败";
 }
 
 std::string UrmaFailure213::GetRootCauseDesc() const
 {
-    return "函数在分配Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "urma_create_jetty_grp在创建Jetty组过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure213::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure213::GetFixSuggDesc() const
 
 std::string UrmaFailure213::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_batch，Failed to alloc memory.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_jetty_grp，create_jetty_grp failed.。";
 }
 
 std::string UrmaFailure213::GetId() const
 {
     return "urma_213";
 }
-
 } // namespace diag

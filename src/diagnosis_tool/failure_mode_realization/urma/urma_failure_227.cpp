@@ -1,31 +1,26 @@
 #include "urma_failure_227.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure227> g_urma("urma_227");
 
-bool UrmaFailure227::IsValid()
+bool UrmaFailure227::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unimport_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bdp_r_v2p_token_id_del_idx_lockless") != std::string::npos &&
+           message.find("Failed to find node, index:") != std::string::npos;
 }
 
 std::string UrmaFailure227::GetName() const
 {
-    return "URMA context、provider操作表、目标Jetty对象、provider未提供unimport_jetty操作实现无效导致解除导入Jetty失败";
+    return "bdpBDP、R、V2P执行失败导致bdpBDP、R、V2P失败";
 }
 
 std::string UrmaFailure227::GetRootCauseDesc() const
 {
-    return "函数用于解除导入Jetty，调用方传入的URMA "
-           "context、provider操作表、目标Jetty对象、provider未提供unimport_"
-           "jetty操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bdp_r_v2p_token_id_del_idx_"
+           "lockless执行bdpBDP、R、V2P时依赖的bdpBDP、R、V2P步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure227::AnalyzeRootCause()
@@ -40,12 +35,11 @@ std::string UrmaFailure227::GetFixSuggDesc() const
 
 std::string UrmaFailure227::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_unimport_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bdp_r_v2p_token_id_del_idx_lockless，Failed to find node, index:。";
 }
 
 std::string UrmaFailure227::GetId() const
 {
     return "urma_227";
 }
-
 } // namespace diag

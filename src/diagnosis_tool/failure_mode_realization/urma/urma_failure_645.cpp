@@ -1,30 +1,26 @@
 #include "urma_failure_645.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure645> g_urma("urma_645");
 
-bool UrmaFailure645::IsValid()
+bool UrmaFailure645::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_free_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_delete_jfc , ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_read_sysfs_file") != std::string::npos &&
+           message.find("snprintf failed") != std::string::npos;
 }
 
 std::string UrmaFailure645::GetName() const
 {
-    return "删除ioctl的ioctl调用返回失败";
+    return "读取sysfs信息、FILE执行失败导致读取sysfs信息、FILE失败";
 }
 
 std::string UrmaFailure645::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "urma_read_sysfs_"
+           "file执行读取sysfs信息、FILE时依赖的读取sysfs信息、FILE步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure645::AnalyzeRootCause()
@@ -39,13 +35,11 @@ std::string UrmaFailure645::GetFixSuggDesc() const
 
 std::string UrmaFailure645::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_free_jfc，ioctl failed in urma_cmd_delete_jfc , ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_read_sysfs_file，snprintf failed。";
 }
 
 std::string UrmaFailure645::GetId() const
 {
     return "urma_645";
 }
-
 } // namespace diag

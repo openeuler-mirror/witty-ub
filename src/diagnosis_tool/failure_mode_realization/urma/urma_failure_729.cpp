@@ -1,30 +1,26 @@
 #include "urma_failure_729.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure729> g_urma("urma_729");
 
-bool UrmaFailure729::IsValid()
+bool UrmaFailure729::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_rearm_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to rearm jfc: JFCE is NULL'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_advise_jetty") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure729::GetName() const
 {
-    return "执行JFC过程中依赖步骤失败";
+    return "provider未提供unbind_jetty操作实现无效导致adviseadvise、Jetty失败";
 }
 
 std::string UrmaFailure729::GetRootCauseDesc() const
 {
-    return "函数用于执行JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "urma_advise_jetty用于adviseadvise、Jetty，调用方传入的provider未提供unbind_"
+           "jetty操作实现不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure729::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure729::GetFixSuggDesc() const
 
 std::string UrmaFailure729::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_rearm_jfc，Failed to rearm jfc: JFCE is NULL。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_advise_jetty，Invalid parameter.。";
 }
 
 std::string UrmaFailure729::GetId() const
 {
     return "urma_729";
 }
-
 } // namespace diag

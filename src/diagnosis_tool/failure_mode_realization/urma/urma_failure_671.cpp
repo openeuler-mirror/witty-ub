@@ -1,30 +1,26 @@
 #include "urma_failure_671.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure671> g_urma("urma_671");
 
-bool UrmaFailure671::IsValid()
+bool UrmaFailure671::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_user_ctl_set_bonding_mode_legacy") != std::string::npos &&
+           message.find("Invalid set bonding mode legacy param.") != std::string::npos;
 }
 
 std::string UrmaFailure671::GetName() const
 {
-    return "URMA context、provider操作表、JFR对象无效导致释放JFR失败";
+    return "USER、CTL、bonding状态不满足要求导致设置USER、CTL、bonding失败";
 }
 
 std::string UrmaFailure671::GetRootCauseDesc() const
 {
-    return "函数用于释放JFR，调用方传入的URMA "
-           "context、provider操作表、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_user_ctl_set_bonding_mode_"
+           "legacy执行设置USER、CTL、bonding时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure671::AnalyzeRootCause()
@@ -39,12 +35,13 @@ std::string UrmaFailure671::GetFixSuggDesc() const
 
 std::string UrmaFailure671::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfr，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_user_ctl_set_bonding_mode_legacy，Invalid set bonding mode legacy "
+           "param."
+           "。";
 }
 
 std::string UrmaFailure671::GetId() const
 {
     return "urma_671";
 }
-
 } // namespace diag

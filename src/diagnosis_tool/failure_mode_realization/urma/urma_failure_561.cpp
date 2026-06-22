@@ -1,30 +1,25 @@
 #include "urma_failure_561.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure561> g_urma("urma_561");
 
-bool UrmaFailure561::IsValid()
+bool UrmaFailure561::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_and_store' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to convert jfr wr'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_free_jfs") != std::string::npos &&
+           message.find("Failed to free jfs.") != std::string::npos;
 }
 
 std::string UrmaFailure561::GetName() const
 {
-    return "JFR数据通路处理失败";
+    return "释放JFS执行失败导致释放JFS失败";
 }
 
 std::string UrmaFailure561::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_free_jfs执行释放JFS时依赖的释放JFS步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure561::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure561::GetFixSuggDesc() const
 
 std::string UrmaFailure561::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_and_store，Failed to convert jfr wr。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfs，Failed to free jfs.。";
 }
 
 std::string UrmaFailure561::GetId() const
 {
     return "urma_561";
 }
-
 } // namespace diag

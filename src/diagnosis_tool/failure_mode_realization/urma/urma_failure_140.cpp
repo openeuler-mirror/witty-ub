@@ -1,30 +1,28 @@
 #include "urma_failure_140.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure140> g_urma("urma_140");
 
-bool UrmaFailure140::IsValid()
+bool UrmaFailure140::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'ioctl failed in urma_cmd_delete_jetty_batch , ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_add_jfr_p_vjetty_id_info") != std::string::npos &&
+           message.find("Failed to add p_vjfr_id[") != std::string::npos &&
+           message.find("]: ret:") != std::string::npos && message.find(", p_jfr_id:") != std::string::npos &&
+           message.find(", v_jfr_id:") != std::string::npos;
 }
 
 std::string UrmaFailure140::GetName() const
 {
-    return "删除ioctl的ioctl调用返回失败";
+    return "添加JFR、vjetty、ID执行失败导致添加JFR、vjetty、ID失败";
 }
 
 std::string UrmaFailure140::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交删除ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "bondp_add_jfr_p_vjetty_id_"
+           "info执行添加JFR、vjetty、ID时依赖的添加JFR、vjetty、ID步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure140::AnalyzeRootCause()
@@ -39,13 +37,13 @@ std::string UrmaFailure140::GetFixSuggDesc() const
 
 std::string UrmaFailure140::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty_batch，ioctl failed in "
-           "urma_cmd_delete_jetty_batch , ret:，, errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_add_jfr_p_vjetty_id_info，Failed to add p_vjfr_id[，]: ret:，, "
+           "p_jfr_id:，,"
+           " v_jfr_id:。";
 }
 
 std::string UrmaFailure140::GetId() const
 {
     return "urma_140";
 }
-
 } // namespace diag

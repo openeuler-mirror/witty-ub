@@ -1,10 +1,21 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+ * witty-ub is licensed under the Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *     http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
+ * PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
+
 #ifndef FAILURE_MODE_VIEW_H
 #define FAILURE_MODE_VIEW_H
 
+#include <memory>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
-#include <vector>
 
 #include "rack_error.h"
 #include "failure_mode_controller.h"
@@ -17,50 +28,42 @@ struct FailureModeViewNodeData {
     std::string suggestion;
     std::string validation;
     int hitCount;
-    std::vector<FailureLogInfo> logInfos;
+    std::unordered_map<std::string, std::shared_ptr<FailureLogInfo>> traceIdToFailureLogInfo;
+
+    explicit FailureModeViewNodeData(const FailureModeController &controller);
 };
 
-class FailureModeViewNode {
+class FailureModeViewNode final {
 public:
-    explicit FailureModeViewNode(FailureModeViewNodeData data);
-    FailureModeViewNode &AddSubFailureModeNode(FailureModeViewNode subFailureModeNode);
-    const std::string &GetId() const;
-    const std::string &GetName() const;
-    const std::string &GetCause() const;
-    const std::string &GetSuggestion() const;
-    const std::string &GetValidation() const;
-    int GetHitCount() const;
-    const std::vector<FailureLogInfo> &GetLogInfos() const;
-    const std::vector<FailureModeViewNode> &GetSubFailureModeNodes() const;
+    explicit FailureModeViewNode(FailureModeViewNodeData &&data);
+    ~FailureModeViewNode() = default;
+
+    const FailureModeViewNodeData &GetData() const;
+    void AddSubNode(const FailureModeViewNode &subNode);
+    const std::vector<FailureModeViewNode> &GetSubNodes() const;
 
 private:
-    std::string id_;
-    std::string name_;
-    std::string cause_;
-    std::string suggestion_;
-    std::string validation_;
-    int hitCount_;
-
-    std::vector<FailureLogInfo> logInfos_;
-
-    std::vector<FailureModeViewNode> subFailureModeNodes_;
+    FailureModeViewNodeData data_;
+    std::vector<FailureModeViewNode> subNodes_;
 };
 
 class FailureModeView final {
 public:
-    RackResult Build(const std::unordered_set<std::string> &rootFailureModes,
-                     std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
-                     const std::unordered_map<std::string, std::vector<FailureLogInfo>> &traces);
+    RackResult Build(
+        const std::unordered_set<std::string> &rootFailureModes,
+        const std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+        const std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>> &traceIdToFailureLogInfos);
     RackResult Dump(const std::string &outputDir = "") const;
 
 private:
     RackResult BuildSubTree(FailureModeViewNode &parentNode, const std::string &parentFailureModeId,
-                            std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
+                            const std::unordered_map<std::string, FailureModeController> &failureModeIdToController,
                             std::unordered_set<std::string> &path);
 
-    std::vector<FailureModeViewNode> roots;
-    std::unordered_map<std::string, std::vector<FailureLogInfo>> traces_;
+private:
+    std::vector<FailureModeViewNode> roots_;
+    std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>> traceIdToFailureLogInfos_;
 };
 } // namespace diag
 
-#endif
+#endif // FAILURE_MODE_VIEW_H

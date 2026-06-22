@@ -1,29 +1,26 @@
 #include "urma_failure_284.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure284> g_urma("urma_284");
 
-bool UrmaFailure284::IsValid()
+bool UrmaFailure284::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_device_by_name") != std::string::npos &&
+           message.find("urma get device list failed, device_num:") != std::string::npos;
 }
 
 std::string UrmaFailure284::GetName() const
 {
-    return "provider操作表、Jetty对象无效导致去激活Jetty失败";
+    return "下层查询返回失败导致获取设备、NAME失败";
 }
 
 std::string UrmaFailure284::GetRootCauseDesc() const
 {
-    return "函数用于去激活Jetty，调用方传入的provider操作表、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_get_device_by_"
+           "name需要从provider、驱动或缓存中获取设备、NAME状态，查询结果失败会导致调用方无法取得有效信息。";
 }
 
 RootCause UrmaFailure284::AnalyzeRootCause()
@@ -33,17 +30,16 @@ RootCause UrmaFailure284::AnalyzeRootCause()
 
 std::string UrmaFailure284::GetFixSuggDesc() const
 {
-    return "无";
+    return "lsmod | grep udma；urma_admin show -a 查看UB设备是否存在，部署完成后重试";
 }
 
 std::string UrmaFailure284::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_device_by_name，urma get device list failed, device_num:。";
 }
 
 std::string UrmaFailure284::GetId() const
 {
     return "urma_284";
 }
-
 } // namespace diag

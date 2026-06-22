@@ -1,29 +1,26 @@
 #include "urma_failure_121.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure121> g_urma("urma_121");
 
-bool UrmaFailure121::IsValid()
+bool UrmaFailure121::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_unimport_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_bind_jetty_async") != std::string::npos &&
+           message.find("Not allowed to bind local jetty:") != std::string::npos &&
+           message.find(", with remote jetty:") != std::string::npos;
 }
 
 std::string UrmaFailure121::GetName() const
 {
-    return "URMA context无效导致解除导入JFR失败";
+    return "Jetty状态不满足要求导致绑定Jetty失败";
 }
 
 std::string UrmaFailure121::GetRootCauseDesc() const
 {
-    return "函数用于解除导入JFR，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_bind_jetty_async执行绑定Jetty时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure121::AnalyzeRootCause()
@@ -38,12 +35,12 @@ std::string UrmaFailure121::GetFixSuggDesc() const
 
 std::string UrmaFailure121::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_unimport_jfr，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_async，Not allowed to bind local jetty:，, with remote "
+           "jetty:。";
 }
 
 std::string UrmaFailure121::GetId() const
 {
     return "urma_121";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_562.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure562> g_urma("urma_562");
 
-bool UrmaFailure562::IsValid()
+bool UrmaFailure562::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_recv_wr_and_store' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to post recv wr'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jfs") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure562::GetName() const
 {
-    return "WR数据通路处理失败";
+    return "JFS无效导致删除JFS失败";
 }
 
 std::string UrmaFailure562::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_delete_jfs用于删除JFS，调用方传入的JFS不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure562::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure562::GetFixSuggDesc() const
 
 std::string UrmaFailure562::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_recv_wr_and_store，Failed to post recv wr。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfs，Invalid parameter.。";
 }
 
 std::string UrmaFailure562::GetId() const
 {
     return "urma_562";
 }
-
 } // namespace diag

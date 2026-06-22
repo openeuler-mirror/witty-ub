@@ -1,29 +1,25 @@
 #include "urma_failure_372.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure372> g_urma("urma_372");
 
-bool UrmaFailure372::IsValid()
+bool UrmaFailure372::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jfs' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_alloc_jfr, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_get_async_event") != std::string::npos &&
+           message.find("epoll_wait no event or err.") != std::string::npos;
 }
 
 std::string UrmaFailure372::GetName() const
 {
-    return "ioctl相关临时结构或命令参数分配失败";
+    return "epoll文件描述符创建或注册失败导致获取event失败";
 }
 
 std::string UrmaFailure372::GetRootCauseDesc() const
 {
-    return "函数在分配ioctl前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "bondp_get_async_event需要将URMA事件fd纳入epoll管理，系统调用失败会导致完成事件无法被统一监听。";
 }
 
 RootCause UrmaFailure372::AnalyzeRootCause()
@@ -38,13 +34,11 @@ std::string UrmaFailure372::GetFixSuggDesc() const
 
 std::string UrmaFailure372::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jfs，ioctl failed in urma_cmd_alloc_jfr, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_get_async_event，epoll_wait no event or err.。";
 }
 
 std::string UrmaFailure372::GetId() const
 {
     return "urma_372";
 }
-
 } // namespace diag

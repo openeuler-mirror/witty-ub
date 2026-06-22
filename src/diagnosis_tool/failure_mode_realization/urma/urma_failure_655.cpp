@@ -1,29 +1,26 @@
 #include "urma_failure_655.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure655> g_urma("urma_655");
 
-bool UrmaFailure655::IsValid()
+bool UrmaFailure655::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfc' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'[DRV_ERR]Failed to delete jfc, dev_name:' | grep -F ', eid_idx:' | grep -F ', id:' | grep -F ', ret:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_query_device_attr") != std::string::npos &&
+           message.find("Failed to open urma cdev, path") != std::string::npos;
 }
 
 std::string UrmaFailure655::GetName() const
 {
-    return "JFC清理阶段下层释放操作失败";
+    return "设备能力或属性信息读取或解析失败导致查询设备、ATTR失败";
 }
 
 std::string UrmaFailure655::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFC相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_query_device_"
+           "attr需要从sysfs获取设备能力或属性信息，路径不存在、内容读取失败或字段解析异常会导致设备信息不可用。";
 }
 
 RootCause UrmaFailure655::AnalyzeRootCause()
@@ -38,13 +35,11 @@ std::string UrmaFailure655::GetFixSuggDesc() const
 
 std::string UrmaFailure655::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfc，[DRV_ERR]Failed to delete jfc, dev_name:，, "
-           "eid_idx:，, id:，, ret:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_query_device_attr，Failed to open urma cdev, path。";
 }
 
 std::string UrmaFailure655::GetId() const
 {
     return "urma_655";
 }
-
 } // namespace diag

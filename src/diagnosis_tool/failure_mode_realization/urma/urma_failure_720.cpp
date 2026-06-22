@@ -1,29 +1,25 @@
 #include "urma_failure_720.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure720> g_urma("urma_720");
 
-bool UrmaFailure720::IsValid()
+bool UrmaFailure720::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'convert_bond_port_id_to_active_index' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid primary chip_id:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jfr_opt") != std::string::npos &&
+           message.find("Failed to set opt, jfr has been activated") != std::string::npos;
 }
 
 std::string UrmaFailure720::GetName() const
 {
-    return "激活端口所需输入对象无效导致激活端口失败";
+    return "设置JFR执行失败导致设置JFR失败";
 }
 
 std::string UrmaFailure720::GetRootCauseDesc() const
 {
-    return "函数用于激活端口，调用方传入的激活端口所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_set_jfr_opt执行设置JFR时依赖的设置JFR步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure720::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure720::GetFixSuggDesc() const
 
 std::string UrmaFailure720::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：convert_bond_port_id_to_active_index，Invalid primary chip_id:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfr_opt，Failed to set opt, jfr has been activated。";
 }
 
 std::string UrmaFailure720::GetId() const
 {
     return "urma_720";
 }
-
 } // namespace diag

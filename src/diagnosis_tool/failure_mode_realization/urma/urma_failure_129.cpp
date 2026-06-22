@@ -1,30 +1,26 @@
 #include "urma_failure_129.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure129> g_urma("urma_129");
 
-bool UrmaFailure129::IsValid()
+bool UrmaFailure129::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'failed to fill jetty cfg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_tp_attr") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure129::GetName() const
 {
-    return "创建Jetty过程中依赖步骤失败";
+    return "URMA context、tp_attr_cnt、tp_attr_bitmap、tp_attr无效导致获取TP、ATTR失败";
 }
 
 std::string UrmaFailure129::GetRootCauseDesc() const
 {
-    return "函数用于创建Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_get_tp_attr用于获取TP、ATTR，调用方传入的URMA "
+           "context、tp_attr_cnt、tp_attr_bitmap、tp_attr不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure129::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure129::GetFixSuggDesc() const
 
 std::string UrmaFailure129::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jetty，failed to fill jetty cfg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_tp_attr，Invalid parameter.。";
 }
 
 std::string UrmaFailure129::GetId() const
 {
     return "urma_129";
 }
-
 } // namespace diag

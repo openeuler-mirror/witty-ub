@@ -6,7 +6,7 @@ namespace diag {
 class UrmaFailure114 : public FailureMode {
 public:
     UrmaFailure114() noexcept = default;
-    bool IsValid() override;
+    bool IsValid(const std::vector<std::string> &fields) override;
     std::string GetName() const override;
     std::string GetRootCauseDesc() const override;
     RootCause AnalyzeRootCause() override;

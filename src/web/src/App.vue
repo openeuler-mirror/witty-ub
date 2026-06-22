@@ -385,7 +385,7 @@ const assetPageSize = 10
 const logFilesPageSize = 10
 const logFilesPollIntervalMs = 3_000
 const severeLogTimeoutThresholdMs = 150
-const isFaultCodeFeatureEnabled = false
+const isFaultCodeFeatureEnabled = true
 
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)

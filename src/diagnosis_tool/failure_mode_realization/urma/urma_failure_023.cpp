@@ -1,29 +1,25 @@
 #include "urma_failure_023.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure023> g_urma("urma_023");
 
-bool UrmaFailure023::IsValid()
+bool UrmaFailure023::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_init' \"$URMA_LOG_PATH\" 2>/dev/null "
-                                    "| grep -F 'Failed to create global context.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_init") != std::string::npos &&
+           message.find("Failed to create global context.") != std::string::npos;
 }
 
 std::string UrmaFailure023::GetName() const
 {
-    return "context创建时下层资源准备失败";
+    return "下层资源创建失败导致初始化URMA资源失败";
 }
 
 std::string UrmaFailure023::GetRootCauseDesc() const
 {
-    return "函数负责创建context，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_init在初始化URMA资源过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure023::AnalyzeRootCause()
@@ -45,5 +41,4 @@ std::string UrmaFailure023::GetId() const
 {
     return "urma_023";
 }
-
 } // namespace diag

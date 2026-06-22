@@ -1,29 +1,25 @@
 #include "urma_failure_525.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure525> g_urma("urma_525");
 
-bool UrmaFailure525::IsValid()
+bool UrmaFailure525::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unimport_pseg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to import vseg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfs_batch") != std::string::npos &&
+           message.find("Invalid parameter, index:") != std::string::npos;
 }
 
 std::string UrmaFailure525::GetName() const
 {
-    return "Token导入时下层资源准备失败";
+    return "jfs_arr、bad_jfs无效导致删除JFS失败";
 }
 
 std::string UrmaFailure525::GetRootCauseDesc() const
 {
-    return "函数负责导入Token，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_cmd_delete_jfs_batch用于删除JFS，调用方传入的jfs_arr、bad_jfs不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure525::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure525::GetFixSuggDesc() const
 
 std::string UrmaFailure525::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_pseg，Failed to import vseg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfs_batch，Invalid parameter, index:。";
 }
 
 std::string UrmaFailure525::GetId() const
 {
     return "urma_525";
 }
-
 } // namespace diag

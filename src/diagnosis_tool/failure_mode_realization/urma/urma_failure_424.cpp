@@ -1,30 +1,27 @@
 #include "urma_failure_424.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure424> g_urma("urma_424");
 
-bool UrmaFailure424::IsValid()
+bool UrmaFailure424::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pcontext' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to get topo info, change to general mode'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_free_jfc") != std::string::npos &&
+           message.find("There is jfc event and it must be acked, jfc_comp:") != std::string::npos &&
+           message.find(", comp:") != std::string::npos && message.find(", jfc_async:") != std::string::npos &&
+           message.find(", async:") != std::string::npos;
 }
 
 std::string UrmaFailure424::GetName() const
 {
-    return "获取健康检查过程中依赖步骤失败";
+    return "JFC状态不满足要求导致释放JFC失败";
 }
 
 std::string UrmaFailure424::GetRootCauseDesc() const
 {
-    return "函数用于获取健康检查，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
-           "A操作失败。";
+    return "urma_cmd_free_jfc执行释放JFC时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure424::AnalyzeRootCause()
@@ -39,13 +36,13 @@ std::string UrmaFailure424::GetFixSuggDesc() const
 
 std::string UrmaFailure424::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pcontext，Failed to get topo info, change to general "
-           "mode。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_free_jfc，There is jfc event and it must be acked, "
+           "jfc_comp:，, comp:，"
+           ", jfc_async:，, async:。";
 }
 
 std::string UrmaFailure424::GetId() const
 {
     return "urma_424";
 }
-
 } // namespace diag
