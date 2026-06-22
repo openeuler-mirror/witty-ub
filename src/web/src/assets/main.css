@@ -1284,6 +1284,9 @@ button {
   display: grid;
   grid-template-columns: 406px minmax(0, 1fr) 136px;
   min-width: 0;
+  min-height: calc(53px + 8 * 59px + 10px); /* 表头 + 6行数据 + 滚动条 */
+  max-height: calc(53px + 10 * 59px + 10px); /* 表头 + 13行数据 + 滚动条 */
+  overflow-y: auto;
 }
 
 .aggregate-fixed-left,
@@ -1339,6 +1342,52 @@ button {
   color: #334155;
   font-size: 0.85rem;
   white-space: nowrap;
+}
+
+/* 可排序表头单元格 */
+.aggregate-sortable-cell {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.aggregate-sortable-cell:hover {
+  background-color: #f0f4f8;
+}
+
+.aggregate-sortable-cell:active {
+  background-color: #e2e8f0;
+}
+
+/* 排序表头内容 */
+.sort-header-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+/* 排序图标容器 */
+.sort-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+/* 排序图标 - 默认灰色 */
+.sort-icon-up,
+.sort-icon-down {
+  font-size: 0.6rem;
+  color: #cbd5e1;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+/* 激活状态 - 黑色 */
+.sort-icon-active {
+  color: #1e293b;
 }
 
 .aggregate-table-header .aggregate-cell,
@@ -1456,7 +1505,8 @@ button {
 
 .aggregate-table-state {
   display: grid;
-  min-height: 58px;
+  min-height: calc(53px + 6 * 59px + 10px); /* 与表格容器最小高度一致 */
+  max-height: calc(53px + 13 * 59px + 10px); /* 与表格容器最大高度一致 */
   place-items: center;
   color: #94a3b8;
   font-size: 0.82rem;
@@ -1478,11 +1528,39 @@ button {
 .abnormal-trace-frame {
   --aggregate-body-row-height: 59px;
   overflow-x: auto;
-  grid-template-columns: max-content 130px;
+  grid-template-columns: max-content minmax(0, 1fr) 136px;
 }
 
-.abnormal-trace-frame > .aggregate-latency-scroll {
-  display: none;
+/* 错误日志列表时延滚动区域 */
+.abnormal-trace-frame .aggregate-latency-scroll {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: visible;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.abnormal-trace-frame .aggregate-latency-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.abnormal-trace-frame .aggregate-latency-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.abnormal-trace-frame .aggregate-latency-head {
+  flex-shrink: 0;
+}
+
+.abnormal-trace-frame .aggregate-latency-scrollbar {
+  flex-shrink: 0;
+}
+
+.abnormal-trace-frame .aggregate-latency-body {
+  flex-grow: 1;
+  overflow-y: auto;
 }
 
 .abnormal-trace-frame .aggregate-fixed-left {
@@ -1494,11 +1572,20 @@ button {
   margin-top: 0;
 }
 
+/* 滚动条样式 */
+.aggregate-table-frame::-webkit-scrollbar {
+  width: 8px;
+}
+
+.aggregate-table-frame::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
 .abnormal-left-grid {
   display: grid;
   grid-template-columns:
-    92px 230px 160px 305px 120px 90px 130px 120px
-    120px 170px 150px 150px 150px 150px;
+    92px 230px 160px 305px 120px 90px 130px 120px;
   width: max-content;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
@@ -2608,7 +2695,9 @@ button {
 
 .aggregate-parse-results {
   display: flex;
-  flex: 1;
+  flex: 1;  
+  min-height: calc(53px + 12 * 59px + 10px); /* 表头 + 4行数据 + 滚动条 = 309px */
+  max-height: calc(53px + 12 * 59px + 10px); /* 表头 + 8行数据 + 滚动条 = 535px */
   flex-direction: column;
   margin-top: 18px;
   min-height: 0;
@@ -2671,13 +2760,31 @@ button {
 }
 
 .detail-abnormal-trace-frame {
-  grid-template-columns: max-content 104px;
+  grid-template-columns: max-content minmax(0, 1fr) 104px;
+}
+
+.detail-abnormal-trace-frame .aggregate-latency-scroll {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.detail-abnormal-trace-frame .aggregate-latency-head {
+  flex-shrink: 0;
+}
+
+.detail-abnormal-trace-frame .aggregate-latency-scrollbar {
+  flex-shrink: 0;
+}
+
+.detail-abnormal-trace-frame .aggregate-latency-body {
+  flex-grow: 1;
+  overflow-y: auto;
 }
 
 .detail-abnormal-trace-frame .abnormal-left-grid {
   grid-template-columns:
-    84px 190px 140px 250px 110px 80px 120px 120px
-    120px 170px 150px 150px 150px 150px;
+    84px 190px 140px 250px 110px 80px 120px 120px;
 }
 
 .detail-abnormal-trace-frame .abnormal-left-grid .aggregate-cell {

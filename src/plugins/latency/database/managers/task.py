@@ -158,15 +158,11 @@ class TaskManager:
         """
         params = {"kb_id": kb_id}
         if status:
-            placeholders = ", ".join(["?"] * len(status))
+            placeholders = ", ".join([f":status_{i}" for i in range(len(status))])
             sql_str += f" AND status IN ({placeholders})"
-            tmp_tuple = tuple(s.value for s in status)
-            params.update({f"status_{i}": s.value for i, s in enumerate(status)})
-            results = await AsyncSQLiteSingleton().execute_query(
-                sql_str, tuple(params.values()) + tmp_tuple
-            )
-        else:
-            results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            for i, s in enumerate(status):
+                params[f"status_{i}"] = s.value
+        results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return [TaskModel(**result) for result in results]
 
     @staticmethod

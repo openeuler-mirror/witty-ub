@@ -164,8 +164,36 @@ class SrcDstAggregatedEventManager:
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
 
-        sort_order = "DESC" if req.created_sorted_desc else "ASC"
-        sql_str += f" ORDER BY ae.created_at {sort_order}"
+        stat_type = req.stat_type if req.stat_type in ["p99", "p95", "ave", "min", "max"] else "ave"
+        
+        sort_field_mapping = {
+            "total_latency": f"ae.{stat_type}_total_latency",
+            "query_meta_latency": f"ae.{stat_type}_query_meta_latency",
+            "urma_total_latency": f"ae.{stat_type}_urma_total_latency",
+            "urma_link_latency": f"ae.{stat_type}_urma_link_latency",
+            "c2w_urma_latency": f"ae.{stat_type}_c2w_urma_latency",
+            "w2w_urma_latency": f"ae.{stat_type}_w2w_urma_latency",
+            "src_ip": "ae.src_ip",
+            "dst_ip": "ae.dst_ip",
+            "anomaly_log_parse_result_cnt": "ae.anomaly_log_parse_result_cnt",
+            "created_at": "ae.created_at",
+        }
+        
+        if req.sort_fields and len(req.sort_fields) > 0:
+            sort_clauses = []
+            for sort_field in req.sort_fields:
+                field_name = sort_field.field
+                if field_name in sort_field_mapping:
+                    order = "DESC" if sort_field.order == "desc" else "ASC"
+                    sort_clauses.append(f"{sort_field_mapping[field_name]} {order}")
+            # 如果有有效的排序字段，使用它们；否则使用默认排序
+            if sort_clauses:
+                sql_str += " ORDER BY " + ", ".join(sort_clauses)
+            else:
+                sql_str += f" ORDER BY {sort_field_mapping['total_latency']} DESC"
+        else:
+            sql_str += f" ORDER BY {sort_field_mapping['total_latency']} DESC"
+
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt
