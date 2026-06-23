@@ -24,30 +24,59 @@ class AnomalousEventChainManager:
         return result
 
     @staticmethod
-    async def add_event_chains(chains: list[AnomalousEventChainModel]) -> list[str]:
-        """批量添加异常事件链"""
-        ids_added = []
-        batch_size = 1024
-        for i in range(0, len(chains), batch_size):
-            batch = chains[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO anomalous_event_chain_table (
-                        id, log_id, anomalous_event_id, name, description,
-                        anomaly_code, offset, existed_status, created_at
-                    ) VALUES (
-                        :id, :log_id, :anomalous_event_id, :name, :description,
-                        :anomaly_code, :offset, :existed_status, :created_at
-                    )
-                """
-                params = [
-                    c.model_dump(exclude_none=False, by_alias=True) for c in batch
-                ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([c.id for c in batch])
-            except Exception as e:
-                print(f"批量添加异常事件链失败，错误信息: {str(e)}")
-        return ids_added
+    async def add_event_chains(
+        chains: list[AnomalousEventChainModel],
+        batch_size: int = 50000,
+    ) -> list[str]:
+        """批量添加异常事件链：全局单事务 + SQLite写入优化 + 线程安全修复"""
+        import asyncio
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        if not chains:
+            return []
+            
+        ids_added = [c.id for c in chains]
+        params = [c.model_dump(exclude_none=False, by_alias=True) for c in chains]
+        total_count = len(params)
+        db = AsyncSQLiteSingleton()
+        
+        async with db._async_lock:
+            def sync_batch_insert():
+                conn = db._conn
+                try:
+                    conn.execute("PRAGMA journal_mode = WAL;")
+                    conn.execute("PRAGMA synchronous = NORMAL;")
+                    conn.execute("PRAGMA cache_size = -7500;")
+                    conn.execute("PRAGMA temp_store = MEMORY;")
+                    conn.execute("PRAGMA foreign_keys = OFF;")
+                    
+                    conn.execute("BEGIN TRANSACTION;")
+                    
+                    sql_str = """
+                        INSERT INTO anomalous_event_chain_table (
+                            id, log_id, anomalous_event_id, name, description,
+                            anomaly_code, offset, existed_status, created_at
+                        ) VALUES (
+                            :id, :log_id, :anomalous_event_id, :name, :description,
+                            :anomaly_code, :offset, :existed_status, :created_at
+                        )
+                    """
+                    for i in range(0, total_count, batch_size):
+                        batch = params[i:i + batch_size]
+                        conn.executemany(sql_str, batch)
+                    
+                    conn.commit()
+                    logger.info(f"[Store] 单事务插入成功，共 {total_count:,} 条记录")
+                    return True
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"[Store] 插入失败，事务回滚: {str(e)}")
+                    return False
+            
+            success = await asyncio.to_thread(sync_batch_insert)
+            return ids_added if success else []
 
     @staticmethod
     async def delete_event_chains_by_log_id(log_id: str) -> bool:
