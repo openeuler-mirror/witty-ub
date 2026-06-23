@@ -1531,7 +1531,7 @@ button {
   grid-template-columns: max-content minmax(0, 1fr) 136px;
 }
 
-/* 错误日志列表时延滚动区域 */
+/* 时延异常列表时延滚动区域 */
 .abnormal-trace-frame .aggregate-latency-scroll {
   display: flex;
   flex-direction: column;
@@ -1589,6 +1589,10 @@ button {
   width: max-content;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
+}
+
+.latency-anomaly-left-grid {
+  grid-template-columns: 160px 305px 120px 90px 130px 120px;
 }
 
 .abnormal-left-grid .aggregate-cell:last-child {
@@ -2783,8 +2787,7 @@ button {
 }
 
 .detail-abnormal-trace-frame .abnormal-left-grid {
-  grid-template-columns:
-    84px 190px 140px 250px 110px 80px 120px 120px;
+  grid-template-columns: 140px 250px 110px 80px 120px 120px;
 }
 
 .detail-abnormal-trace-frame .abnormal-left-grid .aggregate-cell {

@@ -165,6 +165,9 @@ class LogParseResultManager:
         if req.log_id:
             sql_str += " AND lpr.log_id = :log_id"
             params["log_id"] = req.log_id
+        if req.aggregated_event_id:
+            sql_str += " AND lpr.aggregated_event_id = :aggregated_event_id"
+            params["aggregated_event_id"] = req.aggregated_event_id
         if req.src_ip:
             sql_str += " AND lpr.src_ip LIKE :src_ip"
             params["src_ip"] = f"%{req.src_ip}%"

@@ -412,6 +412,8 @@ const logFilesTotal = ref(0)
 const togglingFileIds = ref<Set<string>>(new Set())
 const refreshingFileIds = ref<Set<string>>(new Set())
 const uploadedLogFileIdsBySource = ref<Record<string, string>>({})
+const taskDetailsById = ref<Record<string, TaskModel>>({})
+const loadingTaskDetailIds = ref<Set<string>>(new Set())
 const logFileAnomalyCntById = ref<Record<string, number>>({})
 const logFileTraceFailureEventCntById = ref<Record<string, number>>({})
 const loadedAnomalyLogFileIds = ref<Set<string>>(new Set())
@@ -989,10 +991,32 @@ const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | 
   return value > (column?.threshold ?? 150)
 }
 
+const anomalyListLatencyThresholds = {
+  total_latency: 2,
+  query_meta_latency: 1,
+  urma_total_latency: 1,
+  urma_link_latency: 1,
+  c2w_urma_latency: 1,
+  w2w_urma_latency: 1,
+} satisfies Record<AggregatedLatencyKey, number>
+
 const getProblemLogLatencyValue = (
   row: AbnormalTraceRow | ParseResultTableRow,
   column: ProblemLogLatencyColumn,
 ) => row[column.key]
+
+const isBackendLatencyAnomalyRow = (row: { raw: LogParseResultModel }) =>
+  row.raw.is_anomalous === true || row.raw.is_anomalous === 1 || Boolean(row.raw.anomalous_event_id)
+
+const isAnomalyListLatencyMetricAbnormal = (
+  row: { raw: LogParseResultModel },
+  metric: AggregatedLatencyKey,
+  value?: number | null,
+) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false
+  if (metric === 'total_latency' && isBackendLatencyAnomalyRow(row)) return true
+  return value > anomalyListLatencyThresholds[metric]
+}
 
 const getTraceDelayValue = (trace: TraceDetailRow | null | undefined, column: TraceDelayColumn) =>
   trace ? trace[column.key] : null
@@ -1958,9 +1982,6 @@ const getLogDisplayStatus = (record: Record<string, unknown>): LogDisplayStatus 
   return 'normal'
 }
 
-const shouldDisplayProblemLog = (record: Record<string, unknown>) =>
-  getLogDisplayStatus(record) !== 'normal'
-
 const getLogDisplayReason = (record: Record<string, unknown>) => {
   const failureReason = getLogFailureReason(record)
   if (failureReason) return failureReason
@@ -2028,7 +2049,6 @@ const getLogResultTrace = (result: LogParseResultModel): TraceDetailRow => {
 
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value
-    .filter((result) => shouldDisplayProblemLog(result as Record<string, unknown>))
     .map((result) => {
       const record = result as Record<string, unknown>
       return {
@@ -3339,13 +3359,13 @@ const loadDetailParseResults = async (
         method: 'POST',
         body: JSON.stringify({
           kb_id: assetId,
+          aggregated_event_id: row.id,
           src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
           page_cnt: 20,
           page_num: pageNum,
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
-          severe_timeout_threshold_ms: severeLogTimeoutThresholdMs,
-          exclude_normal: true,
+          is_anomalous: true,
         }),
         signal: detailParseResultSort.getAbortSignal(),
       },
@@ -3599,8 +3619,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       page_cnt: 100,
       page_num: pageNum,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
-      severe_timeout_threshold_ms: severeLogTimeoutThresholdMs,
-      exclude_normal: true,
+      is_anomalous: true,
       created_at_start: formatDateTime(filters.startTime),
       created_at_end: formatDateTime(filters.endTime),
       cluster_name: getLogParseFilterValue(filters.clusters),
@@ -3626,7 +3645,6 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     }
 
     abnormalTraceRows.value = (result.log_parse_results ?? []).map(toAbnormalTraceRow)
-    abnormalTraceRows.value = abnormalTraceRows.value.filter((row) => row.logStatus !== 'normal')
     abnormalTracesTotal.value = total
     abnormalTracesPage.value = pageNum
   } catch (error) {
@@ -3637,7 +3655,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     abnormalTraceRows.value = []
     abnormalTracesTotal.value = 0
     abnormalTracesPage.value = 1
-    abnormalTracesError.value = error instanceof Error ? error.message : '加载日志列表失败'
+    abnormalTracesError.value = error instanceof Error ? error.message : '加载时延异常列表失败'
   } finally {
     isAbnormalTracesLoading.value = false
     abnormalTraceSort.releaseSortLock()
@@ -3913,7 +3931,11 @@ const statusBadgeClass = (s: string) => {
   return map[s] || 'status-pending'
 }
 
-const getLogFileTaskStatus = (file: LogFileModel) => file.task?.status ?? file.parse_status ?? ''
+const getDetailedLogFileTask = (file: LogFileModel) =>
+  file.task?.id ? (taskDetailsById.value[file.task.id] ?? file.task) : file.task
+
+const getLogFileTaskStatus = (file: LogFileModel) =>
+  getDetailedLogFileTask(file)?.status ?? file.parse_status ?? ''
 
 const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
@@ -3933,24 +3955,64 @@ const getTaskReportTime = (report: TaskReportModel) => {
   return Number.isFinite(time) ? time : 0
 }
 
-const getLogFileTaskReports = (file: LogFileModel) => file.task?.task_reports ?? []
+const ignoredTaskReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
+const logFileTaskMilestoneMessages = new Set([
+  'Task initialized',
+  'Task reinitialized',
+  'Task running',
+  'Log parse completed',
+  'Anomaly detection done',
+  'Aggregate events done',
+  'Fault matching done',
+  'Results stored',
+  'Task completed successfully',
+  '初始化任务',
+  '重新初始化任务',
+  '运行任务',
+  '运行诊断工具',
+  '诊断工具运行完成',
+  '任务成功',
+])
+
+const isIgnoredTaskReportMessage = (message: string) =>
+  ignoredTaskReportPrefixes.some((prefix) => message.startsWith(prefix))
+
+const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
+  const message = report.message?.trim()
+  if (!message || isIgnoredTaskReportMessage(message)) return false
+  if (logFileTaskMilestoneMessages.has(message)) return true
+  return message.startsWith('Trace context logs stored:')
+}
+
+const getLogFileTaskReports = (file: LogFileModel) =>
+  getDetailedLogFileTask(file)?.task_reports ?? []
+
+const getValidLogFileTaskReports = (file: LogFileModel) =>
+  getLogFileTaskReports(file).filter(isLogFileTaskMilestoneReport)
 
 const getLatestLogFileTaskReport = (file: LogFileModel) => {
-  const reports = getLogFileTaskReports(file)
+  const reports = getValidLogFileTaskReports(file)
   if (reports.length === 0) return null
   return (
     [...reports].sort(
-    (first, second) => getTaskReportTime(second) - getTaskReportTime(first),
+      (first, second) => getTaskReportTime(second) - getTaskReportTime(first),
     )[0] ?? null
   )
 }
 
 const getLogFileProgress = (file: LogFileModel) => {
-  const reportProgress = getTaskReportProgress(getLatestLogFileTaskReport(file))
-  if (reportProgress !== null) return reportProgress
+  const validProgressValues = getValidLogFileTaskReports(file)
+    .map(getTaskReportProgress)
+    .filter((progress): progress is number => progress !== null)
+  const maxReportProgress =
+    validProgressValues.length > 0 ? Math.max(...validProgressValues) : null
 
   const status = getLogFileTaskStatus(file)
   if (status === 'successful' || status === 'successful_pending_remove') return 100
+  if (maxReportProgress !== null) {
+    return status === 'running' ? Math.max(5, maxReportProgress) : maxReportProgress
+  }
+  if (status === 'running') return 5
   return 0
 }
 
@@ -4071,6 +4133,38 @@ const loadSuccessfulLogFileAnomalyCounts = (files: LogFileModel[]) => {
   })
 }
 
+const loadTaskDetail = async (taskId: string) => {
+  if (!taskId || loadingTaskDetailIds.value.has(taskId)) return
+
+  loadingTaskDetailIds.value = new Set(loadingTaskDetailIds.value).add(taskId)
+  try {
+    const result = await request<{ task: TaskModel | null }>(`/task/${taskId}`)
+    if (result.task) {
+      taskDetailsById.value = {
+        ...taskDetailsById.value,
+        [taskId]: result.task,
+      }
+    }
+  } catch {
+  } finally {
+    const next = new Set(loadingTaskDetailIds.value)
+    next.delete(taskId)
+    loadingTaskDetailIds.value = next
+  }
+}
+
+const loadTaskDetailsForLogFiles = (files: LogFileModel[]) => {
+  const taskIds = new Set<string>()
+  files.forEach((file) => {
+    if (file.task?.id) {
+      taskIds.add(file.task.id)
+    }
+  })
+  taskIds.forEach((taskId) => {
+    void loadTaskDetail(taskId)
+  })
+}
+
 const loadLogFiles = async (
   kbId: string,
   pageNum = logFilesPage.value,
@@ -4108,6 +4202,7 @@ const loadLogFiles = async (
     logFiles.value = nextLogFiles
     logFilesTotal.value = nextTotal
     logFilesPage.value = pageNum
+    loadTaskDetailsForLogFiles(nextLogFiles)
     loadSuccessfulLogFileAnomalyCounts(nextLogFiles)
   } catch {
     if (!options.silent) {
@@ -4915,7 +5010,7 @@ onBeforeUnmount(() => {
                     type="button"
                     @click="setActiveAggregateTab('trace')"
                   >
-                    错误日志列表
+                    时延异常列表
                   </button>
                   <button
                     class="aggregate-tab-item"
@@ -4939,7 +5034,7 @@ onBeforeUnmount(() => {
                   </select>
                 </label>
                 <div v-else class="abnormal-trace-filter-actions">
-                  <span class="log-sort-hint">仅失败/严重超时 · 阶段时延已展示</span>
+                  <span class="log-sort-hint">仅后端检测器异常 · 阶段时延已展示</span>
                   <button
                     class="ghost-btn compact-action-btn"
                     type="button"
@@ -5167,9 +5262,7 @@ onBeforeUnmount(() => {
               <div v-else-if="activeAggregateTab === 'trace'" class="aggregate-table">
                 <div class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
-                    <div class="abnormal-left-grid aggregate-table-header">
-                      <div class="aggregate-cell">状态</div>
-                      <div class="aggregate-cell">错误原因</div>
+                    <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header">
                       <div class="aggregate-cell">时间</div>
                       <div class="aggregate-cell">Trace ID</div>
                       <div class="aggregate-cell">Pod IP</div>
@@ -5187,20 +5280,8 @@ onBeforeUnmount(() => {
                       <div
                         v-for="row in getFilteredAbnormalTraceRows()"
                         :key="`${row.id}-fixed`"
-                        class="abnormal-left-grid aggregate-body-row"
+                        class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
                       >
-                        <div class="aggregate-cell">
-                          <span
-                            class="log-status-badge"
-                            :class="`log-status-${row.logStatus}`"
-                            :title="row.statusReason"
-                          >
-                            {{ getLogStatusLabel(row.logStatus) }}
-                          </span>
-                        </div>
-                        <div class="aggregate-cell log-reason-cell" :title="row.statusReason">
-                          {{ row.statusReason }}
-                        </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
                         <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
                         <div class="aggregate-cell">{{ row.podIp }}</div>
@@ -5296,7 +5377,8 @@ onBeforeUnmount(() => {
                             <span
                               class="metric-value"
                               :class="{
-                                abnormal: isLatencyMetricAbnormal(
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
                                   'total_latency',
                                   row.totalLatency,
                                 ),
@@ -5309,7 +5391,8 @@ onBeforeUnmount(() => {
                             <span
                               class="metric-value"
                               :class="{
-                                abnormal: isLatencyMetricAbnormal(
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
                                   'query_meta_latency',
                                   row.queryMetaLatency,
                                 ),
@@ -5322,7 +5405,8 @@ onBeforeUnmount(() => {
                             <span
                               class="metric-value"
                               :class="{
-                                abnormal: isLatencyMetricAbnormal(
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
                                   'urma_total_latency',
                                   row.urmaTotalLatency,
                                 ),
@@ -5335,7 +5419,8 @@ onBeforeUnmount(() => {
                             <span
                               class="metric-value"
                               :class="{
-                                abnormal: isLatencyMetricAbnormal(
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
                                   'urma_link_latency',
                                   row.urmaLinkLatency,
                                 ),
@@ -5348,7 +5433,8 @@ onBeforeUnmount(() => {
                             <span
                               class="metric-value"
                               :class="{
-                                abnormal: isLatencyMetricAbnormal(
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
                                   'c2w_urma_latency',
                                   row.c2wUrmaLatency,
                                 ),
@@ -5361,7 +5447,8 @@ onBeforeUnmount(() => {
                             <span
                               class="metric-value"
                               :class="{
-                                abnormal: isLatencyMetricAbnormal(
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
                                   'w2w_urma_latency',
                                   row.w2wUrmaLatency,
                                 ),
@@ -5409,7 +5496,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-if="isAbnormalTracesLoading" class="aggregate-table-state">
-                  正在加载日志...
+                  正在加载时延异常...
                 </div>
                 <div
                   v-else-if="abnormalTracesError"
@@ -5418,13 +5505,13 @@ onBeforeUnmount(() => {
                   {{ abnormalTracesError }}
                 </div>
                 <div v-else-if="abnormalTraceRows.length === 0" class="aggregate-table-state">
-                  暂无失败或严重超时日志
+                  暂无时延异常
                 </div>
                 <div
                   v-else-if="getFilteredAbnormalTraceRows().length === 0"
                   class="aggregate-table-state"
                 >
-                  无匹配日志
+                  无匹配时延异常
                 </div>
                 <div v-if="abnormalTracesTotal > 100" class="aggregate-pagination">
                   <button
@@ -5435,7 +5522,7 @@ onBeforeUnmount(() => {
                   >
                     上一页
                   </button>
-                  <span class="pagination-pages" aria-label="日志页码">
+                  <span class="pagination-pages" aria-label="时延异常页码">
                     <button
                       v-for="pageNum in abnormalTracesPageWindow"
                       :key="`abnormal-traces-page-${pageNum}`"
@@ -5466,7 +5553,7 @@ onBeforeUnmount(() => {
                       type="number"
                       min="1"
                       :max="abnormalTracesPageCount"
-                      aria-label="跳转日志页码"
+                      aria-label="跳转时延异常页码"
                       @keyup.enter="jumpAbnormalTracesPage"
                     />
                     <button
@@ -6386,15 +6473,13 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-parse-results">
             <div class="aggregate-parse-results-header">
-              <h3>错误日志 / 阶段时延</h3>
+              <h3>时延异常 / 阶段时延</h3>
               <span class="parse-result-count">{{ detailParseResultsBadgeCount }} 条</span>
             </div>
             <div class="parse-result-table-wrapper detail-abnormal-trace-wrapper">
               <div class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
                 <div class="aggregate-fixed-left">
-                  <div class="abnormal-left-grid aggregate-table-header">
-                    <div class="aggregate-cell">状态</div>
-                    <div class="aggregate-cell">错误原因</div>
+                  <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header">
                     <div class="aggregate-cell">时间</div>
                     <div class="aggregate-cell">Trace ID</div>
                     <div class="aggregate-cell">Pod IP</div>
@@ -6412,20 +6497,8 @@ onBeforeUnmount(() => {
                     <div
                       v-for="row in detailParseResultRows"
                       :key="`${row.id}-fixed`"
-                      class="abnormal-left-grid aggregate-body-row"
+                      class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
                     >
-                      <div class="aggregate-cell">
-                        <span
-                          class="log-status-badge"
-                          :class="`log-status-${row.logStatus}`"
-                          :title="row.statusReason"
-                        >
-                          {{ getLogStatusLabel(row.logStatus) }}
-                        </span>
-                      </div>
-                      <div class="aggregate-cell log-reason-cell" :title="row.statusReason">
-                        {{ row.statusReason }}
-                      </div>
                       <div class="aggregate-cell">{{ row.time }}</div>
                       <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
                       <div class="aggregate-cell">{{ row.podIp }}</div>
@@ -6521,7 +6594,11 @@ onBeforeUnmount(() => {
                           <span
                             class="metric-value"
                             :class="{
-                              abnormal: isLatencyMetricAbnormal('total_latency', row.totalLatency),
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
+                                'total_latency',
+                                row.totalLatency,
+                              ),
                             }"
                           >
                             {{ formatNullableMetricValue(row.totalLatency) }}
@@ -6531,7 +6608,8 @@ onBeforeUnmount(() => {
                           <span
                             class="metric-value"
                             :class="{
-                              abnormal: isLatencyMetricAbnormal(
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
                                 'query_meta_latency',
                                 row.queryMetaLatency,
                               ),
@@ -6544,7 +6622,8 @@ onBeforeUnmount(() => {
                           <span
                             class="metric-value"
                             :class="{
-                              abnormal: isLatencyMetricAbnormal(
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
                                 'urma_total_latency',
                                 row.urmaTotalLatency,
                               ),
@@ -6557,7 +6636,8 @@ onBeforeUnmount(() => {
                           <span
                             class="metric-value"
                             :class="{
-                              abnormal: isLatencyMetricAbnormal(
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
                                 'urma_link_latency',
                                 row.urmaLinkLatency,
                               ),
@@ -6570,7 +6650,8 @@ onBeforeUnmount(() => {
                           <span
                             class="metric-value"
                             :class="{
-                              abnormal: isLatencyMetricAbnormal(
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
                                 'c2w_urma_latency',
                                 row.c2wUrmaLatency,
                               ),
@@ -6583,7 +6664,8 @@ onBeforeUnmount(() => {
                           <span
                             class="metric-value"
                             :class="{
-                              abnormal: isLatencyMetricAbnormal(
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
                                 'w2w_urma_latency',
                                 row.w2wUrmaLatency,
                               ),
@@ -6632,7 +6714,7 @@ onBeforeUnmount(() => {
                 {{ detailParseResultsError }}
               </div>
               <div v-else-if="detailParseResultRows.length === 0" class="aggregate-table-state">
-                暂无失败或严重超时日志
+                暂无时延异常记录
               </div>
             </div>
             <div class="parse-result-pagination">

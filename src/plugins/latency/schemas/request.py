@@ -161,6 +161,7 @@ class ListAnomalousEventChainRequest(BaseModel):
 
 class ListLogParseResultRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
+    aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的解析结果")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     trace_id: Optional[str] = Field(default=None, description="Trace ID，用于过滤指定链路的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
