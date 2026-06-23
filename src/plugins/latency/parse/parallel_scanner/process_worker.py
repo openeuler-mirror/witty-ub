@@ -188,11 +188,18 @@ def _scan_file_multi(
                     parser._pre_parsed = _build_parsed_run(parts, plen)
 
                 try:
-                    entry = parser.match_line(line, pod_ip)
-                    if entry:
-                        entry.log_id = log_file.id
-                        results[parser.label].append(entry)
-                        match_counts[parser.label] += 1
+                    entries = parser.match_line(line, pod_ip)
+                    if entries:
+                        # 处理 match_line 返回列表的情况（如 WorkerMetricsLogParser）
+                        if isinstance(entries, list):
+                            for entry in entries:
+                                entry.log_id = log_file.id
+                                results[parser.label].append(entry)
+                                match_counts[parser.label] += 1
+                        else:
+                            entries.log_id = log_file.id
+                            results[parser.label].append(entries)
+                            match_counts[parser.label] += 1
                 except Exception as e:
                     logger.warning(
                         f"[{parser.label}] error on {file_name}:{line_no}: {e}"

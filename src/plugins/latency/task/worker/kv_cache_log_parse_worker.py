@@ -14,9 +14,11 @@ from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
     WorkerInfoParser,
+    WorkerMetricsLogParser,
     LogCorrelator,
     ParseResultBuilder,
 )
+from latency.schemas.ds_log import EntryType
 from latency.parse.parallel_scanner import ParallelFileScanner
 from latency.ENUM.task import TaskSplitStrategy
 from latency.common.stats import stats
@@ -242,7 +244,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
         sdk_parsers = [SdkAccessLogParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
-        info_parsers = [WorkerInfoParser(parse_config)]
+        info_parsers = [WorkerInfoParser(parse_config), WorkerMetricsLogParser(parse_config)]
 
         sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
         worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
@@ -299,6 +301,24 @@ class KVCacheLogParseWorker(BaseWorker):
                 scan_scope=info_scan_scope,
             )
             parsed.update(info_parsed)
+            
+            # WorkerInfoParser 将所有结果存储在 "Worker info parse" 标签下，
+            # 但 LogCorrelator 需要按旧独立解析器的标签分别获取。
+            # 这里按 entry_type 拆分为各个旧标签。
+            info_entries = parsed.get("Worker info parse", [])
+            if info_entries:
+                urma_entries = [e for e in info_entries if e.entry_type == EntryType.URMA]
+                if urma_entries:
+                    parsed["Worker urma parse"] = urma_entries
+                remote_pull = [e for e in info_entries if e.entry_type == EntryType.REMOTE_PULL]
+                if remote_pull:
+                    parsed["Worker remote pull parse"] = remote_pull
+                link_entries = [e for e in info_entries if e.entry_type == EntryType.LINK]
+                if link_entries:
+                    parsed["Worker link parse"] = link_entries
+                query_meta = [e for e in info_entries if e.entry_type == EntryType.QUERY_META]
+                if query_meta:
+                    parsed["Worker query meta parse"] = query_meta
 
         t_scan = time.perf_counter() - t_scan_start
 
