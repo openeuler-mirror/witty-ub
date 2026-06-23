@@ -46,51 +46,77 @@ class SrcDstAggregatedEventManager:
     @staticmethod
     async def add_aggregated_events(
         events: list[SrcDstAggregatedEventModel],
+        batch_size: int = 50000,
     ) -> list[str]:
-        """批量添加聚合事件"""
-        ids_added = []
-        batch_size = 1024
-        for i in range(0, len(events), batch_size):
-            batch = events[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO src_dst_aggregated_event_table (
-                        id, src_ip, dst_ip, log_id, log_parse_result_cnt,
-                        anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
-                        min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
-                        ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
-                        p99_query_meta_latency, p95_query_meta_latency, ave_urma_total_latency,
-                        min_urma_total_latency, max_urma_total_latency, p99_urma_total_latency,
-                        p95_urma_total_latency, ave_urma_link_latency, min_urma_link_latency,
-                        max_urma_link_latency, p99_urma_link_latency, p95_urma_link_latency,
-                        ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
-                        p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
-                        min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                        p95_w2w_urma_latency, existed_status, created_at
-                    ) VALUES (
-                        :id, :src_ip, :dst_ip, :log_id, :log_parse_result_cnt,
-                        :anomaly_log_parse_result_cnt, :anomaly_cnt, :ave_total_latency,
-                        :min_total_latency, :max_total_latency, :p99_total_latency, :p95_total_latency,
-                        :ave_query_meta_latency, :min_query_meta_latency, :max_query_meta_latency,
-                        :p99_query_meta_latency, :p95_query_meta_latency, :ave_urma_total_latency,
-                        :min_urma_total_latency, :max_urma_total_latency, :p99_urma_total_latency,
-                        :p95_urma_total_latency, :ave_urma_link_latency, :min_urma_link_latency,
-                        :max_urma_link_latency, :p99_urma_link_latency, :p95_urma_link_latency,
-                        :ave_c2w_urma_latency, :min_c2w_urma_latency, :max_c2w_urma_latency,
-                        :p99_c2w_urma_latency, :p95_c2w_urma_latency, :ave_w2w_urma_latency,
-                        :min_w2w_urma_latency, :max_w2w_urma_latency, :p99_w2w_urma_latency,
-                        :p95_w2w_urma_latency, :existed_status, :created_at
-                    )
-                """
-                params = [
-                    event.model_dump(exclude_none=False, by_alias=True)
-                    for event in batch
-                ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([event.id for event in batch])
-            except Exception as e:
-                print(f"批量添加聚合事件失败，错误信息: {str(e)}")
-        return ids_added
+        """批量添加聚合事件：全局单事务 + SQLite写入优化 + 线程安全修复"""
+        import asyncio
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        if not events:
+            return []
+            
+        ids_added = [event.id for event in events]
+        params = [event.model_dump(exclude_none=False, by_alias=True) for event in events]
+        total_count = len(params)
+        db = AsyncSQLiteSingleton()
+        
+        async with db._async_lock:
+            def sync_batch_insert():
+                conn = db._conn
+                try:
+                    conn.execute("PRAGMA journal_mode = WAL;")
+                    conn.execute("PRAGMA synchronous = NORMAL;")
+                    conn.execute("PRAGMA cache_size = -7500;")
+                    conn.execute("PRAGMA temp_store = MEMORY;")
+                    conn.execute("PRAGMA foreign_keys = OFF;")
+                    
+                    conn.execute("BEGIN TRANSACTION;")
+                    
+                    sql_str = """
+                        INSERT INTO src_dst_aggregated_event_table (
+                            id, src_ip, dst_ip, log_id, log_parse_result_cnt,
+                            anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
+                            min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
+                            ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
+                            p99_query_meta_latency, p95_query_meta_latency, ave_urma_total_latency,
+                            min_urma_total_latency, max_urma_total_latency, p99_urma_total_latency,
+                            p95_urma_total_latency, ave_urma_link_latency, min_urma_link_latency,
+                            max_urma_link_latency, p99_urma_link_latency, p95_urma_link_latency,
+                            ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
+                            p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
+                            min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
+                            p95_w2w_urma_latency, existed_status, created_at
+                        ) VALUES (
+                            :id, :src_ip, :dst_ip, :log_id, :log_parse_result_cnt,
+                            :anomaly_log_parse_result_cnt, :anomaly_cnt, :ave_total_latency,
+                            :min_total_latency, :max_total_latency, :p99_total_latency, :p95_total_latency,
+                            :ave_query_meta_latency, :min_query_meta_latency, :max_query_meta_latency,
+                            :p99_query_meta_latency, :p95_query_meta_latency, :ave_urma_total_latency,
+                            :min_urma_total_latency, :max_urma_total_latency, :p99_urma_total_latency,
+                            :p95_urma_total_latency, :ave_urma_link_latency, :min_urma_link_latency,
+                            :max_urma_link_latency, :p99_urma_link_latency, :p95_urma_link_latency,
+                            :ave_c2w_urma_latency, :min_c2w_urma_latency, :max_c2w_urma_latency,
+                            :p99_c2w_urma_latency, :p95_c2w_urma_latency, :ave_w2w_urma_latency,
+                            :min_w2w_urma_latency, :max_w2w_urma_latency, :p99_w2w_urma_latency,
+                            :p95_w2w_urma_latency, :existed_status, :created_at
+                        )
+                    """
+                    for i in range(0, total_count, batch_size):
+                        batch = params[i:i + batch_size]
+                        conn.executemany(sql_str, batch)
+                    
+                    conn.commit()
+                    logger.info(f"[Store] 单事务插入成功，共 {total_count:,} 条记录")
+                    return True
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"[Store] 插入失败，事务回滚: {str(e)}")
+                    return False
+            
+            success = await asyncio.to_thread(sync_batch_insert)
+            return ids_added if success else []
 
     @staticmethod
     async def delete_aggregated_events_by_log_id(log_id: str) -> bool:
