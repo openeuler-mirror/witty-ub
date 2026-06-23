@@ -131,7 +131,26 @@ class AnomalousEventManager:
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
 
-        sql_str += " ORDER BY ae.created_at DESC"
+        sort_field_mapping = {
+            "created_at": "ae.created_at",
+            "anomaly_reason": "ae.anomaly_reason",
+        }
+        
+        if req.sort_fields and len(req.sort_fields) > 0:
+            sort_clauses = []
+            for sort_field in req.sort_fields:
+                field_name = sort_field.field
+                if field_name in sort_field_mapping:
+                    order = "DESC" if sort_field.order == "desc" else "ASC"
+                    sort_clauses.append(f"{sort_field_mapping[field_name]} {order}")
+            # 如果有有效的排序字段，使用它们；否则使用默认排序
+            if sort_clauses:
+                sql_str += " ORDER BY " + ", ".join(sort_clauses)
+            else:
+                sql_str += " ORDER BY ae.created_at DESC"
+        else:
+            sql_str += " ORDER BY ae.created_at DESC"
+
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt

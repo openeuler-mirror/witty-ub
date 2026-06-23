@@ -1,9 +1,19 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Optional, Any, List
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.ENUM.sampling import SampleMode
+
+
+class SortField(BaseModel):
+    """
+    排序字段配置
+    
+    用于配置单个排序字段及其排序方向
+    """
+    field: str = Field(description="排序字段名称")
+    order: Optional[str] = Field(default="desc", description="排序方向：asc升序，desc降序")
 
 
 class ParseConfig(BaseModel):
@@ -133,9 +143,10 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
         default=None,
         description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_sorted_desc: bool = Field(
-        default=True,
-        description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
+    stat_type: Optional[str] = Field(default="ave", description="统计类型：p99、p95、ave、min、max")
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"total_latency\", \"order\": \"desc\"}, {\"field\": \"src_ip\", \"order\": \"asc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
@@ -168,9 +179,9 @@ class ListLogParseResultRequest(BaseModel):
         default=None,
         description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_sorted_desc: bool = Field(
-        default=True,
-        description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"total_latency\", \"order\": \"desc\"}, {\"field\": \"timestamp\", \"order\": \"asc\"}]"
     )
     sort_by: str = Field(
         default="created_at",
@@ -237,6 +248,10 @@ class ListAnomalousEventRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"created_at\", \"order\": \"desc\"}]"
+    )
     page_cnt: int = Field(default=10, description="每页的异常事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 

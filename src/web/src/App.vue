@@ -2,6 +2,7 @@
 import * as echarts from 'echarts'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
+import { useTableSort, type SortField } from './composables/useTableSort'
 
 type LogKnowledge = {
   id: string
@@ -430,6 +431,39 @@ const aggregateEventPage = ref(1)
 const aggregateEventTotal = ref(0)
 const selectedLatencyPercentile = ref<LatencyPercentileValue>('p99')
 const selectedLatencyStat = ref<'total' | 'p99' | 'p95' | 'ave' | 'min' | 'max'>('p99')
+
+// 聚合事件列表排序状态
+const aggregateEventSort = useTableSort(
+  [{ field: 'total_latency', order: 'desc' }],
+  () => {
+    // 排序变化时重新加载数据（重置到第一页）
+    aggregateEventPage.value = 1
+    void loadLatencyDetail(1)
+  }
+)
+
+// 异常Trace列表排序状态
+const abnormalTraceSort = useTableSort(
+  [{ field: 'total_latency', order: 'desc' }],
+  () => {
+    // 排序变化时重新加载数据（重置到第一页）
+    abnormalTracesPage.value = 1
+    void loadAbnormalTraces(1)
+  }
+)
+
+// 聚合事件详情表格排序状态
+const detailParseResultSort = useTableSort(
+  [{ field: 'total_latency', order: 'desc' }],
+  () => {
+    // 排序变化时重新加载数据（重置到第一页）
+    if (selectedAggregatedEvent.value) {
+      detailParseResultsPage.value = 1
+      void loadDetailParseResults(selectedAggregatedEvent.value, 1)
+    }
+  }
+)
+
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
 const activeAggregateTab = ref<'event' | 'trace'>('trace')
 const abnormalTraceRows = ref<AbnormalTraceRow[]>([])
@@ -3287,6 +3321,7 @@ const loadDetailParseResults = async (
     detailParseResultsTotal.value = 0
     detailParseResultsError.value = ''
     isDetailParseResultsLoading.value = false
+    detailParseResultSort.releaseSortLock()
     return
   }
 
@@ -3295,6 +3330,9 @@ const loadDetailParseResults = async (
   detailParseResultsError.value = ''
 
   try {
+    // 构建排序参数
+    const sortFields = detailParseResultSort.getSortFields.value
+    
     const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
       '/log_parse_result/list',
       {
@@ -3305,11 +3343,11 @@ const loadDetailParseResults = async (
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
           page_cnt: 20,
           page_num: pageNum,
-          sort_by: 'error_priority',
-          sort_order: 'desc',
+          sort_fields: sortFields.length > 0 ? sortFields : undefined,
           severe_timeout_threshold_ms: severeLogTimeoutThresholdMs,
           exclude_normal: true,
         }),
+        signal: detailParseResultSort.getAbortSignal(),
       },
     )
 
@@ -3319,6 +3357,10 @@ const loadDetailParseResults = async (
       detailParseResultsPage.value = pageNum
     }
   } catch (error) {
+    // 忽略取消请求的错误
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return
+    }
     if (selectedAggregatedEvent.value?.id === row.id) {
       detailParseResults.value = []
       detailParseResultsTotal.value = 0
@@ -3329,6 +3371,7 @@ const loadDetailParseResults = async (
     if (selectedAggregatedEvent.value?.id === row.id) {
       isDetailParseResultsLoading.value = false
     }
+    detailParseResultSort.releaseSortLock()
   }
 }
 
@@ -3372,16 +3415,25 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
 
   try {
     const filters = appliedFilters.value
+    
+    // 构建排序参数
+    const sortFields = aggregateEventSort.getSortFields.value
+    
+    // 根据选择的统计类型映射排序字段
+    const statType = selectedLatencyStat.value === 'total' ? 'p99' : selectedLatencyStat.value
+    
     const result = await request<unknown>('/aggregated_event/list', {
       method: 'POST',
       body: JSON.stringify({
         kb_id: assetId,
         page_num: pageNum,
         page_cnt: 10,
-        created_sorted_desc: false,
+        stat_type: statType,
+        sort_fields: sortFields.length > 0 ? sortFields : undefined,
         src_ip: getLogParseFilterValue(filters.sourceHosts),
         dst_ip: getLogParseFilterValue(filters.targetHosts),
       }),
+      signal: aggregateEventSort.getAbortSignal(),
     })
     const events = extractListItems<AggregatedEventModel>(result, [
       'aggregated_events',
@@ -3399,6 +3451,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
 
     if (pageNum > nextPageCount) {
       isLatencyDetailLoading.value = false
+      aggregateEventSort.releaseSortLock()
       await loadLatencyDetail(nextPageCount)
       return
     }
@@ -3407,12 +3460,17 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
     aggregateEventTotal.value = nextTotal
     aggregateEventPage.value = pageNum
   } catch (error) {
+    // 忽略取消请求的错误
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return
+    }
     aggregatedEvents.value = []
     aggregateEventTotal.value = 0
     aggregateEventPage.value = 1
     latencyDetailError.value = error instanceof Error ? error.message : '加载聚合事件失败'
   } finally {
     isLatencyDetailLoading.value = false
+    aggregateEventSort.releaseSortLock()
   }
 }
 
@@ -3532,12 +3590,15 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
 
   try {
     const filters = appliedFilters.value
+    
+    // 构建排序参数
+    const sortFields = abnormalTraceSort.getSortFields.value
+    
     const body: Record<string, unknown> = {
       kb_id: assetId,
       page_cnt: 100,
       page_num: pageNum,
-      sort_by: 'error_priority',
-      sort_order: 'desc',
+      sort_fields: sortFields.length > 0 ? sortFields : undefined,
       severe_timeout_threshold_ms: severeLogTimeoutThresholdMs,
       exclude_normal: true,
       created_at_start: formatDateTime(filters.startTime),
@@ -3551,6 +3612,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       {
         method: 'POST',
         body: JSON.stringify(body),
+        signal: abnormalTraceSort.getAbortSignal(),
       },
     )
     const total = result.total ?? 0
@@ -3558,6 +3620,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
 
     if (pageNum > pageCount) {
       isAbnormalTracesLoading.value = false
+      abnormalTraceSort.releaseSortLock()
       await loadAbnormalTraces(pageCount)
       return
     }
@@ -3567,12 +3630,17 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     abnormalTracesTotal.value = total
     abnormalTracesPage.value = pageNum
   } catch (error) {
+    // 忽略取消请求的错误
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return
+    }
     abnormalTraceRows.value = []
     abnormalTracesTotal.value = 0
     abnormalTracesPage.value = 1
     abnormalTracesError.value = error instanceof Error ? error.message : '加载日志列表失败'
   } finally {
     isAbnormalTracesLoading.value = false
+    abnormalTraceSort.releaseSortLock()
   }
 }
 
@@ -4890,7 +4958,15 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell ip-cell">源 IP</div>
                       <div class="aggregate-cell ip-cell">目标 IP</div>
                       <div class="aggregate-cell count-cell">结果数</div>
-                      <div class="aggregate-cell count-cell">异常数</div>
+                      <div class="aggregate-cell count-cell aggregate-sortable-cell" @click="aggregateEventSort.handleHeaderClick('anomaly_log_parse_result_cnt')">
+                        <span class="sort-header-content">
+                          异常数
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder('anomaly_log_parse_result_cnt') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder('anomaly_log_parse_result_cnt') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
                     </div>
                     <template
                       v-if="
@@ -4921,9 +4997,16 @@ onBeforeUnmount(() => {
                         <div
                           v-for="column in aggregatedLatencyColumns"
                           :key="column.key"
-                          class="aggregate-cell"
+                          class="aggregate-cell aggregate-sortable-cell"
+                          @click="aggregateEventSort.handleHeaderClick(column.key)"
                         >
-                          {{ column.label }}
+                          <span class="sort-header-content">
+                            {{ column.label }}
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder(column.key) === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder(column.key) === 'desc' }">▼</span>
+                            </span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -5093,13 +5176,6 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell">操作类型</div>
                       <div class="aggregate-cell">集群</div>
                       <div class="aggregate-cell">主机 IP</div>
-                      <div
-                        v-for="column in problemLogLatencyColumns"
-                        :key="column.key"
-                        class="aggregate-cell"
-                      >
-                        {{ column.label }}
-                      </div>
                     </div>
                     <template
                       v-if="
@@ -5131,23 +5207,6 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
                         <div class="aggregate-cell">{{ row.host }}</div>
-                        <div
-                          v-for="column in problemLogLatencyColumns"
-                          :key="column.key"
-                          class="aggregate-cell"
-                        >
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isLatencyMetricAbnormal(
-                                column.metric,
-                                getProblemLogLatencyValue(row, column),
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(getProblemLogLatencyValue(row, column)) }}
-                          </span>
-                        </div>
                       </div>
                     </template>
                   </div>
@@ -5155,12 +5214,60 @@ onBeforeUnmount(() => {
                   <div class="aggregate-latency-scroll">
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div class="abnormal-latency-grid aggregate-table-header">
-                        <div class="aggregate-cell">总时延 (ms)</div>
-                        <div class="aggregate-cell">查询元数据时延 (ms)</div>
-                        <div class="aggregate-cell">URMA总时延 (ms)</div>
-                        <div class="aggregate-cell">URMA建链时延 (ms)</div>
-                        <div class="aggregate-cell">C2W URMA时延 (ms)</div>
-                        <div class="aggregate-cell">W2W URMA时延 (ms)</div>
+                        <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('total_latency')">
+                          <span class="sort-header-content">
+                            总时延 (ms)
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('total_latency') === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('total_latency') === 'desc' }">▼</span>
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('query_meta_latency')">
+                          <span class="sort-header-content">
+                            查询元数据时延 (ms)
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('query_meta_latency') === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('query_meta_latency') === 'desc' }">▼</span>
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('urma_total_latency')">
+                          <span class="sort-header-content">
+                            URMA总时延 (ms)
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_total_latency') === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_total_latency') === 'desc' }">▼</span>
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('urma_link_latency')">
+                          <span class="sort-header-content">
+                            URMA建链时延 (ms)
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_link_latency') === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_link_latency') === 'desc' }">▼</span>
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('c2w_urma_latency')">
+                          <span class="sort-header-content">
+                            C2W URMA时延 (ms)
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'desc' }">▼</span>
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('w2w_urma_latency')">
+                          <span class="sort-header-content">
+                            W2W URMA时延 (ms)
+                            <span class="sort-icons">
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'desc' }">▼</span>
+                            </span>
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <div
@@ -6294,13 +6401,6 @@ onBeforeUnmount(() => {
                     <div class="aggregate-cell">操作类型</div>
                     <div class="aggregate-cell">集群</div>
                     <div class="aggregate-cell">主机 IP</div>
-                    <div
-                      v-for="column in problemLogLatencyColumns"
-                      :key="column.key"
-                      class="aggregate-cell"
-                    >
-                      {{ column.label }}
-                    </div>
                   </div>
                   <template
                     v-if="
@@ -6332,23 +6432,6 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell">{{ row.operation }}</div>
                       <div class="aggregate-cell">{{ row.clusterName }}</div>
                       <div class="aggregate-cell">{{ row.host }}</div>
-                      <div
-                        v-for="column in problemLogLatencyColumns"
-                        :key="column.key"
-                        class="aggregate-cell"
-                      >
-                        <span
-                          class="metric-value"
-                          :class="{
-                            abnormal: isLatencyMetricAbnormal(
-                              column.metric,
-                              getProblemLogLatencyValue(row, column),
-                            ),
-                          }"
-                        >
-                          {{ formatNullableMetricValue(getProblemLogLatencyValue(row, column)) }}
-                        </span>
-                      </div>
                     </div>
                   </template>
                 </div>
@@ -6356,12 +6439,60 @@ onBeforeUnmount(() => {
                 <div class="aggregate-latency-scroll">
                   <div class="aggregate-latency-head aggregate-latency-sync">
                     <div class="abnormal-latency-grid aggregate-table-header">
-                      <div class="aggregate-cell">总时延 (ms)</div>
-                      <div class="aggregate-cell">查询元数据时延 (ms)</div>
-                      <div class="aggregate-cell">URMA总时延 (ms)</div>
-                      <div class="aggregate-cell">URMA建链时延 (ms)</div>
-                      <div class="aggregate-cell">C2W URMA时延 (ms)</div>
-                      <div class="aggregate-cell">W2W URMA时延 (ms)</div>
+                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('total_latency')">
+                        <span class="sort-header-content">
+                          总时延 (ms)
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('total_latency') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('total_latency') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('worker_query_meta_latency')">
+                        <span class="sort-header-content">
+                          查询元数据时延 (ms)
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('worker_query_meta_latency') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('worker_query_meta_latency') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('urma_total_latency')">
+                        <span class="sort-header-content">
+                          URMA总时延 (ms)
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_total_latency') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_total_latency') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('urma_link_latency')">
+                        <span class="sort-header-content">
+                          URMA建链时延 (ms)
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_link_latency') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_link_latency') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('c2w_urma_latency')">
+                        <span class="sort-header-content">
+                          C2W URMA时延 (ms)
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('c2w_urma_latency') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('c2w_urma_latency') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('w2w_urma_latency')">
+                        <span class="sort-header-content">
+                          W2W URMA时延 (ms)
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('w2w_urma_latency') === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('w2w_urma_latency') === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <div
