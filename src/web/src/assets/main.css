@@ -1850,7 +1850,7 @@ button {
 
 .abnormal-trace-frame .aggregate-fixed-left > .aggregate-table-header + .aggregate-body-row,
 .abnormal-trace-frame .aggregate-fixed-actions > .aggregate-table-header + .aggregate-body-row {
-  margin-top: 0;
+  margin-top: var(--aggregate-scrollbar-height);
 }
 
 /* 滚动条样式 */
