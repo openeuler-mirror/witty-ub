@@ -697,8 +697,21 @@ class LogFailureEventManager:
                         result["status_code_cnt"][code] = cnt
                 results.append(result)
             
-            if req.sort_by == "timestamp":
+            sort_key = req.sort_by
+            if sort_key == "timestamp":
                 results.sort(key=lambda x: x["start_time"], reverse=req.created_sorted_desc)
+            elif sort_key == "all" or sort_key not in err_codes:
+                results.sort(
+                    key=lambda x: x["status_code_cnt"].get("all", 0),
+                    reverse=req.created_sorted_desc,
+                )
+            else:
+                def sort_func(x):
+                    primary = x["status_code_cnt"].get(sort_key, 0)
+                    secondary = x["status_code_cnt"].get("all", 0)
+                    return primary, secondary
+
+                results.sort(key=sort_func, reverse=req.created_sorted_desc)
             total = len(results)
             start_idx = (req.page_num - 1) * req.page_cnt
             end_idx = start_idx + req.page_cnt

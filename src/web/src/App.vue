@@ -426,8 +426,10 @@ type LogParseOptions = {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const assetPageSize = 10
 const logFilesPageSize = 10
+const abnormalTracesPageSize = 30
 const faultAggregatedEventPageSize = 20
 const faultAggregatedEventPodPageSize = 10
+const faultTraceEventsPageSize = 30
 const logFilesPollIntervalMs = 3_000
 const severeLogTimeoutThresholdMs = 150
 const isFaultCodeFeatureEnabled = true
@@ -519,8 +521,11 @@ const detailParseResultSort = useTableSort(
   }
 )
 
+// 故障聚合事件列表排序状态
+const faultAggregatedEventSort = useTableSort([{ field: 'all', order: 'desc' }])
+
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
-const activeAggregateTab = ref<'event' | 'trace'>('trace')
+const activeAggregateTab = ref<'event' | 'trace'>('event')
 const activeFaultMonitorTab = ref<'event' | 'trace'>('event')
 const selectedFaultAggregateInterval = ref<FaultAggregateInterval>('minute')
 const abnormalTraceRows = ref<AbnormalTraceRow[]>([])
@@ -690,13 +695,13 @@ const aggregateEventPageCount = computed(() =>
   Math.max(1, Math.ceil(aggregateEventTotal.value / 10)),
 )
 const abnormalTracesPageCount = computed(() =>
-  Math.max(1, Math.ceil(abnormalTracesTotal.value / 100)),
+  Math.max(1, Math.ceil(abnormalTracesTotal.value / abnormalTracesPageSize)),
 )
 const faultAggregatedEventPageCount = computed(() =>
   Math.max(1, Math.ceil(faultAggregatedEventTotal.value / faultAggregatedEventPageSize)),
 )
 const faultTraceEventsPageCount = computed(() =>
-  Math.max(1, Math.ceil(faultTraceEventsTotal.value / 100)),
+  Math.max(1, Math.ceil(faultTraceEventsTotal.value / faultTraceEventsPageSize)),
 )
 const getPageWindow = (currentPage: number, pageCount: number) => {
   const start = Math.max(1, currentPage - 5)
@@ -1900,11 +1905,14 @@ const getLogResultAnomalyCode = (result: LogParseResultModel) => {
 const faultCodes = computed(() =>
   Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b)),
 )
+const faultAggregatedEventCodeColumnMaxWidth = 132
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
+  const width = columnCount * faultAggregatedEventCodeColumnMaxWidth
   return {
-    gridTemplateColumns: `repeat(${columnCount}, minmax(132px, 1fr))`,
-    minWidth: `${columnCount * 132}px`,
+    gridTemplateColumns: `repeat(${columnCount}, ${faultAggregatedEventCodeColumnMaxWidth}px)`,
+    width: `${width}px`,
+    minWidth: `${width}px`,
   }
 })
 const paginatedFaultAggregatedEventRows = computed(() => faultAggregatedEventRows.value)
@@ -1912,6 +1920,20 @@ const getFaultAggregatedEventCodeValue = (row: FaultAggregatedEventRow, code: st
   row.faultCodeCounts[code] ?? 0
 const getFaultAggregatedEventCodeLabel = (code: string) =>
   code === 'all' ? '故障总数' : `故障码${code}`
+const getFaultAggregatedEventSortField = (): SortField | null =>
+  faultAggregatedEventSort.getSortFields.value[0] ?? null
+const handleFaultAggregatedEventSortHeaderClick = (field: string) => {
+  const currentOrder = faultAggregatedEventSort.getSortOrder(field)
+  if (currentOrder === 'desc') {
+    faultAggregatedEventSort.setSortFields([{ field, order: 'asc' }])
+  } else if (currentOrder === 'asc') {
+    faultAggregatedEventSort.setSortFields([])
+  } else {
+    faultAggregatedEventSort.setSortFields([{ field, order: 'desc' }])
+  }
+  faultAggregatedEventPage.value = 1
+  void loadFaultAggregatedEvents(1)
+}
 const isFaultAggregatedEventExpanded = (row: FaultAggregatedEventRow) =>
   expandedFaultAggregatedEventId.value === row.id
 const getFaultAggregatedEventPodRows = (row: FaultAggregatedEventRow) =>
@@ -3454,7 +3476,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       is_anomalous: true,
-      page_cnt: 100,
+      page_cnt: faultTraceEventsPageSize,
       page_num: pageNum,
     }
 
@@ -3484,7 +3506,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
 
     const events = result.trace_failure_event_results ?? []
     const total = result.total ?? 0
-    const pageCount = Math.max(1, Math.ceil(total / 100))
+    const pageCount = Math.max(1, Math.ceil(total / faultTraceEventsPageSize))
 
     if (pageNum > pageCount) {
       isFaultTraceEventsLoading.value = false
@@ -4036,7 +4058,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     
     const body: Record<string, unknown> = {
       kb_id: assetId,
-      page_cnt: 100,
+      page_cnt: abnormalTracesPageSize,
       page_num: pageNum,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       is_anomalous: true,
@@ -4055,7 +4077,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       },
     )
     const total = result.total ?? 0
-    const pageCount = Math.max(1, Math.ceil(total / 100))
+    const pageCount = Math.max(1, Math.ceil(total / abnormalTracesPageSize))
 
     if (pageNum > pageCount) {
       isAbnormalTracesLoading.value = false
@@ -4279,11 +4301,12 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
 
   try {
     const filters = appliedFilters.value
+    const faultSortField = getFaultAggregatedEventSortField()
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       interval: selectedFaultAggregateInterval.value,
-      sort_by: 'timestamp',
-      created_sorted_desc: false,
+      sort_by: faultSortField?.field ?? 'timestamp',
+      created_sorted_desc: faultSortField ? faultSortField.order === 'desc' : false,
       page_cnt: faultAggregatedEventPageSize,
       page_num: pageNum,
     }
@@ -6217,7 +6240,7 @@ onBeforeUnmount(() => {
                 >
                   无匹配时延异常
                 </div>
-                <div v-if="abnormalTracesTotal > 100" class="aggregate-pagination">
+                <div v-if="abnormalTracesTotal > abnormalTracesPageSize" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
@@ -6445,9 +6468,32 @@ onBeforeUnmount(() => {
                           <div
                             v-for="code in faultAggregatedEventCodes"
                             :key="`fault-aggregate-code-head-${code}`"
-                            class="aggregate-cell"
+                            class="aggregate-cell aggregate-sortable-cell"
+                            @click.stop="handleFaultAggregatedEventSortHeaderClick(code)"
                           >
-                            {{ getFaultAggregatedEventCodeLabel(code) }}
+                            <span class="sort-header-content">
+                              {{ getFaultAggregatedEventCodeLabel(code) }}
+                              <span class="sort-icons">
+                                <span
+                                  class="sort-icon-up"
+                                  :class="{
+                                    'sort-icon-active':
+                                      faultAggregatedEventSort.getSortOrder(code) === 'asc',
+                                  }"
+                                >
+                                  ▲
+                                </span>
+                                <span
+                                  class="sort-icon-down"
+                                  :class="{
+                                    'sort-icon-active':
+                                      faultAggregatedEventSort.getSortOrder(code) === 'desc',
+                                  }"
+                                >
+                                  ▼
+                                </span>
+                              </span>
+                            </span>
                           </div>
                         </template>
                         <div v-else class="aggregate-cell">故障码</div>
@@ -6866,7 +6912,10 @@ onBeforeUnmount(() => {
                 </table>
               </div>
               <div
-                v-if="activeFaultMonitorTab === 'trace' && faultTraceEventsTotal > 100"
+                v-if="
+                  activeFaultMonitorTab === 'trace' &&
+                  faultTraceEventsTotal > faultTraceEventsPageSize
+                "
                 class="aggregate-pagination"
               >
                 <button
