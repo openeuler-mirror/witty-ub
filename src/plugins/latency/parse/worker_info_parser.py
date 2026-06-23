@@ -36,7 +36,7 @@ BASE_KEYWORDS = (
 METRICS_KEYWORDS = (
     "totalCost:", "Worker to master rpc QueryMeta:",
     "ProcessGetObjectRequest:", "worker SafeObject WLock:",
-    "[Get] finish", "[RemotePull] finish",
+    "[Get/RemotePull] finish",
     "[Get] Remote done", "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]",
 )
 
@@ -165,6 +165,10 @@ class WorkerInfoParser(LogParser):
         label = self._label_for_line(line, allow_pod_scoped_labels)
         if not label:
             return None
+        
+        # 添加文件级别作用域检查（与 scan_file 方法保持一致）
+        if not self._file_scope_may_allow(label, pod_ip):
+            return None
 
         parts = line.split("|")
         plen = len(parts)
@@ -181,21 +185,27 @@ class WorkerInfoParser(LogParser):
 
         return self._dispatch(label, parsed, ts, pod_ip)
 
-    def _dispatch(self, label: str, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
-        """if/elif 关键字分派到对应的提取逻辑"""
+    def _dispatch(self, label: str, parsed: dict, ts, pod_ip: str) -> list[LogEntry] | None:
+        """if/elif 关键字分派到对应的提取逻辑，返回列表"""
         if label == URMA_LABEL:
-            return self._parse_urma(parsed, ts, pod_ip)
+            entry = self._parse_urma(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == REMOTE_PULL_LABEL:
             msg = parsed["msg"]
             if "Remote get request" in msg:
-                return self._parse_remote_get(parsed, ts, pod_ip)
-            return self._parse_remote_pull(parsed, ts, pod_ip)
+                entry = self._parse_remote_get(parsed, ts, pod_ip)
+            else:
+                entry = self._parse_remote_pull(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == LINK_LABEL:
-            return self._parse_link(parsed, ts, pod_ip)
+            entry = self._parse_link(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == QUERY_META_LABEL:
-            return self._parse_query_meta(parsed, ts, pod_ip)
+            entry = self._parse_query_meta(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == METRICS_LABEL:
-            return self._parse_metrics(parsed, ts, pod_ip)
+            entry = self._parse_metrics(parsed, ts, pod_ip)
+            return [entry] if entry else None
         return None
 
     def _scope_allows(self, label: str, trace_id: str, pod_ip: str) -> bool:
@@ -225,6 +235,9 @@ class WorkerInfoParser(LogParser):
             return True
 
         if label == QUERY_META_LABEL:
+            # 优先检查 trace_id，其次检查 pod_ip
+            if self._target_trace_ids:
+                return True
             return pod_ip in self._target_pod_ips
 
         if label == URMA_LABEL:
