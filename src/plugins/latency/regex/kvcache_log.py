@@ -57,16 +57,16 @@ LEADING_FLOAT_RE = re.compile(r"^\s*([\d.]+)(?:ms)?(?:\(|\s*$)")
 SDK_PROCESS_RE = re.compile(r"totalCost:\s*([\d.]+)ms")
 
 # 2. sdk_rpc - 关键字: Worker to master rpc QueryMeta: Xms
-SDK_RPC_RE = re.compile(r"Worker to master rpc QueryMeta:\s*([\d.]+)ms")
+SDK_RPC_RE = re.compile(r"Worker to master rpc QueryMeta:\s*([\d.]+)\s*ms")
 
 # 3. local_worker_cost - 关键字: ProcessGetObjectRequest: Xms
-LOCAL_WORKER_COST_RE = re.compile(r"ProcessGetObjectRequest:\s*([\d.]+)ms")
+LOCAL_WORKER_COST_RE = re.compile(r"ProcessGetObjectRequest:\s*([\d.]+)\s*ms")
 
 # 4. local_worker_lock - 关键字: worker SafeObject WLock: Xms
 LOCAL_WORKER_LOCK_RE = re.compile(r"worker SafeObject WLock:\s*([\d.]+)ms")
 
 # 5. remote_worker_cost - 关键字: [Get/RemotePull] finish ... cost: Xms
-REMOTE_WORKER_COST_RE = re.compile(r"\[(?:Get|RemotePull)\]\s+finish.*?cost:\s*([\d.]+)ms")
+REMOTE_WORKER_COST_RE = re.compile(r"\[Get/RemotePull\]\s+finish.*?cost:\s*([\d.]+)ms")
 
 # 6. remote_worker_rpc - 关键字: [Get] Remote done ... cost: Xms
 REMOTE_WORKER_RPC_RE = re.compile(r"\[Get\]\s+Remote done.*?cost:\s*([\d.]+)ms")

@@ -30,7 +30,7 @@ class WorkerMetricsLogParser(LogParser):
     _keywords = (
         "totalCost:", "Worker to master rpc QueryMeta:",
         "ProcessGetObjectRequest:", "worker SafeObject WLock:",
-        "[Get] finish", "[RemotePull] finish",
+        "[Get/RemotePull] finish",
         "[Get] Remote done", "QueryMeta done",
         "[ZMQ_RPC_FRAMEWORK_SLOW]",
     )
@@ -66,7 +66,7 @@ class WorkerMetricsLogParser(LogParser):
                 return EntryType.LOCAL_WORKER_LOCK, float(m.group(1)) * 1000
         
         # 5. remote_worker_cost - 关键字: [Get/RemotePull] finish ... cost: Xms
-        if "[Get] finish" in line or "[RemotePull] finish" in line:
+        if "[Get/RemotePull] finish" in line:
             m = REMOTE_WORKER_COST_RE.search(line)
             if m:
                 return EntryType.REMOTE_WORKER_COST, float(m.group(1)) * 1000

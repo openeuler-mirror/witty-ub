@@ -14,6 +14,7 @@ from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
     WorkerInfoParser,
+    WorkerMetricsLogParser,
     LogCorrelator,
     ParseResultBuilder,
 )
@@ -242,7 +243,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
         sdk_parsers = [SdkAccessLogParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
-        info_parsers = [WorkerInfoParser(parse_config)]
+        info_parsers = [WorkerInfoParser(parse_config), WorkerMetricsLogParser(parse_config)]
 
         sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
         worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
