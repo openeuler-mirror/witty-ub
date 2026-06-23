@@ -213,6 +213,48 @@ type FaultDetailRow = {
   faultCodes: string[]
 }
 
+type FaultAggregatedEventRow = {
+  id: string
+  startTime: string
+  endTime: string
+  faultCodeCounts: Record<string, number>
+}
+
+type FaultAggregatedEventPodRow = {
+  id: string
+  podIp: string
+  faultCodeCounts: Record<string, number>
+}
+
+type FaultAggregatedEventDetail = {
+  eventRow: FaultAggregatedEventRow
+  podRow: FaultAggregatedEventPodRow
+}
+
+type TimeAggregatedFailureEventModel = {
+  start_time: string
+  end_time: string
+  status_code_cnt: Record<string, number>
+}
+
+type ListTimeAggregatedFailureEventMsg = {
+  total: number
+  err_codes: string[]
+  events: TimeAggregatedFailureEventModel[]
+}
+
+type PodAggregatedFailureEventModel = {
+  pod_name: string
+  status_code_cnt: Record<string, number>
+}
+
+type ListPodAggregatedFailureEventMsg = {
+  total: number
+  events: PodAggregatedFailureEventModel[]
+}
+
+type FaultAggregateInterval = 'hour' | 'minute' | 'second'
+
 type TraceRawLogColumn = {
   label: string
   value: string
@@ -384,9 +426,20 @@ type LogParseOptions = {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const assetPageSize = 10
 const logFilesPageSize = 10
+const faultAggregatedEventPageSize = 20
+const faultAggregatedEventPodPageSize = 10
 const logFilesPollIntervalMs = 3_000
 const severeLogTimeoutThresholdMs = 150
 const isFaultCodeFeatureEnabled = true
+const toFaultAggregatedEventRows = (
+  events: TimeAggregatedFailureEventModel[],
+): FaultAggregatedEventRow[] =>
+  events.map((event, index) => ({
+    id: `${event.start_time}-${event.end_time}-${index}`,
+    startTime: event.start_time,
+    endTime: event.end_time,
+    faultCodeCounts: event.status_code_cnt,
+  }))
 
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
@@ -468,11 +521,18 @@ const detailParseResultSort = useTableSort(
 
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
 const activeAggregateTab = ref<'event' | 'trace'>('trace')
+const activeFaultMonitorTab = ref<'event' | 'trace'>('event')
+const selectedFaultAggregateInterval = ref<FaultAggregateInterval>('minute')
 const abnormalTraceRows = ref<AbnormalTraceRow[]>([])
 const isAbnormalTracesLoading = ref(false)
 const abnormalTracesError = ref('')
 const abnormalTracesPage = ref(1)
 const abnormalTracesTotal = ref(0)
+const faultAggregatedEventPage = ref(1)
+const faultAggregatedEventTotal = ref(0)
+const isFaultAggregatedEventsLoading = ref(false)
+const faultAggregatedEventsError = ref('')
+const expandedFaultAggregatedEventId = ref('')
 const faultTraceEventsPage = ref(1)
 const faultTraceEventsTotal = ref(0)
 const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
@@ -483,26 +543,46 @@ const isDetailParseResultsLoading = ref(false)
 const detailParseResultsError = ref('')
 const detailParseResultsPage = ref(1)
 const detailParseResultsTotal = ref(0)
+const faultDetailTraceRows = ref<FaultTraceTableRow[]>([])
+const isFaultDetailTraceEventsLoading = ref(false)
+const faultDetailTraceEventsError = ref('')
+const faultDetailTraceEventsPage = ref(1)
+const faultDetailTraceEventsTotal = ref(0)
 const assetPageInput = ref('')
 const logFilesPageInput = ref('')
 const aggregateEventPageInput = ref('')
 const abnormalTracesPageInput = ref('')
+const faultAggregatedEventPageInput = ref('')
 const faultTraceEventsPageInput = ref('')
 const detailParseResultsPageInput = ref('')
+const faultDetailTraceEventsPageInput = ref('')
 const latencyChartRef = ref<HTMLDivElement | null>(null)
 const detailLatencyChartRef = ref<HTMLDivElement | null>(null)
 const faultChartRef = ref<HTMLDivElement | null>(null)
+const faultDetailChartRef = ref<HTMLDivElement | null>(null)
 const logFilesPollingTimer = ref<ReturnType<typeof window.setInterval> | null>(null)
 const anomalousEventChains = ref<AnomalousEventChainModel[]>([])
 const isFaultChartLoading = ref(false)
 const faultChartError = ref('')
 const faultChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
+const isFaultDetailChartLoading = ref(false)
+const faultDetailChartError = ref('')
+const faultDetailChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
 const faultTraceRows = ref<FaultTraceTableRow[]>([])
+const faultAggregatedEventCodes = ref<string[]>([])
+const faultAggregatedEventRows = ref<FaultAggregatedEventRow[]>([])
+const faultAggregatedEventPodRowsByEventId = ref<Record<string, FaultAggregatedEventPodRow[]>>({})
+const faultAggregatedEventPodTotalsByEventId = ref<Record<string, number>>({})
+const faultAggregatedEventPodPagesByEventId = ref<Record<string, number>>({})
+const faultAggregatedEventPodPageInputsByEventId = ref<Record<string, string>>({})
+const loadingFaultAggregatedEventPodIds = ref<Set<string>>(new Set())
+const faultAggregatedEventPodErrors = ref<Record<string, string>>({})
 const isFaultTraceEventsLoading = ref(false)
 const faultTraceEventsError = ref('')
 const failureModeDetailsById = ref<Record<string, FailureModeKnowledgeModel | null>>({})
 const selectedTrace = ref<TraceDetailRow | null>(null)
 const selectedFaultTrace = ref<TraceDetailRow | null>(null)
+const selectedFaultAggregatedEventDetail = ref<FaultAggregatedEventDetail | null>(null)
 const selectedFaultTraceFailureModeId = ref('')
 const selectedChildFailureModeId = ref('')
 const traceFailureLogsByTrace = ref<Record<string, TraceLogRow[]>>({})
@@ -612,6 +692,9 @@ const aggregateEventPageCount = computed(() =>
 const abnormalTracesPageCount = computed(() =>
   Math.max(1, Math.ceil(abnormalTracesTotal.value / 100)),
 )
+const faultAggregatedEventPageCount = computed(() =>
+  Math.max(1, Math.ceil(faultAggregatedEventTotal.value / faultAggregatedEventPageSize)),
+)
 const faultTraceEventsPageCount = computed(() =>
   Math.max(1, Math.ceil(faultTraceEventsTotal.value / 100)),
 )
@@ -629,6 +712,9 @@ const aggregateEventPageWindow = computed(() =>
 )
 const abnormalTracesPageWindow = computed(() =>
   getPageWindow(abnormalTracesPage.value, abnormalTracesPageCount.value),
+)
+const faultAggregatedEventPageWindow = computed(() =>
+  getPageWindow(faultAggregatedEventPage.value, faultAggregatedEventPageCount.value),
 )
 const faultTraceEventsPageWindow = computed(() =>
   getPageWindow(faultTraceEventsPage.value, faultTraceEventsPageCount.value),
@@ -1354,6 +1440,7 @@ const detailAnomalyRegions = computed(() =>
 let latencyChartInstance: ECharts | null = null
 let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
+let faultDetailChartInstance: ECharts | null = null
 
 const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   const ranges: Array<[Record<string, number>, Record<string, number>]> = []
@@ -1550,9 +1637,12 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
   }
 }
 
-const createFaultEchartsOption = (buckets: FaultChartBucket[]): EChartsOption => {
+const createFaultEchartsOption = (
+  buckets: FaultChartBucket[],
+  codes = faultCodes.value,
+): EChartsOption => {
   const labels = buckets.map((bucket) => bucket.label)
-  const seriesNames = faultCodes.value.map((code) => `故障码${code}`)
+  const seriesNames = codes.map((code) => `故障码${code}`)
 
   return {
     tooltip: {
@@ -1588,7 +1678,7 @@ const createFaultEchartsOption = (buckets: FaultChartBucket[]): EChartsOption =>
         formatter: (value: number) => String(Math.trunc(value)),
       },
     },
-    series: faultCodes.value.map((code) => ({
+    series: codes.map((code) => ({
       name: `故障码${code}`,
       type: 'line',
       data: buckets.map((bucket) => bucket.counts[code] ?? 0),
@@ -1660,10 +1750,34 @@ const renderFaultEchart = () => {
   faultChartInstance.resize()
 }
 
+const renderFaultDetailEchart = () => {
+  if (
+    isFaultDetailChartLoading.value ||
+    faultDetailChartError.value ||
+    !selectedFaultAggregatedEventDetail.value
+  )
+    return
+  const element = faultDetailChartRef.value
+  const codes = selectedFaultDetailChartCodes.value
+  if (!element || faultDetailChartBuckets.value.length === 0 || codes.length === 0) return
+
+  if (faultDetailChartInstance && faultDetailChartInstance.getDom() !== element) {
+    faultDetailChartInstance.dispose()
+    faultDetailChartInstance = null
+  }
+  faultDetailChartInstance ??= echarts.init(element)
+  faultDetailChartInstance.setOption(
+    createFaultEchartsOption(faultDetailChartBuckets.value, codes),
+    true,
+  )
+  faultDetailChartInstance.resize()
+}
+
 const resizeLatencyCharts = () => {
   latencyChartInstance?.resize()
   detailLatencyChartInstance?.resize()
   faultChartInstance?.resize()
+  faultDetailChartInstance?.resize()
 }
 
 const openTimePointDialog = (
@@ -1786,7 +1900,75 @@ const getLogResultAnomalyCode = (result: LogParseResultModel) => {
 const faultCodes = computed(() =>
   Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b)),
 )
+const faultAggregatedEventCodeGridStyle = computed(() => {
+  const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
+  return {
+    gridTemplateColumns: `repeat(${columnCount}, minmax(132px, 1fr))`,
+    minWidth: `${columnCount * 132}px`,
+  }
+})
+const paginatedFaultAggregatedEventRows = computed(() => faultAggregatedEventRows.value)
+const getFaultAggregatedEventCodeValue = (row: FaultAggregatedEventRow, code: string) =>
+  row.faultCodeCounts[code] ?? 0
+const getFaultAggregatedEventCodeLabel = (code: string) =>
+  code === 'all' ? '故障总数' : `故障码${code}`
+const isFaultAggregatedEventExpanded = (row: FaultAggregatedEventRow) =>
+  expandedFaultAggregatedEventId.value === row.id
+const getFaultAggregatedEventPodRows = (row: FaultAggregatedEventRow) =>
+  faultAggregatedEventPodRowsByEventId.value[row.id] ?? []
+const getFaultAggregatedEventPodCodeValue = (row: FaultAggregatedEventPodRow, code: string) =>
+  row.faultCodeCounts[code] ?? 0
+const isFaultAggregatedEventPodLoading = (row: FaultAggregatedEventRow) =>
+  loadingFaultAggregatedEventPodIds.value.has(row.id)
+const getFaultAggregatedEventPodError = (row: FaultAggregatedEventRow) =>
+  faultAggregatedEventPodErrors.value[row.id] ?? ''
+const getFaultAggregatedEventPodTotal = (row: FaultAggregatedEventRow) =>
+  faultAggregatedEventPodTotalsByEventId.value[row.id] ?? 0
+const getFaultAggregatedEventPodPage = (row: FaultAggregatedEventRow) =>
+  faultAggregatedEventPodPagesByEventId.value[row.id] ?? 1
+const getFaultAggregatedEventPodPageCount = (row: FaultAggregatedEventRow) =>
+  Math.max(1, Math.ceil(getFaultAggregatedEventPodTotal(row) / faultAggregatedEventPodPageSize))
+const getFaultAggregatedEventPodPageWindow = (row: FaultAggregatedEventRow) =>
+  getPageWindow(getFaultAggregatedEventPodPage(row), getFaultAggregatedEventPodPageCount(row))
+const getFaultAggregatedEventPodPageInput = (row: FaultAggregatedEventRow) =>
+  faultAggregatedEventPodPageInputsByEventId.value[row.id] ?? ''
+const setFaultAggregatedEventPodPageInput = (row: FaultAggregatedEventRow, value: string) => {
+  faultAggregatedEventPodPageInputsByEventId.value = {
+    ...faultAggregatedEventPodPageInputsByEventId.value,
+    [row.id]: value,
+  }
+}
 
+const selectedFaultDetailCodeCounts = computed(() => {
+  const detail = selectedFaultAggregatedEventDetail.value
+  if (!detail) return []
+
+  const counts = detail.podRow.faultCodeCounts
+  const total =
+    counts.all ??
+    Object.entries(counts).reduce((sum, [code, count]) => (code === 'all' ? sum : sum + count), 0)
+  const codes = faultAggregatedEventCodes.value.filter((code) => code !== 'all')
+
+  return [
+    {
+      code: 'all',
+      label: '故障总数',
+      count: total,
+    },
+    ...codes
+      .map((code) => ({
+        code,
+        label: getFaultAggregatedEventCodeLabel(code),
+        count: counts[code] ?? 0,
+      }))
+      .filter((item) => item.count > 0),
+  ]
+})
+const selectedFaultDetailChartCodes = computed(() =>
+  selectedFaultDetailCodeCounts.value
+    .filter((item) => item.code !== 'all' && item.count > 0)
+    .map((item) => item.code),
+)
 const faultChartBuckets = computed<FaultChartBucket[]>(() => {
   const buckets = new Map<number, Record<string, number>>()
   const chartRange = faultChartRange.value
@@ -1815,6 +1997,31 @@ const faultChartBuckets = computed<FaultChartBucket[]>(() => {
     }))
 
   return chartBuckets
+})
+
+const faultDetailChartBuckets = computed<FaultChartBucket[]>(() => {
+  const buckets = new Map<number, Record<string, number>>()
+
+  Object.entries(faultDetailChartMetrics.value).forEach(([code, metrics]) => {
+    metrics.forEach((metric) => {
+      const parsed = parseMetricDate(metric)
+      if (!parsed) return
+
+      const value = metric.err_cnt ?? metric.count ?? metric.value
+      const time = parsed.getTime()
+      const bucket = buckets.get(time) ?? {}
+      bucket[code] = typeof value === 'number' && Number.isFinite(value) ? value : 0
+      buckets.set(time, bucket)
+    })
+  })
+
+  return [...buckets.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([time, counts]) => ({
+      time,
+      label: formatFullTimeLabel(new Date(time)),
+      counts,
+    }))
 })
 
 const latencyDetailRows = computed<LatencyDetailRow[]>(() => {
@@ -2105,6 +2312,14 @@ const detailParseResultsPageWindow = computed(() =>
 )
 
 const detailParseResultsBadgeCount = computed(() => detailParseResultsTotal.value)
+
+const faultDetailTraceEventsPageCount = computed(() =>
+  Math.max(1, Math.ceil(faultDetailTraceEventsTotal.value / 20)),
+)
+const faultDetailTraceEventsPageWindow = computed(() =>
+  getPageWindow(faultDetailTraceEventsPage.value, faultDetailTraceEventsPageCount.value),
+)
+const selectedFaultDetailErrorLogTotal = computed(() => faultDetailTraceEventsTotal.value)
 
 const faultTraceByLatencyPair = computed<Record<string, TraceDetailRow[]>>(() => {
   const grouped: Record<string, TraceDetailRow[]> = {}
@@ -2577,6 +2792,9 @@ const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceT
 
 const getFilteredFaultTraceRows = () => faultTraceRows.value
 
+const getFaultTraceFailureModeLabel = (row: FaultTraceTableRow) =>
+  row.failureMode?.name || row.failureModeId || row.faultType || '-'
+
 const openTraceDialog = (trace: TraceDetailRow) => {
   selectedTrace.value = trace
 }
@@ -2766,6 +2984,188 @@ const closeAggregatedEventDetail = () => {
   detailLatencyChartInstance = null
 }
 
+const loadFaultAggregatedEventDetailTraceEvents = async (
+  detail: FaultAggregatedEventDetail,
+  pageNum = faultDetailTraceEventsPage.value,
+) => {
+  if (!selectedAssetId.value) {
+    faultDetailTraceRows.value = []
+    faultDetailTraceEventsTotal.value = 0
+    faultDetailTraceEventsPage.value = 1
+    faultDetailTraceEventsError.value = ''
+    isFaultDetailTraceEventsLoading.value = false
+    return
+  }
+
+  const detailKey = `${detail.eventRow.id}-${detail.podRow.id}`
+  isFaultDetailTraceEventsLoading.value = true
+  faultDetailTraceEventsError.value = ''
+
+  try {
+    const result = await request<{
+      total: number
+      trace_failure_event_results: TraceFailureEventResultModel[]
+    }>('/log_failure_event_result/list_trace_events', {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: selectedAssetId.value,
+        pod_names: [detail.podRow.podIp],
+        is_anomalous: true,
+        created_at_start: detail.eventRow.startTime,
+        created_at_end: detail.eventRow.endTime,
+        page_cnt: 20,
+        page_num: pageNum,
+      }),
+    })
+
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` !==
+      detailKey
+    ) {
+      return
+    }
+
+    const events = result.trace_failure_event_results ?? []
+    const total = result.total ?? 0
+    const pageCount = Math.max(1, Math.ceil(total / 20))
+
+    if (pageNum > pageCount) {
+      isFaultDetailTraceEventsLoading.value = false
+      await loadFaultAggregatedEventDetailTraceEvents(detail, pageCount)
+      return
+    }
+
+    const failureModeIds = [
+      ...new Set(events.flatMap((event) => getFailureModeIds(event as Record<string, unknown>))),
+    ]
+    await Promise.all(failureModeIds.map((failureModeId) => loadFailureModeDetail(failureModeId)))
+
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
+      detailKey
+    ) {
+      faultDetailTraceRows.value = events.map(toFaultTraceTableRow)
+      faultDetailTraceEventsTotal.value = total
+      faultDetailTraceEventsPage.value = pageNum
+    }
+  } catch (error) {
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
+      detailKey
+    ) {
+      faultDetailTraceRows.value = []
+      faultDetailTraceEventsTotal.value = 0
+      faultDetailTraceEventsPage.value = pageNum
+      faultDetailTraceEventsError.value =
+        error instanceof Error ? error.message : '加载错误日志失败'
+    }
+  } finally {
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
+      detailKey
+    ) {
+      isFaultDetailTraceEventsLoading.value = false
+    }
+  }
+}
+
+const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventDetail) => {
+  if (!selectedAssetId.value) {
+    faultDetailChartMetrics.value = {}
+    faultDetailChartError.value = ''
+    isFaultDetailChartLoading.value = false
+    return
+  }
+
+  const errCodes = selectedFaultDetailChartCodes.value
+  if (errCodes.length === 0) {
+    faultDetailChartMetrics.value = {}
+    faultDetailChartError.value = ''
+    isFaultDetailChartLoading.value = false
+    return
+  }
+
+  const detailKey = `${detail.eventRow.id}-${detail.podRow.id}`
+  isFaultDetailChartLoading.value = true
+  faultDetailChartError.value = ''
+  faultDetailChartMetrics.value = {}
+
+  try {
+    const result = await request<{
+      total: number
+      metrics: Record<string, ErrCodeMetricItem[]>
+    }>('/log_failure_event_result/metrics/err_code', {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: selectedAssetId.value,
+        err_codes: errCodes,
+        pod_names: [detail.podRow.podIp],
+        start_time: detail.eventRow.startTime,
+        end_time: detail.eventRow.endTime,
+        max_points: 1000,
+      }),
+    })
+
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
+      detailKey
+    ) {
+      faultDetailChartMetrics.value = result.metrics ?? {}
+    }
+  } catch (error) {
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
+      detailKey
+    ) {
+      faultDetailChartMetrics.value = {}
+      faultDetailChartError.value =
+        error instanceof Error ? error.message : '加载故障码计数趋势失败'
+    }
+  } finally {
+    if (
+      `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
+      detailKey
+    ) {
+      isFaultDetailChartLoading.value = false
+    }
+  }
+}
+
+const openFaultAggregatedEventDetail = (
+  eventRow: FaultAggregatedEventRow,
+  podRow: FaultAggregatedEventPodRow,
+) => {
+  const detail = {
+    eventRow,
+    podRow,
+  }
+  selectedFaultAggregatedEventDetail.value = detail
+  faultDetailTraceRows.value = []
+  faultDetailTraceEventsTotal.value = 0
+  faultDetailTraceEventsPage.value = 1
+  faultDetailTraceEventsPageInput.value = ''
+  faultDetailTraceEventsError.value = ''
+  faultDetailChartMetrics.value = {}
+  faultDetailChartError.value = ''
+  void loadFaultAggregatedEventDetailTraceEvents(detail, 1)
+  void loadFaultAggregatedEventDetailChart(detail)
+}
+
+const closeFaultAggregatedEventDetail = () => {
+  selectedFaultAggregatedEventDetail.value = null
+  faultDetailTraceRows.value = []
+  faultDetailTraceEventsTotal.value = 0
+  faultDetailTraceEventsPage.value = 1
+  faultDetailTraceEventsPageInput.value = ''
+  faultDetailTraceEventsError.value = ''
+  isFaultDetailTraceEventsLoading.value = false
+  faultDetailChartMetrics.value = {}
+  faultDetailChartError.value = ''
+  isFaultDetailChartLoading.value = false
+  faultDetailChartInstance?.dispose()
+  faultDetailChartInstance = null
+}
+
 const viewAbnormalTraceLink = (row: AbnormalTraceRow) => {
   const traceRow: TraceDetailRow = {
     traceId: row.traceId,
@@ -2907,6 +3307,7 @@ const applyGlobalFilters = () => {
       void loadLatencyDetail(1)
     }
     if (isFaultCodeFeatureEnabled) {
+      void loadFaultAggregatedEvents(1)
       void loadFaultChart()
       void loadFaultTraceEvents(1)
     }
@@ -3107,7 +3508,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     faultTraceEventsTotal.value = 0
     faultTraceEventsPage.value = 1
     faultTraceEventsError.value =
-      error instanceof Error ? error.message : '加载异常Trace列表失败'
+      error instanceof Error ? error.message : '加载错误日志列表失败'
   } finally {
     isFaultTraceEventsLoading.value = false
   }
@@ -3419,6 +3820,25 @@ const jumpDetailParseResultsPage = () => {
   goDetailParseResultsPage(nextPage)
 }
 
+const goFaultDetailTraceEventsPage = (pageNum: number) => {
+  const detail = selectedFaultAggregatedEventDetail.value
+  if (!detail) return
+  const nextPage = Math.min(Math.max(1, pageNum), faultDetailTraceEventsPageCount.value)
+  if (nextPage === faultDetailTraceEventsPage.value || isFaultDetailTraceEventsLoading.value)
+    return
+  void loadFaultAggregatedEventDetailTraceEvents(detail, nextPage)
+}
+
+const jumpFaultDetailTraceEventsPage = () => {
+  const nextPage = normalizePageInput(
+    faultDetailTraceEventsPageInput.value,
+    faultDetailTraceEventsPageCount.value,
+  )
+  if (nextPage === null) return
+  faultDetailTraceEventsPageInput.value = ''
+  goFaultDetailTraceEventsPage(nextPage)
+}
+
 const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
   if (!selectedAssetId.value) {
     aggregatedEvents.value = []
@@ -3673,6 +4093,272 @@ const jumpAbnormalTracesPage = () => {
   if (nextPage === null) return
   abnormalTracesPageInput.value = ''
   goAbnormalTracesPage(nextPage)
+}
+
+const applyFaultAggregatedEventResult = (
+  result: ListTimeAggregatedFailureEventMsg,
+  pageNum: number,
+) => {
+  expandedFaultAggregatedEventId.value = ''
+  faultAggregatedEventPodRowsByEventId.value = {}
+  faultAggregatedEventPodTotalsByEventId.value = {}
+  faultAggregatedEventPodPagesByEventId.value = {}
+  faultAggregatedEventPodPageInputsByEventId.value = {}
+  faultAggregatedEventPodErrors.value = {}
+  loadingFaultAggregatedEventPodIds.value = new Set()
+  faultAggregatedEventCodes.value = result.err_codes ?? []
+  faultAggregatedEventRows.value = toFaultAggregatedEventRows(result.events ?? [])
+  faultAggregatedEventTotal.value = result.total ?? 0
+  faultAggregatedEventPage.value = pageNum
+}
+
+const toFaultAggregatedEventPodRows = (
+  eventId: string,
+  events: PodAggregatedFailureEventModel[],
+): FaultAggregatedEventPodRow[] =>
+  events.map((event, index) => ({
+    id: `${eventId}-pod-api-${event.pod_name || index}`,
+    podIp: event.pod_name || '-',
+    faultCodeCounts: event.status_code_cnt ?? {},
+  }))
+
+const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pageNum = 1) => {
+  if (!selectedAssetId.value) {
+    faultAggregatedEventPodRowsByEventId.value = {
+      ...faultAggregatedEventPodRowsByEventId.value,
+      [row.id]: [],
+    }
+    faultAggregatedEventPodTotalsByEventId.value = {
+      ...faultAggregatedEventPodTotalsByEventId.value,
+      [row.id]: 0,
+    }
+    faultAggregatedEventPodPagesByEventId.value = {
+      ...faultAggregatedEventPodPagesByEventId.value,
+      [row.id]: 1,
+    }
+    faultAggregatedEventPodErrors.value = {
+      ...faultAggregatedEventPodErrors.value,
+      [row.id]: '',
+    }
+    return
+  }
+
+  loadingFaultAggregatedEventPodIds.value = new Set([
+    ...loadingFaultAggregatedEventPodIds.value,
+    row.id,
+  ])
+  faultAggregatedEventPodErrors.value = {
+    ...faultAggregatedEventPodErrors.value,
+    [row.id]: '',
+  }
+
+  try {
+    const result = await request<ListPodAggregatedFailureEventMsg>(
+      '/log_failure_event_result/list_pod_aggregated_failure_events',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kb_id: selectedAssetId.value,
+          created_at_start: row.startTime,
+          created_at_end: row.endTime,
+          sort_by: 'all',
+          created_sorted_desc: true,
+          page_cnt: faultAggregatedEventPodPageSize,
+          page_num: pageNum,
+        }),
+      },
+    )
+
+    const total = result.total ?? 0
+    const pageCount = Math.max(1, Math.ceil(total / faultAggregatedEventPodPageSize))
+    if (pageNum > pageCount) {
+      await loadFaultAggregatedEventPodRows(row, pageCount)
+      return
+    }
+
+    if ((result.total ?? 0) === 0 || (result.events ?? []).length === 0) {
+      faultAggregatedEventPodRowsByEventId.value = {
+        ...faultAggregatedEventPodRowsByEventId.value,
+        [row.id]: [],
+      }
+      faultAggregatedEventPodTotalsByEventId.value = {
+        ...faultAggregatedEventPodTotalsByEventId.value,
+        [row.id]: total,
+      }
+      faultAggregatedEventPodPagesByEventId.value = {
+        ...faultAggregatedEventPodPagesByEventId.value,
+        [row.id]: pageNum,
+      }
+      faultAggregatedEventPodErrors.value = {
+        ...faultAggregatedEventPodErrors.value,
+        [row.id]: '',
+      }
+      return
+    }
+
+    faultAggregatedEventPodRowsByEventId.value = {
+      ...faultAggregatedEventPodRowsByEventId.value,
+      [row.id]: toFaultAggregatedEventPodRows(row.id, result.events ?? []),
+    }
+    faultAggregatedEventPodTotalsByEventId.value = {
+      ...faultAggregatedEventPodTotalsByEventId.value,
+      [row.id]: total,
+    }
+    faultAggregatedEventPodPagesByEventId.value = {
+      ...faultAggregatedEventPodPagesByEventId.value,
+      [row.id]: pageNum,
+    }
+  } catch (error) {
+    faultAggregatedEventPodRowsByEventId.value = {
+      ...faultAggregatedEventPodRowsByEventId.value,
+      [row.id]: [],
+    }
+    faultAggregatedEventPodTotalsByEventId.value = {
+      ...faultAggregatedEventPodTotalsByEventId.value,
+      [row.id]: 0,
+    }
+    faultAggregatedEventPodPagesByEventId.value = {
+      ...faultAggregatedEventPodPagesByEventId.value,
+      [row.id]: pageNum,
+    }
+    faultAggregatedEventPodErrors.value = {
+      ...faultAggregatedEventPodErrors.value,
+      [row.id]: error instanceof Error ? error.message : 'Pod聚合接口加载失败',
+    }
+  } finally {
+    const nextLoadingIds = new Set(loadingFaultAggregatedEventPodIds.value)
+    nextLoadingIds.delete(row.id)
+    loadingFaultAggregatedEventPodIds.value = nextLoadingIds
+  }
+}
+
+const toggleFaultAggregatedEventRow = (row: FaultAggregatedEventRow) => {
+  const willExpand = !isFaultAggregatedEventExpanded(row)
+  expandedFaultAggregatedEventId.value = willExpand ? row.id : ''
+  if (willExpand) {
+    void loadFaultAggregatedEventPodRows(row, 1)
+  }
+}
+
+const goFaultAggregatedEventPodPage = (row: FaultAggregatedEventRow, pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), getFaultAggregatedEventPodPageCount(row))
+  if (
+    nextPage === getFaultAggregatedEventPodPage(row) ||
+    isFaultAggregatedEventPodLoading(row)
+  )
+    return
+  void loadFaultAggregatedEventPodRows(row, nextPage)
+}
+
+const jumpFaultAggregatedEventPodPage = (row: FaultAggregatedEventRow) => {
+  const nextPage = normalizePageInput(
+    getFaultAggregatedEventPodPageInput(row),
+    getFaultAggregatedEventPodPageCount(row),
+  )
+  if (nextPage === null) return
+  setFaultAggregatedEventPodPageInput(row, '')
+  goFaultAggregatedEventPodPage(row, nextPage)
+}
+
+const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.value) => {
+  if (!selectedAssetId.value) {
+    faultAggregatedEventsError.value = ''
+    applyFaultAggregatedEventResult(
+      {
+        total: 0,
+        err_codes: [],
+        events: [],
+      },
+      1,
+    )
+    return
+  }
+
+  isFaultAggregatedEventsLoading.value = true
+  faultAggregatedEventsError.value = ''
+
+  try {
+    const filters = appliedFilters.value
+    const requestBody: Record<string, unknown> = {
+      kb_id: selectedAssetId.value,
+      interval: selectedFaultAggregateInterval.value,
+      sort_by: 'timestamp',
+      created_sorted_desc: false,
+      page_cnt: faultAggregatedEventPageSize,
+      page_num: pageNum,
+    }
+
+    if (filters.startTime) {
+      requestBody.created_at_start = formatDateTime(filters.startTime)
+    }
+    if (filters.endTime) {
+      requestBody.created_at_end = formatDateTime(filters.endTime)
+    }
+
+    const result = await request<ListTimeAggregatedFailureEventMsg>(
+      '/log_failure_event_result/list_time_aggregated_failure_events',
+      {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      },
+    )
+    const nextTotal = result.total ?? 0
+    if (nextTotal === 0 || (result.events ?? []).length === 0) {
+      applyFaultAggregatedEventResult(
+        {
+          total: nextTotal,
+          err_codes: result.err_codes ?? [],
+          events: [],
+        },
+        pageNum,
+      )
+      return
+    }
+
+    const nextPageCount = Math.max(1, Math.ceil(nextTotal / faultAggregatedEventPageSize))
+
+    if (pageNum > nextPageCount) {
+      isFaultAggregatedEventsLoading.value = false
+      await loadFaultAggregatedEvents(nextPageCount)
+      return
+    }
+
+    applyFaultAggregatedEventResult(result, pageNum)
+  } catch (error) {
+    faultAggregatedEventsError.value =
+      error instanceof Error ? error.message : '加载聚合事件失败'
+    applyFaultAggregatedEventResult(
+      {
+        total: 0,
+        err_codes: [],
+        events: [],
+      },
+      1,
+    )
+  } finally {
+    isFaultAggregatedEventsLoading.value = false
+  }
+}
+
+const goFaultAggregatedEventPage = (pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), faultAggregatedEventPageCount.value)
+  if (nextPage === faultAggregatedEventPage.value || isFaultAggregatedEventsLoading.value) return
+  void loadFaultAggregatedEvents(nextPage)
+}
+
+const jumpFaultAggregatedEventPage = () => {
+  const nextPage = normalizePageInput(
+    faultAggregatedEventPageInput.value,
+    faultAggregatedEventPageCount.value,
+  )
+  if (nextPage === null) return
+  faultAggregatedEventPageInput.value = ''
+  goFaultAggregatedEventPage(nextPage)
+}
+
+const changeFaultAggregateInterval = () => {
+  faultAggregatedEventPageInput.value = ''
+  void loadFaultAggregatedEvents(1)
 }
 
 const goFaultTraceEventsPage = (pageNum: number) => {
@@ -4362,6 +5048,9 @@ const loadFaultPage = async () => {
   if (!isFaultChartLoading.value) {
     requests.push(loadFaultChart())
   }
+  if (!isFaultAggregatedEventsLoading.value) {
+    requests.push(loadFaultAggregatedEvents(1))
+  }
   if (!isFaultTraceEventsLoading.value) {
     requests.push(loadFaultTraceEvents(1))
   }
@@ -4499,6 +5188,20 @@ watch(
   { deep: true },
 )
 
+watch(
+  [
+    faultDetailChartBuckets,
+    selectedFaultDetailChartCodes,
+    isFaultDetailChartLoading,
+    faultDetailChartError,
+    selectedFaultAggregatedEventDetail,
+  ],
+  () => {
+    void nextTick(renderFaultDetailEchart)
+  },
+  { deep: true },
+)
+
 watch([selectedAssetId, activePage], () => {
   if (selectedAssetId.value && activePage.value === 'asset') {
     startLogFilesPolling()
@@ -4518,6 +5221,7 @@ onBeforeUnmount(() => {
   latencyChartInstance?.dispose()
   detailLatencyChartInstance?.dispose()
   faultChartInstance?.dispose()
+  faultDetailChartInstance?.dispose()
 })
 </script>
 
@@ -5617,8 +6321,459 @@ onBeforeUnmount(() => {
             </article>
 
             <article class="monitor-card host-slot">
-              <div class="monitor-card-title">异常Trace列表</div>
-              <div class="metric-table-wrapper">
+              <div class="monitor-card-title aggregate-title">
+                <div class="aggregate-tab-list">
+                  <button
+                    class="aggregate-tab-item"
+                    :class="{ active: activeFaultMonitorTab === 'event' }"
+                    type="button"
+                    @click="activeFaultMonitorTab = 'event'"
+                  >
+                    聚合事件列表
+                  </button>
+                  <button
+                    class="aggregate-tab-item"
+                    :class="{ active: activeFaultMonitorTab === 'trace' }"
+                    type="button"
+                    @click="activeFaultMonitorTab = 'trace'"
+                  >
+                    错误日志列表
+                  </button>
+                </div>
+                <label v-if="activeFaultMonitorTab === 'event'" class="latency-stat-select">
+                  <span>时间间隔</span>
+                  <select
+                    v-model="selectedFaultAggregateInterval"
+                    @change="changeFaultAggregateInterval"
+                  >
+                    <option value="hour">时</option>
+                    <option value="minute">分</option>
+                    <option value="second">秒</option>
+                  </select>
+                </label>
+              </div>
+
+              <div
+                v-if="activeFaultMonitorTab === 'event'"
+                class="aggregate-table fault-aggregate-table"
+              >
+                <div class="aggregate-table-frame fault-aggregate-frame">
+                  <div class="aggregate-fixed-left">
+                    <div class="fault-aggregate-time-grid aggregate-table-header">
+                      <div class="aggregate-cell fault-expand-cell"></div>
+                      <div class="aggregate-cell">开始时间</div>
+                      <div class="aggregate-cell">结束时间</div>
+                    </div>
+                    <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                      <template
+                        v-for="row in paginatedFaultAggregatedEventRows"
+                        :key="`${row.id}-time`"
+                      >
+                        <div
+                          class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-main-row"
+                          :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                          @click="toggleFaultAggregatedEventRow(row)"
+                        >
+                          <div class="aggregate-cell fault-expand-cell">
+                            <span class="fault-expand-indicator">
+                              {{ isFaultAggregatedEventExpanded(row) ? '🔽' : '▶️' }}
+                            </span>
+                          </div>
+                          <div class="aggregate-cell">{{ row.startTime }}</div>
+                          <div class="aggregate-cell">{{ row.endTime }}</div>
+                        </div>
+                        <div
+                          v-if="isFaultAggregatedEventExpanded(row)"
+                          class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-sub-row"
+                        >
+                          <div class="fault-aggregate-sub-left">
+                            <div class="aggregate-cell fault-expand-cell"></div>
+                            <div class="aggregate-cell fault-aggregate-sub-pod-head">Pod IP</div>
+                            <template
+                              v-if="
+                                isFaultAggregatedEventPodLoading(row) &&
+                                getFaultAggregatedEventPodRows(row).length === 0
+                              "
+                            >
+                              <div class="aggregate-cell fault-expand-cell"></div>
+                              <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                加载中...
+                              </div>
+                            </template>
+                            <template
+                              v-else-if="
+                                getFaultAggregatedEventPodRows(row).length === 0
+                              "
+                            >
+                              <div class="aggregate-cell fault-expand-cell"></div>
+                              <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
+                              </div>
+                            </template>
+                            <template
+                              v-for="podRow in getFaultAggregatedEventPodRows(row)"
+                              :key="`${podRow.id}-pod-ip`"
+                            >
+                              <div class="aggregate-cell fault-expand-cell"></div>
+                              <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                {{ podRow.podIp }}
+                              </div>
+                            </template>
+                            <div
+                              v-if="
+                                getFaultAggregatedEventPodTotal(row) >
+                                faultAggregatedEventPodPageSize
+                              "
+                              class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-side"
+                            >
+                              第 {{ getFaultAggregatedEventPodPage(row) }} /
+                              {{ getFaultAggregatedEventPodPageCount(row) }} 页
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                    </template>
+                  </div>
+
+                  <div class="aggregate-latency-scroll fault-code-scroll">
+                    <div class="aggregate-latency-head aggregate-latency-sync">
+                      <div
+                        class="fault-code-grid aggregate-table-header"
+                        :style="faultAggregatedEventCodeGridStyle"
+                      >
+                        <template v-if="faultAggregatedEventCodes.length > 0">
+                          <div
+                            v-for="code in faultAggregatedEventCodes"
+                            :key="`fault-aggregate-code-head-${code}`"
+                            class="aggregate-cell"
+                          >
+                            {{ getFaultAggregatedEventCodeLabel(code) }}
+                          </div>
+                        </template>
+                        <div v-else class="aggregate-cell">故障码</div>
+                      </div>
+                    </div>
+                    <div
+                      class="aggregate-latency-scrollbar aggregate-latency-sync"
+                      @scroll="syncAggregateLatencyScroll"
+                    >
+                      <div
+                        class="aggregate-latency-scrollbar-spacer fault-code-scrollbar-spacer"
+                        :style="{ width: faultAggregatedEventCodeGridStyle.minWidth }"
+                      ></div>
+                    </div>
+                    <div
+                      class="aggregate-latency-body aggregate-latency-sync"
+                      @scroll="syncAggregateLatencyScroll"
+                    >
+                      <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                        <template
+                          v-for="row in paginatedFaultAggregatedEventRows"
+                          :key="`${row.id}-fault-codes`"
+                        >
+                          <div
+                            class="fault-code-grid aggregate-body-row fault-aggregate-main-row"
+                            :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                            :style="faultAggregatedEventCodeGridStyle"
+                            @click="toggleFaultAggregatedEventRow(row)"
+                          >
+                            <template v-if="faultAggregatedEventCodes.length > 0">
+                              <div
+                                v-for="code in faultAggregatedEventCodes"
+                                :key="`${row.id}-fault-code-${code}`"
+                                class="aggregate-cell"
+                              >
+                                {{ getFaultAggregatedEventCodeValue(row, code) }}
+                              </div>
+                            </template>
+                            <div v-else class="aggregate-cell">-</div>
+                          </div>
+                          <div
+                            v-if="isFaultAggregatedEventExpanded(row)"
+                            class="aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-code-panel"
+                            :style="{ minWidth: faultAggregatedEventCodeGridStyle.minWidth }"
+                          >
+                            <div
+                              class="fault-code-grid aggregate-table-header fault-aggregate-sub-code-grid"
+                              :style="faultAggregatedEventCodeGridStyle"
+                            >
+                              <div
+                                v-for="code in faultAggregatedEventCodes"
+                                :key="`${row.id}-sub-head-${code}`"
+                                class="aggregate-cell"
+                              >
+                                {{ getFaultAggregatedEventCodeLabel(code) }}
+                              </div>
+                            </div>
+                            <div
+                              v-if="
+                                isFaultAggregatedEventPodLoading(row) &&
+                                getFaultAggregatedEventPodRows(row).length === 0
+                              "
+                              class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                              :style="faultAggregatedEventCodeGridStyle"
+                            >
+                              <div
+                                class="aggregate-cell"
+                                :style="{ gridColumn: `span ${Math.max(1, faultAggregatedEventCodes.length)}` }"
+                              >
+                                正在加载Pod聚合数据...
+                              </div>
+                            </div>
+                            <div
+                              v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
+                              class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                              :style="faultAggregatedEventCodeGridStyle"
+                            >
+                              <div
+                                class="aggregate-cell"
+                                :style="{ gridColumn: `span ${Math.max(1, faultAggregatedEventCodes.length)}` }"
+                              >
+                                {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
+                              </div>
+                            </div>
+                            <div
+                              v-for="podRow in getFaultAggregatedEventPodRows(row)"
+                              :key="`${podRow.id}-fault-codes`"
+                              class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                              :style="faultAggregatedEventCodeGridStyle"
+                            >
+                              <div
+                                v-for="code in faultAggregatedEventCodes"
+                                :key="`${podRow.id}-fault-code-${code}`"
+                                class="aggregate-cell"
+                              >
+                                {{ getFaultAggregatedEventPodCodeValue(podRow, code) }}
+                              </div>
+                            </div>
+                              <div
+                                v-if="
+                                  getFaultAggregatedEventPodTotal(row) >
+                                  faultAggregatedEventPodPageSize
+                                "
+                                class="fault-aggregate-sub-pagination"
+                              >
+                                <button
+                                  class="pagination-page-btn"
+                                  type="button"
+                                  :disabled="
+                                    getFaultAggregatedEventPodPage(row) <= 1 ||
+                                    isFaultAggregatedEventPodLoading(row)
+                                  "
+                                  @click.stop="
+                                    goFaultAggregatedEventPodPage(
+                                      row,
+                                      getFaultAggregatedEventPodPage(row) - 1,
+                                    )
+                                  "
+                                >
+                                  上一页
+                                </button>
+                                <span
+                                  class="pagination-pages"
+                                  aria-label="故障聚合事件Pod副表页码"
+                                >
+                                  <button
+                                    v-for="pageNum in getFaultAggregatedEventPodPageWindow(row)"
+                                    :key="`${row.id}-pod-page-${pageNum}`"
+                                    class="pagination-page-btn"
+                                    :class="{
+                                      active: pageNum === getFaultAggregatedEventPodPage(row),
+                                    }"
+                                    type="button"
+                                    :disabled="
+                                      pageNum === getFaultAggregatedEventPodPage(row) ||
+                                      isFaultAggregatedEventPodLoading(row)
+                                    "
+                                    @click.stop="goFaultAggregatedEventPodPage(row, pageNum)"
+                                  >
+                                    {{ pageNum }}
+                                  </button>
+                                </span>
+                                <button
+                                  class="pagination-page-btn"
+                                  type="button"
+                                  :disabled="
+                                    getFaultAggregatedEventPodPage(row) >=
+                                      getFaultAggregatedEventPodPageCount(row) ||
+                                    isFaultAggregatedEventPodLoading(row)
+                                  "
+                                  @click.stop="
+                                    goFaultAggregatedEventPodPage(
+                                      row,
+                                      getFaultAggregatedEventPodPage(row) + 1,
+                                    )
+                                  "
+                                >
+                                  下一页
+                                </button>
+                                <span class="pagination-jump fault-aggregate-sub-jump">
+                                  <span>
+                                    第 {{ getFaultAggregatedEventPodPage(row) }} /
+                                    {{ getFaultAggregatedEventPodPageCount(row) }} 页
+                                  </span>
+                                  <input
+                                    class="pagination-jump-input"
+                                    type="number"
+                                    min="1"
+                                    :max="getFaultAggregatedEventPodPageCount(row)"
+                                    :value="getFaultAggregatedEventPodPageInput(row)"
+                                    aria-label="跳转故障聚合事件Pod副表页码"
+                                    @input="
+                                      setFaultAggregatedEventPodPageInput(
+                                        row,
+                                        ($event.target as HTMLInputElement).value,
+                                      )
+                                    "
+                                    @keyup.enter="jumpFaultAggregatedEventPodPage(row)"
+                                  />
+                                  <button
+                                    class="pagination-jump-btn"
+                                    type="button"
+                                    :disabled="isFaultAggregatedEventPodLoading(row)"
+                                    @click.stop="jumpFaultAggregatedEventPodPage(row)"
+                                  >
+                                    跳转
+                                  </button>
+                                </span>
+                              </div>
+                          </div>
+                        </template>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="aggregate-fixed-actions">
+                    <div class="aggregate-cell action-cell aggregate-table-header">
+                      聚合事件分析
+                    </div>
+                    <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                      <template
+                        v-for="row in paginatedFaultAggregatedEventRows"
+                        :key="`${row.id}-action`"
+                      >
+                        <div
+                          class="aggregate-cell action-cell aggregate-body-row fault-aggregate-main-row"
+                          :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                          @click="toggleFaultAggregatedEventRow(row)"
+                        ></div>
+                        <div
+                          v-if="isFaultAggregatedEventExpanded(row)"
+                          class="aggregate-cell action-cell aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-action"
+                        >
+                          <div class="fault-aggregate-sub-action-head"></div>
+                          <div
+                            v-if="
+                              isFaultAggregatedEventPodLoading(row) &&
+                              getFaultAggregatedEventPodRows(row).length === 0
+                            "
+                            class="fault-aggregate-sub-action-body"
+                          ></div>
+                          <div
+                            v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
+                            class="fault-aggregate-sub-action-body"
+                          ></div>
+                          <div
+                            v-for="podRow in getFaultAggregatedEventPodRows(row)"
+                            :key="`${podRow.id}-action`"
+                            class="fault-aggregate-sub-action-body"
+                          >
+                            <button
+                              class="metric-action-btn detail-action-btn"
+                              type="button"
+                              @click.stop="openFaultAggregatedEventDetail(row, podRow)"
+                            >
+                              📄详情
+                            </button>
+                          </div>
+                          <div
+                            v-if="
+                              getFaultAggregatedEventPodTotal(row) >
+                              faultAggregatedEventPodPageSize
+                            "
+                            class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-actions"
+                          ></div>
+                        </div>
+                      </template>
+                    </template>
+                  </div>
+                </div>
+                <div v-if="isFaultAggregatedEventsLoading" class="aggregate-table-state">
+                  正在加载聚合事件...
+                </div>
+                <div
+                  v-else-if="faultAggregatedEventsError"
+                  class="aggregate-table-state metric-table-error"
+                >
+                  {{ faultAggregatedEventsError }}
+                </div>
+                <div
+                  v-else-if="faultAggregatedEventRows.length === 0"
+                  class="aggregate-table-state"
+                >
+                  暂无聚合事件数据
+                </div>
+                <div v-if="faultAggregatedEventTotal > 0" class="aggregate-pagination">
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="faultAggregatedEventPage <= 1 || isFaultAggregatedEventsLoading"
+                    @click="goFaultAggregatedEventPage(faultAggregatedEventPage - 1)"
+                  >
+                    上一页
+                  </button>
+                  <span class="pagination-pages" aria-label="故障聚合事件页码">
+                    <button
+                      v-for="pageNum in faultAggregatedEventPageWindow"
+                      :key="`fault-aggregate-event-page-${pageNum}`"
+                      class="pagination-page-btn"
+                      :class="{ active: pageNum === faultAggregatedEventPage }"
+                      type="button"
+                      :disabled="
+                        pageNum === faultAggregatedEventPage || isFaultAggregatedEventsLoading
+                      "
+                      @click="goFaultAggregatedEventPage(pageNum)"
+                    >
+                      {{ pageNum }}
+                    </button>
+                  </span>
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="
+                      faultAggregatedEventPage >= faultAggregatedEventPageCount ||
+                      isFaultAggregatedEventsLoading
+                    "
+                    @click="goFaultAggregatedEventPage(faultAggregatedEventPage + 1)"
+                  >
+                    下一页
+                  </button>
+                  <span class="pagination-jump">
+                    <span>
+                      第 {{ faultAggregatedEventPage }} / {{ faultAggregatedEventPageCount }} 页
+                    </span>
+                    <input
+                      v-model="faultAggregatedEventPageInput"
+                      class="pagination-jump-input"
+                      type="number"
+                      min="1"
+                      :max="faultAggregatedEventPageCount"
+                      aria-label="跳转故障聚合事件页码"
+                      @keyup.enter="jumpFaultAggregatedEventPage"
+                    />
+                    <button
+                      class="pagination-jump-btn"
+                      type="button"
+                      :disabled="isFaultAggregatedEventsLoading"
+                      @click="jumpFaultAggregatedEventPage"
+                    >
+                      跳转
+                    </button>
+                  </span>
+                </div>
+              </div>
+
+              <div v-else class="metric-table-wrapper">
                 <table class="metric-table fault-detail-table">
                   <thead>
                     <tr>
@@ -5635,7 +6790,7 @@ onBeforeUnmount(() => {
                   </thead>
                   <tbody>
                     <tr v-if="isFaultTraceEventsLoading">
-                      <td colspan="9" class="metric-table-state">正在加载异常Trace...</td>
+                      <td colspan="9" class="metric-table-state">正在加载错误日志...</td>
                     </tr>
                     <tr v-else-if="faultTraceEventsError">
                       <td colspan="9" class="metric-table-state metric-table-error">
@@ -5643,10 +6798,10 @@ onBeforeUnmount(() => {
                       </td>
                     </tr>
                     <tr v-else-if="faultTraceRows.length === 0">
-                      <td colspan="9" class="metric-table-state">暂无异常Trace数据</td>
+                      <td colspan="9" class="metric-table-state">暂无错误日志数据</td>
                     </tr>
                     <tr v-else-if="getFilteredFaultTraceRows().length === 0">
-                      <td colspan="9" class="metric-table-state">无匹配异常Trace</td>
+                      <td colspan="9" class="metric-table-state">无匹配错误日志</td>
                     </tr>
                     <template v-else>
                       <tr
@@ -5710,7 +6865,10 @@ onBeforeUnmount(() => {
                   </tbody>
                 </table>
               </div>
-              <div v-if="faultTraceEventsTotal > 100" class="aggregate-pagination">
+              <div
+                v-if="activeFaultMonitorTab === 'trace' && faultTraceEventsTotal > 100"
+                class="aggregate-pagination"
+              >
                 <button
                   class="ghost-btn"
                   type="button"
@@ -6766,6 +7924,198 @@ onBeforeUnmount(() => {
                   type="button"
                   :disabled="isDetailParseResultsLoading"
                   @click="jumpDetailParseResultsPage"
+                >
+                  跳转
+                </button>
+              </span>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <div
+      v-if="selectedFaultAggregatedEventDetail"
+      class="side-drawer-mask"
+      role="dialog"
+      aria-modal="true"
+      @click.self="closeFaultAggregatedEventDetail"
+    >
+      <aside class="side-drawer">
+        <header class="side-drawer-header">
+          <div class="side-drawer-title">
+            <h2>聚合事件详情</h2>
+            <span class="aggregate-detail-hosts">
+              Pod IP: {{ selectedFaultAggregatedEventDetail.podRow.podIp }}
+            </span>
+          </div>
+          <button
+            class="close-modal"
+            type="button"
+            title="关闭"
+            @click="closeFaultAggregatedEventDetail"
+          >
+            x
+          </button>
+        </header>
+
+        <div class="side-drawer-body">
+          <div class="aggregate-detail-metrics fault-detail-metrics">
+            <div
+              v-for="item in selectedFaultDetailCodeCounts"
+              :key="`fault-detail-code-${item.code}`"
+              class="aggregate-detail-metric"
+            >
+              <span>{{ item.label }}</span>
+              <span
+                class="metric-number"
+                :class="item.code === 'all' ? 'metric-number-red' : 'metric-number-blue'"
+              >
+                {{ item.count }}
+              </span>
+            </div>
+          </div>
+
+          <section class="aggregate-detail-chart">
+            <div class="aggregate-detail-chart-title">故障码计数趋势</div>
+            <div class="latency-chart-panel detail-latency-chart-panel">
+              <div v-if="isFaultDetailChartLoading" class="chart-state detail-chart-state">
+                正在加载故障码计数趋势...
+              </div>
+              <div
+                v-else-if="faultDetailChartError"
+                class="chart-state chart-error detail-chart-state"
+              >
+                {{ faultDetailChartError }}
+              </div>
+              <div
+                v-else-if="
+                  selectedFaultDetailChartCodes.length === 0 ||
+                  faultDetailChartBuckets.length === 0
+                "
+                class="chart-state detail-chart-state"
+              >
+                暂无故障码计数趋势数据
+              </div>
+              <div
+                v-else
+                ref="faultDetailChartRef"
+                class="echarts-latency-chart detail-echarts-latency-chart"
+                role="img"
+                aria-label="聚合事件故障码计数趋势"
+              ></div>
+            </div>
+          </section>
+
+          <section class="aggregate-parse-results">
+            <div class="aggregate-parse-results-header">
+              <h3>错误日志</h3>
+              <span class="parse-result-count">{{ selectedFaultDetailErrorLogTotal }} 条</span>
+            </div>
+            <div class="parse-result-table-wrapper fault-detail-log-wrapper">
+              <table class="metric-table fault-detail-log-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>Trace ID</th>
+                    <th>集群</th>
+                    <th>主机 IP</th>
+                    <th>故障码</th>
+                    <th>故障模式</th>
+                    <th>Trace分析</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="isFaultDetailTraceEventsLoading">
+                    <td colspan="7" class="metric-table-state">正在加载错误日志...</td>
+                  </tr>
+                  <tr v-else-if="faultDetailTraceEventsError">
+                    <td colspan="7" class="metric-table-state metric-table-error">
+                      {{ faultDetailTraceEventsError }}
+                    </td>
+                  </tr>
+                  <tr v-else-if="faultDetailTraceRows.length === 0">
+                    <td colspan="7" class="metric-table-state">暂无错误日志</td>
+                  </tr>
+                  <template v-else>
+                    <tr v-for="row in faultDetailTraceRows" :key="row.id">
+                      <td>{{ row.time }}</td>
+                      <td class="trace-id">{{ row.traceId }}</td>
+                      <td>{{ row.clusterName }}</td>
+                      <td>{{ row.host }}</td>
+                      <td>{{ row.faultCode || '-' }}</td>
+                      <td>{{ getFaultTraceFailureModeLabel(row) }}</td>
+                      <td class="trace-actions-cell">
+                        <div class="trace-actions">
+                          <button
+                            class="metric-action-btn detail-action-btn"
+                            type="button"
+                            @click="openFaultTraceDialog(row)"
+                          >
+                            查看链路
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="faultDetailTraceEventsTotal > 0" class="parse-result-pagination">
+              <button
+                class="ghost-btn"
+                type="button"
+                :disabled="
+                  faultDetailTraceEventsPage <= 1 || isFaultDetailTraceEventsLoading
+                "
+                @click="goFaultDetailTraceEventsPage(faultDetailTraceEventsPage - 1)"
+              >
+                上一页
+              </button>
+              <span class="pagination-pages" aria-label="故障详情错误日志页码">
+                <button
+                  v-for="pageNum in faultDetailTraceEventsPageWindow"
+                  :key="`fault-detail-trace-page-${pageNum}`"
+                  class="pagination-page-btn"
+                  :class="{ active: pageNum === faultDetailTraceEventsPage }"
+                  type="button"
+                  :disabled="
+                    pageNum === faultDetailTraceEventsPage || isFaultDetailTraceEventsLoading
+                  "
+                  @click="goFaultDetailTraceEventsPage(pageNum)"
+                >
+                  {{ pageNum }}
+                </button>
+              </span>
+              <button
+                class="ghost-btn"
+                type="button"
+                :disabled="
+                  faultDetailTraceEventsPage >= faultDetailTraceEventsPageCount ||
+                  isFaultDetailTraceEventsLoading
+                "
+                @click="goFaultDetailTraceEventsPage(faultDetailTraceEventsPage + 1)"
+              >
+                下一页
+              </button>
+              <span class="pagination-jump">
+                <span>
+                  第 {{ faultDetailTraceEventsPage }} / {{ faultDetailTraceEventsPageCount }} 页
+                </span>
+                <input
+                  v-model="faultDetailTraceEventsPageInput"
+                  class="pagination-jump-input"
+                  type="number"
+                  min="1"
+                  :max="faultDetailTraceEventsPageCount"
+                  aria-label="跳转故障详情错误日志页码"
+                  @keyup.enter="jumpFaultDetailTraceEventsPage"
+                />
+                <button
+                  class="pagination-jump-btn"
+                  type="button"
+                  :disabled="isFaultDetailTraceEventsLoading"
+                  @click="jumpFaultDetailTraceEventsPage"
                 >
                   跳转
                 </button>

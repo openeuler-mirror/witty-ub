@@ -360,7 +360,7 @@ class GetErrCodeMetricsRequest(BaseModel):
     """获取故障码指标时间曲线请求"""
     kb_id: str = Field(..., description="日志知识库ID")
     err_codes: Optional[list[str]] = Field(
-        default_factory=list, description="主机名"
+        default_factory=list, description="故障码"
     )
     host_names: Optional[list[str]] = Field(
         default_factory=list, description="主机名"

@@ -1503,6 +1503,287 @@ button {
   border-right: 0;
 }
 
+.fault-aggregate-table {
+  overflow: visible;
+}
+
+.fault-aggregate-frame {
+  grid-template-columns: 352px minmax(0, 1fr) 136px;
+  --fault-sub-head-height: 45px;
+  --fault-sub-row-height: 41px;
+  --fault-sub-pagination-height: 42px;
+  --fault-sub-gap: 10px;
+}
+
+.fault-aggregate-time-grid {
+  display: grid;
+  grid-template-columns: 32px 160px 160px;
+  min-height: var(--aggregate-body-row-height);
+  border-bottom: 1px solid #eef2f8;
+}
+
+.fault-aggregate-time-grid.aggregate-table-header,
+.fault-code-grid.aggregate-table-header {
+  min-height: var(--aggregate-header-row-height);
+}
+
+.fault-code-grid.aggregate-table-header .aggregate-cell {
+  justify-content: flex-start;
+  font-weight: 400;
+}
+
+.fault-code-grid.aggregate-body-row:not(.fault-aggregate-sub-code-grid) .aggregate-cell {
+  justify-content: center;
+}
+
+.fault-aggregate-time-grid .aggregate-cell,
+.fault-code-grid .aggregate-cell {
+  border-right: 1px solid #eef2f8;
+}
+
+.fault-aggregate-time-grid .aggregate-cell:last-child,
+.fault-code-grid .aggregate-cell:last-child {
+  border-right: 0;
+}
+
+.fault-code-grid {
+  display: grid;
+  min-height: var(--aggregate-body-row-height);
+  border-bottom: 1px solid #eef2f8;
+}
+
+.fault-code-scrollbar-spacer {
+  min-width: 132px;
+}
+
+.fault-expand-cell {
+  justify-content: center;
+  padding-right: 6px;
+  padding-left: 6px;
+}
+
+.fault-expand-indicator {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.fault-aggregate-main-row {
+  cursor: pointer;
+}
+
+.fault-aggregate-main-row.expanded,
+.fault-aggregate-main-row:hover {
+  background: #f8fafc;
+}
+
+.fault-aggregate-sub-row {
+  min-height: 0;
+  margin-bottom: var(--fault-sub-gap);
+  background: #f8fafc;
+}
+
+.fault-aggregate-time-grid.fault-aggregate-sub-row {
+  display: block;
+  border-bottom: 0;
+}
+
+.fault-aggregate-sub-label {
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  padding-top: 18px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.fault-aggregate-subtable-cell {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 12px;
+}
+
+.fault-aggregate-sub-left {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 32px 160px 160px;
+  min-width: 0;
+}
+
+.fault-aggregate-sub-left .aggregate-cell {
+  box-sizing: border-box;
+  min-height: 0;
+  height: var(--fault-sub-row-height);
+  border-right: 1px solid #eef2f8;
+  border-bottom: 1px solid #eef2f8;
+  background: #ffffff;
+  padding: 10px 14px;
+}
+
+.fault-aggregate-sub-pod-head,
+.fault-aggregate-sub-pod-cell {
+  grid-column: 2 / 4;
+  border-right: 0 !important;
+}
+
+.fault-aggregate-sub-pod-head {
+  min-height: 0 !important;
+  height: var(--fault-sub-head-height) !important;
+  background: #f1f5f9 !important;
+  color: #1e3a5f;
+  font-weight: 700;
+}
+
+.fault-aggregate-sub-pod-cell {
+  color: #334155;
+}
+
+.fault-aggregate-sub-code-panel {
+  display: block;
+  min-height: 0;
+}
+
+.fault-aggregate-sub-code-grid {
+  min-height: 0;
+  height: var(--fault-sub-row-height);
+}
+
+.fault-aggregate-sub-code-grid.aggregate-table-header {
+  min-height: 0;
+  height: var(--fault-sub-head-height);
+}
+
+.fault-aggregate-sub-code-grid .aggregate-cell {
+  box-sizing: border-box;
+  min-height: 0;
+  height: var(--fault-sub-row-height);
+  justify-content: center;
+  border-bottom: 1px solid #eef2f8;
+  padding: 10px 12px;
+}
+
+.fault-aggregate-sub-code-grid.aggregate-table-header .aggregate-cell {
+  min-height: 0;
+  height: var(--fault-sub-head-height);
+  justify-content: flex-start;
+  background: #f1f5f9;
+}
+
+.fault-aggregate-subtable {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+  font-size: 0.82rem;
+}
+
+.fault-aggregate-subtable th,
+.fault-aggregate-subtable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef2f8;
+  color: #334155;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fault-aggregate-subtable th {
+  height: 39px;
+}
+
+.fault-aggregate-subtable td {
+  height: 39px;
+}
+
+.fault-aggregate-subtable th {
+  background: #f1f5f9;
+  color: #1e3a5f;
+  font-weight: 700;
+}
+
+.fault-aggregate-subtable td {
+  color: #94a3b8;
+  text-align: center;
+}
+
+.fault-aggregate-side-cell {
+  padding-right: 0;
+}
+
+.fault-aggregate-side-table td {
+  color: #334155;
+  text-align: left;
+}
+
+.fault-aggregate-sub-action {
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+
+.fault-aggregate-sub-action-head {
+  box-sizing: border-box;
+  min-height: 0;
+  height: var(--fault-sub-head-height);
+  border-bottom: 1px solid #eef2f8;
+  background: #f1f5f9;
+}
+
+.fault-aggregate-sub-action-body {
+  display: flex;
+  box-sizing: border-box;
+  min-height: 0;
+  height: var(--fault-sub-row-height);
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid #eef2f8;
+  background: #ffffff;
+}
+
+.fault-aggregate-sub-pagination {
+  display: flex;
+  box-sizing: border-box;
+  min-height: 0;
+  height: var(--fault-sub-pagination-height);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 8px;
+}
+
+.fault-aggregate-sub-pagination .pagination-pages {
+  gap: 4px;
+}
+
+.fault-aggregate-sub-jump {
+  margin-left: 6px;
+}
+
+.fault-aggregate-sub-pagination-side,
+.fault-aggregate-sub-pagination-actions {
+  border-color: transparent;
+  background: transparent;
+}
+
+.fault-aggregate-sub-pagination-side {
+  grid-column: 1 / -1;
+}
+
+.fault-aggregate-sub-pagination-actions {
+  min-height: 0;
+  height: var(--fault-sub-pagination-height);
+  padding: 0;
+}
+
 .aggregate-table-state {
   display: grid;
   min-height: calc(53px + 6 * 59px + 10px); /* 与表格容器最小高度一致 */
@@ -2606,6 +2887,10 @@ button {
   white-space: nowrap;
 }
 
+.fault-detail-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
 .metric-number {
   overflow: hidden;
   font-size: 1.1rem;
@@ -2659,6 +2944,15 @@ button {
 .detail-echarts-latency-chart {
   height: 320px;
   padding-top: 8px;
+}
+
+.fault-detail-log-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+.fault-detail-log-table {
+  min-width: 860px;
 }
 
 .detail-latency-chart {
