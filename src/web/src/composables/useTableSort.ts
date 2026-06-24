@@ -56,10 +56,11 @@ export function useTableSort(defaultSort: SortField[] = [], onSortChange?: () =>
       // 第1次点击：加入排序列表，默认降序
       sortFields.value.push({ field, order: 'desc' })
     } else {
-      const currentOrder = sortFields.value[existingIndex].order
-      if (currentOrder === 'desc') {
+      const existingSort = sortFields.value[existingIndex]
+      if (!existingSort) return
+      if (existingSort.order === 'desc') {
         // 第2次点击：切换为升序
-        sortFields.value[existingIndex].order = 'asc'
+        existingSort.order = 'asc'
       } else {
         // 第3次点击：移除该字段
         sortFields.value.splice(existingIndex, 1)
