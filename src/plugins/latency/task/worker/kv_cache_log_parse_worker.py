@@ -826,7 +826,7 @@ class KVCacheLogParseWorker(BaseWorker):
             t_run_start = time.perf_counter()
             list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config, task_id=task_id)
             t_parse = time.perf_counter() - t_run_start
-            await BaseWorker.report(task.id, "Log parse completed", 70.0)
+            await BaseWorker.report(task.id, "Log parse completed", 40.0)
             await BaseWorker.report(
                 task.id,
                 f"[perf][parse.results] rows={len(list_log_parse_results)}",
@@ -841,7 +841,7 @@ class KVCacheLogParseWorker(BaseWorker):
             t_detect_start = time.perf_counter()
             anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
             t_detect = time.perf_counter() - t_detect_start
-            await BaseWorker.report(task.id, "Anomaly detection done", 80.0)
+            await BaseWorker.report(task.id, "Anomaly detection done", 50.0)
             await BaseWorker.report(
                 task.id,
                 f"[perf][detect.summary] results={len(list_log_parse_results)}, events={len(anomalous_events)}, time={t_detect:.3f}s",
@@ -852,7 +852,7 @@ class KVCacheLogParseWorker(BaseWorker):
             t_agg_start = time.perf_counter()
             src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
             t_agg = time.perf_counter() - t_agg_start
-            await BaseWorker.report(task.id, "Aggregate events done", 85.0)
+            await BaseWorker.report(task.id, "Aggregate events done", 60.0)
             await BaseWorker.report(
                 task.id,
                 (
@@ -873,7 +873,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst), "")
             
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
-            await BaseWorker.report(task.id, "Fault matching done", 90.0)
+            await BaseWorker.report(task.id, "Fault matching done", 75.0)
             await BaseWorker.report(
                 task.id,
                 f"[perf][fault.summary] events={len(anomalous_events)}, chains={len(anomalous_event_chains or [])}",
@@ -888,7 +888,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 src_dst_aggregated_events=src_dst_aggregated_events,
             )
             t_store = time.perf_counter() - t_store_start
-            await BaseWorker.report(task.id, "Results stored", 95.0)
+            await BaseWorker.report(task.id, "Results stored", 90.0)
             await BaseWorker.report(
                 task.id,
                 (

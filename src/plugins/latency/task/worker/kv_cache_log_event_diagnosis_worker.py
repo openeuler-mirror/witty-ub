@@ -64,6 +64,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
         await BaseWorker.report(task.id, "初始化任务", 0.0)
+        return task.id
 
     @staticmethod
     async def reinit(task_id: str) -> bool:
@@ -326,10 +327,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         for arg in cmd_args:
             print(arg)
-        logger.info(f"运行诊断工具: {' '.join(cmd_args)}")
-        await BaseWorker.report(task.id, "运行诊断工具", 20.0)
+        logger.info(f"运行定界工具: {' '.join(cmd_args)}")
+        await BaseWorker.report(task.id, "运行定界工具", 20.0)
         
-        # 运行诊断工具
+        # 运行定界工具
         try:
             result = subprocess.run(
                 cmd_args,
@@ -339,24 +340,24 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             )
             
             if result.returncode != 0:
-                logger.error(f"诊断工具运行失败，返回码: {result.returncode}")
+                logger.error(f"定界工具运行失败，返回码: {result.returncode}")
                 logger.error(f"错误输出: {result.stderr}")
                 await TaskManager.update_task(
                     task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 return False
             
-            logger.info(f"诊断工具运行成功: {result.stdout}")
-            await BaseWorker.report(task.id, "诊断工具运行完成", 90.0)
+            logger.info(f"定界工具运行成功: {result.stdout}")
+            await BaseWorker.report(task.id, "定界工具运行完成", 30.0)
             
         except subprocess.TimeoutExpired:
-            logger.error("诊断工具运行超时")
+            logger.error("定界工具运行超时")
             await TaskManager.update_task(
                 task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
         except Exception as e:
-            logger.error(f"运行诊断工具时发生错误: {e}")
+            logger.error(f"运行定界工具时发生错误: {e}")
             await TaskManager.update_task(
                 task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
@@ -612,17 +613,19 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(log_file.file_path, random_str)
             
             # TODO: 运行时启用真实业务逻辑
-            print("故障诊断工具开始运行")
+            print("故障定界工具开始运行")
             result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(file_path=extracted_log_file_path, task=task, random_str=random_str)
             try:
               if extracted_log_file_path == os.path.join(witty_dir, "log_extracted_" + random_str):
                   shutil.rmtree(extracted_log_file_path)
             except Exception as e:
                 logger.exception(f"删除文件夹 {extracted_log_file_path} 失败: {e}")
-            print("故障诊断工具运行完成")
+            print("故障定界工具运行完成")
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
             trace_id_set = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
+            await BaseWorker.report(task.id, "故障事件解析完成", 50.0)
             trace_failure_event_cnt =await KVCacheLogEventDiagnosisWorker.parse_trace_failure_events(trace_id_set=trace_id_set, log_id=log_file.id)
+            await BaseWorker.report(task.id, "Trace故障解析完成", 75.0)
             await LogFileManager.update_log_file(
                 task.op_id, {"trace_failure_event_cnt": trace_failure_event_cnt}
             )
