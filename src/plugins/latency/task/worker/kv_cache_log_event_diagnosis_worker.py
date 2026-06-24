@@ -382,9 +382,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             from latency.schemas.request import ListLogFailureEventResultRequest
             from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
             
+            failure_mode_cache = await FailureModeKnowledgeManager.get_all_failure_modes()
+            
             req = ListLogFailureEventResultRequest(
-                log_id=log_id,
-                trace_ids=list(trace_id_set)
+                log_id=log_id
             )
             
             total, log_failure_events_list = await LogFailureEventManager.list_log_failure_events(req)
@@ -395,8 +396,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 trace_id = log_failure_event.trace_id
                 
                 if trace_id not in trace_failure_events_map:
-                    leaf_mode = await KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
-                        log_failure_event.failure_mode
+                    leaf_mode = KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
+                        log_failure_event.failure_mode, failure_mode_cache
                     ) if log_failure_event.failure_mode else ""
                     
                     trace_failure_event = TraceFailureEventModel(
@@ -429,15 +430,16 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                         trace_failure_event.status_code = log_failure_event.status_code
                     
                     if log_failure_event.failure_mode:
-                        new_leaf_mode = await KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
-                            log_failure_event.failure_mode
+                        new_leaf_mode = KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
+                            log_failure_event.failure_mode, failure_mode_cache
                         )
                         
                         if new_leaf_mode:
                             if trace_failure_event.failure_mode:
-                                is_child = await KVCacheLogEventDiagnosisWorker._is_child_failure_mode(
+                                is_child = KVCacheLogEventDiagnosisWorker._is_child_failure_mode(
                                     trace_failure_event.failure_mode, 
-                                    new_leaf_mode
+                                    new_leaf_mode,
+                                    failure_mode_cache
                                 )
                                 if is_child:
                                     trace_failure_event.failure_mode = new_leaf_mode
@@ -461,8 +463,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             return 0
     
     @staticmethod
-    async def _is_child_failure_mode(parent_mode: str, child_mode: str) -> bool:
-        from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
+    def _is_child_failure_mode(parent_mode: str, child_mode: str, failure_mode_cache: dict) -> bool:
         if not parent_mode or not child_mode:
             return False
         visited = set()
@@ -474,23 +475,21 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             visited.add(current_mode)
             if current_mode == child_mode:
                 return True  
-            failure_mode_info = await FailureModeKnowledgeManager.get_failure_mode_by_id(current_mode)
+            failure_mode_info = failure_mode_cache.get(current_mode)
             if failure_mode_info and failure_mode_info.children_failure_mode_ids:
                 children_ids = [cid.strip() for cid in failure_mode_info.children_failure_mode_ids.split(',') if cid.strip()]
                 to_check.extend(children_ids)
         return False
     
     @staticmethod
-    async def _find_leaf_failure_mode(failure_modes: list[str]) -> str:
-        from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
-        
+    def _find_leaf_failure_mode(failure_modes: list[str], failure_mode_cache: dict) -> str:
         if not failure_modes:
             return ""
         
         failure_modes_set = set(failure_modes)
         
         for mode in failure_modes:
-            failure_mode_info = await FailureModeKnowledgeManager.get_failure_mode_by_id(mode)
+            failure_mode_info = failure_mode_cache.get(mode)
             
             if not failure_mode_info or not failure_mode_info.children_failure_mode_ids:
                 return mode
