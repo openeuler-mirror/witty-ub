@@ -182,6 +182,14 @@ class ListLogParseResultRequest(BaseModel):
         default=None,
         description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
+    start_time: Optional[str] = Field(
+        default=None,
+        description="日志事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="日志事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
+    )
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"total_latency\", \"order\": \"desc\"}, {\"field\": \"timestamp\", \"order\": \"asc\"}]"
