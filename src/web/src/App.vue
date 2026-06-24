@@ -5737,19 +5737,19 @@ onBeforeUnmount(() => {
                 <div class="aggregate-tab-list">
                   <button
                     class="aggregate-tab-item"
-                    :class="{ active: activeAggregateTab === 'trace' }"
-                    type="button"
-                    @click="setActiveAggregateTab('trace')"
-                  >
-                    时延异常列表
-                  </button>
-                  <button
-                    class="aggregate-tab-item"
                     :class="{ active: activeAggregateTab === 'event' }"
                     type="button"
                     @click="setActiveAggregateTab('event')"
                   >
                     聚合事件列表
+                  </button>
+                  <button
+                    class="aggregate-tab-item"
+                    :class="{ active: activeAggregateTab === 'trace' }"
+                    type="button"
+                    @click="setActiveAggregateTab('trace')"
+                  >
+                    时延异常列表
                   </button>
                 </div>
                 <label v-if="activeAggregateTab === 'event'" class="latency-stat-select">
