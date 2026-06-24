@@ -424,7 +424,7 @@ type LogParseOptions = {
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const assetPageSize = 10
+const assetPageSize = 5
 const logFilesPageSize = 10
 const abnormalTracesPageSize = 30
 const faultAggregatedEventPageSize = 20
