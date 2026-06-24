@@ -424,7 +424,7 @@ type LogParseOptions = {
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const assetPageSize = 10
+const assetPageSize = 5
 const logFilesPageSize = 10
 const abnormalTracesPageSize = 30
 const faultAggregatedEventPageSize = 20
@@ -5737,19 +5737,19 @@ onBeforeUnmount(() => {
                 <div class="aggregate-tab-list">
                   <button
                     class="aggregate-tab-item"
-                    :class="{ active: activeAggregateTab === 'trace' }"
-                    type="button"
-                    @click="setActiveAggregateTab('trace')"
-                  >
-                    时延异常列表
-                  </button>
-                  <button
-                    class="aggregate-tab-item"
                     :class="{ active: activeAggregateTab === 'event' }"
                     type="button"
                     @click="setActiveAggregateTab('event')"
                   >
                     聚合事件列表
+                  </button>
+                  <button
+                    class="aggregate-tab-item"
+                    :class="{ active: activeAggregateTab === 'trace' }"
+                    type="button"
+                    @click="setActiveAggregateTab('trace')"
+                  >
+                    时延异常列表
                   </button>
                 </div>
                 <label v-if="activeAggregateTab === 'event'" class="latency-stat-select">
