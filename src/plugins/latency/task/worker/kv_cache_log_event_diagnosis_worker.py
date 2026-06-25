@@ -186,8 +186,14 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             trace_failure_events_map: dict[str, TraceFailureEventModel] = {}
             total_inserted = 0
             batch_size = 10000
+            total_log_failure_events = KVCacheLogEventDiagnosisWorker._count_log_failure_events(
+                log_files,
+                trace_id_set,
+                worker_access_pattern,
+                client_access_pattern,
+            )
             
-            print(f"开始日志落库，共{len(trace_id_set)}条故障trace")
+            print(f"开始日志落库，共{len(trace_id_set)}条故障trace，{total_log_failure_events}条日志事件")
             for log_file_name, log_file_path in log_files:
                 try:
                     is_access_log = False  
@@ -268,8 +274,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                 if len(log_failure_events) >= batch_size:
                                     await LogFailureEventManager.add_log_failure_event_raw(log_failure_events)
                                     total_inserted += len(log_failure_events)
-                                    logger.info(f"批量插入 {len(log_failure_events)} 条日志事件，累计 {total_inserted} 条")
-                                    print(f"批量插入 {len(log_failure_events)} 条日志事件，累计 {total_inserted} 条")
+                                    progress_msg = (
+                                        f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
+                                    )
+                                    logger.info(progress_msg)
+                                    print(progress_msg)
                                     log_failure_events = []
                             
                             except Exception as e:
@@ -283,8 +292,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             if log_failure_events:
                 await LogFailureEventManager.add_log_failure_event_raw(log_failure_events)
                 total_inserted += len(log_failure_events)
-                logger.info(f"最后批量插入 {len(log_failure_events)} 条日志事件，总计 {total_inserted} 条")
-                print(f"最后批量插入 {len(log_failure_events)} 条日志事件，总计 {total_inserted} 条")
+                progress_msg = (
+                    f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
+                )
+                logger.info(progress_msg)
+                print(progress_msg)
 
             trace_failure_events = list(trace_failure_events_map.values())
             if trace_failure_events:
@@ -297,6 +309,45 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             logger.error(f"parse_log_failure_events 执行失败: {e}")
         
         return 0
+
+    @staticmethod
+    def _count_log_failure_events(
+        log_files: list[tuple[str, str]],
+        trace_id_set: set[str],
+        worker_access_pattern,
+        client_access_pattern,
+    ) -> int:
+        total = 0
+        for log_file_name, log_file_path in log_files:
+            try:
+                is_access_log = False
+                if worker_access_pattern and worker_access_pattern.search(log_file_name):
+                    is_access_log = True
+                if client_access_pattern and client_access_pattern.search(log_file_name):
+                    is_access_log = True
+
+                with open(log_file_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        raw_line = line.strip()
+                        if not raw_line:
+                            continue
+
+                        parts = raw_line.split("|")
+                        if len(parts) < 7:
+                            continue
+
+                        trace_id = parts[5].strip() if len(parts) > 5 else ""
+                        if not trace_id or trace_id not in trace_id_set:
+                            continue
+
+                        if is_access_log and len(parts) <= 7:
+                            continue
+
+                        total += 1
+            except Exception as e:
+                logger.warning(f"统计日志文件 {log_file_path} 失败: {e}")
+                continue
+        return total
 
     @staticmethod
     def _merge_trace_failure_event(
