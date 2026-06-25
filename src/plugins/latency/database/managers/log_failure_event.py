@@ -17,6 +17,11 @@ class LogFailureEventManager:
         (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
         VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
     """
+    _LOG_FAILURE_EVENT_RAW_INSERT_SQL = """
+        INSERT INTO log_failure_event_table 
+        (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
+        VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
+    """
 
     @staticmethod
     async def add_log_failure_event(results: list[LogFailureEventModel]) -> list[str]:
@@ -48,28 +53,25 @@ class LogFailureEventManager:
         if not results:
             return ids_added
 
-        batch_size = 1024
-        for i in range(0, len(results), batch_size):
-            batch = results[i : i + batch_size]
-            try:
-                params = []
-                for event in batch:
-                    param = event.copy()
-                    param.setdefault("id", str(uuid.uuid4()))
-                    failure_mode = param.get("failure_mode", [])
-                    if isinstance(failure_mode, list):
-                        param["failure_mode"] = ",".join(failure_mode)
-                    elif failure_mode is None:
-                        param["failure_mode"] = ""
-                    param.setdefault("host_name", "Unknown")
-                    params.append(param)
-                await AsyncSQLiteSingleton().execute_modify(
-                    LogFailureEventManager._LOG_FAILURE_EVENT_INSERT_SQL,
-                    params,
-                )
-                ids_added.extend([param["id"] for param in params])
-            except Exception as e:
-                print(f"批量添加故障日志事件失败，错误信息: {str(e)}")
+        try:
+            params = []
+            for event in results:
+                param = event.copy()
+                param.setdefault("id", str(uuid.uuid4()))
+                failure_mode = param.get("failure_mode", [])
+                if isinstance(failure_mode, list):
+                    param["failure_mode"] = ",".join(failure_mode)
+                elif failure_mode is None:
+                    param["failure_mode"] = ""
+                param.setdefault("host_name", "Unknown")
+                params.append(param)
+            await AsyncSQLiteSingleton().execute_modify(
+                LogFailureEventManager._LOG_FAILURE_EVENT_RAW_INSERT_SQL,
+                params,
+            )
+            ids_added.extend([param["id"] for param in params])
+        except Exception as e:
+            print(f"批量添加故障日志事件失败，错误信息: {str(e)}")
         return ids_added
     
     @staticmethod
