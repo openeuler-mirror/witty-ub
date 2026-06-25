@@ -522,7 +522,14 @@ const detailParseResultSort = useTableSort(
 )
 
 // 故障聚合事件列表排序状态
-const faultAggregatedEventSort = useTableSort([{ field: 'all', order: 'desc' }])
+const faultAggregatedEventSort = useTableSort(
+  [{ field: 'all', order: 'desc' }],
+  () => {
+    faultAggregatedEventPage.value = 1
+    void loadFaultAggregatedEvents(1)
+  },
+)
+const faultAggregatedEventPodSort = useTableSort([{ field: 'all', order: 'desc' }])
 
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
 const activeAggregateTab = ref<'event' | 'trace'>('event')
@@ -1920,19 +1927,30 @@ const getFaultAggregatedEventCodeValue = (row: FaultAggregatedEventRow, code: st
   row.faultCodeCounts[code] ?? 0
 const getFaultAggregatedEventCodeLabel = (code: string) =>
   code === 'all' ? '故障总数' : `故障码${code}`
-const getFaultAggregatedEventSortField = (): SortField | null =>
-  faultAggregatedEventSort.getSortFields.value[0] ?? null
-const handleFaultAggregatedEventSortHeaderClick = (field: string) => {
-  const currentOrder = faultAggregatedEventSort.getSortOrder(field)
-  if (currentOrder === 'desc') {
-    faultAggregatedEventSort.setSortFields([{ field, order: 'asc' }])
-  } else if (currentOrder === 'asc') {
-    faultAggregatedEventSort.setSortFields([])
+const getNextFaultAggregatedEventPodSortFields = (field: string): SortField[] => {
+  const nextFields = faultAggregatedEventPodSort.getSortFields.value.map((sortField) => ({
+    ...sortField,
+  }))
+  const existingIndex = nextFields.findIndex((sortField) => sortField.field === field)
+  const existingField = existingIndex === -1 ? null : nextFields[existingIndex]
+
+  if (existingIndex === -1) {
+    nextFields.push({ field, order: 'desc' })
+  } else if (existingField?.order === 'desc') {
+    nextFields[existingIndex] = { field, order: 'asc' }
   } else {
-    faultAggregatedEventSort.setSortFields([{ field, order: 'desc' }])
+    nextFields.splice(existingIndex, 1)
   }
-  faultAggregatedEventPage.value = 1
-  void loadFaultAggregatedEvents(1)
+
+  return nextFields
+}
+const handleFaultAggregatedEventPodSortHeaderClick = (
+  row: FaultAggregatedEventRow,
+  field: string,
+) => {
+  faultAggregatedEventPodSort.setSortFields(getNextFaultAggregatedEventPodSortFields(field))
+  setFaultAggregatedEventPodPageInput(row, '')
+  void loadFaultAggregatedEventPodRows(row, 1)
 }
 const isFaultAggregatedEventExpanded = (row: FaultAggregatedEventRow) =>
   expandedFaultAggregatedEventId.value === row.id
@@ -4175,6 +4193,7 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
   }
 
   try {
+    const sortFields = faultAggregatedEventPodSort.getSortFields.value
     const result = await request<ListPodAggregatedFailureEventMsg>(
       '/log_failure_event_result/list_pod_aggregated_failure_events',
       {
@@ -4183,6 +4202,7 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
           kb_id: selectedAssetId.value,
           created_at_start: row.startTime,
           created_at_end: row.endTime,
+          sort_fields: sortFields.length > 0 ? sortFields : undefined,
           sort_by: 'all',
           created_sorted_desc: true,
           page_cnt: faultAggregatedEventPodPageSize,
@@ -4293,6 +4313,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       },
       1,
     )
+    faultAggregatedEventSort.releaseSortLock()
     return
   }
 
@@ -4301,12 +4322,13 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
 
   try {
     const filters = appliedFilters.value
-    const faultSortField = getFaultAggregatedEventSortField()
+    const sortFields = faultAggregatedEventSort.getSortFields.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       interval: selectedFaultAggregateInterval.value,
-      sort_by: faultSortField?.field ?? 'timestamp',
-      created_sorted_desc: faultSortField ? faultSortField.order === 'desc' : false,
+      sort_fields: sortFields.length > 0 ? sortFields : undefined,
+      sort_by: 'timestamp',
+      created_sorted_desc: false,
       page_cnt: faultAggregatedEventPageSize,
       page_num: pageNum,
     }
@@ -4323,6 +4345,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       {
         method: 'POST',
         body: JSON.stringify(requestBody),
+        signal: faultAggregatedEventSort.getAbortSignal(),
       },
     )
     const nextTotal = result.total ?? 0
@@ -4342,12 +4365,16 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
 
     if (pageNum > nextPageCount) {
       isFaultAggregatedEventsLoading.value = false
+      faultAggregatedEventSort.releaseSortLock()
       await loadFaultAggregatedEvents(nextPageCount)
       return
     }
 
     applyFaultAggregatedEventResult(result, pageNum)
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return
+    }
     faultAggregatedEventsError.value =
       error instanceof Error ? error.message : '加载聚合事件失败'
     applyFaultAggregatedEventResult(
@@ -4360,6 +4387,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     )
   } finally {
     isFaultAggregatedEventsLoading.value = false
+    faultAggregatedEventSort.releaseSortLock()
   }
 }
 
@@ -6473,7 +6501,7 @@ onBeforeUnmount(() => {
                             v-for="code in faultAggregatedEventCodes"
                             :key="`fault-aggregate-code-head-${code}`"
                             class="aggregate-cell aggregate-sortable-cell"
-                            @click.stop="handleFaultAggregatedEventSortHeaderClick(code)"
+                            @click.stop="faultAggregatedEventSort.handleHeaderClick(code)"
                           >
                             <span class="sort-header-content">
                               {{ getFaultAggregatedEventCodeLabel(code) }}
@@ -6550,9 +6578,32 @@ onBeforeUnmount(() => {
                               <div
                                 v-for="code in faultAggregatedEventCodes"
                                 :key="`${row.id}-sub-head-${code}`"
-                                class="aggregate-cell"
+                                class="aggregate-cell aggregate-sortable-cell"
+                                @click.stop="handleFaultAggregatedEventPodSortHeaderClick(row, code)"
                               >
-                                {{ getFaultAggregatedEventCodeLabel(code) }}
+                                <span class="sort-header-content">
+                                  {{ getFaultAggregatedEventCodeLabel(code) }}
+                                  <span class="sort-icons">
+                                    <span
+                                      class="sort-icon-up"
+                                      :class="{
+                                        'sort-icon-active':
+                                          faultAggregatedEventPodSort.getSortOrder(code) === 'asc',
+                                      }"
+                                    >
+                                      ▲
+                                    </span>
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          faultAggregatedEventPodSort.getSortOrder(code) === 'desc',
+                                      }"
+                                    >
+                                      ▼
+                                    </span>
+                                  </span>
+                                </span>
                               </div>
                             </div>
                             <div

@@ -697,21 +697,40 @@ class LogFailureEventManager:
                         result["status_code_cnt"][code] = cnt
                 results.append(result)
             
-            sort_key = req.sort_by
-            if sort_key == "timestamp":
-                results.sort(key=lambda x: x["start_time"], reverse=req.created_sorted_desc)
-            elif sort_key == "all" or sort_key not in err_codes:
-                results.sort(
-                    key=lambda x: x["status_code_cnt"].get("all", 0),
-                    reverse=req.created_sorted_desc,
-                )
-            else:
-                def sort_func(x):
-                    primary = x["status_code_cnt"].get(sort_key, 0)
-                    secondary = x["status_code_cnt"].get("all", 0)
-                    return primary, secondary
+            sort_fields = req.sort_fields if req.sort_fields and len(req.sort_fields) > 0 else []
+            valid_sort_fields = []
+            for sort_field in sort_fields:
+                field_name = sort_field.field
+                if field_name == "timestamp" or field_name in err_codes:
+                    valid_sort_fields.append(sort_field)
 
-                results.sort(key=sort_func, reverse=req.created_sorted_desc)
+            if valid_sort_fields:
+                for sort_field in reversed(valid_sort_fields):
+                    field_name = sort_field.field
+                    is_desc = sort_field.order == "desc"
+                    if field_name == "timestamp":
+                        results.sort(key=lambda x: x["start_time"], reverse=is_desc)
+                    else:
+                        results.sort(
+                            key=lambda x: x["status_code_cnt"].get(field_name, 0),
+                            reverse=is_desc,
+                        )
+            else:
+                sort_key = req.sort_by
+                if sort_key == "timestamp":
+                    results.sort(key=lambda x: x["start_time"], reverse=req.created_sorted_desc)
+                elif sort_key == "all" or sort_key not in err_codes:
+                    results.sort(
+                        key=lambda x: x["status_code_cnt"].get("all", 0),
+                        reverse=req.created_sorted_desc,
+                    )
+                else:
+                    def sort_func(x):
+                        primary = x["status_code_cnt"].get(sort_key, 0)
+                        secondary = x["status_code_cnt"].get("all", 0)
+                        return primary, secondary
+
+                    results.sort(key=sort_func, reverse=req.created_sorted_desc)
             total = len(results)
             start_idx = (req.page_num - 1) * req.page_cnt
             end_idx = start_idx + req.page_cnt
@@ -821,23 +840,39 @@ class LogFailureEventManager:
                         result["status_code_cnt"][code] = cnt
                 results.append(result)
             
-            sort_key = req.sort_by
-            if sort_key == "all" or sort_key not in ["all"] + sorted_codes:
-                results.sort(
-                    key=lambda x: x["status_code_cnt"].get("all", 0),
-                    reverse=req.created_sorted_desc
-                )
+            sort_fields = req.sort_fields if req.sort_fields and len(req.sort_fields) > 0 else []
+            valid_sort_fields = []
+            valid_codes = ["all"] + sorted_codes
+            for sort_field in sort_fields:
+                if sort_field.field in valid_codes:
+                    valid_sort_fields.append(sort_field)
+
+            if valid_sort_fields:
+                for sort_field in reversed(valid_sort_fields):
+                    field_name = sort_field.field
+                    is_desc = sort_field.order == "desc"
+                    results.sort(
+                        key=lambda x: x["status_code_cnt"].get(field_name, 0),
+                        reverse=is_desc,
+                    )
             else:
-                def sort_func(x):
-                    primary = x["status_code_cnt"].get(sort_key, 0)
-                    secondary = x["status_code_cnt"].get("all", 0)
-                    if primary == 0:
-                        return (0, secondary)
-                    else:
-                        return (1, primary)
-                
-                results.sort(key=sort_func, reverse=req.created_sorted_desc)
-            
+                sort_key = req.sort_by
+                if sort_key == "all" or sort_key not in valid_codes:
+                    results.sort(
+                        key=lambda x: x["status_code_cnt"].get("all", 0),
+                        reverse=req.created_sorted_desc
+                    )
+                else:
+                    def sort_func(x):
+                        primary = x["status_code_cnt"].get(sort_key, 0)
+                        secondary = x["status_code_cnt"].get("all", 0)
+                        if primary == 0:
+                            return (0, secondary)
+                        else:
+                            return (1, primary)
+
+                    results.sort(key=sort_func, reverse=req.created_sorted_desc)
+
             total = len(results)
             start_idx = (req.page_num - 1) * req.page_cnt
             end_idx = start_idx + req.page_cnt
