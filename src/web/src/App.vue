@@ -1057,7 +1057,7 @@ const formatFullTimeLabel = (date: Date) =>
   ].join(' ')
 
 const formatMetricValue = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-'
+  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(3) : '-'
 
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
