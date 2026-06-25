@@ -5856,7 +5856,16 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll">
+                  <div
+                    class="aggregate-latency-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isLatencyDetailLoading &&
+                        !latencyDetailError &&
+                        latencyDetailRows.length > 0 &&
+                        getFilteredLatencyRows().length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div class="aggregate-latency-grid aggregate-table-header">
                         <div
@@ -6062,7 +6071,15 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll">
+                  <div
+                    class="aggregate-latency-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isAbnormalTracesLoading &&
+                        !abnormalTracesError &&
+                        getFilteredAbnormalTraceRows().length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div class="abnormal-latency-grid aggregate-table-header">
                         <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('total_latency')">
@@ -6507,7 +6524,15 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll fault-code-scroll">
+                  <div
+                    class="aggregate-latency-scroll fault-code-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isFaultAggregatedEventsLoading &&
+                        !faultAggregatedEventsError &&
+                        paginatedFaultAggregatedEventRows.length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div
                         class="fault-code-grid aggregate-table-header"
@@ -7800,7 +7825,15 @@ onBeforeUnmount(() => {
                   </template>
                 </div>
 
-                <div class="aggregate-latency-scroll">
+                <div
+                  class="aggregate-latency-scroll scroll-section-outline"
+                  :class="{
+                    'scroll-section-outline-full':
+                      !isDetailParseResultsLoading &&
+                      !detailParseResultsError &&
+                      detailParseResultRows.length > 0,
+                  }"
+                >
                   <div class="aggregate-latency-head aggregate-latency-sync">
                     <div class="abnormal-latency-grid aggregate-table-header">
                       <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('total_latency')">

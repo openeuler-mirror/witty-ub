@@ -1447,6 +1447,32 @@ button {
   background: #cbd5e1;
 }
 
+.scroll-section-outline::before,
+.scroll-section-outline::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  z-index: 7;
+  width: 3px;
+  height: var(--aggregate-header-row-height);
+  background: #c0c0c0;
+  pointer-events: none;
+}
+
+.scroll-section-outline::before {
+  left: 0;
+}
+
+.scroll-section-outline::after {
+  right: 0;
+}
+
+.scroll-section-outline-full::before,
+.scroll-section-outline-full::after {
+  bottom: 0;
+  height: auto;
+}
+
 .aggregate-latency-head {
   position: sticky;
   top: 0;
