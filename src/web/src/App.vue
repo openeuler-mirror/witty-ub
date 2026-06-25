@@ -426,10 +426,13 @@ type LogParseOptions = {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const assetPageSize = 5
 const logFilesPageSize = 10
-const abnormalTracesPageSize = 30
-const faultAggregatedEventPageSize = 20
-const faultAggregatedEventPodPageSize = 10
-const faultTraceEventsPageSize = 30
+const aggregateEventPageSize = 10
+const abnormalTracesPageSize = 10
+const faultAggregatedEventPageSize = 10
+const faultAggregatedEventPodPageSize = 5
+const faultTraceEventsPageSize = 10
+const detailParseResultsPageSize = 10
+const faultDetailTraceEventsPageSize = 10
 const logFilesPollIntervalMs = 3_000
 const severeLogTimeoutThresholdMs = 150
 const isFaultCodeFeatureEnabled = true
@@ -522,7 +525,14 @@ const detailParseResultSort = useTableSort(
 )
 
 // 故障聚合事件列表排序状态
-const faultAggregatedEventSort = useTableSort([{ field: 'all', order: 'desc' }])
+const faultAggregatedEventSort = useTableSort(
+  [{ field: 'all', order: 'desc' }],
+  () => {
+    faultAggregatedEventPage.value = 1
+    void loadFaultAggregatedEvents(1)
+  },
+)
+const faultAggregatedEventPodSort = useTableSort([{ field: 'all', order: 'desc' }])
 
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
 const activeAggregateTab = ref<'event' | 'trace'>('event')
@@ -692,7 +702,7 @@ const logFilesPageCount = computed(() =>
   Math.max(1, Math.ceil(logFilesTotal.value / logFilesPageSize)),
 )
 const aggregateEventPageCount = computed(() =>
-  Math.max(1, Math.ceil(aggregateEventTotal.value / 10)),
+  Math.max(1, Math.ceil(aggregateEventTotal.value / aggregateEventPageSize)),
 )
 const abnormalTracesPageCount = computed(() =>
   Math.max(1, Math.ceil(abnormalTracesTotal.value / abnormalTracesPageSize)),
@@ -1050,7 +1060,7 @@ const formatFullTimeLabel = (date: Date) =>
   ].join(' ')
 
 const formatMetricValue = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-'
+  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(3) : '-'
 
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
@@ -1920,19 +1930,30 @@ const getFaultAggregatedEventCodeValue = (row: FaultAggregatedEventRow, code: st
   row.faultCodeCounts[code] ?? 0
 const getFaultAggregatedEventCodeLabel = (code: string) =>
   code === 'all' ? '故障总数' : `故障码${code}`
-const getFaultAggregatedEventSortField = (): SortField | null =>
-  faultAggregatedEventSort.getSortFields.value[0] ?? null
-const handleFaultAggregatedEventSortHeaderClick = (field: string) => {
-  const currentOrder = faultAggregatedEventSort.getSortOrder(field)
-  if (currentOrder === 'desc') {
-    faultAggregatedEventSort.setSortFields([{ field, order: 'asc' }])
-  } else if (currentOrder === 'asc') {
-    faultAggregatedEventSort.setSortFields([])
+const getNextFaultAggregatedEventPodSortFields = (field: string): SortField[] => {
+  const nextFields = faultAggregatedEventPodSort.getSortFields.value.map((sortField) => ({
+    ...sortField,
+  }))
+  const existingIndex = nextFields.findIndex((sortField) => sortField.field === field)
+  const existingField = existingIndex === -1 ? null : nextFields[existingIndex]
+
+  if (existingIndex === -1) {
+    nextFields.push({ field, order: 'desc' })
+  } else if (existingField?.order === 'desc') {
+    nextFields[existingIndex] = { field, order: 'asc' }
   } else {
-    faultAggregatedEventSort.setSortFields([{ field, order: 'desc' }])
+    nextFields.splice(existingIndex, 1)
   }
-  faultAggregatedEventPage.value = 1
-  void loadFaultAggregatedEvents(1)
+
+  return nextFields
+}
+const handleFaultAggregatedEventPodSortHeaderClick = (
+  row: FaultAggregatedEventRow,
+  field: string,
+) => {
+  faultAggregatedEventPodSort.setSortFields(getNextFaultAggregatedEventPodSortFields(field))
+  setFaultAggregatedEventPodPageInput(row, '')
+  void loadFaultAggregatedEventPodRows(row, 1)
 }
 const isFaultAggregatedEventExpanded = (row: FaultAggregatedEventRow) =>
   expandedFaultAggregatedEventId.value === row.id
@@ -2327,7 +2348,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
 )
 
 const detailParseResultsPageCount = computed(() =>
-  Math.max(1, Math.ceil(detailParseResultsTotal.value / 20)),
+  Math.max(1, Math.ceil(detailParseResultsTotal.value / detailParseResultsPageSize)),
 )
 const detailParseResultsPageWindow = computed(() =>
   getPageWindow(detailParseResultsPage.value, detailParseResultsPageCount.value),
@@ -2336,7 +2357,7 @@ const detailParseResultsPageWindow = computed(() =>
 const detailParseResultsBadgeCount = computed(() => detailParseResultsTotal.value)
 
 const faultDetailTraceEventsPageCount = computed(() =>
-  Math.max(1, Math.ceil(faultDetailTraceEventsTotal.value / 20)),
+  Math.max(1, Math.ceil(faultDetailTraceEventsTotal.value / faultDetailTraceEventsPageSize)),
 )
 const faultDetailTraceEventsPageWindow = computed(() =>
   getPageWindow(faultDetailTraceEventsPage.value, faultDetailTraceEventsPageCount.value),
@@ -3035,7 +3056,7 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
         is_anomalous: true,
         created_at_start: detail.eventRow.startTime,
         created_at_end: detail.eventRow.endTime,
-        page_cnt: 20,
+        page_cnt: faultDetailTraceEventsPageSize,
         page_num: pageNum,
       }),
     })
@@ -3049,7 +3070,7 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
 
     const events = result.trace_failure_event_results ?? []
     const total = result.total ?? 0
-    const pageCount = Math.max(1, Math.ceil(total / 20))
+    const pageCount = Math.max(1, Math.ceil(total / faultDetailTraceEventsPageSize))
 
     if (pageNum > pageCount) {
       isFaultDetailTraceEventsLoading.value = false
@@ -3785,7 +3806,7 @@ const loadDetailParseResults = async (
           aggregated_event_id: row.id,
           src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
-          page_cnt: 20,
+          page_cnt: detailParseResultsPageSize,
           page_num: pageNum,
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
           is_anomalous: true,
@@ -3889,7 +3910,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
       body: JSON.stringify({
         kb_id: assetId,
         page_num: pageNum,
-        page_cnt: 10,
+        page_cnt: aggregateEventPageSize,
         stat_type: statType,
         sort_fields: sortFields.length > 0 ? sortFields : undefined,
         src_ip: getLogParseFilterValue(filters.sourceHosts),
@@ -3909,7 +3930,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
         ? ((result as Record<string, unknown>).total as number | undefined)
         : undefined
     const nextTotal = total ?? events.length
-    const nextPageCount = Math.max(1, Math.ceil(nextTotal / 10))
+    const nextPageCount = Math.max(1, Math.ceil(nextTotal / aggregateEventPageSize))
 
     if (pageNum > nextPageCount) {
       isLatencyDetailLoading.value = false
@@ -4175,6 +4196,7 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
   }
 
   try {
+    const sortFields = faultAggregatedEventPodSort.getSortFields.value
     const result = await request<ListPodAggregatedFailureEventMsg>(
       '/log_failure_event_result/list_pod_aggregated_failure_events',
       {
@@ -4183,6 +4205,7 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
           kb_id: selectedAssetId.value,
           created_at_start: row.startTime,
           created_at_end: row.endTime,
+          sort_fields: sortFields.length > 0 ? sortFields : undefined,
           sort_by: 'all',
           created_sorted_desc: true,
           page_cnt: faultAggregatedEventPodPageSize,
@@ -4293,20 +4316,30 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       },
       1,
     )
+    faultAggregatedEventSort.releaseSortLock()
     return
   }
 
   isFaultAggregatedEventsLoading.value = true
   faultAggregatedEventsError.value = ''
+  applyFaultAggregatedEventResult(
+    {
+      total: 0,
+      err_codes: [],
+      events: [],
+    },
+    pageNum,
+  )
 
   try {
     const filters = appliedFilters.value
-    const faultSortField = getFaultAggregatedEventSortField()
+    const sortFields = faultAggregatedEventSort.getSortFields.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       interval: selectedFaultAggregateInterval.value,
-      sort_by: faultSortField?.field ?? 'timestamp',
-      created_sorted_desc: faultSortField ? faultSortField.order === 'desc' : false,
+      sort_fields: sortFields.length > 0 ? sortFields : undefined,
+      sort_by: 'timestamp',
+      created_sorted_desc: false,
       page_cnt: faultAggregatedEventPageSize,
       page_num: pageNum,
     }
@@ -4323,6 +4356,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       {
         method: 'POST',
         body: JSON.stringify(requestBody),
+        signal: faultAggregatedEventSort.getAbortSignal(),
       },
     )
     const nextTotal = result.total ?? 0
@@ -4342,12 +4376,16 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
 
     if (pageNum > nextPageCount) {
       isFaultAggregatedEventsLoading.value = false
+      faultAggregatedEventSort.releaseSortLock()
       await loadFaultAggregatedEvents(nextPageCount)
       return
     }
 
     applyFaultAggregatedEventResult(result, pageNum)
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return
+    }
     faultAggregatedEventsError.value =
       error instanceof Error ? error.message : '加载聚合事件失败'
     applyFaultAggregatedEventResult(
@@ -4360,6 +4398,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     )
   } finally {
     isFaultAggregatedEventsLoading.value = false
+    faultAggregatedEventSort.releaseSortLock()
   }
 }
 
@@ -5817,7 +5856,16 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll">
+                  <div
+                    class="aggregate-latency-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isLatencyDetailLoading &&
+                        !latencyDetailError &&
+                        latencyDetailRows.length > 0 &&
+                        getFilteredLatencyRows().length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div class="aggregate-latency-grid aggregate-table-header">
                         <div
@@ -5935,7 +5983,7 @@ onBeforeUnmount(() => {
                 >
                   无匹配聚合事件
                 </div>
-                <div v-if="aggregateEventTotal > 10" class="aggregate-pagination">
+                <div v-if="aggregateEventTotal > 0" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
@@ -6023,7 +6071,15 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll">
+                  <div
+                    class="aggregate-latency-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isAbnormalTracesLoading &&
+                        !abnormalTracesError &&
+                        getFilteredAbnormalTraceRows().length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div class="abnormal-latency-grid aggregate-table-header">
                         <div class="aggregate-cell aggregate-sortable-cell" @click="abnormalTraceSort.handleHeaderClick('total_latency')">
@@ -6244,7 +6300,7 @@ onBeforeUnmount(() => {
                 >
                   无匹配时延异常
                 </div>
-                <div v-if="abnormalTracesTotal > abnormalTracesPageSize" class="aggregate-pagination">
+                <div v-if="abnormalTracesTotal > 0" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
@@ -6391,7 +6447,13 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell">开始时间</div>
                       <div class="aggregate-cell">结束时间</div>
                     </div>
-                    <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                    <template
+                      v-if="
+                        !isFaultAggregatedEventsLoading &&
+                        !faultAggregatedEventsError &&
+                        paginatedFaultAggregatedEventRows.length > 0
+                      "
+                    >
                       <template
                         v-for="row in paginatedFaultAggregatedEventRows"
                         :key="`${row.id}-time`"
@@ -6462,7 +6524,15 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll fault-code-scroll">
+                  <div
+                    class="aggregate-latency-scroll fault-code-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isFaultAggregatedEventsLoading &&
+                        !faultAggregatedEventsError &&
+                        paginatedFaultAggregatedEventRows.length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div
                         class="fault-code-grid aggregate-table-header"
@@ -6473,7 +6543,7 @@ onBeforeUnmount(() => {
                             v-for="code in faultAggregatedEventCodes"
                             :key="`fault-aggregate-code-head-${code}`"
                             class="aggregate-cell aggregate-sortable-cell"
-                            @click.stop="handleFaultAggregatedEventSortHeaderClick(code)"
+                            @click.stop="faultAggregatedEventSort.handleHeaderClick(code)"
                           >
                             <span class="sort-header-content">
                               {{ getFaultAggregatedEventCodeLabel(code) }}
@@ -6516,7 +6586,13 @@ onBeforeUnmount(() => {
                       class="aggregate-latency-body aggregate-latency-sync"
                       @scroll="syncAggregateLatencyScroll"
                     >
-                      <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                      <template
+                        v-if="
+                          !isFaultAggregatedEventsLoading &&
+                          !faultAggregatedEventsError &&
+                          paginatedFaultAggregatedEventRows.length > 0
+                        "
+                      >
                         <template
                           v-for="row in paginatedFaultAggregatedEventRows"
                           :key="`${row.id}-fault-codes`"
@@ -6550,9 +6626,32 @@ onBeforeUnmount(() => {
                               <div
                                 v-for="code in faultAggregatedEventCodes"
                                 :key="`${row.id}-sub-head-${code}`"
-                                class="aggregate-cell"
+                                class="aggregate-cell aggregate-sortable-cell"
+                                @click.stop="handleFaultAggregatedEventPodSortHeaderClick(row, code)"
                               >
-                                {{ getFaultAggregatedEventCodeLabel(code) }}
+                                <span class="sort-header-content">
+                                  {{ getFaultAggregatedEventCodeLabel(code) }}
+                                  <span class="sort-icons">
+                                    <span
+                                      class="sort-icon-up"
+                                      :class="{
+                                        'sort-icon-active':
+                                          faultAggregatedEventPodSort.getSortOrder(code) === 'asc',
+                                      }"
+                                    >
+                                      ▲
+                                    </span>
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          faultAggregatedEventPodSort.getSortOrder(code) === 'desc',
+                                      }"
+                                    >
+                                      ▼
+                                    </span>
+                                  </span>
+                                </span>
                               </div>
                             </div>
                             <div
@@ -6697,7 +6796,13 @@ onBeforeUnmount(() => {
                     <div class="aggregate-cell action-cell aggregate-table-header">
                       聚合事件分析
                     </div>
-                    <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                    <template
+                      v-if="
+                        !isFaultAggregatedEventsLoading &&
+                        !faultAggregatedEventsError &&
+                        paginatedFaultAggregatedEventRows.length > 0
+                      "
+                    >
                       <template
                         v-for="row in paginatedFaultAggregatedEventRows"
                         :key="`${row.id}-action`"
@@ -6918,7 +7023,7 @@ onBeforeUnmount(() => {
               <div
                 v-if="
                   activeFaultMonitorTab === 'trace' &&
-                  faultTraceEventsTotal > faultTraceEventsPageSize
+                  faultTraceEventsTotal > 0
                 "
                 class="aggregate-pagination"
               >
@@ -7143,7 +7248,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div
-              v-if="logFilesTotal > logFilesPageSize"
+              v-if="logFilesTotal > 0"
               class="aggregate-pagination log-file-pagination"
             >
               <button
@@ -7720,7 +7825,15 @@ onBeforeUnmount(() => {
                   </template>
                 </div>
 
-                <div class="aggregate-latency-scroll">
+                <div
+                  class="aggregate-latency-scroll scroll-section-outline"
+                  :class="{
+                    'scroll-section-outline-full':
+                      !isDetailParseResultsLoading &&
+                      !detailParseResultsError &&
+                      detailParseResultRows.length > 0,
+                  }"
+                >
                   <div class="aggregate-latency-head aggregate-latency-sync">
                     <div class="abnormal-latency-grid aggregate-table-header">
                       <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('total_latency')">
@@ -7928,7 +8041,10 @@ onBeforeUnmount(() => {
                 暂无时延异常记录
               </div>
             </div>
-            <div class="parse-result-pagination">
+            <div
+              v-if="detailParseResultsTotal > 0"
+              class="parse-result-pagination"
+            >
               <button
                 class="ghost-btn"
                 type="button"

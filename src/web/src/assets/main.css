@@ -1284,8 +1284,6 @@ button {
   display: grid;
   grid-template-columns: 406px minmax(0, 1fr) 136px;
   min-width: 0;
-  min-height: calc(53px + 8 * 59px + 10px); /* 表头 + 6行数据 + 滚动条 */
-  max-height: calc(53px + 10 * 59px + 10px); /* 表头 + 13行数据 + 滚动条 */
   overflow-y: auto;
 }
 
@@ -1447,6 +1445,32 @@ button {
 .aggregate-latency-scroll::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: #cbd5e1;
+}
+
+.scroll-section-outline::before,
+.scroll-section-outline::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  z-index: 7;
+  width: 3px;
+  height: var(--aggregate-header-row-height);
+  background: #c0c0c0;
+  pointer-events: none;
+}
+
+.scroll-section-outline::before {
+  left: 0;
+}
+
+.scroll-section-outline::after {
+  right: 0;
+}
+
+.scroll-section-outline-full::before,
+.scroll-section-outline-full::after {
+  bottom: 0;
+  height: auto;
 }
 
 .aggregate-latency-head {
@@ -1786,8 +1810,7 @@ button {
 
 .aggregate-table-state {
   display: grid;
-  min-height: calc(53px + 6 * 59px + 10px); /* 与表格容器最小高度一致 */
-  max-height: calc(53px + 13 * 59px + 10px); /* 与表格容器最大高度一致 */
+  min-height: calc(var(--aggregate-header-row-height, 53px) + 2 * var(--aggregate-body-row-height, 59px));
   place-items: center;
   color: #94a3b8;
   font-size: 0.82rem;
@@ -1889,7 +1912,7 @@ button {
 }
 
 .abnormal-latency-grid .aggregate-cell {
-  border-right: 1px solid #eef2f8;
+  border-right: 1px solid #e2e8f0;
 }
 
 .abnormal-latency-grid .aggregate-cell:last-child {
@@ -2993,9 +3016,7 @@ button {
 
 .aggregate-parse-results {
   display: flex;
-  flex: 1;  
-  min-height: calc(53px + 12 * 59px + 10px); /* 表头 + 4行数据 + 滚动条 = 309px */
-  max-height: calc(53px + 12 * 59px + 10px); /* 表头 + 8行数据 + 滚动条 = 535px */
+  flex: 0 0 auto;
   flex-direction: column;
   margin-top: 18px;
   min-height: 0;
@@ -3039,9 +3060,9 @@ button {
 }
 
 .detail-abnormal-trace-wrapper {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: none;
+  max-height: calc(var(--aggregate-header-row-height, 53px) + var(--aggregate-scrollbar-height, 10px) + 590px);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: #cbd5e1 transparent;

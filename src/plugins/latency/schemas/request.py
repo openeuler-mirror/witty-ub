@@ -303,6 +303,10 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
         default=False,
         description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
     )
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
+    )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
@@ -323,6 +327,10 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
     created_sorted_desc: bool = Field(
         default=True,
         description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
+    )
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
