@@ -55,9 +55,14 @@ class ParseResultBuilder:
             return current
         return f"{current};{extra}"
 
+    @staticmethod
+    def _format_latency(value: Optional[float]) -> Optional[float]:
+        """格式化延迟值为3位小数，提高存储和传输效率"""
+        return round(value, 3) if value is not None else None
+
     def _first_elapsed_us(self, entry_list: Optional[dict[int, list[LogEntry]] | list[LogEntry]], key: Optional[int]) -> Optional[float]:
         values = entry_list.get(key, []) if isinstance(entry_list, dict) else entry_list
-        return values[0].elapsed_us / 1000 if values else None
+        return self._format_latency(values[0].elapsed_us / 1000) if values else None
     
     def _first_elapsed_us_raw(self, entry_list: Optional[dict[int, list[LogEntry]]], key: Optional[int]) -> Optional[float]:
         """获取第一个条目的elapsed_us（不转换为ms）"""
@@ -77,7 +82,7 @@ class ParseResultBuilder:
 
         urma_list = self.correlated.worker_urma_map.get(w_idx, [])
         if urma_list:
-            urma_latency = urma_list[0].elapsed_us / 1000
+            urma_latency = self._format_latency(urma_list[0].elapsed_us / 1000)
             urma_inflight_count = urma_list[0].inflight_count
             src_ip = urma_list[0].src_addr
             dst_ip = urma_list[0].dst_addr
@@ -117,7 +122,7 @@ class ParseResultBuilder:
             sdk_success = self._is_success_status(sdk.status_code, sdk.resp_msg)
             worker_success = self._is_success_status(worker.status_code, worker.resp_msg) if worker else True
 
-            c2w_latency = (sdk.elapsed_us - worker.elapsed_us) / 1000 if worker else None
+            c2w_latency = self._format_latency((sdk.elapsed_us - worker.elapsed_us) / 1000) if worker else None
             w_idx = self.correlated.worker_idx_map.get(i) if worker else None
 
             query_meta_latency = self._first_elapsed_us(self.correlated.worker_query_meta_map, w_idx) if w_idx is not None else None
@@ -153,7 +158,7 @@ class ParseResultBuilder:
                 pod_ip=sdk.pod_ip,
                 cluster_name=worker.cluster_name if worker and worker.cluster_name else sdk.cluster_name,
                 host=None,
-                total_latency=sdk.elapsed_us / 1000,
+                total_latency=self._format_latency(sdk.elapsed_us / 1000),
                 c2w_latency=c2w_latency,
                 worker_query_meta_latency=query_meta_latency,
                 urma_total_latency=urma_info["urma_latency"],
@@ -216,20 +221,20 @@ class ParseResultBuilder:
                 pod_ip=w.pod_ip,
                 cluster_name=w.cluster_name,
                 host=None,
-                total_latency=w.elapsed_us / 1000,
-                worker_query_meta_latency=query_meta_list[0].elapsed_us / 1000 if query_meta_list else None,
+                total_latency=self._format_latency(w.elapsed_us / 1000),
+                worker_query_meta_latency=self._format_latency(query_meta_list[0].elapsed_us / 1000) if query_meta_list else None,
                 urma_total_latency=urma_info["urma_latency"],
-                urma_link_latency=link_list[0].elapsed_us / 1000 if link_list else None,
+                urma_link_latency=self._format_latency(link_list[0].elapsed_us / 1000) if link_list else None,
                 urma_inflight_count=urma_info["urma_inflight_count"],
-                w2w_urma_latency=w2c_urma_list[0].elapsed_us / 1000 if w2c_urma_list else None,
+                w2w_urma_latency=self._format_latency(w2c_urma_list[0].elapsed_us / 1000) if w2c_urma_list else None,
                 # 新增指标字段
-                sdk_process=sdk_process_list[0].elapsed_us / 1000 if sdk_process_list else None,
-                sdk_rpc=sdk_rpc_list[0].elapsed_us / 1000 if sdk_rpc_list else None,
-                local_worker_cost=local_worker_cost_list[0].elapsed_us / 1000 if local_worker_cost_list else None,
-                local_worker_lock=local_worker_lock_list[0].elapsed_us / 1000 if local_worker_lock_list else None,
-                remote_worker_cost=remote_worker_cost_list[0].elapsed_us / 1000 if remote_worker_cost_list else None,
-                remote_worker_rpc=remote_worker_rpc_list[0].elapsed_us / 1000 if remote_worker_rpc_list else None,
-                master_process=master_process_list[0].elapsed_us / 1000 if master_process_list else None,
+                sdk_process=self._format_latency(sdk_process_list[0].elapsed_us / 1000) if sdk_process_list else None,
+                sdk_rpc=self._format_latency(sdk_rpc_list[0].elapsed_us / 1000) if sdk_rpc_list else None,
+                local_worker_cost=self._format_latency(local_worker_cost_list[0].elapsed_us / 1000) if local_worker_cost_list else None,
+                local_worker_lock=self._format_latency(local_worker_lock_list[0].elapsed_us / 1000) if local_worker_lock_list else None,
+                remote_worker_cost=self._format_latency(remote_worker_cost_list[0].elapsed_us / 1000) if remote_worker_cost_list else None,
+                remote_worker_rpc=self._format_latency(remote_worker_rpc_list[0].elapsed_us / 1000) if remote_worker_rpc_list else None,
+                master_process=self._format_latency(master_process_list[0].elapsed_us / 1000) if master_process_list else None,
                 master_rpc_total=master_rpc_total_list[0].elapsed_us if master_rpc_total_list else None,
                 operation="DS_POSIX_GET",
                 is_anomalous=is_anomalous,
