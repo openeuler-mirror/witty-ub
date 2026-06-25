@@ -179,6 +179,14 @@ table_ddl_list = {
             failure_mode TEXT
         )
     """,
+    "log_failure_event_table_idx_log_order": """
+        CREATE INDEX IF NOT EXISTS idx_log_failure_log_order
+        ON log_failure_event_table(log_id, log_file, timestamp, pid, tid)
+    """,
+    "log_failure_event_table_idx_log_trace": """
+        CREATE INDEX IF NOT EXISTS idx_log_failure_log_trace
+        ON log_failure_event_table(log_id, trace_id)
+    """,
     "trace_failure_event_table": """
         CREATE TABLE IF NOT EXISTS trace_failure_event_table(
             id TEXT PRIMARY KEY,
@@ -290,6 +298,15 @@ class AsyncSQLiteSingleton:
             ("task_table", "ALTER TABLE task_table ADD COLUMN duration_seconds REAL"),
             # 为 timestamp 字段添加索引，加速时间范围查询
             ("log_parse_result_table", "CREATE INDEX IF NOT EXISTS idx_timestamp ON log_parse_result_table(timestamp)"),
+            # 为故障日志查询添加索引，加速按日志和 trace 展示链路日志
+            (
+                "log_failure_event_table",
+                "CREATE INDEX IF NOT EXISTS idx_log_failure_log_order ON log_failure_event_table(log_id, log_file, timestamp, pid, tid)",
+            ),
+            (
+                "log_failure_event_table",
+                "CREATE INDEX IF NOT EXISTS idx_log_failure_log_trace ON log_failure_event_table(log_id, trace_id)",
+            ),
             # 新增时延指标字段（用户需求）
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN sdk_process REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN sdk_rpc REAL"),
@@ -393,6 +410,9 @@ class AsyncSQLiteSingleton:
 
         try:
             cursor = self._conn.cursor()
+            started_transaction = not self._conn.in_transaction
+            if started_transaction:
+                self._conn.execute("BEGIN")
 
             # 判断是否为批量操作
             if isinstance(params, list) and len(params) > 0:
@@ -404,10 +424,12 @@ class AsyncSQLiteSingleton:
                 cursor.execute(sql, params)
                 logger.debug(f"单条执行修改成功，影响行数: {cursor.rowcount}")
 
-            self._conn.commit()
+            if started_transaction:
+                self._conn.commit()
             return True
         except sqlite3.Error as e:
-            self._conn.rollback()
+            if self._conn.in_transaction:
+                self._conn.rollback()
             logger.error(f"执行修改失败: {e} (SQL: {sql}, params: {params})")
             return False
 
