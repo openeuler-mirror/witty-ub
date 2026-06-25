@@ -399,6 +399,36 @@ class CreateTaskRequest(BaseModel):
     task_name: Optional[str] = Field(default=None, description="任务名称")
 
 
+class ListTimeWindowAggregatedEventRequest(BaseModel):
+    """时间窗口聚合事件查询请求"""
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    src_ip: Optional[str] = Field(default=None, description="源IP过滤")
+    dst_ip: Optional[str] = Field(default=None, description="目标IP过滤")
+    interval: str = Field(
+        default="minute",
+        description="时间窗口间隔，可选hour, minute, second"
+    )
+    stat_type: Optional[str] = Field(default="ave", description="统计类型：p99、p95、ave、min、max")
+    sort_by: Optional[str] = Field(
+        default="start_time",
+        description="排序字段：start_time 或 total_latency"
+    )
+    sort_order: Optional[str] = Field(
+        default="asc",
+        description="排序方向：asc 升序，desc 降序"
+    )
+    page_cnt: int = Field(default=10, description="每页的时间窗口数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+
+
 class ListTasksRequest(BaseModel):
     task_type: Optional[TaskTypeEnum] = Field(default=None, description="任务类型")
     status: Optional[TaskStatusEnum] = Field(default=None, description="任务状态")

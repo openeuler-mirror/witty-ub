@@ -1282,15 +1282,11 @@ button {
   --aggregate-body-row-height: 59px;
   --aggregate-scrollbar-height: 10px;
   display: grid;
-  grid-template-columns: 406px minmax(0, 1fr) 136px;
+  grid-template-columns: max-content minmax(0, 1fr) 136px;
   min-width: 0;
+min-height: calc(53px + 8 * 59px + 10px);
+  max-height: calc(53px + 10 * 59px + 10px);
   overflow-y: auto;
-}
-
-.aggregate-fixed-left,
-.aggregate-fixed-actions,
-.aggregate-latency-stack {
-  min-width: 0;
 }
 
 .aggregate-fixed-left,
@@ -1299,9 +1295,23 @@ button {
   position: relative;
 }
 
+.aggregate-fixed-left {
+  min-width: 0;
+  width: max-content;
+}
+
+.aggregate-fixed-actions {
+  min-width: 0;
+}
+
+.aggregate-latency-scroll {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .aggregate-left-grid {
   display: grid;
-  grid-template-columns: 115px 115px 80px 96px;
+  grid-template-columns: 32px 160px 160px 80px 96px 100px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
 }
@@ -1433,9 +1443,7 @@ button {
 
 .aggregate-latency-scroll {
   min-width: 0;
-  overflow: visible;
-  scrollbar-color: #cbd5e1 transparent;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 
 .aggregate-latency-scroll::-webkit-scrollbar {
@@ -1507,14 +1515,14 @@ button {
 }
 
 .aggregate-latency-scrollbar-spacer {
-  width: 844px;
+  min-width: 813px;
   height: 1px;
 }
 
 .aggregate-latency-grid {
   display: grid;
-  grid-template-columns: 100px 156px 138px 150px 155px 155px;
-  min-width: 844px;
+  grid-template-columns: 170px 158px 155px 165px 165px;
+  min-width: 813px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
 }
@@ -1605,6 +1613,15 @@ button {
   min-height: 0;
   margin-bottom: var(--fault-sub-gap);
   background: #f8fafc;
+}
+
+.fault-aggregate-sub-header {
+  min-height: 0;
+  margin-bottom: 0;
+  background: #edf2f9;
+  font-weight: 700;
+  color: #1e3a5f;
+  border-bottom: 1px solid #dde3ed;
 }
 
 .fault-aggregate-time-grid.fault-aggregate-sub-row {
@@ -2115,6 +2132,15 @@ button {
 .metric-action-btn:hover {
   background: #bbf7d0;
   transform: translateY(-1px);
+}
+
+.metric-action-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 400;
 }
 
 .detail-action-btn {

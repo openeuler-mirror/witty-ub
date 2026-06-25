@@ -154,6 +154,72 @@ type AggregatedEventModel = {
   [key: string]: unknown
 }
 
+type TimeWindowAggregatedIpPair = {
+  src_ip: string
+  dst_ip: string
+  log_parse_result_cnt: number
+  anomaly_log_parse_result_cnt: number
+  anomaly_cnt: number
+  ave_total_latency: number | null
+  min_total_latency: number | null
+  max_total_latency: number | null
+  p99_total_latency: number | null
+  p95_total_latency: number | null
+  ave_query_meta_latency: number | null
+  min_query_meta_latency: number | null
+  max_query_meta_latency: number | null
+  p99_query_meta_latency: number | null
+  p95_query_meta_latency: number | null
+  ave_urma_total_latency: number | null
+  min_urma_total_latency: number | null
+  max_urma_total_latency: number | null
+  p99_urma_total_latency: number | null
+  p95_urma_total_latency: number | null
+  ave_urma_link_latency: number | null
+  min_urma_link_latency: number | null
+  max_urma_link_latency: number | null
+  p99_urma_link_latency: number | null
+  p95_urma_link_latency: number | null
+  ave_c2w_urma_latency: number | null
+  min_c2w_urma_latency: number | null
+  max_c2w_urma_latency: number | null
+  p99_c2w_urma_latency: number | null
+  p95_c2w_urma_latency: number | null
+  ave_w2w_urma_latency: number | null
+  min_w2w_urma_latency: number | null
+  max_w2w_urma_latency: number | null
+  p99_w2w_urma_latency: number | null
+  p95_w2w_urma_latency: number | null
+}
+
+type TimeWindowAggregatedEvent = {
+  start_time: string
+  end_time: string
+  total_cnt: number
+  anomaly_cnt: number
+  ave_total_latency: number | null
+  min_total_latency: number | null
+  max_total_latency: number | null
+  p99_total_latency: number | null
+  p95_total_latency: number | null
+  ave_query_meta_latency: number | null
+  p99_query_meta_latency: number | null
+  p95_query_meta_latency: number | null
+  ave_urma_total_latency: number | null
+  p99_urma_total_latency: number | null
+  p95_urma_total_latency: number | null
+  ave_urma_link_latency: number | null
+  p99_urma_link_latency: number | null
+  p95_urma_link_latency: number | null
+  ave_c2w_urma_latency: number | null
+  p99_c2w_urma_latency: number | null
+  p95_c2w_urma_latency: number | null
+  ave_w2w_urma_latency: number | null
+  p99_w2w_urma_latency: number | null
+  p95_w2w_urma_latency: number | null
+  ip_pairs: TimeWindowAggregatedIpPair[]
+}
+
 type LatencyDetailRow = {
   id: string
   sourceHost: string
@@ -161,6 +227,8 @@ type LatencyDetailRow = {
   traceCount: number
   anomalyTraceCount: number
   event: AggregatedEventModel
+  startTime?: string
+  endTime?: string
 }
 
 type TraceDetailRow = {
@@ -510,6 +578,50 @@ const abnormalTraceSort = useTableSort(
     abnormalTracesPage.value = 1
     void loadAbnormalTraces(1)
   }
+)
+
+// 时间窗口聚合事件列表
+const selectedLatencyTimeWindowInterval = ref<'hour' | 'minute' | 'second'>('minute')
+const timeWindowAggregatedEvents = ref<TimeWindowAggregatedEvent[]>([])
+const isTimeWindowLoading = ref(false)
+const timeWindowError = ref('')
+const timeWindowPage = ref(1)
+const timeWindowTotal = ref(0)
+const timeWindowPageInput = ref('')
+const expandedTimeWindowIds = ref<Set<number>>(new Set())
+const timeWindowSortBy = ref<string>('start_time')
+const timeWindowSortOrder = ref<'asc' | 'desc'>('asc')
+const timeWindowIpPairSortBy = ref<string>('total_cnt')
+const timeWindowIpPairSortOrder = ref<'asc' | 'desc'>('desc')
+
+const timeWindowPageCount = computed(() =>
+  Math.max(1, Math.ceil(timeWindowTotal.value / 10))
+)
+
+const sortedTimeWindowAggregatedEvents = computed(() => {
+  const events = [...timeWindowAggregatedEvents.value]
+  const sortBy = timeWindowSortBy.value
+  const sortOrder = timeWindowSortOrder.value
+  if (sortBy === 'start_time' || sortBy === 'total_latency') {
+    return events
+  }
+  const getValue = (event: TimeWindowAggregatedEvent, key: string): number => {
+    if (key === 'total_cnt') return event.total_cnt
+    if (key === 'anomaly_cnt') return event.anomaly_cnt
+    const metricKey = `ave_${key}` as keyof TimeWindowAggregatedEvent
+    const val = event[metricKey]
+    return typeof val === 'number' ? val : 0
+  }
+  events.sort((a, b) => {
+    const aVal = getValue(a, sortBy)
+    const bVal = getValue(b, sortBy)
+    return sortOrder === 'asc' ? aVal - bVal : bVal - aVal
+  })
+  return events
+})
+
+const timeWindowPageWindow = computed(() =>
+  getPageWindow(timeWindowPage.value, timeWindowPageCount.value)
 )
 
 // 聚合事件详情表格排序状态
@@ -901,6 +1013,8 @@ const aggregatedLatencyColumns = [
   { key: 'c2w_urma_latency', label: 'C2W URMA时延 (ms)', threshold: 100 },
   { key: 'w2w_urma_latency', label: 'W2W URMA时延 (ms)', threshold: 100 },
 ] as const
+
+const timeWindowLatencyColumns = aggregatedLatencyColumns.slice(1) as readonly typeof aggregatedLatencyColumns[number][]
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
 
@@ -3348,6 +3462,7 @@ const applyGlobalFilters = () => {
       void loadAbnormalTraces(1)
     } else {
       void loadLatencyDetail(1)
+      void loadTimeWindowAggregatedEvents(1)
     }
     if (isFaultCodeFeatureEnabled) {
       void loadFaultAggregatedEvents(1)
@@ -3361,6 +3476,9 @@ const setActiveAggregateTab = (tab: 'event' | 'trace') => {
   if (activeAggregateTab.value === tab) return
   activeAggregateTab.value = tab
   clearFilterApplyMessage()
+  if (tab === 'event') {
+    void loadTimeWindowAggregatedEvents(1)
+  }
 }
 
 const request = async <T,>(path: string, init: RequestInit = {}) => {
@@ -3746,18 +3864,25 @@ const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
   detailLatencyMetrics.value = []
 
   try {
+    const requestBody: Record<string, unknown> = {
+      kb_id: assetId,
+      src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
+      dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
+      max_points: 30,
+      sort_by: 'timestamp',
+      sort_order: 'asc',
+    }
+    if (row.startTime) {
+      requestBody.start_time = row.startTime
+    }
+    if (row.endTime) {
+      requestBody.end_time = row.endTime
+    }
     const result = await request<{ total: number; metrics: LatencyMetricItem[] }>(
       '/log_parse_result/metrics/latency',
       {
         method: 'POST',
-        body: JSON.stringify({
-          kb_id: assetId,
-          src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
-          dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
-          max_points: 30,
-          sort_by: 'timestamp',
-          sort_order: 'asc',
-        }),
+        body: JSON.stringify(requestBody),
       },
     )
     if (selectedAggregatedEvent.value?.id === row.id) {
@@ -3968,6 +4093,231 @@ const jumpAggregateEventPage = () => {
   if (nextPage === null) return
   aggregateEventPageInput.value = ''
   goAggregateEventPage(nextPage)
+}
+
+// 时间窗口聚合事件列表
+const loadTimeWindowAggregatedEvents = async (pageNum = timeWindowPage.value) => {
+  if (!selectedAssetId.value) {
+    timeWindowAggregatedEvents.value = []
+    timeWindowTotal.value = 0
+    timeWindowPage.value = 1
+    timeWindowError.value = ''
+    isTimeWindowLoading.value = false
+    return
+  }
+
+  const assetId = selectedAssetId.value
+  isTimeWindowLoading.value = true
+  timeWindowError.value = ''
+  expandedTimeWindowIds.value = new Set()
+
+  try {
+    const filters = appliedFilters.value
+    const requestBody: Record<string, unknown> = {
+      kb_id: assetId,
+      page_num: pageNum,
+      page_cnt: 10,
+      interval: selectedLatencyTimeWindowInterval.value,
+      stat_type: 'p99',
+      sort_by: timeWindowSortBy.value,
+      sort_order: timeWindowSortOrder.value,
+      src_ip: getLogParseFilterValue(filters.sourceHosts),
+      dst_ip: getLogParseFilterValue(filters.targetHosts),
+    }
+    if (filters.startTime) {
+      requestBody.start_time = formatDateTime(filters.startTime)
+    }
+    if (filters.endTime) {
+      requestBody.end_time = formatDateTime(filters.endTime)
+    }
+    const result = await request<unknown>('/aggregated_event/list_time_window', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    })
+    const events = extractListItems<TimeWindowAggregatedEvent>(result, [
+      'events',
+      'items',
+      'list',
+      'time_window_events',
+    ])
+    const total =
+      result && typeof result === 'object'
+        ? ((result as Record<string, unknown>).total as number | undefined)
+        : undefined
+    const nextTotal = total ?? events.length
+    const nextPageCount = Math.max(1, Math.ceil(nextTotal / 10))
+
+    if (pageNum > nextPageCount) {
+      isTimeWindowLoading.value = false
+      await loadTimeWindowAggregatedEvents(nextPageCount)
+      return
+    }
+
+    timeWindowAggregatedEvents.value = events
+    timeWindowTotal.value = nextTotal
+    timeWindowPage.value = pageNum
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return
+    }
+    timeWindowAggregatedEvents.value = []
+    timeWindowTotal.value = 0
+    timeWindowPage.value = 1
+    timeWindowError.value = error instanceof Error ? error.message : '加载时间窗口聚合事件失败'
+  } finally {
+    isTimeWindowLoading.value = false
+  }
+}
+
+const changeLatencyTimeWindowInterval = () => {
+  timeWindowPage.value = 1
+  void loadTimeWindowAggregatedEvents(1)
+}
+
+const toggleTimeWindowRow = (idx: number) => {
+  const newSet = new Set(expandedTimeWindowIds.value)
+  if (newSet.has(idx)) {
+    newSet.delete(idx)
+  } else {
+    newSet.add(idx)
+  }
+  expandedTimeWindowIds.value = newSet
+}
+
+const isTimeWindowExpanded = (idx: number) => expandedTimeWindowIds.value.has(idx)
+
+const goTimeWindowPage = (pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), timeWindowPageCount.value)
+  if (nextPage === timeWindowPage.value || isTimeWindowLoading.value) return
+  void loadTimeWindowAggregatedEvents(nextPage)
+}
+
+const jumpTimeWindowPage = () => {
+  const nextPage = normalizePageInput(timeWindowPageInput.value, timeWindowPageCount.value)
+  if (nextPage === null) return
+  timeWindowPageInput.value = ''
+  goTimeWindowPage(nextPage)
+}
+
+const handleTimeWindowSort = (sortBy: string) => {
+  if (timeWindowSortBy.value === sortBy) {
+    timeWindowSortOrder.value = timeWindowSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    timeWindowSortBy.value = sortBy
+    timeWindowSortOrder.value = 'asc'
+  }
+  timeWindowPage.value = 1
+  // start_time and total_latency: server-side sort, re-fetch
+  // Other fields: client-side sort only
+  if (sortBy === 'start_time' || sortBy === 'total_latency') {
+    void loadTimeWindowAggregatedEvents(1)
+  }
+}
+
+const handleIpPairSort = (sortBy: string) => {
+  if (timeWindowIpPairSortBy.value === sortBy) {
+    timeWindowIpPairSortOrder.value = timeWindowIpPairSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    timeWindowIpPairSortBy.value = sortBy
+    timeWindowIpPairSortOrder.value = 'asc'
+  }
+}
+
+const getSortedIpPairs = (event: TimeWindowAggregatedEvent): TimeWindowAggregatedIpPair[] => {
+  const pairs = [...event.ip_pairs]
+  const sortBy = timeWindowIpPairSortBy.value
+  const getValue = (pair: TimeWindowAggregatedIpPair, key: string): number => {
+    if (key === 'total_cnt') return pair.log_parse_result_cnt
+    if (key === 'anomaly_cnt') return pair.anomaly_log_parse_result_cnt
+    const metricKey = `ave_${key}` as keyof TimeWindowAggregatedIpPair
+    const val = pair[metricKey]
+    return typeof val === 'number' ? val : 0
+  }
+  pairs.sort((a, b) => {
+    const aVal = getValue(a, sortBy)
+    const bVal = getValue(b, sortBy)
+    return timeWindowIpPairSortOrder.value === 'asc' ? aVal - bVal : bVal - aVal
+  })
+  return pairs
+}
+
+const getTimeWindowAggregatedLatencyValue = (
+  ipPair: TimeWindowAggregatedIpPair,
+  metric: string,
+) => {
+  const key = `ave_${metric}` as keyof TimeWindowAggregatedIpPair
+  const val = ipPair[key]
+  return typeof val === 'number' ? val : null
+}
+
+const openTimeWindowIpPairDetail = (ipPair: TimeWindowAggregatedIpPair, twEvent: TimeWindowAggregatedEvent) => {
+  // 构造一个聚合事件模型来复用详情弹窗
+  const event: AggregatedEventModel = {
+    id: `${ipPair.src_ip}-${ipPair.dst_ip}`,
+    src_ip: ipPair.src_ip,
+    dst_ip: ipPair.dst_ip,
+    log_parse_result_cnt: ipPair.log_parse_result_cnt,
+    anomaly_log_parse_result_cnt: ipPair.anomaly_log_parse_result_cnt,
+    ave_total_latency: ipPair.ave_total_latency,
+    min_total_latency: ipPair.min_total_latency,
+    max_total_latency: ipPair.max_total_latency,
+    p99_total_latency: ipPair.p99_total_latency,
+    p95_total_latency: ipPair.p95_total_latency,
+    ave_query_meta_latency: ipPair.ave_query_meta_latency,
+    min_query_meta_latency: ipPair.min_query_meta_latency,
+    max_query_meta_latency: ipPair.max_query_meta_latency,
+    p99_query_meta_latency: ipPair.p99_query_meta_latency,
+    p95_query_meta_latency: ipPair.p95_query_meta_latency,
+    ave_urma_total_latency: ipPair.ave_urma_total_latency,
+    min_urma_total_latency: ipPair.min_urma_total_latency,
+    max_urma_total_latency: ipPair.max_urma_total_latency,
+    p99_urma_total_latency: ipPair.p99_urma_total_latency,
+    p95_urma_total_latency: ipPair.p95_urma_total_latency,
+    ave_urma_link_latency: ipPair.ave_urma_link_latency,
+    min_urma_link_latency: ipPair.min_urma_link_latency,
+    max_urma_link_latency: ipPair.max_urma_link_latency,
+    p99_urma_link_latency: ipPair.p99_urma_link_latency,
+    p95_urma_link_latency: ipPair.p95_urma_link_latency,
+    ave_c2w_urma_latency: ipPair.ave_c2w_urma_latency,
+    min_c2w_urma_latency: ipPair.min_c2w_urma_latency,
+    max_c2w_urma_latency: ipPair.max_c2w_urma_latency,
+    p99_c2w_urma_latency: ipPair.p99_c2w_urma_latency,
+    p95_c2w_urma_latency: ipPair.p95_c2w_urma_latency,
+    ave_w2w_urma_latency: ipPair.ave_w2w_urma_latency,
+    min_w2w_urma_latency: ipPair.min_w2w_urma_latency,
+    max_w2w_urma_latency: ipPair.max_w2w_urma_latency,
+    p99_w2w_urma_latency: ipPair.p99_w2w_urma_latency,
+    p95_w2w_urma_latency: ipPair.p95_w2w_urma_latency,
+  }
+  const row: LatencyDetailRow = {
+    id: `${ipPair.src_ip}-${ipPair.dst_ip}`,
+    sourceHost: ipPair.src_ip,
+    targetHost: ipPair.dst_ip,
+    traceCount: ipPair.log_parse_result_cnt,
+    anomalyTraceCount: ipPair.anomaly_log_parse_result_cnt,
+    startTime: twEvent.start_time,
+    endTime: twEvent.end_time,
+    event,
+  }
+  openAggregatedEventDetail(row)
+}
+
+const openTimeWindowIpPairFilter = (ipPair: TimeWindowAggregatedIpPair) => {
+  const row: LatencyDetailRow = {
+    id: `${ipPair.src_ip}-${ipPair.dst_ip}`,
+    sourceHost: ipPair.src_ip,
+    targetHost: ipPair.dst_ip,
+    traceCount: ipPair.log_parse_result_cnt,
+    anomalyTraceCount: ipPair.anomaly_log_parse_result_cnt,
+    event: {} as AggregatedEventModel,
+  }
+  openLatencyHostFilterDialog(row)
+}
+
+const getTimeWindowSummaryValue = (twEvent: TimeWindowAggregatedEvent, metric: string) => {
+  const key = `ave_${metric}` as keyof TimeWindowAggregatedEvent
+  const val = twEvent[key]
+  return typeof val === 'number' ? val : null
 }
 
 const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
@@ -5101,6 +5451,9 @@ const loadLatencyPage = async () => {
   if (!isLatencyDetailLoading.value) {
     requests.push(loadLatencyDetail())
   }
+  if (!isTimeWindowLoading.value) {
+    requests.push(loadTimeWindowAggregatedEvents())
+  }
   if (!isAbnormalTracesLoading.value) {
     requests.push(loadAbnormalTraces())
   }
@@ -5792,15 +6145,14 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
                 <label v-if="activeAggregateTab === 'event'" class="latency-stat-select">
-                  <span>延迟指标</span>
-                  <select v-model="selectedLatencyStat">
-                    <option
-                      v-for="option in latencyStatOptions"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
+                  <span>时间间隔</span>
+                  <select
+                    v-model="selectedLatencyTimeWindowInterval"
+                    @change="changeLatencyTimeWindowInterval"
+                  >
+                    <option value="hour">时</option>
+                    <option value="minute">分</option>
+                    <option value="second">秒</option>
                   </select>
                 </label>
                 <div v-else class="abnormal-trace-filter-actions">
@@ -5820,39 +6172,146 @@ onBeforeUnmount(() => {
                 <div class="aggregate-table-frame">
                   <div class="aggregate-fixed-left">
                     <div class="aggregate-left-grid aggregate-table-header">
-                      <div class="aggregate-cell ip-cell">源 IP</div>
-                      <div class="aggregate-cell ip-cell">目标 IP</div>
-                      <div class="aggregate-cell count-cell">结果数</div>
-                      <div class="aggregate-cell count-cell aggregate-sortable-cell" @click="aggregateEventSort.handleHeaderClick('anomaly_log_parse_result_cnt')">
+                      <div class="aggregate-cell fault-expand-cell"></div>
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="handleTimeWindowSort('start_time')"
+                      >
+                        <span class="sort-header-content">
+                          开始时间
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'start_time' && timeWindowSortOrder === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'start_time' && timeWindowSortOrder === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell">结束时间</div>
+                      <div
+                        class="aggregate-cell count-cell aggregate-sortable-cell"
+                        @click="handleTimeWindowSort('total_cnt')"
+                      >
+                        <span class="sort-header-content">
+                          结果数
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_cnt' && timeWindowSortOrder === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_cnt' && timeWindowSortOrder === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div
+                        class="aggregate-cell count-cell aggregate-sortable-cell"
+                        @click="handleTimeWindowSort('anomaly_cnt')"
+                      >
                         <span class="sort-header-content">
                           异常数
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder('anomaly_log_parse_result_cnt') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder('anomaly_log_parse_result_cnt') === 'desc' }">▼</span>
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'anomaly_cnt' && timeWindowSortOrder === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'anomaly_cnt' && timeWindowSortOrder === 'desc' }">▼</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="handleTimeWindowSort('total_latency')"
+                      >
+                        <span class="sort-header-content">
+                          总时延
+                          <span class="sort-icons">
+                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_latency' && timeWindowSortOrder === 'asc' }">▲</span>
+                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_latency' && timeWindowSortOrder === 'desc' }">▼</span>
                           </span>
                         </span>
                       </div>
                     </div>
-                    <template
-                      v-if="
-                        !isLatencyDetailLoading &&
-                        !latencyDetailError &&
-                        latencyDetailRows.length > 0 &&
-                        getFilteredLatencyRows().length > 0
-                      "
-                    >
-                      <div
-                        v-for="row in getFilteredLatencyRows()"
-                        :key="`${row.id}-fixed`"
-                        class="aggregate-left-grid aggregate-body-row"
-                      >
-                        <div class="aggregate-cell ip-cell">{{ row.sourceHost }}</div>
-                        <div class="aggregate-cell ip-cell">{{ row.targetHost }}</div>
-                        <div class="aggregate-cell count-cell">{{ row.traceCount }}</div>
-                        <div class="aggregate-cell count-cell anomaly-count">
-                          {{ row.anomalyTraceCount }}
+                    <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
+                      <template v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents" :key="`tw-${twIdx}`">
+                        <div
+                          class="aggregate-left-grid aggregate-body-row"
+                          :class="{ expanded: isTimeWindowExpanded(twIdx) }"
+                          @click="toggleTimeWindowRow(twIdx)"
+                        >
+                          <div class="aggregate-cell fault-expand-cell">
+                            <span class="fault-expand-indicator">
+                              {{ isTimeWindowExpanded(twIdx) ? '🔽' : '▶️' }}
+                            </span>
+                          </div>
+                          <div class="aggregate-cell">{{ twEvent.start_time }}</div>
+                          <div class="aggregate-cell">{{ twEvent.end_time }}</div>
+                          <div class="aggregate-cell count-cell">{{ twEvent.total_cnt }}</div>
+                          <div class="aggregate-cell count-cell anomaly-count">{{ twEvent.anomaly_cnt }}</div>
+                          <div class="aggregate-cell">
+                            <span class="metric-value">
+                              {{ formatMetricValue(twEvent.ave_total_latency) }}
+                            </span>
+                          </div>
                         </div>
-                      </div>
+                        <template v-if="isTimeWindowExpanded(twIdx)">
+                          <div class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-header">
+                            <div class="aggregate-cell fault-expand-cell"></div>
+                            <div
+                              class="aggregate-cell aggregate-sortable-cell"
+                              @click.stop="handleIpPairSort('total_cnt')"
+                            >
+                              <span class="sort-header-content">
+                                源IP
+                              </span>
+                            </div>
+                            <div class="aggregate-cell">目标IP</div>
+                            <div
+                              class="aggregate-cell count-cell aggregate-sortable-cell"
+                              @click.stop="handleIpPairSort('total_cnt')"
+                            >
+                              <span class="sort-header-content">
+                                结果数
+                                <span class="sort-icons">
+                                  <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_cnt' && timeWindowIpPairSortOrder === 'asc' }">▲</span>
+                                  <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_cnt' && timeWindowIpPairSortOrder === 'desc' }">▼</span>
+                                </span>
+                              </span>
+                            </div>
+                            <div
+                              class="aggregate-cell count-cell aggregate-sortable-cell"
+                              @click.stop="handleIpPairSort('anomaly_cnt')"
+                            >
+                              <span class="sort-header-content">
+                                异常数
+                                <span class="sort-icons">
+                                  <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'anomaly_cnt' && timeWindowIpPairSortOrder === 'asc' }">▲</span>
+                                  <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'anomaly_cnt' && timeWindowIpPairSortOrder === 'desc' }">▼</span>
+                                </span>
+                              </span>
+                            </div>
+                            <div
+                              class="aggregate-cell aggregate-sortable-cell"
+                              @click.stop="handleIpPairSort('total_latency')"
+                            >
+                              <span class="sort-header-content">
+                                总时延
+                                <span class="sort-icons">
+                                  <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_latency' && timeWindowIpPairSortOrder === 'asc' }">▲</span>
+                                  <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_latency' && timeWindowIpPairSortOrder === 'desc' }">▼</span>
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                          <div
+                            v-for="ipPair in getSortedIpPairs(twEvent)"
+                            :key="`${twIdx}-${ipPair.src_ip}-${ipPair.dst_ip}`"
+                            class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row"
+                          >
+                            <div class="aggregate-cell fault-expand-cell"></div>
+                            <div class="aggregate-cell">{{ ipPair.src_ip }}</div>
+                            <div class="aggregate-cell">{{ ipPair.dst_ip }}</div>
+                            <div class="aggregate-cell count-cell">{{ ipPair.log_parse_result_cnt }}</div>
+                            <div class="aggregate-cell count-cell anomaly-count">{{ ipPair.anomaly_log_parse_result_cnt }}</div>
+                            <div class="aggregate-cell">
+                              <span class="metric-value">
+                                {{ formatMetricValue(ipPair.ave_total_latency) }}
+                              </span>
+                            </div>
+                          </div>
+                        </template>
+                      </template>
                     </template>
                   </div>
 
@@ -5869,16 +6328,16 @@ onBeforeUnmount(() => {
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div class="aggregate-latency-grid aggregate-table-header">
                         <div
-                          v-for="column in aggregatedLatencyColumns"
+                          v-for="column in timeWindowLatencyColumns"
                           :key="column.key"
                           class="aggregate-cell aggregate-sortable-cell"
-                          @click="aggregateEventSort.handleHeaderClick(column.key)"
+                          @click="handleTimeWindowSort(column.key)"
                         >
                           <span class="sort-header-content">
                             {{ column.label }}
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder(column.key) === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': aggregateEventSort.getSortOrder(column.key) === 'desc' }">▼</span>
+                              <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === column.key && timeWindowSortOrder === 'asc' }">▲</span>
+                              <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === column.key && timeWindowSortOrder === 'desc' }">▼</span>
                             </span>
                           </span>
                         </div>
@@ -5894,37 +6353,61 @@ onBeforeUnmount(() => {
                       class="aggregate-latency-body aggregate-latency-sync"
                       @scroll="syncAggregateLatencyScroll"
                     >
-                      <template
-                        v-if="
-                          !isLatencyDetailLoading &&
-                          !latencyDetailError &&
-                          latencyDetailRows.length > 0 &&
-                          getFilteredLatencyRows().length > 0
-                        "
-                      >
-                        <div
-                          v-for="row in getFilteredLatencyRows()"
-                          :key="`${row.id}-latency`"
-                          class="aggregate-latency-grid aggregate-body-row"
-                        >
-                          <div
-                            v-for="column in aggregatedLatencyColumns"
-                            :key="column.key"
-                            class="aggregate-cell"
-                          >
-                            <span
-                              class="metric-value"
-                              :class="{
-                                abnormal: isLatencyMetricAbnormal(
-                                  column.key,
-                                  getAggregatedLatencyValue(row, column.key),
-                                ),
-                              }"
+                      <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
+                        <template v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents" :key="`tw-body-${twIdx}`">
+                          <div class="aggregate-latency-grid aggregate-body-row">
+                            <div
+                              v-for="column in timeWindowLatencyColumns"
+                              :key="column.key"
+                              class="aggregate-cell"
                             >
-                              {{ formatMetricValue(getAggregatedLatencyValue(row, column.key)) }}
-                            </span>
+                              <span class="metric-value">
+                                {{ formatMetricValue(getTimeWindowSummaryValue(twEvent, column.key)) }}
+                              </span>
+                            </div>
                           </div>
-                        </div>
+                          <template v-if="isTimeWindowExpanded(twIdx)">
+                            <div class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-header">
+                              <div
+                                v-for="column in timeWindowLatencyColumns"
+                                :key="column.key"
+                                class="aggregate-cell aggregate-sortable-cell"
+                                @click.stop="handleIpPairSort(column.key)"
+                              >
+                                <span class="sort-header-content">
+                                  {{ column.label }}
+                                  <span class="sort-icons">
+                                    <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === column.key && timeWindowIpPairSortOrder === 'asc' }">▲</span>
+                                    <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === column.key && timeWindowIpPairSortOrder === 'desc' }">▼</span>
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                            <div
+                              v-for="ipPair in getSortedIpPairs(twEvent)"
+                              :key="`${twIdx}-body-${ipPair.src_ip}-${ipPair.dst_ip}`"
+                              class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                            >
+                              <div
+                                v-for="column in timeWindowLatencyColumns"
+                                :key="column.key"
+                                class="aggregate-cell"
+                              >
+                                <span
+                                  class="metric-value"
+                                  :class="{
+                                    abnormal: isLatencyMetricAbnormal(
+                                      column.key,
+                                      getTimeWindowAggregatedLatencyValue(ipPair, column.key),
+                                    ),
+                                  }"
+                                >
+                                  {{ formatMetricValue(getTimeWindowAggregatedLatencyValue(ipPair, column.key)) }}
+                                </span>
+                              </div>
+                            </div>
+                          </template>
+                        </template>
                       </template>
                     </div>
                   </div>
@@ -5933,74 +6416,77 @@ onBeforeUnmount(() => {
                     <div class="aggregate-cell action-cell aggregate-table-header">
                       聚合事件分析
                     </div>
-                    <template
-                      v-if="
-                        !isLatencyDetailLoading &&
-                        !latencyDetailError &&
-                        latencyDetailRows.length > 0 &&
-                        getFilteredLatencyRows().length > 0
-                      "
-                    >
-                      <div
-                        v-for="row in getFilteredLatencyRows()"
-                        :key="`${row.id}-action`"
-                        class="aggregate-cell action-cell trace-actions aggregate-body-row"
-                      >
-                        <button
-                          class="metric-action-btn detail-action-btn"
-                          type="button"
-                          @click="openAggregatedEventDetail(row)"
-                        >
-                          📄详情
-                        </button>
-                        <button
-                          class="metric-action-btn"
-                          type="button"
-                          @click="openLatencyHostFilterDialog(row)"
-                        >
-                          ➕筛选
-                        </button>
-                      </div>
+                    <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
+                      <template v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents" :key="`tw-action-${twIdx}`">
+                        <div class="aggregate-cell action-cell trace-actions aggregate-body-row">
+                          <span class="metric-action-hint">展开查看IP对</span>
+                        </div>
+                        <template v-if="isTimeWindowExpanded(twIdx)">
+                          <div class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-header">
+                            <span class="metric-action-hint">操作</span>
+                          </div>
+                          <div
+                            v-for="ipPair in getSortedIpPairs(twEvent)"
+                            :key="`${twIdx}-action-${ipPair.src_ip}-${ipPair.dst_ip}`"
+                            class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
+                          >
+                            <button
+                              class="metric-action-btn detail-action-btn"
+                              type="button"
+                              @click.stop="openTimeWindowIpPairDetail(ipPair, twEvent)"
+                            >
+                              📄详情
+                            </button>
+                            <button
+                              class="metric-action-btn"
+                              type="button"
+                              @click.stop="openTimeWindowIpPairFilter(ipPair)"
+                            >
+                              ➕筛选
+                            </button>
+                          </div>
+                        </template>
+                      </template>
                     </template>
                   </div>
                 </div>
 
-                <div v-if="isLatencyDetailLoading" class="aggregate-table-state">
-                  正在加载时延明细...
+                <div v-if="isTimeWindowLoading" class="aggregate-table-state">
+                  正在加载时间窗口聚合...
                 </div>
                 <div
-                  v-else-if="latencyDetailError"
+                  v-else-if="timeWindowError"
                   class="aggregate-table-state metric-table-error"
                 >
-                  {{ latencyDetailError }}
+                  {{ timeWindowError }}
                 </div>
-                <div v-else-if="latencyDetailRows.length === 0" class="aggregate-table-state">
-                  暂无时延明细数据
+                <div v-else-if="timeWindowAggregatedEvents.length === 0" class="aggregate-table-state">
+                  暂无时间窗口聚合数据
                 </div>
-                <div
+<div
                   v-else-if="getFilteredLatencyRows().length === 0"
                   class="aggregate-table-state"
                 >
                   无匹配聚合事件
                 </div>
-                <div v-if="aggregateEventTotal > 0" class="aggregate-pagination">
+                <div v-if="timeWindowTotal > 10" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
-                    :disabled="aggregateEventPage <= 1 || isLatencyDetailLoading"
-                    @click="goAggregateEventPage(aggregateEventPage - 1)"
+                    :disabled="timeWindowPage <= 1 || isTimeWindowLoading"
+                    @click="goTimeWindowPage(timeWindowPage - 1)"
                   >
                     上一页
                   </button>
-                  <span class="pagination-pages" aria-label="聚合事件页码">
+                  <span class="pagination-pages" aria-label="时间窗口聚合事件页码">
                     <button
-                      v-for="pageNum in aggregateEventPageWindow"
-                      :key="`aggregate-event-page-${pageNum}`"
+                      v-for="pageNum in timeWindowPageWindow"
+                      :key="`tw-page-${pageNum}`"
                       class="pagination-page-btn"
-                      :class="{ active: pageNum === aggregateEventPage }"
+                      :class="{ active: pageNum === timeWindowPage }"
                       type="button"
-                      :disabled="pageNum === aggregateEventPage || isLatencyDetailLoading"
-                      @click="goAggregateEventPage(pageNum)"
+                      :disabled="pageNum === timeWindowPage || isTimeWindowLoading"
+                      @click="goTimeWindowPage(pageNum)"
                     >
                       {{ pageNum }}
                     </button>
@@ -6009,28 +6495,28 @@ onBeforeUnmount(() => {
                     class="ghost-btn"
                     type="button"
                     :disabled="
-                      aggregateEventPage >= aggregateEventPageCount || isLatencyDetailLoading
+                      timeWindowPage >= timeWindowPageCount || isTimeWindowLoading
                     "
-                    @click="goAggregateEventPage(aggregateEventPage + 1)"
+                    @click="goTimeWindowPage(timeWindowPage + 1)"
                   >
                     下一页
                   </button>
                   <span class="pagination-jump">
-                    <span>第 {{ aggregateEventPage }} / {{ aggregateEventPageCount }} 页</span>
+                    <span>第 {{ timeWindowPage }} / {{ timeWindowPageCount }} 页</span>
                     <input
-                      v-model="aggregateEventPageInput"
+                      v-model="timeWindowPageInput"
                       class="pagination-jump-input"
                       type="number"
                       min="1"
-                      :max="aggregateEventPageCount"
-                      aria-label="跳转聚合事件页码"
-                      @keyup.enter="jumpAggregateEventPage"
+                      :max="timeWindowPageCount"
+                      aria-label="跳转时间窗口聚合事件页码"
+                      @keyup.enter="jumpTimeWindowPage"
                     />
                     <button
                       class="pagination-jump-btn"
                       type="button"
-                      :disabled="isLatencyDetailLoading"
-                      @click="jumpAggregateEventPage"
+                      :disabled="isTimeWindowLoading"
+                      @click="jumpTimeWindowPage"
                     >
                       跳转
                     </button>

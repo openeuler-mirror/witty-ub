@@ -70,7 +70,7 @@ class IndexManager:
         for u in self.urma_entries:
             self.urma_count_by_pod[u.pod_ip] += 1
             if u.trace_id:
-                self.urma_by_dst_trace[(u.dst_addr, u.trace_id)].append(u)
+                self.urma_by_dst_trace[(u.pod_ip, u.trace_id)].append(u)
                 self.urma_by_trace_endpoint[(u.trace_id, u.src_addr, u.dst_addr)].append(u)
                 self.traced_count_by_pod[u.pod_ip] += 1
                 self.traced_count_by_pod_trace[(u.pod_ip, u.trace_id)] += 1
