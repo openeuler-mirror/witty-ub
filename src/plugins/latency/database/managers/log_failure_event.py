@@ -22,6 +22,11 @@ class LogFailureEventManager:
         (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
         VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
     """
+    _TRACE_FAILURE_EVENT_RAW_INSERT_SQL = """
+        INSERT INTO trace_failure_event_table 
+        (id, log_id, trace_id, pod_names, host_names, cluster_names, timestamp, status_code, failure_mode)
+        VALUES (:id, :log_id, :trace_id, :pod_names, :host_names, :cluster_names, :timestamp, :status_code, :failure_mode)
+    """
 
     @staticmethod
     async def add_log_failure_event(results: list[LogFailureEventModel]) -> list[str]:
@@ -160,6 +165,36 @@ class LogFailureEventManager:
                 ids_added.extend([trace_failure_event.trace_id for trace_failure_event in batch])
             except Exception as e:
                 print(f"批量添加trace故障事件失败，错误信息: {str(e)}")
+        return ids_added
+
+    @staticmethod
+    async def add_trace_failure_event_raw(results: list[dict]) -> list[str]:
+        ids_added = []
+        if not results:
+            return ids_added
+
+        try:
+            params = []
+            for event in results:
+                param = event.copy()
+                param.setdefault("id", str(uuid.uuid4()))
+                for key in ("pod_names", "host_names", "cluster_names"):
+                    value = param.get(key, [])
+                    if isinstance(value, list):
+                        param[key] = ",".join(value)
+                    elif value is None:
+                        param[key] = ""
+                param.setdefault("status_code", "")
+                param.setdefault("failure_mode", "")
+                params.append(param)
+
+            await AsyncSQLiteSingleton().execute_modify(
+                LogFailureEventManager._TRACE_FAILURE_EVENT_RAW_INSERT_SQL,
+                params,
+            )
+            ids_added.extend([param["trace_id"] for param in params])
+        except Exception as e:
+            print(f"批量添加trace故障事件失败，错误信息: {str(e)}")
         return ids_added
     
     @staticmethod

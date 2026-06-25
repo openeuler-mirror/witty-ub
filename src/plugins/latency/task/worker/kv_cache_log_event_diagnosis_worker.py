@@ -8,6 +8,7 @@ import re
 import shutil
 import gzip
 import zipfile
+import time
 from datetime import datetime
 from latency.schemas.log_failure_event import TraceFailureEventModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -183,7 +184,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     log_files.append((file, file_path))
             
             log_failure_events = []
-            trace_failure_events_map: dict[str, TraceFailureEventModel] = {}
+            trace_failure_events_map: dict[str, dict] = {}
             total_inserted = 0
             batch_size = 10000
             total_log_failure_events = KVCacheLogEventDiagnosisWorker._count_log_failure_events(
@@ -300,10 +301,15 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
 
             trace_failure_events = list(trace_failure_events_map.values())
             if trace_failure_events:
-                await LogFailureEventManager.add_trace_failure_event(trace_failure_events)
-                logger.info(f"成功插入 {len(trace_failure_events)} 条trace故障事件")
+                trace_store_start = time.perf_counter()
+                await LogFailureEventManager.add_trace_failure_event_raw(trace_failure_events)
+                logger.info(
+                    "成功插入 %s 条trace故障事件，耗时 %.3fs",
+                    len(trace_failure_events),
+                    time.perf_counter() - trace_store_start,
+                )
 
-            return sum(1 for event in trace_failure_events if event.failure_mode)
+            return sum(1 for event in trace_failure_events if event["failure_mode"])
     
         except Exception as e:
             logger.error(f"parse_log_failure_events 执行失败: {e}")
@@ -351,7 +357,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
 
     @staticmethod
     def _merge_trace_failure_event(
-        trace_failure_events_map: dict[str, TraceFailureEventModel],
+        trace_failure_events_map: dict[str, dict],
         log_failure_event: dict,
         failure_mode_cache: dict,
     ) -> None:
@@ -366,16 +372,17 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 if failure_mode
                 else ""
             )
-            trace_failure_events_map[trace_id] = TraceFailureEventModel(
-                log_id=log_failure_event["log_id"],
-                trace_id=trace_id,
-                pod_names=[log_failure_event["pod_name"]] if log_failure_event["pod_name"] else [],
-                host_names=[log_failure_event["host_name"]] if log_failure_event["host_name"] else [],
-                cluster_names=[log_failure_event["cluster_name"]] if log_failure_event["cluster_name"] else [],
-                timestamp=log_failure_event["timestamp"],
-                status_code=log_failure_event["status_code"] if log_failure_event["status_code"] else "",
-                failure_mode=leaf_mode,
-            )
+            trace_failure_events_map[trace_id] = {
+                "id": str(uuid.uuid4()),
+                "log_id": log_failure_event["log_id"],
+                "trace_id": trace_id,
+                "pod_names": [log_failure_event["pod_name"]] if log_failure_event["pod_name"] else [],
+                "host_names": [log_failure_event["host_name"]] if log_failure_event["host_name"] else [],
+                "cluster_names": [log_failure_event["cluster_name"]] if log_failure_event["cluster_name"] else [],
+                "timestamp": log_failure_event["timestamp"],
+                "status_code": log_failure_event["status_code"] if log_failure_event["status_code"] else "",
+                "failure_mode": leaf_mode,
+            }
             return
 
         trace_failure_event = trace_failure_events_map[trace_id]
@@ -387,23 +394,23 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         status_code = log_failure_event["status_code"]
         failure_mode = log_failure_event["failure_mode"]
 
-        if pod_name and pod_name not in trace_failure_event.pod_names:
-            trace_failure_event.pod_names.append(pod_name)
+        if pod_name and pod_name not in trace_failure_event["pod_names"]:
+            trace_failure_event["pod_names"].append(pod_name)
 
-        if host_name and host_name not in trace_failure_event.host_names:
-            trace_failure_event.host_names.append(host_name)
+        if host_name and host_name not in trace_failure_event["host_names"]:
+            trace_failure_event["host_names"].append(host_name)
 
-        if cluster_name and cluster_name not in trace_failure_event.cluster_names:
-            trace_failure_event.cluster_names.append(cluster_name)
+        if cluster_name and cluster_name not in trace_failure_event["cluster_names"]:
+            trace_failure_event["cluster_names"].append(cluster_name)
 
-        if timestamp < trace_failure_event.timestamp:
-            trace_failure_event.timestamp = timestamp
+        if timestamp < trace_failure_event["timestamp"]:
+            trace_failure_event["timestamp"] = timestamp
 
-        if not trace_failure_event.status_code and status_code:
-            trace_failure_event.status_code = status_code
+        if not trace_failure_event["status_code"] and status_code:
+            trace_failure_event["status_code"] = status_code
 
-        if trace_failure_event.status_code == "0" and status_code != "0":
-            trace_failure_event.status_code = status_code
+        if trace_failure_event["status_code"] == "0" and status_code != "0":
+            trace_failure_event["status_code"] = status_code
 
         if not failure_mode:
             return
@@ -414,16 +421,16 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         if not new_leaf_mode:
             return
 
-        if not trace_failure_event.failure_mode:
-            trace_failure_event.failure_mode = new_leaf_mode
+        if not trace_failure_event["failure_mode"]:
+            trace_failure_event["failure_mode"] = new_leaf_mode
             return
 
         if KVCacheLogEventDiagnosisWorker._is_child_failure_mode(
-            trace_failure_event.failure_mode,
+            trace_failure_event["failure_mode"],
             new_leaf_mode,
             failure_mode_cache,
         ):
-            trace_failure_event.failure_mode = new_leaf_mode
+            trace_failure_event["failure_mode"] = new_leaf_mode
     
     @staticmethod
     async def parse_filepath_config():
