@@ -594,6 +594,29 @@ const timeWindowSortOrder = ref<'asc' | 'desc'>('asc')
 const timeWindowIpPairSortBy = ref<string>('total_cnt')
 const timeWindowIpPairSortOrder = ref<'asc' | 'desc'>('desc')
 
+const IP_PAIR_PAGE_SIZE = 10
+const timeWindowIpPairPageMap = ref<Record<number, number>>({})
+
+const getTimeWindowIpPairPage = (twIdx: number) =>
+  timeWindowIpPairPageMap.value[twIdx] ?? 1
+
+const setTimeWindowIpPairPage = (twIdx: number, page: number) => {
+  timeWindowIpPairPageMap.value = {
+    ...timeWindowIpPairPageMap.value,
+    [twIdx]: Math.max(1, page),
+  }
+}
+
+const getTimeWindowIpPairTotalPages = (twEvent: TimeWindowAggregatedEvent) =>
+  Math.max(1, Math.ceil(twEvent.ip_pairs.length / IP_PAIR_PAGE_SIZE))
+
+const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) => {
+  const sorted = getSortedIpPairs(twEvent)
+  const page = getTimeWindowIpPairPage(twIdx)
+  const start = (page - 1) * IP_PAIR_PAGE_SIZE
+  return sorted.slice(start, start + IP_PAIR_PAGE_SIZE)
+}
+
 const timeWindowPageCount = computed(() =>
   Math.max(1, Math.ceil(timeWindowTotal.value / 10))
 )
@@ -1599,6 +1622,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
     color: visibleSeries.map((series) => series.color),
     tooltip: {
       trigger: 'axis',
+      appendToBody: true,
       valueFormatter: (value) =>
         typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
     },
@@ -3928,9 +3952,11 @@ const loadDetailParseResults = async (
         method: 'POST',
         body: JSON.stringify({
           kb_id: assetId,
-          aggregated_event_id: row.id,
+          aggregated_event_id: (row.startTime || row.endTime) ? undefined : row.id,
           src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
+          start_time: row.startTime || undefined,
+          end_time: row.endTime || undefined,
           page_cnt: detailParseResultsPageSize,
           page_num: pageNum,
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
@@ -4180,6 +4206,7 @@ const toggleTimeWindowRow = (idx: number) => {
     newSet.delete(idx)
   } else {
     newSet.add(idx)
+    setTimeWindowIpPairPage(idx, 1)
   }
   expandedTimeWindowIds.value = newSet
 }
@@ -4221,6 +4248,7 @@ const handleIpPairSort = (sortBy: string) => {
     timeWindowIpPairSortBy.value = sortBy
     timeWindowIpPairSortOrder.value = 'asc'
   }
+  timeWindowIpPairPageMap.value = {}
 }
 
 const getSortedIpPairs = (event: TimeWindowAggregatedEvent): TimeWindowAggregatedIpPair[] => {
@@ -6295,7 +6323,7 @@ onBeforeUnmount(() => {
                             </div>
                           </div>
                           <div
-                            v-for="ipPair in getSortedIpPairs(twEvent)"
+                            v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
                             :key="`${twIdx}-${ipPair.src_ip}-${ipPair.dst_ip}`"
                             class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row"
                           >
@@ -6308,6 +6336,30 @@ onBeforeUnmount(() => {
                               <span class="metric-value">
                                 {{ formatMetricValue(ipPair.ave_total_latency) }}
                               </span>
+                            </div>
+                          </div>
+                          <div
+                            v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
+                            class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
+                          >
+                            <div class="aggregate-cell ip-pair-pagination" colspan="6">
+                              <button
+                                class="page-btn"
+                                :disabled="getTimeWindowIpPairPage(twIdx) <= 1"
+                                @click="setTimeWindowIpPairPage(twIdx, getTimeWindowIpPairPage(twIdx) - 1)"
+                              >
+                                &lt;
+                              </button>
+                              <span class="page-info">
+                                {{ getTimeWindowIpPairPage(twIdx) }} / {{ getTimeWindowIpPairTotalPages(twEvent) }}
+                              </span>
+                              <button
+                                class="page-btn"
+                                :disabled="getTimeWindowIpPairPage(twIdx) >= getTimeWindowIpPairTotalPages(twEvent)"
+                                @click="setTimeWindowIpPairPage(twIdx, getTimeWindowIpPairPage(twIdx) + 1)"
+                              >
+                                &gt;
+                              </button>
                             </div>
                           </div>
                         </template>
@@ -6384,7 +6436,7 @@ onBeforeUnmount(() => {
                               </div>
                             </div>
                             <div
-                              v-for="ipPair in getSortedIpPairs(twEvent)"
+                              v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
                               :key="`${twIdx}-body-${ipPair.src_ip}-${ipPair.dst_ip}`"
                               class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
                             >
@@ -6406,6 +6458,16 @@ onBeforeUnmount(() => {
                                 </span>
                               </div>
                             </div>
+                            <div
+                              v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
+                              class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                            >
+                              <div
+                                v-for="column in timeWindowLatencyColumns"
+                                :key="column.key"
+                                class="aggregate-cell"
+                              ></div>
+                            </div>
                           </template>
                         </template>
                       </template>
@@ -6426,7 +6488,7 @@ onBeforeUnmount(() => {
                             <span class="metric-action-hint">操作</span>
                           </div>
                           <div
-                            v-for="ipPair in getSortedIpPairs(twEvent)"
+                            v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
                             :key="`${twIdx}-action-${ipPair.src_ip}-${ipPair.dst_ip}`"
                             class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
                           >
@@ -6444,6 +6506,12 @@ onBeforeUnmount(() => {
                             >
                               ➕筛选
                             </button>
+                          </div>
+                          <div
+                            v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
+                            class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
+                          >
+                            <span class="metric-action-hint"></span>
                           </div>
                         </template>
                       </template>

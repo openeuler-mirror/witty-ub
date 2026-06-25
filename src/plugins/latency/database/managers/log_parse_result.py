@@ -189,6 +189,12 @@ class LogParseResultManager:
         if req.created_at_end:
             sql_str += " AND lpr.created_at <= :created_at_end"
             params["created_at_end"] = req.created_at_end
+        if req.start_time:
+            sql_str += " AND lpr.timestamp >= :start_time"
+            params["start_time"] = req.start_time
+        if req.end_time:
+            sql_str += " AND lpr.timestamp <= :end_time"
+            params["end_time"] = req.end_time
 
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)

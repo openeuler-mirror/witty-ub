@@ -168,6 +168,8 @@ class ListLogParseResultRequest(BaseModel):
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
+    start_time: Optional[str] = Field(default=None, description="日志时间戳范围开始时间，格式为YYYY-MM-DD HH:MM:SS")
+    end_time: Optional[str] = Field(default=None, description="日志时间戳范围结束时间，格式为YYYY-MM-DD HH:MM:SS")
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",

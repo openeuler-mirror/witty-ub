@@ -342,6 +342,20 @@ class SrcDstAggregatedEventManager:
         # 3. 计算 P99/P95（需要从原始数据计算，这里用估计值 SQLite 没有 PERCENTILE）
         # 先用 AVG/MIN/MAX 填充，P99/P95 在 Python 层单独计算
         # 获取所有分组的唯一统计值列表用于 P99/P95
+        import math
+
+        def calc_percentile(sorted_vals: list[float], pct: float) -> float | None:
+            if not sorted_vals:
+                return None
+            sorted_vals.sort()
+            k = (pct / 100) * (len(sorted_vals) - 1)
+            f = math.floor(k)
+            c = math.ceil(k)
+            if f == c:
+                return sorted_vals[int(k)]
+            d0 = sorted_vals[int(f)] * (c - k) if int(f) < len(sorted_vals) else 0
+            d1 = sorted_vals[int(c)] * (k - f) if int(c) < len(sorted_vals) else 0
+            return d0 + d1
 
         # 4. 按时间窗口分组
         interval_delta = {
@@ -440,22 +454,90 @@ class SrcDstAggregatedEventManager:
             }
             bucket["ip_pairs"].append(ip_pair)
 
-        # 5. 计算 P99/P95 并构建最终结果
-        import math
+        # 5. 从 log_parse_result_table 查询每个 IP 对的原始时延值，计算真实 P99/P95
+        # 收集所有唯一的 (src_ip, dst_ip) 对
+        ip_pair_keys = set()
+        for bucket in time_buckets.values():
+            for ip_pair in bucket["ip_pairs"]:
+                ip_pair_keys.add((ip_pair["src_ip"], ip_pair["dst_ip"]))
 
-        def calc_percentile(sorted_vals: list[float], pct: float) -> float | None:
-            if not sorted_vals:
-                return None
-            sorted_vals.sort()
-            k = (pct / 100) * (len(sorted_vals) - 1)
-            f = math.floor(k)
-            c = math.ceil(k)
-            if f == c:
-                return sorted_vals[int(k)]
-            d0 = sorted_vals[int(f)] * (c - k) if int(f) < len(sorted_vals) else 0
-            d1 = sorted_vals[int(c)] * (k - f) if int(c) < len(sorted_vals) else 0
-            return d0 + d1
+        if ip_pair_keys and req.kb_id:
+            # 构建查询条件，使用 LIKE 匹配去掉端口后的 IP
+            conditions = []
+            p99_params = {"kb_id": req.kb_id}
+            for i, (src_ip, dst_ip) in enumerate(ip_pair_keys):
+                conditions.append(
+                    f"(lpr.src_ip = :src_ip_{i} OR lpr.src_ip LIKE :src_ip_{i} || ':%') AND "
+                    f"(lpr.dst_ip = :dst_ip_{i} OR lpr.dst_ip LIKE :dst_ip_{i} || ':%')"
+                )
+                p99_params[f"src_ip_{i}"] = src_ip
+                p99_params[f"dst_ip_{i}"] = dst_ip
 
+            p99_sql = f"""
+                SELECT lpr.src_ip, lpr.dst_ip,
+                    lpr.total_latency, lpr.worker_query_meta_latency,
+                    lpr.urma_total_latency, lpr.urma_link_latency,
+                    lpr.c2w_urma_latency, lpr.w2w_urma_latency
+                FROM log_parse_result_table lpr
+                LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
+                WHERE lpr.existed_status = 1
+                  AND lf.kb_id = :kb_id
+                  AND lpr.src_ip IS NOT NULL AND lpr.src_ip != ''
+                  AND lpr.dst_ip IS NOT NULL AND lpr.dst_ip != ''
+                  AND ({' OR '.join([f'({c})' for c in conditions])})
+            """
+            if req.start_time:
+                p99_sql += " AND lpr.timestamp >= :start_time"
+                p99_params["start_time"] = req.start_time
+            if req.end_time:
+                p99_sql += " AND lpr.timestamp <= :end_time"
+                p99_params["end_time"] = req.end_time
+
+            p99_rows = await AsyncSQLiteSingleton().execute_query(p99_sql, p99_params)
+
+            # 按 (src_ip, dst_ip) 分组收集值
+            ip_pair_vals: dict[tuple[str, str], dict[str, list[float]]] = {}
+            for row in p99_rows:
+                key = (strip_port(row["src_ip"] or ""), strip_port(row["dst_ip"] or ""))
+                if key not in ip_pair_vals:
+                    ip_pair_vals[key] = {
+                        "total": [], "query_meta": [], "urma_total": [],
+                        "urma_link": [], "c2w_urma": [], "w2w_urma": [],
+                    }
+                vals = ip_pair_vals[key]
+                if row["total_latency"] is not None:
+                    vals["total"].append(row["total_latency"])
+                if row["worker_query_meta_latency"] is not None:
+                    vals["query_meta"].append(row["worker_query_meta_latency"])
+                if row["urma_total_latency"] is not None:
+                    vals["urma_total"].append(row["urma_total_latency"])
+                if row["urma_link_latency"] is not None:
+                    vals["urma_link"].append(row["urma_link_latency"])
+                if row["c2w_urma_latency"] is not None:
+                    vals["c2w_urma"].append(row["c2w_urma_latency"])
+                if row["w2w_urma_latency"] is not None:
+                    vals["w2w_urma"].append(row["w2w_urma_latency"])
+
+            # 更新 IP 对的 P99/P95 值
+            for bucket in time_buckets.values():
+                for ip_pair in bucket["ip_pairs"]:
+                    key = (ip_pair["src_ip"], ip_pair["dst_ip"])
+                    vals = ip_pair_vals.get(key)
+                    if vals:
+                        ip_pair["p99_total_latency"] = calc_percentile(vals["total"], 99)
+                        ip_pair["p95_total_latency"] = calc_percentile(vals["total"], 95)
+                        ip_pair["p99_query_meta_latency"] = calc_percentile(vals["query_meta"], 99)
+                        ip_pair["p95_query_meta_latency"] = calc_percentile(vals["query_meta"], 95)
+                        ip_pair["p99_urma_total_latency"] = calc_percentile(vals["urma_total"], 99)
+                        ip_pair["p95_urma_total_latency"] = calc_percentile(vals["urma_total"], 95)
+                        ip_pair["p99_urma_link_latency"] = calc_percentile(vals["urma_link"], 99)
+                        ip_pair["p95_urma_link_latency"] = calc_percentile(vals["urma_link"], 95)
+                        ip_pair["p99_c2w_urma_latency"] = calc_percentile(vals["c2w_urma"], 99)
+                        ip_pair["p95_c2w_urma_latency"] = calc_percentile(vals["c2w_urma"], 95)
+                        ip_pair["p99_w2w_urma_latency"] = calc_percentile(vals["w2w_urma"], 99)
+                        ip_pair["p95_w2w_urma_latency"] = calc_percentile(vals["w2w_urma"], 95)
+
+        # 6. 构建最终结果
         events = []
         for tb in sorted(time_buckets.keys()):
             bucket = time_buckets[tb]
