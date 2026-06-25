@@ -709,11 +709,11 @@ const abnormalTracesErrorMap = reactive<Record<number, string>>({
   3600: '',
 })
 
-const abnormalTraceRows = computed(() => abnormalTraceRowsMap[selectedLatencyScale.value])
-const isAbnormalTracesLoading = computed(() => isAbnormalTracesLoadingMap[selectedLatencyScale.value])
-const abnormalTracesError = computed(() => abnormalTracesErrorMap[selectedLatencyScale.value])
-const abnormalTracesPage = computed(() => abnormalTracesPageMap[selectedLatencyScale.value])
-const abnormalTracesTotal = computed(() => abnormalTracesTotalMap[selectedLatencyScale.value])
+const abnormalTraceRows = computed(() => abnormalTraceRowsMap[selectedLatencyScale.value] ?? [])
+const isAbnormalTracesLoading = computed(() => isAbnormalTracesLoadingMap[selectedLatencyScale.value] ?? false)
+const abnormalTracesError = computed(() => abnormalTracesErrorMap[selectedLatencyScale.value] ?? '')
+const abnormalTracesPage = computed(() => abnormalTracesPageMap[selectedLatencyScale.value] ?? 1)
+const abnormalTracesTotal = computed(() => abnormalTracesTotalMap[selectedLatencyScale.value] ?? 0)
 const faultAggregatedEventPage = ref(1)
 const faultAggregatedEventTotal = ref(0)
 const isFaultAggregatedEventsLoading = ref(false)
@@ -754,11 +754,11 @@ const faultTraceEventsErrorMap = reactive<Record<number, string>>({
   600: '',
   3600: '',
 })
-const faultTraceRows = computed(() => faultTraceRowsMap[selectedFaultScale.value])
-const faultTraceEventsTotal = computed(() => faultTraceEventsTotalMap[selectedFaultScale.value])
-const faultTraceEventsPage = computed(() => faultTraceEventsPageMap[selectedFaultScale.value])
-const isFaultTraceEventsLoading = computed(() => isFaultTraceEventsLoadingMap[selectedFaultScale.value])
-const faultTraceEventsError = computed(() => faultTraceEventsErrorMap[selectedFaultScale.value])
+const faultTraceRows = computed(() => faultTraceRowsMap[selectedFaultScale.value] ?? [])
+const faultTraceEventsTotal = computed(() => faultTraceEventsTotalMap[selectedFaultScale.value] ?? 0)
+const faultTraceEventsPage = computed(() => faultTraceEventsPageMap[selectedFaultScale.value] ?? 1)
+const isFaultTraceEventsLoading = computed(() => isFaultTraceEventsLoadingMap[selectedFaultScale.value] ?? false)
+const faultTraceEventsError = computed(() => faultTraceEventsErrorMap[selectedFaultScale.value] ?? '')
 
 const faultDetailTraceRows = ref<FaultTraceTableRow[]>([])
 const isDetailLatencyChartLoading = ref(false)
@@ -790,6 +790,7 @@ const anomalousEventChains = ref<AnomalousEventChainModel[]>([])
 const isFaultChartLoading = ref(false)
 const faultChartError = ref('')
 const faultChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
+const knownFaultCodes = ref<string[]>([])
 const isFaultDetailChartLoading = ref(false)
 const faultDetailChartError = ref('')
 const faultDetailChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
@@ -821,13 +822,7 @@ const latencyScaleOptions = [
 
 const selectedLatencyScale = ref<number>(0)
 
-const latencyChartRangeMap = reactive<Record<number, LatencyChartRange | null>>({
-  0: null,
-  10: null,
-  60: null,
-  600: null,
-  3600: null,
-})
+const latencyChartCenterTime = ref<number | null>(null)
 
 // 每个时间尺度点击图表时，选中范围半宽 = halfSpanMultiplier * scaleSeconds（秒）
 // 10s: 60 * 10s = 10min 半宽 → 120 个点
@@ -841,24 +836,40 @@ const latencyChartHalfSpanMultiplier: Record<number, number> = {
   3600: 12,
 }
 
-const latencyChartRange = computed(() => latencyChartRangeMap[selectedLatencyScale.value] ?? null)
+const latencyChartRange = computed<LatencyChartRange | null>(() => {
+  const centerTime = latencyChartCenterTime.value
+  if (centerTime === null) return null
+  const scaleSeconds = selectedLatencyScale.value || 10
+  const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+  return {
+    centerTime,
+    startTime: centerTime - halfSpan,
+    endTime: centerTime + halfSpan,
+    label: formatFullTimeLabel(new Date(centerTime)),
+  }
+})
 
 // 故障监控时间尺度
 const selectedFaultScale = ref<number>(0)
-const faultChartRangeMap = reactive<Record<number, LatencyChartRange | null>>({
-  0: null,
-  10: null,
-  60: null,
-  600: null,
-  3600: null,
-})
+const faultChartCenterTime = ref<number | null>(null)
 const faultChartHalfSpanMultiplier: Record<number, number> = {
   10: 60,
   60: 60,
   600: 72,
   3600: 12,
 }
-const faultChartRange = computed(() => faultChartRangeMap[selectedFaultScale.value] ?? null)
+const faultChartRange = computed<LatencyChartRange | null>(() => {
+  const centerTime = faultChartCenterTime.value
+  if (centerTime === null) return null
+  const scaleSeconds = selectedFaultScale.value || 10
+  const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+  return {
+    centerTime,
+    startTime: centerTime - halfSpan,
+    endTime: centerTime + halfSpan,
+    label: formatFullTimeLabel(new Date(centerTime)),
+  }
+})
 type GlobalFilterState = {
   startTime: string
   endTime: string
@@ -1964,19 +1975,8 @@ const renderLatencyEchart = () => {
     const event = params as { componentType?: string; dataIndex?: number }
     if (event.componentType === 'series' && typeof event.dataIndex === 'number') {
       const bucket = latencyChartBuckets.value[event.dataIndex]
-      if (bucket && selectedLatencyScale.value !== 0) {
-        const scaleSeconds = selectedLatencyScale.value
-        const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
-        const range: LatencyChartRange = {
-          centerTime: bucket.time,
-          startTime: bucket.time - halfSpan,
-          endTime: bucket.time + halfSpan,
-          label: bucket.label,
-        }
-        latencyChartRangeMap[selectedLatencyScale.value] = range
-        void loadLatencyChart()
-        void loadAbnormalTraces(1)
-      } else if (bucket && selectedLatencyScale.value === 0) {
+      if (bucket) {
+        latencyChartCenterTime.value = bucket.time
         void loadLatencyChart()
         void loadAbnormalTraces(1)
       }
@@ -2019,19 +2019,8 @@ const renderFaultEchart = () => {
     const event = params as { componentType?: string; dataIndex?: number }
     if (event.componentType === 'series' && typeof event.dataIndex === 'number') {
       const bucket = faultChartBuckets.value[event.dataIndex]
-      if (bucket && selectedFaultScale.value !== 0) {
-        const scaleSeconds = selectedFaultScale.value
-        const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
-        const range: LatencyChartRange = {
-          centerTime: bucket.time,
-          startTime: bucket.time - halfSpan,
-          endTime: bucket.time + halfSpan,
-          label: bucket.label,
-        }
-        faultChartRangeMap[selectedFaultScale.value] = range
-        void loadFaultChart()
-        void loadFaultTraceEvents(1)
-      } else if (bucket && selectedFaultScale.value === 0) {
+      if (bucket) {
+        faultChartCenterTime.value = bucket.time
         void loadFaultChart()
         void loadFaultTraceEvents(1)
       }
@@ -2071,13 +2060,13 @@ const resizeLatencyCharts = () => {
 }
 
 const resetLatencyChartRange = () => {
-  latencyChartRangeMap[selectedLatencyScale.value] = null
+  latencyChartCenterTime.value = null
   void loadLatencyChart()
   void loadAbnormalTraces(1)
 }
 
 const resetFaultChartRange = () => {
-  faultChartRangeMap[selectedFaultScale.value] = null
+  faultChartCenterTime.value = null
   void loadFaultChart()
   void loadFaultTraceEvents(1)
 }
@@ -2127,9 +2116,10 @@ const getLogResultAnomalyCode = (result: LogParseResultModel) => {
   return getLogResultAnomalyInfo(result)?.code ?? null
 }
 
-const faultCodes = computed(() =>
-  Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b)),
-)
+const faultCodes = computed(() => {
+  const currentCodes = Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b))
+  return currentCodes.length > 0 ? currentCodes : knownFaultCodes.value
+})
 const faultAggregatedEventCodeColumnMaxWidth = 132
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
@@ -2243,7 +2233,45 @@ const faultChartBuckets = computed<FaultChartBucket[]>(() => {
     })
   })
 
-  if (allMetricPoints.length === 0) return []
+  if (allMetricPoints.length === 0) {
+    const codes = faultCodes.value
+    if (codes.length === 0) return []
+
+    let minTime: number
+    let maxTime: number
+    if (chartRange) {
+      minTime = chartRange.startTime
+      maxTime = chartRange.endTime
+    } else {
+      const filters = appliedFilters.value
+      const startMs = filters.startTime ? new Date(filters.startTime).getTime() : NaN
+      const endMs = filters.endTime ? new Date(filters.endTime).getTime() : NaN
+      if (isNaN(startMs) || isNaN(endMs)) return []
+      minTime = startMs
+      maxTime = endMs
+    }
+
+    const bucketMs = selectedFaultScale.value !== 0
+      ? selectedFaultScale.value * secondMs
+      : Math.max(60000, Math.floor((maxTime - minTime) / 100))
+
+    const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
+    const lastBucketStart = Math.floor(maxTime / bucketMs) * bucketMs
+
+    const zeroCounts: Record<string, number> = {}
+    codes.forEach((code) => { zeroCounts[code] = 0 })
+
+    const zeroBuckets: FaultChartBucket[] = []
+    for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
+      zeroBuckets.push({
+        time,
+        label: formatFullTimeLabel(new Date(time)),
+        counts: { ...zeroCounts },
+      })
+    }
+
+    return zeroBuckets
+  }
 
   const allTimes = allMetricPoints.map((p) => p.time)
   const bucketMs = selectedFaultScale.value !== 0 && chartRange
@@ -3732,7 +3760,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
 
   try {
     const filters = appliedFilters.value
-    const chartRange = faultChartRangeMap[scale]
+    const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       is_anomalous: true,
@@ -3813,7 +3841,7 @@ const loadFaultChart = async () => {
 
   try {
     const filters = appliedFilters.value
-    const chartRange = faultChartRangeMap[selectedFaultScale.value]
+    const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       max_points: 1000,
@@ -3848,6 +3876,10 @@ const loadFaultChart = async () => {
     })
 
     faultChartMetrics.value = result.metrics ?? {}
+    const codes = Object.keys(result.metrics ?? {})
+    if (codes.length > 0) {
+      knownFaultCodes.value = codes.sort((a, b) => a.localeCompare(b))
+    }
   } catch (error) {
     faultChartMetrics.value = {}
     faultChartError.value = error instanceof Error ? error.message : '加载故障码计数时序分布失败'
@@ -3949,7 +3981,7 @@ const loadLatencyChart = async () => {
   isLatencyChartLoading.value = true
   latencyChartError.value = ''
 
-  const range = latencyChartRangeMap[selectedLatencyScale.value]
+  const range = latencyChartRange.value
 
   try {
     const results = await Promise.all(
@@ -4574,7 +4606,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     
     // 构建排序参数
     const sortFields = abnormalTraceSort.getSortFields.value
-    const chartRange = latencyChartRangeMap[scale]
+    const chartRange = latencyChartRange.value
     
     const body: Record<string, unknown> = {
       kb_id: assetId,
@@ -5789,13 +5821,19 @@ watch([selectedAssetId, activePage], () => {
 })
 
 watch(selectedLatencyScale, () => {
-  if (abnormalTraceRowsMap[selectedLatencyScale.value].length === 0) {
+  if (latencyChartCenterTime.value !== null) {
+    void loadLatencyChart()
+  }
+  if ((abnormalTraceRowsMap[selectedLatencyScale.value] ?? []).length === 0) {
     void loadAbnormalTraces(1)
   }
 })
 
 watch(selectedFaultScale, () => {
-  if (faultTraceRowsMap[selectedFaultScale.value].length === 0) {
+  if (faultChartCenterTime.value !== null) {
+    void loadFaultChart()
+  }
+  if ((faultTraceRowsMap[selectedFaultScale.value] ?? []).length === 0) {
     void loadFaultTraceEvents(1)
   }
 })
@@ -7110,7 +7148,7 @@ onBeforeUnmount(() => {
                   {{ faultChartError }}
                 </div>
                 <div
-                  v-else-if="faultChartBuckets.length === 0 || faultCodes.length === 0"
+                  v-else-if="faultCodes.length === 0"
                   class="chart-state"
                 >
                   暂无故障码数据
