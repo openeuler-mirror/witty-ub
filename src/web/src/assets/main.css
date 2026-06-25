@@ -3016,9 +3016,7 @@ button {
 
 .aggregate-parse-results {
   display: flex;
-  flex: 1;  
-  min-height: calc(53px + 12 * 59px + 10px); /* 表头 + 4行数据 + 滚动条 = 309px */
-  max-height: calc(53px + 12 * 59px + 10px); /* 表头 + 8行数据 + 滚动条 = 535px */
+  flex: 0 0 auto;
   flex-direction: column;
   margin-top: 18px;
   min-height: 0;
@@ -3062,9 +3060,9 @@ button {
 }
 
 .detail-abnormal-trace-wrapper {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: none;
+  max-height: calc(var(--aggregate-header-row-height, 53px) + var(--aggregate-scrollbar-height, 10px) + 590px);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: #cbd5e1 transparent;

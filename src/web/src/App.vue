@@ -5983,7 +5983,7 @@ onBeforeUnmount(() => {
                 >
                   无匹配聚合事件
                 </div>
-                <div v-if="aggregateEventTotal > aggregateEventPageSize" class="aggregate-pagination">
+                <div v-if="aggregateEventTotal > 0" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
@@ -6300,7 +6300,7 @@ onBeforeUnmount(() => {
                 >
                   无匹配时延异常
                 </div>
-                <div v-if="abnormalTracesTotal > abnormalTracesPageSize" class="aggregate-pagination">
+                <div v-if="abnormalTracesTotal > 0" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
@@ -7023,7 +7023,7 @@ onBeforeUnmount(() => {
               <div
                 v-if="
                   activeFaultMonitorTab === 'trace' &&
-                  faultTraceEventsTotal > faultTraceEventsPageSize
+                  faultTraceEventsTotal > 0
                 "
                 class="aggregate-pagination"
               >
@@ -7248,7 +7248,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div
-              v-if="logFilesTotal > logFilesPageSize"
+              v-if="logFilesTotal > 0"
               class="aggregate-pagination log-file-pagination"
             >
               <button
@@ -8041,7 +8041,10 @@ onBeforeUnmount(() => {
                 暂无时延异常记录
               </div>
             </div>
-            <div class="parse-result-pagination">
+            <div
+              v-if="detailParseResultsTotal > 0"
+              class="parse-result-pagination"
+            >
               <button
                 class="ghost-btn"
                 type="button"
