@@ -7,6 +7,7 @@ from latency.schemas.log import (
     AnomalousEventModel,
     AnomalousEventChainModel,
     LogParseResultModel,
+    TimeWindowAggregatedEventModel,
 )
 from latency.schemas.failure_mode import (
     FailureModeModel,
@@ -379,3 +380,16 @@ class GetLogParseOptionsMsg(BaseModel):
 
 class GetLogParseOptionsResponse(ResponseBase):
     result: GetLogParseOptionsMsg = Field(..., description="获取日志解析选项响应结果")
+
+
+class ListTimeWindowAggregatedEventMsg(BaseModel):
+    total: int = Field(..., description="符合条件的时间窗口总数")
+    events: list[TimeWindowAggregatedEventModel] = Field(
+        default_factory=list, description="时间窗口聚合事件列表"
+    )
+
+
+class ListTimeWindowAggregatedEventResponse(ResponseBase):
+    result: ListTimeWindowAggregatedEventMsg = Field(
+        ..., description="查询时间窗口聚合事件列表响应结果"
+    )

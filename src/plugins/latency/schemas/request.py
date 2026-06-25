@@ -168,6 +168,8 @@ class ListLogParseResultRequest(BaseModel):
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
+    start_time: Optional[str] = Field(default=None, description="日志时间戳范围开始时间，格式为YYYY-MM-DD HH:MM:SS")
+    end_time: Optional[str] = Field(default=None, description="日志时间戳范围结束时间，格式为YYYY-MM-DD HH:MM:SS")
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
@@ -397,6 +399,36 @@ class CreateTaskRequest(BaseModel):
     op_id: str = Field(..., description="操作ID，关联的业务对象ID")
     kb_id: Optional[str] = Field(default=None, description="知识库ID")
     task_name: Optional[str] = Field(default=None, description="任务名称")
+
+
+class ListTimeWindowAggregatedEventRequest(BaseModel):
+    """时间窗口聚合事件查询请求"""
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    src_ip: Optional[str] = Field(default=None, description="源IP过滤")
+    dst_ip: Optional[str] = Field(default=None, description="目标IP过滤")
+    interval: str = Field(
+        default="minute",
+        description="时间窗口间隔，可选hour, minute, second"
+    )
+    stat_type: Optional[str] = Field(default="ave", description="统计类型：p99、p95、ave、min、max")
+    sort_by: Optional[str] = Field(
+        default="start_time",
+        description="排序字段：start_time 或 total_latency"
+    )
+    sort_order: Optional[str] = Field(
+        default="asc",
+        description="排序方向：asc 升序，desc 降序"
+    )
+    page_cnt: int = Field(default=10, description="每页的时间窗口数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
 
 class ListTasksRequest(BaseModel):

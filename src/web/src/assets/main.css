@@ -1282,15 +1282,11 @@ button {
   --aggregate-body-row-height: 59px;
   --aggregate-scrollbar-height: 10px;
   display: grid;
-  grid-template-columns: 406px minmax(0, 1fr) 136px;
+  grid-template-columns: max-content minmax(0, 1fr) 136px;
   min-width: 0;
+min-height: calc(53px + 8 * 59px + 10px);
+  max-height: calc(53px + 10 * 59px + 10px);
   overflow-y: auto;
-}
-
-.aggregate-fixed-left,
-.aggregate-fixed-actions,
-.aggregate-latency-stack {
-  min-width: 0;
 }
 
 .aggregate-fixed-left,
@@ -1299,11 +1295,33 @@ button {
   position: relative;
 }
 
+.aggregate-fixed-left {
+  min-width: 0;
+  width: max-content;
+}
+
+.aggregate-fixed-actions {
+  min-width: 0;
+}
+
+.aggregate-latency-scroll {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .aggregate-left-grid {
   display: grid;
-  grid-template-columns: 115px 115px 80px 96px;
+  grid-template-columns: 32px 160px 160px 80px 96px 100px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
+}
+
+.aggregate-left-grid .aggregate-cell {
+  border-right: 1px solid #eef2f8;
+}
+
+.aggregate-left-grid .aggregate-cell:last-child {
+  border-right: 0;
 }
 
 .aggregate-left-grid.aggregate-table-header,
@@ -1363,6 +1381,7 @@ button {
   align-items: center;
   gap: 6px;
   width: 100%;
+  font-weight: inherit;
 }
 
 /* 排序图标容器 */
@@ -1397,7 +1416,6 @@ button {
 
 .count-cell {
   justify-content: center;
-  border-right: 1px solid #eef2f8;
   font-weight: 400;
 }
 
@@ -1433,9 +1451,7 @@ button {
 
 .aggregate-latency-scroll {
   min-width: 0;
-  overflow: visible;
-  scrollbar-color: #cbd5e1 transparent;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 
 .aggregate-latency-scroll::-webkit-scrollbar {
@@ -1507,14 +1523,14 @@ button {
 }
 
 .aggregate-latency-scrollbar-spacer {
-  width: 844px;
+  min-width: 813px;
   height: 1px;
 }
 
 .aggregate-latency-grid {
   display: grid;
-  grid-template-columns: 100px 156px 138px 150px 155px 155px;
-  min-width: 844px;
+  grid-template-columns: 170px 158px 155px 165px 165px;
+  min-width: 813px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
 }
@@ -1605,6 +1621,51 @@ button {
   min-height: 0;
   margin-bottom: var(--fault-sub-gap);
   background: #f8fafc;
+}
+
+.ip-pair-pagination-row {
+  background: #fff !important;
+  border-top: 1px solid #eef2f8;
+}
+
+.ip-pair-pagination {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.ip-pair-pagination .page-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+  border: 1px solid #dde3ed;
+  border-radius: 3px;
+  background: #fff;
+  color: #1e3a5f;
+  cursor: pointer;
+}
+
+.ip-pair-pagination .page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ip-pair-pagination .page-info {
+  font-size: 12px;
+  color: #64748b;
+  min-width: 60px;
+  text-align: center;
+}
+
+.fault-aggregate-sub-header {
+  min-height: 0;
+  margin-bottom: 0;
+  background: #edf2f9;
+  font-weight: 700;
+  color: #1e3a5f;
+  border-bottom: 1px solid #dde3ed;
 }
 
 .fault-aggregate-time-grid.fault-aggregate-sub-row {
@@ -1905,14 +1966,16 @@ button {
 
 .abnormal-latency-grid {
   display: grid;
-  grid-template-columns: 100px 156px 138px 150px 155px 155px;
-  min-width: 844px;
+  grid-template-columns: 100px 175px 160px 165px 170px 170px;
+  min-width: 940px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
 }
 
 .abnormal-latency-grid .aggregate-cell {
   border-right: 1px solid #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .abnormal-latency-grid .aggregate-cell:last-child {
@@ -2115,6 +2178,15 @@ button {
 .metric-action-btn:hover {
   background: #bbf7d0;
   transform: translateY(-1px);
+}
+
+.metric-action-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 400;
 }
 
 .detail-action-btn {
@@ -3094,6 +3166,10 @@ button {
 
 .detail-abnormal-trace-frame .aggregate-latency-scrollbar {
   flex-shrink: 0;
+}
+
+.detail-abnormal-trace-frame .aggregate-latency-scrollbar-spacer {
+  min-width: 955px;
 }
 
 .detail-abnormal-trace-frame .aggregate-latency-body {
