@@ -494,7 +494,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 return False
             
             logger.info(f"定界工具运行成功: {result.stdout}")
-            await BaseWorker.report(task.id, "定界工具运行完成", 30.0)
+            await BaseWorker.report(task.id, "定界工具运行完成", 40.0)
             
         except subprocess.TimeoutExpired:
             logger.error("定界工具运行超时")
@@ -770,8 +770,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             print("故障定界工具运行完成")
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
             trace_failure_event_cnt = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
-            await BaseWorker.report(task.id, "故障事件解析完成", 50.0)
-            await BaseWorker.report(task.id, "Trace故障解析完成", 75.0)
+            await BaseWorker.report(task.id, "故障事件和Trace解析完成", 80.0)
+            print("故障事件和Trace解析完成")
             await LogFileManager.update_log_file(
                 task.op_id, {"trace_failure_event_cnt": trace_failure_event_cnt}
             )
@@ -783,6 +783,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
             await BaseWorker.report(task.id, "任务成功", 100.0)
+            print("故障定界任务成功")
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")
