@@ -5823,8 +5823,8 @@ watch([selectedAssetId, activePage], () => {
 watch(selectedLatencyScale, () => {
   if (latencyChartCenterTime.value !== null) {
     void loadLatencyChart()
-  }
-  if ((abnormalTraceRowsMap[selectedLatencyScale.value] ?? []).length === 0) {
+    void loadAbnormalTraces(1)
+  } else if ((abnormalTraceRowsMap[selectedLatencyScale.value] ?? []).length === 0) {
     void loadAbnormalTraces(1)
   }
 })
@@ -5832,8 +5832,8 @@ watch(selectedLatencyScale, () => {
 watch(selectedFaultScale, () => {
   if (faultChartCenterTime.value !== null) {
     void loadFaultChart()
-  }
-  if ((faultTraceRowsMap[selectedFaultScale.value] ?? []).length === 0) {
+    void loadFaultTraceEvents(1)
+  } else if ((faultTraceRowsMap[selectedFaultScale.value] ?? []).length === 0) {
     void loadFaultTraceEvents(1)
   }
 })
