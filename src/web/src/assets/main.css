@@ -1284,8 +1284,6 @@ button {
   display: grid;
   grid-template-columns: 406px minmax(0, 1fr) 136px;
   min-width: 0;
-  min-height: calc(53px + 8 * 59px + 10px); /* 表头 + 6行数据 + 滚动条 */
-  max-height: calc(53px + 10 * 59px + 10px); /* 表头 + 13行数据 + 滚动条 */
   overflow-y: auto;
 }
 
@@ -1786,8 +1784,7 @@ button {
 
 .aggregate-table-state {
   display: grid;
-  min-height: calc(53px + 6 * 59px + 10px); /* 与表格容器最小高度一致 */
-  max-height: calc(53px + 13 * 59px + 10px); /* 与表格容器最大高度一致 */
+  min-height: calc(var(--aggregate-header-row-height, 53px) + 2 * var(--aggregate-body-row-height, 59px));
   place-items: center;
   color: #94a3b8;
   font-size: 0.82rem;
@@ -1889,7 +1886,7 @@ button {
 }
 
 .abnormal-latency-grid .aggregate-cell {
-  border-right: 1px solid #eef2f8;
+  border-right: 1px solid #e2e8f0;
 }
 
 .abnormal-latency-grid .aggregate-cell:last-child {

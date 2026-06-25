@@ -426,10 +426,13 @@ type LogParseOptions = {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const assetPageSize = 5
 const logFilesPageSize = 10
-const abnormalTracesPageSize = 30
-const faultAggregatedEventPageSize = 20
-const faultAggregatedEventPodPageSize = 10
-const faultTraceEventsPageSize = 30
+const aggregateEventPageSize = 10
+const abnormalTracesPageSize = 10
+const faultAggregatedEventPageSize = 10
+const faultAggregatedEventPodPageSize = 5
+const faultTraceEventsPageSize = 10
+const detailParseResultsPageSize = 10
+const faultDetailTraceEventsPageSize = 10
 const logFilesPollIntervalMs = 3_000
 const severeLogTimeoutThresholdMs = 150
 const isFaultCodeFeatureEnabled = true
@@ -699,7 +702,7 @@ const logFilesPageCount = computed(() =>
   Math.max(1, Math.ceil(logFilesTotal.value / logFilesPageSize)),
 )
 const aggregateEventPageCount = computed(() =>
-  Math.max(1, Math.ceil(aggregateEventTotal.value / 10)),
+  Math.max(1, Math.ceil(aggregateEventTotal.value / aggregateEventPageSize)),
 )
 const abnormalTracesPageCount = computed(() =>
   Math.max(1, Math.ceil(abnormalTracesTotal.value / abnormalTracesPageSize)),
@@ -2345,7 +2348,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
 )
 
 const detailParseResultsPageCount = computed(() =>
-  Math.max(1, Math.ceil(detailParseResultsTotal.value / 20)),
+  Math.max(1, Math.ceil(detailParseResultsTotal.value / detailParseResultsPageSize)),
 )
 const detailParseResultsPageWindow = computed(() =>
   getPageWindow(detailParseResultsPage.value, detailParseResultsPageCount.value),
@@ -2354,7 +2357,7 @@ const detailParseResultsPageWindow = computed(() =>
 const detailParseResultsBadgeCount = computed(() => detailParseResultsTotal.value)
 
 const faultDetailTraceEventsPageCount = computed(() =>
-  Math.max(1, Math.ceil(faultDetailTraceEventsTotal.value / 20)),
+  Math.max(1, Math.ceil(faultDetailTraceEventsTotal.value / faultDetailTraceEventsPageSize)),
 )
 const faultDetailTraceEventsPageWindow = computed(() =>
   getPageWindow(faultDetailTraceEventsPage.value, faultDetailTraceEventsPageCount.value),
@@ -3053,7 +3056,7 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
         is_anomalous: true,
         created_at_start: detail.eventRow.startTime,
         created_at_end: detail.eventRow.endTime,
-        page_cnt: 20,
+        page_cnt: faultDetailTraceEventsPageSize,
         page_num: pageNum,
       }),
     })
@@ -3067,7 +3070,7 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
 
     const events = result.trace_failure_event_results ?? []
     const total = result.total ?? 0
-    const pageCount = Math.max(1, Math.ceil(total / 20))
+    const pageCount = Math.max(1, Math.ceil(total / faultDetailTraceEventsPageSize))
 
     if (pageNum > pageCount) {
       isFaultDetailTraceEventsLoading.value = false
@@ -3803,7 +3806,7 @@ const loadDetailParseResults = async (
           aggregated_event_id: row.id,
           src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
-          page_cnt: 20,
+          page_cnt: detailParseResultsPageSize,
           page_num: pageNum,
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
           is_anomalous: true,
@@ -3907,7 +3910,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
       body: JSON.stringify({
         kb_id: assetId,
         page_num: pageNum,
-        page_cnt: 10,
+        page_cnt: aggregateEventPageSize,
         stat_type: statType,
         sort_fields: sortFields.length > 0 ? sortFields : undefined,
         src_ip: getLogParseFilterValue(filters.sourceHosts),
@@ -3927,7 +3930,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
         ? ((result as Record<string, unknown>).total as number | undefined)
         : undefined
     const nextTotal = total ?? events.length
-    const nextPageCount = Math.max(1, Math.ceil(nextTotal / 10))
+    const nextPageCount = Math.max(1, Math.ceil(nextTotal / aggregateEventPageSize))
 
     if (pageNum > nextPageCount) {
       isLatencyDetailLoading.value = false
@@ -4319,6 +4322,14 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
 
   isFaultAggregatedEventsLoading.value = true
   faultAggregatedEventsError.value = ''
+  applyFaultAggregatedEventResult(
+    {
+      total: 0,
+      err_codes: [],
+      events: [],
+    },
+    pageNum,
+  )
 
   try {
     const filters = appliedFilters.value
@@ -5963,7 +5974,7 @@ onBeforeUnmount(() => {
                 >
                   无匹配聚合事件
                 </div>
-                <div v-if="aggregateEventTotal > 10" class="aggregate-pagination">
+                <div v-if="aggregateEventTotal > aggregateEventPageSize" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
                     type="button"
@@ -6419,7 +6430,13 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell">开始时间</div>
                       <div class="aggregate-cell">结束时间</div>
                     </div>
-                    <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                    <template
+                      v-if="
+                        !isFaultAggregatedEventsLoading &&
+                        !faultAggregatedEventsError &&
+                        paginatedFaultAggregatedEventRows.length > 0
+                      "
+                    >
                       <template
                         v-for="row in paginatedFaultAggregatedEventRows"
                         :key="`${row.id}-time`"
@@ -6544,7 +6561,13 @@ onBeforeUnmount(() => {
                       class="aggregate-latency-body aggregate-latency-sync"
                       @scroll="syncAggregateLatencyScroll"
                     >
-                      <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                      <template
+                        v-if="
+                          !isFaultAggregatedEventsLoading &&
+                          !faultAggregatedEventsError &&
+                          paginatedFaultAggregatedEventRows.length > 0
+                        "
+                      >
                         <template
                           v-for="row in paginatedFaultAggregatedEventRows"
                           :key="`${row.id}-fault-codes`"
@@ -6748,7 +6771,13 @@ onBeforeUnmount(() => {
                     <div class="aggregate-cell action-cell aggregate-table-header">
                       聚合事件分析
                     </div>
-                    <template v-if="paginatedFaultAggregatedEventRows.length > 0">
+                    <template
+                      v-if="
+                        !isFaultAggregatedEventsLoading &&
+                        !faultAggregatedEventsError &&
+                        paginatedFaultAggregatedEventRows.length > 0
+                      "
+                    >
                       <template
                         v-for="row in paginatedFaultAggregatedEventRows"
                         :key="`${row.id}-action`"
