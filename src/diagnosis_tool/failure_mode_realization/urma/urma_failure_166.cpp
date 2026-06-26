@@ -1,30 +1,25 @@
 #include "urma_failure_166.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure166> g_urma("urma_166");
 
-bool UrmaFailure166::IsValid()
+bool UrmaFailure166::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_deactive_jetty' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'ioctl failed in urma_cmd_deactive_jetty, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("create_topo_map") != std::string::npos &&
+           message.find("Invalid topo info to create topo map") != std::string::npos;
 }
 
 std::string UrmaFailure166::GetName() const
 {
-    return "去激活ioctl的ioctl调用返回失败";
+    return "TOPO、MAP状态不满足要求导致创建TOPO、MAP失败";
 }
 
 std::string UrmaFailure166::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交去激活ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结"
-           "果。";
+    return "create_topo_map执行创建TOPO、MAP时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure166::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure166::GetFixSuggDesc() const
 
 std::string UrmaFailure166::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_deactive_jetty，ioctl failed in urma_cmd_deactive_jetty, "
-           "ret:，, errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：create_topo_map，Invalid topo info to create topo map。";
 }
 
 std::string UrmaFailure166::GetId() const
 {
     return "urma_166";
 }
-
 } // namespace diag

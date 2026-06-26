@@ -1,30 +1,25 @@
 #include "urma_failure_417.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure417> g_urma("urma_417");
 
-bool UrmaFailure417::IsValid()
+bool UrmaFailure417::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_user_ctl_query_port' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'The object does not belong to current context.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jfc_batch") != std::string::npos &&
+           message.find("Failed to malloc buffer.") != std::string::npos;
 }
 
 std::string UrmaFailure417::GetName() const
 {
-    return "查询context过程中依赖步骤失败";
+    return "uint64分配失败导致删除JFC失败";
 }
 
 std::string UrmaFailure417::GetRootCauseDesc() const
 {
-    return "函数用于查询context，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA"
-           "操作失败。";
+    return "urma_cmd_delete_jfc_batch执行删除JFC前需要准备uint64，内存或资源分配失败会阻断后续URMA操作。";
 }
 
 RootCause UrmaFailure417::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure417::GetFixSuggDesc() const
 
 std::string UrmaFailure417::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_user_ctl_query_port，The object does not belong to current "
-           "context.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，Failed to malloc buffer.。";
 }
 
 std::string UrmaFailure417::GetId() const
 {
     return "urma_417";
 }
-
 } // namespace diag

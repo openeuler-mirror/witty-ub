@@ -1,30 +1,26 @@
 #include "urma_failure_018.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure018> g_urma("urma_018");
 
-bool UrmaFailure018::IsValid()
+bool UrmaFailure018::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_write_affinity' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_write_affinity") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure018::GetName() const
 {
-    return "URMA context、provider操作表、JFS对象无效导致投递JFS失败";
+    return "dp_ops、post_jfs_wr、target_jfr、dst_tseg无效导致写入affinity失败";
 }
 
 std::string UrmaFailure018::GetRootCauseDesc() const
 {
-    return "函数用于投递JFS，调用方传入的URMA "
-           "context、provider操作表、JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_write_affinity用于写入affinity，调用方传入的dp_ops、post_jfs_wr、target_jfr、dst_"
+           "tseg不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure018::AnalyzeRootCause()
@@ -46,5 +42,4 @@ std::string UrmaFailure018::GetId() const
 {
     return "urma_018";
 }
-
 } // namespace diag

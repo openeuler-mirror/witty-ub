@@ -1,30 +1,27 @@
 #include "urma_failure_068.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure068> g_urma("urma_068");
 
-bool UrmaFailure068::IsValid()
+bool UrmaFailure068::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_add_jetty_p_vjetty_id_info' \"$URMA_LOG_PATH\" 2>/dev/null | "
-        "grep -F 'Failed to add p_vjetty_id[' | grep -F ']: ret:' | grep -F ', p_jetty_id:' | grep -F ', v_jetty_id:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_relink_primary_import") != std::string::npos &&
+           message.find("Failed to unimport old primary ptjetty, lidx:") != std::string::npos &&
+           message.find("tidx:") != std::string::npos;
 }
 
 std::string UrmaFailure068::GetName() const
 {
-    return "执行虚拟 Jetty过程中依赖步骤失败";
+    return "下层注册或导入返回失败导致导入relink、primary失败";
 }
 
 std::string UrmaFailure068::GetRootCauseDesc() const
 {
-    return "函数用于执行虚拟 "
-           "Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作失败。";
+    return "bondp_relink_primary_"
+           "import在导入relink、primary时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure068::AnalyzeRootCause()
@@ -39,13 +36,13 @@ std::string UrmaFailure068::GetFixSuggDesc() const
 
 std::string UrmaFailure068::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_add_jetty_p_vjetty_id_info，Failed to add p_vjetty_id[，]: "
-           "ret:，, p_jetty_id:，, v_jetty_id:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_relink_primary_import，Failed to unimport old primary ptjetty, "
+           "lidx:，tid"
+           "x:。";
 }
 
 std::string UrmaFailure068::GetId() const
 {
     return "urma_068";
 }
-
 } // namespace diag

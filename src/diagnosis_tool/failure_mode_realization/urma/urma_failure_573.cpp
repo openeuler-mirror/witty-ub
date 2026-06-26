@@ -1,30 +1,25 @@
 #include "urma_failure_573.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure573> g_urma("urma_573");
 
-bool UrmaFailure573::IsValid()
+bool UrmaFailure573::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_deactive_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Jfc state is wrong in deactive_jfc.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_free_jfr") != std::string::npos &&
+           message.find("jfr still actived, please deactived first") != std::string::npos;
 }
 
 std::string UrmaFailure573::GetName() const
 {
-    return "JFC数据通路处理失败";
+    return "JFR状态不满足要求导致释放JFR失败";
 }
 
 std::string UrmaFailure573::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_free_jfr执行释放JFR时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure573::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure573::GetFixSuggDesc() const
 
 std::string UrmaFailure573::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfc，Jfc state is wrong in deactive_jfc.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfr，jfr still actived, please deactived first。";
 }
 
 std::string UrmaFailure573::GetId() const
 {
     return "urma_573";
 }
-
 } // namespace diag

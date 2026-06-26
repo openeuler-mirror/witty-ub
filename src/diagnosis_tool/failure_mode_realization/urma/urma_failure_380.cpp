@@ -1,30 +1,25 @@
 #include "urma_failure_380.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure380> g_urma("urma_380");
 
-bool UrmaFailure380::IsValid()
+bool UrmaFailure380::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_create_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'ioctl "
-        "failed in urma_cmd_create_jfce, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("post_send_check_valid") != std::string::npos &&
+           message.find("Invalid src_chip_id:") != std::string::npos;
 }
 
 std::string UrmaFailure380::GetName() const
 {
-    return "创建ioctl的ioctl调用返回失败";
+    return "valid状态不满足要求导致投递valid失败";
 }
 
 std::string UrmaFailure380::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交创建ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "post_send_check_valid执行投递valid时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure380::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure380::GetFixSuggDesc() const
 
 std::string UrmaFailure380::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jfce，ioctl failed in urma_cmd_create_jfce, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：post_send_check_valid，Invalid src_chip_id:。";
 }
 
 std::string UrmaFailure380::GetId() const
 {
     return "urma_380";
 }
-
 } // namespace diag

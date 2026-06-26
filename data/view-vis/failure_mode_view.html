@@ -13,13 +13,13 @@ __FAILURE_MODE_VIEW_CSS__
   <aside class="side">
     <h1>Failure Mode View</h1>
     <label for="searchBox">Search</label>
-    <input id="searchBox" type="search" placeholder="id / name">
+    <input id="searchBox" type="search" placeholder="id / name / trace / log">
     <div class="buttons">
       <button class="primary" id="fitBtn" type="button">Fit</button>
       <button id="resetBtn" type="button">Reset</button>
     </div>
-    <div class="tabs" id="treeTabs" role="tablist" aria-label="Failure mode trees"></div>
-    <label>Traces</label>
+    <div class="tabs" id="treeTabs" role="tablist" aria-label="Root failure mode trees"></div>
+    <label>Failure traces</label>
     <div class="trace-list" id="traceList"></div>
   </aside>
   <main class="graph-wrap">

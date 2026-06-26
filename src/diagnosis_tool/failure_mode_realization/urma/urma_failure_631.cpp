@@ -1,29 +1,26 @@
 #include "urma_failure_631.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure631> g_urma("urma_631");
 
-bool UrmaFailure631::IsValid()
+bool UrmaFailure631::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfr_batch' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_active_jetty") != std::string::npos &&
+           message.find("ioctl failed in urma_cmd_active_jetty, ret:") != std::string::npos;
 }
 
 std::string UrmaFailure631::GetName() const
 {
-    return "URMA context、JFR对象无效导致删除JFR失败";
+    return "激活Jetty ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure631::GetRootCauseDesc() const
 {
-    return "函数用于删除JFR，调用方传入的URMA context、JFR对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_active_"
+           "jetty通过ioctl向驱动提交激活Jetty命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure631::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure631::GetFixSuggDesc() const
 
 std::string UrmaFailure631::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfr_batch，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_active_jetty，ioctl failed in urma_cmd_active_jetty, ret:。";
 }
 
 std::string UrmaFailure631::GetId() const
 {
     return "urma_631";
 }
-
 } // namespace diag

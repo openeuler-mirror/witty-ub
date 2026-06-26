@@ -1,30 +1,26 @@
 #include "urma_failure_407.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure407> g_urma("urma_407");
 
-bool UrmaFailure407::IsValid()
+bool UrmaFailure407::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_token_id' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'ref:' | grep -F 'u, not zero'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_create_jfc") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure407::GetName() const
 {
-    return "释放Token过程中依赖步骤失败";
+    return "URMA context、dev_fd、JFC、配置参数无效导致创建JFC失败";
 }
 
 std::string UrmaFailure407::GetRootCauseDesc() const
 {
-    return "函数用于释放Token，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_cmd_create_jfc用于创建JFC，调用方传入的URMA "
+           "context、dev_fd、JFC、配置参数不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure407::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure407::GetFixSuggDesc() const
 
 std::string UrmaFailure407::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_token_id，ref:，u, not zero。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_create_jfc，Invalid parameter。";
 }
 
 std::string UrmaFailure407::GetId() const
 {
     return "urma_407";
 }
-
 } // namespace diag

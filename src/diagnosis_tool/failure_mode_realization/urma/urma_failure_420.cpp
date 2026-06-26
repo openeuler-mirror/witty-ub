@@ -1,30 +1,26 @@
 #include "urma_failure_420.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure420> g_urma("urma_420");
 
-bool UrmaFailure420::IsValid()
+bool UrmaFailure420::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_get_async_event' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'bondp get error epoll_event: 0x'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_alloc_jfc") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure420::GetName() const
 {
-    return "epoll数据通路处理失败";
+    return "URMA context、dev_fd、JFC、配置参数无效导致分配JFC失败";
 }
 
 std::string UrmaFailure420::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_cmd_alloc_jfc用于分配JFC，调用方传入的URMA "
+           "context、dev_fd、JFC、配置参数不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure420::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure420::GetFixSuggDesc() const
 
 std::string UrmaFailure420::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_get_async_event，bondp get error epoll_event: 0x。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jfc，Invalid parameter。";
 }
 
 std::string UrmaFailure420::GetId() const
 {
     return "urma_420";
 }
-
 } // namespace diag

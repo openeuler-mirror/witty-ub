@@ -1,30 +1,25 @@
 #include "urma_failure_576.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure576> g_urma("urma_576");
 
-bool UrmaFailure576::IsValid()
+bool UrmaFailure576::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_active_jfs' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'jfs or jfc state is wrong in active_jfs.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_delete_jfr") != std::string::npos &&
+           message.find("jfr is deactived, can not delete.") != std::string::npos;
 }
 
 std::string UrmaFailure576::GetName() const
 {
-    return "JFS数据通路处理失败";
+    return "JFR状态不满足要求导致删除JFR失败";
 }
 
 std::string UrmaFailure576::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_delete_jfr执行删除JFR时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure576::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure576::GetFixSuggDesc() const
 
 std::string UrmaFailure576::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jfs，jfs or jfc state is wrong in active_jfs.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr，jfr is deactived, can not delete.。";
 }
 
 std::string UrmaFailure576::GetId() const
 {
     return "urma_576";
 }
-
 } // namespace diag

@@ -1,29 +1,26 @@
 #include "urma_failure_385.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure385> g_urma("urma_385");
 
-bool UrmaFailure385::IsValid()
+bool UrmaFailure385::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_trans_mode_valid' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'[DRV_ERR]Failed to create jfc, dev_name:' | grep -F ', eid_idx:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_post_send_wr_and_store") != std::string::npos &&
+           message.find("Failed to post send wr") != std::string::npos;
 }
 
 std::string UrmaFailure385::GetName() const
 {
-    return "JFC创建时下层资源准备失败";
+    return "数据通路操作返回失败导致投递工作请求、AND、store失败";
 }
 
 std::string UrmaFailure385::GetRootCauseDesc() const
 {
-    return "函数负责创建JFC，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_post_send_wr_and_"
+           "store执行数据收发相关操作时，下层队列、完成队列或provider返回错误，导致请求无法正常提交或回收。";
 }
 
 RootCause UrmaFailure385::AnalyzeRootCause()
@@ -38,13 +35,11 @@ std::string UrmaFailure385::GetFixSuggDesc() const
 
 std::string UrmaFailure385::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_trans_mode_valid，[DRV_ERR]Failed to create jfc, "
-           "dev_name:，, eid_idx:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_and_store，Failed to post send wr。";
 }
 
 std::string UrmaFailure385::GetId() const
 {
     return "urma_385";
 }
-
 } // namespace diag

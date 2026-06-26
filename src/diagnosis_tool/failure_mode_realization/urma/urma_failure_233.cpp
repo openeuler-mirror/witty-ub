@@ -1,30 +1,26 @@
 #include "urma_failure_233.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure233> g_urma("urma_233");
 
-bool UrmaFailure233::IsValid()
+bool UrmaFailure233::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_bind_jetty_ex' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Not "
-        "allowed to bind local jetty:' | grep -F 'of mode:' | grep -F 'with remote jetty:' | grep -F 'of mode:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_pcontext") != std::string::npos &&
+           message.find("Failed to create context for primary eid, dev:") != std::string::npos &&
+           message.find(", eid_idx:") != std::string::npos;
 }
 
 std::string UrmaFailure233::GetName() const
 {
-    return "绑定Jetty过程中依赖步骤失败";
+    return "下层资源创建失败导致创建pcontext失败";
 }
 
 std::string UrmaFailure233::GetRootCauseDesc() const
 {
-    return "函数用于绑定Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "bondp_create_pcontext在创建pcontext过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure233::AnalyzeRootCause()
@@ -39,13 +35,13 @@ std::string UrmaFailure233::GetFixSuggDesc() const
 
 std::string UrmaFailure233::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_bind_jetty_ex，Not allowed to bind local jetty:，of mode:，with "
-           "remote jetty:，of mode:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pcontext，Failed to create context for primary eid, "
+           "dev:，, eid_id"
+           "x:。";
 }
 
 std::string UrmaFailure233::GetId() const
 {
     return "urma_233";
 }
-
 } // namespace diag

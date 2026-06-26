@@ -1,31 +1,27 @@
 #include "urma_failure_665.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure665> g_urma("urma_665");
 
-bool UrmaFailure665::IsValid()
+bool UrmaFailure665::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfs' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_perf_thread_exit_cleanup") != std::string::npos &&
+           message.find("Urma perf thread cleanup, thread index") != std::string::npos &&
+           message.find("is invalid.") != std::string::npos;
 }
 
 std::string UrmaFailure665::GetName() const
 {
-    return "URMA context、provider操作表、JFS对象、provider未提供delete_jfs操作实现无效导致删除JFS失败";
+    return "sysfs路径信息读取或解析失败导致perfPERF、thread、扩展IT失败";
 }
 
 std::string UrmaFailure665::GetRootCauseDesc() const
 {
-    return "函数用于删除JFS，调用方传入的URMA "
-           "context、provider操作表、JFS对象、provider未提供delete_"
-           "jfs操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_perf_thread_exit_"
+           "cleanup需要从sysfs获取sysfs路径信息，路径不存在、内容读取失败或字段解析异常会导致设备信息不可用。";
 }
 
 RootCause UrmaFailure665::AnalyzeRootCause()
@@ -40,12 +36,13 @@ std::string UrmaFailure665::GetFixSuggDesc() const
 
 std::string UrmaFailure665::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfs，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_perf_thread_exit_cleanup，Urma perf thread cleanup, thread "
+           "index，is inval"
+           "id.。";
 }
 
 std::string UrmaFailure665::GetId() const
 {
     return "urma_665";
 }
-
 } // namespace diag

@@ -15,6 +15,15 @@ class FailureModeKnowledgeManager:
         if results:
             return FailureModeModel(**results[0])
         return None
+    
+    @staticmethod
+    async def get_all_failure_modes() -> dict[str, FailureModeModel]:
+        sql_str = """
+            SELECT id, name, symptom, root_cause, solution, failure_domain, children_failure_mode_ids
+            FROM failure_mode_knowledge_table
+        """
+        results = await AsyncSQLiteSingleton().execute_query(sql_str, {})
+        return {result["id"]: FailureModeModel(**result) for result in results}
 
     @staticmethod
     async def add_failure_mode_knowledge(results: list[FailureModeModel]) -> list[str]:

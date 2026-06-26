@@ -1,30 +1,26 @@
 #include "urma_failure_191.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure191> g_urma("urma_191");
 
-bool UrmaFailure191::IsValid()
+bool UrmaFailure191::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_add_jetty_to_jetty_grp' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'failed to add jetty to jetty_grp.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_alloc_jfs") != std::string::npos &&
+           message.find("Invalid parameter, trans_mode:") != std::string::npos;
 }
 
 std::string UrmaFailure191::GetName() const
 {
-    return "删除Jetty过程中依赖步骤失败";
+    return "URMA context、配置参数、JFS、JFC无效导致分配JFS失败";
 }
 
 std::string UrmaFailure191::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_alloc_jfs用于分配JFS，调用方传入的URMA "
+           "context、配置参数、JFS、JFC不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure191::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure191::GetFixSuggDesc() const
 
 std::string UrmaFailure191::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_add_jetty_to_jetty_grp，failed to add jetty to jetty_grp.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_jfs，Invalid parameter, trans_mode:。";
 }
 
 std::string UrmaFailure191::GetId() const
 {
     return "urma_191";
 }
-
 } // namespace diag

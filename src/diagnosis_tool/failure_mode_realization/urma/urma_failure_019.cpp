@@ -1,30 +1,26 @@
 #include "urma_failure_019.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure019> g_urma("urma_019");
 
-bool UrmaFailure019::IsValid()
+bool UrmaFailure019::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init health event lock'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_health_check_ctx") != std::string::npos &&
+           message.find("Failed to init health event lock") != std::string::npos;
 }
 
 std::string UrmaFailure019::GetName() const
 {
-    return "初始化健康检查过程中依赖步骤失败";
+    return "创建health、context执行失败导致创建health、context失败";
 }
 
 std::string UrmaFailure019::GetRootCauseDesc() const
 {
-    return "函数用于初始化健康检查，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
-           "RMA操作失败。";
+    return "bondp_create_health_check_"
+           "ctx执行创建health、context时依赖的创建health、context步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure019::AnalyzeRootCause()
@@ -46,5 +42,4 @@ std::string UrmaFailure019::GetId() const
 {
     return "urma_019";
 }
-
 } // namespace diag

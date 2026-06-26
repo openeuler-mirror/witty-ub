@@ -1,30 +1,25 @@
 #include "urma_failure_047.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure047> g_urma("urma_047");
 
-bool UrmaFailure047::IsValid()
+bool UrmaFailure047::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_init' \"$URMA_LOG_PATH\" 2>/dev/null "
-                                    "| grep -F 'urma_init has been called before.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_init") != std::string::npos &&
+           message.find("urma_init has been called before.") != std::string::npos;
 }
 
 std::string UrmaFailure047::GetName() const
 {
-    return "初始化URMA资源过程中依赖步骤失败";
+    return "URMA资源状态不满足要求导致初始化URMA资源失败";
 }
 
 std::string UrmaFailure047::GetRootCauseDesc() const
 {
-    return "函数用于初始化URMA资源，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次U"
-           "RMA操作失败。";
+    return "urma_init执行初始化URMA资源时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure047::AnalyzeRootCause()
@@ -46,5 +41,4 @@ std::string UrmaFailure047::GetId() const
 {
     return "urma_047";
 }
-
 } // namespace diag

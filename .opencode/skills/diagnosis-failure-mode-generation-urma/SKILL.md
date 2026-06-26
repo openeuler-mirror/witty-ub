@@ -14,14 +14,14 @@ description: "分析 URMA 组件源码，以代码中 ERROR 日志输出宏为�
 
 ## 输出
 
-- 生成的故障模式树以markdown格式输出，基础模板说明参考.opencode/skills/diagnosis-failure-mode-generation-urma/references/failure_mode_tree_example.md文件，输出路径为./data/urma_failure_mode_tree.md
+- 生成的故障模式树以markdown格式输出，基础模板说明参考.opencode/skills/diagnosis-failure-mode-generation-urma/references/failure_mode_tree_example.md文件，输出路径为./data/urma/urma_failure_mode_tree.md
 - 故障模式树的每个节点对应一个函数中的一个 ERROR 日志输出点（URMA_LOG_ERR日志宏），节点内容包括以下标题和字段：
     - **故障名称**：该字段是节点标题
     - **故障现象**：参见failure_mode_tree_example.md中的说明和示例，对 URMA 组件需要给出查看该日志的日志文件路径和识别该日志的关键字，不得新增别的字段；日志路径暂时定为环境变量URMA_LOG_PATH
     - **故障原因**：参见failure_mode_tree_example.md中的说明和示例，需要体现该函数的作用和该故障模式发生的具体的直接原因，不能仅体现代码字面量或很宽泛的描述；对于.opencode/skills/diagnosis-failure-mode-generation-urma/references/function_additional_info.md中有说明的函数，需结合说明内容进行填写
     - **解决办法**：参见failure_mode_tree_example.md中的说明和示例，对 URMA 组件默认填写“无”；对于.opencode/skills/diagnosis-failure-mode-generation-urma/references/function_additional_info.md中有说明的函数，需结合说明内容进行填写
     - **故障编号**：按顺序对所有故障节点进行编号，格式为`urma_xxx`，其中`xxx`是从001开始的三位数
-    - **函数名**：调用 URMA_LOG_ERR 日志宏的函数
+    - **函数名**：调用 URMA_LOG_ERR 日志宏的函数，填写`find_urma_log_err.py`脚本输出中的函数名
 - 无需增加别的字段或补充信息，不用输出故障发生的源码位置
 
 ### `故障名称`要求
@@ -42,6 +42,7 @@ description: "分析 URMA 组件源码，以代码中 ERROR 日志输出宏为�
     - 函数名
     - 错误日志字面量，如：匹配 `Provider Bond register ops failed`
     - 如果有格式占位符，如`%d`、`%s`，需要以这样的占位符为分割，将前后的所有字面量作为关键字，如：依次匹配 `Failed to create bondp comp, dev_name:`、`, eid_idx:`
+3. 关键日志最终输出格式为：依次匹配`关键字1`、`关键字2`
 
 ### `故障原因`要求
 
@@ -58,6 +59,11 @@ description: "分析 URMA 组件源码，以代码中 ERROR 日志输出宏为�
     - 必须说明 ioctl 对应的 URMA_CMD 命令语义，如创建 context、注册 segment、导入 jetty、查询 tp list 等。
 - `Failed open/read/parse sysfs`：
     - 必须说明读取的是设备、EID、端口、能力或 cdev 路径信息。
+
+### 故障聚合要求
+
+对于同一个函数中的多个 URMA_LOG_ERR 日志点，如果它们的日志内容完全相同（全字匹配），需要将它们聚合成一个故障节点，部分重复的日志内容如下：
+- `Invalid parameter`
 
 ## 故障模式树结构
 
@@ -78,17 +84,50 @@ description: "分析 URMA 组件源码，以代码中 ERROR 日志输出宏为�
 
 ### 叶子故障模式节点
 
-叶子故障模式节点是直接对应到故障日志输出位置的节点，各个字段需要从代码中获取合理的信息
+叶子故障模式节点是直接对应到`URMA_LOG_ERR`的节点，各个字段需要从代码中获取合理的信息
 
 ## 操作步骤
 
-### 步骤一：需求理解
+### 步骤一：提取 URMA_LOG_ERR 日志点
 
-阅读SKILL文件和参考文档，确保你理解了上述输入和输出中的所有内容。
+1. 调用本 skill 的脚本，获取所有 URMA_LOG_ERR 日志点的信息，包括文件名、函数名、函数起始行、日志所在行数、日志内容
 
-### 步骤二：构建故障模式树
+```bash
+python .opencode/skills/diagnosis-failure-mode-generation-urma/scripts/find_urma_log_err.py <path-to-urma-source-code>
+```
 
-1. 分析 URMA 组件的源码，定位所有使用 URMA_LOG_ERR 日志宏输出错误日志的函数和代码位置
+该脚本输出格式如下：
+
+```json
+{
+    "log_macro": "URMA_LOG_ERR",
+    "search_symbols": [
+        "URMA_LOG_ERR",
+        "URMA_CHECK_CTX_INVALID_RETURN_STATUS",
+        "URMA_CHECK_OP_INVALID_RETURN_POINTER",
+        "URMA_CHECK_OP_INVALID_RETURN_STATUS",
+        "URMA_CHECK_OP_INVALID_RETURN_NEG_STATUS"
+    ],
+    "total": 866,
+    "entries": [
+        {
+            "file": "bond/bondp_api.c",
+            "function": "bondp_create_pjfce",
+            "function_start_line": 85,
+            "log_line": 96,
+            "log_content": "\"Failed to create pjfce %d.\\n\", i"
+        }
+    ]
+}
+```
+
+2. 修正脚本中的可能存在的错误信息
+    - 根据输出中给定的文件路径和函数名，检查输出中的函数起始行是否正确
+    - 根据输出中给定的文件路径和日志内容，检查输出中的日志所在行数是否正确
+
+## 步骤二：构建故障模式树
+
+1. 根据脚本输出，定位所有日志宏输出错误日志的函数和代码位置
 2. 结合顶层故障模式节点语义，对所有故障点进行归纳总结，构建符合要求的故障模式树结构
 
 ### 步骤三：填充故障模式节点
@@ -98,17 +137,10 @@ description: "分析 URMA 组件源码，以代码中 ERROR 日志输出宏为�
 3. 将生成的故障模式树以markdown格式输出到./data/urma_failure_mode_tree.md文件中
 4. 按顺序对所有故障模式节点（包括顶层故障模式节点和叶子故障模式节点）进行编号
 
-## 注意事项
-
-1. `URMA_LOG_ERR`日志点约785个，规模较大，可以生成脚本提取日志模板、日志输出点位置、函数名
-2. 部分日志点不是直接调用的`URMA_LOG_ERR`，而是由一些`URMA_CHECK_*`宏进行了封装，这类间接调用也要纳入日志点进行分析
-3. 对故障名称、原因、现象等进行修正时，非必要不重新生成新脚本，直接扫描源码
-
 ## 质量自检
 
 1. 生成的故障模式树需要覆盖 URMA 组件源码中所有带有 ERROR 日志输出的函数，若某个函数不存在于函数调用关系中，仍需将其作为一个独立的节点添加到故障模式树中
 2. 生成的故障模式树需要满足输出说明中规定的格式要求，且每个节点的内容需要合理且符合 URMA 组件的业务逻辑
 3. 生成的故障名称、故障原因需要能够体现故障的本质和业务含义，便于用户理解，不应简单重复或抽取代码或日志的字面量，也不应简单描述为“xxx函数故障”
 4. 是否将function_additional_info.md里部分函数的补充信息体现在故障模式树中
-5. 不能把`UNKNOWN`、`__attribute__`、`defined`等预处理相关的错误分支生成故障模式节点，需修正为对应的函数调用错误分支
-6. 故障编号必须按照最终markdown文件中的顺序进行编号，不能重复
+5. 故障编号必须按照最终markdown文件中的顺序进行编号，不能重复

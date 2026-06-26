@@ -1,29 +1,25 @@
 #include "urma_failure_137.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure137> g_urma("urma_137");
 
-bool UrmaFailure137::IsValid()
+bool UrmaFailure137::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jetty_batch' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jfs") != std::string::npos &&
+           message.find("Failed to add jfs p_vjetty_id info") != std::string::npos;
 }
 
 std::string UrmaFailure137::GetName() const
 {
-    return "URMA context、Jetty对象无效导致删除Jetty失败";
+    return "创建JFS执行失败导致创建JFS失败";
 }
 
 std::string UrmaFailure137::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_jfs创建JFS时初始化端口索引或WR缓冲区失败，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure137::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure137::GetFixSuggDesc() const
 
 std::string UrmaFailure137::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty_batch，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jfs，Failed to add jfs p_vjetty_id info。";
 }
 
 std::string UrmaFailure137::GetId() const
 {
     return "urma_137";
 }
-
 } // namespace diag

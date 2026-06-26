@@ -1,30 +1,26 @@
 #include "urma_failure_046.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure046> g_urma("urma_046");
 
-bool UrmaFailure046::IsValid()
+bool UrmaFailure046::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_drivers' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to open provider'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_open_drivers") != std::string::npos &&
+           message.find("Failed to open provider") != std::string::npos;
 }
 
 std::string UrmaFailure046::GetName() const
 {
-    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
+    return "sysfs路径信息读取或解析失败导致打开drivers失败";
 }
 
 std::string UrmaFailure046::GetRootCauseDesc() const
 {
-    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
-           "致URMA无法完成设备发现或能力初始化。";
+    return "urma_open_"
+           "drivers需要从sysfs获取sysfs路径信息，路径不存在、内容读取失败或字段解析异常会导致设备信息不可用。";
 }
 
 RootCause UrmaFailure046::AnalyzeRootCause()
@@ -46,5 +42,4 @@ std::string UrmaFailure046::GetId() const
 {
     return "urma_046";
 }
-
 } // namespace diag

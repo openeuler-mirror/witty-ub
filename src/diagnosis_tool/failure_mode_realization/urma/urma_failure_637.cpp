@@ -1,31 +1,25 @@
 #include "urma_failure_637.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure637> g_urma("urma_637");
 
-bool UrmaFailure637::IsValid()
+bool UrmaFailure637::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'There is jfc event and it must be acked, jfc_comp:' | grep "
-                                    "-F ', comp:' | grep -F ', jfc_async:' | grep -F ', async:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_get_smac") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure637::GetName() const
 {
-    return "删除JFC过程中依赖步骤失败";
+    return "URMA context、mac无效导致获取SMAC失败";
 }
 
 std::string UrmaFailure637::GetRootCauseDesc() const
 {
-    return "函数用于删除JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "urma_cmd_get_smac用于获取SMAC，调用方传入的URMA context、mac不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure637::AnalyzeRootCause()
@@ -40,13 +34,11 @@ std::string UrmaFailure637::GetFixSuggDesc() const
 
 std::string UrmaFailure637::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc，There is jfc event and it must be acked, "
-           "jfc_comp:，, comp:，, jfc_async:，, async:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_smac，Invalid parameter.。";
 }
 
 std::string UrmaFailure637::GetId() const
 {
     return "urma_637";
 }
-
 } // namespace diag

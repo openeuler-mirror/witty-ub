@@ -1,29 +1,26 @@
 #include "urma_failure_103.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure103> g_urma("urma_103");
 
-bool UrmaFailure103::IsValid()
+bool UrmaFailure103::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unregister_health_check_seg_for_jetty' \"$URMA_LOG_PATH\" "
-        "2>/dev/null | grep -F 'Failed to unregister health check segment'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_import_jetty_compat") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure103::GetName() const
 {
-    return "健康检查清理阶段下层释放操作失败";
+    return "provider未提供import_jetty_ex操作实现无效导致导入Jetty、compat失败";
 }
 
 std::string UrmaFailure103::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销健康检查相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_import_jetty_compat用于导入Jetty、compat，调用方传入的provider未提供import_jetty_"
+           "ex操作实现不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure103::AnalyzeRootCause()
@@ -38,13 +35,11 @@ std::string UrmaFailure103::GetFixSuggDesc() const
 
 std::string UrmaFailure103::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unregister_health_check_seg_for_jetty，Failed to unregister "
-           "health check segment。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_import_jetty_compat，Invalid parameter.。";
 }
 
 std::string UrmaFailure103::GetId() const
 {
     return "urma_103";
 }
-
 } // namespace diag

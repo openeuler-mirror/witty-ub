@@ -1,29 +1,25 @@
 #include "urma_failure_048.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure048> g_urma("urma_048");
 
-bool UrmaFailure048::IsValid()
+bool UrmaFailure048::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_init' \"$URMA_LOG_PATH\" 2>/dev/null "
-                                    "| grep -F 'None of the providers registered.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_init") != std::string::npos &&
+           message.find("None of the providers registered.") != std::string::npos;
 }
 
 std::string UrmaFailure048::GetName() const
 {
-    return "URMA资源初始化时下层资源准备失败";
+    return "URMA资源状态不满足要求导致初始化URMA资源失败";
 }
 
 std::string UrmaFailure048::GetRootCauseDesc() const
 {
-    return "函数负责初始化URMA资源，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_init执行初始化URMA资源时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure048::AnalyzeRootCause()
@@ -45,5 +41,4 @@ std::string UrmaFailure048::GetId() const
 {
     return "urma_048";
 }
-
 } // namespace diag

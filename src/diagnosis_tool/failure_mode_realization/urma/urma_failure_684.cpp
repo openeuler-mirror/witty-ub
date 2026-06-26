@@ -1,30 +1,25 @@
 #include "urma_failure_684.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure684> g_urma("urma_684");
 
-bool UrmaFailure684::IsValid()
+bool UrmaFailure684::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfce' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Jfce is still used by at least one jfc, refcnt:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bdp_slide_wnd_has") != std::string::npos &&
+           message.find("Invalid param wnd") != std::string::npos;
 }
 
 std::string UrmaFailure684::GetName() const
 {
-    return "删除JFCE过程中依赖步骤失败";
+    return "BDP、slide、WND状态不满足要求导致bdpBDP、slide、WND失败";
 }
 
 std::string UrmaFailure684::GetRootCauseDesc() const
 {
-    return "函数用于删除JFCE，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "bdp_slide_wnd_has执行bdpBDP、slide、WND时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure684::AnalyzeRootCause()
@@ -34,17 +29,16 @@ RootCause UrmaFailure684::AnalyzeRootCause()
 
 std::string UrmaFailure684::GetFixSuggDesc() const
 {
-    return "当前不会触发";
+    return "无";
 }
 
 std::string UrmaFailure684::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfce，Jfce is still used by at least one jfc, refcnt:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bdp_slide_wnd_has，Invalid param wnd。";
 }
 
 std::string UrmaFailure684::GetId() const
 {
     return "urma_684";
 }
-
 } // namespace diag

@@ -1,29 +1,25 @@
 #include "urma_failure_067.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure067> g_urma("urma_067");
 
-bool UrmaFailure067::IsValid()
+bool UrmaFailure067::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_pjetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to delete pjetty' | grep -F ', ret:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("schedule_send") != std::string::npos &&
+           message.find("Invalid wr->tjetty: NULL") != std::string::npos;
 }
 
 std::string UrmaFailure067::GetName() const
 {
-    return "物理 Jetty清理阶段下层释放操作失败";
+    return "schedule状态不满足要求导致发送schedule失败";
 }
 
 std::string UrmaFailure067::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销物理 Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "schedule_send执行发送schedule时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure067::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure067::GetFixSuggDesc() const
 
 std::string UrmaFailure067::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_pjetty，Failed to delete pjetty，, ret:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_send，Invalid wr->tjetty: NULL。";
 }
 
 std::string UrmaFailure067::GetId() const
 {
     return "urma_067";
 }
-
 } // namespace diag

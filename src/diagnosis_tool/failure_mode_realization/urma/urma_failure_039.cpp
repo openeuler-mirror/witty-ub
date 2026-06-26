@@ -1,29 +1,25 @@
 #include "urma_failure_039.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure039> g_urma("urma_039");
 
-bool UrmaFailure039::IsValid()
+bool UrmaFailure039::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_alloc_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'failed to init alloc jetty cmd'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_register_log_func") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure039::GetName() const
 {
-    return "Jetty相关临时结构或命令参数分配失败";
+    return "func无效导致注册LOG、FUNC失败";
 }
 
 std::string UrmaFailure039::GetRootCauseDesc() const
 {
-    return "函数在初始化Jetty前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "urma_register_log_func用于注册LOG、FUNC，调用方传入的func不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure039::AnalyzeRootCause()
@@ -33,17 +29,16 @@ RootCause UrmaFailure039::AnalyzeRootCause()
 
 std::string UrmaFailure039::GetFixSuggDesc() const
 {
-    return "无";
+    return "当前不会触发失败";
 }
 
 std::string UrmaFailure039::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_alloc_jetty，failed to init alloc jetty cmd。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_register_log_func，Invalid parameter.。";
 }
 
 std::string UrmaFailure039::GetId() const
 {
     return "urma_039";
 }
-
 } // namespace diag

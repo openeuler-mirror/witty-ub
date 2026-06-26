@@ -1,4 +1,15 @@
-// failure_mode_factory.cpp
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+ * witty-ub is licensed under the Mulan PSL v2.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *     http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
+ * PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
+
 #include "failure_mode_factory.h"
 #include <iostream>
 #include "failure_mode.h"
@@ -41,7 +52,7 @@ std::vector<std::string> FailureModeFactory::GetAllTypeIds() const noexcept
     return ids;
 }
 
-bool FailureModeFactory::IsRegistered(const std::string &typeId) const  noexcept
+bool FailureModeFactory::IsRegistered(const std::string &typeId) const noexcept
 {
     return m_creators.find(typeId) != m_creators.end();
 }

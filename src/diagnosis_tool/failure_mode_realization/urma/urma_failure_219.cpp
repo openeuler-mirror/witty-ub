@@ -1,31 +1,26 @@
 #include "urma_failure_219.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure219> g_urma("urma_219");
 
-bool UrmaFailure219::IsValid()
+bool UrmaFailure219::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_flush_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("convert_bond_port_id_to_active_index") != std::string::npos &&
+           message.find("Invalid primary chip_id:") != std::string::npos;
 }
 
 std::string UrmaFailure219::GetName() const
 {
-    return "URMA context、provider操作表、Jetty对象、provider未提供flush_jetty操作实现无效导致刷出Jetty失败";
+    return "convert、Bond资源、端口状态不满足要求导致激活convert、Bond资源、端口失败";
 }
 
 std::string UrmaFailure219::GetRootCauseDesc() const
 {
-    return "函数用于刷出Jetty，调用方传入的URMA "
-           "context、provider操作表、Jetty对象、provider未提供flush_"
-           "jetty操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "convert_bond_port_id_to_active_"
+           "index执行激活convert、Bond资源、端口时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure219::AnalyzeRootCause()
@@ -40,12 +35,11 @@ std::string UrmaFailure219::GetFixSuggDesc() const
 
 std::string UrmaFailure219::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_flush_jetty，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：convert_bond_port_id_to_active_index，Invalid primary chip_id:。";
 }
 
 std::string UrmaFailure219::GetId() const
 {
     return "urma_219";
 }
-
 } // namespace diag

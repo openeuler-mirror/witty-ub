@@ -1,29 +1,26 @@
 #include "urma_failure_045.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure045> g_urma("urma_045");
 
-bool UrmaFailure045::IsValid()
+bool UrmaFailure045::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_unregister_provider_ops' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_unregister_provider_ops") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure045::GetName() const
 {
-    return "provider操作表无效导致注销URMA资源失败";
+    return "provider_ops、名称无效导致注销provider、OPS失败";
 }
 
 std::string UrmaFailure045::GetRootCauseDesc() const
 {
-    return "函数用于注销URMA资源，调用方传入的provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_unregister_provider_ops用于注销provider、OPS，调用方传入的provider_"
+           "ops、名称不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure045::AnalyzeRootCause()
@@ -45,5 +42,4 @@ std::string UrmaFailure045::GetId() const
 {
     return "urma_045";
 }
-
 } // namespace diag

@@ -1,29 +1,27 @@
 #include "urma_failure_303.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure303> g_urma("urma_303");
 
-bool UrmaFailure303::IsValid()
+bool UrmaFailure303::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_tpn' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_unimport_health_check_tseg") != std::string::npos &&
+           message.find("Failed to unimport health check seg (") != std::string::npos &&
+           message.find(",") != std::string::npos && message.find(")") != std::string::npos;
 }
 
 std::string UrmaFailure303::GetName() const
 {
-    return "URMA context、Jetty对象无效导致获取TPN失败";
+    return "下层注册或导入返回失败导致取消导入health、TSEG失败";
 }
 
 std::string UrmaFailure303::GetRootCauseDesc() const
 {
-    return "函数用于获取TPN，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_unimport_health_check_"
+           "tseg在取消导入health、TSEG时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure303::AnalyzeRootCause()
@@ -38,12 +36,12 @@ std::string UrmaFailure303::GetFixSuggDesc() const
 
 std::string UrmaFailure303::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_tpn，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unimport_health_check_tseg，Failed to unimport health check seg "
+           "(，,，)。";
 }
 
 std::string UrmaFailure303::GetId() const
 {
     return "urma_303";
 }
-
 } // namespace diag

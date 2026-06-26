@@ -1,30 +1,25 @@
 #include "urma_failure_468.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure468> g_urma("urma_468");
 
-bool UrmaFailure468::IsValid()
+bool UrmaFailure468::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_eid_by_ip' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_active_jfc") != std::string::npos &&
+           message.find("Jfc state is wrong in active_jfc.") != std::string::npos;
 }
 
 std::string UrmaFailure468::GetName() const
 {
-    return "URMA context、provider操作表、provider未提供get_eid_by_ip操作实现无效导致获取EID失败";
+    return "JFC状态不满足要求导致激活JFC失败";
 }
 
 std::string UrmaFailure468::GetRootCauseDesc() const
 {
-    return "函数用于获取EID，调用方传入的URMA "
-           "context、provider操作表、provider未提供get_eid_by_ip操作实现不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_active_jfc执行激活JFC时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure468::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure468::GetFixSuggDesc() const
 
 std::string UrmaFailure468::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_eid_by_ip，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jfc，Jfc state is wrong in active_jfc.。";
 }
 
 std::string UrmaFailure468::GetId() const
 {
     return "urma_468";
 }
-
 } // namespace diag

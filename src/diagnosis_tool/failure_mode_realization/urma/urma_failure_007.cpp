@@ -1,30 +1,25 @@
 #include "urma_failure_007.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure007> g_urma("urma_007");
 
-bool UrmaFailure007::IsValid()
+bool UrmaFailure007::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vjfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'bondp init jfr fail:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_vjfr") != std::string::npos &&
+           message.find("bondp init jfr fail:") != std::string::npos;
 }
 
 std::string UrmaFailure007::GetName() const
 {
-    return "初始化JFR过程中依赖步骤失败";
+    return "创建虚拟JFR执行失败导致创建虚拟JFR失败";
 }
 
 std::string UrmaFailure007::GetRootCauseDesc() const
 {
-    return "函数用于初始化JFR，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "bondp_create_vjfr执行创建虚拟JFR时依赖的创建虚拟JFR步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure007::AnalyzeRootCause()
@@ -46,5 +41,4 @@ std::string UrmaFailure007::GetId() const
 {
     return "urma_007";
 }
-
 } // namespace diag

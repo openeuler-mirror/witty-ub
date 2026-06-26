@@ -1,29 +1,25 @@
 #include "urma_failure_059.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure059> g_urma("urma_059");
 
-bool UrmaFailure059::IsValid()
+bool UrmaFailure059::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create jfs datapath ctx'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_bind_jetty") != std::string::npos &&
+           message.find("Jetty already has a binded target jetty") != std::string::npos;
 }
 
 std::string UrmaFailure059::GetName() const
 {
-    return "JFS创建时下层资源准备失败";
+    return "Jetty状态不满足要求导致绑定Jetty失败";
 }
 
 std::string UrmaFailure059::GetRootCauseDesc() const
 {
-    return "函数负责创建JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_bind_jetty执行绑定Jetty时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure059::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure059::GetFixSuggDesc() const
 
 std::string UrmaFailure059::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info，Failed to create jfs datapath ctx。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_bind_jetty，Jetty already has a binded target jetty。";
 }
 
 std::string UrmaFailure059::GetId() const
 {
     return "urma_059";
 }
-
 } // namespace diag

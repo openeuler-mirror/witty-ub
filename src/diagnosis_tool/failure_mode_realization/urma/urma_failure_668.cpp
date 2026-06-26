@@ -1,29 +1,25 @@
 #include "urma_failure_668.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure668> g_urma("urma_668");
 
-bool UrmaFailure668::IsValid()
+bool UrmaFailure668::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfs_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Invalid parameter, index:' | grep -F 'jfs in the array is NULL.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_modify_jfs") != std::string::npos &&
+           message.find("modify pjfs fail, index:") != std::string::npos && message.find(", ret:") != std::string::npos;
 }
 
 std::string UrmaFailure668::GetName() const
 {
-    return "JFS对象无效导致删除JFS失败";
+    return "修改JFS执行失败导致修改JFS失败";
 }
 
 std::string UrmaFailure668::GetRootCauseDesc() const
 {
-    return "函数用于删除JFS，调用方传入的JFS对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_modify_jfs执行修改JFS时依赖的修改JFS步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure668::AnalyzeRootCause()
@@ -38,13 +34,11 @@ std::string UrmaFailure668::GetFixSuggDesc() const
 
 std::string UrmaFailure668::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfs_batch，Invalid parameter, index:，jfs in the array is "
-           "NULL.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_modify_jfs，modify pjfs fail, index:，, ret:。";
 }
 
 std::string UrmaFailure668::GetId() const
 {
     return "urma_668";
 }
-
 } // namespace diag

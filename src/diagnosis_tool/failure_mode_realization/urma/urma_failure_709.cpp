@@ -1,30 +1,25 @@
 #include "urma_failure_709.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure709> g_urma("urma_709");
 
-bool UrmaFailure709::IsValid()
+bool UrmaFailure709::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_wait_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Faile to wait jfc non-block, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jfs_opt") != std::string::npos &&
+           message.find("Failed to set opt, jfs has been activated") != std::string::npos;
 }
 
 std::string UrmaFailure709::GetName() const
 {
-    return "等待JFC过程中依赖步骤失败";
+    return "设置JFS执行失败导致设置JFS失败";
 }
 
 std::string UrmaFailure709::GetRootCauseDesc() const
 {
-    return "函数用于等待JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "urma_set_jfs_opt执行设置JFS时依赖的设置JFS步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure709::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure709::GetFixSuggDesc() const
 
 std::string UrmaFailure709::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_wait_jfc，Faile to wait jfc non-block, ret:，, errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jfs_opt，Failed to set opt, jfs has been activated。";
 }
 
 std::string UrmaFailure709::GetId() const
 {
     return "urma_709";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_012.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure012> g_urma("urma_012");
 
-bool UrmaFailure012::IsValid()
+bool UrmaFailure012::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init jetty recv wr buf'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jetty") != std::string::npos &&
+           message.find("Failed to init jetty recv wr buf") != std::string::npos;
 }
 
 std::string UrmaFailure012::GetName() const
 {
-    return "Jetty数据通路处理失败";
+    return "创建Jetty执行失败导致创建Jetty失败";
 }
 
 std::string UrmaFailure012::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "bondp_create_jetty创建Jetty时初始化端口索引或收发WR缓冲区失败，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure012::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure012::GetFixSuggDesc() const
 
 std::string UrmaFailure012::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jetty_p_vjetty_info，Failed to init jetty recv wr buf。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jetty，Failed to init jetty recv wr buf。";
 }
 
 std::string UrmaFailure012::GetId() const
 {
     return "urma_012";
 }
-
 } // namespace diag

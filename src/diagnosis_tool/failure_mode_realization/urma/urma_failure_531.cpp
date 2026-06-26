@@ -1,29 +1,27 @@
 #include "urma_failure_531.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure531> g_urma("urma_531");
 
-bool UrmaFailure531::IsValid()
+bool UrmaFailure531::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_import_seg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_free_jfs") != std::string::npos &&
+           message.find("ioctl failed in urma_cmd_free_jfs , ret:") != std::string::npos &&
+           message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure531::GetName() const
 {
-    return "URMA context、Segment对象无效导致导入Segment失败";
+    return "释放JFS ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure531::GetRootCauseDesc() const
 {
-    return "函数用于导入Segment，调用方传入的URMA context、Segment对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_free_"
+           "jfs通过ioctl向驱动提交释放JFS命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure531::AnalyzeRootCause()
@@ -38,12 +36,11 @@ std::string UrmaFailure531::GetFixSuggDesc() const
 
 std::string UrmaFailure531::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_import_seg，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_free_jfs，ioctl failed in urma_cmd_free_jfs , ret:，, errno:。";
 }
 
 std::string UrmaFailure531::GetId() const
 {
     return "urma_531";
 }
-
 } // namespace diag

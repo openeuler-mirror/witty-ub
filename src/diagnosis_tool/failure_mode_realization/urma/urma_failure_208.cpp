@@ -1,29 +1,25 @@
 #include "urma_failure_208.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure208> g_urma("urma_208");
 
-bool UrmaFailure208::IsValid()
+bool UrmaFailure208::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'jetty still deactived, can not delete.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jetty_opt") != std::string::npos &&
+           message.find("Failed to exec urma_add_jetty_to_jetty_grp.") != std::string::npos;
 }
 
 std::string UrmaFailure208::GetName() const
 {
-    return "Jetty清理阶段下层释放操作失败";
+    return "设置Jetty执行失败导致设置Jetty失败";
 }
 
 std::string UrmaFailure208::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_set_jetty_opt执行设置Jetty时依赖的设置Jetty步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure208::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure208::GetFixSuggDesc() const
 
 std::string UrmaFailure208::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty，jetty still deactived, can not delete.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jetty_opt，Failed to exec urma_add_jetty_to_jetty_grp.。";
 }
 
 std::string UrmaFailure208::GetId() const
 {
     return "urma_208";
 }
-
 } // namespace diag

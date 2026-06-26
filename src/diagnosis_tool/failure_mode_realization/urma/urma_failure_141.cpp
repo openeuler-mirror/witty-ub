@@ -1,30 +1,25 @@
 #include "urma_failure_141.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure141> g_urma("urma_141");
 
-bool UrmaFailure141::IsValid()
+bool UrmaFailure141::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'bad jetty index exceed array length, bad_jetty_index:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jfr") != std::string::npos &&
+           message.find("Failed to create pjfr") != std::string::npos;
 }
 
 std::string UrmaFailure141::GetName() const
 {
-    return "删除Jetty过程中依赖步骤失败";
+    return "下层资源创建失败导致创建JFR失败";
 }
 
 std::string UrmaFailure141::GetRootCauseDesc() const
 {
-    return "函数用于删除Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "bondp_create_jfr在创建JFR过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure141::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure141::GetFixSuggDesc() const
 
 std::string UrmaFailure141::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty_batch，bad jetty index exceed array length, "
-           "bad_jetty_index:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jfr，Failed to create pjfr。";
 }
 
 std::string UrmaFailure141::GetId() const
 {
     return "urma_141";
 }
-
 } // namespace diag

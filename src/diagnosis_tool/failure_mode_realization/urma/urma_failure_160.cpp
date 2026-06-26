@@ -1,30 +1,25 @@
 #include "urma_failure_160.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure160> g_urma("urma_160");
 
-bool UrmaFailure160::IsValid()
+bool UrmaFailure160::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_get_jetty_opt' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'ioctl failed in urma_cmd_get_jetty_opt, ret:' | grep -F ', errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_context") != std::string::npos &&
+           message.find("Failed to create ctx") != std::string::npos;
 }
 
 std::string UrmaFailure160::GetName() const
 {
-    return "获取ioctl的ioctl调用返回失败";
+    return "下层资源创建失败导致创建context失败";
 }
 
 std::string UrmaFailure160::GetRootCauseDesc() const
 {
-    return "函数通过ioctl向URMA内核驱动提交获取ioctl请求，驱动返回错误或系统调用失败，用户态无法获得预期的驱动处理结果"
-           "。";
+    return "bondp_create_context在创建context过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure160::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure160::GetFixSuggDesc() const
 
 std::string UrmaFailure160::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_jetty_opt，ioctl failed in urma_cmd_get_jetty_opt, ret:，, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_context，Failed to create ctx。";
 }
 
 std::string UrmaFailure160::GetId() const
 {
     return "urma_160";
 }
-
 } // namespace diag

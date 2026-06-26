@@ -1,30 +1,24 @@
 #include "urma_failure_400.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure400> g_urma("urma_400");
 
-bool UrmaFailure400::IsValid()
+bool UrmaFailure400::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_check_ctrlplane_compat' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Token value must be set when token policy is not URMA_TOKEN_NONE.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("schedule_send") != std::string::npos && message.find("No active port") != std::string::npos;
 }
 
 std::string UrmaFailure400::GetName() const
 {
-    return "设置Token过程中依赖步骤失败";
+    return "schedule状态不满足要求导致发送schedule失败";
 }
 
 std::string UrmaFailure400::GetRootCauseDesc() const
 {
-    return "函数用于设置Token，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "schedule_send执行发送schedule时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure400::AnalyzeRootCause()
@@ -39,13 +33,11 @@ std::string UrmaFailure400::GetFixSuggDesc() const
 
 std::string UrmaFailure400::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_ctrlplane_compat，Token value must be set when token policy "
-           "is not URMA_TOKEN_NONE.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：schedule_send，No active port。";
 }
 
 std::string UrmaFailure400::GetId() const
 {
     return "urma_400";
 }
-
 } // namespace diag

@@ -1,29 +1,27 @@
 #include "urma_failure_640.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure640> g_urma("urma_640");
 
-bool UrmaFailure640::IsValid()
+bool UrmaFailure640::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc_batch' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_ioctl_get_async_event") != std::string::npos &&
+           message.find("get async event ioctl failed, ret:") != std::string::npos &&
+           message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure640::GetName() const
 {
-    return "URMA context无效导致删除JFC失败";
+    return "获取异步事件 ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure640::GetRootCauseDesc() const
 {
-    return "函数用于删除JFC，调用方传入的URMA context不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_ioctl_get_async_"
+           "event通过ioctl向驱动提交获取异步事件命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure640::AnalyzeRootCause()
@@ -38,12 +36,12 @@ std::string UrmaFailure640::GetFixSuggDesc() const
 
 std::string UrmaFailure640::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ioctl_get_async_event，get async event ioctl failed, ret:，, "
+           "errno:。";
 }
 
 std::string UrmaFailure640::GetId() const
 {
     return "urma_640";
 }
-
 } // namespace diag

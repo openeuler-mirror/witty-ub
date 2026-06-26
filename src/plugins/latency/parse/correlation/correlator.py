@@ -70,7 +70,7 @@ class IndexManager:
         for u in self.urma_entries:
             self.urma_count_by_pod[u.pod_ip] += 1
             if u.trace_id:
-                self.urma_by_dst_trace[(u.dst_addr, u.trace_id)].append(u)
+                self.urma_by_dst_trace[(u.pod_ip, u.trace_id)].append(u)
                 self.urma_by_trace_endpoint[(u.trace_id, u.src_addr, u.dst_addr)].append(u)
                 self.traced_count_by_pod[u.pod_ip] += 1
                 self.traced_count_by_pod_trace[(u.pod_ip, u.trace_id)] += 1
@@ -415,14 +415,16 @@ class WorkerMetricsCorrelator(BaseCorrelator):
         super().__init__(index_manager)
         self.metrics_entries = metrics_entries
         metrics_by_pod_trace_type = defaultdict(list)
-        if target_pod_traces is None:
+        # 提取目标 trace_id 集合（忽略 pod_ip）
+        target_trace_ids = {trace_id for _, trace_id in target_pod_traces} if target_pod_traces else None
+        
+        if target_trace_ids is None:
             for m in metrics_entries:
-                metrics_by_pod_trace_type[(m.pod_ip, m.trace_id, m.entry_type)].append(m)
+                metrics_by_pod_trace_type[(m.trace_id, m.entry_type)].append(m)
         else:
             for m in metrics_entries:
-                pod_trace = (m.pod_ip, m.trace_id)
-                if pod_trace in target_pod_traces:
-                    metrics_by_pod_trace_type[(m.pod_ip, m.trace_id, m.entry_type)].append(m)
+                if m.trace_id in target_trace_ids:
+                    metrics_by_pod_trace_type[(m.trace_id, m.entry_type)].append(m)
         self.metrics_by_pod_trace_type = dict(metrics_by_pod_trace_type)
 
     def correlate(
@@ -439,29 +441,29 @@ class WorkerMetricsCorrelator(BaseCorrelator):
         master_rpc_map = {}
 
         for i, w in self.index_manager.iter_worker_items(worker_indices):
-            pod_trace = (w.pod_ip, w.trace_id)
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.SDK_PROCESS))
+            # 使用 trace_id 查询，不再依赖 pod_ip
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.SDK_PROCESS))
             if values:
                 sdk_process_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.SDK_RPC))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.SDK_RPC))
             if values:
                 sdk_rpc_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.LOCAL_WORKER_COST))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.LOCAL_WORKER_COST))
             if values:
                 local_worker_cost_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.LOCAL_WORKER_LOCK))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.LOCAL_WORKER_LOCK))
             if values:
                 local_worker_lock_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.REMOTE_WORKER_COST))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.REMOTE_WORKER_COST))
             if values:
                 remote_worker_cost_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.REMOTE_WORKER_RPC))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.REMOTE_WORKER_RPC))
             if values:
                 remote_worker_rpc_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.MASTER_PROCESS))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.MASTER_PROCESS))
             if values:
                 master_process_map[i] = values
-            values = self.metrics_by_pod_trace_type.get((*pod_trace, EntryType.MASTER_RPC))
+            values = self.metrics_by_pod_trace_type.get((w.trace_id, EntryType.MASTER_RPC))
             if values:
                 master_rpc_map[i] = values
 

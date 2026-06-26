@@ -1,29 +1,25 @@
 #include "urma_failure_342.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure342> g_urma("urma_342");
 
-bool UrmaFailure342::IsValid()
+bool UrmaFailure342::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_health_check_ctx' \"$URMA_LOG_PATH\" 2>/dev/null | grep "
-        "-F 'Failed to register health ctx globally'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_alloc_token_id") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure342::GetName() const
 {
-    return "健康检查注册时下层资源准备失败";
+    return "URMA context无效导致分配Token ID、ID失败";
 }
 
 std::string UrmaFailure342::GetRootCauseDesc() const
 {
-    return "函数负责注册健康检查，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_alloc_token_id用于分配Token ID、ID，调用方传入的URMA context不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure342::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure342::GetFixSuggDesc() const
 
 std::string UrmaFailure342::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_health_check_ctx，Failed to register health ctx globally。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_token_id，Invalid parameter.。";
 }
 
 std::string UrmaFailure342::GetId() const
 {
     return "urma_342";
 }
-
 } // namespace diag

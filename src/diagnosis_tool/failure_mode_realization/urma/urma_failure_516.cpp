@@ -1,29 +1,25 @@
 #include "urma_failure_516.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure516> g_urma("urma_516");
 
-bool UrmaFailure516::IsValid()
+bool UrmaFailure516::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_vseg' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid token id for register bondp seg'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_vcontext") != std::string::npos &&
+           message.find("Failed to urma_cmd_delete_context") != std::string::npos;
 }
 
 std::string UrmaFailure516::GetName() const
 {
-    return "URMA context、Segment对象无效导致注册Token失败";
+    return "下层资源删除失败导致删除vcontext失败";
 }
 
 std::string UrmaFailure516::GetRootCauseDesc() const
 {
-    return "函数用于注册Token，调用方传入的URMA context、Segment对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_delete_vcontext清理vcontext时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure516::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure516::GetFixSuggDesc() const
 
 std::string UrmaFailure516::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vseg，Invalid token id for register bondp seg。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_vcontext，Failed to urma_cmd_delete_context。";
 }
 
 std::string UrmaFailure516::GetId() const
 {
     return "urma_516";
 }
-
 } // namespace diag

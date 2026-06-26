@@ -1,29 +1,25 @@
 #include "urma_failure_131.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure131> g_urma("urma_131");
 
-bool UrmaFailure131::IsValid()
+bool UrmaFailure131::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_query_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_vjfs") != std::string::npos &&
+           message.find("ubcore create jfs failed.") != std::string::npos;
 }
 
 std::string UrmaFailure131::GetName() const
 {
-    return "URMA context、Jetty对象无效导致查询Jetty失败";
+    return "下层资源创建失败导致创建虚拟JFS失败";
 }
 
 std::string UrmaFailure131::GetRootCauseDesc() const
 {
-    return "函数用于查询Jetty，调用方传入的URMA context、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_vjfs在创建虚拟JFS过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure131::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure131::GetFixSuggDesc() const
 
 std::string UrmaFailure131::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_query_jetty，Invalid parameter。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vjfs，ubcore create jfs failed.。";
 }
 
 std::string UrmaFailure131::GetId() const
 {
     return "urma_131";
 }
-
 } // namespace diag

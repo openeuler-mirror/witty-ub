@@ -1,29 +1,26 @@
 #include "urma_failure_215.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure215> g_urma("urma_215");
 
-bool UrmaFailure215::IsValid()
+bool UrmaFailure215::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jetty_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Failed to delete as jetty has remote jetty, try unbind, index:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_create_context") != std::string::npos &&
+           message.find("Invalid parameter with err dev or ops.") != std::string::npos;
 }
 
 std::string UrmaFailure215::GetName() const
 {
-    return "Jetty清理阶段下层释放操作失败";
+    return "URMA设备、provider操作表、create_context无效导致创建context失败";
 }
 
 std::string UrmaFailure215::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_create_context用于创建context，调用方传入的URMA设备、provider操作表、create_"
+           "context不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure215::AnalyzeRootCause()
@@ -33,18 +30,16 @@ RootCause UrmaFailure215::AnalyzeRootCause()
 
 std::string UrmaFailure215::GetFixSuggDesc() const
 {
-    return "无";
+    return "当前不会触发";
 }
 
 std::string UrmaFailure215::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jetty_batch，Failed to delete as jetty has remote jetty, "
-           "try unbind, index:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_create_context，Invalid parameter with err dev or ops.。";
 }
 
 std::string UrmaFailure215::GetId() const
 {
     return "urma_215";
 }
-
 } // namespace diag

@@ -1,30 +1,25 @@
 #include "urma_failure_317.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure317> g_urma("urma_317");
 
-bool UrmaFailure317::IsValid()
+bool UrmaFailure317::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_parse_rsvd_jetty_range' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'parse sysfs:' | grep -F 'failed'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_register_seg") != std::string::npos &&
+           message.find("Failed to create vseg") != std::string::npos;
 }
 
 std::string UrmaFailure317::GetName() const
 {
-    return "设备、EID、端口、能力或字符设备路径信息的sysfs读取或解析失败";
+    return "下层资源创建失败导致注册Segment失败";
 }
 
 std::string UrmaFailure317::GetRootCauseDesc() const
 {
-    return "函数需要从sysfs获取设备、EID、端口、能力或字符设备路径信息来构建设备上下文，文件打开、读取或内容解析失败导"
-           "致URMA无法完成设备发现或能力初始化。";
+    return "bondp_register_seg在注册Segment过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure317::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure317::GetFixSuggDesc() const
 
 std::string UrmaFailure317::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_parse_rsvd_jetty_range，parse sysfs:，failed。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_register_seg，Failed to create vseg。";
 }
 
 std::string UrmaFailure317::GetId() const
 {
     return "urma_317";
 }
-
 } // namespace diag

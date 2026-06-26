@@ -1,30 +1,25 @@
 #include "urma_failure_643.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure643> g_urma("urma_643");
 
-bool UrmaFailure643::IsValid()
+bool UrmaFailure643::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc_batch' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'bad jfc index exceed array length, bad_jfc_index:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_check_seg_cfg") != std::string::npos &&
+           message.find("Write access should be config with read access.") != std::string::npos;
 }
 
 std::string UrmaFailure643::GetName() const
 {
-    return "删除JFC过程中依赖步骤失败";
+    return "Segment、CFG状态不满足要求导致校验Segment、CFG失败";
 }
 
 std::string UrmaFailure643::GetRootCauseDesc() const
 {
-    return "函数用于删除JFC，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操作"
-           "失败。";
+    return "urma_check_seg_cfg执行校验Segment、CFG时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure643::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure643::GetFixSuggDesc() const
 
 std::string UrmaFailure643::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，bad jfc index exceed array length, "
-           "bad_jfc_index:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_check_seg_cfg，Write access should be config with read access.。";
 }
 
 std::string UrmaFailure643::GetId() const
 {
     return "urma_643";
 }
-
 } // namespace diag

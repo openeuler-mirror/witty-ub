@@ -1,30 +1,29 @@
 #include "urma_failure_716.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure716> g_urma("urma_716");
 
-bool UrmaFailure716::IsValid()
+bool UrmaFailure716::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_open_cdev' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'file_path:' | grep -F 'is not standardize.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_active_jfs") != std::string::npos &&
+           message.find("jfs cfg out of range, depth:") != std::string::npos &&
+           message.find(", max_depth:") != std::string::npos && message.find(", inline_data:") != std::string::npos &&
+           message.find(", max_inline_len:") != std::string::npos && message.find(", sge:") != std::string::npos &&
+           message.find(", max_sge:") != std::string::npos && message.find(", rsge:") != std::string::npos &&
+           message.find(", max_rsge:") != std::string::npos;
 }
 
 std::string UrmaFailure716::GetName() const
 {
-    return "打开字符设备过程中依赖步骤失败";
+    return "JFS配置值超过设备能力导致激活JFS失败";
 }
 
 std::string UrmaFailure716::GetRootCauseDesc() const
 {
-    return "函数用于打开字符设备，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URM"
-           "A操作失败。";
+    return "urma_active_jfs会按设备能力校验JFS配置，深度、数量或索引超过硬件/驱动上限时不能继续创建或修改资源。";
 }
 
 RootCause UrmaFailure716::AnalyzeRootCause()
@@ -39,12 +38,13 @@ std::string UrmaFailure716::GetFixSuggDesc() const
 
 std::string UrmaFailure716::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_open_cdev，file_path:，is not standardize.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_active_jfs，jfs cfg out of range, depth:，, max_depth:，, "
+           "inline_data:，, ma"
+           "x_inline_len:，, sge:，, max_sge:，, rsge:，, max_rsge:。";
 }
 
 std::string UrmaFailure716::GetId() const
 {
     return "urma_716";
 }
-
 } // namespace diag

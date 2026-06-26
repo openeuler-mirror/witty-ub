@@ -1,30 +1,25 @@
 #include "urma_failure_097.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure097> g_urma("urma_097");
 
-bool UrmaFailure097::IsValid()
+bool UrmaFailure097::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_and_store' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'WR->tjetty is NULL'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_import_jfr") != std::string::npos &&
+           message.find("Token value must be set when token policy is not URMA_TOKEN_NONE.") != std::string::npos;
 }
 
 std::string UrmaFailure097::GetName() const
 {
-    return "WR数据通路处理失败";
+    return "JFR状态不满足要求导致导入JFR失败";
 }
 
 std::string UrmaFailure097::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_import_jfr执行导入JFR时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure097::AnalyzeRootCause()
@@ -34,17 +29,18 @@ RootCause UrmaFailure097::AnalyzeRootCause()
 
 std::string UrmaFailure097::GetFixSuggDesc() const
 {
-    return "无";
+    return "UDMA错误定界；建链交换信息失败，可重试";
 }
 
 std::string UrmaFailure097::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_and_store，WR->tjetty is NULL。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_import_jfr，Token value must be set when token policy is not "
+           "URMA_TOKEN_N"
+           "ONE.。";
 }
 
 std::string UrmaFailure097::GetId() const
 {
     return "urma_097";
 }
-
 } // namespace diag

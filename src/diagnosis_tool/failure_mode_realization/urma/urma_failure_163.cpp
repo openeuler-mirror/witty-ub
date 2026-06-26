@@ -1,29 +1,25 @@
 #include "urma_failure_163.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure163> g_urma("urma_163");
 
-bool UrmaFailure163::IsValid()
+bool UrmaFailure163::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_active_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid flag.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_context") != std::string::npos &&
+           message.find("Failed to create health check scene") != std::string::npos;
 }
 
 std::string UrmaFailure163::GetName() const
 {
-    return "JFR对象、Jetty对象无效导致激活Jetty失败";
+    return "下层资源创建失败导致创建context失败";
 }
 
 std::string UrmaFailure163::GetRootCauseDesc() const
 {
-    return "函数用于激活Jetty，调用方传入的JFR对象、Jetty对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_create_context在创建context过程中依赖下层对象或provider创建结果，下层返回失败后当前资源无法建立。";
 }
 
 RootCause UrmaFailure163::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure163::GetFixSuggDesc() const
 
 std::string UrmaFailure163::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_active_jetty，Invalid flag.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_context，Failed to create health check scene。";
 }
 
 std::string UrmaFailure163::GetId() const
 {
     return "urma_163";
 }
-
 } // namespace diag

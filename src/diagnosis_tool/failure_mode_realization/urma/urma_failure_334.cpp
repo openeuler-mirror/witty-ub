@@ -1,29 +1,26 @@
 #include "urma_failure_334.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure334> g_urma("urma_334");
 
-bool UrmaFailure334::IsValid()
+bool UrmaFailure334::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_post_send_wr_and_store' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to allocate jfs wr entry'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_unregister_seg") != std::string::npos &&
+           message.find("ioctl failed, ret:") != std::string::npos && message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure334::GetName() const
 {
-    return "JFS相关临时结构或命令参数分配失败";
+    return "注销Segment ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure334::GetRootCauseDesc() const
 {
-    return "函数在投递JFS前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "urma_cmd_unregister_"
+           "seg通过ioctl向驱动提交注销Segment命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure334::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure334::GetFixSuggDesc() const
 
 std::string UrmaFailure334::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_post_send_wr_and_store，Failed to allocate jfs wr entry。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_unregister_seg，ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure334::GetId() const
 {
     return "urma_334";
 }
-
 } // namespace diag

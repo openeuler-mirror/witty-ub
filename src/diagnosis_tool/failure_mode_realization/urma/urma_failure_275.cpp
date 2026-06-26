@@ -1,30 +1,25 @@
 #include "urma_failure_275.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure275> g_urma("urma_275");
 
-bool UrmaFailure275::IsValid()
+bool UrmaFailure275::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_get_jetty_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to exec ops->get_jetty_opt.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_str_to_eid") != std::string::npos &&
+           message.find("Invalid argument.") != std::string::npos;
 }
 
 std::string UrmaFailure275::GetName() const
 {
-    return "获取Jetty过程中依赖步骤失败";
+    return "STR、EID状态不满足要求导致strSTR、EID失败";
 }
 
 std::string UrmaFailure275::GetRootCauseDesc() const
 {
-    return "函数用于获取Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_str_to_eid执行strSTR、EID时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure275::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure275::GetFixSuggDesc() const
 
 std::string UrmaFailure275::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_jetty_opt，Failed to exec ops->get_jetty_opt.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_str_to_eid，Invalid argument.。";
 }
 
 std::string UrmaFailure275::GetId() const
 {
     return "urma_275";
 }
-
 } // namespace diag

@@ -1,29 +1,25 @@
 #include "urma_failure_343.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure343> g_urma("urma_343");
 
-bool UrmaFailure343::IsValid()
+bool UrmaFailure343::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'get_topo_info_from_ko' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to create topo map'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_alloc_token_id_ex") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure343::GetName() const
 {
-    return "context创建时下层资源准备失败";
+    return "Token ID、ID无效导致分配Token ID、ID失败";
 }
 
 std::string UrmaFailure343::GetRootCauseDesc() const
 {
-    return "函数负责创建context，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_alloc_token_id_ex用于分配Token ID、ID，调用方传入的Token ID、ID不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure343::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure343::GetFixSuggDesc() const
 
 std::string UrmaFailure343::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：get_topo_info_from_ko，Failed to create topo map。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_alloc_token_id_ex，Invalid parameter.。";
 }
 
 std::string UrmaFailure343::GetId() const
 {
     return "urma_343";
 }
-
 } // namespace diag

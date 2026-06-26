@@ -43,7 +43,7 @@ class FailureModeKnowledge:
             except Exception as e:
                 logger.error(f"读取 kvcache 故障模式失败: {str(e)}")
         
-        urma_json_path = os.path.join(data_path, "urma", "urma_failure_mode_tree.json")
+        urma_json_path = os.path.join(data_path, "urma", "urma_failure_mode.json")
         urma_count = 0
         if os.path.exists(urma_json_path):
             try:

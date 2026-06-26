@@ -1,29 +1,26 @@
 #include "urma_failure_075.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure075> g_urma("urma_075");
 
-bool UrmaFailure075::IsValid()
+bool UrmaFailure075::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jetty_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create vjetty,'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_get_jfr_opt") != std::string::npos &&
+           message.find("output length too large, out.len=") != std::string::npos &&
+           message.find(", buf.len=") != std::string::npos;
 }
 
 std::string UrmaFailure075::GetName() const
 {
-    return "虚拟 Jetty创建时下层资源准备失败";
+    return "JFR状态不满足要求导致获取JFR失败";
 }
 
 std::string UrmaFailure075::GetRootCauseDesc() const
 {
-    return "函数负责创建虚拟 Jetty，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_cmd_get_jfr_opt执行获取JFR时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure075::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure075::GetFixSuggDesc() const
 
 std::string UrmaFailure075::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jetty_p_vjetty_info，Failed to create vjetty,。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_get_jfr_opt，output length too large, out.len=，, buf.len=。";
 }
 
 std::string UrmaFailure075::GetId() const
 {
     return "urma_075";
 }
-
 } // namespace diag

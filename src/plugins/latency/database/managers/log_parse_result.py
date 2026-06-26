@@ -40,44 +40,78 @@ class LogParseResultManager:
     @staticmethod
     async def add_log_parse_results(
         results: list[LogParseResultModel],
-        batch_size: int = 1024,
+        batch_size: int = 50000,
     ) -> list[str]:
-        """批量添加日志解析结果"""
-        ids_added = []
-        for i in range(0, len(results), batch_size):
-            batch = results[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO log_parse_result_table (
-                        id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                        timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
-                        total_latency, c2w_latency, worker_query_meta_latency,
-                        urma_total_latency, urma_link_latency, urma_inflight_count,
-                        c2w_urma_latency, w2w_urma_latency, operation, data_size,
-                        offset, is_anomalous, content, anomaly_reason, anomaly_score,
-                        remark, existed_status, created_at,
-                        sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
-                        remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
-                    ) VALUES (
-                        :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                        :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
-                        :total_latency, :c2w_latency, :worker_query_meta_latency,
-                        :urma_total_latency, :urma_link_latency, :urma_inflight_count,
-                        :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
-                        :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
-                        :remark, :existed_status, :created_at,
-                        :sdk_process, :sdk_rpc, :local_worker_cost, :local_worker_lock,
-                        :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
-                    )
-                """
-                params = [
-                    r.model_dump(exclude_none=False, by_alias=True) for r in batch
-                ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([r.id for r in batch])
-            except Exception as e:
-                print(f"批量添加日志解析结果失败，错误信息: {str(e)}")
-        return ids_added
+        """批量添加日志解析结果：全局单事务 + SQLite写入优化 + 线程安全修复"""
+        import asyncio
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        if not results:
+            return []
+            
+        ids_added = [r.id for r in results]
+        params = [r.model_dump(exclude_none=False, by_alias=True) for r in results]
+        total_count = len(params)
+        db = AsyncSQLiteSingleton()
+        
+        # 全局协程锁，保证同一时间只有一组操作操作sqlite连接
+        async with db._async_lock:
+            def sync_batch_insert():
+                """同步函数：全部sqlite操作放到同一个子线程，线程安全"""
+                conn = db._conn
+                try:
+                    # 写入性能调优（事务内生效，不影响其他连接）
+                    conn.execute("PRAGMA journal_mode = WAL;")
+                    conn.execute("PRAGMA synchronous = NORMAL;")
+                    conn.execute("PRAGMA cache_size = -7500;")  # 7.5MB缓存
+                    conn.execute("PRAGMA temp_store = MEMORY;")
+                    conn.execute("PRAGMA foreign_keys = OFF;")
+                    
+                    # 开启统一事务
+                    conn.execute("BEGIN TRANSACTION;")
+                    
+                    sql_str = """
+                        INSERT INTO log_parse_result_table (
+                            id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
+                            timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                            total_latency, c2w_latency, worker_query_meta_latency,
+                            urma_total_latency, urma_link_latency, urma_inflight_count,
+                            c2w_urma_latency, w2w_urma_latency, operation, data_size,
+                            offset, is_anomalous, content, anomaly_reason, anomaly_score,
+                            remark, existed_status, created_at,
+                            sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
+                            remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
+                        ) VALUES (
+                            :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
+                            :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
+                            :total_latency, :c2w_latency, :worker_query_meta_latency,
+                            :urma_total_latency, :urma_link_latency, :urma_inflight_count,
+                            :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
+                            :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
+                            :remark, :existed_status, :created_at,
+                            :sdk_process, :sdk_rpc, :local_worker_cost, :local_worker_lock,
+                            :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
+                        )
+                    """
+                    # 分批次插入
+                    for i in range(0, total_count, batch_size):
+                        batch = params[i:i + batch_size]
+                        conn.executemany(sql_str, batch)
+                    
+                    # 一次性提交
+                    conn.commit()
+                    logger.info(f"[Store] 单事务插入成功，共 {total_count:,} 条记录")
+                    return True
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"[Store] 插入失败，事务回滚: {str(e)}")
+                    return False
+            
+            # 所有sqlite操作全部在同一个线程执行，避免多线程争抢conn
+            success = await asyncio.to_thread(sync_batch_insert)
+            return ids_added if success else []
 
     @staticmethod
     async def delete_log_parse_results_by_log_id(log_id: str) -> bool:
@@ -131,6 +165,9 @@ class LogParseResultManager:
         if req.log_id:
             sql_str += " AND lpr.log_id = :log_id"
             params["log_id"] = req.log_id
+        if req.aggregated_event_id:
+            sql_str += " AND lpr.aggregated_event_id = :aggregated_event_id"
+            params["aggregated_event_id"] = req.aggregated_event_id
         if req.src_ip:
             sql_str += " AND lpr.src_ip LIKE :src_ip"
             params["src_ip"] = f"%{req.src_ip}%"
@@ -152,13 +189,48 @@ class LogParseResultManager:
         if req.created_at_end:
             sql_str += " AND lpr.created_at <= :created_at_end"
             params["created_at_end"] = req.created_at_end
+        if req.start_time:
+            sql_str += " AND lpr.timestamp >= :start_time"
+            params["start_time"] = req.start_time
+        if req.end_time:
+            sql_str += " AND lpr.timestamp <= :end_time"
+            params["end_time"] = req.end_time
 
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
         total = count_rows[0]["cnt"] if count_rows else 0
 
-        sort_order = "DESC" if req.created_sorted_desc else "ASC"
-        sql_str += f" ORDER BY lpr.created_at {sort_order}"
+        sort_field_mapping = {
+            "total_latency": "lpr.total_latency",
+            "timestamp": "lpr.timestamp",
+            "trace_id": "lpr.trace_id",
+            "pod_ip": "lpr.pod_ip",
+            "cluster_name": "lpr.cluster_name",
+            "host": "lpr.host",
+            "query_meta_latency": "lpr.worker_query_meta_latency",
+            "urma_total_latency": "lpr.urma_total_latency",
+            "urma_link_latency": "lpr.urma_link_latency",
+            "worker_query_meta_latency": "lpr.worker_query_meta_latency",
+            "c2w_urma_latency": "lpr.c2w_urma_latency",
+            "w2w_urma_latency": "lpr.w2w_urma_latency",
+            "created_at": "lpr.created_at",
+        }
+        
+        if req.sort_fields and len(req.sort_fields) > 0:
+            sort_clauses = []
+            for sort_field in req.sort_fields:
+                field_name = sort_field.field
+                if field_name in sort_field_mapping:
+                    order = "DESC" if sort_field.order == "desc" else "ASC"
+                    sort_clauses.append(f"{sort_field_mapping[field_name]} {order}")
+            # 如果有有效的排序字段，使用它们；否则使用默认排序
+            if sort_clauses:
+                sql_str += " ORDER BY " + ", ".join(sort_clauses)
+            else:
+                sql_str += " ORDER BY lpr.total_latency DESC"
+        else:
+            sql_str += " ORDER BY lpr.total_latency DESC"
+        
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"
         params["limit"] = req.page_cnt

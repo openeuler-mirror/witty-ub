@@ -1,30 +1,26 @@
 #include "urma_failure_547.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure547> g_urma("urma_547");
 
-bool UrmaFailure547::IsValid()
+bool UrmaFailure547::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_wait_jfc' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Epoll wait err, ret:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_delete_jetty") != std::string::npos &&
+           message.find("ioctl failed, ret:") != std::string::npos && message.find(", errno:") != std::string::npos;
 }
 
 std::string UrmaFailure547::GetName() const
 {
-    return "epoll数据通路处理失败";
+    return "删除Jetty ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure547::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_cmd_delete_"
+           "jetty通过ioctl向驱动提交删除Jetty命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure547::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure547::GetFixSuggDesc() const
 
 std::string UrmaFailure547::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_wait_jfc，Epoll wait err, ret:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jetty，ioctl failed, ret:，, errno:。";
 }
 
 std::string UrmaFailure547::GetId() const
 {
     return "urma_547";
 }
-
 } // namespace diag

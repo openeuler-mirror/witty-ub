@@ -1,29 +1,27 @@
 #include "urma_failure_376.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure376> g_urma("urma_376");
 
-bool UrmaFailure376::IsValid()
+bool UrmaFailure376::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_cmd_delete_jfc_batch' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to malloc buffer.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("post_send_check_jfs_wr_valid") != std::string::npos &&
+           message.find("when set write_wr, either of src/dst num_sge/sge has been set zero or NULL.") !=
+               std::string::npos;
 }
 
 std::string UrmaFailure376::GetName() const
 {
-    return "JFC相关临时结构或命令参数分配失败";
+    return "JFS、工作请求、valid状态不满足要求导致投递JFS、工作请求、valid失败";
 }
 
 std::string UrmaFailure376::GetRootCauseDesc() const
 {
-    return "函数在删除JFC前需要申请命令参数、资源描述或临时缓存，内存分配失败会阻断后续URMA资源处理。";
+    return "post_send_check_jfs_wr_"
+           "valid执行投递JFS、工作请求、valid时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure376::AnalyzeRootCause()
@@ -38,12 +36,13 @@ std::string UrmaFailure376::GetFixSuggDesc() const
 
 std::string UrmaFailure376::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_delete_jfc_batch，Failed to malloc buffer.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：post_send_check_jfs_wr_valid，when set write_wr, either of src/dst "
+           "num_sge/sge"
+           " has been set zero or NULL.。";
 }
 
 std::string UrmaFailure376::GetId() const
 {
     return "urma_376";
 }
-
 } // namespace diag

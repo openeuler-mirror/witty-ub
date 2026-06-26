@@ -1,29 +1,26 @@
 #include "urma_failure_662.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure662> g_urma("urma_662");
 
-bool UrmaFailure662::IsValid()
+bool UrmaFailure662::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_free_jfs' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to free jfs.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_validate_driver") != std::string::npos &&
+           message.find("Invalid driver name length.") != std::string::npos;
 }
 
 std::string UrmaFailure662::GetName() const
 {
-    return "JFS清理阶段下层释放操作失败";
+    return "validate、driver状态不满足要求导致validatevalidate、driver失败";
 }
 
 std::string UrmaFailure662::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFS相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_validate_"
+           "driver执行validatevalidate、driver时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure662::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure662::GetFixSuggDesc() const
 
 std::string UrmaFailure662::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_free_jfs，Failed to free jfs.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_validate_driver，Invalid driver name length.。";
 }
 
 std::string UrmaFailure662::GetId() const
 {
     return "urma_662";
 }
-
 } // namespace diag

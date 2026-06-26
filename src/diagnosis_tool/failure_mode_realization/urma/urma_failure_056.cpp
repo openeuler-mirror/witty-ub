@@ -1,29 +1,25 @@
 #include "urma_failure_056.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure056> g_urma("urma_056");
 
-bool UrmaFailure056::IsValid()
+bool UrmaFailure056::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfs_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create pjfs'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_jetty") != std::string::npos &&
+           message.find("Failed to import pjetty") != std::string::npos;
 }
 
 std::string UrmaFailure056::GetName() const
 {
-    return "物理 JFS创建时下层资源准备失败";
+    return "下层注册或导入返回失败导致导入Jetty失败";
 }
 
 std::string UrmaFailure056::GetRootCauseDesc() const
 {
-    return "函数负责创建物理 JFS，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_import_jetty在导入Jetty时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure056::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure056::GetFixSuggDesc() const
 
 std::string UrmaFailure056::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfs_p_vjetty_info，Failed to create pjfs。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_jetty，Failed to import pjetty。";
 }
 
 std::string UrmaFailure056::GetId() const
 {
     return "urma_056";
 }
-
 } // namespace diag

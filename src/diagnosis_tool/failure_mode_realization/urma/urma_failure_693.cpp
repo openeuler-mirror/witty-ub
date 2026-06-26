@@ -1,30 +1,26 @@
 #include "urma_failure_693.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure693> g_urma("urma_693");
 
-bool UrmaFailure693::IsValid()
+bool UrmaFailure693::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_context' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Invalid parameter.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_advise_jetty") != std::string::npos &&
+           message.find("Invalid parameter") != std::string::npos;
 }
 
 std::string UrmaFailure693::GetName() const
 {
-    return "URMA context、设备对象、provider操作表无效导致删除context失败";
+    return "Jetty、URMA context、dev_fd、目标Jetty无效导致advise、Jetty失败";
 }
 
 std::string UrmaFailure693::GetRootCauseDesc() const
 {
-    return "函数用于删除context，调用方传入的URMA "
-           "context、设备对象、provider操作表不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "urma_cmd_advise_jetty用于advise、Jetty，调用方传入的Jetty、URMA "
+           "context、dev_fd、目标Jetty不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure693::AnalyzeRootCause()
@@ -34,17 +30,16 @@ RootCause UrmaFailure693::AnalyzeRootCause()
 
 std::string UrmaFailure693::GetFixSuggDesc() const
 {
-    return "当前不会触发";
+    return "无";
 }
 
 std::string UrmaFailure693::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_context，Invalid parameter.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_advise_jetty，Invalid parameter。";
 }
 
 std::string UrmaFailure693::GetId() const
 {
     return "urma_693";
 }
-
 } // namespace diag

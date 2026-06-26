@@ -1,29 +1,25 @@
 #include "urma_failure_595.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure595> g_urma("urma_595");
 
-bool UrmaFailure595::IsValid()
+bool UrmaFailure595::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_delete_jfce' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to "
-        "delete jfce[' | grep -F '], still in use. use_cnt:' | grep -F 'u'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_set_jetty_opt") != std::string::npos &&
+           message.find("Failed to exec urma_delete_jetty_to_jetty_grp.") != std::string::npos;
 }
 
 std::string UrmaFailure595::GetName() const
 {
-    return "JFCE清理阶段下层释放操作失败";
+    return "下层资源删除失败导致设置Jetty失败";
 }
 
 std::string UrmaFailure595::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFCE相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "urma_set_jetty_opt清理Jetty时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure595::AnalyzeRootCause()
@@ -38,13 +34,11 @@ std::string UrmaFailure595::GetFixSuggDesc() const
 
 std::string UrmaFailure595::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfce，Failed to delete jfce[，], still in use. "
-           "use_cnt:，u。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jetty_opt，Failed to exec urma_delete_jetty_to_jetty_grp.。";
 }
 
 std::string UrmaFailure595::GetId() const
 {
     return "urma_595";
 }
-
 } // namespace diag

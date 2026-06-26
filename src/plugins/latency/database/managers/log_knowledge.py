@@ -101,7 +101,7 @@ class LogKnowledgeManager:
         sql_str = """
             SELECT id, name, description, task_cnt, log_file_cnt, anomaly_cnt, existed_status, created_at, updated_at
             FROM log_knowledge_table
-            WHERE 1=1
+            WHERE existed_status = 1
         """
         params = {}
         if req.name:
@@ -116,7 +116,7 @@ class LogKnowledgeManager:
         if req.created_at_end:
             sql_str += " AND created_at <= :created_at_end"
             params["created_at_end"] = req.created_at_end
-        sort_order = "ASC" if req.created_sorted_desc else "DESC"
+        sort_order = "DESC" if req.created_sorted_desc else "ASC"
         sql_str += f" ORDER BY created_at {sort_order}"
         offset = (req.page_num - 1) * req.page_cnt
         sql_str += " LIMIT :limit OFFSET :offset"

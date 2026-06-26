@@ -1,30 +1,26 @@
 #include "urma_failure_090.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure090> g_urma("urma_090");
 
-bool UrmaFailure090::IsValid()
+bool UrmaFailure090::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_bind_jetty' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'No valid active slice to bind'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_cmd_set_tp_attr") != std::string::npos &&
+           message.find("Failed in ioctl set_tp_attr, ret:") != std::string::npos;
 }
 
 std::string UrmaFailure090::GetName() const
 {
-    return "未找到可用于激活Jetty的有效对象或路由";
+    return "设置TP、ATTR ioctl驱动命令返回失败";
 }
 
 std::string UrmaFailure090::GetRootCauseDesc() const
 {
-    return "函数在激活Jetty过程中需要查找已建立的资源、端口或路由映射，但当前表项缺失或状态不可用，导致后续操作无法定位"
-           "目标。";
+    return "urma_cmd_set_tp_"
+           "attr通过ioctl向驱动提交设置TP、ATTR命令，驱动侧返回错误或系统调用失败，用户态无法完成对应URMA操作。";
 }
 
 RootCause UrmaFailure090::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure090::GetFixSuggDesc() const
 
 std::string UrmaFailure090::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_bind_jetty，No valid active slice to bind。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_cmd_set_tp_attr，Failed in ioctl set_tp_attr, ret:。";
 }
 
 std::string UrmaFailure090::GetId() const
 {
     return "urma_090";
 }
-
 } // namespace diag

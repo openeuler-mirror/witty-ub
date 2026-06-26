@@ -1,29 +1,25 @@
 #include "urma_failure_503.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure503> g_urma("urma_503");
 
-bool UrmaFailure503::IsValid()
+bool UrmaFailure503::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_perf_thread_exit_cleanup' \"$URMA_LOG_PATH\" 2>/dev/null | grep "
-        "-F 'Urma perf thread cleanup, thread index' | grep -F 'is invalid.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_delete_jfs") != std::string::npos &&
+           message.find("Failed to delete pjfs") != std::string::npos;
 }
 
 std::string UrmaFailure503::GetName() const
 {
-    return "执行线程所需输入对象无效导致初始化线程失败";
+    return "下层资源删除失败导致删除JFS失败";
 }
 
 std::string UrmaFailure503::GetRootCauseDesc() const
 {
-    return "函数用于初始化线程，调用方传入的执行线程所需输入对象不满足接口前置条件，无法继续完成本次URMA操作。";
+    return "bondp_delete_jfs清理JFS时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure503::AnalyzeRootCause()
@@ -38,13 +34,11 @@ std::string UrmaFailure503::GetFixSuggDesc() const
 
 std::string UrmaFailure503::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_perf_thread_exit_cleanup，Urma perf thread cleanup, thread "
-           "index，is invalid.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_delete_jfs，Failed to delete pjfs。";
 }
 
 std::string UrmaFailure503::GetId() const
 {
     return "urma_503";
 }
-
 } // namespace diag

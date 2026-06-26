@@ -1,29 +1,26 @@
 #include "urma_failure_676.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure676> g_urma("urma_676");
 
-bool UrmaFailure676::IsValid()
+bool UrmaFailure676::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_delete_jfr' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'jfr is deactived, can not delete.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("handle_fake_cr_with_store") != std::string::npos &&
+           message.find("Invalid cr error status:") != std::string::npos;
 }
 
 std::string UrmaFailure676::GetName() const
 {
-    return "JFR清理阶段下层释放操作失败";
+    return "handle、FAKE、CR状态不满足要求导致handlehandle、FAKE、CR失败";
 }
 
 std::string UrmaFailure676::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销JFR相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "handle_fake_cr_with_"
+           "store执行handlehandle、FAKE、CR时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure676::AnalyzeRootCause()
@@ -38,12 +35,11 @@ std::string UrmaFailure676::GetFixSuggDesc() const
 
 std::string UrmaFailure676::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_delete_jfr，jfr is deactived, can not delete.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：handle_fake_cr_with_store，Invalid cr error status:。";
 }
 
 std::string UrmaFailure676::GetId() const
 {
     return "urma_676";
 }
-
 } // namespace diag

@@ -26,24 +26,34 @@ LINK_LABEL = "Worker link parse"
 QUERY_META_LABEL = "Worker query meta parse"
 METRICS_LABEL = "Worker metrics parse"
 
-ALL_KEYWORDS = (
+# 基础关键字（WorkerInfoParser 使用）
+BASE_KEYWORDS = (
     "URMA_ELAPSED_TOTAL", "Remote get request", "Processing pull object[",
-    "elapsed ms:", "Master query done", "totalCost:",
-    "Worker to master rpc QueryMeta:", "ProcessGetObjectRequest:",
-    "worker SafeObject WLock:", "[Get] finish", "[RemotePull] finish",
+    "elapsed ms:", "Master query done",
+)
+
+# 指标关键字（WorkerMetricsLogParser 使用）
+METRICS_KEYWORDS = (
+    "totalCost:", "Worker to master rpc QueryMeta:",
+    "ProcessGetObjectRequest:", "worker SafeObject WLock:",
+    "[Get/RemotePull] finish",
     "[Get] Remote done", "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]",
 )
+
+ALL_KEYWORDS = BASE_KEYWORDS + METRICS_KEYWORDS
 
 
 class WorkerInfoParser(LogParser):
     """Worker INFO 日志合并解析器
 
-    合并 Urma / RemotePull / Link / QueryMeta / WorkerMetrics 5 个解析器，
+    合并 Urma / RemotePull / Link / QueryMeta 4 个解析器，
     一次读文件 + 一次 if/elif 分派，消除重复的 _build_parsed_run 和 parse_timestamp。
+    
+    注意：指标日志由 WorkerMetricsLogParser 单独处理，避免关键字冲突。
     """
     label = "Worker info parse"
     _handle_errors = True
-    _keywords = ALL_KEYWORDS
+    _keywords = BASE_KEYWORDS
 
     @property
     def patterns(self) -> list[str]:
@@ -148,8 +158,16 @@ class WorkerInfoParser(LogParser):
         """兼容单行匹配接口（非热路径）"""
         if not line or line[0] != "2":
             return None
-        label = self._label_for_line(line)
+        allow_pod_scoped_labels = (
+            not self._scan_scope_enabled
+            or pod_ip in self._target_pod_ips
+        )
+        label = self._label_for_line(line, allow_pod_scoped_labels)
         if not label:
+            return None
+        
+        # 添加文件级别作用域检查（与 scan_file 方法保持一致）
+        if not self._file_scope_may_allow(label, pod_ip):
             return None
 
         parts = line.split("|")
@@ -167,21 +185,27 @@ class WorkerInfoParser(LogParser):
 
         return self._dispatch(label, parsed, ts, pod_ip)
 
-    def _dispatch(self, label: str, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
-        """if/elif 关键字分派到对应的提取逻辑"""
+    def _dispatch(self, label: str, parsed: dict, ts, pod_ip: str) -> list[LogEntry] | None:
+        """if/elif 关键字分派到对应的提取逻辑，返回列表"""
         if label == URMA_LABEL:
-            return self._parse_urma(parsed, ts, pod_ip)
+            entry = self._parse_urma(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == REMOTE_PULL_LABEL:
             msg = parsed["msg"]
             if "Remote get request" in msg:
-                return self._parse_remote_get(parsed, ts, pod_ip)
-            return self._parse_remote_pull(parsed, ts, pod_ip)
+                entry = self._parse_remote_get(parsed, ts, pod_ip)
+            else:
+                entry = self._parse_remote_pull(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == LINK_LABEL:
-            return self._parse_link(parsed, ts, pod_ip)
+            entry = self._parse_link(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == QUERY_META_LABEL:
-            return self._parse_query_meta(parsed, ts, pod_ip)
+            entry = self._parse_query_meta(parsed, ts, pod_ip)
+            return [entry] if entry else None
         if label == METRICS_LABEL:
-            return self._parse_metrics(parsed, ts, pod_ip)
+            entry = self._parse_metrics(parsed, ts, pod_ip)
+            return [entry] if entry else None
         return None
 
     def _scope_allows(self, label: str, trace_id: str, pod_ip: str) -> bool:
@@ -193,10 +217,15 @@ class WorkerInfoParser(LogParser):
                 return trace_id in self._target_trace_ids
             return pod_ip in self._target_pod_ips
 
-        if label in (QUERY_META_LABEL, METRICS_LABEL):
-            return bool(trace_id) and (pod_ip, trace_id) in self._target_pod_trace_keys
+        if label == QUERY_META_LABEL:
+            # 优先检查 trace_id，其次检查 (pod_ip, trace_id) 组合
+            if trace_id and trace_id in self._target_trace_ids:
+                return True
+            if trace_id and (pod_ip, trace_id) in self._target_pod_trace_keys:
+                return True
+            return False
 
-        if label in (REMOTE_PULL_LABEL, LINK_LABEL):
+        if label in (REMOTE_PULL_LABEL, LINK_LABEL, METRICS_LABEL):
             return bool(trace_id) and trace_id in self._target_trace_ids
 
         return True
@@ -205,13 +234,16 @@ class WorkerInfoParser(LogParser):
         if not self._scan_scope_enabled:
             return True
 
-        if label in (QUERY_META_LABEL, METRICS_LABEL):
+        if label == QUERY_META_LABEL:
+            # 优先检查 trace_id，其次检查 pod_ip
+            if self._target_trace_ids:
+                return True
             return pod_ip in self._target_pod_ips
 
         if label == URMA_LABEL:
             return pod_ip in self._target_pod_ips or bool(self._target_trace_ids)
 
-        if label in (REMOTE_PULL_LABEL, LINK_LABEL):
+        if label in (REMOTE_PULL_LABEL, LINK_LABEL, METRICS_LABEL):
             return bool(self._target_trace_ids)
 
         return True
@@ -228,8 +260,6 @@ class WorkerInfoParser(LogParser):
             return None
         if "Master query done" in line:
             return QUERY_META_LABEL
-        if WorkerInfoParser._any_metrics_keyword_in(line):
-            return METRICS_LABEL
         return None
 
     # ---- 各类型提取逻辑 (从对应 parser 提取) ----
@@ -402,7 +432,7 @@ class WorkerInfoParser(LogParser):
 
     @staticmethod
     def _any_metrics_keyword_in(line: str) -> bool:
-        for kw in ALL_KEYWORDS[5:]:
+        for kw in METRICS_KEYWORDS:
             if kw in line:
                 return True
         return False

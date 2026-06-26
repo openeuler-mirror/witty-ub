@@ -1,29 +1,26 @@
 #include "urma_failure_021.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure021> g_urma("urma_021");
 
-bool UrmaFailure021::IsValid()
+bool UrmaFailure021::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'urma_provider_bond_uninit' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Provider Bond register ops not registered.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_provider_bond_uninit") != std::string::npos &&
+           message.find("Provider Bond register ops not registered.") != std::string::npos;
 }
 
 std::string UrmaFailure021::GetName() const
 {
-    return "URMA资源注册时下层资源准备失败";
+    return "provider、Bond资源、uninit状态不满足要求导致providerprovider、Bond资源、uninit失败";
 }
 
 std::string UrmaFailure021::GetRootCauseDesc() const
 {
-    return "函数负责注册URMA资源，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "urma_provider_bond_"
+           "uninit执行providerprovider、Bond资源、uninit时检测到依赖对象、资源状态或返回值异常，因此中止当前URMA操作。";
 }
 
 RootCause UrmaFailure021::AnalyzeRootCause()
@@ -45,5 +42,4 @@ std::string UrmaFailure021::GetId() const
 {
     return "urma_021";
 }
-
 } // namespace diag

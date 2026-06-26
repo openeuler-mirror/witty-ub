@@ -1,30 +1,26 @@
 #include "urma_failure_272.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure272> g_urma("urma_272");
 
-bool UrmaFailure272::IsValid()
+bool UrmaFailure272::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_set_jetty_opt' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Failed to exec urma_add_jetty_to_jetty_grp.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_get_smac") != std::string::npos &&
+           message.find("Invalid parameter.") != std::string::npos;
 }
 
 std::string UrmaFailure272::GetName() const
 {
-    return "设置Jetty过程中依赖步骤失败";
+    return "provider未提供get_ip_by_eid操作实现无效导致获取SMAC失败";
 }
 
 std::string UrmaFailure272::GetRootCauseDesc() const
 {
-    return "函数用于设置Jetty，执行过程中依赖的参数校验、状态转换、下层provider调用或系统资源处理未成功，导致本次URMA操"
-           "作失败。";
+    return "urma_get_smac用于获取SMAC，调用方传入的provider未提供get_ip_by_"
+           "eid操作实现不满足接口前置条件，函数无法继续执行。";
 }
 
 RootCause UrmaFailure272::AnalyzeRootCause()
@@ -39,12 +35,11 @@ std::string UrmaFailure272::GetFixSuggDesc() const
 
 std::string UrmaFailure272::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_set_jetty_opt，Failed to exec urma_add_jetty_to_jetty_grp.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_get_smac，Invalid parameter.。";
 }
 
 std::string UrmaFailure272::GetId() const
 {
     return "urma_272";
 }
-
 } // namespace diag

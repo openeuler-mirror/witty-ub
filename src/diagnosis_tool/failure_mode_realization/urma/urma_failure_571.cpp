@@ -1,30 +1,25 @@
 #include "urma_failure_571.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure571> g_urma("urma_571");
 
-bool UrmaFailure571::IsValid()
+bool UrmaFailure571::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_health_calc_primary_interval_us' \"$URMA_LOG_PATH\" 2>/dev/null "
-        "| grep -F 'Health check epoll_wait failed, errno:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("urma_deactive_jfs") != std::string::npos &&
+           message.find("Failed to exec ops->deactive_jfs.") != std::string::npos;
 }
 
 std::string UrmaFailure571::GetName() const
 {
-    return "健康检查数据通路处理失败";
+    return "去激活JFS执行失败导致去激活JFS失败";
 }
 
 std::string UrmaFailure571::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "urma_deactive_jfs执行去激活JFS时依赖的去激活JFS步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure571::AnalyzeRootCause()
@@ -39,13 +34,11 @@ std::string UrmaFailure571::GetFixSuggDesc() const
 
 std::string UrmaFailure571::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_health_calc_primary_interval_us，Health check epoll_wait failed, "
-           "errno:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_deactive_jfs，Failed to exec ops->deactive_jfs.。";
 }
 
 std::string UrmaFailure571::GetId() const
 {
     return "urma_571";
 }
-
 } // namespace diag

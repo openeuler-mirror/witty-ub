@@ -1,29 +1,26 @@
 #include "urma_failure_520.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure520> g_urma("urma_520");
 
-bool UrmaFailure520::IsValid()
+bool UrmaFailure520::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput = urma_log_helper::RunCommand(
-        "test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_unregister_seg_inner' \"$URMA_LOG_PATH\" 2>/dev/null | grep -F "
-        "'Failed to delete vseg, token_id:' | grep -F ', handle:' | grep -F 'u.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_set_bonding_mode") != std::string::npos &&
+           message.find("Failed to delete pctx when set bonding mode, ret:") != std::string::npos;
 }
 
 std::string UrmaFailure520::GetName() const
 {
-    return "Token清理阶段下层释放操作失败";
+    return "下层资源删除失败导致设置bonding、MODE失败";
 }
 
 std::string UrmaFailure520::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Token相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "bondp_set_bonding_"
+           "mode清理bonding、MODE时需要同步删除关联的下层对象，任一删除步骤返回失败都会使资源清理不完整。";
 }
 
 RootCause UrmaFailure520::AnalyzeRootCause()
@@ -38,13 +35,12 @@ std::string UrmaFailure520::GetFixSuggDesc() const
 
 std::string UrmaFailure520::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_unregister_seg_inner，Failed to delete vseg, token_id:，, "
-           "handle:，u.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_set_bonding_mode，Failed to delete pctx when set bonding mode, "
+           "ret:。";
 }
 
 std::string UrmaFailure520::GetId() const
 {
     return "urma_520";
 }
-
 } // namespace diag

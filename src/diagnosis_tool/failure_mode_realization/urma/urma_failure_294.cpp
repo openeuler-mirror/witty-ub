@@ -1,29 +1,25 @@
 #include "urma_failure_294.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure294> g_urma("urma_294");
 
-bool UrmaFailure294::IsValid()
+bool UrmaFailure294::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'urma_ack_notify' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'delete_jetty_grp failed.'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_vjetty") != std::string::npos &&
+           message.find("Failed to fill health check seg info for vjetty") != std::string::npos;
 }
 
 std::string UrmaFailure294::GetName() const
 {
-    return "Jetty清理阶段下层释放操作失败";
+    return "创建vjetty执行失败导致创建vjetty失败";
 }
 
 std::string UrmaFailure294::GetRootCauseDesc() const
 {
-    return "函数负责释放或撤销Jetty相关资源，下层provider、驱动或引用状态返回失败，可能残留已创建的URMA资源。";
+    return "bondp_create_vjetty执行创建vjetty时依赖的创建vjetty步骤返回错误，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure294::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure294::GetFixSuggDesc() const
 
 std::string UrmaFailure294::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：urma_ack_notify，delete_jetty_grp failed.。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_vjetty，Failed to fill health check seg info for vjetty。";
 }
 
 std::string UrmaFailure294::GetId() const
 {
     return "urma_294";
 }
-
 } // namespace diag

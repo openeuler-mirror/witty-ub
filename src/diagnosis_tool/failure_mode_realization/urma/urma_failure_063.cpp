@@ -1,29 +1,25 @@
 #include "urma_failure_063.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure063> g_urma("urma_063");
 
-bool UrmaFailure063::IsValid()
+bool UrmaFailure063::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfr_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to create vjfr'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_jfr") != std::string::npos &&
+           message.find("Failed to import vjetty, []:") != std::string::npos;
 }
 
 std::string UrmaFailure063::GetName() const
 {
-    return "虚拟 JFR创建时下层资源准备失败";
+    return "下层注册或导入返回失败导致导入JFR失败";
 }
 
 std::string UrmaFailure063::GetRootCauseDesc() const
 {
-    return "函数负责创建虚拟 JFR，依赖的provider接口、驱动命令、子资源或路由信息未成功返回，导致资源无法建立。";
+    return "bondp_import_jfr在导入JFR时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure063::AnalyzeRootCause()
@@ -38,12 +34,11 @@ std::string UrmaFailure063::GetFixSuggDesc() const
 
 std::string UrmaFailure063::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfr_p_vjetty_info，Failed to create vjfr。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_jfr，Failed to import vjetty, []:。";
 }
 
 std::string UrmaFailure063::GetId() const
 {
     return "urma_063";
 }
-
 } // namespace diag

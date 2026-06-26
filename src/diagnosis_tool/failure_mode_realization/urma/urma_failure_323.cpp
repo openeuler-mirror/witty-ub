@@ -1,30 +1,25 @@
 #include "urma_failure_323.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure323> g_urma("urma_323");
 
-bool UrmaFailure323::IsValid()
+bool UrmaFailure323::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_create_pjfce' \"$URMA_LOG_PATH\" "
-                                    "2>/dev/null | grep -F 'Fail to add fd:' | grep -F 'to epoll fd:'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_import_seg") != std::string::npos &&
+           message.find("Failed to import vseg") != std::string::npos;
 }
 
 std::string UrmaFailure323::GetName() const
 {
-    return "文件描述符数据通路处理失败";
+    return "下层注册或导入返回失败导致导入Segment失败";
 }
 
 std::string UrmaFailure323::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "bondp_import_seg在导入Segment时需要将对象登记到驱动或远端上下文，下层返回失败会阻断资源可见性建立。";
 }
 
 RootCause UrmaFailure323::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure323::GetFixSuggDesc() const
 
 std::string UrmaFailure323::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_pjfce，Fail to add fd:，to epoll fd:。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_import_seg，Failed to import vseg。";
 }
 
 std::string UrmaFailure323::GetId() const
 {
     return "urma_323";
 }
-
 } // namespace diag

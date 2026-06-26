@@ -1,30 +1,25 @@
 #include "urma_failure_009.h"
+
 #include "../../failure_mode_factory.h"
-#include "urma_log_helper.h"
 
 namespace diag {
-
 static AutoRegister<UrmaFailure009> g_urma("urma_009");
 
-bool UrmaFailure009::IsValid()
+bool UrmaFailure009::IsValid(const std::vector<std::string> &fields)
 {
-    std::string grepOutput =
-        urma_log_helper::RunCommand("test -n \"$URMA_LOG_PATH\" && grep -F 'bondp_del_jfr_p_vjetty_info' "
-                                    "\"$URMA_LOG_PATH\" 2>/dev/null | grep -F 'Failed to init jfr wr buf'");
-    FailureLogInfo &logInfo = GetMutableFailureLogInfoCache();
-    urma_log_helper::ParseFailureLogLine(grepOutput, logInfo);
-    return !grepOutput.empty();
+    const std::string &message = fields[7];
+    return message.find("bondp_create_jfr") != std::string::npos &&
+           message.find("Failed to init jfr wr buf") != std::string::npos;
 }
 
 std::string UrmaFailure009::GetName() const
 {
-    return "JFR数据通路处理失败";
+    return "创建JFR执行失败导致创建JFR失败";
 }
 
 std::string UrmaFailure009::GetRootCauseDesc() const
 {
-    return "函数处理URMA数据收发路径，需要完成WR转换、投递、完成事件处理或重传，相关对象状态或下层操作失败导致数据通路"
-           "中断。";
+    return "bondp_create_jfr创建JFR时初始化端口索引或WR缓冲区失败，当前URMA操作无法继续完成。";
 }
 
 RootCause UrmaFailure009::AnalyzeRootCause()
@@ -39,12 +34,11 @@ std::string UrmaFailure009::GetFixSuggDesc() const
 
 std::string UrmaFailure009::GetValidationMethodDesc() const
 {
-    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_del_jfr_p_vjetty_info，Failed to init jfr wr buf。";
+    return "通过 URMA_LOG_PATH 日志匹配关键字：bondp_create_jfr，Failed to init jfr wr buf。";
 }
 
 std::string UrmaFailure009::GetId() const
 {
     return "urma_009";
 }
-
 } // namespace diag
