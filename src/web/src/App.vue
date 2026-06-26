@@ -575,7 +575,7 @@ const abnormalTraceSort = useTableSort(
   [{ field: 'total_latency', order: 'desc' }],
   () => {
     // 排序变化时重新加载数据（重置到第一页）
-    abnormalTracesPage.value = 1
+    abnormalTracesPageMap[selectedLatencyScale.value] = 1
     void loadAbnormalTraces(1)
   }
 )
@@ -673,27 +673,102 @@ const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
 const activeAggregateTab = ref<'event' | 'trace'>('event')
 const activeFaultMonitorTab = ref<'event' | 'trace'>('event')
 const selectedFaultAggregateInterval = ref<FaultAggregateInterval>('minute')
-const abnormalTraceRows = ref<AbnormalTraceRow[]>([])
-const isAbnormalTracesLoading = ref(false)
-const abnormalTracesError = ref('')
-const abnormalTracesPage = ref(1)
-const abnormalTracesTotal = ref(0)
+const abnormalTraceRowsMap = reactive<Record<number, AbnormalTraceRow[]>>({
+  0: [],
+  10: [],
+  60: [],
+  600: [],
+  3600: [],
+})
+const abnormalTracesTotalMap = reactive<Record<number, number>>({
+  0: 0,
+  10: 0,
+  60: 0,
+  600: 0,
+  3600: 0,
+})
+const abnormalTracesPageMap = reactive<Record<number, number>>({
+  0: 1,
+  10: 1,
+  60: 1,
+  600: 1,
+  3600: 1,
+})
+const isAbnormalTracesLoadingMap = reactive<Record<number, boolean>>({
+  0: false,
+  10: false,
+  60: false,
+  600: false,
+  3600: false,
+})
+const abnormalTracesErrorMap = reactive<Record<number, string>>({
+  0: '',
+  10: '',
+  60: '',
+  600: '',
+  3600: '',
+})
+
+const abnormalTraceRows = computed(() => abnormalTraceRowsMap[selectedLatencyScale.value] ?? [])
+const isAbnormalTracesLoading = computed(() => isAbnormalTracesLoadingMap[selectedLatencyScale.value] ?? false)
+const abnormalTracesError = computed(() => abnormalTracesErrorMap[selectedLatencyScale.value] ?? '')
+const abnormalTracesPage = computed(() => abnormalTracesPageMap[selectedLatencyScale.value] ?? 1)
+const abnormalTracesTotal = computed(() => abnormalTracesTotalMap[selectedLatencyScale.value] ?? 0)
 const faultAggregatedEventPage = ref(1)
 const faultAggregatedEventTotal = ref(0)
 const isFaultAggregatedEventsLoading = ref(false)
 const faultAggregatedEventsError = ref('')
 const expandedFaultAggregatedEventId = ref('')
-const faultTraceEventsPage = ref(1)
-const faultTraceEventsTotal = ref(0)
-const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
+const faultTraceRowsMap = reactive<Record<number, FaultTraceTableRow[]>>({
+  0: [],
+  10: [],
+  60: [],
+  600: [],
+  3600: [],
+})
+const faultTraceEventsTotalMap = reactive<Record<number, number>>({
+  0: 0,
+  10: 0,
+  60: 0,
+  600: 0,
+  3600: 0,
+})
+const faultTraceEventsPageMap = reactive<Record<number, number>>({
+  0: 1,
+  10: 1,
+  60: 1,
+  600: 1,
+  3600: 1,
+})
+const isFaultTraceEventsLoadingMap = reactive<Record<number, boolean>>({
+  0: false,
+  10: false,
+  60: false,
+  600: false,
+  3600: false,
+})
+const faultTraceEventsErrorMap = reactive<Record<number, string>>({
+  0: '',
+  10: '',
+  60: '',
+  600: '',
+  3600: '',
+})
+const faultTraceRows = computed(() => faultTraceRowsMap[selectedFaultScale.value] ?? [])
+const faultTraceEventsTotal = computed(() => faultTraceEventsTotalMap[selectedFaultScale.value] ?? 0)
+const faultTraceEventsPage = computed(() => faultTraceEventsPageMap[selectedFaultScale.value] ?? 1)
+const isFaultTraceEventsLoading = computed(() => isFaultTraceEventsLoadingMap[selectedFaultScale.value] ?? false)
+const faultTraceEventsError = computed(() => faultTraceEventsErrorMap[selectedFaultScale.value] ?? '')
+
+const faultDetailTraceRows = ref<FaultTraceTableRow[]>([])
 const isDetailLatencyChartLoading = ref(false)
 const detailLatencyChartError = ref('')
+const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
 const detailParseResults = ref<LogParseResultModel[]>([])
 const isDetailParseResultsLoading = ref(false)
 const detailParseResultsError = ref('')
 const detailParseResultsPage = ref(1)
 const detailParseResultsTotal = ref(0)
-const faultDetailTraceRows = ref<FaultTraceTableRow[]>([])
 const isFaultDetailTraceEventsLoading = ref(false)
 const faultDetailTraceEventsError = ref('')
 const faultDetailTraceEventsPage = ref(1)
@@ -715,10 +790,10 @@ const anomalousEventChains = ref<AnomalousEventChainModel[]>([])
 const isFaultChartLoading = ref(false)
 const faultChartError = ref('')
 const faultChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
+const knownFaultCodes = ref<string[]>([])
 const isFaultDetailChartLoading = ref(false)
 const faultDetailChartError = ref('')
 const faultDetailChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
-const faultTraceRows = ref<FaultTraceTableRow[]>([])
 const faultAggregatedEventCodes = ref<string[]>([])
 const faultAggregatedEventRows = ref<FaultAggregatedEventRow[]>([])
 const faultAggregatedEventPodRowsByEventId = ref<Record<string, FaultAggregatedEventPodRow[]>>({})
@@ -727,8 +802,6 @@ const faultAggregatedEventPodPagesByEventId = ref<Record<string, number>>({})
 const faultAggregatedEventPodPageInputsByEventId = ref<Record<string, string>>({})
 const loadingFaultAggregatedEventPodIds = ref<Set<string>>(new Set())
 const faultAggregatedEventPodErrors = ref<Record<string, string>>({})
-const isFaultTraceEventsLoading = ref(false)
-const faultTraceEventsError = ref('')
 const failureModeDetailsById = ref<Record<string, FailureModeKnowledgeModel | null>>({})
 const selectedTrace = ref<TraceDetailRow | null>(null)
 const selectedFaultTrace = ref<TraceDetailRow | null>(null)
@@ -739,8 +812,64 @@ const traceFailureLogsByTrace = ref<Record<string, TraceLogRow[]>>({})
 const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[]>>({})
 const isTraceLogsLoading = ref(false)
 const traceLogsError = ref('')
-const latencyChartRange = ref<LatencyChartRange | null>(null)
-const faultChartRange = ref<LatencyChartRange | null>(null)
+const latencyScaleOptions = [
+  { value: 0, label: '请选择时间尺度' },
+  { value: 10, label: '10秒' },
+  { value: 60, label: '1分钟' },
+  { value: 600, label: '10分钟' },
+  { value: 3600, label: '1小时' },
+] as const
+
+const selectedLatencyScale = ref<number>(0)
+
+const latencyChartCenterTime = ref<number | null>(null)
+
+// 每个时间尺度点击图表时，选中范围半宽 = halfSpanMultiplier * scaleSeconds（秒）
+// 10s: 60 * 10s = 10min 半宽 → 120 个点
+// 1min: 60 * 60s = 60min 半宽 → 120 个点
+// 10min: 72 * 600s = 12h 半宽 → 144 个点（24h 总范围）
+// 1hr: 12 * 3600s = 12h 半宽 → 24 个点（24h 总范围）
+const latencyChartHalfSpanMultiplier: Record<number, number> = {
+  10: 60,
+  60: 60,
+  600: 72,
+  3600: 12,
+}
+
+const latencyChartRange = computed<LatencyChartRange | null>(() => {
+  const centerTime = latencyChartCenterTime.value
+  if (centerTime === null) return null
+  const scaleSeconds = selectedLatencyScale.value || 10
+  const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+  return {
+    centerTime,
+    startTime: centerTime - halfSpan,
+    endTime: centerTime + halfSpan,
+    label: formatFullTimeLabel(new Date(centerTime)),
+  }
+})
+
+// 故障监控时间尺度
+const selectedFaultScale = ref<number>(0)
+const faultChartCenterTime = ref<number | null>(null)
+const faultChartHalfSpanMultiplier: Record<number, number> = {
+  10: 60,
+  60: 60,
+  600: 72,
+  3600: 12,
+}
+const faultChartRange = computed<LatencyChartRange | null>(() => {
+  const centerTime = faultChartCenterTime.value
+  if (centerTime === null) return null
+  const scaleSeconds = selectedFaultScale.value || 10
+  const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+  return {
+    centerTime,
+    startTime: centerTime - halfSpan,
+    endTime: centerTime + halfSpan,
+    label: formatFullTimeLabel(new Date(centerTime)),
+  }
+})
 type GlobalFilterState = {
   startTime: string
   endTime: string
@@ -797,15 +926,6 @@ const latencyHostFilterDialog = reactive({
   row: null as LatencyDetailRow | FaultDetailRow | null,
   addSourceHost: false,
   addTargetHost: false,
-})
-
-const timePointDialog = reactive({
-  open: false,
-  bucket: null as Pick<LatencyChartBucket, 'time' | 'label'> | null,
-  source: 'latency' as 'latency' | 'fault',
-  customBefore: '10',
-  customAfter: '10',
-  error: '',
 })
 
 const dialog = reactive({
@@ -1281,32 +1401,28 @@ const getTraceDelayStatusLabel = (
 const getTraceDelayLabel = (column: TraceDelayColumn) =>
   column.label.replace(/\s*\((?:ms|us)\)$/, '')
 
-const minuteMs = 60 * 1000
+const secondMs = 1000
+const minuteMs = 60 * secondMs
 const latencyBucketCandidatesMs = [
+  10 * secondMs,
+  30 * secondMs,
   minuteMs,
   5 * minuteMs,
   10 * minuteMs,
   30 * minuteMs,
   60 * minuteMs,
-  2 * 60 * minuteMs,
-  3 * 60 * minuteMs,
-  4 * 60 * minuteMs,
-  6 * 60 * minuteMs,
-  12 * 60 * minuteMs,
-  24 * 60 * minuteMs,
 ]
 
 const getAdaptiveLatencyBucketMs = (times: number[]) => {
-  if (times.length <= 1) return minuteMs
+  if (times.length <= 1) return 10 * secondMs
 
   const minTime = Math.min(...times)
   const maxTime = Math.max(...times)
-  const timeSpan = Math.max(maxTime - minTime, minuteMs)
-  const targetBucketCount = Math.max(4, Math.floor(chartPlotWidth.value / 48))
+  const timeSpan = Math.max(maxTime - minTime, 10 * secondMs)
 
   return (
     latencyBucketCandidatesMs.find(
-      (candidate) => Math.ceil(timeSpan / candidate) <= targetBucketCount,
+      (candidate) => Math.ceil(timeSpan / candidate) <= 120,
     ) ?? latencyBucketCandidatesMs[latencyBucketCandidatesMs.length - 1]!
   )
 }
@@ -1325,7 +1441,9 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   if (allMetricPoints.length === 0) return []
 
   const allTimes = allMetricPoints.map((point) => point.date.getTime())
-  const bucketMs = getAdaptiveLatencyBucketMs(allTimes)
+  const bucketMs = selectedLatencyScale.value !== 0 && chartRange
+    ? selectedLatencyScale.value * secondMs
+    : getAdaptiveLatencyBucketMs(allTimes)
   const minTime = chartRange?.startTime ?? Math.min(...allTimes)
   const maxTime = chartRange?.endTime ?? Math.max(...allTimes)
   const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
@@ -1857,7 +1975,11 @@ const renderLatencyEchart = () => {
     const event = params as { componentType?: string; dataIndex?: number }
     if (event.componentType === 'series' && typeof event.dataIndex === 'number') {
       const bucket = latencyChartBuckets.value[event.dataIndex]
-      if (bucket) openTimePointDialog(bucket)
+      if (bucket) {
+        latencyChartCenterTime.value = bucket.time
+        void loadLatencyChart()
+        void loadAbnormalTraces(1)
+      }
     }
   })
   latencyChartInstance.resize()
@@ -1897,7 +2019,11 @@ const renderFaultEchart = () => {
     const event = params as { componentType?: string; dataIndex?: number }
     if (event.componentType === 'series' && typeof event.dataIndex === 'number') {
       const bucket = faultChartBuckets.value[event.dataIndex]
-      if (bucket) openTimePointDialog(bucket, 'fault')
+      if (bucket) {
+        faultChartCenterTime.value = bucket.time
+        void loadFaultChart()
+        void loadFaultTraceEvents(1)
+      }
     }
   })
   faultChartInstance.resize()
@@ -1933,76 +2059,16 @@ const resizeLatencyCharts = () => {
   faultDetailChartInstance?.resize()
 }
 
-const openTimePointDialog = (
-  bucket: Pick<LatencyChartBucket, 'time' | 'label'>,
-  source: 'latency' | 'fault' = 'latency',
-) => {
-  timePointDialog.bucket = bucket
-  timePointDialog.source = source
-  timePointDialog.customBefore = '10'
-  timePointDialog.customAfter = '10'
-  timePointDialog.error = ''
-  timePointDialog.open = true
-}
-
-const closeTimePointDialog = () => {
-  timePointDialog.open = false
-}
-
 const resetLatencyChartRange = () => {
-  latencyChartRange.value = null
+  latencyChartCenterTime.value = null
+  void loadLatencyChart()
+  void loadAbnormalTraces(1)
 }
 
 const resetFaultChartRange = () => {
-  faultChartRange.value = null
-}
-
-const applyTimePointRange = async (beforeMinutes: number, afterMinutes: number) => {
-  const bucket = timePointDialog.bucket
-  if (!bucket) return
-
-  if (
-    !Number.isFinite(beforeMinutes) ||
-    !Number.isFinite(afterMinutes) ||
-    beforeMinutes < 0 ||
-    afterMinutes < 0
-  ) {
-    timePointDialog.error = '请输入有效的分钟数'
-    return
-  }
-
-  const range = {
-    centerTime: bucket.time,
-    startTime: bucket.time - beforeMinutes * 60 * 1000,
-    endTime: bucket.time + afterMinutes * 60 * 1000,
-    label: bucket.label,
-  }
-  const targetSectionId = timePointDialog.source === 'fault' ? 'kv-fault' : 'kv-latency'
-
-  if (timePointDialog.source === 'fault') {
-    faultChartRange.value = range
-  } else {
-    latencyChartRange.value = range
-  }
-  activePage.value = 'abnormal'
-  timePointDialog.open = false
-
-  await nextTick()
-  document.getElementById(targetSectionId)?.scrollIntoView({
-    behavior: 'smooth',
-    block: 'start',
-  })
-}
-
-const applyPresetTimePointRange = (minutes: 5 | 10 | 15) => {
-  void applyTimePointRange(minutes, minutes)
-}
-
-const confirmCustomTimePointRange = () => {
-  void applyTimePointRange(
-    Number.parseInt(timePointDialog.customBefore, 10),
-    Number.parseInt(timePointDialog.customAfter, 10),
-  )
+  faultChartCenterTime.value = null
+  void loadFaultChart()
+  void loadFaultTraceEvents(1)
 }
 
 type AnomalyInfo = {
@@ -2050,9 +2116,10 @@ const getLogResultAnomalyCode = (result: LogParseResultModel) => {
   return getLogResultAnomalyInfo(result)?.code ?? null
 }
 
-const faultCodes = computed(() =>
-  Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b)),
-)
+const faultCodes = computed(() => {
+  const currentCodes = Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b))
+  return currentCodes.length > 0 ? currentCodes : knownFaultCodes.value
+})
 const faultAggregatedEventCodeColumnMaxWidth = 132
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
@@ -2151,31 +2218,88 @@ const selectedFaultDetailChartCodes = computed(() =>
     .map((item) => item.code),
 )
 const faultChartBuckets = computed<FaultChartBucket[]>(() => {
-  const buckets = new Map<number, Record<string, number>>()
   const chartRange = faultChartRange.value
+  const allMetricPoints: { code: string; time: number; value: number }[] = []
 
   Object.entries(faultChartMetrics.value).forEach(([code, metrics]) => {
     metrics.forEach((metric) => {
       const parsed = parseMetricDate(metric)
       if (!parsed) return
-
       const time = parsed.getTime()
-      if (chartRange && (time < chartRange.startTime || time > chartRange.endTime)) return
-
       const value = metric.err_cnt ?? metric.count ?? metric.value
-      const bucket = buckets.get(time) ?? {}
-      bucket[code] = typeof value === 'number' && Number.isFinite(value) ? value : 0
-      buckets.set(time, bucket)
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        allMetricPoints.push({ code, time, value })
+      }
     })
   })
 
-  const chartBuckets = [...buckets.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([time, counts]) => ({
+  if (allMetricPoints.length === 0) {
+    const codes = faultCodes.value
+    if (codes.length === 0) return []
+
+    let minTime: number
+    let maxTime: number
+    if (chartRange) {
+      minTime = chartRange.startTime
+      maxTime = chartRange.endTime
+    } else {
+      const filters = appliedFilters.value
+      const startMs = filters.startTime ? new Date(filters.startTime).getTime() : NaN
+      const endMs = filters.endTime ? new Date(filters.endTime).getTime() : NaN
+      if (isNaN(startMs) || isNaN(endMs)) return []
+      minTime = startMs
+      maxTime = endMs
+    }
+
+    const bucketMs = selectedFaultScale.value !== 0
+      ? selectedFaultScale.value * secondMs
+      : Math.max(60000, Math.floor((maxTime - minTime) / 100))
+
+    const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
+    const lastBucketStart = Math.floor(maxTime / bucketMs) * bucketMs
+
+    const zeroCounts: Record<string, number> = {}
+    codes.forEach((code) => { zeroCounts[code] = 0 })
+
+    const zeroBuckets: FaultChartBucket[] = []
+    for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
+      zeroBuckets.push({
+        time,
+        label: formatFullTimeLabel(new Date(time)),
+        counts: { ...zeroCounts },
+      })
+    }
+
+    return zeroBuckets
+  }
+
+  const allTimes = allMetricPoints.map((p) => p.time)
+  const bucketMs = selectedFaultScale.value !== 0 && chartRange
+    ? selectedFaultScale.value * secondMs
+    : getAdaptiveLatencyBucketMs(allTimes)
+  const minTime = chartRange?.startTime ?? Math.min(...allTimes)
+  const maxTime = chartRange?.endTime ?? Math.max(...allTimes)
+  const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
+  const lastBucketStart = Math.floor(maxTime / bucketMs) * bucketMs
+
+  const buckets = new Map<number, Record<string, number>>()
+
+  allMetricPoints.forEach(({ code, time, value }) => {
+    if (chartRange && (time < chartRange.startTime || time > chartRange.endTime)) return
+    const bucketStart = Math.floor(time / bucketMs) * bucketMs
+    const bucket = buckets.get(bucketStart) ?? {}
+    bucket[code] = (bucket[code] ?? 0) + value
+    buckets.set(bucketStart, bucket)
+  })
+
+  const chartBuckets: FaultChartBucket[] = []
+  for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
+    chartBuckets.push({
       time,
       label: formatFullTimeLabel(new Date(time)),
-      counts,
-    }))
+      counts: buckets.get(time) ?? {},
+    })
+  }
 
   return chartBuckets
 })
@@ -2873,7 +2997,6 @@ const getFilteredLatencyRows = () =>
 
 const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
   const filters = appliedFilters.value
-  if (!isTraceTimeMatched(row, filters)) return false
   if (filters.clusters.length > 0 && !filters.clusters.includes(row.clusterName)) return false
   if (filters.hosts.length > 0 && !filters.hosts.includes(row.host)) return false
   return true
@@ -3624,18 +3747,20 @@ const loadFailureModeDetail = async (failureModeId: string) => {
 }
 
 const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
+  const scale = selectedFaultScale.value
   if (!selectedAssetId.value) {
-    faultTraceRows.value = []
-    faultTraceEventsTotal.value = 0
-    faultTraceEventsPage.value = 1
+    faultTraceRowsMap[scale] = []
+    faultTraceEventsTotalMap[scale] = 0
+    faultTraceEventsPageMap[scale] = 1
     return
   }
 
-  isFaultTraceEventsLoading.value = true
-  faultTraceEventsError.value = ''
+  isFaultTraceEventsLoadingMap[scale] = true
+  faultTraceEventsErrorMap[scale] = ''
 
   try {
     const filters = appliedFilters.value
+    const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       is_anomalous: true,
@@ -3658,6 +3783,10 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     if (filters.faultCodes.length > 0) {
       requestBody.status_codes = filters.faultCodes
     }
+    if (chartRange) {
+      requestBody.created_at_start = formatTimestamp(chartRange.startTime)
+      requestBody.created_at_end = formatTimestamp(chartRange.endTime)
+    }
 
     const result = await request<{
       total: number
@@ -3672,7 +3801,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     const pageCount = Math.max(1, Math.ceil(total / faultTraceEventsPageSize))
 
     if (pageNum > pageCount) {
-      isFaultTraceEventsLoading.value = false
+      isFaultTraceEventsLoadingMap[scale] = false
       await loadFaultTraceEvents(pageCount)
       return
     }
@@ -3685,17 +3814,17 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
 
     await Promise.all(failureModeIds.map((failureModeId) => loadFailureModeDetail(failureModeId)))
 
-    faultTraceRows.value = events.map(toFaultTraceTableRow)
-    faultTraceEventsTotal.value = total
-    faultTraceEventsPage.value = pageNum
+    faultTraceRowsMap[scale] = events.map(toFaultTraceTableRow)
+    faultTraceEventsTotalMap[scale] = total
+    faultTraceEventsPageMap[scale] = pageNum
   } catch (error) {
-    faultTraceRows.value = []
-    faultTraceEventsTotal.value = 0
-    faultTraceEventsPage.value = 1
-    faultTraceEventsError.value =
+    faultTraceRowsMap[scale] = []
+    faultTraceEventsTotalMap[scale] = 0
+    faultTraceEventsPageMap[scale] = 1
+    faultTraceEventsErrorMap[scale] =
       error instanceof Error ? error.message : '加载错误日志列表失败'
   } finally {
-    isFaultTraceEventsLoading.value = false
+    isFaultTraceEventsLoadingMap[scale] = false
   }
 }
 
@@ -3712,6 +3841,7 @@ const loadFaultChart = async () => {
 
   try {
     const filters = appliedFilters.value
+    const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       max_points: 1000,
@@ -3732,6 +3862,10 @@ const loadFaultChart = async () => {
     if (filters.faultCodes.length > 0) {
       requestBody.err_codes = filters.faultCodes
     }
+    if (chartRange) {
+      requestBody.start_time = formatTimestamp(chartRange.startTime)
+      requestBody.end_time = formatTimestamp(chartRange.endTime)
+    }
 
     const result = await request<{
       total: number
@@ -3742,6 +3876,10 @@ const loadFaultChart = async () => {
     })
 
     faultChartMetrics.value = result.metrics ?? {}
+    const codes = Object.keys(result.metrics ?? {})
+    if (codes.length > 0) {
+      knownFaultCodes.value = codes.sort((a, b) => a.localeCompare(b))
+    }
   } catch (error) {
     faultChartMetrics.value = {}
     faultChartError.value = error instanceof Error ? error.message : '加载故障码计数时序分布失败'
@@ -3753,6 +3891,12 @@ const loadFaultChart = async () => {
 const formatDateTime = (value: string) => {
   if (!value) return undefined
   return `${value.replace('T', ' ')}:00`
+}
+
+const formatTimestamp = (ts: number) => {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 const listLogKbs = async (body: Record<string, unknown>) => {
@@ -3837,20 +3981,27 @@ const loadLatencyChart = async () => {
   isLatencyChartLoading.value = true
   latencyChartError.value = ''
 
+  const range = latencyChartRange.value
+
   try {
     const results = await Promise.all(
       latencyPercentileOptions.map(async (option) => {
+        const body: Record<string, unknown> = {
+          kb_id: assetId,
+          max_points: 1000,
+          sample_mode: latencySampleModeMap[option.value],
+          sort_by: 'timestamp',
+          sort_order: 'asc',
+        }
+        if (range) {
+          body.start_time = formatTimestamp(range.startTime)
+          body.end_time = formatTimestamp(range.endTime)
+        }
         const result = await request<{ total: number; metrics: LatencyMetricItem[] }>(
           '/log_parse_result/metrics/latency',
           {
             method: 'POST',
-            body: JSON.stringify({
-              kb_id: assetId,
-              max_points: 1000,
-              sample_mode: latencySampleModeMap[option.value],
-              sort_by: 'timestamp',
-              sort_order: 'asc',
-            }),
+            body: JSON.stringify(body),
           },
         )
 
@@ -4436,24 +4587,26 @@ const getLogParseFilterValue = (values: string[]) => {
 }
 
 const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
+  const scale = selectedLatencyScale.value
   if (!selectedAssetId.value) {
-    abnormalTraceRows.value = []
-    abnormalTracesTotal.value = 0
-    abnormalTracesPage.value = 1
-    abnormalTracesError.value = ''
-    isAbnormalTracesLoading.value = false
+    abnormalTraceRowsMap[scale] = []
+    abnormalTracesTotalMap[scale] = 0
+    abnormalTracesPageMap[scale] = 1
+    abnormalTracesErrorMap[scale] = ''
+    isAbnormalTracesLoadingMap[scale] = false
     return
   }
 
   const assetId = selectedAssetId.value
-  isAbnormalTracesLoading.value = true
-  abnormalTracesError.value = ''
+  isAbnormalTracesLoadingMap[scale] = true
+  abnormalTracesErrorMap[scale] = ''
 
   try {
     const filters = appliedFilters.value
     
     // 构建排序参数
     const sortFields = abnormalTraceSort.getSortFields.value
+    const chartRange = latencyChartRange.value
     
     const body: Record<string, unknown> = {
       kb_id: assetId,
@@ -4463,6 +4616,12 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       is_anomalous: true,
       created_at_start: formatDateTime(filters.startTime),
       created_at_end: formatDateTime(filters.endTime),
+      start_time: chartRange
+        ? formatTimestamp(chartRange.startTime)
+        : undefined,
+      end_time: chartRange
+        ? formatTimestamp(chartRange.endTime)
+        : undefined,
       cluster_name: getLogParseFilterValue(filters.clusters),
       host: getLogParseFilterValue(filters.hosts),
     }
@@ -4479,33 +4638,34 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     const pageCount = Math.max(1, Math.ceil(total / abnormalTracesPageSize))
 
     if (pageNum > pageCount) {
-      isAbnormalTracesLoading.value = false
+      isAbnormalTracesLoadingMap[scale] = false
       abnormalTraceSort.releaseSortLock()
       await loadAbnormalTraces(pageCount)
       return
     }
 
-    abnormalTraceRows.value = (result.log_parse_results ?? []).map(toAbnormalTraceRow)
-    abnormalTracesTotal.value = total
-    abnormalTracesPage.value = pageNum
+    abnormalTraceRowsMap[scale] = (result.log_parse_results ?? []).map(toAbnormalTraceRow)
+    abnormalTracesTotalMap[scale] = total
+    abnormalTracesPageMap[scale] = pageNum
   } catch (error) {
     // 忽略取消请求的错误
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
-    abnormalTraceRows.value = []
-    abnormalTracesTotal.value = 0
-    abnormalTracesPage.value = 1
-    abnormalTracesError.value = error instanceof Error ? error.message : '加载时延异常列表失败'
+    abnormalTraceRowsMap[scale] = []
+    abnormalTracesTotalMap[scale] = 0
+    abnormalTracesPageMap[scale] = 1
+    abnormalTracesErrorMap[scale] = error instanceof Error ? error.message : '加载时延异常列表失败'
   } finally {
-    isAbnormalTracesLoading.value = false
+    isAbnormalTracesLoadingMap[scale] = false
     abnormalTraceSort.releaseSortLock()
   }
 }
 
 const goAbnormalTracesPage = (pageNum: number) => {
+  const scale = selectedLatencyScale.value
   const nextPage = Math.min(Math.max(1, pageNum), abnormalTracesPageCount.value)
-  if (nextPage === abnormalTracesPage.value || isAbnormalTracesLoading.value) return
+  if (nextPage === abnormalTracesPageMap[scale] || isAbnormalTracesLoadingMap[scale]) return
   void loadAbnormalTraces(nextPage)
 }
 
@@ -4864,11 +5024,14 @@ const loadAssetDetail = async (assetId: string) => {
   selectedAsset.value = null
   selectedTrace.value = null
   selectedFaultTrace.value = null
-  faultTraceRows.value = []
-  faultTraceEventsTotal.value = 0
-  faultTraceEventsPage.value = 1
+  Object.keys(faultTraceRowsMap).forEach((k) => {
+    const key = Number(k)
+    faultTraceRowsMap[key] = []
+    faultTraceEventsTotalMap[key] = 0
+    faultTraceEventsPageMap[key] = 1
+    faultTraceEventsErrorMap[key] = ''
+  })
   faultTraceEventsPageInput.value = ''
-  faultTraceEventsError.value = ''
   traceFailureLogsByTrace.value = {}
   traceFailureEventsByTrace.value = {}
   traceLogsError.value = ''
@@ -5657,6 +5820,24 @@ watch([selectedAssetId, activePage], () => {
   }
 })
 
+watch(selectedLatencyScale, () => {
+  if (latencyChartCenterTime.value !== null) {
+    void loadLatencyChart()
+    void loadAbnormalTraces(1)
+  } else if ((abnormalTraceRowsMap[selectedLatencyScale.value] ?? []).length === 0) {
+    void loadAbnormalTraces(1)
+  }
+})
+
+watch(selectedFaultScale, () => {
+  if (faultChartCenterTime.value !== null) {
+    void loadFaultChart()
+    void loadFaultTraceEvents(1)
+  } else if ((faultTraceRowsMap[selectedFaultScale.value] ?? []).length === 0) {
+    void loadFaultTraceEvents(1)
+  }
+})
+
 onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
@@ -6078,6 +6259,25 @@ onBeforeUnmount(() => {
                 <span>📈 关键时延指标趋势</span>
                 <span class="danger-chip">{{ latencyAnomalyHint }}</span>
                 <div class="chart-title-actions">
+                  <button
+                    v-if="latencyChartRange"
+                    class="chart-reset-btn"
+                    type="button"
+                    @click="resetLatencyChartRange"
+                  >
+                    重置
+                  </button>
+                  <label class="latency-percentile-select">
+                    <select v-model="selectedLatencyScale" aria-label="时间尺度">
+                      <option
+                        v-for="option in latencyScaleOptions"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
                   <label class="latency-percentile-select">
                     <select v-model="selectedLatencyPercentile" aria-label="时延百分位">
                       <option
@@ -6089,14 +6289,6 @@ onBeforeUnmount(() => {
                       </option>
                     </select>
                   </label>
-                  <button
-                    v-if="latencyChartRange"
-                    class="chart-reset-btn"
-                    type="button"
-                    @click="resetLatencyChartRange"
-                  >
-                    重置
-                  </button>
                 </div>
               </div>
               <div class="latency-series-toggle">
@@ -6926,14 +7118,27 @@ onBeforeUnmount(() => {
             <article class="monitor-card chart-slot">
               <div class="monitor-card-title">
                 <span>📈 故障码计数时序分布</span>
-                <button
-                  v-if="faultChartRange"
-                  class="chart-reset-btn"
-                  type="button"
-                  @click="resetFaultChartRange"
-                >
-                  重置
-                </button>
+                <div class="chart-title-actions">
+                  <button
+                    v-if="faultChartRange"
+                    class="chart-reset-btn"
+                    type="button"
+                    @click="resetFaultChartRange"
+                  >
+                    重置
+                  </button>
+                  <label class="latency-percentile-select">
+                    <select v-model="selectedFaultScale" aria-label="故障时间尺度">
+                      <option
+                        v-for="option in latencyScaleOptions"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
               </div>
               <div class="latency-chart-panel">
                 <div v-if="isFaultChartLoading" class="chart-state">
@@ -6943,7 +7148,7 @@ onBeforeUnmount(() => {
                   {{ faultChartError }}
                 </div>
                 <div
-                  v-else-if="faultChartBuckets.length === 0 || faultCodes.length === 0"
+                  v-else-if="faultCodes.length === 0"
                   class="chart-state"
                 >
                   暂无故障码数据
@@ -7861,63 +8066,6 @@ onBeforeUnmount(() => {
 
       <div v-else class="empty-detail empty-detail-prompt">请添加资产库，上传路径进行日志解析</div>
     </main>
-
-    <div v-if="timePointDialog.open" class="modal" role="dialog" aria-modal="true">
-      <section class="modal-content time-point-modal">
-        <header class="modal-header">
-          <h2>⏲️ 按时间点筛选</h2>
-          <button class="close-modal" type="button" title="关闭" @click="closeTimePointDialog">
-            x
-          </button>
-        </header>
-
-        <div class="modal-body time-point-body">
-          <div v-if="timePointDialog.error" class="dialog-error">{{ timePointDialog.error }}</div>
-
-          <section class="time-point-section">
-            <h3>
-              🕒 基于时间点
-              <span class="time-point-value">{{ timePointDialog.bucket?.label || '-' }}</span>
-              设置筛选范围
-            </h3>
-            <div class="time-range-options">
-              <button type="button" @click="applyPresetTimePointRange(5)">前后 5 分钟</button>
-              <button type="button" @click="applyPresetTimePointRange(10)">前后 10 分钟</button>
-              <button type="button" @click="applyPresetTimePointRange(15)">前后 15 分钟</button>
-            </div>
-          </section>
-
-          <section class="time-point-section">
-            <h3>✏️ 自定义范围 (分钟)</h3>
-            <div class="custom-time-range">
-              <label>
-                <span>前</span>
-                <input v-model="timePointDialog.customBefore" type="number" min="0" step="1" />
-                <span>分钟</span>
-              </label>
-              <label>
-                <span>后</span>
-                <input v-model="timePointDialog.customAfter" type="number" min="0" step="1" />
-                <span>分钟</span>
-              </label>
-              <button
-                class="save-btn custom-time-confirm"
-                type="button"
-                @click="confirmCustomTimePointRange"
-              >
-                确定
-              </button>
-            </div>
-          </section>
-        </div>
-
-        <footer class="modal-actions time-point-actions">
-          <button class="ghost-btn full-width" type="button" @click="closeTimePointDialog">
-            取消
-          </button>
-        </footer>
-      </section>
-    </div>
 
     <div v-if="dialog.open" class="modal" role="dialog" aria-modal="true">
       <form class="modal-content" @submit.prevent="saveDialog">
