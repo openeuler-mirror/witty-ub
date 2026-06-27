@@ -460,23 +460,6 @@ type LatencyChartRange = {
 
 type LatencyPercentileValue = 'p99' | 'p9999'
 
-type AnomalousEventChainModel = {
-  id: string
-  anomalous_event_id?: string | null
-  anomaly_code?: string | null
-  anomaly_desc?: string | null
-  anomaly_description?: string | null
-  anomaly_domain?: string | null
-  src_ip?: string | null
-  dst_ip?: string | null
-  pod_ip?: string | null
-  pod_id?: string | null
-  trace_id?: string | null
-  timestamp?: string | null
-  created_at?: string
-  [key: string]: unknown
-}
-
 type ApiResponse<T> = {
   code?: number
   message?: string
@@ -508,7 +491,6 @@ const faultTraceEventsPageSize = 10
 const detailParseResultsPageSize = 10
 const faultDetailTraceEventsPageSize = 10
 const logFilesPollIntervalMs = 3_000
-const severeLogTimeoutThresholdMs = 150
 const isFaultCodeFeatureEnabled = true
 const toFaultAggregatedEventRows = (
   events: TimeAggregatedFailureEventModel[],
@@ -541,7 +523,6 @@ const isLogFilesLoading = ref(false)
 const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
 const logFilesTotal = ref(0)
-const togglingFileIds = ref<Set<string>>(new Set())
 const refreshingFileIds = ref<Set<string>>(new Set())
 const uploadedLogFileIdsBySource = ref<Record<string, string>>({})
 const taskDetailsById = ref<Record<string, TaskModel>>({})
@@ -550,12 +531,10 @@ const logFileAnomalyCntById = ref<Record<string, number>>({})
 const logFileTraceFailureEventCntById = ref<Record<string, number>>({})
 const loadedAnomalyLogFileIds = ref<Set<string>>(new Set())
 const loadingAnomalyLogFileIds = ref<Set<string>>(new Set())
-const latencyResults = ref<LogParseResultModel[]>([])
 const latencyMetricsByPercentile = reactive<Record<LatencyPercentileValue, LatencyMetricItem[]>>({
   p99: [],
   p9999: [],
 })
-const isLatencyResultsLoading = ref(false)
 const isLatencyChartLoading = ref(false)
 const latencyChartError = ref('')
 const aggregatedEvents = ref<AggregatedEventModel[]>([])
@@ -781,7 +760,6 @@ const faultDetailTraceEventsPage = ref(1)
 const faultDetailTraceEventsTotal = ref(0)
 const assetPageInput = ref('')
 const logFilesPageInput = ref('')
-const aggregateEventPageInput = ref('')
 const abnormalTracesPageInput = ref('')
 const faultAggregatedEventPageInput = ref('')
 const faultTraceEventsPageInput = ref('')
@@ -792,7 +770,6 @@ const detailLatencyChartRef = ref<HTMLDivElement | null>(null)
 const faultChartRef = ref<HTMLDivElement | null>(null)
 const faultDetailChartRef = ref<HTMLDivElement | null>(null)
 const logFilesPollingTimer = ref<ReturnType<typeof window.setInterval> | null>(null)
-const anomalousEventChains = ref<AnomalousEventChainModel[]>([])
 const isFaultChartLoading = ref(false)
 const faultChartError = ref('')
 const faultChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
@@ -973,9 +950,6 @@ const assetPageCount = computed(() => Math.max(1, Math.ceil(assetTotal.value / a
 const logFilesPageCount = computed(() =>
   Math.max(1, Math.ceil(logFilesTotal.value / logFilesPageSize)),
 )
-const aggregateEventPageCount = computed(() =>
-  Math.max(1, Math.ceil(aggregateEventTotal.value / aggregateEventPageSize)),
-)
 const abnormalTracesPageCount = computed(() =>
   Math.max(1, Math.ceil(abnormalTracesTotal.value / abnormalTracesPageSize)),
 )
@@ -994,9 +968,6 @@ const assetPageWindow = computed(() => getPageWindow(assetPage.value, assetPageC
 const logFilesPageWindow = computed(() =>
   getPageWindow(logFilesPage.value, logFilesPageCount.value),
 )
-const aggregateEventPageWindow = computed(() =>
-  getPageWindow(aggregateEventPage.value, aggregateEventPageCount.value),
-)
 const abnormalTracesPageWindow = computed(() =>
   getPageWindow(abnormalTracesPage.value, abnormalTracesPageCount.value),
 )
@@ -1007,9 +978,6 @@ const faultTraceEventsPageWindow = computed(() =>
   getPageWindow(faultTraceEventsPage.value, faultTraceEventsPageCount.value),
 )
 const isAbnormalMonitorPage = computed(() => activePage.value === 'abnormal')
-const isLatencyTraceListFilterMode = computed(
-  () => isAbnormalMonitorPage.value && activeAggregateTab.value === 'trace',
-)
 const isLatencyEventListFilterMode = computed(
   () => isAbnormalMonitorPage.value && activeAggregateTab.value === 'event',
 )
@@ -1154,17 +1122,6 @@ const isDetailLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, num
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
   typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
 
-const latencyStatOptions = [
-  { value: 'total', label: '总延迟' },
-  { value: 'p99', label: 'P99' },
-  { value: 'p95', label: 'P95' },
-  { value: 'ave', label: '平均延迟' },
-  { value: 'min', label: '最小延迟' },
-  { value: 'max', label: '最大延迟' },
-] as const
-
-type LatencyStatValue = (typeof latencyStatOptions)[number]['value']
-
 const aggregatedLatencyColumns = [
   { key: 'total_latency', label: '总时延 (ms)', threshold: 150 },
   { key: 'query_meta_latency', label: '查询元数据时延 (ms)', threshold: 150 },
@@ -1177,29 +1134,6 @@ const aggregatedLatencyColumns = [
 const timeWindowLatencyColumns = aggregatedLatencyColumns.slice(1) as readonly typeof aggregatedLatencyColumns[number][]
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
-
-type ProblemLogLatencyKey =
-  | 'totalLatency'
-  | 'queryMetaLatency'
-  | 'urmaTotalLatency'
-  | 'urmaLinkLatency'
-  | 'c2wUrmaLatency'
-  | 'w2wUrmaLatency'
-
-const problemLogLatencyColumns = [
-  { key: 'totalLatency', label: '总时延 (ms)', metric: 'total_latency' },
-  { key: 'queryMetaLatency', label: '查询元数据时延 (ms)', metric: 'query_meta_latency' },
-  { key: 'urmaTotalLatency', label: 'URMA总时延 (ms)', metric: 'urma_total_latency' },
-  { key: 'urmaLinkLatency', label: 'URMA建链时延 (ms)', metric: 'urma_link_latency' },
-  { key: 'c2wUrmaLatency', label: 'C2W URMA时延 (ms)', metric: 'c2w_urma_latency' },
-  { key: 'w2wUrmaLatency', label: 'W2W URMA时延 (ms)', metric: 'w2w_urma_latency' },
-] as const satisfies readonly {
-  key: ProblemLogLatencyKey
-  label: string
-  metric: AggregatedLatencyKey
-}[]
-
-type ProblemLogLatencyColumn = (typeof problemLogLatencyColumns)[number]
 
 type TraceDelayKey =
   | 'sdkMs'
@@ -1285,15 +1219,6 @@ type FaultChartBucket = {
   counts: Record<string, number>
 }
 
-const chartWidth = 1200
-const chartHeight = 360
-const chartPadding = {
-  top: 34,
-  right: 54,
-  bottom: 66,
-  left: 72,
-}
-
 const maxBucketMetricValue = (values: number[]) => {
   if (values.length === 0) return null
   return Math.max(...values)
@@ -1319,12 +1244,6 @@ const parseMetricDate = (result: {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const formatTimeLabel = (date: Date) =>
-  date.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-
 const padDatePart = (value: number) => String(value).padStart(2, '0')
 
 const formatFullTimeLabel = (date: Date) =>
@@ -1344,22 +1263,6 @@ const formatTraceDelayColumnValue = (
   column: TraceDelayColumn,
 ) => (typeof value === 'number' && Number.isFinite(value) ? `${formatMetricValue(value)} ${column.unit}` : '未解析')
 
-const getAggregatedLatencyValue = (
-  row: LatencyDetailRow,
-  metric: AggregatedLatencyKey,
-  stat: LatencyStatValue = selectedLatencyStat.value,
-) => {
-  const record = row.event as Record<string, unknown>
-  const keys = stat === 'total' ? [metric, `p99_${metric}`] : [`${stat}_${metric}`]
-
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-
-  return null
-}
-
 const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | null) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
   const column = aggregatedLatencyColumns.find((item) => item.key === metric)
@@ -1374,11 +1277,6 @@ const anomalyListLatencyThresholds = {
   c2w_urma_latency: 1,
   w2w_urma_latency: 1,
 } satisfies Record<AggregatedLatencyKey, number>
-
-const getProblemLogLatencyValue = (
-  row: AbnormalTraceRow | ParseResultTableRow,
-  column: ProblemLogLatencyColumn,
-) => row[column.key]
 
 const isBackendLatencyAnomalyRow = (row: { raw: LogParseResultModel }) =>
   row.raw.is_anomalous === true || row.raw.is_anomalous === 1 || Boolean(row.raw.anomalous_event_id)
@@ -1510,76 +1408,6 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   return chartBuckets
 })
 
-const chartPlotWidth = computed(() => chartWidth - chartPadding.left - chartPadding.right)
-const chartPlotHeight = computed(() => chartHeight - chartPadding.top - chartPadding.bottom)
-
-const getSmoothChartPath = (points: { x: number; y: number }[]) => {
-  if (points.length === 0) return ''
-  if (points.length === 1) return `M ${points[0]!.x.toFixed(1)},${points[0]!.y.toFixed(1)}`
-
-  const clampControlY = (value: number, firstY: number, secondY: number) =>
-    Math.min(Math.max(value, Math.min(firstY, secondY)), Math.max(firstY, secondY))
-
-  const commands = [`M ${points[0]!.x.toFixed(1)},${points[0]!.y.toFixed(1)}`]
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const previousPoint = points[index - 1] ?? points[index]!
-    const currentPoint = points[index]!
-    const nextPoint = points[index + 1]!
-    const nextNextPoint = points[index + 2] ?? nextPoint
-    const controlPointOne = {
-      x: currentPoint.x + (nextPoint.x - previousPoint.x) / 6,
-      y: clampControlY(
-        currentPoint.y + (nextPoint.y - previousPoint.y) / 6,
-        currentPoint.y,
-        nextPoint.y,
-      ),
-    }
-    const controlPointTwo = {
-      x: nextPoint.x - (nextNextPoint.x - currentPoint.x) / 6,
-      y: clampControlY(
-        nextPoint.y - (nextNextPoint.y - currentPoint.y) / 6,
-        currentPoint.y,
-        nextPoint.y,
-      ),
-    }
-
-    commands.push(
-      `C ${controlPointOne.x.toFixed(1)},${controlPointOne.y.toFixed(1)} ${controlPointTwo.x.toFixed(1)},${controlPointTwo.y.toFixed(1)} ${nextPoint.x.toFixed(1)},${nextPoint.y.toFixed(1)}`,
-    )
-  }
-
-  return commands.join(' ')
-}
-
-const getEndpointSmoothChartPath = (points: { x: number; y: number }[]) => {
-  if (points.length === 0) return ''
-  if (points.length === 1) return `M ${points[0]!.x.toFixed(1)},${points[0]!.y.toFixed(1)}`
-
-  const commands = [`M ${points[0]!.x.toFixed(1)},${points[0]!.y.toFixed(1)}`]
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const currentPoint = points[index]!
-    const nextPoint = points[index + 1]!
-    const controlOffset = (nextPoint.x - currentPoint.x) * 0.35
-
-    commands.push(
-      `C ${(currentPoint.x + controlOffset).toFixed(1)},${currentPoint.y.toFixed(1)} ${(nextPoint.x - controlOffset).toFixed(1)},${nextPoint.y.toFixed(1)} ${nextPoint.x.toFixed(1)},${nextPoint.y.toFixed(1)}`,
-    )
-  }
-
-  return commands.join(' ')
-}
-
-type LatencySeriesPoint = {
-  key: string
-  seriesKey: LatencyMetricKey
-  seriesLabel: string
-  color: string
-  bucket: LatencyChartBucket
-  value: number
-  x: number
-  y: number
-}
-
 const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
   detailLatencyMetrics.value
     .map((metric) => {
@@ -1611,117 +1439,6 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
     })
     .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
     .sort((first, second) => first.time - second.time),
-)
-
-const detailLatencyChartMax = computed(() => {
-  const values = detailLatencyChartBuckets.value.flatMap((bucket) =>
-    latencySeriesConfig
-      .map((series) => bucket.values[series.key])
-      .filter((value): value is number => typeof value === 'number'),
-  )
-  const maxValue = Math.max(0, ...values, 150)
-  return Math.ceil((maxValue * 1.15) / 50) * 50
-})
-
-const getDetailChartBandWidth = (bucketCount: number) =>
-  bucketCount > 0 ? chartPlotWidth.value / bucketCount : chartPlotWidth.value
-
-const getDetailChartX = (index: number) => {
-  const bandWidth = getDetailChartBandWidth(detailLatencyChartBuckets.value.length)
-  return chartPadding.left + bandWidth * (index + 0.5)
-}
-
-const getDetailChartBoundaryX = (index: number) => {
-  const bandWidth = getDetailChartBandWidth(detailLatencyChartBuckets.value.length)
-  return chartPadding.left + bandWidth * index
-}
-
-const getDetailChartY = (value: number) =>
-  chartPadding.top +
-  chartPlotHeight.value -
-  (value / detailLatencyChartMax.value) * chartPlotHeight.value
-
-const detailLatencySeriesPaths = computed(() =>
-  latencySeriesConfig.map((series) => {
-    const points = detailLatencyChartBuckets.value
-      .map((bucket, index) => {
-        const value = bucket.values[series.key]
-        if (typeof value !== 'number') return null
-        return {
-          x: getDetailChartX(index),
-          y: getDetailChartY(value),
-        }
-      })
-      .filter((point): point is { x: number; y: number } => point !== null)
-
-    return {
-      ...series,
-      path: getSmoothChartPath(points),
-    }
-  }),
-)
-
-const detailLatencySeriesPoints = computed<LatencySeriesPoint[]>(() => {
-  const points: LatencySeriesPoint[] = []
-
-  latencySeriesConfig.forEach((series) => {
-    detailLatencyChartBuckets.value.forEach((bucket, index) => {
-      const value = bucket.values[series.key]
-      if (typeof value !== 'number') return
-      points.push({
-        key: `detail-${series.key}-${bucket.time}`,
-        seriesKey: series.key,
-        seriesLabel: series.label,
-        color: series.color,
-        bucket,
-        value,
-        x: getDetailChartX(index),
-        y: getDetailChartY(value),
-      })
-    })
-  })
-
-  return points
-})
-
-const detailYAxisTicks = computed(() => {
-  const ticks = []
-  for (let value = 0; value <= detailLatencyChartMax.value; value += 50) {
-    ticks.push({
-      value,
-      y: getDetailChartY(value),
-    })
-  }
-  return ticks
-})
-
-const detailXAxisLabels = computed(() => {
-  const buckets = detailLatencyChartBuckets.value
-  const step = buckets.length <= 8 ? 1 : Math.ceil(buckets.length / 8)
-
-  return buckets
-    .map((bucket, index) => ({
-      bucket,
-      index,
-      x: getDetailChartX(index),
-      y: chartHeight - chartPadding.bottom + 22,
-    }))
-    .filter(({ index }) => index === 0 || index === buckets.length - 1 || index % step === 0)
-})
-
-const detailAnomalyRegions = computed(() =>
-  detailLatencyChartBuckets.value
-    .map((bucket, index) => {
-      if (!bucket.abnormal) return null
-      const bandWidth = getDetailChartBandWidth(detailLatencyChartBuckets.value.length)
-      const startX = chartPadding.left + bandWidth * index
-      const endX = startX + bandWidth
-      return {
-        x: startX,
-        width: Math.max(endX - startX, 0),
-      }
-    })
-    .filter((region): region is { x: number; width: number } => region !== null),
 )
 
 let latencyChartInstance: ECharts | null = null
@@ -2088,51 +1805,6 @@ const resetFaultChartRange = () => {
   void loadFaultTraceEvents(1)
 }
 
-type AnomalyInfo = {
-  code: string
-  description: string
-}
-
-const getFaultDomainByCode = (code?: string) => {
-  if (!code) return ''
-  return ['1004', '1006', '1008', '1009', '1010'].includes(code) ? 'URMA' : 'KVCache'
-}
-
-const anomalyInfoByEventId = computed(() => {
-  const mapping = new Map<string, AnomalyInfo>()
-  anomalousEventChains.value.forEach((chain) => {
-    if (!chain.anomaly_code) return
-    const record = chain as Record<string, unknown>
-    const anomalousEventId = getRecordString(
-      record,
-      ['anomalous_event_id', 'anomaly_event_id', 'event_id', 'id'],
-      '',
-    )
-    if (anomalousEventId) {
-      mapping.set(anomalousEventId, {
-        code: chain.anomaly_code,
-        description: getRecordString(
-          record,
-          ['description', 'anomaly_desc', 'anomaly_description'],
-          '',
-        ),
-      })
-    }
-  })
-  return mapping
-})
-
-const getLogResultAnomalyInfo = (result: LogParseResultModel) => {
-  const record = result as Record<string, unknown>
-  const anomalousEventId = getRecordString(record, ['anomalous_event_id', 'anomaly_event_id'], '')
-  if (!anomalousEventId) return null
-  return anomalyInfoByEventId.value.get(anomalousEventId) ?? null
-}
-
-const getLogResultAnomalyCode = (result: LogParseResultModel) => {
-  return getLogResultAnomalyInfo(result)?.code ?? null
-}
-
 const faultCodes = computed(() => {
   const currentCodes = Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b))
   return currentCodes.length > 0 ? currentCodes : knownFaultCodes.value
@@ -2408,8 +2080,6 @@ const latencyDetailRows = computed<LatencyDetailRow[]>(() => {
   return rows
 })
 
-const getLatencyPairKey = (firstHost: string, secondHost: string) => `${firstHost}->${secondHost}`
-
 const stripHostPort = (value?: string | null) => {
   const host = value?.trim()
   if (!host || host === '-') return '-'
@@ -2478,17 +2148,6 @@ const getFailureModeIds = (record: Record<string, unknown>) =>
 const getRecordArray = (record: Record<string, unknown>, keys: string[]) => {
   const values = getRecordStringList(record, keys)
   return values.length > 0 ? values : ['-']
-}
-
-const getRecordNumber = (record: Record<string, unknown>, keys: string[], fallback = 0) => {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
-      return Number(value)
-    }
-  }
-  return fallback
 }
 
 const getRecordNullableNumber = (record: Record<string, unknown>, keys: string[]) => {
@@ -2568,15 +2227,6 @@ const getLogDisplayReason = (record: Record<string, unknown>) => {
   return 'OK'
 }
 
-const getLogStatusLabel = (status: LogDisplayStatus) => {
-  const labels: Record<LogDisplayStatus, string> = {
-    failed: '失败',
-    timeout: '严重超时',
-    normal: '正常',
-  }
-  return labels[status]
-}
-
 const normalizeTraceOperation = (operation: string) => {
   const normalized = operation.trim().toUpperCase()
   if (normalized.includes('GET')) return 'GET'
@@ -2585,41 +2235,6 @@ const normalizeTraceOperation = (operation: string) => {
 }
 
 const normalizeTimeText = (value: string) => value.replace('T', ' ').replace(/Z$/, '')
-
-const getLogResultTrace = (result: LogParseResultModel): TraceDetailRow => {
-  const record = result as Record<string, unknown>
-  return {
-    traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
-    clusterName: getRecordString(record, ['cluster_name', 'clusterName', 'cluster'], ''),
-    host: getRecordString(record, ['host'], ''),
-    podIp: getRecordString(record, ['pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']),
-    time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
-    sdkMs: getRecordNullableNumber(record, ['total_latency', 'sdk_ms', 'sdkMs', 'latency']),
-    reqDelay: getRecordNullableNumber(record, [
-      'worker_query_meta_latency',
-      'query_meta_latency',
-      'req_delay',
-      'reqDelay',
-    ]),
-    respDelay: getRecordNullableNumber(record, [
-      'urma_total_latency',
-      'rsp_delay',
-      'respDelay',
-      'rspDelay',
-    ]),
-    urmaLinkLatency: getRecordNullableNumber(record, ['urma_link_latency']),
-    c2wUrmaLatency: getRecordNullableNumber(record, ['c2w_urma_latency']),
-    w2wUrmaLatency: getRecordNullableNumber(record, ['w2w_urma_latency']),
-    sdkProcess: getRecordNullableNumber(record, ['sdk_process']),
-    sdkRpc: getRecordNullableNumber(record, ['sdk_rpc']),
-    localWorkerCost: getRecordNullableNumber(record, ['local_worker_cost']),
-    localWorkerLock: getRecordNullableNumber(record, ['local_worker_lock']),
-    remoteWorkerCost: getRecordNullableNumber(record, ['remote_worker_cost']),
-    remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
-    masterProcess: getRecordNullableNumber(record, ['master_process']),
-    masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
-  }
-}
 
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value
@@ -2687,60 +2302,6 @@ const faultDetailTraceEventsPageWindow = computed(() =>
   getPageWindow(faultDetailTraceEventsPage.value, faultDetailTraceEventsPageCount.value),
 )
 const selectedFaultDetailErrorLogTotal = computed(() => faultDetailTraceEventsTotal.value)
-
-const faultTraceByLatencyPair = computed<Record<string, TraceDetailRow[]>>(() => {
-  const grouped: Record<string, TraceDetailRow[]> = {}
-  latencyResults.value.forEach((result) => {
-    const anomalyInfo = getLogResultAnomalyInfo(result)
-    if (!anomalyInfo) return
-
-    const record = result as Record<string, unknown>
-    const sourceHost = stripHostPort(getRecordString(record, ['src_ip', 'source_ip', 'sourceHost']))
-    const targetHost = stripHostPort(
-      getRecordString(record, ['dst_ip', 'destination_ip', 'targetHost']),
-    )
-    const key = getLatencyPairKey(sourceHost, targetHost)
-    const traces = grouped[key] ?? []
-    traces.push({
-      ...getLogResultTrace(result),
-      faultCode: anomalyInfo.code,
-      faultType: anomalyInfo.description,
-      faultDomain: getFaultDomainByCode(anomalyInfo.code),
-    })
-    grouped[key] = traces
-  })
-
-  Object.values(grouped).forEach((traces) => {
-    traces.sort(
-      (a, b) =>
-        (parseFilterDate(a.time)?.getTime() ?? 0) - (parseFilterDate(b.time)?.getTime() ?? 0),
-    )
-  })
-
-  return grouped
-})
-
-const faultDetailRows = computed<FaultDetailRow[]>(() =>
-  aggregatedEvents.value.map((event) => {
-    const sourceHost = stripHostPort(event.src_ip)
-    const targetHost = stripHostPort(event.dst_ip)
-    const key = getLatencyPairKey(sourceHost, targetHost)
-    const traces = faultTraceByLatencyPair.value[key] ?? []
-    const faultCodesForRow = [
-      ...new Set(
-        traces.map((trace) => trace.faultCode).filter((code): code is string => Boolean(code)),
-      ),
-    ].sort((a, b) => a.localeCompare(b))
-
-    return {
-      id: event.id,
-      sourceHost,
-      targetHost,
-      total: getRecordNumber(event as Record<string, unknown>, ['anomaly_log_parse_result_cnt'], 0),
-      faultCodes: faultCodesForRow,
-    }
-  }),
-)
 
 const getTraceLogTimeValue = (log: TraceLogRow) => parseFilterDate(log.time)?.getTime() ?? 0
 
@@ -3034,17 +2595,6 @@ const parseFilterDate = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const isTraceTimeMatched = (trace: Pick<TraceDetailRow, 'time'>, filters: GlobalFilterState) => {
-  const traceDate = parseFilterDate(trace.time)
-  if (!traceDate) return true
-
-  const startDate = parseFilterDate(filters.startTime)
-  const endDate = parseFilterDate(filters.endTime)
-  if (startDate && traceDate < startDate) return false
-  if (endDate && traceDate > endDate) return false
-  return true
-}
-
 const matchesLatencyRowHostFilters = (row: LatencyDetailRow) => {
   const { sourceHosts, targetHosts } = appliedFilters.value
   if (sourceHosts.length > 0 && !sourceHosts.includes(row.sourceHost)) return false
@@ -3066,55 +2616,6 @@ const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
 
 const getFilteredAbnormalTraceRows = () =>
   abnormalTraceRows.value.filter(matchesAbnormalTraceFilters)
-
-const getFaultRowTraces = (row: FaultDetailRow) =>
-  faultTraceByLatencyPair.value[getLatencyPairKey(row.sourceHost, row.targetHost)] ?? []
-
-const matchesFaultRowHostFilters = (row: FaultDetailRow) => {
-  const { hosts } = appliedFilters.value
-  return hosts.length === 0 || hosts.includes(row.sourceHost) || hosts.includes(row.targetHost)
-}
-
-const getFilteredFaultRows = () => faultDetailRows.value.filter(matchesFaultRowHostFilters)
-
-const getFaultCodeMatchedTraceIds = (faultCodesToMatch: string[]) => {
-  if (faultCodesToMatch.length === 0) return new Set<string>()
-
-  return new Set(
-    Object.values(faultTraceByLatencyPair.value)
-      .flat()
-      .filter((trace) => trace.faultCode && faultCodesToMatch.includes(trace.faultCode))
-      .map((trace) => trace.traceId),
-  )
-}
-
-const matchesAppliedTraceFilters = (trace: TraceDetailRow, source: 'latency' | 'fault') => {
-  const filters = appliedFilters.value
-
-  if (filters.clusters.length > 0 && !filters.clusters.includes(trace.clusterName ?? ''))
-    return false
-  if (filters.faultCodes.length > 0) {
-    const isDirectFaultCodeMatch = Boolean(
-      trace.faultCode && filters.faultCodes.includes(trace.faultCode),
-    )
-    const isTraceIdLinkedMatch =
-      source === 'latency' && getFaultCodeMatchedTraceIds(filters.faultCodes).has(trace.traceId)
-
-    if (!isDirectFaultCodeMatch && !isTraceIdLinkedMatch) return false
-  }
-  return isTraceTimeMatched(trace, filters)
-}
-
-const getFilteredFaultRowTraces = (row: FaultDetailRow) =>
-  getFaultRowTraces(row).filter((trace) => matchesAppliedTraceFilters(trace, 'fault'))
-
-const getFilteredFaultTraces = () =>
-  getFilteredFaultRows().flatMap((row) =>
-    getFilteredFaultRowTraces(row).map((trace) => ({
-      ...trace,
-      rowId: row.id,
-    })),
-  )
 
 const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceTableRow => {
   const record = result as Record<string, unknown>
@@ -3310,10 +2811,6 @@ const resetAllFilters = () => {
   filterDraftInput.targetHost = ''
   filterDraftInput.faultCode = ''
   filterApplyMessage.value = ''
-}
-
-const addHostFilter = (host: string) => {
-  setSingleFilterItem('host', host)
 }
 
 const addSourceHostFilter = (host: string) => {
@@ -3990,45 +3487,6 @@ const extractListItems = <T,>(payload: unknown, keys: string[]) => {
   return (firstArray ?? []) as T[]
 }
 
-const listAll = async <T,>(path: string, keys: string[], body: Record<string, unknown> = {}) => {
-  const result = await request<unknown>(path, {
-    method: 'POST',
-    body: JSON.stringify({
-      page_cnt: 10000,
-      page_num: 1,
-      created_sorted_desc: false,
-      ...body,
-    }),
-  })
-
-  return extractListItems<T>(result, keys)
-}
-
-const loadLatencyResults = async () => {
-  if (!selectedAssetId.value) {
-    latencyResults.value = []
-    isLatencyResultsLoading.value = false
-    return
-  }
-
-  const assetId = selectedAssetId.value
-  isLatencyResultsLoading.value = true
-
-  try {
-    latencyResults.value = await listAll<LogParseResultModel>(
-      '/log_parse_result/list',
-      ['log_parse_results', 'log_parse_result', 'results', 'items', 'list'],
-      {
-        kb_id: assetId,
-      },
-    )
-  } catch {
-    latencyResults.value = []
-  } finally {
-    isLatencyResultsLoading.value = false
-  }
-}
-
 const loadLatencyChart = async () => {
   if (!selectedAssetId.value) {
     latencyPercentileOptions.forEach((option) => {
@@ -4319,19 +3777,6 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
     isLatencyDetailLoading.value = false
     aggregateEventSort.releaseSortLock()
   }
-}
-
-const goAggregateEventPage = (pageNum: number) => {
-  const nextPage = Math.min(Math.max(1, pageNum), aggregateEventPageCount.value)
-  if (nextPage === aggregateEventPage.value || isLatencyDetailLoading.value) return
-  void loadLatencyDetail(nextPage)
-}
-
-const jumpAggregateEventPage = () => {
-  const nextPage = normalizePageInput(aggregateEventPageInput.value, aggregateEventPageCount.value)
-  if (nextPage === null) return
-  aggregateEventPageInput.value = ''
-  goAggregateEventPage(nextPage)
 }
 
 // 时间窗口聚合事件列表
@@ -5610,20 +5055,6 @@ const jumpLogFilesPage = () => {
   if (nextPage === null) return
   logFilesPageInput.value = ''
   goLogFilesPage(nextPage)
-}
-
-const toggleParse = async (fileId: string, run: boolean) => {
-  togglingFileIds.value = new Set(togglingFileIds.value).add(fileId)
-  try {
-    await request(`/log_file/run/${fileId}?run=${run}`, { method: 'PUT' })
-    await refreshLogFile(fileId)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '操作失败'
-  } finally {
-    const next = new Set(togglingFileIds.value)
-    next.delete(fileId)
-    togglingFileIds.value = next
-  }
 }
 
 const refreshLogFile = async (fileId: string) => {
