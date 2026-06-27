@@ -7426,6 +7426,7 @@ onBeforeUnmount(() => {
                             v-for="code in faultAggregatedEventCodes"
                             :key="`fault-aggregate-code-head-${code}`"
                             class="aggregate-cell aggregate-sortable-cell"
+                            :class="{ 'fault-total-code-header': code === 'all' }"
                             @click.stop="faultAggregatedEventSort.handleHeaderClick(code)"
                           >
                             <span class="sort-header-content">
@@ -7437,7 +7438,9 @@ onBeforeUnmount(() => {
                               >
                                 {{ getFaultAggregatedEventCodeLabel(code) }}
                               </button>
-                              <span v-else>{{ getFaultAggregatedEventCodeLabel(code) }}</span>
+                              <strong v-else class="fault-total-code-label">
+                                {{ getFaultAggregatedEventCodeLabel(code) }}
+                              </strong>
                               <span class="sort-icons">
                                 <span
                                   class="sort-icon-up"
@@ -7707,15 +7710,19 @@ onBeforeUnmount(() => {
                         :key="`${row.id}-action`"
                       >
                         <div
-                          class="aggregate-cell action-cell aggregate-body-row fault-aggregate-main-row"
+                          class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-main-row"
                           :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
                           @click="toggleFaultAggregatedEventRow(row)"
-                        ></div>
+                        >
+                          <span class="metric-action-hint">展开查看Pod IP</span>
+                        </div>
                         <div
                           v-if="isFaultAggregatedEventExpanded(row)"
                           class="aggregate-cell action-cell aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-action"
                         >
-                          <div class="fault-aggregate-sub-action-head"></div>
+                          <div class="fault-aggregate-sub-action-head">
+                            <span class="metric-action-hint">操作</span>
+                          </div>
                           <div
                             v-if="
                               isFaultAggregatedEventPodLoading(row) &&
