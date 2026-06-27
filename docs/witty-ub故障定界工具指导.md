@@ -2,90 +2,90 @@
 
 ## 简介
 
-witty-ub故障定界工具witty-ub-diag-tool是C++语言编写的命令行工具，基于故障树驱动的诊断引擎，通过解析KVCache和URMA等组件日志，自动识别超节点系统中的连接故障，输出可视化故障分析报告。
+witty-ub故障定界工具witty-ub-diag-tool是基于故障树驱动的诊断引擎，对KVCache和URMA组件日志进行多级故障定界分析，自动识别超节点系统中的连接故障，生成可视化故障分析报告。该工具采用client-server架构，支持在超节点系统中部署后端服务，并通过web前端进行交互式操作和可视化展示。
 
-## 命令介绍
+## 使用示例
 
-witty-ub-diag-tool ：超节点系统故障定界工具，基于故障树模型对组件日志进行多级诊断分析，定位故障根因。
+### 访问 web 页面
 
-* 当前支持对KVCache故障（kvcache_conn）和URMA通信故障（urma）进行故障定界分析，输出可视化故障分析报告到```/var/witty-ub```目录下```failure-mode-view-vis.html```文件中
+- 浏览器访问 `http://localhost:<witty-ub-web-port>`，即可访问witty-ub-diag-tool的web页面
+    - witty-ub-web-port为witty-ub-web服务的端口号，默认值为8080，开发环境下端口为5173
+- 远程访问时，需要在防火墙上开放witty-ub-web服务的端口号，或者通过ssh隧道进行访问
 
-* 工具通过故障树模型进行诊断：从根节点开始，逐级遍历故障模式，每个故障模式通过匹配日志中的特征模式判断是否命中，最终定位到最终故障模式。日志通过traceId字段进行关联追踪，支持跨模块的故障链分析。
+### 操作流程
 
-### witty-ub-diag-tool 命令行参数说明如下：
-| 参数      | 参数类型   | 参数说明  | 使用说明 | 是否必选 |
-|:--------:|:----------:|:---------|:---------|:-------:|
-| --ds-log-path | string | 日志文件根目录 | 必须为已存在的目录，工具会递归搜索该目录下匹配的日志文件 | 是 |
-| --ds-client-access-log-file | string | 客户端访问日志文件匹配模式 | 支持shell glob模式，如```"client_access*.log"```，用于匹配客户端访问日志文件 | 是 |
-| --ds-client-info-log-file | string | 客户端信息日志文件匹配模式 | 支持shell glob模式，如```"client_info*.log"```，用于匹配客户端信息日志文件 | 是 |
-| --ds-worker-info-log-file | string | 工作线程信息日志文件匹配模式 | 支持shell glob模式，如```"worker_info*.log"```，用于匹配工作线程信息日志文件 | 是 |
-| --ds-worker-access-log-file | string | 工作线程访问日志文件匹配模式 | 支持shell glob模式，如```"worker_access*.log"```，用于匹配工作线程访问日志文件 | 是 |
-| --resource-log-file | string | 资源日志文件匹配模式 | 支持shell glob模式，如```"resource*.log"```，用于匹配资源日志文件 | 是 |
-| --start-time | string | 筛选发生在该时间后的故障事件 | 格式需要为```yyyy-mm-dd hh:mm:ss``` | 是 |
-| --end-time | string | 筛选发生在该时间前的故障事件 | 格式需要为```yyyy-mm-dd hh:mm:ss```，且必须晚于start-time | 是 |
-| --random-str | string | 输出目录后缀随机字符串 | 用于多个进程并发运行时隔离输出目录，指定后输出到```/var/witty-ub/log_<random-str>/```目录下 | 否 |
+1. 进入默认页面
 
-### 使用示例
+[首页](./figures/web-ui/首页.png)
 
-* 基本用法：指定日志目录和文件匹配模式，对指定时间范围内的日志进行故障定界分析
-  ```shell
-  witty-ub-diag-tool \
-    --ds-log-path /var/log/myapp \
-    --ds-client-access-log-file "client_access.log" \
-    --ds-client-info-log-file "client_info.log" \
-    --ds-worker-info-log-file "worker_info.log" \
-    --ds-worker-access-log-file "worker_access.log" \
-    --resource-log-file "resource.log" \
-    --start-time "2026-05-13 10:00:00" \
-    --end-time "2026-05-13 11:00:00"
-  ```
+2. 添加资产库；点击“资产管理”右侧的加号，填写资产库名称和描述
 
-* 使用通配符匹配多个日志文件
-  ```shell
-  witty-ub-diag-tool \
-    --ds-log-path /var/log/myapp \
-    --ds-client-access-log-file "client_access*.log" \
-    --ds-client-info-log-file "client_info*.log" \
-    --ds-worker-info-log-file "worker_info*.log" \
-    --ds-worker-access-log-file "worker_access*.log" \
-    --resource-log-file "resource*.log" \
-    --start-time "2026-06-01 00:00:00" \
-    --end-time "2026-06-02 00:00:00"
-  ```
+[添加资产库](./figures/web-ui/添加资产库.png)
 
-* 多个进程并发诊断时，使用--random-str隔离输出目录
-  ```shell
-  witty-ub-diag-tool \
-    --ds-log-path /var/log/myapp \
-    --ds-client-access-log-file "client_access*.log" \
-    --ds-client-info-log-file "client_info*.log" \
-    --ds-worker-info-log-file "worker_info*.log" \
-    --ds-worker-access-log-file "worker_access*.log" \
-    --resource-log-file "resource*.log" \
-    --start-time "2026-05-13 10:00:00" \
-    --end-time "2026-05-13 11:00:00" \
-    --random-str "run001"
-  ```
+3. 新建日志解析任务：点击新建的资产库进入资产库详情页，输入后端服务所在服务器上的日志目录，点击“添加”，或点击“上传ZIP文件”上传本地打包好的日志，会自动创建解析任务，并在任务列表中显示。解析完成后，会显示当前任务的时延异常数和通断异常数
 
-### 输出说明
+[日志解析任务](./figures/web-ui/日志解析任务.png)
 
-* 可视化故障分析报告：```/var/witty-ub/failure-mode-view-vis.html```
-  * 包含故障树的交互式树形视图
-  * 按时间排序的故障链轨迹（trace）列表
-  * 每条日志行的详细信息（时间戳、文件名、行号、pod名称、PID/TID、traceId、集群名称、消息）
-  * 命中计数和根因分析结果
+4. 时延监控：点击“章节导航”中的“时延监控”，进入时延监控页，会加载关键时延指标趋势图、聚合事件列表和时延异常列表
 
-### 故障树说明
+    1. 关键时延指标趋势图：可选择想查看的指标曲线
 
-工具从```/var/witty-ub/data/failure_mode_tree.json```加载故障树定义（可通过环境变量```WITTY_DIR```指定自定义路径）。故障树包含以下故障域：
+        [关键时延指标趋势](./figures/web-ui/关键时延指标趋势.png)
+    
+        - 按时间段展开：右上角选择时间尺度，再点击图中的时间点，展开该时间段内的关键时延指标趋势图
+        - 切换百分位指标：右上角选择P99或P9999，即可切换关键时延指标趋势图的百分位指标
 
-* **kvcache_conn**：KVCache连接故障域，包含40个根故障模式
-* **urma**：URMA通信故障域，包含875个根故障模式
+    2. 时延聚合事件列表
 
-诊断时从每个域的根节点开始遍历，通过日志模式匹配逐级定位到具体根因。KVCache故障的叶子节点如涉及URMA故障，会自动关联到URMA故障子树进行深层定界。
+        [时延聚合事件列表](./figures/web-ui/时延聚合事件列表.png)
 
-### 环境变量
+        - 时间段内聚合事件：点击一个条目，展开该时间段内的按“源IP->目标IP”的聚合事件列表
 
-| 环境变量      | 说明  | 默认值 |
-|:--------:|:---------|:-------:|
-| WITTY_DIR | 指定witty-ub工作目录，影响故障树JSON和输出目录的路径 | ```/var/witty-ub``` |
+        [时延聚合事件列表展开](./figures/web-ui/时延聚合事件列表展开.png)
+
+        - 聚合事件详情：点击右侧“详情”按钮，查看该聚合事件的详情，包括该聚合事件的关键时延指标趋势图和时延异常列表
+
+        [时延聚合事件详情](./figures/web-ui/时延聚合事件详情.png)
+        
+        - 时延异常Trace关联日志：点击“查看链路”按钮，查看该时延异常Trace关联的日志
+
+        [时延异常Trace关联日志](./figures/web-ui/时延异常Trace关联日志.png)
+
+    3. 时延异常列表
+
+        [时延异常列表](./figures/web-ui/时延异常列表.png)
+
+        - 时延异常Trace关联日志：点击右侧“查看链路”按钮，查看该时延异常Trace关联的日志，与聚合事件详情的“查看链路”一致
+        - 按集群/主机过滤：点击右上角的“按集群/主机过滤”按钮，选择想要过滤的集群或主机，即可查看该集群或主机的时延异常列表
+
+        [按集群/主机过滤](./figures/web-ui/按集群主机过滤.png)
+
+5. 故障监控：点击“章节导航”中的“故障监控”，进入故障监控页，会加载故障码计数时序分布图、聚合事件列表和错误日志列表
+
+    1. 故障码计数时序分布图：可选择想查看的故障码计数曲线
+
+        [故障码计数时序分布图](./figures/web-ui/故障码计数时序分布图.png)
+
+        - 按时间段展开：右上角选择时间尺度，再点击图中的时间点，展开该时间段内的故障码计数时序分布图
+        
+    2. 故障聚合事件列表
+
+        [故障聚合事件列表](./figures/web-ui/故障聚合事件列表.png)
+
+        - 时间段内聚合事件：点击一个条目，展开该时间段内的按“Pod IP”的聚合事件列表
+
+        [故障聚合事件列表展开](./figures/web-ui/故障聚合事件列表展开.png)
+
+        - 聚合事件详情：点击右侧“详情”按钮，查看该聚合事件的详情，包括该聚合事件的故障码计数时序分布图和错误日志列表
+
+        [故障聚合事件详情](./figures/web-ui/故障聚合事件详情.png)
+        
+        - 故障Trace关联日志：点击“查看链路”按钮，查看该故障Trace关联的日志，命中故障模式的日志会被标记为红色，可点击故障模式标签，查看该故障模式的详细信息
+
+        [故障Trace关联日志](./figures/web-ui/故障Trace关联日志.png)
+
+    3. 错误日志列表
+
+        [错误日志列表](./figures/web-ui/错误日志列表.png)
+
+        - 故障Trace关联日志：点击右侧“查看链路”按钮，查看该故障Trace关联的日志，与聚合事件详情的“查看链路”一致
