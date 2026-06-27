@@ -887,6 +887,15 @@ button {
   margin-left: auto;
 }
 
+.scale-label {
+  display: inline-flex;
+  align-items: center;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .latency-percentile-select {
   display: inline-flex;
 }

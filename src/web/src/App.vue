@@ -571,6 +571,7 @@ const timeWindowAggregatedEvents = ref<TimeWindowAggregatedEvent[]>([])
 const isTimeWindowLoading = ref(false)
 const timeWindowError = ref('')
 const timeWindowPage = ref(1)
+const timeWindowChartRange = ref<{ startTime: number; endTime: number } | null>(null)
 const timeWindowTotal = ref(0)
 const timeWindowPageInput = ref('')
 const expandedTimeWindowIds = ref<Set<number>>(new Set())
@@ -807,14 +808,13 @@ const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[
 const isTraceLogsLoading = ref(false)
 const traceLogsError = ref('')
 const latencyScaleOptions = [
-  { value: 0, label: '请选择时间尺度' },
   { value: 10, label: '10秒' },
   { value: 60, label: '1分钟' },
   { value: 600, label: '10分钟' },
   { value: 3600, label: '1小时' },
 ] as const
 
-const selectedLatencyScale = ref<number>(0)
+const selectedLatencyScale = ref<number>(10)
 
 const latencyChartCenterTime = ref<number | null>(null)
 
@@ -844,7 +844,7 @@ const latencyChartRange = computed<LatencyChartRange | null>(() => {
 })
 
 // 故障监控时间尺度
-const selectedFaultScale = ref<number>(0)
+const selectedFaultScale = ref<number>(10)
 const faultChartCenterTime = ref<number | null>(null)
 const faultChartHalfSpanMultiplier: Record<number, number> = {
   10: 60,
@@ -1713,6 +1713,8 @@ const renderLatencyEchart = () => {
         latencyChartCenterTime.value = bucket.time
         void loadLatencyChart()
         void loadAbnormalTraces(1)
+        void loadLatencyDetail(1)
+        void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
       }
     }
   })
@@ -1757,6 +1759,7 @@ const renderFaultEchart = () => {
         faultChartCenterTime.value = bucket.time
         void loadFaultChart()
         void loadFaultTraceEvents(1)
+        void loadFaultAggregatedEvents(1)
       }
     }
   })
@@ -1797,12 +1800,15 @@ const resetLatencyChartRange = () => {
   latencyChartCenterTime.value = null
   void loadLatencyChart()
   void loadAbnormalTraces(1)
+  void loadLatencyDetail(1)
+  void loadTimeWindowAggregatedEvents(1, null)
 }
 
 const resetFaultChartRange = () => {
   faultChartCenterTime.value = null
   void loadFaultChart()
   void loadFaultTraceEvents(1)
+  void loadFaultAggregatedEvents(1)
 }
 
 const faultCodes = computed(() => {
@@ -3727,6 +3733,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
     // 根据选择的统计类型映射排序字段
     const statType = selectedLatencyStat.value === 'total' ? 'p99' : selectedLatencyStat.value
     
+    const chartRange = latencyChartRange.value
     const result = await request<unknown>('/aggregated_event/list', {
       method: 'POST',
       body: JSON.stringify({
@@ -3737,6 +3744,8 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
         sort_fields: sortFields.length > 0 ? sortFields : undefined,
         src_ip: getLogParseFilterValue(filters.sourceHosts),
         dst_ip: getLogParseFilterValue(filters.targetHosts),
+        start_time: chartRange ? formatTimestamp(chartRange.startTime) : undefined,
+        end_time: chartRange ? formatTimestamp(chartRange.endTime) : undefined,
       }),
       signal: aggregateEventSort.getAbortSignal(),
     })
@@ -3780,7 +3789,10 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
 }
 
 // 时间窗口聚合事件列表
-const loadTimeWindowAggregatedEvents = async (pageNum = timeWindowPage.value) => {
+const loadTimeWindowAggregatedEvents = async (
+  pageNum = timeWindowPage.value,
+  chartRange?: { startTime: number; endTime: number } | null,
+) => {
   if (!selectedAssetId.value) {
     timeWindowAggregatedEvents.value = []
     timeWindowTotal.value = 0
@@ -3789,6 +3801,12 @@ const loadTimeWindowAggregatedEvents = async (pageNum = timeWindowPage.value) =>
     isTimeWindowLoading.value = false
     return
   }
+
+  // 如果传入了 chartRange 参数，更新 ref；否则使用已保存的值
+  if (chartRange !== undefined) {
+    timeWindowChartRange.value = chartRange ?? null
+  }
+  const currentChartRange = timeWindowChartRange.value
 
   const assetId = selectedAssetId.value
   isTimeWindowLoading.value = true
@@ -3808,11 +3826,16 @@ const loadTimeWindowAggregatedEvents = async (pageNum = timeWindowPage.value) =>
       src_ip: getLogParseFilterValue(filters.sourceHosts),
       dst_ip: getLogParseFilterValue(filters.targetHosts),
     }
-    if (filters.startTime) {
-      requestBody.start_time = formatDateTime(filters.startTime)
-    }
-    if (filters.endTime) {
-      requestBody.end_time = formatDateTime(filters.endTime)
+    if (currentChartRange) {
+      requestBody.start_time = formatTimestamp(currentChartRange.startTime)
+      requestBody.end_time = formatTimestamp(currentChartRange.endTime)
+    } else {
+      if (filters.startTime) {
+        requestBody.start_time = formatDateTime(filters.startTime)
+      }
+      if (filters.endTime) {
+        requestBody.end_time = formatDateTime(filters.endTime)
+      }
     }
     const result = await request<unknown>('/aggregated_event/list_time_window', {
       method: 'POST',
@@ -4379,6 +4402,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
   try {
     const filters = appliedFilters.value
     const sortFields = faultAggregatedEventSort.getSortFields.value
+    const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       interval: selectedFaultAggregateInterval.value,
@@ -4389,11 +4413,16 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       page_num: pageNum,
     }
 
-    if (filters.startTime) {
-      requestBody.created_at_start = formatDateTime(filters.startTime)
-    }
-    if (filters.endTime) {
-      requestBody.created_at_end = formatDateTime(filters.endTime)
+    if (chartRange) {
+      requestBody.created_at_start = formatTimestamp(chartRange.startTime)
+      requestBody.created_at_end = formatTimestamp(chartRange.endTime)
+    } else {
+      if (filters.startTime) {
+        requestBody.created_at_start = formatDateTime(filters.startTime)
+      }
+      if (filters.endTime) {
+        requestBody.created_at_end = formatDateTime(filters.endTime)
+      }
     }
 
     const result = await request<ListTimeAggregatedFailureEventMsg>(
@@ -5317,6 +5346,8 @@ watch(selectedLatencyScale, () => {
   if (latencyChartCenterTime.value !== null) {
     void loadLatencyChart()
     void loadAbnormalTraces(1)
+    void loadLatencyDetail(1)
+    void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
   } else if ((abnormalTraceRowsMap[selectedLatencyScale.value] ?? []).length === 0) {
     void loadAbnormalTraces(1)
   }
@@ -5326,6 +5357,7 @@ watch(selectedFaultScale, () => {
   if (faultChartCenterTime.value !== null) {
     void loadFaultChart()
     void loadFaultTraceEvents(1)
+    void loadFaultAggregatedEvents(1)
   } else if ((faultTraceRowsMap[selectedFaultScale.value] ?? []).length === 0) {
     void loadFaultTraceEvents(1)
   }
@@ -5796,6 +5828,7 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
+                  <span class="scale-label">时间尺度：</span>
                   <label class="latency-percentile-select">
                     <select v-model="selectedLatencyScale" aria-label="时间尺度">
                       <option
@@ -5807,6 +5840,7 @@ onBeforeUnmount(() => {
                       </option>
                     </select>
                   </label>
+                  <span class="scale-label">时延指标：</span>
                   <label class="latency-percentile-select">
                     <select v-model="selectedLatencyPercentile" aria-label="时延百分位">
                       <option
@@ -5917,18 +5951,9 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div
-                v-if="activeAggregateTab === 'event'"
-                class="aggregate-table"
-                :class="{
-                  'aggregate-table-state-mode':
-                    isTimeWindowLoading ||
-                    !!timeWindowError ||
-                    timeWindowAggregatedEvents.length === 0 ||
-                    getFilteredLatencyRows().length === 0,
-                }"
-              >
-                <div class="aggregate-table-frame">
+              <div v-if="activeAggregateTab === 'event'" class="aggregate-table">
+                <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
+                  <div class="aggregate-table-frame">
                   <div class="aggregate-fixed-left">
                     <div class="aggregate-left-grid aggregate-table-header">
                       <div class="aggregate-cell fault-expand-cell"></div>
@@ -6248,25 +6273,6 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
                 </div>
-
-                <div v-if="isTimeWindowLoading" class="aggregate-table-state">
-                  正在加载时间窗口聚合...
-                </div>
-                <div
-                  v-else-if="timeWindowError"
-                  class="aggregate-table-state metric-table-error"
-                >
-                  {{ timeWindowError }}
-                </div>
-                <div v-else-if="timeWindowAggregatedEvents.length === 0" class="aggregate-table-state">
-                  暂无时间窗口聚合数据
-                </div>
-<div
-                  v-else-if="getFilteredLatencyRows().length === 0"
-                  class="aggregate-table-state"
-                >
-                  无匹配聚合事件
-                </div>
                 <div v-if="timeWindowTotal > 10" class="aggregate-pagination">
                   <button
                     class="ghost-btn"
@@ -6319,6 +6325,20 @@ onBeforeUnmount(() => {
                       跳转
                     </button>
                   </span>
+                </div>
+                </template>
+
+                <div v-if="isTimeWindowLoading" class="aggregate-table-state">
+                  正在加载时间窗口聚合...
+                </div>
+                <div
+                  v-else-if="timeWindowError"
+                  class="aggregate-table-state metric-table-error"
+                >
+                  {{ timeWindowError }}
+                </div>
+                <div v-else-if="timeWindowAggregatedEvents.length === 0" class="aggregate-table-state">
+                  暂无时间窗口聚合数据
                 </div>
               </div>
 
@@ -6675,6 +6695,7 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
+                  <span class="scale-label">时间尺度：</span>
                   <label class="latency-percentile-select">
                     <select v-model="selectedFaultScale" aria-label="故障时间尺度">
                       <option
@@ -6753,7 +6774,8 @@ onBeforeUnmount(() => {
                     faultAggregatedEventRows.length === 0,
                 }"
               >
-                <div class="aggregate-table-frame fault-aggregate-frame">
+                <template v-if="!isFaultAggregatedEventsLoading && !faultAggregatedEventsError && faultAggregatedEventRows.length > 0">
+                  <div class="aggregate-table-frame fault-aggregate-frame">
                   <div class="aggregate-fixed-left">
                     <div class="fault-aggregate-time-grid aggregate-table-header">
                       <div class="aggregate-cell fault-expand-cell"></div>
@@ -7261,6 +7283,23 @@ onBeforeUnmount(() => {
                       跳转
                     </button>
                   </span>
+                </div>
+                </template>
+
+                <div v-if="isFaultAggregatedEventsLoading" class="aggregate-table-state">
+                  正在加载聚合事件...
+                </div>
+                <div
+                  v-else-if="faultAggregatedEventsError"
+                  class="aggregate-table-state metric-table-error"
+                >
+                  {{ faultAggregatedEventsError }}
+                </div>
+                <div
+                  v-else-if="faultAggregatedEventRows.length === 0"
+                  class="aggregate-table-state"
+                >
+                  暂无聚合事件数据
                 </div>
               </div>
 
