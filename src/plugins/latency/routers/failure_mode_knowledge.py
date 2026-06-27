@@ -25,10 +25,24 @@ from latency.schemas.request import (
 from latency.schemas.response import (
     GetFailureModeMsg,
     GetFailureModeResponse,
+    GetStatusCodeKnowledgeResponse,
 )
 from latency.services.failure_mode_knowledge import FailureModeKnowledge
 
 router = APIRouter(prefix="/failure_mode", tags=["failure_mode"])
+
+@router.get(
+    "/status_code/{status_code}",
+    response_model=GetStatusCodeKnowledgeResponse,
+)
+async def get_status_code_knowledge(
+    status_code: Annotated[str, Path()],
+) -> GetStatusCodeKnowledgeResponse:
+    msg = await FailureModeKnowledge.get_status_code_knowledge(status_code)
+    if msg.status_code_info is None:
+        raise HTTPException(status_code=404, detail=f"未找到故障码 {status_code}")
+    return GetStatusCodeKnowledgeResponse(result=msg)
+
 
 @router.get("/{failure_mode_id}", response_model=GetFailureModeResponse)
 async def get_failure_mode_by_id(

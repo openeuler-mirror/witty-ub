@@ -115,6 +115,12 @@ type ErrCodeMetricItem = {
   [key: string]: unknown
 }
 
+type StatusCodeKnowledge = {
+  status_code: string
+  symptom: string
+  root_cause: string
+}
+
 type AggregatedEventModel = {
   id: string
   src_ip?: string | null
@@ -795,6 +801,17 @@ const isFaultDetailChartLoading = ref(false)
 const faultDetailChartError = ref('')
 const faultDetailChartMetrics = ref<Record<string, ErrCodeMetricItem[]>>({})
 const faultAggregatedEventCodes = ref<string[]>([])
+const statusCodePopoverRef = ref<HTMLDivElement | null>(null)
+const statusCodePopover = reactive({
+  open: false,
+  code: '',
+  symptom: '',
+  rootCause: '',
+  loading: false,
+  error: '',
+  left: 0,
+  top: 0,
+})
 const faultAggregatedEventRows = ref<FaultAggregatedEventRow[]>([])
 const faultAggregatedEventPodRowsByEventId = ref<Record<string, FaultAggregatedEventPodRow[]>>({})
 const faultAggregatedEventPodTotalsByEventId = ref<Record<string, number>>({})
@@ -2135,6 +2152,51 @@ const getFaultAggregatedEventCodeValue = (row: FaultAggregatedEventRow, code: st
   row.faultCodeCounts[code] ?? 0
 const getFaultAggregatedEventCodeLabel = (code: string) =>
   code === 'all' ? '故障总数' : `故障码${code}`
+const closeStatusCodePopover = () => {
+  statusCodePopover.open = false
+}
+const openStatusCodePopover = async (code: string, event: MouseEvent) => {
+  if (code === 'all') return
+  const popoverWidth = 460
+  const margin = 12
+  statusCodePopover.open = true
+  statusCodePopover.code = code
+  statusCodePopover.symptom = ''
+  statusCodePopover.rootCause = ''
+  statusCodePopover.error = ''
+  statusCodePopover.loading = true
+  statusCodePopover.left = Math.min(
+    event.clientX + margin,
+    Math.max(margin, window.innerWidth - popoverWidth - margin),
+  )
+  statusCodePopover.top = Math.max(
+    margin,
+    Math.min(event.clientY + margin, window.innerHeight - 220),
+  )
+
+  try {
+    const result = await request<{ status_code_info: StatusCodeKnowledge }>(
+      `/failure_mode/status_code/${encodeURIComponent(code)}`,
+    )
+    if (!statusCodePopover.open || statusCodePopover.code !== code) return
+    statusCodePopover.symptom = result.status_code_info.symptom
+    statusCodePopover.rootCause = result.status_code_info.root_cause
+  } catch (error) {
+    if (!statusCodePopover.open || statusCodePopover.code !== code) return
+    statusCodePopover.error = error instanceof Error ? error.message : '加载故障码信息失败'
+  } finally {
+    if (statusCodePopover.code === code) statusCodePopover.loading = false
+  }
+}
+const handleStatusCodePopoverOutsideClick = (event: MouseEvent) => {
+  if (
+    statusCodePopover.open &&
+    !statusCodePopoverRef.value?.contains(event.target as Node) &&
+    !(event.target as Element).closest?.('.fault-code-knowledge-link')
+  ) {
+    closeStatusCodePopover()
+  }
+}
 const getNextFaultAggregatedEventPodSortFields = (field: string): SortField[] => {
   const nextFields = faultAggregatedEventPodSort.getSortFields.value.map((sortField) => ({
     ...sortField,
@@ -5841,11 +5903,13 @@ watch(selectedFaultScale, () => {
 onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
+  document.addEventListener('click', handleStatusCodePopoverOutsideClick)
 })
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
   window.removeEventListener('resize', resizeLatencyCharts)
+  document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
   latencyChartInstance?.dispose()
   detailLatencyChartInstance?.dispose()
   faultChartInstance?.dispose()
@@ -5855,6 +5919,40 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-layout">
+    <div
+      v-if="statusCodePopover.open"
+      ref="statusCodePopoverRef"
+      class="status-code-popover"
+      :style="{ left: `${statusCodePopover.left}px`, top: `${statusCodePopover.top}px` }"
+      role="dialog"
+      :aria-label="`故障码${statusCodePopover.code}详情`"
+    >
+      <div class="status-code-popover-header">
+        <span class="status-code-capsule">{{ statusCodePopover.code }}</span>
+        <button
+          class="status-code-popover-close"
+          type="button"
+          aria-label="关闭"
+          @click="closeStatusCodePopover"
+        >
+          ×
+        </button>
+      </div>
+      <div v-if="statusCodePopover.loading" class="status-code-popover-state">正在加载...</div>
+      <div v-else-if="statusCodePopover.error" class="status-code-popover-state error">
+        {{ statusCodePopover.error }}
+      </div>
+      <div v-else class="status-code-popover-content">
+        <div class="status-code-detail status-code-detail-symptom">
+          <span class="status-code-detail-label">故障现象</span>
+          <p>{{ statusCodePopover.symptom || '-' }}</p>
+        </div>
+        <div class="status-code-detail status-code-detail-cause">
+          <span class="status-code-detail-label">故障原因</span>
+          <p>{{ statusCodePopover.rootCause || '-' }}</p>
+        </div>
+      </div>
+    </div>
     <aside class="asset-sidebar">
       <section class="nav-section">
         <div class="nav-title-row">
@@ -7331,7 +7429,15 @@ onBeforeUnmount(() => {
                             @click.stop="faultAggregatedEventSort.handleHeaderClick(code)"
                           >
                             <span class="sort-header-content">
-                              {{ getFaultAggregatedEventCodeLabel(code) }}
+                              <button
+                                v-if="code !== 'all'"
+                                class="fault-code-knowledge-link"
+                                type="button"
+                                @click.stop="openStatusCodePopover(code, $event)"
+                              >
+                                {{ getFaultAggregatedEventCodeLabel(code) }}
+                              </button>
+                              <span v-else>{{ getFaultAggregatedEventCodeLabel(code) }}</span>
                               <span class="sort-icons">
                                 <span
                                   class="sort-icon-up"
@@ -7415,7 +7521,15 @@ onBeforeUnmount(() => {
                                 @click.stop="handleFaultAggregatedEventPodSortHeaderClick(row, code)"
                               >
                                 <span class="sort-header-content">
-                                  {{ getFaultAggregatedEventCodeLabel(code) }}
+                                  <button
+                                    v-if="code !== 'all'"
+                                    class="fault-code-knowledge-link"
+                                    type="button"
+                                    @click.stop="openStatusCodePopover(code, $event)"
+                                  >
+                                    {{ getFaultAggregatedEventCodeLabel(code) }}
+                                  </button>
+                                  <span v-else>{{ getFaultAggregatedEventCodeLabel(code) }}</span>
                                   <span class="sort-icons">
                                     <span
                                       class="sort-icon-up"

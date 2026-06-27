@@ -1408,6 +1408,116 @@ button {
   font-weight: inherit;
 }
 
+.fault-code-knowledge-link {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.fault-code-knowledge-link:hover {
+  color: #2563eb;
+}
+
+.status-code-popover {
+  position: fixed;
+  z-index: 1200;
+  width: min(460px, calc(100vw - 24px));
+  padding: 16px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgb(15 23 42 / 20%);
+}
+
+.status-code-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.status-code-capsule {
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: #fff;
+  background: #2563eb;
+  font-weight: 700;
+}
+
+.status-code-popover-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #64748b;
+  background: #f1f5f9;
+  font-size: 20px;
+  line-height: 28px;
+  cursor: pointer;
+}
+
+.status-code-popover-content {
+  display: grid;
+  gap: 10px;
+}
+
+.status-code-detail {
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.status-code-detail-symptom {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.status-code-detail-cause {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+
+.status-code-detail-label {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.status-code-detail-symptom .status-code-detail-label {
+  color: #b45309;
+}
+
+.status-code-detail-cause .status-code-detail-label {
+  color: #b91c1c;
+}
+
+.status-code-detail p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.status-code-popover-state {
+  padding: 12px 0;
+  color: #64748b;
+}
+
+.status-code-popover-state.error {
+  color: #dc2626;
+}
+
 /* 排序图标容器 */
 .sort-icons {
   display: flex;
