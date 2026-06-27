@@ -6102,10 +6102,9 @@ onBeforeUnmount(() => {
                     class="aggregate-latency-scroll scroll-section-outline"
                     :class="{
                       'scroll-section-outline-full':
-                        !isLatencyDetailLoading &&
-                        !latencyDetailError &&
-                        latencyDetailRows.length > 0 &&
-                        getFilteredLatencyRows().length > 0,
+                        !isTimeWindowLoading &&
+                        !timeWindowError &&
+                        sortedTimeWindowAggregatedEvents.length > 0,
                     }"
                   >
                     <div class="aggregate-latency-head aggregate-latency-sync">

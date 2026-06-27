@@ -1621,6 +1621,12 @@ button {
   height: auto;
 }
 
+.aggregate-table-state-mode .scroll-section-outline::before,
+.aggregate-table-state-mode .scroll-section-outline::after {
+  bottom: auto;
+  height: var(--aggregate-header-row-height);
+}
+
 .aggregate-latency-head {
   position: sticky;
   top: 0;
