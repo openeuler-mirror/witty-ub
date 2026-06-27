@@ -6388,7 +6388,17 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div v-if="activeAggregateTab === 'event'" class="aggregate-table">
+              <div
+                v-if="activeAggregateTab === 'event'"
+                class="aggregate-table"
+                :class="{
+                  'aggregate-table-state-mode':
+                    isTimeWindowLoading ||
+                    !!timeWindowError ||
+                    timeWindowAggregatedEvents.length === 0 ||
+                    getFilteredLatencyRows().length === 0,
+                }"
+              >
                 <div class="aggregate-table-frame">
                   <div class="aggregate-fixed-left">
                     <div class="aggregate-left-grid aggregate-table-header">
@@ -6784,7 +6794,17 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div v-else-if="activeAggregateTab === 'trace'" class="aggregate-table">
+              <div
+                v-else-if="activeAggregateTab === 'trace'"
+                class="aggregate-table"
+                :class="{
+                  'aggregate-table-state-mode':
+                    isAbnormalTracesLoading ||
+                    !!abnormalTracesError ||
+                    abnormalTraceRows.length === 0 ||
+                    getFilteredAbnormalTraceRows().length === 0,
+                }"
+              >
                 <div class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
                     <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header">
@@ -7198,6 +7218,12 @@ onBeforeUnmount(() => {
               <div
                 v-if="activeFaultMonitorTab === 'event'"
                 class="aggregate-table fault-aggregate-table"
+                :class="{
+                  'aggregate-table-state-mode':
+                    isFaultAggregatedEventsLoading ||
+                    !!faultAggregatedEventsError ||
+                    faultAggregatedEventRows.length === 0,
+                }"
               >
                 <div class="aggregate-table-frame fault-aggregate-frame">
                   <div class="aggregate-fixed-left">
@@ -8494,7 +8520,15 @@ onBeforeUnmount(() => {
               <h3>时延异常 / 阶段时延</h3>
               <span class="parse-result-count">{{ detailParseResultsBadgeCount }} 条</span>
             </div>
-            <div class="parse-result-table-wrapper detail-abnormal-trace-wrapper">
+            <div
+              class="parse-result-table-wrapper detail-abnormal-trace-wrapper"
+              :class="{
+                'aggregate-table-state-mode':
+                  isDetailParseResultsLoading ||
+                  !!detailParseResultsError ||
+                  detailParseResultRows.length === 0,
+              }"
+            >
               <div class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
                 <div class="aggregate-fixed-left">
                   <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header">

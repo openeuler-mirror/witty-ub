@@ -1284,9 +1284,33 @@ button {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) 136px;
   min-width: 0;
-min-height: calc(53px + 8 * 59px + 10px);
   max-height: calc(53px + 10 * 59px + 10px);
   overflow-y: auto;
+}
+
+.aggregate-table-state-mode {
+  position: relative;
+}
+
+.aggregate-table-state-mode .aggregate-table-frame {
+  min-height: calc(
+    var(--aggregate-header-row-height, 53px) +
+    var(--aggregate-scrollbar-height, 10px) +
+    100px
+  );
+}
+
+.aggregate-table-state-mode > .aggregate-table-state {
+  position: absolute;
+  z-index: 8;
+  top: calc(
+    var(--aggregate-header-row-height, 53px) +
+    var(--aggregate-scrollbar-height, 10px)
+  );
+  right: 0;
+  left: 0;
+  min-height: 100px;
+  background: #ffffff;
 }
 
 .aggregate-fixed-left,
