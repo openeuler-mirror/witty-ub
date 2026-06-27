@@ -11,6 +11,7 @@ from latency.schemas.log import (
 )
 from latency.schemas.failure_mode import (
     FailureModeModel,
+    StatusCodeKnowledgeModel,
 )
 from latency.schemas.log_failure_event import (
     LogFailureEventModel,
@@ -140,6 +141,16 @@ class GetFailureModeMsg(BaseModel):
 
 class GetFailureModeResponse(ResponseBase):
     result: GetFailureModeMsg = Field(..., description="查询故障模式详情响应结果")
+
+
+class GetStatusCodeKnowledgeMsg(BaseModel):
+    status_code_info: Optional[StatusCodeKnowledgeModel] = Field(
+        default=None, description="故障码知识详情"
+    )
+
+
+class GetStatusCodeKnowledgeResponse(ResponseBase):
+    result: GetStatusCodeKnowledgeMsg = Field(..., description="查询故障码知识响应结果")
 
 
 class ListSrcDstAggregatedEventMsg(BaseModel):

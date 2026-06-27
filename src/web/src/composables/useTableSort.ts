@@ -21,12 +21,6 @@ export type SortField = {
   order: SortOrder
 }
 
-export type SortableColumn = {
-  key: string
-  label: string
-  sortable?: boolean  // 是否可排序，默认true
-}
-
 import { ref, computed, type Ref } from 'vue'
 
 export function useTableSort(defaultSort: SortField[] = [], onSortChange?: () => void) {
@@ -155,13 +149,6 @@ export function useTableSort(defaultSort: SortField[] = [], onSortChange?: () =>
   const getSortFields = computed(() => sortFields.value)
 
   /**
-   * 重置排序状态
-   */
-  const resetSort = () => {
-    sortFields.value = [...defaultSort]
-  }
-
-  /**
    * 设置排序字段
    */
   const setSortFields = (fields: SortField[]) => {
@@ -174,7 +161,6 @@ export function useTableSort(defaultSort: SortField[] = [], onSortChange?: () =>
     getSortOrder,
     isFieldSorted,
     getSortFields,
-    resetSort,
     setSortFields,
     isSorting,
     releaseSortLock,

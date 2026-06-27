@@ -1,4 +1,12 @@
 from pydantic import BaseModel, Field, field_serializer
+
+
+class StatusCodeKnowledgeModel(BaseModel):
+    status_code: str = Field(..., description="故障码")
+    symptom: str = Field(..., description="故障现象")
+    root_cause: str = Field(..., description="故障原因")
+
+
 class FailureModeModel(BaseModel):
     id: str = Field(..., description="故障模式id")
     name: str = Field(..., description="故障模式名称")

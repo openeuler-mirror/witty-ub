@@ -35,6 +35,13 @@ table_ddl_list = {
             children_failure_mode_ids TEXT
         )
     """,
+    "status_code_knowledge_table": """
+        CREATE TABLE IF NOT EXISTS status_code_knowledge_table (
+            status_code TEXT PRIMARY KEY,
+            symptom TEXT NOT NULL,
+            root_cause TEXT NOT NULL
+        )
+    """,
     "log_file_table": """
         CREATE TABLE IF NOT EXISTS log_file_table (
             id TEXT PRIMARY KEY,
