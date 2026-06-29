@@ -1,26 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import StrEnum
 from typing import Optional
 from pydantic import BaseModel, Field
 
-
-class EntryType(StrEnum):
-    SDK_GET = "SDK_GET"
-    WORKER_GET = "WORKER_GET"
-    URMA = "URMA"
-    REMOTE_PULL = "REMOTE_PULL"
-    LINK = "LINK"
-    QUERY_META = "QUERY_META"
-    # 新增时延指标类型
-    SDK_PROCESS = "SDK_PROCESS"
-    SDK_RPC = "SDK_RPC"
-    LOCAL_WORKER_COST = "LOCAL_WORKER_COST"
-    LOCAL_WORKER_LOCK = "LOCAL_WORKER_LOCK"
-    REMOTE_WORKER_COST = "REMOTE_WORKER_COST"
-    REMOTE_WORKER_RPC = "REMOTE_WORKER_RPC"
-    MASTER_PROCESS = "MASTER_PROCESS"
-    MASTER_RPC = "MASTER_RPC"
+from latency.ENUM.ds_log import EntryType, TupleField
 
 
 @dataclass(slots=True)

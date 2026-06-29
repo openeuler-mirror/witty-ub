@@ -14,7 +14,8 @@ from latency.regex.kvcache_log import (
     MASTER_RPC_RE,
 )
 from latency.regex.kvcache_log_file import URMA_LOG_PATTERNS  # 复用worker日志模式
-from latency.schemas.ds_log import LogEntry, EntryType
+from latency.schemas.ds_log import LogEntry
+from latency.ENUM.ds_log import EntryType
 from latency.schemas.request import ParseConfig
 from latency.parse.base_parser import LogParser
 
