@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
-from latency.schemas.log import LogParseResultModel
+from latency.schemas.log import LogParseResultModel, LogParseResultDataclass
 from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
@@ -18,7 +18,8 @@ from latency.parse import (
     LogCorrelator,
     ParseResultBuilder,
 )
-from latency.schemas.ds_log import EntryType
+from latency.ENUM.ds_log import EntryType
+from latency.schemas.ds_log import TupleField
 from latency.parse.parallel_scanner import ParallelFileScanner
 from latency.ENUM.task import TaskSplitStrategy
 from latency.common.stats import stats
@@ -151,7 +152,6 @@ class KVCacheLogParseWorker(BaseWorker):
     def _build_worker_access_scan_scope(parsed: dict[str, list]) -> dict:
         sdk_entries = parsed.get("SDK access parse", [])
 
-        # 没有 SDK 时走 Worker-only 结果构建，必须保持 Worker access 全量扫描。
         if not sdk_entries:
             return {
                 "enabled": False,
@@ -160,10 +160,12 @@ class KVCacheLogParseWorker(BaseWorker):
                 },
             }
 
-        trace_ids = {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        is_tuple = isinstance(sdk_entries[0], tuple)
+        trace_ids = {entry[TupleField.TRACE_ID] for entry in sdk_entries if entry[TupleField.TRACE_ID]} if is_tuple else \
+                    {entry.trace_id for entry in sdk_entries if entry.trace_id}
         return {
             "enabled": True,
-            "trace_ids": list(trace_ids),
+            "trace_ids": trace_ids,
             "_stats": {
                 "sdk_traces": len(trace_ids),
             },
@@ -174,7 +176,6 @@ class KVCacheLogParseWorker(BaseWorker):
         sdk_entries = parsed.get("SDK access parse", [])
         worker_entries = parsed.get("Worker access parse", [])
 
-        # 没有 SDK 时走 Worker-only 结果构建，必须保持 INFO 全量扫描。
         if not sdk_entries:
             return {
                 "enabled": False,
@@ -186,24 +187,30 @@ class KVCacheLogParseWorker(BaseWorker):
                 },
             }
 
-        trace_ids = {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        sdk_is_tuple = isinstance(sdk_entries[0], tuple)
+        worker_is_tuple = worker_entries and isinstance(worker_entries[0], tuple)
+        
+        trace_ids = {entry[TupleField.TRACE_ID] for entry in sdk_entries if entry[TupleField.TRACE_ID]} if sdk_is_tuple else \
+                    {entry.trace_id for entry in sdk_entries if entry.trace_id}
         pod_trace_keys = set()
         pod_ips = set()
         worker_scope = 0
         for worker in worker_entries:
-            if worker.trace_id not in trace_ids:
+            w_trace_id = worker[TupleField.TRACE_ID] if worker_is_tuple else worker.trace_id
+            if w_trace_id not in trace_ids:
                 continue
             worker_scope += 1
-            if worker.pod_ip and worker.trace_id:
-                pod_trace_keys.add((worker.pod_ip, worker.trace_id))
-            if worker.pod_ip:
-                pod_ips.add(worker.pod_ip)
+            w_pod_ip = worker[TupleField.POD_IP] if worker_is_tuple else worker.pod_ip
+            if w_pod_ip and w_trace_id:
+                pod_trace_keys.add((w_pod_ip, w_trace_id))
+            if w_pod_ip:
+                pod_ips.add(w_pod_ip)
 
         return {
             "enabled": True,
-            "trace_ids": list(trace_ids),
-            "pod_trace_keys": list(pod_trace_keys),
-            "pod_ips": list(pod_ips),
+            "trace_ids": trace_ids,  # 直接传递集合
+            "pod_trace_keys": pod_trace_keys,  # 直接传递集合
+            "pod_ips": pod_ips,  # 直接传递集合
             "_stats": {
                 "sdk_traces": len(trace_ids),
                 "worker_scope": worker_scope,
@@ -307,25 +314,53 @@ class KVCacheLogParseWorker(BaseWorker):
             # 这里按 entry_type 拆分为各个旧标签。
             info_entries = parsed.get("Worker info parse", [])
             if info_entries:
-                urma_entries = [e for e in info_entries if e.entry_type == EntryType.URMA]
-                if urma_entries:
-                    parsed["Worker urma parse"] = urma_entries
-                remote_pull = [e for e in info_entries if e.entry_type == EntryType.REMOTE_PULL]
-                if remote_pull:
-                    parsed["Worker remote pull parse"] = remote_pull
-                link_entries = [e for e in info_entries if e.entry_type == EntryType.LINK]
-                if link_entries:
-                    parsed["Worker link parse"] = link_entries
-                query_meta = [e for e in info_entries if e.entry_type == EntryType.QUERY_META]
-                if query_meta:
-                    parsed["Worker query meta parse"] = query_meta
+                is_tuple = isinstance(info_entries[0], tuple)
+                if is_tuple:
+                    from latency.ENUM.ds_log import EntryType
+                    def _get_entry_type(e):
+                        et = e[TupleField.ENTRY_TYPE]
+                        if isinstance(et, str):
+                            try:
+                                return EntryType(et)
+                            except Exception:
+                                return None
+                        return et
+                    urma_entries = [e for e in info_entries if _get_entry_type(e) == EntryType.URMA]
+                    if urma_entries:
+                        parsed["Worker urma parse"] = urma_entries
+                    remote_pull = [e for e in info_entries if _get_entry_type(e) == EntryType.REMOTE_PULL]
+                    if remote_pull:
+                        parsed["Worker remote pull parse"] = remote_pull
+                    link_entries = [e for e in info_entries if _get_entry_type(e) == EntryType.LINK]
+                    if link_entries:
+                        parsed["Worker link parse"] = link_entries
+                    query_meta = [e for e in info_entries if _get_entry_type(e) == EntryType.QUERY_META]
+                    if query_meta:
+                        parsed["Worker query meta parse"] = query_meta
+                else:
+                    urma_entries = [e for e in info_entries if e.entry_type == EntryType.URMA]
+                    if urma_entries:
+                        parsed["Worker urma parse"] = urma_entries
+                    remote_pull = [e for e in info_entries if e.entry_type == EntryType.REMOTE_PULL]
+                    if remote_pull:
+                        parsed["Worker remote pull parse"] = remote_pull
+                    link_entries = [e for e in info_entries if e.entry_type == EntryType.LINK]
+                    if link_entries:
+                        parsed["Worker link parse"] = link_entries
+                    query_meta = [e for e in info_entries if e.entry_type == EntryType.QUERY_META]
+                    if query_meta:
+                        parsed["Worker query meta parse"] = query_meta
 
         t_scan = time.perf_counter() - t_scan_start
 
         # 排序解析结果
         t_sort_start = time.perf_counter()
         for label in parsed:
-            parsed[label].sort(key=lambda x: x.timestamp)
+            entries = parsed[label]
+            if entries and isinstance(entries[0], tuple):
+                parsed[label].sort(key=lambda x: x[0])
+            else:
+                parsed[label].sort(key=lambda x: x.timestamp)
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
         entry_counts = {label: len(entries) for label, entries in parsed.items()}
         t_sort = time.perf_counter() - t_sort_start
@@ -757,7 +792,7 @@ class KVCacheLogParseWorker(BaseWorker):
     # 存库
     @staticmethod
     async def store_result(
-        list_log_parse_results: list[LogParseResultModel],
+        list_log_parse_results: list[LogParseResultDataclass],
         anomalous_events: list[AnomalousEventModel],
         anomalous_event_chains: list[AnomalousEventChainModel],
         src_dst_aggregated_events: list[SrcDstAggregatedEventModel],
@@ -765,13 +800,27 @@ class KVCacheLogParseWorker(BaseWorker):
         """存库
 
         按引用顺序依次写入：log_parse_results → aggregated_events → anomalous_events → event_chains
+        
+        注意：list_log_parse_results 是 LogParseResultDataclass 类型，
+        存库前需要转换为 LogParseResultModel。
         """
         success = True
 
         if list_log_parse_results:
             try:
-                await LogParseResultManager.add_log_parse_results(list_log_parse_results)
-                logger.info(f"Stored {len(list_log_parse_results):,} log parse results")
+                from latency.schemas.log import generate_uuids_hex
+
+                count = len(list_log_parse_results)
+                
+                # 批量生成 UUID（使用 hex 格式，比 str(uuid.uuid4()) 快约 35%）
+                uuids = generate_uuids_hex(count)
+                for r, uid in zip(list_log_parse_results, uuids):
+                    r.id = uid
+                
+                # 批量转换 dataclass → Pydantic model
+                pydantic_results = [r.to_pydantic() for r in list_log_parse_results]
+                await LogParseResultManager.add_log_parse_results(pydantic_results)
+                logger.info(f"Stored {count:,} log parse results")
             except Exception as e:
                 logger.error(f"Failed to store log parse results: {e}")
                 success = False

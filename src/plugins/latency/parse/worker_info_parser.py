@@ -13,7 +13,8 @@ from latency.regex.kvcache_log import (
     MASTER_PROCESS_RE, MASTER_RPC_RE,
 )
 from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS
-from latency.schemas.ds_log import LogEntry, EntryType
+from latency.schemas.ds_log import LogEntry
+from latency.ENUM.ds_log import EntryType
 from latency.schemas.log import LogFileModel
 from latency.schemas.request import ParseConfig
 from latency.parse.base_parser import LogParser, RUN_LOG_MIN_PARTS
@@ -67,7 +68,10 @@ class WorkerInfoParser(LogParser):
         self._target_pod_ips: set[str] = set()
 
     def set_scan_scope(self, scan_scope: Optional[dict]) -> None:
-        """Limit INFO parsing to traces/pods that can contribute to final results."""
+        """Limit INFO parsing to traces/pods that can contribute to final results.
+        
+        优化策略：主进程预构建集合后直接传递，子进程直接使用，避免重新创建集合。
+        """
         if not scan_scope:
             self._scan_scope_enabled = False
             self._target_trace_ids = set()
@@ -76,12 +80,28 @@ class WorkerInfoParser(LogParser):
             return
 
         self._scan_scope_enabled = bool(scan_scope.get("enabled"))
-        self._target_trace_ids = set(scan_scope.get("trace_ids") or ())
-        self._target_pod_trace_keys = {
-            (pod_ip, trace_id)
-            for pod_ip, trace_id in (scan_scope.get("pod_trace_keys") or ())
-        }
-        self._target_pod_ips = set(scan_scope.get("pod_ips") or ())
+        
+        # 直接使用传递过来的集合对象（已经是 set），避免重新创建
+        trace_ids = scan_scope.get("trace_ids")
+        if isinstance(trace_ids, set):
+            self._target_trace_ids = trace_ids
+        else:
+            self._target_trace_ids = set(trace_ids or ())
+        
+        pod_trace_keys = scan_scope.get("pod_trace_keys")
+        if isinstance(pod_trace_keys, set):
+            self._target_pod_trace_keys = pod_trace_keys
+        else:
+            self._target_pod_trace_keys = {
+                (pod_ip, trace_id)
+                for pod_ip, trace_id in (pod_trace_keys or ())
+            }
+        
+        pod_ips = scan_scope.get("pod_ips")
+        if isinstance(pod_ips, set):
+            self._target_pod_ips = pod_ips
+        else:
+            self._target_pod_ips = set(pod_ips or ())
 
     def scan_file(self, path: str) -> dict[str, list[LogEntry]]:
         """扫描单个 Run-format 日志文件，返回按原始 label 分组的 entries"""
