@@ -16,6 +16,41 @@ type LogKnowledge = {
   updated_at?: string
 }
 
+type AgentChatMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  reasoning: string
+  content: string
+  status: 'thinking' | 'done' | 'error'
+  messageId?: string
+}
+
+type OpenCodeEvent = {
+  type: string
+  properties?: {
+    sessionID?: string
+    messageID?: string
+    info?: {
+      id?: string
+      sessionID?: string
+      role?: string
+    }
+    part?: {
+      id?: string
+      sessionID?: string
+      messageID?: string
+      type?: string
+      text?: string
+    }
+    status?: {
+      type?: string
+    }
+    error?: {
+      message?: string
+    }
+  }
+}
+
 type TaskReportModel = {
   task_id?: string
   progress?: number | string | null
@@ -471,6 +506,11 @@ type UploadLogFilesResult = {
   log_file_ids?: string[]
 }
 
+type OpenCodeHealthResult = {
+  healthy?: boolean
+  version?: string
+}
+
 type GetLogFileResult = {
   log_file?: LogFileModel | null
 }
@@ -481,6 +521,437 @@ type LogParseOptions = {
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+const agentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(
+  /\/$/,
+  '',
+)
+const agentName = 'witty-ub-diagnostician'
+const isAgentChatOpen = ref(false)
+const isAgentSending = ref(false)
+const isAgentAborting = ref(false)
+const agentChatInput = ref('')
+const agentSessionId = ref('')
+const agentConnectionError = ref('')
+const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('connecting')
+const agentChatMessages = ref<AgentChatMessage[]>([])
+const agentChatMessagesRef = ref<HTMLElement | null>(null)
+const isAgentConnectionUnavailable = computed(() => agentConnectionState.value !== 'connected')
+const assistantMessageIds = new Set<string>()
+let agentEventSource: EventSource | null = null
+let agentLocalMessageSequence = 0
+let agentHealthCheckSequence = 0
+let agentRequestSequence = 0
+
+const nextAgentLocalMessageId = () => {
+  agentLocalMessageSequence += 1
+  return `agent-message-${agentLocalMessageSequence}`
+}
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const renderInlineMarkdown = (value: string) => {
+  let html = escapeHtml(value)
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  return html
+}
+
+const splitMarkdownTableRow = (line: string) => {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+  return trimmed.split('|').map((cell) => cell.trim())
+}
+
+const isMarkdownTableSeparator = (line: string) => {
+  const cells = splitMarkdownTableRow(line)
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+}
+
+const getMarkdownLine = (lines: string[], index: number) => lines[index] ?? ''
+
+const isMarkdownTableStart = (lines: string[], index: number) =>
+  index + 1 < lines.length &&
+  getMarkdownLine(lines, index).includes('|') &&
+  isMarkdownTableSeparator(getMarkdownLine(lines, index + 1))
+
+const renderAgentMarkdown = (markdown: string) => {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  const blocks: string[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = getMarkdownLine(lines, index)
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      index += 1
+      continue
+    }
+
+    if (trimmed.startsWith('```')) {
+      const codeLines: string[] = []
+      index += 1
+      while (index < lines.length && !getMarkdownLine(lines, index).trim().startsWith('```')) {
+        codeLines.push(getMarkdownLine(lines, index))
+        index += 1
+      }
+      if (index < lines.length) index += 1
+      blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
+      continue
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      const headers = splitMarkdownTableRow(getMarkdownLine(lines, index))
+      index += 2
+      const rows: string[][] = []
+      while (
+        index < lines.length &&
+        getMarkdownLine(lines, index).includes('|') &&
+        getMarkdownLine(lines, index).trim()
+      ) {
+        rows.push(splitMarkdownTableRow(getMarkdownLine(lines, index)))
+        index += 1
+      }
+      const headHtml = headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join('')
+      const bodyHtml = rows
+        .map((row) => {
+          const cells = headers.map((_, cellIndex) => row[cellIndex] ?? '')
+          return `<tr>${cells.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join('')}</tr>`
+        })
+        .join('')
+      blocks.push(
+        `<div class="agent-markdown-table-wrap"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
+      )
+      continue
+    }
+
+    if (/^#{1,4}\s+/.test(trimmed)) {
+      const level = Math.min(trimmed.match(/^#+/)?.[0].length ?? 2, 4)
+      const text = trimmed.replace(/^#{1,4}\s+/, '')
+      blocks.push(`<h${level}>${renderInlineMarkdown(text)}</h${level}>`)
+      index += 1
+      continue
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items: string[] = []
+      while (index < lines.length && /^[-*]\s+/.test(getMarkdownLine(lines, index).trim())) {
+        items.push(
+          `<li>${renderInlineMarkdown(getMarkdownLine(lines, index).trim().replace(/^[-*]\s+/, ''))}</li>`,
+        )
+        index += 1
+      }
+      blocks.push(`<ul>${items.join('')}</ul>`)
+      continue
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = []
+      while (index < lines.length && /^\d+\.\s+/.test(getMarkdownLine(lines, index).trim())) {
+        items.push(
+          `<li>${renderInlineMarkdown(getMarkdownLine(lines, index).trim().replace(/^\d+\.\s+/, ''))}</li>`,
+        )
+        index += 1
+      }
+      blocks.push(`<ol>${items.join('')}</ol>`)
+      continue
+    }
+
+    const paragraphLines = [trimmed]
+    index += 1
+    while (
+      index < lines.length &&
+      getMarkdownLine(lines, index).trim() &&
+      !getMarkdownLine(lines, index).trim().startsWith('```') &&
+      !isMarkdownTableStart(lines, index) &&
+      !/^#{1,4}\s+/.test(getMarkdownLine(lines, index).trim()) &&
+      !/^[-*]\s+/.test(getMarkdownLine(lines, index).trim()) &&
+      !/^\d+\.\s+/.test(getMarkdownLine(lines, index).trim())
+    ) {
+      paragraphLines.push(getMarkdownLine(lines, index).trim())
+      index += 1
+    }
+    blocks.push(`<p>${paragraphLines.map(renderInlineMarkdown).join('<br>')}</p>`)
+  }
+
+  return blocks.join('')
+}
+
+const scrollAgentChatToBottom = async () => {
+  await nextTick()
+  const container = agentChatMessagesRef.value
+  if (container) {
+    container.scrollTop = container.scrollHeight
+  }
+}
+
+const getPendingAssistantMessage = () =>
+  [...agentChatMessages.value]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.status === 'thinking')
+
+const extractOpenCodeError = (payload: unknown, fallback: string) => {
+  if (!payload || typeof payload !== 'object') return fallback
+  const value = payload as {
+    message?: string
+    error?: { message?: string }
+    data?: { message?: string }
+  }
+  return value.error?.message || value.data?.message || value.message || fallback
+}
+
+const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
+  const response = await fetch(`${agentApiBase}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...init.headers,
+    },
+  })
+  const payload = response.status === 204 ? null : await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(extractOpenCodeError(payload, `Agent 服务请求失败：${response.status}`))
+  }
+  return payload as T
+}
+
+const checkAgentHealth = async () => {
+  const checkSequence = ++agentHealthCheckSequence
+  agentConnectionState.value = 'connecting'
+
+  try {
+    const health = await requestAgentApi<OpenCodeHealthResult>('/global/health')
+    if (checkSequence !== agentHealthCheckSequence) return
+
+    if (health?.healthy) {
+      agentConnectionState.value = 'connected'
+      agentConnectionError.value = ''
+    } else {
+      agentConnectionState.value = 'disconnected'
+      agentConnectionError.value = 'OpenCode Server 健康检查未通过。'
+    }
+  } catch (error) {
+    if (checkSequence !== agentHealthCheckSequence) return
+    agentConnectionState.value = 'disconnected'
+    agentConnectionError.value =
+      error instanceof Error ? `无法连接到 OpenCode Server：${error.message}` : '无法连接到 OpenCode Server。'
+  }
+}
+
+const markAgentResponseFailed = (message: string) => {
+  const pending = getPendingAssistantMessage()
+  if (pending) {
+    pending.status = 'error'
+    pending.content = pending.content || message
+  }
+  isAgentSending.value = false
+  isAgentAborting.value = false
+  agentConnectionError.value = message
+  void scrollAgentChatToBottom()
+}
+
+const handleOpenCodeEvent = (event: MessageEvent<string>) => {
+  let payload: OpenCodeEvent
+  try {
+    payload = JSON.parse(event.data) as OpenCodeEvent
+  } catch {
+    return
+  }
+
+  const properties = payload.properties
+  const eventSessionId =
+    properties?.sessionID || properties?.info?.sessionID || properties?.part?.sessionID
+  if (!eventSessionId || eventSessionId !== agentSessionId.value) return
+
+  if (payload.type === 'message.updated' && properties?.info?.role === 'assistant') {
+    const messageId = properties.info.id
+    const pending = getPendingAssistantMessage()
+    if (messageId) {
+      assistantMessageIds.add(messageId)
+      if (pending && !pending.messageId) pending.messageId = messageId
+    }
+    return
+  }
+
+  if (payload.type === 'message.part.updated' && properties?.part) {
+    const part = properties.part
+    if (!part.messageID || !assistantMessageIds.has(part.messageID)) return
+    const target =
+      agentChatMessages.value.find((message) => message.messageId === part.messageID) ||
+      getPendingAssistantMessage()
+    if (!target) return
+    target.messageId = part.messageID
+    if (part.type === 'reasoning') {
+      target.reasoning = part.text || ''
+    } else if (part.type === 'text') {
+      target.content = part.text || ''
+      if (target.content) target.reasoning = ''
+    }
+    void scrollAgentChatToBottom()
+    return
+  }
+
+  if (
+    payload.type === 'session.idle' ||
+    (payload.type === 'session.status' && properties?.status?.type === 'idle')
+  ) {
+    const pending = getPendingAssistantMessage()
+    if (pending) {
+      pending.status = 'done'
+      if (!pending.content) pending.content = 'Agent 已完成处理，但没有返回文本结果。'
+      pending.reasoning = ''
+    }
+    isAgentSending.value = false
+    void scrollAgentChatToBottom()
+    return
+  }
+
+  if (payload.type === 'session.error') {
+    markAgentResponseFailed(properties?.error?.message || 'Agent 处理消息时发生错误。')
+  }
+}
+
+const connectAgentEvents = () =>
+  new Promise<void>((resolve, reject) => {
+    agentEventSource?.close()
+    agentConnectionState.value = 'connecting'
+    const source = new EventSource(`${agentApiBase}/event`)
+    agentEventSource = source
+    const timeoutId = window.setTimeout(() => {
+      source.close()
+      agentConnectionState.value = 'disconnected'
+      reject(new Error('连接 Agent 事件流超时。'))
+    }, 10000)
+
+    source.onopen = () => {
+      window.clearTimeout(timeoutId)
+      agentConnectionError.value = ''
+      agentConnectionState.value = 'connected'
+      agentHealthCheckSequence += 1
+      resolve()
+    }
+    source.onmessage = handleOpenCodeEvent
+    source.onerror = () => {
+      window.clearTimeout(timeoutId)
+      if (source.readyState === EventSource.CLOSED) {
+        agentConnectionError.value = 'Agent 事件流连接已断开。'
+        agentConnectionState.value = 'disconnected'
+      }
+    }
+  })
+
+const ensureAgentSession = async () => {
+  if (!agentSessionId.value) {
+    const session = await requestAgentApi<{ id: string }>('/session', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'KVC 时延与通断故障诊断' }),
+    })
+    if (!session?.id) throw new Error('Agent 服务没有返回会话 ID。')
+    agentSessionId.value = session.id
+  }
+  if (!agentEventSource || agentEventSource.readyState === EventSource.CLOSED) {
+    await connectAgentEvents()
+  }
+}
+
+const toggleAgentChat = () => {
+  isAgentChatOpen.value = !isAgentChatOpen.value
+  if (isAgentChatOpen.value) {
+    void scrollAgentChatToBottom()
+    ensureAgentSession().catch((error: unknown) => {
+      agentConnectionState.value = 'disconnected'
+      agentConnectionError.value =
+        error instanceof Error ? error.message : '无法连接到 Agent 服务。'
+    })
+  }
+}
+
+const sendAgentMessage = async () => {
+  if (isAgentSending.value) {
+    await abortAgentSession()
+    return
+  }
+
+  const question = agentChatInput.value.trim()
+  if (!question || isAgentAborting.value) return
+
+  agentChatInput.value = ''
+  agentConnectionError.value = ''
+  agentChatMessages.value.push({
+    id: nextAgentLocalMessageId(),
+    role: 'user',
+    reasoning: '',
+    content: question,
+    status: 'done',
+  })
+  const assistantMessage: AgentChatMessage = {
+    id: nextAgentLocalMessageId(),
+    role: 'assistant',
+    reasoning: '',
+    content: '',
+    status: 'thinking',
+  }
+  agentChatMessages.value.push(assistantMessage)
+  isAgentSending.value = true
+  const requestSequence = ++agentRequestSequence
+  await scrollAgentChatToBottom()
+
+  try {
+    await ensureAgentSession()
+    if (requestSequence !== agentRequestSequence) return
+    const contextPrefix = selectedAssetId.value
+      ? `当前页面选中的知识库 ID 是 ${selectedAssetId.value}。`
+      : ''
+    await requestAgentApi<void>(
+      `/session/${encodeURIComponent(agentSessionId.value)}/prompt_async`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          agent: agentName,
+          parts: [{ type: 'text', text: `${contextPrefix}${contextPrefix ? '\n\n' : ''}${question}` }],
+        }),
+      },
+    )
+  } catch (error) {
+    agentConnectionState.value = 'disconnected'
+    markAgentResponseFailed(error instanceof Error ? error.message : '消息发送失败。')
+  }
+}
+
+const abortAgentSession = async () => {
+  if (!isAgentSending.value || isAgentAborting.value) return
+  isAgentAborting.value = true
+  agentRequestSequence += 1
+  agentConnectionError.value = ''
+
+  try {
+    if (agentSessionId.value) {
+      await requestAgentApi<boolean>(
+        `/session/${encodeURIComponent(agentSessionId.value)}/abort`,
+        { method: 'POST' },
+      )
+    }
+    const pending = getPendingAssistantMessage()
+    if (pending) {
+      pending.status = 'done'
+      pending.reasoning = ''
+      pending.content = pending.content || '本次诊断已停止。'
+    }
+    isAgentSending.value = false
+  } catch (error) {
+    agentConnectionState.value = 'disconnected'
+    agentConnectionError.value = error instanceof Error ? error.message : '停止会话失败。'
+  } finally {
+    isAgentAborting.value = false
+    void scrollAgentChatToBottom()
+  }
+}
 const assetPageSize = 5
 const logFilesPageSize = 10
 const aggregateEventPageSize = 10
@@ -5813,10 +6284,17 @@ watch([selectedAssetId, activePage], () => {
   }
 })
 
-watch(selectedLatencyScale, (newVal) => {
-  if (selectedFaultScale.value !== newVal) {
-    selectedFaultScale.value = newVal
-  }
+watch(
+  isAbnormalMonitorPage,
+  (isMonitorPage) => {
+    if (isMonitorPage) {
+      void checkAgentHealth()
+    }
+  },
+  { immediate: true },
+)
+
+watch(selectedLatencyScale, () => {
   if (latencyChartCenterTime.value !== null) {
     void loadLatencyChart()
     void loadAbnormalTraces(1)
@@ -5848,6 +6326,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
+  agentEventSource?.close()
+  agentEventSource = null
   window.removeEventListener('resize', resizeLatencyCharts)
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
   latencyChartInstance?.dispose()
@@ -9770,5 +10250,124 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
+
+    <aside
+      v-if="isAbnormalMonitorPage && isAgentChatOpen"
+      class="agent-chat-panel"
+      role="dialog"
+      aria-label="AI 故障诊断助手"
+    >
+      <header class="agent-chat-header">
+        <div class="agent-chat-heading">
+          <span
+            class="agent-chat-status"
+            :class="{ disconnected: isAgentConnectionUnavailable }"
+            aria-hidden="true"
+          ></span>
+          <div>
+            <strong>AI 故障诊断助手</strong>
+            <span>时延与通断故障分析</span>
+          </div>
+        </div>
+      </header>
+
+      <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
+        <div v-if="agentChatMessages.length === 0" class="agent-chat-welcome">
+          <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
+          <strong>你好，我是故障诊断助手</strong>
+          <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
+        </div>
+
+        <article
+          v-for="message in agentChatMessages"
+          :key="message.id"
+          class="agent-chat-message"
+          :class="message.role"
+        >
+          <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
+            AI
+          </div>
+          <div class="agent-chat-bubble">
+            <section
+              v-if="message.role === 'assistant' && (message.reasoning || message.status === 'thinking')"
+              class="agent-reasoning"
+            >
+              <div class="agent-response-label">
+                <span>思考过程</span>
+                <span v-if="message.status === 'thinking'" class="agent-thinking-dots" aria-label="思考中">
+                  <i></i><i></i><i></i>
+                </span>
+              </div>
+              <p v-if="message.reasoning">{{ message.reasoning }}</p>
+              <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
+            </section>
+
+            <section
+              v-if="message.role === 'assistant' && message.content"
+              class="agent-final-answer"
+            >
+              <div class="agent-response-label">最终结果</div>
+              <div class="agent-markdown" v-html="renderAgentMarkdown(message.content)"></div>
+            </section>
+            <p v-else-if="message.role === 'user'">{{ message.content }}</p>
+          </div>
+        </article>
+      </div>
+
+      <div v-if="agentConnectionError" class="agent-chat-error" role="alert">
+        {{ agentConnectionError }}
+      </div>
+
+      <form class="agent-chat-composer" @submit.prevent="sendAgentMessage">
+        <textarea
+          v-model="agentChatInput"
+          rows="1"
+          aria-label="输入诊断问题"
+          placeholder="输入你想诊断的问题…"
+          :disabled="isAgentSending || isAgentAborting"
+          @keydown.enter.exact.prevent="sendAgentMessage"
+        ></textarea>
+        <button
+          type="submit"
+          :class="{ stop: isAgentSending }"
+          :aria-label="isAgentSending ? '停止本次会话' : '发送消息'"
+          :title="isAgentSending ? '停止本次会话' : '发送消息'"
+          :disabled="isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting"
+        >
+          <svg v-if="isAgentSending" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="7" y="7" width="10" height="10" rx="2" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m4 4 17 8-17 8 3-8-3-8Zm3.8 7h7.4L7 7.1 7.8 11Zm-.8 5.9 8.2-3.9H7.8L7 16.9Z" />
+          </svg>
+        </button>
+      </form>
+    </aside>
+
+    <button
+      v-if="isAbnormalMonitorPage"
+      class="agent-fab"
+      :class="{ active: isAgentChatOpen }"
+      type="button"
+      :aria-expanded="isAgentChatOpen"
+      aria-label="打开或关闭 AI 故障诊断助手"
+      title="AI 故障诊断助手"
+      @click="toggleAgentChat"
+    >
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M32 8v7" />
+        <circle cx="32" cy="6" r="3" />
+        <rect x="12" y="16" width="40" height="34" rx="12" />
+        <circle cx="24" cy="31" r="3.5" />
+        <circle cx="40" cy="31" r="3.5" />
+        <path d="M23 41c5 4 13 4 18 0M12 29H7v11h5M52 29h5v11h-5M24 50v6M40 50v6" />
+      </svg>
+      <span
+        v-if="!isAgentChatOpen"
+        class="agent-fab-pulse"
+        :class="{ disconnected: isAgentConnectionUnavailable }"
+        aria-hidden="true"
+      ></span>
+    </button>
   </div>
 </template>

@@ -20,6 +20,7 @@ dependencies = [
     "requests==2.32.2",
     "toml==0.10.2",
     "httpx==0.27.0",
+    "mcp>=1.28.0,<2.0.0",
     "rarfile>=4.0",
     ]
 

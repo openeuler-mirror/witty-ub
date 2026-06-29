@@ -31,9 +31,21 @@ npm install
 
 ### Compile and Hot-Reload for Development
 
+先在仓库根目录启动 OpenCode Agent 服务：
+
+```sh
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+再启动前端：
+
 ```sh
 npm run dev
 ```
+
+开发服务器会把 `/agent-api` 代理到 `http://127.0.0.1:4096`。生产环境需要在
+网关中配置相同的反向代理，或在构建时通过
+`VITE_OPENCODE_API_BASE_URL` 指定可访问的 OpenCode Server 地址。
 
 ### Type-Check, Compile and Minify for Production
 
