@@ -59,7 +59,7 @@ def build_trace_context_event(
         message = "|".join(parts[LogParser.RunCol.MSG :]).strip()
 
     return LogFailureEventModel(
-        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{log_id}:{path}:{line_no}:{trace_id}")),
+        id=str(uuid.uuid5(uuid.NAMESPACE_URL, raw_text)),
         log_id=log_id,
         log_file=log_file,
         raw_text=raw_text,
@@ -121,7 +121,7 @@ async def collect_trace_context_logs(
 
                         batch.append(event)
                         if len(batch) >= TRACE_CONTEXT_BATCH_SIZE:
-                            await LogFailureEventManager.add_log_failure_event(batch)
+                            await LogFailureEventManager.add_log_failure_event_if_not_exist(batch)
                             total += len(batch)
                             batch.clear()
             except EOFError as e:

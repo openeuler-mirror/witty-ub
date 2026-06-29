@@ -802,6 +802,7 @@ const selectedTrace = ref<TraceDetailRow | null>(null)
 const selectedFaultTrace = ref<TraceDetailRow | null>(null)
 const selectedFaultAggregatedEventDetail = ref<FaultAggregatedEventDetail | null>(null)
 const selectedFaultTraceFailureModeId = ref('')
+const selectedTraceFailureModeId = ref('')
 const selectedChildFailureModeId = ref('')
 const traceFailureLogsByTrace = ref<Record<string, TraceLogRow[]>>({})
 const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[]>>({})
@@ -2524,6 +2525,36 @@ const getTraceFailureEvents = (trace?: TraceDetailRow | null) => {
 
 const getSelectedFaultTraceLogs = () => getTraceLogs(selectedFaultTrace.value)
 
+const selectedTraceFailureModeIds = computed<string[]>(() => {
+  const events = getTraceFailureEvents(selectedTrace.value)
+  const ids = new Set<string>()
+  events.forEach((event) => {
+    getFailureModeIds(event as Record<string, unknown>).forEach((id) => ids.add(id))
+  })
+  return [...ids]
+})
+
+const selectedTraceFailureModes = computed<(FailureModeKnowledgeModel & { _id: string })[]>(() =>
+  selectedTraceFailureModeIds.value
+    .map((id) => {
+      const detail = failureModeDetailsById.value[id]
+      return { ...detail, _id: id }
+    })
+    .filter((item) => item.id || item.name || item._id) as (FailureModeKnowledgeModel & { _id: string })[],
+)
+
+const selectedTraceFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(() => {
+  const selectedId = selectedTraceFailureModeId.value
+  if (!selectedId) return null
+  return selectedTraceFailureModes.value.find((failureMode) => failureMode._id === selectedId) ?? null
+})
+
+const selectTraceFailureMode = (failureModeId: string) => {
+  selectedTraceFailureModeId.value = failureModeId
+  selectedChildFailureModeId.value = ''
+  void loadFailureModeChildrenDetails(failureModeId)
+}
+
 const selectedFaultTraceFailureModeIds = computed<string[]>(() => {
   const events = getTraceFailureEvents(selectedFaultTrace.value)
   const ids = new Set<string>()
@@ -2674,6 +2705,30 @@ const openTraceDialog = (trace: TraceDetailRow) => {
 
 const closeTraceDialog = () => {
   selectedTrace.value = null
+  selectedTraceFailureModeId.value = ''
+  selectedChildFailureModeId.value = ''
+}
+
+const loadTraceLatencyData = async (traceId: string): Promise<LogParseResultModel | null> => {
+  if (!selectedAssetId.value) return null
+  try {
+    const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
+      '/log_parse_result/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kb_id: selectedAssetId.value,
+          trace_id: traceId,
+          page_cnt: 1,
+          page_num: 1,
+        }),
+      },
+    )
+    const results = result.log_parse_results ?? []
+    return results[0] ?? null
+  } catch {
+    return null
+  }
 }
 
 const openFaultTraceDialog = async (trace: TraceDetailRow) => {
@@ -2687,6 +2742,37 @@ const openFaultTraceDialog = async (trace: TraceDetailRow) => {
     getFailureModeIds(event as Record<string, unknown>).forEach((id) => failureModeIds.add(id))
   })
   await Promise.all([...failureModeIds].map((id) => loadFailureModeDetail(id)))
+  const latencyData = await loadTraceLatencyData(trace.traceId)
+  if (latencyData && selectedFaultTrace.value) {
+    const record = latencyData as Record<string, unknown>
+    selectedFaultTrace.value = {
+      ...selectedFaultTrace.value,
+      sdkMs: latencyData.total_latency ?? null,
+      reqDelay: getRecordNullableNumber(record, [
+        'worker_query_meta_latency',
+        'query_meta_latency',
+        'req_delay',
+        'reqDelay',
+      ]),
+      respDelay: getRecordNullableNumber(record, [
+        'urma_total_latency',
+        'rsp_delay',
+        'respDelay',
+        'rspDelay',
+      ]),
+      urmaLinkLatency: latencyData.urma_link_latency ?? null,
+      c2wUrmaLatency: latencyData.c2w_urma_latency ?? null,
+      w2wUrmaLatency: latencyData.w2w_urma_latency ?? null,
+      sdkProcess: latencyData.sdk_process ?? null,
+      sdkRpc: latencyData.sdk_rpc ?? null,
+      localWorkerCost: latencyData.local_worker_cost ?? null,
+      localWorkerLock: latencyData.local_worker_lock ?? null,
+      remoteWorkerCost: latencyData.remote_worker_cost ?? null,
+      remoteWorkerRpc: latencyData.remote_worker_rpc ?? null,
+      masterProcess: latencyData.master_process ?? null,
+      masterRpcTotal: latencyData.master_rpc_total ?? null,
+    }
+  }
 }
 
 const closeFaultTraceDialog = () => {
@@ -2695,7 +2781,7 @@ const closeFaultTraceDialog = () => {
   selectedChildFailureModeId.value = ''
 }
 
-const openParseResultChain = (row: ParseResultTableRow) => {
+const openParseResultChain = async (row: ParseResultTableRow) => {
   const record = row.raw as Record<string, unknown>
   openTraceDialog({
     traceId: row.traceId,
@@ -2726,7 +2812,13 @@ const openParseResultChain = (row: ParseResultTableRow) => {
     masterProcess: row.masterProcess,
     masterRpcTotal: row.masterRpcTotal,
   })
-  void loadTraceFailureLogs(row.traceId)
+  await loadTraceFailureLogs(row.traceId, true)
+  const events = traceFailureEventsByTrace.value[row.traceId] ?? []
+  const failureModeIds = new Set<string>()
+  events.forEach((event) => {
+    getFailureModeIds(event as Record<string, unknown>).forEach((id) => failureModeIds.add(id))
+  })
+  await Promise.all([...failureModeIds].map((id) => loadFailureModeDetail(id)))
 }
 
 type FilterTagCategory = 'cluster' | 'host' | 'sourceHost' | 'targetHost' | 'faultCode'
@@ -3035,7 +3127,7 @@ const closeFaultAggregatedEventDetail = () => {
   faultDetailChartInstance = null
 }
 
-const viewAbnormalTraceLink = (row: AbnormalTraceRow) => {
+const viewAbnormalTraceLink = async (row: AbnormalTraceRow) => {
   const traceRow: TraceDetailRow = {
     traceId: row.traceId,
     podIp: row.podIp,
@@ -3056,7 +3148,13 @@ const viewAbnormalTraceLink = (row: AbnormalTraceRow) => {
     masterRpcTotal: row.masterRpcTotal,
   }
   openTraceDialog(traceRow)
-  void loadTraceFailureLogs(row.traceId)
+  await loadTraceFailureLogs(row.traceId, true)
+  const events = traceFailureEventsByTrace.value[row.traceId] ?? []
+  const failureModeIds = new Set<string>()
+  events.forEach((event) => {
+    getFailureModeIds(event as Record<string, unknown>).forEach((id) => failureModeIds.add(id))
+  })
+  await Promise.all([...failureModeIds].map((id) => loadFailureModeDetail(id)))
 }
 
 const closeLatencyHostFilterDialog = () => {
@@ -8649,7 +8747,10 @@ onBeforeUnmount(() => {
                   v-for="log in getSelectedTraceLogs()"
                   :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
                   class="trace-raw-log-item"
-                  :class="log.level === 'ERROR' ? 'log-error' : 'log-info'"
+                  :class="[
+                    log.level === 'ERROR' ? 'log-error' : 'log-info',
+                    { 'log-failure-mode': log.failureModeIds.length > 0 },
+                  ]"
                 >
                   <div class="trace-raw-log-meta">
                     <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
@@ -8658,12 +8759,16 @@ onBeforeUnmount(() => {
                     <span>{{ log.time }}</span>
                     <span>{{ log.formatName }}</span>
                     <span class="trace-raw-log-file">{{ log.filename }}</span>
-                    <span
-                      v-if="log.level === 'ERROR' && log.faultType && log.faultDomain"
-                      class="fault-tag"
+                    <button
+                      v-for="mode in getTraceLogFailureModeLabels(log)"
+                      :key="mode.id"
+                      type="button"
+                      class="failure-mode-tag"
+                      :class="{ active: selectedTraceFailureModeId === mode.id }"
+                      @click="selectTraceFailureMode(mode.id)"
                     >
-                      🔴 {{ log.faultType }}/{{ log.faultDomain }}
-                    </span>
+                      🔴 {{ mode.label }}
+                    </button>
                   </div>
                   <div class="trace-raw-log-table-wrapper">
                     <table class="trace-raw-log-table">
@@ -8692,6 +8797,121 @@ onBeforeUnmount(() => {
                   </div>
                 </article>
               </template>
+            </div>
+          </section>
+
+          <section>
+            <h3 class="trace-section-title">🗃️ 故障模式详情</h3>
+            <div v-if="selectedTraceFailureModes.length === 0" class="trace-fault-detail-list">
+              <div class="trace-fault-detail-item trace-fault-detail-wide">
+                <span class="trace-fault-detail-value">暂无故障模式</span>
+              </div>
+            </div>
+            <div v-else-if="!selectedTraceFailureMode" class="failure-mode-chain-list">
+              <div class="failure-mode-chain-item">
+                <div class="failure-mode-chain-detail">
+                  <span class="trace-fault-detail-value">点击运行日志中的故障模式标签查看详情</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="failure-mode-chain-list">
+              <div class="failure-mode-chain-item">
+                <div class="failure-mode-chain-header">
+                  <span class="failure-mode-chain-id">{{ selectedTraceFailureMode._id }}</span>
+                  <span class="failure-mode-chain-name">
+                    {{ selectedTraceFailureMode.name || '-' }}
+                  </span>
+                  <span class="failure-mode-chain-domain">
+                    故障域：{{ selectedTraceFailureMode.failure_domain || '-' }}
+                  </span>
+                </div>
+                <div class="failure-mode-chain-detail">
+                  <div class="trace-fault-detail-list">
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">故障表现</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedTraceFailureMode.symptom || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">故障根因</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedTraceFailureMode.root_cause || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">解决方法</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedTraceFailureMode.solution || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">子故障</span>
+                      <span
+                        v-if="getFailureModeChildren(selectedTraceFailureMode).length === 0"
+                        class="trace-fault-detail-value"
+                      >
+                        -
+                      </span>
+                      <div v-else class="trace-sub-fault-block">
+                        <div class="trace-sub-fault-list">
+                          <button
+                            v-for="childId in getFailureModeChildren(selectedTraceFailureMode)"
+                            :key="childId"
+                            type="button"
+                            class="trace-sub-fault"
+                            :class="{ active: selectedChildFailureModeId === childId }"
+                            @click="selectChildFailureMode(childId)"
+                          >
+                            {{ getFailureModeChildLabel(childId) }}
+                          </button>
+                        </div>
+                        <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
+                          <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
+                            <div class="trace-fault-detail-item">
+                              <span class="trace-fault-detail-label">故障名称</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedChildFailureMode.name || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item">
+                              <span class="trace-fault-detail-label">故障域</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedChildFailureMode.failure_domain || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item trace-fault-detail-wide">
+                              <span class="trace-fault-detail-label">故障表现</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedChildFailureMode.symptom || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item trace-fault-detail-wide">
+                              <span class="trace-fault-detail-label">故障根因</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedChildFailureMode.root_cause || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item trace-fault-detail-wide">
+                              <span class="trace-fault-detail-label">解决方法</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedChildFailureMode.solution || '-' }}
+                              </span>
+                            </div>
+                          </div>
+                          <span
+                            v-else-if="!hasFailureModeDetailResult(selectedChildFailureModeId)"
+                            class="trace-fault-detail-value"
+                          >
+                            正在加载子故障详情...
+                          </span>
+                          <span v-else class="trace-fault-detail-value">暂无子故障详情</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -8927,6 +9147,42 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section>
+            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-delay-table-wrapper">
+              <table class="trace-delay-table">
+                <thead>
+                  <tr>
+                    <th>阶段</th>
+                    <th>时延</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="column in traceDelayColumns" :key="column.key">
+                    <td class="trace-stage-name">{{ getTraceDelayLabel(column) }}</td>
+                    <td
+                      :class="{ 'delay-timeout': isTraceDelayAbnormal(selectedFaultTrace, column) }"
+                    >
+                      {{
+                        formatTraceDelayColumnValue(
+                          getTraceDelayValue(selectedFaultTrace, column),
+                          column,
+                        )
+                      }}
+                    </td>
+                    <td
+                      class="trace-stage-status"
+                      :class="{ 'delay-timeout': isTraceDelayAbnormal(selectedFaultTrace, column) }"
+                    >
+                      {{ getTraceDelayStatusLabel(selectedFaultTrace, column) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </section>
         </div>

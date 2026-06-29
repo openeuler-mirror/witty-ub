@@ -248,7 +248,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                                 
                                 failure_mode = trace_failure_id.get(raw_line, [])
                                 log_failure_event = {
-                                    "id": str(uuid.uuid4()),
+                                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, raw_line)),
                                     "log_id": log_id,
                                     "log_file": log_file_name,
                                     "raw_text": raw_line,
@@ -373,7 +373,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 else ""
             )
             trace_failure_events_map[trace_id] = {
-                "id": str(uuid.uuid4()),
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{log_failure_event['log_id']}:{trace_id}")),
                 "log_id": log_failure_event["log_id"],
                 "trace_id": trace_id,
                 "pod_names": [log_failure_event["pod_name"]] if log_failure_event["pod_name"] else [],
