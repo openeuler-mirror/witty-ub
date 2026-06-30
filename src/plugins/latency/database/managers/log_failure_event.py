@@ -233,6 +233,12 @@ class LogFailureEventManager:
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
             
+            if req.trace_ids:
+                placeholders = ', '.join([f':trace_id_{i}' for i in range(len(req.trace_ids))])
+                sql_str += f" AND trace_id IN ({placeholders})"
+                for i, trace_id in enumerate(req.trace_ids):
+                    params[f'trace_id_{i}'] = trace_id
+            
             if req.pod_names:
                 pod_conditions = []
                 for i, pod_name in enumerate(req.pod_names):

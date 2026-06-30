@@ -2136,7 +2136,26 @@ button {
 }
 
 .latency-anomaly-left-grid {
-  grid-template-columns: 160px 305px 120px 90px 130px 120px;
+  grid-template-columns: 80px 160px 305px 120px 90px 130px 120px;
+}
+
+.trace-type-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.trace-type-tag-fault {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.trace-type-tag-latency {
+  background: #fef3c7;
+  color: #d97706;
 }
 
 .abnormal-left-grid .aggregate-cell:last-child {

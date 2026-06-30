@@ -746,6 +746,93 @@ const faultTraceEventsPage = computed(() => faultTraceEventsPageMap[selectedFaul
 const isFaultTraceEventsLoading = computed(() => isFaultTraceEventsLoadingMap[selectedFaultScale.value] ?? false)
 const faultTraceEventsError = computed(() => faultTraceEventsErrorMap[selectedFaultScale.value] ?? '')
 
+const faultTraceIdsWithLatency = ref<Set<string>>(new Set())
+const latencyTraceIdsWithFault = ref<Set<string>>(new Set())
+
+const checkFaultTracesForLatency = async (traceIds: string[]) => {
+  if (!selectedAssetId.value || traceIds.length === 0) {
+    faultTraceIdsWithLatency.value = new Set()
+    return
+  }
+  
+  try {
+    const body: Record<string, unknown> = {
+      kb_id: selectedAssetId.value,
+      is_anomalous: true,
+      page_cnt: 1000,
+      page_num: 1,
+      trace_ids: traceIds,
+    }
+    
+    const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
+      '/log_parse_result/list',
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    )
+    
+    const latencyTraceIds = new Set<string>()
+    ;(result.log_parse_results ?? []).forEach((r) => {
+      if (r.trace_id) latencyTraceIds.add(r.trace_id)
+    })
+    faultTraceIdsWithLatency.value = latencyTraceIds
+  } catch {
+    faultTraceIdsWithLatency.value = new Set()
+  }
+}
+
+const checkLatencyTracesForFault = async (traceIds: string[]) => {
+  if (!selectedAssetId.value || traceIds.length === 0) {
+    latencyTraceIdsWithFault.value = new Set()
+    return
+  }
+  
+  try {
+    const body: Record<string, unknown> = {
+      kb_id: selectedAssetId.value,
+      is_anomalous: true,
+      page_cnt: 1000,
+      page_num: 1,
+      trace_ids: traceIds,
+    }
+    
+    const result = await request<{
+      total: number
+      trace_failure_event_results: TraceFailureEventResultModel[]
+    }>('/log_failure_event_result/list_trace_events', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    
+    const faultTraceIds = new Set<string>()
+    ;(result.trace_failure_event_results ?? []).forEach((r) => {
+      if (r.trace_id) faultTraceIds.add(r.trace_id)
+    })
+    latencyTraceIdsWithFault.value = faultTraceIds
+  } catch {
+    latencyTraceIdsWithFault.value = new Set()
+  }
+}
+
+const getTraceTags = (traceId: string, source: 'fault' | 'latency') => {
+  const tags: { type: 'fault' | 'latency'; label: string }[] = []
+  
+  if (source === 'fault') {
+    tags.push({ type: 'fault', label: '通断' })
+    if (faultTraceIdsWithLatency.value.has(traceId)) {
+      tags.push({ type: 'latency', label: '时延' })
+    }
+  } else {
+    tags.push({ type: 'latency', label: '时延' })
+    if (latencyTraceIdsWithFault.value.has(traceId)) {
+      tags.push({ type: 'fault', label: '通断' })
+    }
+  }
+  
+  return tags
+}
+
 const faultDetailTraceRows = ref<FaultTraceTableRow[]>([])
 const isDetailLatencyChartLoading = ref(false)
 const detailLatencyChartError = ref('')
@@ -2651,8 +2738,9 @@ const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
   return true
 }
 
-const getFilteredAbnormalTraceRows = () =>
-  abnormalTraceRows.value.filter(matchesAbnormalTraceFilters)
+const getFilteredAbnormalTraceRows = () => {
+  return abnormalTraceRows.value.filter(matchesAbnormalTraceFilters)
+}
 
 const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceTableRow => {
   const record = result as Record<string, unknown>
@@ -2694,7 +2782,9 @@ const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceT
   }
 }
 
-const getFilteredFaultTraceRows = () => faultTraceRows.value
+const getFilteredFaultTraceRows = () => {
+  return faultTraceRows.value
+}
 
 const getFaultTraceFailureModeLabel = (row: FaultTraceTableRow) =>
   row.failureMode?.name || row.failureModeId || row.faultType || '-'
@@ -3008,6 +3098,9 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
       faultDetailTraceRows.value = events.map(toFaultTraceTableRow)
       faultDetailTraceEventsTotal.value = total
       faultDetailTraceEventsPage.value = pageNum
+      
+      const traceIds = events.map((e) => e.trace_id).filter((id): id is string => !!id)
+      await checkFaultTracesForLatency(traceIds)
     }
   } catch (error) {
     if (
@@ -3480,12 +3573,16 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     faultTraceRowsMap[scale] = events.map(toFaultTraceTableRow)
     faultTraceEventsTotalMap[scale] = total
     faultTraceEventsPageMap[scale] = pageNum
+
+    const traceIds = events.map((e) => e.trace_id).filter((id): id is string => !!id)
+    await checkFaultTracesForLatency(traceIds)
   } catch (error) {
     faultTraceRowsMap[scale] = []
     faultTraceEventsTotalMap[scale] = 0
     faultTraceEventsPageMap[scale] = 1
     faultTraceEventsErrorMap[scale] =
       error instanceof Error ? error.message : '加载错误日志列表失败'
+    faultTraceIdsWithLatency.value = new Set()
   } finally {
     isFaultTraceEventsLoadingMap[scale] = false
   }
@@ -3745,6 +3842,11 @@ const loadDetailParseResults = async (
       detailParseResults.value = result.log_parse_results ?? []
       detailParseResultsTotal.value = result.total ?? detailParseResults.value.length
       detailParseResultsPage.value = pageNum
+      
+      const traceIds = (result.log_parse_results ?? [])
+        .map((r) => r.trace_id)
+        .filter((id): id is string => !!id)
+      await checkLatencyTracesForFault(traceIds)
     }
   } catch (error) {
     // 忽略取消请求的错误
@@ -3756,6 +3858,7 @@ const loadDetailParseResults = async (
       detailParseResultsTotal.value = 0
       detailParseResultsPage.value = pageNum
       detailParseResultsError.value = error instanceof Error ? error.message : '加载解析结果失败'
+      latencyTraceIdsWithFault.value = new Set()
     }
   } finally {
     if (selectedAggregatedEvent.value?.id === row.id) {
@@ -4275,6 +4378,11 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     abnormalTraceRowsMap[scale] = (result.log_parse_results ?? []).map(toAbnormalTraceRow)
     abnormalTracesTotalMap[scale] = total
     abnormalTracesPageMap[scale] = pageNum
+
+    const traceIds = (result.log_parse_results ?? [])
+      .map((r) => r.trace_id)
+      .filter((id): id is string => !!id)
+    await checkLatencyTracesForFault(traceIds)
   } catch (error) {
     // 忽略取消请求的错误
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -4284,6 +4392,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     abnormalTracesTotalMap[scale] = 0
     abnormalTracesPageMap[scale] = 1
     abnormalTracesErrorMap[scale] = error instanceof Error ? error.message : '加载时延异常列表失败'
+    latencyTraceIdsWithFault.value = new Set()
   } finally {
     isAbnormalTracesLoadingMap[scale] = false
     abnormalTraceSort.releaseSortLock()
@@ -4671,6 +4780,8 @@ const loadAssetDetail = async (assetId: string) => {
   traceLogsError.value = ''
   logFilesPage.value = 1
   logFilesPageInput.value = ''
+  faultTraceIdsWithLatency.value = new Set()
+  latencyTraceIdsWithFault.value = new Set()
   isDetailLoading.value = true
   errorMessage.value = ''
 
@@ -6454,6 +6565,7 @@ onBeforeUnmount(() => {
                 <div class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
                     <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header">
+                      <div class="aggregate-cell">标签</div>
                       <div class="aggregate-cell">时间</div>
                       <div class="aggregate-cell">Trace ID</div>
                       <div class="aggregate-cell">Pod IP</div>
@@ -6473,6 +6585,16 @@ onBeforeUnmount(() => {
                         :key="`${row.id}-fixed`"
                         class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
                       >
+                        <div class="aggregate-cell">
+                          <span
+                            v-for="tag in getTraceTags(row.traceId, 'latency')"
+                            :key="tag.type"
+                            class="trace-type-tag"
+                            :class="`trace-type-tag-${tag.type}`"
+                          >
+                            {{ tag.label }}
+                          </span>
+                        </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
                         <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
                         <div class="aggregate-cell">{{ row.podIp }}</div>
@@ -7405,6 +7527,7 @@ onBeforeUnmount(() => {
                 <table class="metric-table fault-detail-table">
                   <thead>
                     <tr>
+                      <th>标签</th>
                       <th>时间</th>
                       <th>Trace ID</th>
                       <th>Pod IP</th>
@@ -7418,24 +7541,34 @@ onBeforeUnmount(() => {
                   </thead>
                   <tbody>
                     <tr v-if="isFaultTraceEventsLoading">
-                      <td colspan="9" class="metric-table-state">正在加载错误日志...</td>
+                      <td colspan="10" class="metric-table-state">正在加载错误日志...</td>
                     </tr>
                     <tr v-else-if="faultTraceEventsError">
-                      <td colspan="9" class="metric-table-state metric-table-error">
+                      <td colspan="10" class="metric-table-state metric-table-error">
                         {{ faultTraceEventsError }}
                       </td>
                     </tr>
                     <tr v-else-if="faultTraceRows.length === 0">
-                      <td colspan="9" class="metric-table-state">暂无错误日志数据</td>
+                      <td colspan="10" class="metric-table-state">暂无错误日志数据</td>
                     </tr>
                     <tr v-else-if="getFilteredFaultTraceRows().length === 0">
-                      <td colspan="9" class="metric-table-state">无匹配错误日志</td>
+                      <td colspan="10" class="metric-table-state">无匹配错误日志</td>
                     </tr>
                     <template v-else>
                       <tr
                         v-for="trace in getFilteredFaultTraceRows()"
                         :key="trace.id"
                       >
+                        <td>
+                          <span
+                            v-for="tag in getTraceTags(trace.traceId, 'fault')"
+                            :key="tag.type"
+                            class="trace-type-tag"
+                            :class="`trace-type-tag-${tag.type}`"
+                          >
+                            {{ tag.label }}
+                          </span>
+                        </td>
                         <td>{{ trace.time }}</td>
                         <td class="trace-id">{{ trace.traceId }}</td>
                         <td>
@@ -8220,6 +8353,7 @@ onBeforeUnmount(() => {
               <div class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
                 <div class="aggregate-fixed-left">
                   <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header">
+                    <div class="aggregate-cell">标签</div>
                     <div class="aggregate-cell">时间</div>
                     <div class="aggregate-cell">Trace ID</div>
                     <div class="aggregate-cell">Pod IP</div>
@@ -8239,6 +8373,16 @@ onBeforeUnmount(() => {
                       :key="`${row.id}-fixed`"
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
                     >
+                      <div class="aggregate-cell">
+                        <span
+                          v-for="tag in getTraceTags(row.traceId, 'latency')"
+                          :key="tag.type"
+                          class="trace-type-tag"
+                          :class="`trace-type-tag-${tag.type}`"
+                        >
+                          {{ tag.label }}
+                        </span>
+                      </div>
                       <div class="aggregate-cell">{{ row.time }}</div>
                       <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
                       <div class="aggregate-cell">{{ row.podIp }}</div>
@@ -8609,6 +8753,7 @@ onBeforeUnmount(() => {
               <table class="metric-table fault-detail-log-table">
                 <thead>
                   <tr>
+                    <th>标签</th>
                     <th>时间</th>
                     <th>Trace ID</th>
                     <th>集群</th>
@@ -8620,18 +8765,28 @@ onBeforeUnmount(() => {
                 </thead>
                 <tbody>
                   <tr v-if="isFaultDetailTraceEventsLoading">
-                    <td colspan="7" class="metric-table-state">正在加载错误日志...</td>
+                    <td colspan="8" class="metric-table-state">正在加载错误日志...</td>
                   </tr>
                   <tr v-else-if="faultDetailTraceEventsError">
-                    <td colspan="7" class="metric-table-state metric-table-error">
+                    <td colspan="8" class="metric-table-state metric-table-error">
                       {{ faultDetailTraceEventsError }}
                     </td>
                   </tr>
                   <tr v-else-if="faultDetailTraceRows.length === 0">
-                    <td colspan="7" class="metric-table-state">暂无错误日志</td>
+                    <td colspan="8" class="metric-table-state">暂无错误日志</td>
                   </tr>
                   <template v-else>
                     <tr v-for="row in faultDetailTraceRows" :key="row.id">
+                      <td>
+                        <span
+                          v-for="tag in getTraceTags(row.traceId, 'fault')"
+                          :key="tag.type"
+                          class="trace-type-tag"
+                          :class="`trace-type-tag-${tag.type}`"
+                        >
+                          {{ tag.label }}
+                        </span>
+                      </td>
                       <td>{{ row.time }}</td>
                       <td class="trace-id">{{ row.traceId }}</td>
                       <td>{{ row.clusterName }}</td>
