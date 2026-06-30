@@ -20,6 +20,10 @@ from latency.schemas.log_failure_event import (
     PodAggregatedFailureEventModel,
     TimeAggregatedFailureEventModel,
 )
+from latency.schemas.diagnosis_case import (
+    DiagnosisCaseMatchModel,
+    DiagnosisCaseModel,
+)
 from latency.schemas.task import TaskModel
 
 
@@ -334,6 +338,34 @@ class GetErrCodeMetricsMsg(BaseModel):
 
 class GetErrCodeMetricsResponse(ResponseBase):
     result: GetErrCodeMetricsMsg = Field(..., description="获取故障码指标时间曲线响应结果")
+
+
+class CreateDiagnosisCaseMsg(BaseModel):
+    case_id: Optional[str] = Field(default=None, description="创建的历史诊断案例ID")
+
+
+class CreateDiagnosisCaseResponse(ResponseBase):
+    result: CreateDiagnosisCaseMsg = Field(..., description="创建历史诊断案例响应结果")
+
+
+class GetDiagnosisCaseMsg(BaseModel):
+    case: Optional[DiagnosisCaseModel] = Field(default=None, description="历史诊断案例")
+
+
+class GetDiagnosisCaseResponse(ResponseBase):
+    result: GetDiagnosisCaseMsg = Field(..., description="获取历史诊断案例响应结果")
+
+
+class SearchDiagnosisCasesMsg(BaseModel):
+    total: int = Field(..., description="匹配的历史诊断案例总数")
+    matches: list[DiagnosisCaseMatchModel] = Field(
+        default_factory=list, description="历史诊断案例匹配列表"
+    )
+
+
+class SearchDiagnosisCasesResponse(ResponseBase):
+    result: SearchDiagnosisCasesMsg = Field(..., description="搜索历史诊断案例响应结果")
+
 
 class StopOrRunLogParseMsg(BaseModel):
     success: bool = Field(..., description="操作是否成功")

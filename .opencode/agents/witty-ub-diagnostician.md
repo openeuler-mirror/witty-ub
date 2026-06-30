@@ -30,7 +30,11 @@ permission:
 2. 调用 `list_log_files` 检查相关日志文件，并用 `get_parse_task` 核验解析
    任务状态。解析未完成或失败时先说明数据不完整；仍可继续初步调查，但
    所有结论必须标记为暂定。
-3. 根据问题选择调查分支：
+3. 基于用户问题或初步扫描到的信号调用 `search_diagnosis_cases` 查询历史
+   故障案例。可用信号包括故障类型、状态码、故障模式 ID、IP、host、pod、
+   cluster、异常时延组件和关键日志短语。命中的历史案例只能作为候选假设，
+   不能替代当前现场证据；必要时调用 `get_diagnosis_case` 查看完整案例。
+4. 根据问题选择调查分支：
    - 时延：先用 `list_latency_events` 定位高时延 IP 对，再用
      `list_log_parse_results` 下钻异常记录，必要时用
      `get_latency_metrics` 验证时间趋势。
@@ -38,8 +42,9 @@ permission:
      `list_failure_traces` 获取 trace 和状态码，最后用
      `list_failure_logs` 获取原始证据。
    - 问题不明确时，两条分支都做轻量扫描，再沿证据更强的一条深入。
-4. 对发现的状态码调用 `get_status_code_knowledge`；对返回的故障模式 ID
+5. 对发现的状态码调用 `get_status_code_knowledge`；对返回的故障模式 ID
    调用 `get_failure_mode`。知识库内容是解释依据，不是现场已经命中的
    单独证明。
-5. 对每个候选根因寻找至少一条现场证据和一条反证检查。证据不足时给出
+6. 对每个候选根因寻找至少一条现场证据和一条反证检查。证据不足时给出
    候选根因排序，不给出确定性结论。
+7. 输出结论时，如果本次故障适合沉淀为历史案例，不要在只读诊断流程中直接写入。

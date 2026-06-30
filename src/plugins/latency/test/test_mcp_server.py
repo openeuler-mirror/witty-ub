@@ -89,6 +89,50 @@ def test_list_failure_logs_requires_trace_ids():
         asyncio.run(mcp_server.list_failure_logs([]))
 
 
+def test_search_diagnosis_cases_maps_signals(monkeypatch):
+    calls = []
+
+    class FakeClient:
+        async def post(self, path, *, json):
+            calls.append((path, json))
+            return {"code": 200, "result": {"total": 0, "matches": []}}
+
+    monkeypatch.setattr(mcp_server, "_client", lambda: FakeClient())
+
+    asyncio.run(
+        mcp_server.search_diagnosis_cases(
+            kb_id="kb-1",
+            fault_type="latency",
+            status_codes=["1004"],
+            src_ips=["10.0.0.1"],
+            latency_components=["urma_link_latency"],
+            min_confidence=0.7,
+        )
+    )
+
+    assert calls == [
+        (
+            "/diagnosis_case/search",
+            {
+                "kb_id": "kb-1",
+                "fault_type": "latency",
+                "status_codes": ["1004"],
+                "failure_mode_ids": [],
+                "src_ips": ["10.0.0.1"],
+                "dst_ips": [],
+                "hosts": [],
+                "pods": [],
+                "clusters": [],
+                "latency_components": ["urma_link_latency"],
+                "log_keywords": [],
+                "min_confidence": 0.7,
+                "page_num": 1,
+                "page_cnt": 10,
+            },
+        )
+    ]
+
+
 def test_mcp_exposes_only_expected_read_tools():
     async def list_tool_names():
         async with create_connected_server_and_client_session(
@@ -98,6 +142,8 @@ def test_mcp_exposes_only_expected_read_tools():
             return {tool.name for tool in tools.tools}
 
     assert asyncio.run(list_tool_names()) == {
+        "list_log_kbs",
+        "get_log_kb",
         "list_log_files",
         "get_parse_task",
         "list_latency_events",
@@ -108,4 +154,7 @@ def test_mcp_exposes_only_expected_read_tools():
         "list_failure_logs",
         "get_status_code_knowledge",
         "get_failure_mode",
+        "search_diagnosis_cases",
+        "get_diagnosis_case",
+        "read_file",
     }

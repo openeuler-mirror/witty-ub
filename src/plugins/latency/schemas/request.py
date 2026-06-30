@@ -404,6 +404,42 @@ class GetErrCodeMetricsRequest(BaseModel):
         description="最大返回数据点数，用于控制数据量，默认1000",
     )
 
+
+class CreateDiagnosisCaseRequest(BaseModel):
+    kb_id: Optional[str] = Field(default=None, description="来源日志知识库ID")
+    fault_type: str = Field(default="unknown", description="故障类型：latency/connectivity/mixed/unknown")
+    title: Optional[str] = Field(default=None, description="案例标题")
+    symptom_summary: str = Field(..., description="故障现象摘要")
+    root_cause: str = Field(..., description="诊断出的故障原因")
+    recommendation: str = Field(..., description="建议处理方案")
+    confidence: float = Field(default=0.0, description="结论置信度，0到1")
+    failure_mode_ids: list[str] = Field(default_factory=list, description="关联故障模式ID")
+    status_codes: list[str] = Field(default_factory=list, description="关联状态码")
+    fingerprint_json: dict[str, Any] = Field(
+        default_factory=dict,
+        description="可泛化故障指纹，如src_ips、dst_ips、hosts、pods、clusters、latency_components、log_keywords",
+    )
+    evidence_refs_json: list[dict[str, Any]] = Field(default_factory=list, description="证据引用")
+    counter_evidence_json: list[dict[str, Any]] = Field(default_factory=list, description="反证或排除项")
+    source_log_ids: list[str] = Field(default_factory=list, description="来源日志ID")
+
+
+class SearchDiagnosisCasesRequest(BaseModel):
+    kb_id: Optional[str] = Field(default=None, description="知识库ID过滤")
+    fault_type: Optional[str] = Field(default=None, description="故障类型过滤")
+    status_codes: list[str] = Field(default_factory=list, description="待匹配状态码")
+    failure_mode_ids: list[str] = Field(default_factory=list, description="待匹配故障模式ID")
+    src_ips: list[str] = Field(default_factory=list, description="待匹配源IP")
+    dst_ips: list[str] = Field(default_factory=list, description="待匹配目的IP")
+    hosts: list[str] = Field(default_factory=list, description="待匹配主机")
+    pods: list[str] = Field(default_factory=list, description="待匹配Pod")
+    clusters: list[str] = Field(default_factory=list, description="待匹配集群")
+    latency_components: list[str] = Field(default_factory=list, description="待匹配异常时延组件")
+    log_keywords: list[str] = Field(default_factory=list, description="待匹配关键日志短语")
+    min_confidence: Optional[float] = Field(default=None, description="最低案例置信度")
+    page_cnt: int = Field(default=10, description="每页数量")
+    page_num: int = Field(default=1, description="页码")
+
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")
     op_id: str = Field(..., description="操作ID，关联的业务对象ID")

@@ -351,6 +351,64 @@ async def get_failure_mode(failure_mode_id: str) -> dict[str, Any]:
     )
 
 
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "Search persisted historical diagnosis cases before or during a fault "
+        "investigation. Match by structured signals such as status codes, failure "
+        "mode IDs, IPs, hosts, pods, clusters, abnormal latency components and key "
+        "log phrases. A match is a hypothesis to verify against current evidence, "
+        "not proof that the current fault has the same cause."
+    )
+)
+async def search_diagnosis_cases(
+    kb_id: str | None = None,
+    fault_type: Literal["latency", "connectivity", "mixed", "unknown"] | None = None,
+    status_codes: list[str] | None = None,
+    failure_mode_ids: list[str] | None = None,
+    src_ips: list[str] | None = None,
+    dst_ips: list[str] | None = None,
+    hosts: list[str] | None = None,
+    pods: list[str] | None = None,
+    clusters: list[str] | None = None,
+    latency_components: list[str] | None = None,
+    log_keywords: list[str] | None = None,
+    min_confidence: float | None = None,
+    page_num: int = 1,
+    page_cnt: int = 10,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kb_id": kb_id,
+        "fault_type": fault_type,
+        "status_codes": status_codes or [],
+        "failure_mode_ids": failure_mode_ids or [],
+        "src_ips": src_ips or [],
+        "dst_ips": dst_ips or [],
+        "hosts": hosts or [],
+        "pods": pods or [],
+        "clusters": clusters or [],
+        "latency_components": latency_components or [],
+        "log_keywords": log_keywords or [],
+        "min_confidence": min_confidence,
+        **_page(page_num, page_cnt),
+    }
+    return await _client().post(
+        "/diagnosis_case/search", json=_without_none(payload)
+    )
+
+
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "Get one persisted historical diagnosis case by ID. Use it to inspect the "
+        "stored symptom, root cause, recommendation, fingerprint and evidence "
+        "references after search_diagnosis_cases returns a candidate."
+    )
+)
+async def get_diagnosis_case(case_id: str) -> dict[str, Any]:
+    return await _client().get(f"/diagnosis_case/{quote(case_id, safe='')}")
+
+
 _MAX_READ_BYTES = 5 * 1024 * 1024
 
 

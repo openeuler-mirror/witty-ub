@@ -42,6 +42,43 @@ table_ddl_list = {
             root_cause TEXT NOT NULL
         )
     """,
+    "diagnosis_case_table": """
+        CREATE TABLE IF NOT EXISTS diagnosis_case_table (
+            id TEXT PRIMARY KEY,
+            kb_id TEXT,
+            fault_type TEXT NOT NULL,
+            title TEXT,
+            symptom_summary TEXT NOT NULL,
+            root_cause TEXT NOT NULL,
+            recommendation TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0,
+            failure_mode_ids TEXT NOT NULL DEFAULT '[]',
+            status_codes TEXT NOT NULL DEFAULT '[]',
+            fingerprint_json TEXT NOT NULL DEFAULT '{}',
+            evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+            counter_evidence_json TEXT NOT NULL DEFAULT '[]',
+            source_log_ids TEXT NOT NULL DEFAULT '[]',
+            hit_count INTEGER NOT NULL DEFAULT 0,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """,
+    "diagnosis_case_signal_table": """
+        CREATE TABLE IF NOT EXISTS diagnosis_case_signal_table (
+            case_id TEXT NOT NULL,
+            signal_type TEXT NOT NULL,
+            signal_value TEXT NOT NULL,
+            weight REAL NOT NULL DEFAULT 1,
+            PRIMARY KEY (case_id, signal_type, signal_value)
+        )
+    """,
+    "diagnosis_case_signal_table_idx_signal": """
+        CREATE INDEX IF NOT EXISTS idx_diagnosis_case_signal
+        ON diagnosis_case_signal_table(signal_type, signal_value)
+    """,
     "log_file_table": """
         CREATE TABLE IF NOT EXISTS log_file_table (
             id TEXT PRIMARY KEY,
@@ -323,6 +360,49 @@ class AsyncSQLiteSingleton:
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN remote_worker_rpc REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_process REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_rpc_total REAL"),
+            (
+                "diagnosis_case_table",
+                """
+                CREATE TABLE IF NOT EXISTS diagnosis_case_table (
+                    id TEXT PRIMARY KEY,
+                    kb_id TEXT,
+                    fault_type TEXT NOT NULL,
+                    title TEXT,
+                    symptom_summary TEXT NOT NULL,
+                    root_cause TEXT NOT NULL,
+                    recommendation TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 0,
+                    failure_mode_ids TEXT NOT NULL DEFAULT '[]',
+                    status_codes TEXT NOT NULL DEFAULT '[]',
+                    fingerprint_json TEXT NOT NULL DEFAULT '{}',
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    counter_evidence_json TEXT NOT NULL DEFAULT '[]',
+                    source_log_ids TEXT NOT NULL DEFAULT '[]',
+                    hit_count INTEGER NOT NULL DEFAULT 0,
+                    existed_status BOOLEAN NOT NULL DEFAULT 1,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """,
+            ),
+            (
+                "diagnosis_case_signal_table",
+                """
+                CREATE TABLE IF NOT EXISTS diagnosis_case_signal_table (
+                    case_id TEXT NOT NULL,
+                    signal_type TEXT NOT NULL,
+                    signal_value TEXT NOT NULL,
+                    weight REAL NOT NULL DEFAULT 1,
+                    PRIMARY KEY (case_id, signal_type, signal_value)
+                )
+                """,
+            ),
+            (
+                "diagnosis_case_signal_table",
+                "CREATE INDEX IF NOT EXISTS idx_diagnosis_case_signal ON diagnosis_case_signal_table(signal_type, signal_value)",
+            ),
         ]
 
         try:
