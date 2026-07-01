@@ -1039,7 +1039,7 @@ const latencyScaleOptions = [
   { value: 3600, label: '1小时' },
 ] as const
 
-const selectedLatencyScale = ref<number>(10)
+const selectedLatencyScale = ref<number>(60)
 
 const latencyChartCenterTime = ref<number | null>(null)
 
@@ -1069,7 +1069,7 @@ const latencyChartRange = computed<LatencyChartRange | null>(() => {
 })
 
 // 故障监控时间尺度
-const selectedFaultScale = ref<number>(10)
+const selectedFaultScale = ref<number>(60)
 const faultChartCenterTime = ref<number | null>(null)
 const faultChartHalfSpanMultiplier: Record<number, number> = {
   10: 60,
@@ -1984,10 +1984,15 @@ const renderLatencyEchart = () => {
       const bucket = latencyChartBuckets.value[event.dataIndex]
       if (bucket) {
         latencyChartCenterTime.value = bucket.time
+        selectedFaultScale.value = selectedLatencyScale.value
+        faultChartCenterTime.value = bucket.time
         void loadLatencyChart()
         void loadAbnormalTraces(1)
         void loadLatencyDetail(1)
         void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
+        void loadFaultChart()
+        void loadFaultTraceEvents(1)
+        void loadFaultAggregatedEvents(1)
       }
     }
   })
@@ -2030,9 +2035,15 @@ const renderFaultEchart = () => {
       const bucket = faultChartBuckets.value[event.dataIndex]
       if (bucket) {
         faultChartCenterTime.value = bucket.time
+        selectedLatencyScale.value = selectedFaultScale.value
+        latencyChartCenterTime.value = bucket.time
         void loadFaultChart()
         void loadFaultTraceEvents(1)
         void loadFaultAggregatedEvents(1)
+        void loadLatencyChart()
+        void loadAbnormalTraces(1)
+        void loadLatencyDetail(1)
+        void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
       }
     }
   })
@@ -2071,17 +2082,26 @@ const resizeLatencyCharts = () => {
 
 const resetLatencyChartRange = () => {
   latencyChartCenterTime.value = null
+  faultChartCenterTime.value = null
   void loadLatencyChart()
   void loadAbnormalTraces(1)
   void loadLatencyDetail(1)
   void loadTimeWindowAggregatedEvents(1, null)
+  void loadFaultChart()
+  void loadFaultTraceEvents(1)
+  void loadFaultAggregatedEvents(1)
 }
 
 const resetFaultChartRange = () => {
   faultChartCenterTime.value = null
+  latencyChartCenterTime.value = null
   void loadFaultChart()
   void loadFaultTraceEvents(1)
   void loadFaultAggregatedEvents(1)
+  void loadLatencyChart()
+  void loadAbnormalTraces(1)
+  void loadLatencyDetail(1)
+  void loadTimeWindowAggregatedEvents(1, null)
 }
 
 const faultCodes = computed(() => {
@@ -5793,7 +5813,10 @@ watch([selectedAssetId, activePage], () => {
   }
 })
 
-watch(selectedLatencyScale, () => {
+watch(selectedLatencyScale, (newVal) => {
+  if (selectedFaultScale.value !== newVal) {
+    selectedFaultScale.value = newVal
+  }
   if (latencyChartCenterTime.value !== null) {
     void loadLatencyChart()
     void loadAbnormalTraces(1)
@@ -5804,7 +5827,10 @@ watch(selectedLatencyScale, () => {
   }
 })
 
-watch(selectedFaultScale, () => {
+watch(selectedFaultScale, (newVal) => {
+  if (selectedLatencyScale.value !== newVal) {
+    selectedLatencyScale.value = newVal
+  }
   if (faultChartCenterTime.value !== null) {
     void loadFaultChart()
     void loadFaultTraceEvents(1)
