@@ -1,0 +1,48 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+
+version: '3.8'
+
+services:
+  witty-ub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: witty-ub
+    restart: unless-stopped
+    ports:
+      - "32412:8080"  # Web UI (Nginx + API proxy)
+    volumes:
+      # Persistent data storage
+      - witty-ub-data:/var/witty-ub/data
+      - witty-ub-logs:/var/log/witty-ub
+      # Optional: Mount uploaded files
+      - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
+      - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
+    environment:
+      # Python path for latency plugin
+      - PYTHONPATH=/var/witty-ub
+      # Log level (optional)
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - witty-ub-network
+
+volumes:
+  witty-ub-data:
+    driver: local
+  witty-ub-logs:
+    driver: local
+  witty-ub-uploads:
+    driver: local
+  witty-ub-results:
+    driver: local
+
+networks:
+  witty-ub-network:
+    driver: bridge
