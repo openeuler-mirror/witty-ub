@@ -86,17 +86,14 @@ class LogFailureEventManager:
             return ids_added
         
         batch_size = 1024
+        sql_str = """
+            INSERT OR IGNORE INTO log_failure_event_table 
+            (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
+            VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
+        """
         for i in range(0, len(results), batch_size):
             batch = results[i : i + batch_size]
             try:
-                sql_str = """
-                    INSERT INTO log_failure_event_table 
-                    (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
-                    SELECT :id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM log_failure_event_table WHERE raw_text = :raw_text
-                    )
-                """
                 params = []
                 for log_failure_event in batch:
                     param = log_failure_event.model_dump(exclude_none=False, by_alias=True)
@@ -235,6 +232,12 @@ class LogFailureEventManager:
                 sql_str += f" AND log_id IN ({placeholders})"
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
+            
+            if req.trace_ids:
+                placeholders = ', '.join([f':trace_id_{i}' for i in range(len(req.trace_ids))])
+                sql_str += f" AND trace_id IN ({placeholders})"
+                for i, trace_id in enumerate(req.trace_ids):
+                    params[f'trace_id_{i}'] = trace_id
             
             if req.pod_names:
                 pod_conditions = []
@@ -383,7 +386,7 @@ class LogFailureEventManager:
                     params[f'trace_id_{i}'] = trace_id
             
             # 按日志文件聚合，再按时间排序，便于前端按文件展示链路日志
-            sql_str += " ORDER BY log_file ASC, timestamp ASC, pid ASC, tid ASC"
+            sql_str += " ORDER BY timestamp ASC, pid ASC, tid ASC"
             
             # 执行查询
             results = await AsyncSQLiteSingleton().execute_query(sql_str, params)

@@ -164,6 +164,7 @@ class ListLogParseResultRequest(BaseModel):
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的解析结果")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     trace_id: Optional[str] = Field(default=None, description="Trace ID，用于过滤指定链路的解析结果")
+    trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
@@ -223,6 +224,7 @@ class ListLogFailureEventResultRequest(BaseModel):
 
 class ListTraceFailureEventResultRequest(BaseModel):
     kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
+    trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的故障事件")
     pod_names: Optional[list[str]] = Field(
         default_factory=list, description="日志中包含的pod_id"
     )

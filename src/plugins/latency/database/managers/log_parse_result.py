@@ -168,6 +168,14 @@ class LogParseResultManager:
         if req.aggregated_event_id:
             sql_str += " AND lpr.aggregated_event_id = :aggregated_event_id"
             params["aggregated_event_id"] = req.aggregated_event_id
+        if req.trace_id:
+            sql_str += " AND lpr.trace_id = :trace_id"
+            params["trace_id"] = req.trace_id
+        if req.trace_ids:
+            placeholders = ', '.join([f':trace_id_{i}' for i in range(len(req.trace_ids))])
+            sql_str += f" AND lpr.trace_id IN ({placeholders})"
+            for i, trace_id in enumerate(req.trace_ids):
+                params[f'trace_id_{i}'] = trace_id
         if req.src_ip:
             sql_str += " AND lpr.src_ip LIKE :src_ip"
             params["src_ip"] = f"%{req.src_ip}%"
