@@ -1,5 +1,6 @@
 import logging
 import os
+import operator
 import time
 import uuid
 from collections import defaultdict
@@ -29,7 +30,6 @@ from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
 from latency.database.managers.log_file import LogFileManager
-from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventManager,
 )
@@ -55,6 +55,17 @@ TRACE_CONTEXT_TIMEOUT_THRESHOLDS_MS = {
     "c2w_urma_latency": 100.0,
     "w2w_urma_latency": 100.0,
 }
+
+WORKER_INFO_LABEL_BY_ENTRY_TYPE = {
+    EntryType.URMA.value: "Worker urma parse",
+    EntryType.REMOTE_PULL.value: "Worker remote pull parse",
+    EntryType.LINK.value: "Worker link parse",
+    EntryType.QUERY_META.value: "Worker query meta parse",
+}
+
+# scan_scope 会作为 ProcessPool 参数复制到每个子进程。大型日志通常每条
+# SDK 都有唯一 trace_id；传递百万级集合的序列化成本远高于直接扫描日志。
+MAX_PROCESS_SCAN_SCOPE_TRACE_IDS = 50_000
 
 
 @dataclass
@@ -161,18 +172,37 @@ class KVCacheLogParseWorker(BaseWorker):
             }
 
         is_tuple = isinstance(sdk_entries[0], tuple)
-        trace_ids = {entry[TupleField.TRACE_ID] for entry in sdk_entries if entry[TupleField.TRACE_ID]} if is_tuple else \
-                    {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        trace_ids: set[str] = set()
+        for entry in sdk_entries:
+            trace_id = entry[TupleField.TRACE_ID] if is_tuple else entry.trace_id
+            if not trace_id:
+                continue
+            trace_ids.add(trace_id)
+            if len(trace_ids) > MAX_PROCESS_SCAN_SCOPE_TRACE_IDS:
+                return {
+                    "enabled": False,
+                    "reason": "trace_scope_too_large",
+                    "_stats": {
+                        "sdk_entries": len(sdk_entries),
+                        "sdk_traces": len(trace_ids),
+                        "trace_limit": MAX_PROCESS_SCAN_SCOPE_TRACE_IDS,
+                    },
+                }
         return {
             "enabled": True,
             "trace_ids": trace_ids,
             "_stats": {
+                "sdk_entries": len(sdk_entries),
                 "sdk_traces": len(trace_ids),
+                "trace_limit": MAX_PROCESS_SCAN_SCOPE_TRACE_IDS,
             },
         }
 
     @staticmethod
-    def _build_worker_info_scan_scope(parsed: dict[str, list]) -> dict:
+    def _build_worker_info_scan_scope(
+        parsed: dict[str, list],
+        sdk_trace_ids: Optional[set[str]] = None,
+    ) -> dict:
         sdk_entries = parsed.get("SDK access parse", [])
         worker_entries = parsed.get("Worker access parse", [])
 
@@ -187,11 +217,21 @@ class KVCacheLogParseWorker(BaseWorker):
                 },
             }
 
-        sdk_is_tuple = isinstance(sdk_entries[0], tuple)
         worker_is_tuple = worker_entries and isinstance(worker_entries[0], tuple)
-        
-        trace_ids = {entry[TupleField.TRACE_ID] for entry in sdk_entries if entry[TupleField.TRACE_ID]} if sdk_is_tuple else \
-                    {entry.trace_id for entry in sdk_entries if entry.trace_id}
+
+        if sdk_trace_ids is None:
+            sdk_is_tuple = isinstance(sdk_entries[0], tuple)
+            trace_ids = (
+                {
+                    entry[TupleField.TRACE_ID]
+                    for entry in sdk_entries
+                    if entry[TupleField.TRACE_ID]
+                }
+                if sdk_is_tuple
+                else {entry.trace_id for entry in sdk_entries if entry.trace_id}
+            )
+        else:
+            trace_ids = sdk_trace_ids
         pod_trace_keys = set()
         pod_ips = set()
         worker_scope = 0
@@ -218,6 +258,36 @@ class KVCacheLogParseWorker(BaseWorker):
                 "pod_scope": len(pod_ips),
             },
         }
+
+    @staticmethod
+    def _split_worker_info_entries(parsed: dict[str, list]) -> None:
+        """将聚合的 Worker INFO 结果单遍拆分为关联器使用的标签。"""
+        info_entries = parsed.pop("Worker info parse", [])
+        if not info_entries:
+            return
+
+        is_tuple = isinstance(info_entries[0], tuple)
+        split_entries: dict[str, list] = defaultdict(list)
+        label_get = WORKER_INFO_LABEL_BY_ENTRY_TYPE.get
+        if is_tuple:
+            # ProcessPool 序列化 tuple 中的 entry_type 已经是字符串，避免
+            # 对每条记录重复做 Enum isinstance/value 分支。
+            for entry in info_entries:
+                label = label_get(entry[TupleField.ENTRY_TYPE])
+                if label is not None:
+                    split_entries[label].append(entry)
+        else:
+            for entry in info_entries:
+                entry_type = entry.entry_type
+                entry_type_value = (
+                    entry_type.value
+                    if isinstance(entry_type, EntryType)
+                    else entry_type
+                )
+                label = label_get(entry_type_value)
+                if label is not None:
+                    split_entries[label].append(entry)
+        parsed.update(split_entries)
 
     # 解析日志
     @staticmethod
@@ -266,9 +336,10 @@ class KVCacheLogParseWorker(BaseWorker):
         t_worker_access_scope = time.perf_counter() - t_worker_access_scope_start
         worker_access_scope_stats = worker_access_scan_scope.get("_stats", {})
         logger.info(
-            "Worker access scan scope: enabled=%s, sdk_traces=%d",
+            "Worker access scan scope: enabled=%s, sdk_traces=%d, reason=%s",
             worker_access_scan_scope.get("enabled", False),
             worker_access_scope_stats.get("sdk_traces", 0),
+            worker_access_scan_scope.get("reason", "bounded_scope"),
         )
 
         worker_access_parsed = await worker_access_scanner.scan_all(
@@ -280,7 +351,23 @@ class KVCacheLogParseWorker(BaseWorker):
         parsed.update(worker_access_parsed)
 
         t_info_scope_start = time.perf_counter()
-        info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(parsed)
+        if worker_access_scan_scope.get("enabled", False):
+            info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(
+                parsed,
+                worker_access_scan_scope["trace_ids"],
+            )
+        else:
+            worker_entries = parsed.get("Worker access parse", [])
+            info_scan_scope = {
+                "enabled": False,
+                "reason": worker_access_scan_scope.get("reason", "sdk_scope_disabled"),
+                "_stats": {
+                    "sdk_traces": worker_access_scope_stats.get("sdk_traces", 0),
+                    "worker_scope": len(worker_entries),
+                    "pod_trace_scope": 0,
+                    "pod_scope": 0,
+                },
+            }
         t_info_scope = time.perf_counter() - t_info_scope_start
         info_scope_stats = info_scan_scope.get("_stats", {})
         logger.info(
@@ -312,44 +399,7 @@ class KVCacheLogParseWorker(BaseWorker):
             # WorkerInfoParser 将所有结果存储在 "Worker info parse" 标签下，
             # 但 LogCorrelator 需要按旧独立解析器的标签分别获取。
             # 这里按 entry_type 拆分为各个旧标签。
-            info_entries = parsed.get("Worker info parse", [])
-            if info_entries:
-                is_tuple = isinstance(info_entries[0], tuple)
-                if is_tuple:
-                    from latency.ENUM.ds_log import EntryType
-                    def _get_entry_type(e):
-                        et = e[TupleField.ENTRY_TYPE]
-                        if isinstance(et, str):
-                            try:
-                                return EntryType(et)
-                            except Exception:
-                                return None
-                        return et
-                    urma_entries = [e for e in info_entries if _get_entry_type(e) == EntryType.URMA]
-                    if urma_entries:
-                        parsed["Worker urma parse"] = urma_entries
-                    remote_pull = [e for e in info_entries if _get_entry_type(e) == EntryType.REMOTE_PULL]
-                    if remote_pull:
-                        parsed["Worker remote pull parse"] = remote_pull
-                    link_entries = [e for e in info_entries if _get_entry_type(e) == EntryType.LINK]
-                    if link_entries:
-                        parsed["Worker link parse"] = link_entries
-                    query_meta = [e for e in info_entries if _get_entry_type(e) == EntryType.QUERY_META]
-                    if query_meta:
-                        parsed["Worker query meta parse"] = query_meta
-                else:
-                    urma_entries = [e for e in info_entries if e.entry_type == EntryType.URMA]
-                    if urma_entries:
-                        parsed["Worker urma parse"] = urma_entries
-                    remote_pull = [e for e in info_entries if e.entry_type == EntryType.REMOTE_PULL]
-                    if remote_pull:
-                        parsed["Worker remote pull parse"] = remote_pull
-                    link_entries = [e for e in info_entries if e.entry_type == EntryType.LINK]
-                    if link_entries:
-                        parsed["Worker link parse"] = link_entries
-                    query_meta = [e for e in info_entries if e.entry_type == EntryType.QUERY_META]
-                    if query_meta:
-                        parsed["Worker query meta parse"] = query_meta
+            KVCacheLogParseWorker._split_worker_info_entries(parsed)
 
         t_scan = time.perf_counter() - t_scan_start
 
@@ -358,9 +408,9 @@ class KVCacheLogParseWorker(BaseWorker):
         for label in parsed:
             entries = parsed[label]
             if entries and isinstance(entries[0], tuple):
-                parsed[label].sort(key=lambda x: x[0])
+                parsed[label].sort(key=operator.itemgetter(0))
             else:
-                parsed[label].sort(key=lambda x: x.timestamp)
+                parsed[label].sort(key=operator.attrgetter("timestamp"))
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
         entry_counts = {label: len(entries) for label, entries in parsed.items()}
         t_sort = time.perf_counter() - t_sort_start
@@ -390,34 +440,33 @@ class KVCacheLogParseWorker(BaseWorker):
             metric_worker_indices.update(metric_map.keys())
         correlate_match_counts = {
             "sdk_worker": len(correlated.sdk_worker_map),
-            "sdk_urma": len(correlated.sdk_urma_map),
+            "sdk_urma_groups": len(correlated.sdk_urma_index),
             "worker_urma": len(correlated.worker_urma_map),
             "worker_link": len(correlated.worker_link_map),
             "worker_meta": len(correlated.worker_query_meta_map),
             "worker_metrics": len(metric_worker_indices),
         }
 
-        # 及时释放 parsed 中间结构
+        # correlator 仍持有 parsed 列表和索引；先断开引用，再依靠引用计数
+        # 即时回收。强制全量 GC 只会扫描千万级对象。
+        del correlator
         sdk_entries = parsed.pop("SDK access parse", [])
         worker_entries = parsed.pop("Worker access parse", [])
         del parsed
-        import gc
-        gc.collect()
         logger.info("Released parsed entries")
 
         logger.info("=== Stage 3/3: Building parse results ===")
         t_build_start = time.perf_counter()
         builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir, log_file_id=log_id)
         results = builder.build()
+        anomalous_count = builder.anomalous_count
         t_build = time.perf_counter() - t_build_start
 
         # 及时释放所有中间结构（降低内存峰值）
         del sdk_entries, worker_entries, correlated, builder
-        gc.collect()
         logger.info("Released sdk_entries, worker_entries, correlated & builder")
 
         total = len(results)
-        anomalous_count = sum(1 for r in results if r.is_anomalous)
         logger.info(f"Parse complete: {total:,} results, {anomalous_count:,} anomalous")
 
         # 分阶段耗时报告
@@ -489,6 +538,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     "[perf][scan.worker_access_scope] "
                     f"enabled={worker_access_scan_scope.get('enabled', False)}, "
                     f"sdk_traces={worker_access_scope_stats.get('sdk_traces', 0)}, "
+                    f"reason={worker_access_scan_scope.get('reason', 'bounded_scope')}, "
                     f"time={t_worker_access_scope:.3f}s"
                 ),
                 t_worker_access_scope,
@@ -588,7 +638,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"worker_scope={correlate_worker_scope_count}/{entry_counts.get('Worker access parse', 0)}, "
                     f"pod_trace_scope={correlate_worker_scope_pod_trace_count}, "
                     f"sdk_worker={correlate_match_counts['sdk_worker']}/{entry_counts.get('SDK access parse', 0)}, "
-                    f"sdk_urma={correlate_match_counts['sdk_urma']}/{entry_counts.get('SDK access parse', 0)}, "
+                    f"sdk_urma_groups={correlate_match_counts['sdk_urma_groups']}, "
                     f"worker_urma={correlate_match_counts['worker_urma']}/{entry_counts.get('Worker access parse', 0)}, "
                     f"worker_link={correlate_match_counts['worker_link']}/{entry_counts.get('Worker access parse', 0)}, "
                     f"worker_meta={correlate_match_counts['worker_meta']}/{entry_counts.get('Worker access parse', 0)}, "
@@ -800,9 +850,6 @@ class KVCacheLogParseWorker(BaseWorker):
         """存库
 
         按引用顺序依次写入：log_parse_results → aggregated_events → anomalous_events → event_chains
-        
-        注意：list_log_parse_results 是 LogParseResultDataclass 类型，
-        存库前需要转换为 LogParseResultModel。
         """
         success = True
 
@@ -811,15 +858,19 @@ class KVCacheLogParseWorker(BaseWorker):
                 from latency.schemas.log import generate_uuids_hex
 
                 count = len(list_log_parse_results)
-                
-                # 批量生成 UUID（使用 hex 格式，比 str(uuid.uuid4()) 快约 35%）
-                uuids = generate_uuids_hex(count)
-                for r, uid in zip(list_log_parse_results, uuids):
-                    r.id = uid
-                
-                # 批量转换 dataclass → Pydantic model
-                pydantic_results = [r.to_pydantic() for r in list_log_parse_results]
-                await LogParseResultManager.add_log_parse_results(pydantic_results)
+
+                id_batch_size = 50_000
+                for start in range(0, count, id_batch_size):
+                    end = min(start + id_batch_size, count)
+                    batch_ids = generate_uuids_hex(end - start)
+                    for offset, result_id in enumerate(batch_ids):
+                        list_log_parse_results[start + offset].id = result_id
+
+                stored = await LogParseResultManager.add_log_parse_results(
+                    list_log_parse_results
+                )
+                if not stored:
+                    raise RuntimeError("Failed to batch insert log parse results")
                 logger.info(f"Stored {count:,} log parse results")
             except Exception as e:
                 logger.error(f"Failed to store log parse results: {e}")
