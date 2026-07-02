@@ -42,8 +42,10 @@ class ParseResultBuilder:
         self.correlated = correlated
         self.log_dir = log_dir
         self.log_file_id = log_file_id  # 数据库中的日志文件ID
+        self.anomalous_count = 0
 
     def build(self) -> list[LogParseResultDataclass]:
+        self.anomalous_count = 0
         if self.sdk_entries:
             entry_type = type(self.sdk_entries[0])
             logger.info(
@@ -169,6 +171,7 @@ class ParseResultBuilder:
         sdk_worker_get = correlated.sdk_worker_map.get
         worker_idx_get = correlated.worker_idx_map.get
         sdk_urma_get = correlated.sdk_urma_map.get
+        sdk_urma_index_get = correlated.sdk_urma_index.get
         worker_urma_get = correlated.worker_urma_map.get
         worker_remote_pull_get = correlated.worker_remote_pull_map.get
         worker_worker_urma_get = correlated.worker_worker_urma_map.get
@@ -184,7 +187,6 @@ class ParseResultBuilder:
         worker_master_rpc_get = correlated.worker_master_rpc_map.get
         urma_empty_reason_get = correlated.urma_empty_reasons.get
 
-        format_timestamp = self._format_timestamp
         format_failure_remark = self._format_failure_remark
         merge_remark = self._merge_remark
         not_found_search = NOT_FOUND_RE.search
@@ -228,10 +230,32 @@ class ParseResultBuilder:
                 w_cluster_name = None
 
             sdk_elapsed_us = sdk[T_ELAPSED_US]
-            c2w_latency = round((sdk_elapsed_us - w_elapsed_us) / 1000, 3) if w_elapsed_us is not None else None
+            if w_elapsed_us is not None:
+                c2w_elapsed_us = sdk_elapsed_us - w_elapsed_us
+                c2w_latency = (
+                    c2w_elapsed_us / 1000
+                    if isinstance(c2w_elapsed_us, int)
+                    else round(c2w_elapsed_us / 1000, 3)
+                )
+            else:
+                c2w_latency = None
             w_idx = worker_idx_get(i) if worker is not None else None
 
-            c2w_urma_latency = first_elapsed_ms(sdk_urma_get(i))
+            sdk_urma_values = sdk_urma_get(i)
+            if not sdk_urma_values:
+                sdk_urma_values = sdk_urma_index_get(
+                    (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                )
+            if sdk_urma_values:
+                first_sdk_urma = sdk_urma_values[0]
+                sdk_urma_elapsed_us = (
+                    first_sdk_urma[T_ELAPSED_US]
+                    if isinstance(first_sdk_urma, tuple)
+                    else first_sdk_urma.elapsed_us
+                )
+                c2w_urma_latency = round(sdk_urma_elapsed_us / 1000, 3)
+            else:
+                c2w_urma_latency = None
             if w_idx is None:
                 query_meta_latency = None
                 urma_link_latency = None
@@ -309,40 +333,63 @@ class ParseResultBuilder:
             if urma_empty_reason:
                 remark = merge_remark(remark, urma_empty_reason)
             is_anomalous = bool(remark) and remark != "OK"
+            if is_anomalous:
+                self.anomalous_count += 1
 
             log_id = fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir
 
+            sdk_timestamp = sdk[T_TIMESTAMP]
+            timestamp = (
+                sdk_timestamp.isoformat(sep=" ", timespec="milliseconds")
+                if sdk_timestamp is not None
+                else None
+            )
+            total_latency = (
+                sdk_elapsed_us / 1000
+                if isinstance(sdk_elapsed_us, int)
+                else round(sdk_elapsed_us / 1000, 3)
+            )
+
+            # LogParseResultDataclass 的字段顺序由回归测试锁定。位置参数避免
+            # 千万次构造时重复进行约 30 个关键字参数匹配，实测构造快约 2 倍。
             results[i] = result_type(
-                log_id=log_id,
-                trace_id=sdk[T_TRACE_ID],
-                timestamp=format_timestamp(sdk[T_TIMESTAMP]),
-                src_ip=src_ip,
-                dst_ip=dst_ip,
-                pod_ip=sdk[T_POD_IP],
-                cluster_name=w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
-                host=None,
-                total_latency=round(sdk_elapsed_us / 1000, 3),
-                c2w_latency=c2w_latency,
-                worker_query_meta_latency=query_meta_latency,
-                urma_total_latency=urma_latency,
-                urma_link_latency=urma_link_latency,
-                urma_inflight_count=urma_inflight_count,
-                c2w_urma_latency=c2w_urma_latency,
-                w2w_urma_latency=w2w_urma_latency,
-                sdk_process=sdk_process,
-                sdk_rpc=sdk_rpc,
-                local_worker_cost=local_worker_cost,
-                local_worker_lock=local_worker_lock,
-                remote_worker_cost=remote_worker_cost,
-                remote_worker_rpc=remote_worker_rpc,
-                master_process=master_process,
-                master_rpc_total=master_rpc_total,
-                operation=sdk[1],
-                data_size=sdk[3],
-                is_anomalous=is_anomalous,
-                anomaly_reason=remark if is_anomalous else None,
-                remark=remark or "OK",
-                created_at=shared_created_at,
+                total_latency,
+                is_anomalous,
+                "",  # id
+                log_id,
+                "",  # aggregated_event_id
+                "",  # anomalous_event_id
+                sdk[T_POD_IP],
+                src_ip,
+                dst_ip,
+                w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                None,  # host
+                remark if is_anomalous else None,
+                None,  # anomaly_score
+                None,  # content
+                sdk[3],  # data_size
+                True,  # existed_status
+                None,  # offset
+                sdk[1],  # operation
+                remark or "OK",
+                sdk[T_TRACE_ID],
+                urma_inflight_count,
+                urma_link_latency,
+                urma_latency,
+                c2w_latency,
+                query_meta_latency,
+                c2w_urma_latency,
+                w2w_urma_latency,
+                sdk_process,
+                sdk_rpc,
+                local_worker_cost,
+                local_worker_lock,
+                remote_worker_cost,
+                remote_worker_rpc,
+                master_process,
+                master_rpc_total,
+                timestamp,
+                shared_created_at,
             )
         return results
 
@@ -362,7 +409,12 @@ class ParseResultBuilder:
 
             query_meta_latency = self._first_elapsed_us(self.correlated.worker_query_meta_map, w_idx) if w_idx is not None else None
             urma_link_latency = self._first_elapsed_us(self.correlated.worker_link_map, w_idx) if w_idx is not None else None
-            c2w_urma_latency = self._first_elapsed_us(self.correlated.sdk_urma_map.get(i, []), None)
+            sdk_urma_values = self.correlated.sdk_urma_map.get(i)
+            if not sdk_urma_values:
+                sdk_urma_values = self.correlated.sdk_urma_index.get(
+                    (sdk.pod_ip, sdk.trace_id)
+                )
+            c2w_urma_latency = self._first_elapsed_us(sdk_urma_values, None)
             w2w_urma_latency = self._first_elapsed_us(self.correlated.worker_worker_urma_map.get(w_idx, []), None) if w_idx is not None else None
             
             # 获取新增指标
@@ -380,6 +432,8 @@ class ParseResultBuilder:
             remark = self._build_sdk_remark(sdk, worker, c2w_urma_latency, w2w_urma_latency, sdk_success, worker_success,
                                             urma_info["urma_empty_reason"])
             is_anomalous = bool(remark) and remark != "OK"
+            if is_anomalous:
+                self.anomalous_count += 1
 
             # 优先使用传入的 log_file_id（数据库中的日志文件ID），其次使用 entry.log_id，最后使用 log_dir
             log_id = self.log_file_id or sdk.log_id or self.log_dir
@@ -433,6 +487,8 @@ class ParseResultBuilder:
             if not worker_success:
                 remark = self._format_failure_remark("Worker", w.status_code, w.resp_msg)
             is_anomalous = bool(remark)
+            if is_anomalous:
+                self.anomalous_count += 1
 
             query_meta_list = self.correlated.worker_query_meta_map.get(i, [])
             link_list = self.correlated.worker_link_map.get(i, [])

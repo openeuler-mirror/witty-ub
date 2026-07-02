@@ -1,5 +1,6 @@
 import logging
 import os
+import operator
 import time
 import uuid
 from collections import defaultdict
@@ -61,6 +62,10 @@ WORKER_INFO_LABEL_BY_ENTRY_TYPE = {
     EntryType.LINK.value: "Worker link parse",
     EntryType.QUERY_META.value: "Worker query meta parse",
 }
+
+# scan_scope 会作为 ProcessPool 参数复制到每个子进程。大型日志通常每条
+# SDK 都有唯一 trace_id；传递百万级集合的序列化成本远高于直接扫描日志。
+MAX_PROCESS_SCAN_SCOPE_TRACE_IDS = 50_000
 
 
 @dataclass
@@ -167,13 +172,29 @@ class KVCacheLogParseWorker(BaseWorker):
             }
 
         is_tuple = isinstance(sdk_entries[0], tuple)
-        trace_ids = {entry[TupleField.TRACE_ID] for entry in sdk_entries if entry[TupleField.TRACE_ID]} if is_tuple else \
-                    {entry.trace_id for entry in sdk_entries if entry.trace_id}
+        trace_ids: set[str] = set()
+        for entry in sdk_entries:
+            trace_id = entry[TupleField.TRACE_ID] if is_tuple else entry.trace_id
+            if not trace_id:
+                continue
+            trace_ids.add(trace_id)
+            if len(trace_ids) > MAX_PROCESS_SCAN_SCOPE_TRACE_IDS:
+                return {
+                    "enabled": False,
+                    "reason": "trace_scope_too_large",
+                    "_stats": {
+                        "sdk_entries": len(sdk_entries),
+                        "sdk_traces": len(trace_ids),
+                        "trace_limit": MAX_PROCESS_SCAN_SCOPE_TRACE_IDS,
+                    },
+                }
         return {
             "enabled": True,
             "trace_ids": trace_ids,
             "_stats": {
+                "sdk_entries": len(sdk_entries),
                 "sdk_traces": len(trace_ids),
+                "trace_limit": MAX_PROCESS_SCAN_SCOPE_TRACE_IDS,
             },
         }
 
@@ -306,9 +327,10 @@ class KVCacheLogParseWorker(BaseWorker):
         t_worker_access_scope = time.perf_counter() - t_worker_access_scope_start
         worker_access_scope_stats = worker_access_scan_scope.get("_stats", {})
         logger.info(
-            "Worker access scan scope: enabled=%s, sdk_traces=%d",
+            "Worker access scan scope: enabled=%s, sdk_traces=%d, reason=%s",
             worker_access_scan_scope.get("enabled", False),
             worker_access_scope_stats.get("sdk_traces", 0),
+            worker_access_scan_scope.get("reason", "bounded_scope"),
         )
 
         worker_access_parsed = await worker_access_scanner.scan_all(
@@ -320,10 +342,23 @@ class KVCacheLogParseWorker(BaseWorker):
         parsed.update(worker_access_parsed)
 
         t_info_scope_start = time.perf_counter()
-        info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(
-            parsed,
-            worker_access_scan_scope.get("trace_ids"),
-        )
+        if worker_access_scan_scope.get("enabled", False):
+            info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(
+                parsed,
+                worker_access_scan_scope["trace_ids"],
+            )
+        else:
+            worker_entries = parsed.get("Worker access parse", [])
+            info_scan_scope = {
+                "enabled": False,
+                "reason": worker_access_scan_scope.get("reason", "sdk_scope_disabled"),
+                "_stats": {
+                    "sdk_traces": worker_access_scope_stats.get("sdk_traces", 0),
+                    "worker_scope": len(worker_entries),
+                    "pod_trace_scope": 0,
+                    "pod_scope": 0,
+                },
+            }
         t_info_scope = time.perf_counter() - t_info_scope_start
         info_scope_stats = info_scan_scope.get("_stats", {})
         logger.info(
@@ -364,9 +399,9 @@ class KVCacheLogParseWorker(BaseWorker):
         for label in parsed:
             entries = parsed[label]
             if entries and isinstance(entries[0], tuple):
-                parsed[label].sort(key=lambda x: x[0])
+                parsed[label].sort(key=operator.itemgetter(0))
             else:
-                parsed[label].sort(key=lambda x: x.timestamp)
+                parsed[label].sort(key=operator.attrgetter("timestamp"))
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
         entry_counts = {label: len(entries) for label, entries in parsed.items()}
         t_sort = time.perf_counter() - t_sort_start
@@ -396,7 +431,7 @@ class KVCacheLogParseWorker(BaseWorker):
             metric_worker_indices.update(metric_map.keys())
         correlate_match_counts = {
             "sdk_worker": len(correlated.sdk_worker_map),
-            "sdk_urma": len(correlated.sdk_urma_map),
+            "sdk_urma_groups": len(correlated.sdk_urma_index),
             "worker_urma": len(correlated.worker_urma_map),
             "worker_link": len(correlated.worker_link_map),
             "worker_meta": len(correlated.worker_query_meta_map),
@@ -415,6 +450,7 @@ class KVCacheLogParseWorker(BaseWorker):
         t_build_start = time.perf_counter()
         builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir, log_file_id=log_id)
         results = builder.build()
+        anomalous_count = builder.anomalous_count
         t_build = time.perf_counter() - t_build_start
 
         # 及时释放所有中间结构（降低内存峰值）
@@ -422,7 +458,6 @@ class KVCacheLogParseWorker(BaseWorker):
         logger.info("Released sdk_entries, worker_entries, correlated & builder")
 
         total = len(results)
-        anomalous_count = sum(1 for r in results if r.is_anomalous)
         logger.info(f"Parse complete: {total:,} results, {anomalous_count:,} anomalous")
 
         # 分阶段耗时报告
@@ -494,6 +529,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     "[perf][scan.worker_access_scope] "
                     f"enabled={worker_access_scan_scope.get('enabled', False)}, "
                     f"sdk_traces={worker_access_scope_stats.get('sdk_traces', 0)}, "
+                    f"reason={worker_access_scan_scope.get('reason', 'bounded_scope')}, "
                     f"time={t_worker_access_scope:.3f}s"
                 ),
                 t_worker_access_scope,
@@ -593,7 +629,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"worker_scope={correlate_worker_scope_count}/{entry_counts.get('Worker access parse', 0)}, "
                     f"pod_trace_scope={correlate_worker_scope_pod_trace_count}, "
                     f"sdk_worker={correlate_match_counts['sdk_worker']}/{entry_counts.get('SDK access parse', 0)}, "
-                    f"sdk_urma={correlate_match_counts['sdk_urma']}/{entry_counts.get('SDK access parse', 0)}, "
+                    f"sdk_urma_groups={correlate_match_counts['sdk_urma_groups']}, "
                     f"worker_urma={correlate_match_counts['worker_urma']}/{entry_counts.get('Worker access parse', 0)}, "
                     f"worker_link={correlate_match_counts['worker_link']}/{entry_counts.get('Worker access parse', 0)}, "
                     f"worker_meta={correlate_match_counts['worker_meta']}/{entry_counts.get('Worker access parse', 0)}, "

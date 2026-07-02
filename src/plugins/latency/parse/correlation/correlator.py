@@ -1,11 +1,10 @@
 import logging
 import time
-import operator
 from datetime import datetime, timedelta
 from collections import defaultdict
 from bisect import bisect_left, bisect_right
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Tuple
+from typing import Any
 
 from latency.schemas.ds_log import (
     EntryType,
@@ -171,8 +170,10 @@ class IndexManager:
 
         logger.info("  Building link indexes... (link=%d)", len(self.link_entries))
         if self._link_is_tuple:
-            self.links_by_trace = _group_by(self.link_entries, lambda l: l[5])
-            self.links_by_pod_trace = _group_by(self.link_entries, lambda l: (l[6], l[5]))
+            self.links_by_trace = _group_by(self.link_entries, lambda link: link[5])
+            self.links_by_pod_trace = _group_by(
+                self.link_entries, lambda link: (link[6], link[5])
+            )
             self.best_link_by_trace = {
                 trace_id: max(entries, key=lambda x: x[2])
                 for trace_id, entries in self.links_by_trace.items()
@@ -182,8 +183,12 @@ class IndexManager:
                 for key, entries in self.links_by_pod_trace.items()
             }
         else:
-            self.links_by_trace = _group_by(self.link_entries, lambda l: l.trace_id)
-            self.links_by_pod_trace = _group_by(self.link_entries, lambda l: (l.pod_ip, l.trace_id))
+            self.links_by_trace = _group_by(
+                self.link_entries, lambda link: link.trace_id
+            )
+            self.links_by_pod_trace = _group_by(
+                self.link_entries, lambda link: (link.pod_ip, link.trace_id)
+            )
             self.best_link_by_trace = {
                 trace_id: max(entries, key=lambda x: x.elapsed_us)
                 for trace_id, entries in self.links_by_trace.items()
@@ -700,10 +705,6 @@ class LogCorrelator:
             "sdk_worker",
             lambda: SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate(),
         )
-        sdk_urma_map = self._timed_stage(
-            "sdk_urma",
-            lambda: SdkUrmaCorrelator(im, self.sdk_entries).correlate(),
-        )
         worker_idx_map = self._timed_stage(
             "worker_idx",
             lambda: WorkerIdxCorrelator(im).correlate(sdk_worker_map),
@@ -767,7 +768,7 @@ class LogCorrelator:
 
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,
-            sdk_urma_map=sdk_urma_map,
+            sdk_urma_index=im.urma_by_dst_trace,
             worker_urma_map=worker_urma_map,
             worker_worker_urma_map=worker_worker_urma_map,
             worker_remote_pull_map=worker_remote_pull_map,

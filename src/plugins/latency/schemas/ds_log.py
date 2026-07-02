@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
 
-from latency.ENUM.ds_log import EntryType, TupleField
+from latency.ENUM.ds_log import EntryType, TupleField as TupleField
 
 
 @dataclass(slots=True)
@@ -39,22 +38,27 @@ class LogEntry:
         )
 
 
-class CorrelationResult(BaseModel):
-    sdk_worker_map: dict = Field(default_factory=dict, description="sdk_idx → LogEntry (WORKER_GET)")
-    sdk_urma_map: dict = Field(default_factory=dict, description="sdk_idx → list[LogEntry] (URMA) (C→W)")
-    worker_urma_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (URMA)")
-    worker_worker_urma_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (URMA) (W→W)")
-    worker_remote_pull_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (REMOTE_PULL)")
-    worker_link_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (LINK)")
-    worker_query_meta_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (QUERY_META)")
-    # 新增指标映射
-    worker_sdk_process_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (SDK_PROCESS)")
-    worker_sdk_rpc_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (SDK_RPC)")
-    worker_local_worker_cost_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (LOCAL_WORKER_COST)")
-    worker_local_worker_lock_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (LOCAL_WORKER_LOCK)")
-    worker_remote_worker_cost_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (REMOTE_WORKER_COST)")
-    worker_remote_worker_rpc_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (REMOTE_WORKER_RPC)")
-    worker_master_process_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (MASTER_PROCESS)")
-    worker_master_rpc_map: dict = Field(default_factory=dict, description="w_idx → list[LogEntry] (MASTER_RPC)")
-    worker_idx_map: dict = Field(default_factory=dict, description="sdk_idx → w_idx")
-    urma_empty_reasons: dict = Field(default_factory=dict, description="w_idx → reason str")
+@dataclass(slots=True)
+class CorrelationResult:
+    """关联结果的轻量容器；所有索引均按引用传递，不做 Pydantic 复制。"""
+
+    sdk_worker_map: dict = field(default_factory=dict)
+    sdk_urma_map: dict = field(default_factory=dict)
+    worker_urma_map: dict = field(default_factory=dict)
+    worker_worker_urma_map: dict = field(default_factory=dict)
+    worker_remote_pull_map: dict = field(default_factory=dict)
+    worker_link_map: dict = field(default_factory=dict)
+    worker_query_meta_map: dict = field(default_factory=dict)
+    worker_sdk_process_map: dict = field(default_factory=dict)
+    worker_sdk_rpc_map: dict = field(default_factory=dict)
+    worker_local_worker_cost_map: dict = field(default_factory=dict)
+    worker_local_worker_lock_map: dict = field(default_factory=dict)
+    worker_remote_worker_cost_map: dict = field(default_factory=dict)
+    worker_remote_worker_rpc_map: dict = field(default_factory=dict)
+    worker_master_process_map: dict = field(default_factory=dict)
+    worker_master_rpc_map: dict = field(default_factory=dict)
+    worker_idx_map: dict = field(default_factory=dict)
+    urma_empty_reasons: dict = field(default_factory=dict)
+    # (pod_ip, trace_id) → list[URMA]。构建结果时直接查此索引，避免为
+    # 每条 SDK 复制一份 sdk_idx → list 映射并额外遍历千万条 SDK。
+    sdk_urma_index: dict = field(default_factory=dict)

@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import fields
 from datetime import datetime, timedelta, timezone
 
 from latency.ENUM.ds_log import EntryType
@@ -8,8 +9,10 @@ from latency.database.managers.log_parse_result import (
     _log_parse_result_to_db_tuple,
 )
 from latency.parse.correlation.result_builder import ParseResultBuilder
+from latency.parse.correlation.correlator import LogCorrelator
 from latency.schemas.ds_log import CorrelationResult
 from latency.schemas.log import LogParseResultDataclass, generate_uuids_hex
+from latency.task.worker import kv_cache_log_parse_worker as worker_module
 from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
 
@@ -80,7 +83,7 @@ def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:
     correlated = CorrelationResult(
         sdk_worker_map={0: workers[0], 2: workers[1], 3: workers[2]},
         worker_idx_map={0: 0, 2: 1, 3: 2},
-        sdk_urma_map={0: [metric]},
+        sdk_urma_index={("10.0.0.1", "ok"): [metric]},
         worker_urma_map={0: [urma]},
         worker_remote_pull_map={2: [remote_pull]},
         worker_query_meta_map={0: [metric]},
@@ -153,6 +156,71 @@ def test_scan_scope_reuses_trace_set_and_info_split_is_single_pass() -> None:
         "Worker query meta parse",
     ]
     assert all(len(entries) == 1 for entries in parsed.values())
+
+
+def test_large_trace_scope_is_not_copied_to_processes(monkeypatch) -> None:
+    monkeypatch.setattr(worker_module, "MAX_PROCESS_SCAN_SCOPE_TRACE_IDS", 2)
+    timestamp = datetime(2026, 7, 2)
+    entries = [
+        _raw_entry(
+            timestamp=timestamp,
+            trace_id=f"trace-{index}",
+            elapsed_us=1,
+            entry_type="SDK_GET",
+        )
+        for index in range(4)
+    ]
+
+    scope = KVCacheLogParseWorker._build_worker_access_scan_scope(
+        {"SDK access parse": entries}
+    )
+
+    assert not scope["enabled"]
+    assert scope["reason"] == "trace_scope_too_large"
+    assert "trace_ids" not in scope
+    assert scope["_stats"]["sdk_traces"] == 3
+
+
+def test_sdk_urma_uses_shared_index_without_sdk_sized_map() -> None:
+    timestamp = datetime(2026, 7, 2)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=1000,
+        entry_type="SDK_GET",
+    )
+    urma = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=100,
+        entry_type="URMA",
+    )
+
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [],
+            "Worker urma parse": [urma],
+        }
+    ).correlate()
+
+    assert correlated.sdk_urma_map == {}
+    assert correlated.sdk_urma_index[("10.0.0.1", "trace")] == [urma]
+
+
+def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
+    assert [field.name for field in fields(LogParseResultDataclass)] == [
+        "total_latency", "is_anomalous", "id", "log_id",
+        "aggregated_event_id", "anomalous_event_id", "pod_ip", "src_ip",
+        "dst_ip", "cluster_name", "host", "anomaly_reason", "anomaly_score",
+        "content", "data_size", "existed_status", "offset", "operation",
+        "remark", "trace_id", "urma_inflight_count", "urma_link_latency",
+        "urma_total_latency", "c2w_latency", "worker_query_meta_latency",
+        "c2w_urma_latency", "w2w_urma_latency", "sdk_process", "sdk_rpc",
+        "local_worker_cost", "local_worker_lock", "remote_worker_cost",
+        "remote_worker_rpc", "master_process", "master_rpc_total", "timestamp",
+        "created_at",
+    ]
 
 
 def test_database_tuple_matches_insert_column_order() -> None:
