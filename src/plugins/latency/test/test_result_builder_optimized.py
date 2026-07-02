@@ -208,6 +208,79 @@ def test_sdk_urma_uses_shared_index_without_sdk_sized_map() -> None:
     assert correlated.sdk_urma_index[("10.0.0.1", "trace")] == [urma]
 
 
+def test_single_worker_trace_skips_sort_and_timestamp_index() -> None:
+    timestamp = datetime(2026, 7, 2)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=1000,
+        entry_type="SDK_GET",
+    )
+    # 唯一 trace 的 Worker 即使超出时间窗，旧逻辑最终也会唯一回退匹配。
+    worker = _raw_entry(
+        timestamp=timestamp + timedelta(hours=1),
+        trace_id="trace",
+        elapsed_us=500,
+        entry_type="WORKER_GET",
+    )
+    correlator = LogCorrelator(
+        {"SDK access parse": [sdk], "Worker access parse": [worker]}
+    )
+
+    assert correlator.index_manager.worker_ts_by_trace == {}
+    assert correlator.index_manager.worker_by_trace_object == {}
+    assert correlator.correlate().sdk_worker_map == {0: worker}
+
+
+def test_multi_worker_trace_and_best_link_keep_previous_semantics() -> None:
+    timestamp = datetime(2026, 7, 2)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=1000,
+        entry_type="SDK_GET",
+    )
+    earlier = _raw_entry(
+        timestamp=timestamp - timedelta(milliseconds=20),
+        trace_id="trace",
+        elapsed_us=500,
+        entry_type="WORKER_GET",
+    )
+    nearest = _raw_entry(
+        timestamp=timestamp + timedelta(milliseconds=10),
+        trace_id="trace",
+        elapsed_us=500,
+        entry_type="WORKER_GET",
+    )
+    slow_link = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=100,
+        entry_type="LINK",
+    )
+    best_link = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=200,
+        entry_type="LINK",
+    )
+    correlator = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [nearest, earlier],
+            "Worker link parse": [slow_link, best_link],
+        }
+    )
+
+    correlated = correlator.correlate()
+    assert correlator.index_manager.worker_ts_by_trace["trace"] == [
+        earlier[0], nearest[0]
+    ]
+    assert correlated.sdk_worker_map == {0: nearest}
+    worker_idx = correlated.worker_idx_map[0]
+    assert correlated.worker_link_map[worker_idx] == [best_link]
+
+
 def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
     assert [field.name for field in fields(LogParseResultDataclass)] == [
         "total_latency", "is_anomalous", "id", "log_id",

@@ -268,16 +268,25 @@ class KVCacheLogParseWorker(BaseWorker):
 
         is_tuple = isinstance(info_entries[0], tuple)
         split_entries: dict[str, list] = defaultdict(list)
-        for entry in info_entries:
-            entry_type = (
-                entry[TupleField.ENTRY_TYPE] if is_tuple else entry.entry_type
-            )
-            entry_type_value = (
-                entry_type.value if isinstance(entry_type, EntryType) else entry_type
-            )
-            label = WORKER_INFO_LABEL_BY_ENTRY_TYPE.get(entry_type_value)
-            if label is not None:
-                split_entries[label].append(entry)
+        label_get = WORKER_INFO_LABEL_BY_ENTRY_TYPE.get
+        if is_tuple:
+            # ProcessPool 序列化 tuple 中的 entry_type 已经是字符串，避免
+            # 对每条记录重复做 Enum isinstance/value 分支。
+            for entry in info_entries:
+                label = label_get(entry[TupleField.ENTRY_TYPE])
+                if label is not None:
+                    split_entries[label].append(entry)
+        else:
+            for entry in info_entries:
+                entry_type = entry.entry_type
+                entry_type_value = (
+                    entry_type.value
+                    if isinstance(entry_type, EntryType)
+                    else entry_type
+                )
+                label = label_get(entry_type_value)
+                if label is not None:
+                    split_entries[label].append(entry)
         parsed.update(split_entries)
 
     # 解析日志

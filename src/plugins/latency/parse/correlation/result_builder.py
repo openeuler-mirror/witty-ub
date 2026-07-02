@@ -170,7 +170,9 @@ class ParseResultBuilder:
         correlated = self.correlated
         sdk_worker_get = correlated.sdk_worker_map.get
         worker_idx_get = correlated.worker_idx_map.get
-        sdk_urma_get = correlated.sdk_urma_map.get
+        sdk_urma_map = correlated.sdk_urma_map
+        sdk_urma_get = sdk_urma_map.get
+        has_legacy_sdk_urma_map = bool(sdk_urma_map)
         sdk_urma_index_get = correlated.sdk_urma_index.get
         worker_urma_get = correlated.worker_urma_map.get
         worker_remote_pull_get = correlated.worker_remote_pull_map.get
@@ -193,6 +195,8 @@ class ParseResultBuilder:
         result_type = LogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
+        cached_second_key = None
+        cached_second_prefix = ""
 
         def first_elapsed_ms(values: Optional[list]) -> Optional[float]:
             if not values:
@@ -241,8 +245,13 @@ class ParseResultBuilder:
                 c2w_latency = None
             w_idx = worker_idx_get(i) if worker is not None else None
 
-            sdk_urma_values = sdk_urma_get(i)
-            if not sdk_urma_values:
+            if has_legacy_sdk_urma_map:
+                sdk_urma_values = sdk_urma_get(i)
+                if not sdk_urma_values:
+                    sdk_urma_values = sdk_urma_index_get(
+                        (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                    )
+            else:
                 sdk_urma_values = sdk_urma_index_get(
                     (sdk[T_POD_IP], sdk[T_TRACE_ID])
                 )
@@ -339,11 +348,30 @@ class ParseResultBuilder:
             log_id = fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir
 
             sdk_timestamp = sdk[T_TIMESTAMP]
-            timestamp = (
-                sdk_timestamp.isoformat(sep=" ", timespec="milliseconds")
-                if sdk_timestamp is not None
-                else None
-            )
+            if sdk_timestamp is None:
+                timestamp = None
+            elif sdk_timestamp.tzinfo is not None:
+                # 保持旧 strftime 语义：结果不携带时区后缀。
+                timestamp = self._format_timestamp(sdk_timestamp)
+            else:
+                second_key = (
+                    sdk_timestamp.year,
+                    sdk_timestamp.month,
+                    sdk_timestamp.day,
+                    sdk_timestamp.hour,
+                    sdk_timestamp.minute,
+                    sdk_timestamp.second,
+                )
+                if second_key != cached_second_key:
+                    cached_second_key = second_key
+                    cached_second_prefix = sdk_timestamp.isoformat(
+                        sep=" ", timespec="seconds"
+                    )
+                timestamp = (
+                    cached_second_prefix
+                    + "."
+                    + str(sdk_timestamp.microsecond // 1000).zfill(3)
+                )
             total_latency = (
                 sdk_elapsed_us / 1000
                 if isinstance(sdk_elapsed_us, int)

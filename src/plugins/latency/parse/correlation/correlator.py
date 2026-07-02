@@ -78,34 +78,40 @@ class IndexManager:
         
         logger.info("  Building worker_by_trace_object index...")
         self.worker_by_trace_object = defaultdict(list)
-        
+        self.worker_ts_by_trace = {}
+        multi_worker_trace_count = 0
+
         if self._worker_is_tuple:
             for trace_id, entries in self.worker_by_trace.items():
+                if len(entries) == 1:
+                    continue
+                multi_worker_trace_count += 1
                 entries.sort(key=lambda x: x[T_TIMESTAMP])
+                self.worker_ts_by_trace[trace_id] = [
+                    entry[T_TIMESTAMP] for entry in entries
+                ]
                 for entry in entries:
                     if entry[T_OBJECT_KEY]:
                         self.worker_by_trace_object[(trace_id, entry[T_OBJECT_KEY])].append(entry)
         else:
             for trace_id, entries in self.worker_by_trace.items():
+                if len(entries) == 1:
+                    continue
+                multi_worker_trace_count += 1
                 entries.sort(key=lambda x: x.timestamp)
+                self.worker_ts_by_trace[trace_id] = [
+                    entry.timestamp for entry in entries
+                ]
                 for entry in entries:
                     if entry.object_key:
                         self.worker_by_trace_object[(trace_id, entry.object_key)].append(entry)
-        
-        # 移到循环外面，避免 O(n²) 复杂度
-        if self._worker_is_tuple:
-            self.worker_ts_by_trace = {
-                trace_id: [entry[T_TIMESTAMP] for entry in entries]
-                for trace_id, entries in self.worker_by_trace.items()
-            }
-        else:
-            self.worker_ts_by_trace = {
-                trace_id: [entry.timestamp for entry in entries]
-                for trace_id, entries in self.worker_by_trace.items()
-            }
-        
+
         self.worker_by_trace_object = dict(self.worker_by_trace_object)
-        logger.info("  worker_by_trace_object built: %d groups", len(self.worker_by_trace_object))
+        logger.info(
+            "  worker_by_trace_object built: %d groups (%d multi-entry traces)",
+            len(self.worker_by_trace_object),
+            multi_worker_trace_count,
+        )
         self.worker_index_by_id = {
             id(entry): idx
             for idx, entry in enumerate(self.worker_entries)
@@ -169,36 +175,29 @@ class IndexManager:
                     len(self.urma_by_dst_trace), len(self.urma_by_trace_endpoint), len(self.urma_untraced_by_pod))
 
         logger.info("  Building link indexes... (link=%d)", len(self.link_entries))
+        self.best_link_by_trace = {}
+        self.best_link_by_pod_trace = {}
         if self._link_is_tuple:
-            self.links_by_trace = _group_by(self.link_entries, lambda link: link[5])
-            self.links_by_pod_trace = _group_by(
-                self.link_entries, lambda link: (link[6], link[5])
-            )
-            self.best_link_by_trace = {
-                trace_id: max(entries, key=lambda x: x[2])
-                for trace_id, entries in self.links_by_trace.items()
-            }
-            self.best_link_by_pod_trace = {
-                key: max(entries, key=lambda x: x[2])
-                for key, entries in self.links_by_pod_trace.items()
-            }
+            for link in self.link_entries:
+                trace_id = link[T_TRACE_ID]
+                pod_trace = (link[T_POD_IP], trace_id)
+                current = self.best_link_by_trace.get(trace_id)
+                if current is None or link[T_ELAPSED_US] > current[T_ELAPSED_US]:
+                    self.best_link_by_trace[trace_id] = link
+                current = self.best_link_by_pod_trace.get(pod_trace)
+                if current is None or link[T_ELAPSED_US] > current[T_ELAPSED_US]:
+                    self.best_link_by_pod_trace[pod_trace] = link
         else:
-            self.links_by_trace = _group_by(
-                self.link_entries, lambda link: link.trace_id
-            )
-            self.links_by_pod_trace = _group_by(
-                self.link_entries, lambda link: (link.pod_ip, link.trace_id)
-            )
-            self.best_link_by_trace = {
-                trace_id: max(entries, key=lambda x: x.elapsed_us)
-                for trace_id, entries in self.links_by_trace.items()
-            }
-            self.best_link_by_pod_trace = {
-                key: max(entries, key=lambda x: x.elapsed_us)
-                for key, entries in self.links_by_pod_trace.items()
-            }
+            for link in self.link_entries:
+                pod_trace = (link.pod_ip, link.trace_id)
+                current = self.best_link_by_trace.get(link.trace_id)
+                if current is None or link.elapsed_us > current.elapsed_us:
+                    self.best_link_by_trace[link.trace_id] = link
+                current = self.best_link_by_pod_trace.get(pod_trace)
+                if current is None or link.elapsed_us > current.elapsed_us:
+                    self.best_link_by_pod_trace[pod_trace] = link
         logger.info("  link indexes built: by_trace=%d, by_pod_trace=%d",
-                    len(self.links_by_trace), len(self.links_by_pod_trace))
+                    len(self.best_link_by_trace), len(self.best_link_by_pod_trace))
         logger.info("IndexManager._build_indexes: DONE")
     def iter_worker_items(self, worker_indices: set[int] | None = None):
         if worker_indices is None:
@@ -465,30 +464,86 @@ class SdkWorkerCorrelator(BaseCorrelator):
 
     def correlate(self) -> dict[int, object]:
         window_delta = timedelta(milliseconds=self.time_window_ms)
+        if not self._is_tuple:
+            return self._correlate_objects(window_delta)
+
         results = {}
+        worker_by_trace_get = self.index_manager.worker_by_trace.get
+        worker_ts_by_trace = self.index_manager.worker_ts_by_trace
+        worker_by_trace_object_get = self.index_manager.worker_by_trace_object.get
         for i, sdk in enumerate(self.sdk_entries):
-            trace_id = sdk[5] if self._is_tuple else sdk.trace_id
-            candidates = self.index_manager.worker_by_trace.get(trace_id, [])
+            trace_id = sdk[T_TRACE_ID]
+            candidates = worker_by_trace_get(trace_id)
             if not candidates:
                 continue
-            ts_list = self.index_manager.worker_ts_by_trace.get(trace_id, [])
-            sdk_ts = sdk[0] if self._is_tuple else sdk.timestamp
+            # 单候选最终无论时间窗是否命中都会走原有唯一 trace 回退，
+            # 因此可直接返回，避免为绝大多数 trace 建时间戳列表和二分搜索。
+            if len(candidates) == 1:
+                results[i] = candidates[0]
+                continue
+            ts_list = worker_ts_by_trace[trace_id]
+            sdk_ts = sdk[T_TIMESTAMP]
             pos = bisect_left(ts_list, sdk_ts)
-            best = self._nearest_worker_in_window(candidates, pos, sdk_ts, window_delta)
+            if self._worker_is_tuple:
+                best = None
+                best_delta = None
+                for candidate_idx in (pos - 1, pos):
+                    if candidate_idx < 0 or candidate_idx >= len(candidates):
+                        continue
+                    candidate = candidates[candidate_idx]
+                    delta = abs(candidate[T_TIMESTAMP] - sdk_ts)
+                    if delta <= window_delta and (
+                        best_delta is None or delta < best_delta
+                    ):
+                        best = candidate
+                        best_delta = delta
+            else:
+                best = self._nearest_worker_in_window(
+                    candidates, pos, sdk_ts, window_delta
+                )
             if best is not None:
                 results[i] = best
                 continue
 
-            object_key = sdk[4] if self._is_tuple else sdk.object_key
+            object_key = sdk[T_OBJECT_KEY]
             key_matched = (
-                self.index_manager.worker_by_trace_object.get((trace_id, object_key), [])
+                worker_by_trace_object_get((trace_id, object_key))
                 if object_key
-                else []
+                else None
             )
-            if len(key_matched) == 1:
+            if key_matched is not None and len(key_matched) == 1:
                 results[i] = key_matched[0]
-            elif len(candidates) == 1:
+        return results
+
+    def _correlate_objects(self, window_delta: timedelta) -> dict[int, object]:
+        results = {}
+        worker_by_trace_get = self.index_manager.worker_by_trace.get
+        worker_ts_by_trace = self.index_manager.worker_ts_by_trace
+        worker_by_trace_object_get = self.index_manager.worker_by_trace_object.get
+        for i, sdk in enumerate(self.sdk_entries):
+            trace_id = sdk.trace_id
+            candidates = worker_by_trace_get(trace_id)
+            if not candidates:
+                continue
+            if len(candidates) == 1:
                 results[i] = candidates[0]
+                continue
+            sdk_ts = sdk.timestamp
+            pos = bisect_left(worker_ts_by_trace[trace_id], sdk_ts)
+            best = self._nearest_worker_in_window(
+                candidates, pos, sdk_ts, window_delta
+            )
+            if best is not None:
+                results[i] = best
+                continue
+            object_key = sdk.object_key
+            key_matched = (
+                worker_by_trace_object_get((trace_id, object_key))
+                if object_key
+                else None
+            )
+            if key_matched is not None and len(key_matched) == 1:
+                results[i] = key_matched[0]
         return results
 
     def _nearest_worker_in_window(
