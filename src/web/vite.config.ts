@@ -22,6 +22,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
+        '/agent-api': {
+          target: 'http://127.0.0.1:4096',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/agent-api/, ''),
+        },
         '/log_kb': {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
