@@ -1,5 +1,5 @@
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from typing import Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -157,6 +157,55 @@ class SrcDstAggregatedEventModel(BaseModel):
     )
 
 
+@dataclass(slots=True)
+class SrcDstAggregatedEventDataclass:
+    """聚合计算和批量存库使用的轻量对象。"""
+
+    id: str
+    src_ip: str
+    dst_ip: str
+    log_id: str
+    log_parse_result_cnt: int = 0
+    anomaly_log_parse_result_cnt: int = 0
+    anomaly_cnt: int = 0
+    ave_total_latency: float | None = None
+    min_total_latency: float | None = None
+    max_total_latency: float | None = None
+    p99_total_latency: float | None = None
+    p95_total_latency: float | None = None
+    ave_query_meta_latency: float | None = None
+    min_query_meta_latency: float | None = None
+    max_query_meta_latency: float | None = None
+    p99_query_meta_latency: float | None = None
+    p95_query_meta_latency: float | None = None
+    ave_urma_total_latency: float | None = None
+    min_urma_total_latency: float | None = None
+    max_urma_total_latency: float | None = None
+    p99_urma_total_latency: float | None = None
+    p95_urma_total_latency: float | None = None
+    ave_urma_link_latency: float | None = None
+    min_urma_link_latency: float | None = None
+    max_urma_link_latency: float | None = None
+    p99_urma_link_latency: float | None = None
+    p95_urma_link_latency: float | None = None
+    ave_c2w_urma_latency: float | None = None
+    min_c2w_urma_latency: float | None = None
+    max_c2w_urma_latency: float | None = None
+    p99_c2w_urma_latency: float | None = None
+    p95_c2w_urma_latency: float | None = None
+    ave_w2w_urma_latency: float | None = None
+    min_w2w_urma_latency: float | None = None
+    max_w2w_urma_latency: float | None = None
+    p99_w2w_urma_latency: float | None = None
+    p95_w2w_urma_latency: float | None = None
+    existed_status: bool = True
+    created_at: str = dataclass_field(
+        default_factory=lambda: datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )[:-3]
+    )
+
+
 class TimeWindowAggregatedIpPair(BaseModel):
     """时间窗口内的IP对聚合统计"""
     src_ip: str = Field(..., description="源IP地址")
@@ -247,6 +296,24 @@ class AnomalousEventModel(BaseModel):
     created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="异常事件创建时间",
+    )
+
+
+@dataclass(slots=True)
+class AnomalousEventDataclass:
+    """异常检测和批量存库使用的轻量对象。"""
+
+    id: str = ""
+    log_id: str = ""
+    aggregated_event_id: str = ""
+    start_log_parse_offset: int = 0
+    end_log_parse_offset: int = 0
+    anomaly_reason: str = ""
+    existed_status: bool = True
+    created_at: str = dataclass_field(
+        default_factory=lambda: datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )[:-3]
     )
 
 

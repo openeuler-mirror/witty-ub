@@ -319,7 +319,10 @@ def test_database_tuple_matches_insert_column_order() -> None:
 
 
 def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
-    result = LogParseResultDataclass(total_latency=1.0, is_anomalous=False, id="id")
+    results = [
+        LogParseResultDataclass(total_latency=float(index), is_anomalous=False)
+        for index in range(3)
+    ]
 
     class FakeAsyncLock:
         async def __aenter__(self):
@@ -353,10 +356,17 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
 
     database = FakeDatabase()
     monkeypatch.setattr(log_parse_result_manager_module, "AsyncSQLiteSingleton", lambda: database)
-    stored = asyncio.run(LogParseResultManager.add_log_parse_results([result]))
+    stored = asyncio.run(
+        LogParseResultManager.add_log_parse_results(results, batch_size=2)
+    )
     assert stored
     assert database._conn.insert_sql.count("?") == 37
-    assert database._conn.params == [_log_parse_result_to_db_tuple(result)]
+    assert database._conn.params == [
+        _log_parse_result_to_db_tuple(result) for result in results
+    ]
+    assert len({result.id[:20] for result in results}) == 1
+    assert [int(result.id[20:], 16) for result in results] == [0, 1, 2]
+    assert all(len(result.id) == 32 for result in results)
 
 
 def test_store_result_passes_dataclasses_directly(monkeypatch) -> None:
@@ -375,7 +385,6 @@ def test_store_result_passes_dataclasses_directly(monkeypatch) -> None:
     stored = asyncio.run(KVCacheLogParseWorker.store_result([result], [], [], []))
     assert stored
     assert captured == [result]
-    assert result.id
 
 
 def test_generated_ids_keep_uuid_hex_shape() -> None:

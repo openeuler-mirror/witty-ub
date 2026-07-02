@@ -1,3 +1,5 @@
+import os
+
 from latency.schemas.log import LogParseResultDataclass, LogParseResultModel
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.database.engine import AsyncSQLiteSingleton
@@ -95,6 +97,7 @@ class LogParseResultManager:
 
         total_count = len(results)
         db = AsyncSQLiteSingleton()
+        id_prefix = os.urandom(10).hex()
         
         # 全局协程锁，保证同一时间只有一组操作操作sqlite连接
         async with db._async_lock:
@@ -105,7 +108,7 @@ class LogParseResultManager:
                     # 写入性能调优（事务内生效，不影响其他连接）
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
-                    conn.execute("PRAGMA cache_size = -7500;")  # 7.5MB缓存
+                    conn.execute("PRAGMA cache_size = -65536;")  # 64MB缓存
                     conn.execute("PRAGMA temp_store = MEMORY;")
                     conn.execute("PRAGMA foreign_keys = OFF;")
                     
@@ -131,10 +134,16 @@ class LogParseResultManager:
                     # 参数逐条产生，不复制成 Pydantic、字典或批次 tuple 列表。
                     for i in range(0, total_count, batch_size):
                         end = min(i + batch_size, total_count)
-                        batch = (
-                            _log_parse_result_to_db_tuple(results[index])
-                            for index in range(i, end)
-                        )
+                        def batch_params():
+                            for index in range(i, end):
+                                result = results[index]
+                                if not result.id:
+                                    # 80-bit随机前缀保证批次唯一，48-bit递增后缀
+                                    # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
+                                    result.id = id_prefix + f"{index:012x}"
+                                yield _log_parse_result_to_db_tuple(result)
+
+                        batch = batch_params()
                         conn.executemany(sql_str, batch)
                     
                     # 一次性提交

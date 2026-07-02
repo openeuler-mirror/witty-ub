@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Type
 
-from latency.common.stats import stats
+from latency.common.stats import percentile_from_sorted
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
 from latency.schemas.log import LogParseResultModel
 from latency.ENUM.detect import DetectionMode
@@ -14,7 +14,11 @@ class DetectorBase:
     def __init__(self, metric_config: MetricConfig):
         self.config = metric_config
 
-    async def detect(self, results: List[LogParseResultModel]) -> DetectionResult:
+    async def detect(
+        self,
+        results: List[LogParseResultModel],
+        values: list[float | None] | None = None,
+    ) -> DetectionResult:
         """检测接口"""
         raise NotImplementedError
 
@@ -42,7 +46,11 @@ def get_detector(mode: DetectionMode, config: MetricConfig) -> DetectorBase:
 class SlidingWindowP99Detector(DetectorBase):
     """滑动窗口P99检测器"""
 
-    async def detect(self, results: List[LogParseResultModel]) -> DetectionResult:
+    async def detect(
+        self,
+        results: List[LogParseResultModel],
+        values: list[float | None] | None = None,
+    ) -> DetectionResult:
         cfg = self.config.window_config
         field_name = self.config.field_name
         threshold_ms = self.config.threshold_ms
@@ -50,7 +58,8 @@ class SlidingWindowP99Detector(DetectorBase):
         n = len(results)
         half_w = cfg.window_size // 2
 
-        values = [getattr(r, field_name, None) for r in results]
+        if values is None:
+            values = [getattr(r, field_name, None) for r in results]
         degraded_windows: List[tuple[int, int, float]] = []
 
         for center in range(0, n, cfg.window_step):
@@ -59,7 +68,8 @@ class SlidingWindowP99Detector(DetectorBase):
             window_values = [v for v in values[start:end+1] if v is not None]
             if not window_values:
                 continue
-            p99 = stats(window_values)["p99"]
+            window_values.sort()
+            p99 = percentile_from_sorted(window_values, 99)
             if p99 is not None and p99 > threshold_ms:
                 degraded_windows.append((start, end, p99))
 
@@ -117,15 +127,21 @@ class SlidingWindowP99Detector(DetectorBase):
 class ThresholdDirectDetector(DetectorBase):
     """直接阈值检测器"""
 
-    async def detect(self, results: List[LogParseResultModel]) -> DetectionResult:
+    async def detect(
+        self,
+        results: List[LogParseResultModel],
+        values: list[float | None] | None = None,
+    ) -> DetectionResult:
         field_name = self.config.field_name
         threshold_ms = self.config.threshold_ms
+
+        if values is None:
+            values = [getattr(r, field_name, None) for r in results]
 
         anomalous_indices = []
         reasons = {}
 
-        for idx, r in enumerate(results):
-            value = getattr(r, field_name, None)
+        for idx, value in enumerate(values):
             if value is not None and value > threshold_ms:
                 anomalous_indices.append(idx)
                 reasons[idx] = [f"{field_name}={value:.3f}ms > threshold {threshold_ms}ms"]

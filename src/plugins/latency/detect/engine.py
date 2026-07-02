@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import asyncio
+from datetime import datetime
 from typing import List
 
 from latency.config.config import Config
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
-from latency.schemas.log import AnomalousEventModel, LogParseResultModel
+from latency.schemas.log import AnomalousEventDataclass, LogParseResultModel
 from latency.detect.detectors import DetectorBase, get_detector
 from latency.ENUM.detect import DetectionMode
 from latency.schemas.config import DSLogAnalyzerConfig
@@ -26,17 +26,27 @@ class DetectionEngine:
                 logger.warning(f"Failed to create detector for mode {cfg.mode}: {e}")
 
     async def run_parallel(self, results: List[LogParseResultModel]) -> List[DetectionResult]:
-        """并行执行所有检测器"""
+        """按指标执行检测，同一指标的多个窗口共享一次字段提取。"""
         if not self.detectors:
             return []
-        tasks = [detector.detect(results) for detector in self.detectors]
-        return await asyncio.gather(*tasks)
+
+        detectors_by_field: dict[str, list[DetectorBase]] = {}
+        for detector in self.detectors:
+            field_name = detector.config.field_name
+            detectors_by_field.setdefault(field_name, []).append(detector)
+
+        detection_results: List[DetectionResult] = []
+        for field_name, detectors in detectors_by_field.items():
+            values = [getattr(result, field_name, None) for result in results]
+            for detector in detectors:
+                detection_results.append(await detector.detect(results, values))
+        return detection_results
 
     def merge_results(
         self,
         detection_results: List[DetectionResult],
         original_results: List[LogParseResultModel]
-    ) -> List[AnomalousEventModel]:
+    ) -> List[AnomalousEventDataclass]:
         """合并多个检测器结果，去重并聚合原因，同时补充额外异常检查"""
         merged_reasons: dict[int, List[str]] = {}
 
@@ -47,6 +57,9 @@ class DetectionEngine:
                 merged_reasons[idx].extend(result.reasons.get(idx, []))
 
         events = []
+        shared_created_at = datetime.now().isoformat(
+            sep=" ", timespec="milliseconds"
+        )
         for idx, reasons in merged_reasons.items():
             unique_reasons = list(dict.fromkeys(reasons))
 
@@ -62,12 +75,15 @@ class DetectionEngine:
 
             all_reasons = extra_reasons + unique_reasons
 
-            events.append(AnomalousEventModel(
+            events.append(AnomalousEventDataclass(
+                id="",
                 log_id=r.log_id or "",
                 aggregated_event_id="",
                 start_log_parse_offset=idx,
                 end_log_parse_offset=idx,
                 anomaly_reason="; ".join(all_reasons),
+                existed_status=True,
+                created_at=shared_created_at,
             ))
 
         return events
@@ -134,7 +150,9 @@ class AnomalyDetector:
 
         return cls(metric_configs)
 
-    async def detect(self, results: List[LogParseResultModel]) -> List[AnomalousEventModel]:
+    async def detect(
+        self, results: List[LogParseResultModel]
+    ) -> List[AnomalousEventDataclass]:
         """执行检测流程"""
         detection_results = await self.engine.run_parallel(results)
         events = self.engine.merge_results(detection_results, results)
