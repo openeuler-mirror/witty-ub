@@ -1,7 +1,7 @@
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field
 from datetime import datetime
 from latency.schemas.task import TaskModel
 from latency.ENUM.task import TaskStatusEnum
@@ -372,10 +372,10 @@ class LogParseResultDataclass:
     """轻量级解析结果（用于中间处理，避免 Pydantic 反射开销）
 
     使用 slots=True 可减少约 30% 内存占用和 10-20% 创建时间。
-    在存库时通过 to_pydantic() 转换为 LogParseResultModel。
+    批量存库时直接转换为 SQLite 参数 tuple，不创建 Pydantic 中间对象。
 
     注意：
-        - id 字段默认为空字符串，在 to_pydantic() 时才生成 UUID
+        - id 字段默认为空字符串，在批量存库前生成 UUID
         - created_at 使用预生成的共享时间戳，避免每条记录都调用 strftime
     """
     # 必填字段（无默认值）
@@ -467,7 +467,7 @@ class LogParseResultDataclass:
 
 
 def generate_uuids_hex(count: int) -> list[str]:
-    """批量生成 UUID（使用 hex 格式，比 str() 快约 35%）
+    """批量生成 128-bit 随机 ID 的 UUID hex 表示。
 
     一次性获取所有随机数，减少系统调用次数，显著提高性能。
     """
@@ -478,6 +478,5 @@ def generate_uuids_hex(count: int) -> list[str]:
     ids = []
     for i in range(count):
         offset = i * 16
-        uuid_obj = uuid.UUID(bytes=random_bytes[offset : offset + 16])
-        ids.append(uuid_obj.hex)
+        ids.append(random_bytes[offset : offset + 16].hex())
     return ids

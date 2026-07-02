@@ -1,7 +1,49 @@
-from latency.schemas.log import LogParseResultModel
+from latency.schemas.log import LogParseResultDataclass, LogParseResultModel
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.database.engine import AsyncSQLiteSingleton
-from typing import Optional
+
+
+def _log_parse_result_to_db_tuple(result: LogParseResultDataclass) -> tuple:
+    """按 INSERT 列顺序生成 SQLite 参数，跳过 Pydantic 中间对象。"""
+    return (
+        result.id,
+        result.log_id,
+        result.aggregated_event_id,
+        result.anomalous_event_id,
+        result.trace_id,
+        result.timestamp,
+        result.src_ip,
+        result.dst_ip,
+        result.pod_ip,
+        result.cluster_name,
+        result.host,
+        result.total_latency,
+        result.c2w_latency,
+        result.worker_query_meta_latency,
+        result.urma_total_latency,
+        result.urma_link_latency,
+        result.urma_inflight_count,
+        result.c2w_urma_latency,
+        result.w2w_urma_latency,
+        result.operation,
+        result.data_size,
+        result.offset,
+        result.is_anomalous,
+        result.content,
+        result.anomaly_reason,
+        result.anomaly_score,
+        result.remark,
+        result.existed_status,
+        result.created_at,
+        result.sdk_process,
+        result.sdk_rpc,
+        result.local_worker_cost,
+        result.local_worker_lock,
+        result.remote_worker_cost,
+        result.remote_worker_rpc,
+        result.master_process,
+        result.master_rpc_total,
+    )
 
 class LogParseResultManager:
     """日志解析结果管理器"""
@@ -39,21 +81,19 @@ class LogParseResultManager:
 
     @staticmethod
     async def add_log_parse_results(
-        results: list[LogParseResultModel],
+        results: list[LogParseResultDataclass],
         batch_size: int = 50000,
-    ) -> list[str]:
-        """批量添加日志解析结果：全局单事务 + SQLite写入优化 + 线程安全修复"""
+    ) -> bool:
+        """将 dataclass 直接批量写入 SQLite，不创建 Pydantic/字典副本。"""
         import asyncio
         import logging
         
         logger = logging.getLogger(__name__)
         
         if not results:
-            return []
-            
-        ids_added = [r.id for r in results]
-        params = [r.model_dump(exclude_none=False, by_alias=True) for r in results]
-        total_count = len(params)
+            return True
+
+        total_count = len(results)
         db = AsyncSQLiteSingleton()
         
         # 全局协程锁，保证同一时间只有一组操作操作sqlite连接
@@ -84,20 +124,17 @@ class LogParseResultManager:
                             sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
                             remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
                         ) VALUES (
-                            :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                            :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
-                            :total_latency, :c2w_latency, :worker_query_meta_latency,
-                            :urma_total_latency, :urma_link_latency, :urma_inflight_count,
-                            :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
-                            :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
-                            :remark, :existed_status, :created_at,
-                            :sdk_process, :sdk_rpc, :local_worker_cost, :local_worker_lock,
-                            :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
-                    # 分批次插入
+                    # 参数逐条产生，不复制成 Pydantic、字典或批次 tuple 列表。
                     for i in range(0, total_count, batch_size):
-                        batch = params[i:i + batch_size]
+                        end = min(i + batch_size, total_count)
+                        batch = (
+                            _log_parse_result_to_db_tuple(results[index])
+                            for index in range(i, end)
+                        )
                         conn.executemany(sql_str, batch)
                     
                     # 一次性提交
@@ -111,7 +148,7 @@ class LogParseResultManager:
             
             # 所有sqlite操作全部在同一个线程执行，避免多线程争抢conn
             success = await asyncio.to_thread(sync_batch_insert)
-            return ids_added if success else []
+            return success
 
     @staticmethod
     async def delete_log_parse_results_by_log_id(log_id: str) -> bool:
