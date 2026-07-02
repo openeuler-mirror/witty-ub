@@ -21,6 +21,8 @@ type AgentChatMessage = {
   id: string
   role: 'user' | 'assistant'
   reasoning: string
+  reasoningParts?: Record<string, string>
+  reasoningCollapsed: boolean
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
@@ -821,10 +823,12 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     if (!target) return
     target.messageId = part.messageID
     if (part.type === 'reasoning') {
-      target.reasoning = part.text || ''
+      const reasoningPartId = part.id || 'reasoning'
+      target.reasoningParts ||= {}
+      target.reasoningParts[reasoningPartId] = part.text || ''
+      target.reasoning = Object.values(target.reasoningParts).filter(Boolean).join('\n\n')
     } else if (part.type === 'text') {
       target.content = part.text || ''
-      if (target.content) target.reasoning = ''
     }
     void scrollAgentChatToBottom()
     return
@@ -838,7 +842,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     if (pending) {
       pending.status = 'done'
       if (!pending.content) pending.content = 'Agent 已完成处理，但没有返回文本结果。'
-      pending.reasoning = ''
+      pending.reasoningCollapsed = true
     }
     isAgentSending.value = false
     void scrollAgentChatToBottom()
@@ -920,6 +924,7 @@ const sendAgentMessage = async () => {
     id: nextAgentLocalMessageId(),
     role: 'user',
     reasoning: '',
+    reasoningCollapsed: false,
     content: question,
     status: 'done',
   })
@@ -927,6 +932,8 @@ const sendAgentMessage = async () => {
     id: nextAgentLocalMessageId(),
     role: 'assistant',
     reasoning: '',
+    reasoningParts: {},
+    reasoningCollapsed: false,
     content: '',
     status: 'thinking',
   }
@@ -974,7 +981,7 @@ const abortAgentSession = async () => {
     const pending = getPendingAssistantMessage()
     if (pending) {
       pending.status = 'done'
-      pending.reasoning = ''
+      pending.reasoningCollapsed = true
       pending.content = pending.content || '本次诊断已停止。'
     }
     isAgentSending.value = false
@@ -11488,7 +11495,12 @@ onBeforeUnmount(() => {
               "
               class="agent-reasoning"
             >
-              <div class="agent-response-label">
+              <button
+                type="button"
+                class="agent-response-label agent-reasoning-toggle"
+                :aria-expanded="!message.reasoningCollapsed"
+                @click="message.reasoningCollapsed = !message.reasoningCollapsed"
+              >
                 <span>思考过程</span>
                 <span
                   v-if="message.status === 'thinking'"
@@ -11497,9 +11509,12 @@ onBeforeUnmount(() => {
                 >
                   <i></i><i></i><i></i>
                 </span>
+                <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <div v-show="!message.reasoningCollapsed">
+                <p v-if="message.reasoning">{{ message.reasoning }}</p>
+                <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
               </div>
-              <p v-if="message.reasoning">{{ message.reasoning }}</p>
-              <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
             </section>
 
             <section

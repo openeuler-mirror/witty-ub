@@ -396,6 +396,26 @@ button {
   letter-spacing: 0.03em;
 }
 
+.agent-reasoning-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-reasoning-chevron {
+  margin-left: auto;
+  font-size: 0.9rem;
+  transition: transform 0.2s ease;
+}
+
+.agent-reasoning-toggle[aria-expanded='true'] .agent-reasoning-chevron {
+  transform: rotate(180deg);
+}
+
 .agent-final-answer .agent-response-label {
   color: #3730a3;
 }
