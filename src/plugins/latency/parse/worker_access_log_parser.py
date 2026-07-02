@@ -16,7 +16,7 @@ class WorkerAccessLogParser(AccessLogParser):
 
     @property
     def patterns(self) -> list[str]:
-        return WORKER_ACCESS_LOG_PATTERNS
+        return getattr(self, "_runtime_patterns", WORKER_ACCESS_LOG_PATTERNS)
 
     label = "Worker access parse"
     _keywords = ("DS_POSIX_GET",)

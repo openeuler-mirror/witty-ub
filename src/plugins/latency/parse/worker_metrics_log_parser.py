@@ -27,7 +27,7 @@ class WorkerMetricsLogParser(LogParser):
 
     @property
     def patterns(self) -> list[str]:
-        return URMA_LOG_PATTERNS  # 使用worker日志文件模式
+        return getattr(self, "_runtime_patterns", URMA_LOG_PATTERNS)
 
     label = "Worker metrics parse"
     _handle_errors = True

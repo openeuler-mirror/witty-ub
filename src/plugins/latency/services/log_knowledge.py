@@ -14,6 +14,7 @@ from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.common.convertor import Convertor
 from latency.database.managers.task import TaskManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
+from latency.database.managers.diagnosis_config import DiagnosisConfigManager
 from latency.task.worker.base import BaseWorker
 
 
@@ -22,6 +23,8 @@ class LogKnowledgeService:
     async def create_log_kb(req: CreateLogKnowledgeRequest) -> CreateLogKnowledgeMsg:
         log_kb = await Convertor.create_log_kb_req_to_log_kb_model(req)
         kb_id = await LogKnowledgeManager.add_log_kb(log_kb)
+        if kb_id:
+            await DiagnosisConfigManager.reset(kb_id)
         return CreateLogKnowledgeMsg(kb_id=kb_id)
 
     @staticmethod
@@ -33,6 +36,7 @@ class LogKnowledgeService:
             await BaseWorker.stop(task.id)
         flag = await LogKnowledgeManager.update_log_kb(kb_id, {"existed_status": False})
         if flag:
+            await DiagnosisConfigManager.delete(kb_id)
             return DeleteLogKnowledgeMsg(kb_id=kb_id)
         else:
             return DeleteLogKnowledgeMsg(kb_id=None)

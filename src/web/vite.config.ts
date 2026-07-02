@@ -35,6 +35,10 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },
+        '/diagnosis_config': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
         '/log_parse_result': {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,

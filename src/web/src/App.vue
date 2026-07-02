@@ -3,6 +3,7 @@ import * as echarts from 'echarts'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import diagnosisConfig from '../../../config/diagnosis_config.json'
 
 type LogKnowledge = {
   id: string
@@ -81,6 +82,31 @@ type LogFileModel = {
   task: TaskModel | null
   existed_status: boolean
   created_at: string
+}
+
+type LogFilenamePatternKey = keyof typeof diagnosisConfig.log_filename_pattern
+type LogAnalyzerThresholdKey =
+  | 'total_p99_threshold_ms'
+  | 'c2w_p99_threshold_ms'
+  | 'w2w_p99_threshold_ms'
+  | 'urma_link_p99_threshold_ms'
+  | 'query_meta_p99_threshold_ms'
+
+type DiagnosisConfigForm = {
+  logFilenamePattern: Record<LogFilenamePatternKey, string[]>
+  logAnalyzerParams: Record<LogAnalyzerThresholdKey, number> & {
+    slidingWindowPairs: Array<{ size: number; step: number }>
+    zone_anomaly_density_threshold: number
+  }
+}
+
+type DiagnosisConfigApiModel = {
+  log_filename_pattern: Record<LogFilenamePatternKey, string[]>
+  log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
+    sliding_window_sizes: number[]
+    sliding_window_steps: number[]
+    zone_anomaly_density_threshold: number
+  }
 }
 
 type LogParseResultModel = {
@@ -521,10 +547,7 @@ type LogParseOptions = {
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const agentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(
-  /\/$/,
-  '',
-)
+const agentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(/\/$/, '')
 const agentName = 'witty-ub-diagnostician'
 const isAgentChatOpen = ref(false)
 const isAgentSending = ref(false)
@@ -643,7 +666,11 @@ const renderAgentMarkdown = (markdown: string) => {
       const items: string[] = []
       while (index < lines.length && /^[-*]\s+/.test(getMarkdownLine(lines, index).trim())) {
         items.push(
-          `<li>${renderInlineMarkdown(getMarkdownLine(lines, index).trim().replace(/^[-*]\s+/, ''))}</li>`,
+          `<li>${renderInlineMarkdown(
+            getMarkdownLine(lines, index)
+              .trim()
+              .replace(/^[-*]\s+/, ''),
+          )}</li>`,
         )
         index += 1
       }
@@ -655,7 +682,11 @@ const renderAgentMarkdown = (markdown: string) => {
       const items: string[] = []
       while (index < lines.length && /^\d+\.\s+/.test(getMarkdownLine(lines, index).trim())) {
         items.push(
-          `<li>${renderInlineMarkdown(getMarkdownLine(lines, index).trim().replace(/^\d+\.\s+/, ''))}</li>`,
+          `<li>${renderInlineMarkdown(
+            getMarkdownLine(lines, index)
+              .trim()
+              .replace(/^\d+\.\s+/, ''),
+          )}</li>`,
         )
         index += 1
       }
@@ -740,7 +771,9 @@ const checkAgentHealth = async () => {
     if (checkSequence !== agentHealthCheckSequence) return
     agentConnectionState.value = 'disconnected'
     agentConnectionError.value =
-      error instanceof Error ? `无法连接到 OpenCode Server：${error.message}` : '无法连接到 OpenCode Server。'
+      error instanceof Error
+        ? `无法连接到 OpenCode Server：${error.message}`
+        : '无法连接到 OpenCode Server。'
   }
 }
 
@@ -914,7 +947,9 @@ const sendAgentMessage = async () => {
         method: 'POST',
         body: JSON.stringify({
           agent: agentName,
-          parts: [{ type: 'text', text: `${contextPrefix}${contextPrefix ? '\n\n' : ''}${question}` }],
+          parts: [
+            { type: 'text', text: `${contextPrefix}${contextPrefix ? '\n\n' : ''}${question}` },
+          ],
         }),
       },
     )
@@ -932,10 +967,9 @@ const abortAgentSession = async () => {
 
   try {
     if (agentSessionId.value) {
-      await requestAgentApi<boolean>(
-        `/session/${encodeURIComponent(agentSessionId.value)}/abort`,
-        { method: 'POST' },
-      )
+      await requestAgentApi<boolean>(`/session/${encodeURIComponent(agentSessionId.value)}/abort`, {
+        method: 'POST',
+      })
     }
     const pending = getPendingAssistantMessage()
     if (pending) {
@@ -989,13 +1023,76 @@ const logSourceInput = ref('')
 const isUploadingLog = ref(false)
 const uploadLogError = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const isParseConfigDrawerOpen = ref(false)
+const isDiagnosisConfigLoading = ref(false)
+const isDiagnosisConfigSaving = ref(false)
+const diagnosisConfigError = ref('')
+const diagnosisConfigResetSnapshot = ref('')
+const diagnosisConfigImportAssets = ref<LogKnowledge[]>([])
+const diagnosisConfigImportAssetId = ref('')
+const isDiagnosisConfigImportListLoading = ref(false)
+const isDiagnosisConfigImporting = ref(false)
+const diagnosisConfigImportMessage = ref('')
+const diagnosisConfigsByAsset = ref<Record<string, DiagnosisConfigForm>>({})
+const patternInputs = reactive<Record<LogFilenamePatternKey, string>>({
+  ds_client_access_log_file: '',
+  ds_client_info_log_file: '',
+  ds_worker_access_log_file: '',
+  ds_worker_info_log_file: '',
+  resource_log_file: '',
+})
+const patternTypeOptions: Array<{
+  key: LogFilenamePatternKey
+  label: string
+  description: string
+}> = [
+  {
+    key: 'ds_client_access_log_file',
+    label: 'SDK 客户端访问日志',
+    description: '客户端请求与调用链日志',
+  },
+  {
+    key: 'ds_client_info_log_file',
+    label: 'SDK 客户端 INFO 日志',
+    description: '客户端运行与状态日志',
+  },
+  {
+    key: 'ds_worker_access_log_file',
+    label: 'Worker 访问日志',
+    description: 'Worker 请求访问日志',
+  },
+  {
+    key: 'ds_worker_info_log_file',
+    label: 'Worker INFO 日志',
+    description: 'Worker 运行与状态日志',
+  },
+  { key: 'resource_log_file', label: '资源日志', description: '资源监控与资源状态日志' },
+]
+const analyzerThresholdOptions: Array<{
+  key: LogAnalyzerThresholdKey
+  label: string
+  description: string
+}> = [
+  { key: 'total_p99_threshold_ms', label: '总时延 P99 阈值', description: '端到端总耗时' },
+  { key: 'c2w_p99_threshold_ms', label: 'C2W 时延 P99 阈值', description: 'Client 到 Worker' },
+  { key: 'w2w_p99_threshold_ms', label: 'W2W 时延 P99 阈值', description: 'Worker 间调用' },
+  {
+    key: 'urma_link_p99_threshold_ms',
+    label: 'URMA 建链 P99 阈值',
+    description: 'URMA 链路建立耗时',
+  },
+  {
+    key: 'query_meta_p99_threshold_ms',
+    label: 'QueryMeta 时延阈值',
+    description: '查询元数据时延阈值',
+  },
+]
 const logFiles = ref<LogFileModel[]>([])
 const isLogFilesLoading = ref(false)
 const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
 const logFilesTotal = ref(0)
 const refreshingFileIds = ref<Set<string>>(new Set())
-const uploadedLogFileIdsBySource = ref<Record<string, string>>({})
 const taskDetailsById = ref<Record<string, TaskModel>>({})
 const loadingTaskDetailIds = ref<Set<string>>(new Set())
 const logFileAnomalyCntById = ref<Record<string, number>>({})
@@ -1016,25 +1113,252 @@ const aggregateEventTotal = ref(0)
 const selectedLatencyPercentile = ref<LatencyPercentileValue>('p99')
 const selectedLatencyStat = ref<'total' | 'p99' | 'p95' | 'ave' | 'min' | 'max'>('p99')
 
-// 聚合事件列表排序状态
-const aggregateEventSort = useTableSort(
-  [{ field: 'total_latency', order: 'desc' }],
-  () => {
-    // 排序变化时重新加载数据（重置到第一页）
-    aggregateEventPage.value = 1
-    void loadLatencyDetail(1)
+const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
+  logFilenamePattern: {
+    ds_client_access_log_file: [...diagnosisConfig.log_filename_pattern.ds_client_access_log_file],
+    ds_client_info_log_file: [...diagnosisConfig.log_filename_pattern.ds_client_info_log_file],
+    ds_worker_access_log_file: [...diagnosisConfig.log_filename_pattern.ds_worker_access_log_file],
+    ds_worker_info_log_file: [...diagnosisConfig.log_filename_pattern.ds_worker_info_log_file],
+    resource_log_file: [...diagnosisConfig.log_filename_pattern.resource_log_file],
+  },
+  logAnalyzerParams: {
+    total_p99_threshold_ms: diagnosisConfig.log_analyzer_params.total_p99_threshold_ms,
+    c2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.c2w_p99_threshold_ms,
+    w2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.w2w_p99_threshold_ms,
+    urma_link_p99_threshold_ms: diagnosisConfig.log_analyzer_params.urma_link_p99_threshold_ms,
+    query_meta_p99_threshold_ms: diagnosisConfig.log_analyzer_params.query_meta_p99_threshold_ms,
+    slidingWindowPairs: diagnosisConfig.log_analyzer_params.sliding_window_sizes.map(
+      (size, index) => ({
+        size,
+        step: diagnosisConfig.log_analyzer_params.sliding_window_steps[index] ?? size,
+      }),
+    ),
+    zone_anomaly_density_threshold:
+      diagnosisConfig.log_analyzer_params.zone_anomaly_density_threshold,
+  },
+})
+
+const cloneDiagnosisConfig = (config: DiagnosisConfigForm): DiagnosisConfigForm =>
+  JSON.parse(JSON.stringify(config)) as DiagnosisConfigForm
+
+const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfigForm => ({
+  logFilenamePattern: {
+    ds_client_access_log_file: [...config.log_filename_pattern.ds_client_access_log_file],
+    ds_client_info_log_file: [...config.log_filename_pattern.ds_client_info_log_file],
+    ds_worker_access_log_file: [...config.log_filename_pattern.ds_worker_access_log_file],
+    ds_worker_info_log_file: [...config.log_filename_pattern.ds_worker_info_log_file],
+    resource_log_file: [...config.log_filename_pattern.resource_log_file],
+  },
+  logAnalyzerParams: {
+    total_p99_threshold_ms: config.log_analyzer_params.total_p99_threshold_ms,
+    c2w_p99_threshold_ms: config.log_analyzer_params.c2w_p99_threshold_ms,
+    w2w_p99_threshold_ms: config.log_analyzer_params.w2w_p99_threshold_ms,
+    urma_link_p99_threshold_ms: config.log_analyzer_params.urma_link_p99_threshold_ms,
+    query_meta_p99_threshold_ms: config.log_analyzer_params.query_meta_p99_threshold_ms,
+    slidingWindowPairs: config.log_analyzer_params.sliding_window_sizes.map((size, index) => ({
+      size,
+      step: config.log_analyzer_params.sliding_window_steps[index] ?? size,
+    })),
+    zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
+  },
+})
+
+const toDiagnosisConfigApi = (config: DiagnosisConfigForm): DiagnosisConfigApiModel => ({
+  log_filename_pattern: cloneDiagnosisConfig(config).logFilenamePattern,
+  log_analyzer_params: {
+    total_p99_threshold_ms: config.logAnalyzerParams.total_p99_threshold_ms,
+    c2w_p99_threshold_ms: config.logAnalyzerParams.c2w_p99_threshold_ms,
+    w2w_p99_threshold_ms: config.logAnalyzerParams.w2w_p99_threshold_ms,
+    urma_link_p99_threshold_ms: config.logAnalyzerParams.urma_link_p99_threshold_ms,
+    query_meta_p99_threshold_ms: config.logAnalyzerParams.query_meta_p99_threshold_ms,
+    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) => size),
+    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) => step),
+    zone_anomaly_density_threshold: config.logAnalyzerParams.zone_anomaly_density_threshold,
+  },
+})
+
+const diagnosisConfigDraft = reactive<DiagnosisConfigForm>(createDefaultDiagnosisConfig())
+
+const activeDiagnosisConfig = computed<DiagnosisConfigForm>(() => {
+  if (!selectedAssetId.value) return createDefaultDiagnosisConfig()
+  return diagnosisConfigsByAsset.value[selectedAssetId.value] ?? createDefaultDiagnosisConfig()
+})
+
+const parseConfigSummary = '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
+
+const loadDiagnosisConfigImportAssets = async () => {
+  isDiagnosisConfigImportListLoading.value = true
+  try {
+    const pageSize = 100
+    let pageNum = 1
+    let total = 0
+    const allAssets: LogKnowledge[] = []
+    do {
+      const result = await request<{ total: number; kbs: LogKnowledge[] }>('/log_kb/list', {
+        method: 'POST',
+        body: JSON.stringify({
+          page_cnt: pageSize,
+          page_num: pageNum,
+          created_sorted_desc: true,
+        }),
+      })
+      total = result.total ?? 0
+      const pageAssets = result.kbs ?? []
+      allAssets.push(...pageAssets)
+      pageNum += 1
+      if (pageAssets.length === 0) break
+    } while (allAssets.length < total)
+
+    diagnosisConfigImportAssets.value = allAssets.filter(
+      (asset) => asset.existed_status !== false && asset.id !== selectedAssetId.value,
+    )
+  } catch (error) {
+    diagnosisConfigError.value =
+      error instanceof Error ? error.message : '读取可导入资产库列表失败'
+  } finally {
+    isDiagnosisConfigImportListLoading.value = false
   }
-)
+}
+
+const openParseConfigDrawer = async () => {
+  Object.assign(diagnosisConfigDraft, cloneDiagnosisConfig(activeDiagnosisConfig.value))
+  Object.keys(patternInputs).forEach((key) => {
+    patternInputs[key as LogFilenamePatternKey] = ''
+  })
+  diagnosisConfigError.value = ''
+  diagnosisConfigResetSnapshot.value = ''
+  diagnosisConfigImportAssetId.value = ''
+  diagnosisConfigImportMessage.value = ''
+  isParseConfigDrawerOpen.value = true
+  void loadDiagnosisConfigImportAssets()
+  isDiagnosisConfigLoading.value = true
+  try {
+    if (!selectedAssetId.value) return
+    const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
+    const result = await request<DiagnosisConfigApiModel>(configPath)
+    const config = fromDiagnosisConfigApi(result)
+    Object.assign(diagnosisConfigDraft, config)
+    if (selectedAssetId.value) {
+      diagnosisConfigsByAsset.value = {
+        ...diagnosisConfigsByAsset.value,
+        [selectedAssetId.value]: cloneDiagnosisConfig(config),
+      }
+    }
+  } catch (error) {
+    diagnosisConfigError.value =
+      error instanceof Error ? error.message : '读取日志解析配置失败'
+  } finally {
+    isDiagnosisConfigLoading.value = false
+  }
+}
+
+const importDiagnosisConfigFromAsset = async () => {
+  if (!diagnosisConfigImportAssetId.value || isDiagnosisConfigImporting.value) return
+  isDiagnosisConfigImporting.value = true
+  diagnosisConfigError.value = ''
+  diagnosisConfigImportMessage.value = ''
+  try {
+    const sourceAsset = diagnosisConfigImportAssets.value.find(
+      ({ id }) => id === diagnosisConfigImportAssetId.value,
+    )
+    const result = await request<DiagnosisConfigApiModel>(
+      `/diagnosis_config/${encodeURIComponent(diagnosisConfigImportAssetId.value)}`,
+    )
+    Object.assign(diagnosisConfigDraft, fromDiagnosisConfigApi(result))
+    diagnosisConfigResetSnapshot.value = ''
+    diagnosisConfigImportMessage.value = `已导入“${sourceAsset?.name || '所选资产库'}”的配置，保存后生效`
+  } catch (error) {
+    diagnosisConfigError.value =
+      error instanceof Error ? error.message : '导入其他资产库配置失败'
+  } finally {
+    isDiagnosisConfigImporting.value = false
+  }
+}
+
+const closeParseConfigDrawer = () => {
+  isParseConfigDrawerOpen.value = false
+}
+
+const resetParseConfigDraft = () => {
+  Object.assign(diagnosisConfigDraft, createDefaultDiagnosisConfig())
+  diagnosisConfigResetSnapshot.value = JSON.stringify(diagnosisConfigDraft)
+}
+
+const saveParseConfig = async () => {
+  if (!selectedAssetId.value || isDiagnosisConfigSaving.value) return
+  diagnosisConfigError.value = ''
+  const emptyPatternType = patternTypeOptions.find(
+    ({ key }) => diagnosisConfigDraft.logFilenamePattern[key].length === 0,
+  )
+  if (emptyPatternType) {
+    diagnosisConfigError.value = `${emptyPatternType.label}至少需要一个 Pattern`
+    return
+  }
+  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
+    diagnosisConfigError.value = '至少需要配置一组滑动窗口'
+    return
+  }
+  isDiagnosisConfigSaving.value = true
+  try {
+    const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
+    const shouldResetFromTrustedDefault =
+      diagnosisConfigResetSnapshot.value !== '' &&
+      diagnosisConfigResetSnapshot.value === JSON.stringify(diagnosisConfigDraft)
+    const result = shouldResetFromTrustedDefault
+      ? await request<DiagnosisConfigApiModel>(`${configPath}/reset`, {
+          method: 'POST',
+        })
+      : await request<DiagnosisConfigApiModel>(configPath, {
+          method: 'PUT',
+          body: JSON.stringify(toDiagnosisConfigApi(diagnosisConfigDraft)),
+        })
+    const savedConfig = fromDiagnosisConfigApi(result)
+    diagnosisConfigsByAsset.value = {
+      ...diagnosisConfigsByAsset.value,
+      [selectedAssetId.value]: cloneDiagnosisConfig(savedConfig),
+    }
+    Object.assign(diagnosisConfigDraft, savedConfig)
+    closeParseConfigDrawer()
+  } catch (error) {
+    diagnosisConfigError.value =
+      error instanceof Error ? error.message : '保存日志解析配置失败'
+  } finally {
+    isDiagnosisConfigSaving.value = false
+  }
+}
+
+const addFilenamePattern = (key: LogFilenamePatternKey) => {
+  const pattern = patternInputs[key].trim()
+  if (!pattern || diagnosisConfigDraft.logFilenamePattern[key].includes(pattern)) return
+  diagnosisConfigDraft.logFilenamePattern[key].push(pattern)
+  patternInputs[key] = ''
+}
+
+const removeFilenamePattern = (key: LogFilenamePatternKey, index: number) => {
+  diagnosisConfigDraft.logFilenamePattern[key].splice(index, 1)
+}
+
+const addSlidingWindowPair = () => {
+  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.push({ size: 100, step: 20 })
+}
+
+const removeSlidingWindowPair = (index: number) => {
+  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
+}
+
+// 聚合事件列表排序状态
+const aggregateEventSort = useTableSort([{ field: 'total_latency', order: 'desc' }], () => {
+  // 排序变化时重新加载数据（重置到第一页）
+  aggregateEventPage.value = 1
+  void loadLatencyDetail(1)
+})
 
 // 异常Trace列表排序状态
-const abnormalTraceSort = useTableSort(
-  [{ field: 'total_latency', order: 'desc' }],
-  () => {
-    // 排序变化时重新加载数据（重置到第一页）
-    abnormalTracesPageMap[selectedLatencyScale.value] = 1
-    void loadAbnormalTraces(1)
-  }
-)
+const abnormalTraceSort = useTableSort([{ field: 'total_latency', order: 'desc' }], () => {
+  // 排序变化时重新加载数据（重置到第一页）
+  abnormalTracesPageMap[selectedLatencyScale.value] = 1
+  void loadAbnormalTraces(1)
+})
 
 // 时间窗口聚合事件列表
 const selectedLatencyTimeWindowInterval = ref<'hour' | 'minute' | 'second'>('minute')
@@ -1069,12 +1393,12 @@ const traceListColumnWidths = reactive<ColumnWidthMap>({
   latencyData: [110, 180, 165, 170, 175, 175],
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
-  faultTraceActions: [150]
+  faultTraceActions: [150],
 })
 
 const faultTraceScrollColumns = reactive({
   widths: [150, 100, 110, 80, 200, 100],
-  labels: ['Pod IP', '集群', '主机IP', '故障码', '故障名称', '故障域']
+  labels: ['Pod IP', '集群', '主机IP', '故障码', '故障名称', '故障域'],
 })
 
 const handleFaultTraceScrollColumnResizeStart = (e: MouseEvent, columnIndex: number) => {
@@ -1084,14 +1408,15 @@ const handleFaultTraceScrollColumnResizeStart = (e: MouseEvent, columnIndex: num
   columnResizeState.startX = e.clientX
   columnResizeState.startWidth = faultTraceScrollColumns.widths[columnIndex] || 100
   columnResizeState.columnIndex = columnIndex
-  
+
   document.addEventListener('mousemove', handleFaultTraceScrollColumnResize)
   document.addEventListener('mouseup', handleFaultTraceScrollColumnResizeEnd)
 }
 
 const handleFaultTraceScrollColumnResize = (e: MouseEvent) => {
-  if (!columnResizeState.isResizing || columnResizeState.resizingColumn !== 'faultTraceScroll') return
-  
+  if (!columnResizeState.isResizing || columnResizeState.resizingColumn !== 'faultTraceScroll')
+    return
+
   const diff = e.clientX - columnResizeState.startX
   const newWidth = Math.max(60, columnResizeState.startWidth + diff)
   if (columnResizeState.columnIndex >= 0) {
@@ -1114,13 +1439,13 @@ onBeforeUnmount(() => {
 })
 
 const getFaultTraceScrollGridColumnWidths = () =>
-  faultTraceScrollColumns.widths.map(w => `${w}px`).join(' ')
+  faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' ')
 
 const faultTraceScrollGridStyle = computed(() => {
   const columnCount = faultTraceScrollColumns.widths.length
   const width = faultTraceScrollColumns.widths.reduce((sum, w) => sum + w, 0)
   return {
-    gridTemplateColumns: faultTraceScrollColumns.widths.map(w => `${w}px`).join(' '),
+    gridTemplateColumns: faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' '),
     width: `${width}px`,
     minWidth: `${width}px`,
   }
@@ -1131,27 +1456,38 @@ const columnResizeState = reactive({
   resizingColumn: null as string | null,
   startX: 0,
   startWidth: 0,
-  columnIndex: -1
+  columnIndex: -1,
 })
 
-const handleColumnResizeStart = (e: MouseEvent, listType: 'latencyLeft' | 'faultLeft' | 'latencyData' | 'faultData' | 'faultTraceLeft' | 'faultTraceActions', columnIndex: number) => {
+const handleColumnResizeStart = (
+  e: MouseEvent,
+  listType:
+    | 'latencyLeft'
+    | 'faultLeft'
+    | 'latencyData'
+    | 'faultData'
+    | 'faultTraceLeft'
+    | 'faultTraceActions',
+  columnIndex: number,
+) => {
   e.preventDefault()
   columnResizeState.isResizing = true
   columnResizeState.resizingColumn = listType
   columnResizeState.startX = e.clientX
   columnResizeState.startWidth = traceListColumnWidths[listType][columnIndex] || 100
   columnResizeState.columnIndex = columnIndex
-  
+
   document.addEventListener('mousemove', handleColumnResize)
   document.addEventListener('mouseup', handleColumnResizeEnd)
 }
 
 const handleColumnResize = (e: MouseEvent) => {
   if (!columnResizeState.isResizing || !columnResizeState.resizingColumn) return
-  
+
   const diff = e.clientX - columnResizeState.startX
   const newWidth = Math.max(60, columnResizeState.startWidth + diff)
-  const columnArray = traceListColumnWidths[columnResizeState.resizingColumn as keyof ColumnWidthMap]
+  const columnArray =
+    traceListColumnWidths[columnResizeState.resizingColumn as keyof ColumnWidthMap]
   if (columnArray && columnResizeState.columnIndex >= 0) {
     columnArray[columnResizeState.columnIndex] = newWidth
   }
@@ -1169,26 +1505,25 @@ onBeforeUnmount(() => {
   document.removeEventListener('mouseup', handleColumnResizeEnd)
 })
 
-const getLatencyLeftGridColumnWidths = () => 
-  traceListColumnWidths.latencyLeft.map(w => `${w}px`).join(' ')
+const getLatencyLeftGridColumnWidths = () =>
+  traceListColumnWidths.latencyLeft.map((w) => `${w}px`).join(' ')
 
-const getFaultLeftGridColumnWidths = () => 
-  traceListColumnWidths.faultLeft.map(w => `${w}px`).join(' ')
+const getFaultLeftGridColumnWidths = () =>
+  traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
-const getLatencyDataGridColumnWidths = () => 
-  traceListColumnWidths.latencyData.map(w => `${w}px`).join(' ')
+const getLatencyDataGridColumnWidths = () =>
+  traceListColumnWidths.latencyData.map((w) => `${w}px`).join(' ')
 
-const getFaultDataGridColumnWidths = () => 
-  traceListColumnWidths.faultData.map(w => `${w}px`).join(' ')
+const getFaultDataGridColumnWidths = () =>
+  traceListColumnWidths.faultData.map((w) => `${w}px`).join(' ')
 
 const getFaultTraceLeftGridColumnWidths = () =>
-  traceListColumnWidths.faultTraceLeft.map(w => `${w}px`).join(' ')
+  traceListColumnWidths.faultTraceLeft.map((w) => `${w}px`).join(' ')
 
 const getFaultTraceActionsGridColumnWidths = () =>
-  traceListColumnWidths.faultTraceActions.map(w => `${w}px`).join(' ')
+  traceListColumnWidths.faultTraceActions.map((w) => `${w}px`).join(' ')
 
-const getTimeWindowIpPairPage = (twIdx: number) =>
-  timeWindowIpPairPageMap.value[twIdx] ?? 1
+const getTimeWindowIpPairPage = (twIdx: number) => timeWindowIpPairPageMap.value[twIdx] ?? 1
 
 const setTimeWindowIpPairPage = (twIdx: number, page: number) => {
   timeWindowIpPairPageMap.value = {
@@ -1207,9 +1542,7 @@ const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) 
   return sorted.slice(start, start + IP_PAIR_PAGE_SIZE)
 }
 
-const timeWindowPageCount = computed(() =>
-  Math.max(1, Math.ceil(timeWindowTotal.value / 10))
-)
+const timeWindowPageCount = computed(() => Math.max(1, Math.ceil(timeWindowTotal.value / 10)))
 
 const sortedTimeWindowAggregatedEvents = computed(() => {
   const events = [...timeWindowAggregatedEvents.value]
@@ -1234,29 +1567,23 @@ const sortedTimeWindowAggregatedEvents = computed(() => {
 })
 
 const timeWindowPageWindow = computed(() =>
-  getPageWindow(timeWindowPage.value, timeWindowPageCount.value)
+  getPageWindow(timeWindowPage.value, timeWindowPageCount.value),
 )
 
 // 聚合事件详情表格排序状态
-const detailParseResultSort = useTableSort(
-  [{ field: 'total_latency', order: 'desc' }],
-  () => {
-    // 排序变化时重新加载数据（重置到第一页）
-    if (selectedAggregatedEvent.value) {
-      detailParseResultsPage.value = 1
-      void loadDetailParseResults(selectedAggregatedEvent.value, 1)
-    }
+const detailParseResultSort = useTableSort([{ field: 'total_latency', order: 'desc' }], () => {
+  // 排序变化时重新加载数据（重置到第一页）
+  if (selectedAggregatedEvent.value) {
+    detailParseResultsPage.value = 1
+    void loadDetailParseResults(selectedAggregatedEvent.value, 1)
   }
-)
+})
 
 // 故障聚合事件列表排序状态
-const faultAggregatedEventSort = useTableSort(
-  [{ field: 'all', order: 'desc' }],
-  () => {
-    faultAggregatedEventPage.value = 1
-    void loadFaultAggregatedEvents(1)
-  },
-)
+const faultAggregatedEventSort = useTableSort([{ field: 'all', order: 'desc' }], () => {
+  faultAggregatedEventPage.value = 1
+  void loadFaultAggregatedEvents(1)
+})
 const faultAggregatedEventPodSort = useTableSort([{ field: 'all', order: 'desc' }])
 
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
@@ -1300,7 +1627,9 @@ const abnormalTracesErrorMap = reactive<Record<number, string>>({
 })
 
 const abnormalTraceRows = computed(() => abnormalTraceRowsMap[selectedLatencyScale.value] ?? [])
-const isAbnormalTracesLoading = computed(() => isAbnormalTracesLoadingMap[selectedLatencyScale.value] ?? false)
+const isAbnormalTracesLoading = computed(
+  () => isAbnormalTracesLoadingMap[selectedLatencyScale.value] ?? false,
+)
 const abnormalTracesError = computed(() => abnormalTracesErrorMap[selectedLatencyScale.value] ?? '')
 const abnormalTracesPage = computed(() => abnormalTracesPageMap[selectedLatencyScale.value] ?? 1)
 const abnormalTracesTotal = computed(() => abnormalTracesTotalMap[selectedLatencyScale.value] ?? 0)
@@ -1353,7 +1682,7 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
     faultTraceIdsWithLatency.value = new Set()
     return
   }
-  
+
   try {
     const body: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
@@ -1362,7 +1691,7 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
       page_num: 1,
       trace_ids: traceIds,
     }
-    
+
     const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
       '/log_parse_result/list',
       {
@@ -1370,7 +1699,7 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
         body: JSON.stringify(body),
       },
     )
-    
+
     const latencyTraceIds = new Set<string>()
     ;(result.log_parse_results ?? []).forEach((r) => {
       if (r.trace_id) latencyTraceIds.add(r.trace_id)
@@ -1386,7 +1715,7 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
     latencyTraceIdsWithFault.value = new Set()
     return
   }
-  
+
   try {
     const body: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
@@ -1395,7 +1724,7 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
       page_num: 1,
       trace_ids: traceIds,
     }
-    
+
     const result = await request<{
       total: number
       trace_failure_event_results: TraceFailureEventResultModel[]
@@ -1403,7 +1732,7 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
       method: 'POST',
       body: JSON.stringify(body),
     })
-    
+
     const faultTraceIds = new Set<string>()
     ;(result.trace_failure_event_results ?? []).forEach((r) => {
       if (r.trace_id) faultTraceIds.add(r.trace_id)
@@ -1416,7 +1745,7 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
 
 const getTraceTags = (traceId: string, source: 'fault' | 'latency') => {
   const tags: { type: 'fault' | 'latency'; label: string }[] = []
-  
+
   if (source === 'fault') {
     tags.push({ type: 'fault', label: '通断' })
     if (faultTraceIdsWithLatency.value.has(traceId)) {
@@ -1428,7 +1757,7 @@ const getTraceTags = (traceId: string, source: 'fault' | 'latency') => {
       tags.push({ type: 'fault', label: '通断' })
     }
   }
-  
+
   return tags
 }
 
@@ -1562,32 +1891,38 @@ const faultChartRange = computed<LatencyChartRange | null>(() => {
 })
 
 const faultTraceRows = computed(() => faultTraceRowsMap[selectedFaultScale.value] ?? [])
-const faultTraceEventsTotal = computed(() => faultTraceEventsTotalMap[selectedFaultScale.value] ?? 0)
+const faultTraceEventsTotal = computed(
+  () => faultTraceEventsTotalMap[selectedFaultScale.value] ?? 0,
+)
 const faultTraceEventsPage = computed(() => faultTraceEventsPageMap[selectedFaultScale.value] ?? 1)
-const isFaultTraceEventsLoading = computed(() => isFaultTraceEventsLoadingMap[selectedFaultScale.value] ?? false)
-const faultTraceEventsError = computed(() => faultTraceEventsErrorMap[selectedFaultScale.value] ?? '')
+const isFaultTraceEventsLoading = computed(
+  () => isFaultTraceEventsLoadingMap[selectedFaultScale.value] ?? false,
+)
+const faultTraceEventsError = computed(
+  () => faultTraceEventsErrorMap[selectedFaultScale.value] ?? '',
+)
 
 const faultTraceTableRef = ref<HTMLDivElement | null>(null)
 
 const syncFaultTraceRowHeights = () => {
   nextTick(() => {
     if (!faultTraceTableRef.value) return
-    
+
     const scrollBody = faultTraceTableRef.value.querySelector('.aggregate-latency-body')
     const fixedLeft = faultTraceTableRef.value.querySelector('.aggregate-fixed-left')
     const fixedActions = faultTraceTableRef.value.querySelector('.aggregate-fixed-actions')
-    
+
     if (!scrollBody || !fixedLeft || !fixedActions) return
-    
+
     const scrollRows = scrollBody.querySelectorAll('.fault-trace-scroll-grid.aggregate-body-row')
     const fixedRows = fixedLeft.querySelectorAll('.abnormal-left-grid.aggregate-body-row')
     const actionRows = fixedActions.querySelectorAll('.aggregate-cell.aggregate-body-row')
-    
+
     scrollRows.forEach((scrollRow, index) => {
       const scrollHeight = scrollRow.getBoundingClientRect().height
       const fixedRow = fixedRows[index] as HTMLElement | undefined
       const actionRow = actionRows[index] as HTMLElement | undefined
-      
+
       if (fixedRow && actionRow) {
         fixedRow.style.height = `${scrollHeight}px`
         actionRow.style.height = `${scrollHeight}px`
@@ -1596,11 +1931,15 @@ const syncFaultTraceRowHeights = () => {
   })
 }
 
-watch([faultTraceRows, activeFaultMonitorTab], () => {
-  if (activeFaultMonitorTab.value === 'trace') {
-    syncFaultTraceRowHeights()
-  }
-}, { immediate: true })
+watch(
+  [faultTraceRows, activeFaultMonitorTab],
+  () => {
+    if (activeFaultMonitorTab.value === 'trace') {
+      syncFaultTraceRowHeights()
+    }
+  },
+  { immediate: true },
+)
 
 type GlobalFilterState = {
   startTime: string
@@ -1869,7 +2208,9 @@ const aggregatedLatencyColumns = [
   { key: 'w2w_urma_latency', label: 'W2W URMA时延 (ms)', threshold: 100 },
 ] as const
 
-const timeWindowLatencyColumns = aggregatedLatencyColumns.slice(1) as readonly typeof aggregatedLatencyColumns[number][]
+const timeWindowLatencyColumns = aggregatedLatencyColumns.slice(
+  1,
+) as readonly (typeof aggregatedLatencyColumns)[number][]
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
 
@@ -1996,10 +2337,10 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (
-  value: number | null | undefined,
-  column: TraceDelayColumn,
-) => (typeof value === 'number' && Number.isFinite(value) ? `${formatMetricValue(value)} ${column.unit}` : '未解析')
+const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? `${formatMetricValue(value)} ${column.unit}`
+    : '未解析'
 
 const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | null) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
@@ -2038,7 +2379,7 @@ const isTraceDelayAbnormal = (
 ) => {
   const value = getTraceDelayValue(trace, column)
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
-  
+
   if ('metric' in column && column.metric) {
     if (column.metric === 'total_latency' && trace && 'faultCode' in trace && trace.faultCode) {
       return true
@@ -2080,9 +2421,8 @@ const getAdaptiveLatencyBucketMs = (times: number[]) => {
   const timeSpan = Math.max(maxTime - minTime, 10 * secondMs)
 
   return (
-    latencyBucketCandidatesMs.find(
-      (candidate) => Math.ceil(timeSpan / candidate) <= 120,
-    ) ?? latencyBucketCandidatesMs[latencyBucketCandidatesMs.length - 1]!
+    latencyBucketCandidatesMs.find((candidate) => Math.ceil(timeSpan / candidate) <= 120) ??
+    latencyBucketCandidatesMs[latencyBucketCandidatesMs.length - 1]!
   )
 }
 
@@ -2100,9 +2440,10 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   if (allMetricPoints.length === 0) return []
 
   const allTimes = allMetricPoints.map((point) => point.date.getTime())
-  const bucketMs = selectedLatencyScale.value !== 0 && chartRange
-    ? selectedLatencyScale.value * secondMs
-    : getAdaptiveLatencyBucketMs(allTimes)
+  const bucketMs =
+    selectedLatencyScale.value !== 0 && chartRange
+      ? selectedLatencyScale.value * secondMs
+      : getAdaptiveLatencyBucketMs(allTimes)
   const minTime = chartRange?.startTime ?? Math.min(...allTimes)
   const maxTime = chartRange?.endTime ?? Math.max(...allTimes)
   const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
@@ -2359,30 +2700,32 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
         fontSize: 12,
       },
     },
-    series: latencySeriesConfig.filter((s) => isLatencySeriesVisible(s.key)).map((series, index) => ({
-      name: series.label,
-      type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 6,
-      lineStyle: {
-        width: 2,
-      },
-      data: points.map((point) => point.values[series.key]),
-      ...(index === 0
-        ? {
-            markArea: {
-              silent: true,
-              data: markAreaData,
-              itemStyle: {
-                color: 'rgba(239,68,68,0.25)',
-                borderColor: '#ef4444',
-                borderWidth: 1,
+    series: latencySeriesConfig
+      .filter((s) => isLatencySeriesVisible(s.key))
+      .map((series, index) => ({
+        name: series.label,
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: {
+          width: 2,
+        },
+        data: points.map((point) => point.values[series.key]),
+        ...(index === 0
+          ? {
+              markArea: {
+                silent: true,
+                data: markAreaData,
+                itemStyle: {
+                  color: 'rgba(239,68,68,0.25)',
+                  borderColor: '#ef4444',
+                  borderWidth: 1,
+                },
               },
-            },
-          }
-        : {}),
-    })),
+            }
+          : {}),
+      })),
   }
 }
 
@@ -2437,8 +2780,7 @@ const createFaultEchartsOption = (
 }
 
 const renderLatencyEchart = () => {
-  if (!isAbnormalMonitorPage.value || isLatencyChartLoading.value || latencyChartError.value)
-    return
+  if (!isAbnormalMonitorPage.value || isLatencyChartLoading.value || latencyChartError.value) return
   const element = latencyChartRef.value
   if (!element || latencyChartBuckets.value.length === 0) return
 
@@ -2601,7 +2943,10 @@ const closeFailureModePopover = () => {
   failureModePopover.open = false
   failureModePopover.failureMode = null
 }
-const openFailureModeDetailPopover = (failureMode: FailureModeKnowledgeModel, event: MouseEvent) => {
+const openFailureModeDetailPopover = (
+  failureMode: FailureModeKnowledgeModel,
+  event: MouseEvent,
+) => {
   const popoverWidth = 460
   const popoverHeight = 480
   const margin = 12
@@ -2620,10 +2965,7 @@ const openFailureModeDetailPopover = (failureMode: FailureModeKnowledgeModel, ev
       Math.min(event.clientY + margin, window.innerHeight - popoverHeight - margin),
     )
   } else {
-    failureModePopover.top = Math.max(
-      margin,
-      event.clientY - popoverHeight - margin,
-    )
+    failureModePopover.top = Math.max(margin, event.clientY - popoverHeight - margin)
   }
 }
 const openStatusCodePopover = async (code: string, event: MouseEvent) => {
@@ -2648,10 +2990,7 @@ const openStatusCodePopover = async (code: string, event: MouseEvent) => {
       Math.min(event.clientY + margin, window.innerHeight - popoverHeight - margin),
     )
   } else {
-    statusCodePopover.top = Math.max(
-      margin,
-      event.clientY - popoverHeight - margin,
-    )
+    statusCodePopover.top = Math.max(margin, event.clientY - popoverHeight - margin)
   }
 
   try {
@@ -2801,15 +3140,18 @@ const faultChartBuckets = computed<FaultChartBucket[]>(() => {
       maxTime = endMs
     }
 
-    const bucketMs = selectedFaultScale.value !== 0
-      ? selectedFaultScale.value * secondMs
-      : Math.max(60000, Math.floor((maxTime - minTime) / 100))
+    const bucketMs =
+      selectedFaultScale.value !== 0
+        ? selectedFaultScale.value * secondMs
+        : Math.max(60000, Math.floor((maxTime - minTime) / 100))
 
     const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
     const lastBucketStart = Math.floor(maxTime / bucketMs) * bucketMs
 
     const zeroCounts: Record<string, number> = {}
-    codes.forEach((code) => { zeroCounts[code] = 0 })
+    codes.forEach((code) => {
+      zeroCounts[code] = 0
+    })
 
     const zeroBuckets: FaultChartBucket[] = []
     for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
@@ -2824,9 +3166,10 @@ const faultChartBuckets = computed<FaultChartBucket[]>(() => {
   }
 
   const allTimes = allMetricPoints.map((p) => p.time)
-  const bucketMs = selectedFaultScale.value !== 0 && chartRange
-    ? selectedFaultScale.value * secondMs
-    : getAdaptiveLatencyBucketMs(allTimes)
+  const bucketMs =
+    selectedFaultScale.value !== 0 && chartRange
+      ? selectedFaultScale.value * secondMs
+      : getAdaptiveLatencyBucketMs(allTimes)
   const minTime = chartRange?.startTime ?? Math.min(...allTimes)
   const maxTime = chartRange?.endTime ?? Math.max(...allTimes)
   const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
@@ -3063,53 +3406,52 @@ const normalizeTimeText = (value: string) => {
 }
 
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
-  detailParseResults.value
-    .map((result) => {
-      const record = result as Record<string, unknown>
-      return {
-        id: getRecordString(record, ['id', 'trace_id', 'traceId']),
-        logStatus: getLogDisplayStatus(record),
-        statusReason: getLogDisplayReason(record),
-        time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
-        traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
-        podIp: getRecordString(record, ['pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']),
-        operation: normalizeTraceOperation(
-          getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
-        ),
-        clusterName: getRecordString(record, ['cluster_name'], 'null'),
-        host: getRecordString(record, ['host'], 'null'),
-        totalLatency: getRecordNullableNumber(record, [
-          'total_latency',
-          'sdk_ms',
-          'sdkMs',
-          'latency',
-        ]),
-        queryMetaLatency: getRecordNullableNumber(record, [
-          'worker_query_meta_latency',
-          'query_meta_latency',
-          'req_delay',
-          'reqDelay',
-        ]),
-        urmaTotalLatency: getRecordNullableNumber(record, [
-          'urma_total_latency',
-          'rsp_delay',
-          'respDelay',
-          'rspDelay',
-        ]),
-        urmaLinkLatency: getRecordNullableNumber(record, ['urma_link_latency']),
-        c2wUrmaLatency: getRecordNullableNumber(record, ['c2w_urma_latency']),
-        w2wUrmaLatency: getRecordNullableNumber(record, ['w2w_urma_latency']),
-        sdkProcess: getRecordNullableNumber(record, ['sdk_process']),
-        sdkRpc: getRecordNullableNumber(record, ['sdk_rpc']),
-        localWorkerCost: getRecordNullableNumber(record, ['local_worker_cost']),
-        localWorkerLock: getRecordNullableNumber(record, ['local_worker_lock']),
-        remoteWorkerCost: getRecordNullableNumber(record, ['remote_worker_cost']),
-        remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
-        masterProcess: getRecordNullableNumber(record, ['master_process']),
-        masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
-        raw: result,
-      }
-    }),
+  detailParseResults.value.map((result) => {
+    const record = result as Record<string, unknown>
+    return {
+      id: getRecordString(record, ['id', 'trace_id', 'traceId']),
+      logStatus: getLogDisplayStatus(record),
+      statusReason: getLogDisplayReason(record),
+      time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
+      traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
+      podIp: getRecordString(record, ['pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']),
+      operation: normalizeTraceOperation(
+        getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
+      ),
+      clusterName: getRecordString(record, ['cluster_name'], 'null'),
+      host: getRecordString(record, ['host'], 'null'),
+      totalLatency: getRecordNullableNumber(record, [
+        'total_latency',
+        'sdk_ms',
+        'sdkMs',
+        'latency',
+      ]),
+      queryMetaLatency: getRecordNullableNumber(record, [
+        'worker_query_meta_latency',
+        'query_meta_latency',
+        'req_delay',
+        'reqDelay',
+      ]),
+      urmaTotalLatency: getRecordNullableNumber(record, [
+        'urma_total_latency',
+        'rsp_delay',
+        'respDelay',
+        'rspDelay',
+      ]),
+      urmaLinkLatency: getRecordNullableNumber(record, ['urma_link_latency']),
+      c2wUrmaLatency: getRecordNullableNumber(record, ['c2w_urma_latency']),
+      w2wUrmaLatency: getRecordNullableNumber(record, ['w2w_urma_latency']),
+      sdkProcess: getRecordNullableNumber(record, ['sdk_process']),
+      sdkRpc: getRecordNullableNumber(record, ['sdk_rpc']),
+      localWorkerCost: getRecordNullableNumber(record, ['local_worker_cost']),
+      localWorkerLock: getRecordNullableNumber(record, ['local_worker_lock']),
+      remoteWorkerCost: getRecordNullableNumber(record, ['remote_worker_cost']),
+      remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
+      masterProcess: getRecordNullableNumber(record, ['master_process']),
+      masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
+      raw: result,
+    }
+  }),
 )
 
 const detailParseResultsPageCount = computed(() =>
@@ -3297,7 +3639,9 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
   const rawText = getRecordString(record, ['raw_text', 'rawText', 'content'], '')
   const rawLog = buildTraceRawColumns(rawText, logFile, sourceFilename)
   const failureModes = Array.isArray(result.failure_mode)
-    ? result.failure_mode.filter((item): item is string => typeof item === 'string' && Boolean(item))
+    ? result.failure_mode.filter(
+        (item): item is string => typeof item === 'string' && Boolean(item),
+      )
     : []
 
   return {
@@ -3353,20 +3697,27 @@ const selectedTraceFailureModeIds = computed<string[]>(() => {
   return [...ids]
 })
 
-const selectedTraceFailureModes = computed<(FailureModeKnowledgeModel & { _id: string })[]>(() =>
-  selectedTraceFailureModeIds.value
-    .map((id) => {
-      const detail = failureModeDetailsById.value[id]
-      return { ...detail, _id: id }
-    })
-    .filter((item) => item.id || item.name || item._id) as (FailureModeKnowledgeModel & { _id: string })[],
+const selectedTraceFailureModes = computed<(FailureModeKnowledgeModel & { _id: string })[]>(
+  () =>
+    selectedTraceFailureModeIds.value
+      .map((id) => {
+        const detail = failureModeDetailsById.value[id]
+        return { ...detail, _id: id }
+      })
+      .filter((item) => item.id || item.name || item._id) as (FailureModeKnowledgeModel & {
+      _id: string
+    })[],
 )
 
-const selectedTraceFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(() => {
-  const selectedId = selectedTraceFailureModeId.value
-  if (!selectedId) return null
-  return selectedTraceFailureModes.value.find((failureMode) => failureMode._id === selectedId) ?? null
-})
+const selectedTraceFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(
+  () => {
+    const selectedId = selectedTraceFailureModeId.value
+    if (!selectedId) return null
+    return (
+      selectedTraceFailureModes.value.find((failureMode) => failureMode._id === selectedId) ?? null
+    )
+  },
+)
 
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
@@ -3383,28 +3734,38 @@ const selectedFaultTraceFailureModeIds = computed<string[]>(() => {
   return [...ids]
 })
 
-const selectedFaultTraceFailureModes = computed<(FailureModeKnowledgeModel & { _id: string })[]>(() =>
-  selectedFaultTraceFailureModeIds.value
-    .map((id) => {
-      const detail = failureModeDetailsById.value[id]
-      return { ...detail, _id: id }
-    })
-    .filter((item) => item.id || item.name || item._id) as (FailureModeKnowledgeModel & { _id: string })[],
+const selectedFaultTraceFailureModes = computed<(FailureModeKnowledgeModel & { _id: string })[]>(
+  () =>
+    selectedFaultTraceFailureModeIds.value
+      .map((id) => {
+        const detail = failureModeDetailsById.value[id]
+        return { ...detail, _id: id }
+      })
+      .filter((item) => item.id || item.name || item._id) as (FailureModeKnowledgeModel & {
+      _id: string
+    })[],
 )
 
-const selectedFaultTraceFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(() => {
+const selectedFaultTraceFailureMode = computed<
+  (FailureModeKnowledgeModel & { _id: string }) | null
+>(() => {
   const selectedId = selectedFaultTraceFailureModeId.value
   if (!selectedId) return null
-  return selectedFaultTraceFailureModes.value.find((failureMode) => failureMode._id === selectedId) ?? null
+  return (
+    selectedFaultTraceFailureModes.value.find((failureMode) => failureMode._id === selectedId) ??
+    null
+  )
 })
 
-const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(() => {
-  const selectedId = selectedChildFailureModeId.value
-  if (!selectedId) return null
-  const detail = failureModeDetailsById.value[selectedId]
-  if (!detail) return null
-  return { ...detail, _id: selectedId }
-})
+const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(
+  () => {
+    const selectedId = selectedChildFailureModeId.value
+    if (!selectedId) return null
+    const detail = failureModeDetailsById.value[selectedId]
+    if (!detail) return null
+    return { ...detail, _id: selectedId }
+  },
+)
 
 const selectFaultTraceFailureMode = (failureModeId: string) => {
   selectedFaultTraceFailureModeId.value = failureModeId
@@ -3436,8 +3797,7 @@ const loadFailureModeChildrenDetails = async (failureModeId: string) => {
 }
 
 const selectChildFailureMode = async (childId: string) => {
-  selectedChildFailureModeId.value =
-    selectedChildFailureModeId.value === childId ? '' : childId
+  selectedChildFailureModeId.value = selectedChildFailureModeId.value === childId ? '' : childId
   if (selectedChildFailureModeId.value) {
     await loadFailureModeDetail(childId)
   }
@@ -3830,7 +4190,7 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
       faultDetailTraceRows.value = events.map(toFaultTraceTableRow)
       faultDetailTraceEventsTotal.value = total
       faultDetailTraceEventsPage.value = pageNum
-      
+
       const traceIds = events.map((e) => e.trace_id).filter((id): id is string => !!id)
       await checkFaultTracesForLatency(traceIds)
     }
@@ -4167,9 +4527,7 @@ const loadTraceFailureLogs = async (traceId: string, shouldLoadFailureModes = fa
     const events = result.log_failure_event_results ?? []
     if (shouldLoadFailureModes) {
       const failureModeIds = [
-        ...new Set(
-          events.flatMap((event) => getFailureModeIds(event as Record<string, unknown>)),
-        ),
+        ...new Set(events.flatMap((event) => getFailureModeIds(event as Record<string, unknown>))),
       ]
 
       await Promise.all(failureModeIds.map((failureModeId) => loadFailureModeDetail(failureModeId)))
@@ -4295,9 +4653,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     }
 
     const failureModeIds = [
-      ...new Set(
-        events.flatMap((event) => getFailureModeIds(event as Record<string, unknown>)),
-      ),
+      ...new Set(events.flatMap((event) => getFailureModeIds(event as Record<string, unknown>))),
     ]
 
     await Promise.all(failureModeIds.map((failureModeId) => loadFailureModeDetail(failureModeId)))
@@ -4550,14 +4906,14 @@ const loadDetailParseResults = async (
   try {
     // 构建排序参数
     const sortFields = detailParseResultSort.getSortFields.value
-    
+
     const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
       '/log_parse_result/list',
       {
         method: 'POST',
         body: JSON.stringify({
           kb_id: assetId,
-          aggregated_event_id: (row.startTime || row.endTime) ? undefined : row.id,
+          aggregated_event_id: row.startTime || row.endTime ? undefined : row.id,
           src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
           dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
           start_time: row.startTime || undefined,
@@ -4575,7 +4931,7 @@ const loadDetailParseResults = async (
       detailParseResults.value = result.log_parse_results ?? []
       detailParseResultsTotal.value = result.total ?? detailParseResults.value.length
       detailParseResultsPage.value = pageNum
-      
+
       const traceIds = (result.log_parse_results ?? [])
         .map((r) => r.trace_id)
         .filter((id): id is string => !!id)
@@ -4629,8 +4985,7 @@ const goFaultDetailTraceEventsPage = (pageNum: number) => {
   const detail = selectedFaultAggregatedEventDetail.value
   if (!detail) return
   const nextPage = Math.min(Math.max(1, pageNum), faultDetailTraceEventsPageCount.value)
-  if (nextPage === faultDetailTraceEventsPage.value || isFaultDetailTraceEventsLoading.value)
-    return
+  if (nextPage === faultDetailTraceEventsPage.value || isFaultDetailTraceEventsLoading.value) return
   void loadFaultAggregatedEventDetailTraceEvents(detail, nextPage)
 }
 
@@ -4660,13 +5015,13 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
 
   try {
     const filters = appliedFilters.value
-    
+
     // 构建排序参数
     const sortFields = aggregateEventSort.getSortFields.value
-    
+
     // 根据选择的统计类型映射排序字段
     const statType = selectedLatencyStat.value === 'total' ? 'p99' : selectedLatencyStat.value
-    
+
     const chartRange = latencyChartRange.value
     const result = await request<unknown>('/aggregated_event/list', {
       method: 'POST',
@@ -4893,7 +5248,10 @@ const getTimeWindowAggregatedLatencyValue = (
   return typeof val === 'number' ? val : null
 }
 
-const openTimeWindowIpPairDetail = (ipPair: TimeWindowAggregatedIpPair, twEvent: TimeWindowAggregatedEvent) => {
+const openTimeWindowIpPairDetail = (
+  ipPair: TimeWindowAggregatedIpPair,
+  twEvent: TimeWindowAggregatedEvent,
+) => {
   // 构造一个聚合事件模型来复用详情弹窗
   const event: AggregatedEventModel = {
     id: `${ipPair.src_ip}-${ipPair.dst_ip}`,
@@ -5067,11 +5425,11 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
 
   try {
     const filters = appliedFilters.value
-    
+
     // 构建排序参数
     const sortFields = abnormalTraceSort.getSortFields.value
     const chartRange = latencyChartRange.value
-    
+
     const body: Record<string, unknown> = {
       kb_id: assetId,
       page_cnt: abnormalTracesPageSize,
@@ -5080,12 +5438,8 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       is_anomalous: true,
       created_at_start: formatDateTime(filters.startTime),
       created_at_end: formatDateTime(filters.endTime),
-      start_time: chartRange
-        ? formatTimestamp(chartRange.startTime)
-        : undefined,
-      end_time: chartRange
-        ? formatTimestamp(chartRange.endTime)
-        : undefined,
+      start_time: chartRange ? formatTimestamp(chartRange.startTime) : undefined,
+      end_time: chartRange ? formatTimestamp(chartRange.endTime) : undefined,
       cluster_name: getLogParseFilterValue(filters.clusters),
       host: getLogParseFilterValue(filters.hosts),
     }
@@ -5295,10 +5649,7 @@ const toggleFaultAggregatedEventRow = (row: FaultAggregatedEventRow) => {
 
 const goFaultAggregatedEventPodPage = (row: FaultAggregatedEventRow, pageNum: number) => {
   const nextPage = Math.min(Math.max(1, pageNum), getFaultAggregatedEventPodPageCount(row))
-  if (
-    nextPage === getFaultAggregatedEventPodPage(row) ||
-    isFaultAggregatedEventPodLoading(row)
-  )
+  if (nextPage === getFaultAggregatedEventPodPage(row) || isFaultAggregatedEventPodLoading(row))
     return
   void loadFaultAggregatedEventPodRows(row, nextPage)
 }
@@ -5400,8 +5751,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
-    faultAggregatedEventsError.value =
-      error instanceof Error ? error.message : '加载聚合事件失败'
+    faultAggregatedEventsError.value = error instanceof Error ? error.message : '加载聚合事件失败'
     applyFaultAggregatedEventResult(
       {
         total: 0,
@@ -5698,6 +6048,17 @@ const statusBadgeClass = (s: string) => {
   return map[s] || 'status-pending'
 }
 
+const terminalTaskStatuses = new Set([
+  'cancelled',
+  'successful',
+  'failed',
+  'successful_pending_remove',
+  'failed_pending_remove',
+])
+
+const isTerminalTaskStatus = (status?: string) =>
+  Boolean(status && terminalTaskStatuses.has(status))
+
 const getDetailedLogFileTask = (file: LogFileModel) =>
   file.task?.id ? (taskDetailsById.value[file.task.id] ?? file.task) : file.task
 
@@ -5765,9 +6126,8 @@ const getLatestLogFileTaskReport = (file: LogFileModel) => {
   const reports = getValidLogFileTaskReports(file)
   if (reports.length === 0) return null
   return (
-    [...reports].sort(
-      (first, second) => getTaskReportTime(second) - getTaskReportTime(first),
-    )[0] ?? null
+    [...reports].sort((first, second) => getTaskReportTime(second) - getTaskReportTime(first))[0] ??
+    null
   )
 }
 
@@ -5775,8 +6135,7 @@ const getLogFileProgress = (file: LogFileModel) => {
   const validProgressValues = getValidLogFileTaskReports(file)
     .map(getTaskReportProgress)
     .filter((progress): progress is number => progress !== null)
-  const maxReportProgress =
-    validProgressValues.length > 0 ? Math.max(...validProgressValues) : null
+  const maxReportProgress = validProgressValues.length > 0 ? Math.max(...validProgressValues) : null
 
   const status = getLogFileTaskStatus(file)
   if (status === 'successful' || status === 'successful_pending_remove') return 100
@@ -5787,8 +6146,7 @@ const getLogFileProgress = (file: LogFileModel) => {
   return 0
 }
 
-const getLogFileProgressText = (file: LogFileModel) =>
-  `${Math.round(getLogFileProgress(file))}%`
+const getLogFileProgressText = (file: LogFileModel) => `${Math.round(getLogFileProgress(file))}%`
 
 const getLogFileProgressMessage = (file: LogFileModel) => {
   const latestReport = getLatestLogFileTaskReport(file)
@@ -5811,17 +6169,8 @@ const getLogFileProgressClass = (file: LogFileModel) => {
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
 
-const getUploadedLogFileIdForSource = (file: LogFileModel) => {
-  const sourceKeys = [file.file_path, file.name].filter(Boolean)
-  for (const sourceKey of sourceKeys) {
-    const uploadedId = uploadedLogFileIdsBySource.value[sourceKey]
-    if (uploadedId) return uploadedId
-  }
-  return ''
-}
-
 const normalizeLogFile = (file: LogFileModel): LogFileModel => {
-  const logFileId = file.log_file_id || getUploadedLogFileIdForSource(file) || file.id
+  const logFileId = file.log_file_id || file.id
   return {
     ...file,
     log_file_id: logFileId,
@@ -5832,13 +6181,12 @@ const normalizeLogFile = (file: LogFileModel): LogFileModel => {
 }
 
 const isSuccessfulLogFileTask = (file: LogFileModel) =>
-  getLogFileTaskStatus(file) === 'successful'
+  ['successful', 'successful_pending_remove'].includes(getLogFileTaskStatus(file))
 
 const isLogFileDetailLoaded = (file: LogFileModel) =>
   loadedAnomalyLogFileIds.value.has(getLogFileId(file))
 
-const getLogFileAnomalyCountText = (file: LogFileModel) =>
-  `时延异常数：${file.anomaly_cnt}`
+const getLogFileAnomalyCountText = (file: LogFileModel) => `时延异常数：${file.anomaly_cnt}`
 
 const getLogFileTraceFailureEventCountText = (file: LogFileModel) =>
   `通断故障数：${file.trace_failure_event_cnt ?? 0}`
@@ -5926,11 +6274,21 @@ const loadTaskDetail = async (taskId: string) => {
 
 const loadTaskDetailsForLogFiles = (files: LogFileModel[]) => {
   const taskIds = new Set<string>()
+  const completedTasks: Record<string, TaskModel> = {}
   files.forEach((file) => {
-    if (file.task?.id) {
-      taskIds.add(file.task.id)
+    if (!file.task?.id) return
+    if (isTerminalTaskStatus(file.task.status)) {
+      completedTasks[file.task.id] = file.task
+      return
     }
+    taskIds.add(file.task.id)
   })
+  if (Object.keys(completedTasks).length > 0) {
+    taskDetailsById.value = {
+      ...taskDetailsById.value,
+      ...completedTasks,
+    }
+  }
   taskIds.forEach((taskId) => {
     void loadTaskDetail(taskId)
   })
@@ -6058,29 +6416,18 @@ const submitLogSource = async () => {
   uploadLogError.value = ''
 
   try {
-    const result = await request<UploadLogFilesResult>(
-      `/log_file/${selectedAssetId.value}`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          upload_log_file_configs: [
-            {
-              name: input.split('/').pop() || input,
-              source_type: sourceType,
-              source: input,
-            },
-          ],
-        }),
-      },
-    )
-    const uploadedLogFileId = result.log_file_ids?.[0]
-    if (uploadedLogFileId) {
-      uploadedLogFileIdsBySource.value = {
-        ...uploadedLogFileIdsBySource.value,
-        [input]: uploadedLogFileId,
-        [input.split('/').pop() || input]: uploadedLogFileId,
-      }
-    }
+    await request<UploadLogFilesResult>(`/log_file/${selectedAssetId.value}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        upload_log_file_configs: [
+          {
+            name: input.split('/').pop() || input,
+            source_type: sourceType,
+            source: input,
+          },
+        ],
+      }),
+    })
     logSourceInput.value = ''
   } catch (error) {
     uploadLogError.value = error instanceof Error ? error.message : '添加日志文件失败'
@@ -6189,9 +6536,9 @@ const handleFileChange = async (event: Event) => {
       body: formData,
     })
 
-    const data = (await response.json().catch(() => null)) as
-      | ApiResponse<UploadLogFilesResult>
-      | null
+    const data = (await response
+      .json()
+      .catch(() => null)) as ApiResponse<UploadLogFilesResult> | null
 
     if (!response.ok || !data) {
       throw new Error(data?.message || `请求失败：${response.status}`)
@@ -6201,13 +6548,6 @@ const handleFileChange = async (event: Event) => {
       throw new Error(data.message || '接口返回异常')
     }
 
-    const uploadedLogFileId = (data.result ?? data.data)?.log_file_ids?.[0]
-    if (uploadedLogFileId) {
-      uploadedLogFileIdsBySource.value = {
-        ...uploadedLogFileIdsBySource.value,
-        [file.name]: uploadedLogFileId,
-      }
-    }
   } catch (error) {
     uploadLogError.value = error instanceof Error ? error.message : '上传文件失败'
   } finally {
@@ -6810,9 +7150,7 @@ onBeforeUnmount(() => {
             <div class="monitor-header-top">
               <h1>时延故障监控</h1>
             </div>
-            <p class="monitor-sub">
-              支持 11 项时延指标曲线，可交互选择展示
-            </p>
+            <p class="monitor-sub">支持 11 项时延指标曲线，可交互选择展示</p>
           </header>
 
           <div class="monitor-grid">
@@ -6952,392 +7290,599 @@ onBeforeUnmount(() => {
               </div>
 
               <div v-if="activeAggregateTab === 'event'" class="aggregate-table">
-                <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
+                <template
+                  v-if="
+                    !isTimeWindowLoading &&
+                    !timeWindowError &&
+                    timeWindowAggregatedEvents.length > 0
+                  "
+                >
                   <div class="aggregate-table-frame">
-                  <div class="aggregate-fixed-left">
-                    <div class="aggregate-left-grid aggregate-table-header">
-                      <div class="aggregate-cell fault-expand-cell"></div>
-                      <div
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="handleTimeWindowSort('start_time')"
-                      >
-                        <span class="sort-header-content">
-                          开始时间
-                          <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'start_time' && timeWindowSortOrder === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'start_time' && timeWindowSortOrder === 'desc' }">▼</span>
-                          </span>
-                        </span>
-                      </div>
-                      <div class="aggregate-cell">结束时间</div>
-                      <div
-                        class="aggregate-cell count-cell aggregate-sortable-cell"
-                        @click="handleTimeWindowSort('total_cnt')"
-                      >
-                        <span class="sort-header-content">
-                          结果数
-                          <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_cnt' && timeWindowSortOrder === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_cnt' && timeWindowSortOrder === 'desc' }">▼</span>
-                          </span>
-                        </span>
-                      </div>
-                      <div
-                        class="aggregate-cell count-cell aggregate-sortable-cell"
-                        @click="handleTimeWindowSort('anomaly_cnt')"
-                      >
-                        <span class="sort-header-content">
-                          异常数
-                          <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'anomaly_cnt' && timeWindowSortOrder === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'anomaly_cnt' && timeWindowSortOrder === 'desc' }">▼</span>
-                          </span>
-                        </span>
-                      </div>
-                      <div
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="handleTimeWindowSort('total_latency')"
-                      >
-                        <span class="sort-header-content">
-                          总时延
-                          <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_latency' && timeWindowSortOrder === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === 'total_latency' && timeWindowSortOrder === 'desc' }">▼</span>
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-                    <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
-                      <template v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents" :key="`tw-${twIdx}`">
+                    <div class="aggregate-fixed-left">
+                      <div class="aggregate-left-grid aggregate-table-header">
+                        <div class="aggregate-cell fault-expand-cell"></div>
                         <div
-                          class="aggregate-left-grid aggregate-body-row"
-                          :class="{ expanded: isTimeWindowExpanded(twIdx) }"
-                          @click="toggleTimeWindowRow(twIdx)"
-                        >
-                          <div class="aggregate-cell fault-expand-cell">
-                            <span class="fault-expand-indicator">
-                              {{ isTimeWindowExpanded(twIdx) ? '🔽' : '▶️' }}
-                            </span>
-                          </div>
-                          <div class="aggregate-cell">{{ twEvent.start_time }}</div>
-                          <div class="aggregate-cell">{{ twEvent.end_time }}</div>
-                          <div class="aggregate-cell count-cell">{{ twEvent.total_cnt }}</div>
-                          <div class="aggregate-cell count-cell anomaly-count">{{ twEvent.anomaly_cnt }}</div>
-                          <div class="aggregate-cell">
-                            <span class="metric-value">
-                              {{ formatMetricValue(twEvent.ave_total_latency) }}
-                            </span>
-                          </div>
-                        </div>
-                        <template v-if="isTimeWindowExpanded(twIdx)">
-                          <div class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-header">
-                            <div class="aggregate-cell fault-expand-cell"></div>
-                            <div
-                              class="aggregate-cell aggregate-sortable-cell"
-                              @click.stop="handleIpPairSort('total_cnt')"
-                            >
-                              <span class="sort-header-content">
-                                源IP
-                              </span>
-                            </div>
-                            <div class="aggregate-cell">目标IP</div>
-                            <div
-                              class="aggregate-cell count-cell aggregate-sortable-cell"
-                              @click.stop="handleIpPairSort('total_cnt')"
-                            >
-                              <span class="sort-header-content">
-                                结果数
-                                <span class="sort-icons">
-                                  <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_cnt' && timeWindowIpPairSortOrder === 'asc' }">▲</span>
-                                  <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_cnt' && timeWindowIpPairSortOrder === 'desc' }">▼</span>
-                                </span>
-                              </span>
-                            </div>
-                            <div
-                              class="aggregate-cell count-cell aggregate-sortable-cell"
-                              @click.stop="handleIpPairSort('anomaly_cnt')"
-                            >
-                              <span class="sort-header-content">
-                                异常数
-                                <span class="sort-icons">
-                                  <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'anomaly_cnt' && timeWindowIpPairSortOrder === 'asc' }">▲</span>
-                                  <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'anomaly_cnt' && timeWindowIpPairSortOrder === 'desc' }">▼</span>
-                                </span>
-                              </span>
-                            </div>
-                            <div
-                              class="aggregate-cell aggregate-sortable-cell"
-                              @click.stop="handleIpPairSort('total_latency')"
-                            >
-                              <span class="sort-header-content">
-                                总时延
-                                <span class="sort-icons">
-                                  <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_latency' && timeWindowIpPairSortOrder === 'asc' }">▲</span>
-                                  <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === 'total_latency' && timeWindowIpPairSortOrder === 'desc' }">▼</span>
-                                </span>
-                              </span>
-                            </div>
-                          </div>
-                          <div
-                            v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
-                            :key="`${twIdx}-${ipPair.src_ip}-${ipPair.dst_ip}`"
-                            class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row"
-                          >
-                            <div class="aggregate-cell fault-expand-cell"></div>
-                            <div class="aggregate-cell">{{ ipPair.src_ip }}</div>
-                            <div class="aggregate-cell">{{ ipPair.dst_ip }}</div>
-                            <div class="aggregate-cell count-cell">{{ ipPair.log_parse_result_cnt }}</div>
-                            <div class="aggregate-cell count-cell anomaly-count">{{ ipPair.anomaly_log_parse_result_cnt }}</div>
-                            <div class="aggregate-cell">
-                              <span class="metric-value">
-                                {{ formatMetricValue(ipPair.ave_total_latency) }}
-                              </span>
-                            </div>
-                          </div>
-                          <div
-                            v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
-                            class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
-                          >
-                            <div class="aggregate-cell ip-pair-pagination" colspan="6">
-                              <button
-                                class="page-btn"
-                                :disabled="getTimeWindowIpPairPage(twIdx) <= 1"
-                                @click="setTimeWindowIpPairPage(twIdx, getTimeWindowIpPairPage(twIdx) - 1)"
-                              >
-                                &lt;
-                              </button>
-                              <span class="page-info">
-                                {{ getTimeWindowIpPairPage(twIdx) }} / {{ getTimeWindowIpPairTotalPages(twEvent) }}
-                              </span>
-                              <button
-                                class="page-btn"
-                                :disabled="getTimeWindowIpPairPage(twIdx) >= getTimeWindowIpPairTotalPages(twEvent)"
-                                @click="setTimeWindowIpPairPage(twIdx, getTimeWindowIpPairPage(twIdx) + 1)"
-                              >
-                                &gt;
-                              </button>
-                            </div>
-                          </div>
-                        </template>
-                      </template>
-                    </template>
-                  </div>
-
-                  <div
-                    class="aggregate-latency-scroll scroll-section-outline"
-                    :class="{
-                      'scroll-section-outline-full':
-                        !isTimeWindowLoading &&
-                        !timeWindowError &&
-                        sortedTimeWindowAggregatedEvents.length > 0,
-                    }"
-                  >
-                    <div class="aggregate-latency-head aggregate-latency-sync">
-                      <div class="aggregate-latency-grid aggregate-table-header">
-                        <div
-                          v-for="column in timeWindowLatencyColumns"
-                          :key="column.key"
                           class="aggregate-cell aggregate-sortable-cell"
-                          @click="handleTimeWindowSort(column.key)"
+                          @click="handleTimeWindowSort('start_time')"
                         >
                           <span class="sort-header-content">
-                            {{ column.label }}
+                            开始时间
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowSortBy === column.key && timeWindowSortOrder === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowSortBy === column.key && timeWindowSortOrder === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'start_time' &&
+                                    timeWindowSortOrder === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'start_time' &&
+                                    timeWindowSortOrder === 'desc',
+                                }"
+                                >▼</span
+                              >
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell">结束时间</div>
+                        <div
+                          class="aggregate-cell count-cell aggregate-sortable-cell"
+                          @click="handleTimeWindowSort('total_cnt')"
+                        >
+                          <span class="sort-header-content">
+                            结果数
+                            <span class="sort-icons">
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'total_cnt' &&
+                                    timeWindowSortOrder === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'total_cnt' &&
+                                    timeWindowSortOrder === 'desc',
+                                }"
+                                >▼</span
+                              >
+                            </span>
+                          </span>
+                        </div>
+                        <div
+                          class="aggregate-cell count-cell aggregate-sortable-cell"
+                          @click="handleTimeWindowSort('anomaly_cnt')"
+                        >
+                          <span class="sort-header-content">
+                            异常数
+                            <span class="sort-icons">
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'anomaly_cnt' &&
+                                    timeWindowSortOrder === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'anomaly_cnt' &&
+                                    timeWindowSortOrder === 'desc',
+                                }"
+                                >▼</span
+                              >
+                            </span>
+                          </span>
+                        </div>
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell"
+                          @click="handleTimeWindowSort('total_latency')"
+                        >
+                          <span class="sort-header-content">
+                            总时延
+                            <span class="sort-icons">
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'total_latency' &&
+                                    timeWindowSortOrder === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    timeWindowSortBy === 'total_latency' &&
+                                    timeWindowSortOrder === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
                         </div>
                       </div>
-                    </div>
-                    <div
-                      class="aggregate-latency-scrollbar aggregate-latency-sync"
-                      @scroll="syncAggregateLatencyScroll"
-                    >
-                      <div class="aggregate-latency-scrollbar-spacer"></div>
-                    </div>
-                    <div
-                      class="aggregate-latency-body aggregate-latency-sync"
-                      @scroll="syncAggregateLatencyScroll"
-                    >
-                      <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
-                        <template v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents" :key="`tw-body-${twIdx}`">
-                          <div class="aggregate-latency-grid aggregate-body-row">
-                            <div
-                              v-for="column in timeWindowLatencyColumns"
-                              :key="column.key"
-                              class="aggregate-cell"
-                            >
+                      <template
+                        v-if="
+                          !isTimeWindowLoading &&
+                          !timeWindowError &&
+                          timeWindowAggregatedEvents.length > 0
+                        "
+                      >
+                        <template
+                          v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents"
+                          :key="`tw-${twIdx}`"
+                        >
+                          <div
+                            class="aggregate-left-grid aggregate-body-row"
+                            :class="{ expanded: isTimeWindowExpanded(twIdx) }"
+                            @click="toggleTimeWindowRow(twIdx)"
+                          >
+                            <div class="aggregate-cell fault-expand-cell">
+                              <span class="fault-expand-indicator">
+                                {{ isTimeWindowExpanded(twIdx) ? '🔽' : '▶️' }}
+                              </span>
+                            </div>
+                            <div class="aggregate-cell">{{ twEvent.start_time }}</div>
+                            <div class="aggregate-cell">{{ twEvent.end_time }}</div>
+                            <div class="aggregate-cell count-cell">{{ twEvent.total_cnt }}</div>
+                            <div class="aggregate-cell count-cell anomaly-count">
+                              {{ twEvent.anomaly_cnt }}
+                            </div>
+                            <div class="aggregate-cell">
                               <span class="metric-value">
-                                {{ formatMetricValue(getTimeWindowSummaryValue(twEvent, column.key)) }}
+                                {{ formatMetricValue(twEvent.ave_total_latency) }}
                               </span>
                             </div>
                           </div>
                           <template v-if="isTimeWindowExpanded(twIdx)">
-                            <div class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-header">
+                            <div
+                              class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-header"
+                            >
+                              <div class="aggregate-cell fault-expand-cell"></div>
                               <div
-                                v-for="column in timeWindowLatencyColumns"
-                                :key="column.key"
                                 class="aggregate-cell aggregate-sortable-cell"
-                                @click.stop="handleIpPairSort(column.key)"
+                                @click.stop="handleIpPairSort('total_cnt')"
+                              >
+                                <span class="sort-header-content"> 源IP </span>
+                              </div>
+                              <div class="aggregate-cell">目标IP</div>
+                              <div
+                                class="aggregate-cell count-cell aggregate-sortable-cell"
+                                @click.stop="handleIpPairSort('total_cnt')"
                               >
                                 <span class="sort-header-content">
-                                  {{ column.label }}
+                                  结果数
                                   <span class="sort-icons">
-                                    <span class="sort-icon-up" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === column.key && timeWindowIpPairSortOrder === 'asc' }">▲</span>
-                                    <span class="sort-icon-down" :class="{ 'sort-icon-active': timeWindowIpPairSortBy === column.key && timeWindowIpPairSortOrder === 'desc' }">▼</span>
+                                    <span
+                                      class="sort-icon-up"
+                                      :class="{
+                                        'sort-icon-active':
+                                          timeWindowIpPairSortBy === 'total_cnt' &&
+                                          timeWindowIpPairSortOrder === 'asc',
+                                      }"
+                                      >▲</span
+                                    >
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          timeWindowIpPairSortBy === 'total_cnt' &&
+                                          timeWindowIpPairSortOrder === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
+                                  </span>
+                                </span>
+                              </div>
+                              <div
+                                class="aggregate-cell count-cell aggregate-sortable-cell"
+                                @click.stop="handleIpPairSort('anomaly_cnt')"
+                              >
+                                <span class="sort-header-content">
+                                  异常数
+                                  <span class="sort-icons">
+                                    <span
+                                      class="sort-icon-up"
+                                      :class="{
+                                        'sort-icon-active':
+                                          timeWindowIpPairSortBy === 'anomaly_cnt' &&
+                                          timeWindowIpPairSortOrder === 'asc',
+                                      }"
+                                      >▲</span
+                                    >
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          timeWindowIpPairSortBy === 'anomaly_cnt' &&
+                                          timeWindowIpPairSortOrder === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
+                                  </span>
+                                </span>
+                              </div>
+                              <div
+                                class="aggregate-cell aggregate-sortable-cell"
+                                @click.stop="handleIpPairSort('total_latency')"
+                              >
+                                <span class="sort-header-content">
+                                  总时延
+                                  <span class="sort-icons">
+                                    <span
+                                      class="sort-icon-up"
+                                      :class="{
+                                        'sort-icon-active':
+                                          timeWindowIpPairSortBy === 'total_latency' &&
+                                          timeWindowIpPairSortOrder === 'asc',
+                                      }"
+                                      >▲</span
+                                    >
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          timeWindowIpPairSortBy === 'total_latency' &&
+                                          timeWindowIpPairSortOrder === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
                                   </span>
                                 </span>
                               </div>
                             </div>
                             <div
                               v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
-                              :key="`${twIdx}-body-${ipPair.src_ip}-${ipPair.dst_ip}`"
-                              class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                              :key="`${twIdx}-${ipPair.src_ip}-${ipPair.dst_ip}`"
+                              class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row"
                             >
-                              <div
-                                v-for="column in timeWindowLatencyColumns"
-                                :key="column.key"
-                                class="aggregate-cell"
-                              >
-                                <span
-                                  class="metric-value"
-                                  :class="{
-                                    abnormal: isLatencyMetricAbnormal(
-                                      column.key,
-                                      getTimeWindowAggregatedLatencyValue(ipPair, column.key),
-                                    ),
-                                  }"
-                                >
-                                  {{ formatMetricValue(getTimeWindowAggregatedLatencyValue(ipPair, column.key)) }}
+                              <div class="aggregate-cell fault-expand-cell"></div>
+                              <div class="aggregate-cell">{{ ipPair.src_ip }}</div>
+                              <div class="aggregate-cell">{{ ipPair.dst_ip }}</div>
+                              <div class="aggregate-cell count-cell">
+                                {{ ipPair.log_parse_result_cnt }}
+                              </div>
+                              <div class="aggregate-cell count-cell anomaly-count">
+                                {{ ipPair.anomaly_log_parse_result_cnt }}
+                              </div>
+                              <div class="aggregate-cell">
+                                <span class="metric-value">
+                                  {{ formatMetricValue(ipPair.ave_total_latency) }}
                                 </span>
                               </div>
                             </div>
                             <div
                               v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
-                              class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                              class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
                             >
+                              <div class="aggregate-cell ip-pair-pagination" colspan="6">
+                                <button
+                                  class="page-btn"
+                                  :disabled="getTimeWindowIpPairPage(twIdx) <= 1"
+                                  @click="
+                                    setTimeWindowIpPairPage(
+                                      twIdx,
+                                      getTimeWindowIpPairPage(twIdx) - 1,
+                                    )
+                                  "
+                                >
+                                  &lt;
+                                </button>
+                                <span class="page-info">
+                                  {{ getTimeWindowIpPairPage(twIdx) }} /
+                                  {{ getTimeWindowIpPairTotalPages(twEvent) }}
+                                </span>
+                                <button
+                                  class="page-btn"
+                                  :disabled="
+                                    getTimeWindowIpPairPage(twIdx) >=
+                                    getTimeWindowIpPairTotalPages(twEvent)
+                                  "
+                                  @click="
+                                    setTimeWindowIpPairPage(
+                                      twIdx,
+                                      getTimeWindowIpPairPage(twIdx) + 1,
+                                    )
+                                  "
+                                >
+                                  &gt;
+                                </button>
+                              </div>
+                            </div>
+                          </template>
+                        </template>
+                      </template>
+                    </div>
+
+                    <div
+                      class="aggregate-latency-scroll scroll-section-outline"
+                      :class="{
+                        'scroll-section-outline-full':
+                          !isTimeWindowLoading &&
+                          !timeWindowError &&
+                          sortedTimeWindowAggregatedEvents.length > 0,
+                      }"
+                    >
+                      <div class="aggregate-latency-head aggregate-latency-sync">
+                        <div class="aggregate-latency-grid aggregate-table-header">
+                          <div
+                            v-for="column in timeWindowLatencyColumns"
+                            :key="column.key"
+                            class="aggregate-cell aggregate-sortable-cell"
+                            @click="handleTimeWindowSort(column.key)"
+                          >
+                            <span class="sort-header-content">
+                              {{ column.label }}
+                              <span class="sort-icons">
+                                <span
+                                  class="sort-icon-up"
+                                  :class="{
+                                    'sort-icon-active':
+                                      timeWindowSortBy === column.key &&
+                                      timeWindowSortOrder === 'asc',
+                                  }"
+                                  >▲</span
+                                >
+                                <span
+                                  class="sort-icon-down"
+                                  :class="{
+                                    'sort-icon-active':
+                                      timeWindowSortBy === column.key &&
+                                      timeWindowSortOrder === 'desc',
+                                  }"
+                                  >▼</span
+                                >
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        class="aggregate-latency-scrollbar aggregate-latency-sync"
+                        @scroll="syncAggregateLatencyScroll"
+                      >
+                        <div class="aggregate-latency-scrollbar-spacer"></div>
+                      </div>
+                      <div
+                        class="aggregate-latency-body aggregate-latency-sync"
+                        @scroll="syncAggregateLatencyScroll"
+                      >
+                        <template
+                          v-if="
+                            !isTimeWindowLoading &&
+                            !timeWindowError &&
+                            timeWindowAggregatedEvents.length > 0
+                          "
+                        >
+                          <template
+                            v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents"
+                            :key="`tw-body-${twIdx}`"
+                          >
+                            <div class="aggregate-latency-grid aggregate-body-row">
                               <div
                                 v-for="column in timeWindowLatencyColumns"
                                 :key="column.key"
                                 class="aggregate-cell"
-                              ></div>
+                              >
+                                <span class="metric-value">
+                                  {{
+                                    formatMetricValue(
+                                      getTimeWindowSummaryValue(twEvent, column.key),
+                                    )
+                                  }}
+                                </span>
+                              </div>
+                            </div>
+                            <template v-if="isTimeWindowExpanded(twIdx)">
+                              <div
+                                class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-header"
+                              >
+                                <div
+                                  v-for="column in timeWindowLatencyColumns"
+                                  :key="column.key"
+                                  class="aggregate-cell aggregate-sortable-cell"
+                                  @click.stop="handleIpPairSort(column.key)"
+                                >
+                                  <span class="sort-header-content">
+                                    {{ column.label }}
+                                    <span class="sort-icons">
+                                      <span
+                                        class="sort-icon-up"
+                                        :class="{
+                                          'sort-icon-active':
+                                            timeWindowIpPairSortBy === column.key &&
+                                            timeWindowIpPairSortOrder === 'asc',
+                                        }"
+                                        >▲</span
+                                      >
+                                      <span
+                                        class="sort-icon-down"
+                                        :class="{
+                                          'sort-icon-active':
+                                            timeWindowIpPairSortBy === column.key &&
+                                            timeWindowIpPairSortOrder === 'desc',
+                                        }"
+                                        >▼</span
+                                      >
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                              <div
+                                v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
+                                :key="`${twIdx}-body-${ipPair.src_ip}-${ipPair.dst_ip}`"
+                                class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                              >
+                                <div
+                                  v-for="column in timeWindowLatencyColumns"
+                                  :key="column.key"
+                                  class="aggregate-cell"
+                                >
+                                  <span
+                                    class="metric-value"
+                                    :class="{
+                                      abnormal: isLatencyMetricAbnormal(
+                                        column.key,
+                                        getTimeWindowAggregatedLatencyValue(ipPair, column.key),
+                                      ),
+                                    }"
+                                  >
+                                    {{
+                                      formatMetricValue(
+                                        getTimeWindowAggregatedLatencyValue(ipPair, column.key),
+                                      )
+                                    }}
+                                  </span>
+                                </div>
+                              </div>
+                              <div
+                                v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
+                                class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                              >
+                                <div
+                                  v-for="column in timeWindowLatencyColumns"
+                                  :key="column.key"
+                                  class="aggregate-cell"
+                                ></div>
+                              </div>
+                            </template>
+                          </template>
+                        </template>
+                      </div>
+                    </div>
+
+                    <div class="aggregate-fixed-actions">
+                      <div class="aggregate-cell action-cell aggregate-table-header">
+                        聚合事件分析
+                      </div>
+                      <template
+                        v-if="
+                          !isTimeWindowLoading &&
+                          !timeWindowError &&
+                          timeWindowAggregatedEvents.length > 0
+                        "
+                      >
+                        <template
+                          v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents"
+                          :key="`tw-action-${twIdx}`"
+                        >
+                          <div class="aggregate-cell action-cell trace-actions aggregate-body-row">
+                            <span class="metric-action-hint">展开查看IP对</span>
+                          </div>
+                          <template v-if="isTimeWindowExpanded(twIdx)">
+                            <div
+                              class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-header"
+                            >
+                              <span class="metric-action-hint">操作</span>
+                            </div>
+                            <div
+                              v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
+                              :key="`${twIdx}-action-${ipPair.src_ip}-${ipPair.dst_ip}`"
+                              class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
+                            >
+                              <button
+                                class="metric-action-btn detail-action-btn"
+                                type="button"
+                                @click.stop="openTimeWindowIpPairDetail(ipPair, twEvent)"
+                              >
+                                📄详情
+                              </button>
+                              <button
+                                class="metric-action-btn"
+                                type="button"
+                                @click.stop="openTimeWindowIpPairFilter(ipPair)"
+                              >
+                                ➕筛选
+                              </button>
+                            </div>
+                            <div
+                              v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
+                              class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
+                            >
+                              <span class="metric-action-hint"></span>
                             </div>
                           </template>
                         </template>
                       </template>
                     </div>
                   </div>
-
-                  <div class="aggregate-fixed-actions">
-                    <div class="aggregate-cell action-cell aggregate-table-header">
-                      聚合事件分析
-                    </div>
-                    <template v-if="!isTimeWindowLoading && !timeWindowError && timeWindowAggregatedEvents.length > 0">
-                      <template v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents" :key="`tw-action-${twIdx}`">
-                        <div class="aggregate-cell action-cell trace-actions aggregate-body-row">
-                          <span class="metric-action-hint">展开查看IP对</span>
-                        </div>
-                        <template v-if="isTimeWindowExpanded(twIdx)">
-                          <div class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-header">
-                            <span class="metric-action-hint">操作</span>
-                          </div>
-                          <div
-                            v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
-                            :key="`${twIdx}-action-${ipPair.src_ip}-${ipPair.dst_ip}`"
-                            class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
-                          >
-                            <button
-                              class="metric-action-btn detail-action-btn"
-                              type="button"
-                              @click.stop="openTimeWindowIpPairDetail(ipPair, twEvent)"
-                            >
-                              📄详情
-                            </button>
-                            <button
-                              class="metric-action-btn"
-                              type="button"
-                              @click.stop="openTimeWindowIpPairFilter(ipPair)"
-                            >
-                              ➕筛选
-                            </button>
-                          </div>
-                          <div
-                            v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
-                            class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
-                          >
-                            <span class="metric-action-hint"></span>
-                          </div>
-                        </template>
-                      </template>
-                    </template>
+                  <div v-if="timeWindowTotal > 10" class="aggregate-pagination">
+                    <button
+                      class="ghost-btn"
+                      type="button"
+                      :disabled="timeWindowPage <= 1 || isTimeWindowLoading"
+                      @click="goTimeWindowPage(timeWindowPage - 1)"
+                    >
+                      上一页
+                    </button>
+                    <span class="pagination-pages" aria-label="时间窗口聚合事件页码">
+                      <button
+                        v-for="pageNum in timeWindowPageWindow"
+                        :key="`tw-page-${pageNum}`"
+                        class="pagination-page-btn"
+                        :class="{ active: pageNum === timeWindowPage }"
+                        type="button"
+                        :disabled="pageNum === timeWindowPage || isTimeWindowLoading"
+                        @click="goTimeWindowPage(pageNum)"
+                      >
+                        {{ pageNum }}
+                      </button>
+                    </span>
+                    <button
+                      class="ghost-btn"
+                      type="button"
+                      :disabled="timeWindowPage >= timeWindowPageCount || isTimeWindowLoading"
+                      @click="goTimeWindowPage(timeWindowPage + 1)"
+                    >
+                      下一页
+                    </button>
+                    <span class="pagination-jump">
+                      <span>第 {{ timeWindowPage }} / {{ timeWindowPageCount }} 页</span>
+                      <input
+                        v-model="timeWindowPageInput"
+                        class="pagination-jump-input"
+                        type="number"
+                        min="1"
+                        :max="timeWindowPageCount"
+                        aria-label="跳转时间窗口聚合事件页码"
+                        @keyup.enter="jumpTimeWindowPage"
+                      />
+                      <button
+                        class="pagination-jump-btn"
+                        type="button"
+                        :disabled="isTimeWindowLoading"
+                        @click="jumpTimeWindowPage"
+                      >
+                        跳转
+                      </button>
+                    </span>
                   </div>
-                </div>
-                <div v-if="timeWindowTotal > 10" class="aggregate-pagination">
-                  <button
-                    class="ghost-btn"
-                    type="button"
-                    :disabled="timeWindowPage <= 1 || isTimeWindowLoading"
-                    @click="goTimeWindowPage(timeWindowPage - 1)"
-                  >
-                    上一页
-                  </button>
-                  <span class="pagination-pages" aria-label="时间窗口聚合事件页码">
-                    <button
-                      v-for="pageNum in timeWindowPageWindow"
-                      :key="`tw-page-${pageNum}`"
-                      class="pagination-page-btn"
-                      :class="{ active: pageNum === timeWindowPage }"
-                      type="button"
-                      :disabled="pageNum === timeWindowPage || isTimeWindowLoading"
-                      @click="goTimeWindowPage(pageNum)"
-                    >
-                      {{ pageNum }}
-                    </button>
-                  </span>
-                  <button
-                    class="ghost-btn"
-                    type="button"
-                    :disabled="
-                      timeWindowPage >= timeWindowPageCount || isTimeWindowLoading
-                    "
-                    @click="goTimeWindowPage(timeWindowPage + 1)"
-                  >
-                    下一页
-                  </button>
-                  <span class="pagination-jump">
-                    <span>第 {{ timeWindowPage }} / {{ timeWindowPageCount }} 页</span>
-                    <input
-                      v-model="timeWindowPageInput"
-                      class="pagination-jump-input"
-                      type="number"
-                      min="1"
-                      :max="timeWindowPageCount"
-                      aria-label="跳转时间窗口聚合事件页码"
-                      @keyup.enter="jumpTimeWindowPage"
-                    />
-                    <button
-                      class="pagination-jump-btn"
-                      type="button"
-                      :disabled="isTimeWindowLoading"
-                      @click="jumpTimeWindowPage"
-                    >
-                      跳转
-                    </button>
-                  </span>
-                </div>
                 </template>
 
                 <div v-if="isTimeWindowLoading" class="aggregate-table-state">
                   正在加载时间窗口聚合...
                 </div>
-                <div
-                  v-else-if="timeWindowError"
-                  class="aggregate-table-state metric-table-error"
-                >
+                <div v-else-if="timeWindowError" class="aggregate-table-state metric-table-error">
                   {{ timeWindowError }}
                 </div>
-                <div v-else-if="timeWindowAggregatedEvents.length === 0" class="aggregate-table-state">
+                <div
+                  v-else-if="timeWindowAggregatedEvents.length === 0"
+                  class="aggregate-table-state"
+                >
                   暂无时间窗口聚合数据
                 </div>
               </div>
@@ -7355,33 +7900,54 @@ onBeforeUnmount(() => {
               >
                 <div class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
-                      <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header" :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }">
-                        <div class="aggregate-cell column-resizable">
-                          故障类型
-                          <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 0)"></div>
-                        </div>
-                        <div class="aggregate-cell column-resizable">
-                          时间
-                          <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 1)"></div>
-                        </div>
-                        <div class="aggregate-cell column-resizable">
-                          Trace ID
-                          <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 2)"></div>
-                        </div>
-                        <div class="aggregate-cell column-resizable">
-                          Pod IP
-                          <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 3)"></div>
-                        </div>
-                        <div class="aggregate-cell column-resizable">
-                          操作类型
-                          <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 4)"></div>
-                        </div>
-                        <div class="aggregate-cell column-resizable">
-                          集群
-                          <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 5)"></div>
-                        </div>
-                        <div class="aggregate-cell">主机IP</div>
+                    <div
+                      class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
+                      :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
+                    >
+                      <div class="aggregate-cell column-resizable">
+                        故障类型
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 0)"
+                        ></div>
                       </div>
+                      <div class="aggregate-cell column-resizable">
+                        时间
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 1)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        Trace ID
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 2)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        Pod IP
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 3)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        操作类型
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 4)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        集群
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 5)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell">主机IP</div>
+                    </div>
                     <template
                       v-if="
                         !isAbnormalTracesLoading &&
@@ -7425,63 +7991,180 @@ onBeforeUnmount(() => {
                     }"
                   >
                     <div class="aggregate-latency-head aggregate-latency-sync">
-                      <div class="abnormal-latency-grid aggregate-table-header" :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }">
-                        <div class="aggregate-cell aggregate-sortable-cell column-resizable" @click="abnormalTraceSort.handleHeaderClick('total_latency')">
+                      <div
+                        class="abnormal-latency-grid aggregate-table-header"
+                        :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
+                      >
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell column-resizable"
+                          @click="abnormalTraceSort.handleHeaderClick('total_latency')"
+                        >
                           <span class="sort-header-content">
                             总时延
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('total_latency') === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('total_latency') === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('total_latency') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('total_latency') === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
-                          <div class="column-resize-handle" @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 0)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 0)"
+                          ></div>
                         </div>
-                        <div class="aggregate-cell aggregate-sortable-cell column-resizable" @click="abnormalTraceSort.handleHeaderClick('query_meta_latency')">
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell column-resizable"
+                          @click="abnormalTraceSort.handleHeaderClick('query_meta_latency')"
+                        >
                           <span class="sort-header-content">
                             查询元数据时延
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('query_meta_latency') === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('query_meta_latency') === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('query_meta_latency') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('query_meta_latency') === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
-                          <div class="column-resize-handle" @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 1)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 1)"
+                          ></div>
                         </div>
-                        <div class="aggregate-cell aggregate-sortable-cell column-resizable" @click="abnormalTraceSort.handleHeaderClick('urma_total_latency')">
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell column-resizable"
+                          @click="abnormalTraceSort.handleHeaderClick('urma_total_latency')"
+                        >
                           <span class="sort-header-content">
                             URMA总时延
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_total_latency') === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_total_latency') === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('urma_total_latency') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('urma_total_latency') === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
-                          <div class="column-resize-handle" @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 2)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 2)"
+                          ></div>
                         </div>
-                        <div class="aggregate-cell aggregate-sortable-cell column-resizable" @click="abnormalTraceSort.handleHeaderClick('urma_link_latency')">
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell column-resizable"
+                          @click="abnormalTraceSort.handleHeaderClick('urma_link_latency')"
+                        >
                           <span class="sort-header-content">
                             URMA建链时延
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_link_latency') === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('urma_link_latency') === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('urma_link_latency') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('urma_link_latency') === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
-                          <div class="column-resize-handle" @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 3)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 3)"
+                          ></div>
                         </div>
-                        <div class="aggregate-cell aggregate-sortable-cell column-resizable" @click="abnormalTraceSort.handleHeaderClick('c2w_urma_latency')">
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell column-resizable"
+                          @click="abnormalTraceSort.handleHeaderClick('c2w_urma_latency')"
+                        >
                           <span class="sort-header-content">
                             C2W URMA时延
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
-                          <div class="column-resize-handle" @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 4)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 4)"
+                          ></div>
                         </div>
                         <div class="aggregate-cell aggregate-sortable-cell">
                           <span class="sort-header-content">
                             W2W URMA时延
                             <span class="sort-icons">
-                              <span class="sort-icon-up" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'asc' }">▲</span>
-                              <span class="sort-icon-down" :class="{ 'sort-icon-active': abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'desc' }">▼</span>
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'desc',
+                                }"
+                                >▼</span
+                              >
                             </span>
                           </span>
                         </div>
@@ -7504,12 +8187,12 @@ onBeforeUnmount(() => {
                           getFilteredAbnormalTraceRows().length > 0
                         "
                       >
-                          <div
-                            v-for="row in getFilteredAbnormalTraceRows()"
-                            :key="`${row.id}-latency`"
-                            class="abnormal-latency-grid aggregate-body-row"
-                            :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
-                          >
+                        <div
+                          v-for="row in getFilteredAbnormalTraceRows()"
+                          :key="`${row.id}-latency`"
+                          class="abnormal-latency-grid aggregate-body-row"
+                          :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
+                        >
                           <div class="aggregate-cell">
                             <span
                               class="metric-value"
@@ -7713,9 +8396,7 @@ onBeforeUnmount(() => {
             <div class="monitor-header-top">
               <h1>通断故障监控</h1>
             </div>
-            <p class="monitor-sub">
-              故障码 / 故障名称 / 故障域
-            </p>
+            <p class="monitor-sub">故障码 / 故障名称 / 故障域</p>
           </header>
 
           <div class="monitor-grid">
@@ -7752,12 +8433,7 @@ onBeforeUnmount(() => {
                 <div v-else-if="faultChartError" class="chart-state chart-error">
                   {{ faultChartError }}
                 </div>
-                <div
-                  v-else-if="faultCodes.length === 0"
-                  class="chart-state"
-                >
-                  暂无故障码数据
-                </div>
+                <div v-else-if="faultCodes.length === 0" class="chart-state">暂无故障码数据</div>
                 <div
                   v-else
                   ref="faultChartRef"
@@ -7810,164 +8486,20 @@ onBeforeUnmount(() => {
                     faultAggregatedEventRows.length === 0,
                 }"
               >
-                <template v-if="!isFaultAggregatedEventsLoading && !faultAggregatedEventsError && faultAggregatedEventRows.length > 0">
+                <template
+                  v-if="
+                    !isFaultAggregatedEventsLoading &&
+                    !faultAggregatedEventsError &&
+                    faultAggregatedEventRows.length > 0
+                  "
+                >
                   <div class="aggregate-table-frame">
-                  <div class="aggregate-fixed-left">
-                    <div class="fault-aggregate-time-grid aggregate-table-header">
-                      <div class="aggregate-cell fault-expand-cell"></div>
-                      <div class="aggregate-cell">开始时间</div>
-                      <div class="aggregate-cell">结束时间</div>
-                    </div>
-                    <template
-                      v-if="
-                        !isFaultAggregatedEventsLoading &&
-                        !faultAggregatedEventsError &&
-                        paginatedFaultAggregatedEventRows.length > 0
-                      "
-                    >
-                      <template
-                        v-for="row in paginatedFaultAggregatedEventRows"
-                        :key="`${row.id}-time`"
-                      >
-                        <div
-                          class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-main-row"
-                          :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
-                          @click="toggleFaultAggregatedEventRow(row)"
-                        >
-                          <div class="aggregate-cell fault-expand-cell">
-                            <span class="fault-expand-indicator">
-                              {{ isFaultAggregatedEventExpanded(row) ? '🔽' : '▶️' }}
-                            </span>
-                          </div>
-                          <div class="aggregate-cell">{{ row.startTime }}</div>
-                          <div class="aggregate-cell">{{ row.endTime }}</div>
-                        </div>
-                        <div
-                          v-if="isFaultAggregatedEventExpanded(row)"
-                          class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-sub-row"
-                        >
-                          <div class="fault-aggregate-sub-left">
-                            <div class="aggregate-cell fault-expand-cell"></div>
-                            <div class="aggregate-cell fault-aggregate-sub-pod-head">Pod IP</div>
-                            <template
-                              v-if="
-                                isFaultAggregatedEventPodLoading(row) &&
-                                getFaultAggregatedEventPodRows(row).length === 0
-                              "
-                            >
-                              <div class="aggregate-cell fault-expand-cell"></div>
-                              <div class="aggregate-cell fault-aggregate-sub-pod-cell">
-                                加载中...
-                              </div>
-                            </template>
-                            <template
-                              v-else-if="
-                                getFaultAggregatedEventPodRows(row).length === 0
-                              "
-                            >
-                              <div class="aggregate-cell fault-expand-cell"></div>
-                              <div class="aggregate-cell fault-aggregate-sub-pod-cell">
-                                {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
-                              </div>
-                            </template>
-                            <template
-                              v-for="podRow in getFaultAggregatedEventPodRows(row)"
-                              :key="`${podRow.id}-pod-ip`"
-                            >
-                              <div class="aggregate-cell fault-expand-cell"></div>
-                              <div class="aggregate-cell fault-aggregate-sub-pod-cell">
-                                {{ podRow.podIp }}
-                              </div>
-                            </template>
-                            <div
-                              v-if="
-                                getFaultAggregatedEventPodTotal(row) >
-                                faultAggregatedEventPodPageSize
-                              "
-                              class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-side"
-                            >
-                              第 {{ getFaultAggregatedEventPodPage(row) }} /
-                              {{ getFaultAggregatedEventPodPageCount(row) }} 页
-                            </div>
-                          </div>
-                        </div>
-                      </template>
-                    </template>
-                  </div>
-
-                  <div
-                    class="aggregate-latency-scroll fault-code-scroll scroll-section-outline"
-                    :class="{
-                      'scroll-section-outline-full':
-                        !isFaultAggregatedEventsLoading &&
-                        !faultAggregatedEventsError &&
-                        paginatedFaultAggregatedEventRows.length > 0,
-                    }"
-                  >
-                    <div class="aggregate-latency-head aggregate-latency-sync">
-                      <div
-                        class="fault-code-grid aggregate-table-header"
-                        :style="faultAggregatedEventCodeGridStyle"
-                      >
-                        <template v-if="faultAggregatedEventCodes.length > 0">
-                          <div
-                            v-for="code in faultAggregatedEventCodes"
-                            :key="`fault-aggregate-code-head-${code}`"
-                            class="aggregate-cell aggregate-sortable-cell"
-                            :class="{ 'fault-total-code-header': code === 'all' }"
-                            @click.stop="faultAggregatedEventSort.handleHeaderClick(code)"
-                          >
-                            <span class="sort-header-content">
-                              <button
-                                v-if="code !== 'all'"
-                                class="fault-code-knowledge-link"
-                                type="button"
-                                @click.stop="openStatusCodePopover(code, $event)"
-                              >
-                                {{ getFaultAggregatedEventCodeLabel(code) }}
-                              </button>
-                              <strong v-else class="fault-total-code-label">
-                                {{ getFaultAggregatedEventCodeLabel(code) }}
-                              </strong>
-                              <span class="sort-icons">
-                                <span
-                                  class="sort-icon-up"
-                                  :class="{
-                                    'sort-icon-active':
-                                      faultAggregatedEventSort.getSortOrder(code) === 'asc',
-                                  }"
-                                >
-                                  ▲
-                                </span>
-                                <span
-                                  class="sort-icon-down"
-                                  :class="{
-                                    'sort-icon-active':
-                                      faultAggregatedEventSort.getSortOrder(code) === 'desc',
-                                  }"
-                                >
-                                  ▼
-                                </span>
-                              </span>
-                            </span>
-                          </div>
-                        </template>
-                        <div v-else class="aggregate-cell">故障码</div>
+                    <div class="aggregate-fixed-left">
+                      <div class="fault-aggregate-time-grid aggregate-table-header">
+                        <div class="aggregate-cell fault-expand-cell"></div>
+                        <div class="aggregate-cell">开始时间</div>
+                        <div class="aggregate-cell">结束时间</div>
                       </div>
-                    </div>
-                    <div
-                      class="aggregate-latency-scrollbar aggregate-latency-sync"
-                      @scroll="syncAggregateLatencyScroll"
-                    >
-                      <div
-                        class="aggregate-latency-scrollbar-spacer fault-code-scrollbar-spacer"
-                        :style="{ width: faultAggregatedEventCodeGridStyle.minWidth }"
-                      ></div>
-                    </div>
-                    <div
-                      class="aggregate-latency-body aggregate-latency-sync"
-                      @scroll="syncAggregateLatencyScroll"
-                    >
                       <template
                         v-if="
                           !isFaultAggregatedEventsLoading &&
@@ -7977,114 +8509,270 @@ onBeforeUnmount(() => {
                       >
                         <template
                           v-for="row in paginatedFaultAggregatedEventRows"
-                          :key="`${row.id}-fault-codes`"
+                          :key="`${row.id}-time`"
                         >
                           <div
-                            class="fault-code-grid aggregate-body-row fault-aggregate-main-row"
+                            class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-main-row"
                             :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
-                            :style="faultAggregatedEventCodeGridStyle"
                             @click="toggleFaultAggregatedEventRow(row)"
                           >
-                            <template v-if="faultAggregatedEventCodes.length > 0">
-                              <div
-                                v-for="code in faultAggregatedEventCodes"
-                                :key="`${row.id}-fault-code-${code}`"
-                                class="aggregate-cell"
-                              >
-                                {{ getFaultAggregatedEventCodeValue(row, code) }}
-                              </div>
-                            </template>
-                            <div v-else class="aggregate-cell">-</div>
+                            <div class="aggregate-cell fault-expand-cell">
+                              <span class="fault-expand-indicator">
+                                {{ isFaultAggregatedEventExpanded(row) ? '🔽' : '▶️' }}
+                              </span>
+                            </div>
+                            <div class="aggregate-cell">{{ row.startTime }}</div>
+                            <div class="aggregate-cell">{{ row.endTime }}</div>
                           </div>
                           <div
                             v-if="isFaultAggregatedEventExpanded(row)"
-                            class="aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-code-panel"
-                            :style="{ minWidth: faultAggregatedEventCodeGridStyle.minWidth }"
+                            class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-sub-row"
                           >
-                            <div
-                              class="fault-code-grid aggregate-table-header fault-aggregate-sub-code-grid"
-                              :style="faultAggregatedEventCodeGridStyle"
-                            >
-                              <div
-                                v-for="code in faultAggregatedEventCodes"
-                                :key="`${row.id}-sub-head-${code}`"
-                                class="aggregate-cell aggregate-sortable-cell"
-                                @click.stop="handleFaultAggregatedEventPodSortHeaderClick(row, code)"
+                            <div class="fault-aggregate-sub-left">
+                              <div class="aggregate-cell fault-expand-cell"></div>
+                              <div class="aggregate-cell fault-aggregate-sub-pod-head">Pod IP</div>
+                              <template
+                                v-if="
+                                  isFaultAggregatedEventPodLoading(row) &&
+                                  getFaultAggregatedEventPodRows(row).length === 0
+                                "
                               >
-                                <span class="sort-header-content">
-                                  <button
-                                    v-if="code !== 'all'"
-                                    class="fault-code-knowledge-link"
-                                    type="button"
-                                    @click.stop="openStatusCodePopover(code, $event)"
+                                <div class="aggregate-cell fault-expand-cell"></div>
+                                <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                  加载中...
+                                </div>
+                              </template>
+                              <template
+                                v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
+                              >
+                                <div class="aggregate-cell fault-expand-cell"></div>
+                                <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                  {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
+                                </div>
+                              </template>
+                              <template
+                                v-for="podRow in getFaultAggregatedEventPodRows(row)"
+                                :key="`${podRow.id}-pod-ip`"
+                              >
+                                <div class="aggregate-cell fault-expand-cell"></div>
+                                <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                  {{ podRow.podIp }}
+                                </div>
+                              </template>
+                              <div
+                                v-if="
+                                  getFaultAggregatedEventPodTotal(row) >
+                                  faultAggregatedEventPodPageSize
+                                "
+                                class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-side"
+                              >
+                                第 {{ getFaultAggregatedEventPodPage(row) }} /
+                                {{ getFaultAggregatedEventPodPageCount(row) }} 页
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </template>
+                    </div>
+
+                    <div
+                      class="aggregate-latency-scroll fault-code-scroll scroll-section-outline"
+                      :class="{
+                        'scroll-section-outline-full':
+                          !isFaultAggregatedEventsLoading &&
+                          !faultAggregatedEventsError &&
+                          paginatedFaultAggregatedEventRows.length > 0,
+                      }"
+                    >
+                      <div class="aggregate-latency-head aggregate-latency-sync">
+                        <div
+                          class="fault-code-grid aggregate-table-header"
+                          :style="faultAggregatedEventCodeGridStyle"
+                        >
+                          <template v-if="faultAggregatedEventCodes.length > 0">
+                            <div
+                              v-for="code in faultAggregatedEventCodes"
+                              :key="`fault-aggregate-code-head-${code}`"
+                              class="aggregate-cell aggregate-sortable-cell"
+                              :class="{ 'fault-total-code-header': code === 'all' }"
+                              @click.stop="faultAggregatedEventSort.handleHeaderClick(code)"
+                            >
+                              <span class="sort-header-content">
+                                <button
+                                  v-if="code !== 'all'"
+                                  class="fault-code-knowledge-link"
+                                  type="button"
+                                  @click.stop="openStatusCodePopover(code, $event)"
+                                >
+                                  {{ getFaultAggregatedEventCodeLabel(code) }}
+                                </button>
+                                <strong v-else class="fault-total-code-label">
+                                  {{ getFaultAggregatedEventCodeLabel(code) }}
+                                </strong>
+                                <span class="sort-icons">
+                                  <span
+                                    class="sort-icon-up"
+                                    :class="{
+                                      'sort-icon-active':
+                                        faultAggregatedEventSort.getSortOrder(code) === 'asc',
+                                    }"
                                   >
-                                    {{ getFaultAggregatedEventCodeLabel(code) }}
-                                  </button>
-                                  <span v-else>{{ getFaultAggregatedEventCodeLabel(code) }}</span>
-                                  <span class="sort-icons">
-                                    <span
-                                      class="sort-icon-up"
-                                      :class="{
-                                        'sort-icon-active':
-                                          faultAggregatedEventPodSort.getSortOrder(code) === 'asc',
-                                      }"
-                                    >
-                                      ▲
-                                    </span>
-                                    <span
-                                      class="sort-icon-down"
-                                      :class="{
-                                        'sort-icon-active':
-                                          faultAggregatedEventPodSort.getSortOrder(code) === 'desc',
-                                      }"
-                                    >
-                                      ▼
-                                    </span>
+                                    ▲
+                                  </span>
+                                  <span
+                                    class="sort-icon-down"
+                                    :class="{
+                                      'sort-icon-active':
+                                        faultAggregatedEventSort.getSortOrder(code) === 'desc',
+                                    }"
+                                  >
+                                    ▼
                                   </span>
                                 </span>
-                              </div>
+                              </span>
+                            </div>
+                          </template>
+                          <div v-else class="aggregate-cell">故障码</div>
+                        </div>
+                      </div>
+                      <div
+                        class="aggregate-latency-scrollbar aggregate-latency-sync"
+                        @scroll="syncAggregateLatencyScroll"
+                      >
+                        <div
+                          class="aggregate-latency-scrollbar-spacer fault-code-scrollbar-spacer"
+                          :style="{ width: faultAggregatedEventCodeGridStyle.minWidth }"
+                        ></div>
+                      </div>
+                      <div
+                        class="aggregate-latency-body aggregate-latency-sync"
+                        @scroll="syncAggregateLatencyScroll"
+                      >
+                        <template
+                          v-if="
+                            !isFaultAggregatedEventsLoading &&
+                            !faultAggregatedEventsError &&
+                            paginatedFaultAggregatedEventRows.length > 0
+                          "
+                        >
+                          <template
+                            v-for="row in paginatedFaultAggregatedEventRows"
+                            :key="`${row.id}-fault-codes`"
+                          >
+                            <div
+                              class="fault-code-grid aggregate-body-row fault-aggregate-main-row"
+                              :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                              :style="faultAggregatedEventCodeGridStyle"
+                              @click="toggleFaultAggregatedEventRow(row)"
+                            >
+                              <template v-if="faultAggregatedEventCodes.length > 0">
+                                <div
+                                  v-for="code in faultAggregatedEventCodes"
+                                  :key="`${row.id}-fault-code-${code}`"
+                                  class="aggregate-cell"
+                                >
+                                  {{ getFaultAggregatedEventCodeValue(row, code) }}
+                                </div>
+                              </template>
+                              <div v-else class="aggregate-cell">-</div>
                             </div>
                             <div
-                              v-if="
-                                isFaultAggregatedEventPodLoading(row) &&
-                                getFaultAggregatedEventPodRows(row).length === 0
-                              "
-                              class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
-                              :style="faultAggregatedEventCodeGridStyle"
+                              v-if="isFaultAggregatedEventExpanded(row)"
+                              class="aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-code-panel"
+                              :style="{ minWidth: faultAggregatedEventCodeGridStyle.minWidth }"
                             >
                               <div
-                                class="aggregate-cell"
-                                :style="{ gridColumn: `span ${Math.max(1, faultAggregatedEventCodes.length)}` }"
+                                class="fault-code-grid aggregate-table-header fault-aggregate-sub-code-grid"
+                                :style="faultAggregatedEventCodeGridStyle"
                               >
-                                正在加载Pod聚合数据...
+                                <div
+                                  v-for="code in faultAggregatedEventCodes"
+                                  :key="`${row.id}-sub-head-${code}`"
+                                  class="aggregate-cell aggregate-sortable-cell"
+                                  @click.stop="
+                                    handleFaultAggregatedEventPodSortHeaderClick(row, code)
+                                  "
+                                >
+                                  <span class="sort-header-content">
+                                    <button
+                                      v-if="code !== 'all'"
+                                      class="fault-code-knowledge-link"
+                                      type="button"
+                                      @click.stop="openStatusCodePopover(code, $event)"
+                                    >
+                                      {{ getFaultAggregatedEventCodeLabel(code) }}
+                                    </button>
+                                    <span v-else>{{ getFaultAggregatedEventCodeLabel(code) }}</span>
+                                    <span class="sort-icons">
+                                      <span
+                                        class="sort-icon-up"
+                                        :class="{
+                                          'sort-icon-active':
+                                            faultAggregatedEventPodSort.getSortOrder(code) ===
+                                            'asc',
+                                        }"
+                                      >
+                                        ▲
+                                      </span>
+                                      <span
+                                        class="sort-icon-down"
+                                        :class="{
+                                          'sort-icon-active':
+                                            faultAggregatedEventPodSort.getSortOrder(code) ===
+                                            'desc',
+                                        }"
+                                      >
+                                        ▼
+                                      </span>
+                                    </span>
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                            <div
-                              v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
-                              class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
-                              :style="faultAggregatedEventCodeGridStyle"
-                            >
                               <div
-                                class="aggregate-cell"
-                                :style="{ gridColumn: `span ${Math.max(1, faultAggregatedEventCodes.length)}` }"
+                                v-if="
+                                  isFaultAggregatedEventPodLoading(row) &&
+                                  getFaultAggregatedEventPodRows(row).length === 0
+                                "
+                                class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                                :style="faultAggregatedEventCodeGridStyle"
                               >
-                                {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
+                                <div
+                                  class="aggregate-cell"
+                                  :style="{
+                                    gridColumn: `span ${Math.max(1, faultAggregatedEventCodes.length)}`,
+                                  }"
+                                >
+                                  正在加载Pod聚合数据...
+                                </div>
                               </div>
-                            </div>
-                            <div
-                              v-for="podRow in getFaultAggregatedEventPodRows(row)"
-                              :key="`${podRow.id}-fault-codes`"
-                              class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
-                              :style="faultAggregatedEventCodeGridStyle"
-                            >
                               <div
-                                v-for="code in faultAggregatedEventCodes"
-                                :key="`${podRow.id}-fault-code-${code}`"
-                                class="aggregate-cell"
+                                v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
+                                class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                                :style="faultAggregatedEventCodeGridStyle"
                               >
-                                {{ getFaultAggregatedEventPodCodeValue(podRow, code) }}
+                                <div
+                                  class="aggregate-cell"
+                                  :style="{
+                                    gridColumn: `span ${Math.max(1, faultAggregatedEventCodes.length)}`,
+                                  }"
+                                >
+                                  {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
+                                </div>
                               </div>
-                            </div>
+                              <div
+                                v-for="podRow in getFaultAggregatedEventPodRows(row)"
+                                :key="`${podRow.id}-fault-codes`"
+                                class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                                :style="faultAggregatedEventCodeGridStyle"
+                              >
+                                <div
+                                  v-for="code in faultAggregatedEventCodes"
+                                  :key="`${podRow.id}-fault-code-${code}`"
+                                  class="aggregate-cell"
+                                >
+                                  {{ getFaultAggregatedEventPodCodeValue(podRow, code) }}
+                                </div>
+                              </div>
                               <div
                                 v-if="
                                   getFaultAggregatedEventPodTotal(row) >
@@ -8108,10 +8796,7 @@ onBeforeUnmount(() => {
                                 >
                                   上一页
                                 </button>
-                                <span
-                                  class="pagination-pages"
-                                  aria-label="故障聚合事件Pod副表页码"
-                                >
+                                <span class="pagination-pages" aria-label="故障聚合事件Pod副表页码">
                                   <button
                                     v-for="pageNum in getFaultAggregatedEventPodPageWindow(row)"
                                     :key="`${row.id}-pod-page-${pageNum}`"
@@ -8176,150 +8861,150 @@ onBeforeUnmount(() => {
                                   </button>
                                 </span>
                               </div>
+                            </div>
+                          </template>
+                        </template>
+                      </div>
+                    </div>
+
+                    <div class="aggregate-fixed-actions">
+                      <div class="aggregate-cell action-cell aggregate-table-header">
+                        聚合事件分析
+                      </div>
+                      <template
+                        v-if="
+                          !isFaultAggregatedEventsLoading &&
+                          !faultAggregatedEventsError &&
+                          paginatedFaultAggregatedEventRows.length > 0
+                        "
+                      >
+                        <template
+                          v-for="row in paginatedFaultAggregatedEventRows"
+                          :key="`${row.id}-action`"
+                        >
+                          <div
+                            class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-main-row"
+                            :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                            @click="toggleFaultAggregatedEventRow(row)"
+                          >
+                            <span class="metric-action-hint">展开查看Pod IP</span>
+                          </div>
+                          <div
+                            v-if="isFaultAggregatedEventExpanded(row)"
+                            class="aggregate-cell action-cell aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-action"
+                          >
+                            <div class="fault-aggregate-sub-action-head">
+                              <span class="metric-action-hint">操作</span>
+                            </div>
+                            <div
+                              v-if="
+                                isFaultAggregatedEventPodLoading(row) &&
+                                getFaultAggregatedEventPodRows(row).length === 0
+                              "
+                              class="fault-aggregate-sub-action-body"
+                            ></div>
+                            <div
+                              v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
+                              class="fault-aggregate-sub-action-body"
+                            ></div>
+                            <div
+                              v-for="podRow in getFaultAggregatedEventPodRows(row)"
+                              :key="`${podRow.id}-action`"
+                              class="fault-aggregate-sub-action-body"
+                            >
+                              <button
+                                class="metric-action-btn detail-action-btn"
+                                type="button"
+                                @click.stop="openFaultAggregatedEventDetail(row, podRow)"
+                              >
+                                📄详情
+                              </button>
+                            </div>
+                            <div
+                              v-if="
+                                getFaultAggregatedEventPodTotal(row) >
+                                faultAggregatedEventPodPageSize
+                              "
+                              class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-actions"
+                            ></div>
                           </div>
                         </template>
                       </template>
                     </div>
                   </div>
-
-                  <div class="aggregate-fixed-actions">
-                    <div class="aggregate-cell action-cell aggregate-table-header">
-                      聚合事件分析
-                    </div>
-                    <template
-                      v-if="
-                        !isFaultAggregatedEventsLoading &&
-                        !faultAggregatedEventsError &&
-                        paginatedFaultAggregatedEventRows.length > 0
-                      "
-                    >
-                      <template
-                        v-for="row in paginatedFaultAggregatedEventRows"
-                        :key="`${row.id}-action`"
-                      >
-                        <div
-                          class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-main-row"
-                          :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
-                          @click="toggleFaultAggregatedEventRow(row)"
-                        >
-                          <span class="metric-action-hint">展开查看Pod IP</span>
-                        </div>
-                        <div
-                          v-if="isFaultAggregatedEventExpanded(row)"
-                          class="aggregate-cell action-cell aggregate-body-row fault-aggregate-sub-row fault-aggregate-sub-action"
-                        >
-                          <div class="fault-aggregate-sub-action-head">
-                            <span class="metric-action-hint">操作</span>
-                          </div>
-                          <div
-                            v-if="
-                              isFaultAggregatedEventPodLoading(row) &&
-                              getFaultAggregatedEventPodRows(row).length === 0
-                            "
-                            class="fault-aggregate-sub-action-body"
-                          ></div>
-                          <div
-                            v-else-if="getFaultAggregatedEventPodRows(row).length === 0"
-                            class="fault-aggregate-sub-action-body"
-                          ></div>
-                          <div
-                            v-for="podRow in getFaultAggregatedEventPodRows(row)"
-                            :key="`${podRow.id}-action`"
-                            class="fault-aggregate-sub-action-body"
-                          >
-                            <button
-                              class="metric-action-btn detail-action-btn"
-                              type="button"
-                              @click.stop="openFaultAggregatedEventDetail(row, podRow)"
-                            >
-                              📄详情
-                            </button>
-                          </div>
-                          <div
-                            v-if="
-                              getFaultAggregatedEventPodTotal(row) >
-                              faultAggregatedEventPodPageSize
-                            "
-                            class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-actions"
-                          ></div>
-                        </div>
-                      </template>
-                    </template>
+                  <div v-if="isFaultAggregatedEventsLoading" class="aggregate-table-state">
+                    正在加载聚合事件...
                   </div>
-                </div>
-                <div v-if="isFaultAggregatedEventsLoading" class="aggregate-table-state">
-                  正在加载聚合事件...
-                </div>
-                <div
-                  v-else-if="faultAggregatedEventsError"
-                  class="aggregate-table-state metric-table-error"
-                >
-                  {{ faultAggregatedEventsError }}
-                </div>
-                <div
-                  v-else-if="faultAggregatedEventRows.length === 0"
-                  class="aggregate-table-state"
-                >
-                  暂无聚合事件数据
-                </div>
-                <div v-if="faultAggregatedEventTotal > 0" class="aggregate-pagination">
-                  <button
-                    class="ghost-btn"
-                    type="button"
-                    :disabled="faultAggregatedEventPage <= 1 || isFaultAggregatedEventsLoading"
-                    @click="goFaultAggregatedEventPage(faultAggregatedEventPage - 1)"
+                  <div
+                    v-else-if="faultAggregatedEventsError"
+                    class="aggregate-table-state metric-table-error"
                   >
-                    上一页
-                  </button>
-                  <span class="pagination-pages" aria-label="故障聚合事件页码">
+                    {{ faultAggregatedEventsError }}
+                  </div>
+                  <div
+                    v-else-if="faultAggregatedEventRows.length === 0"
+                    class="aggregate-table-state"
+                  >
+                    暂无聚合事件数据
+                  </div>
+                  <div v-if="faultAggregatedEventTotal > 0" class="aggregate-pagination">
                     <button
-                      v-for="pageNum in faultAggregatedEventPageWindow"
-                      :key="`fault-aggregate-event-page-${pageNum}`"
-                      class="pagination-page-btn"
-                      :class="{ active: pageNum === faultAggregatedEventPage }"
+                      class="ghost-btn"
+                      type="button"
+                      :disabled="faultAggregatedEventPage <= 1 || isFaultAggregatedEventsLoading"
+                      @click="goFaultAggregatedEventPage(faultAggregatedEventPage - 1)"
+                    >
+                      上一页
+                    </button>
+                    <span class="pagination-pages" aria-label="故障聚合事件页码">
+                      <button
+                        v-for="pageNum in faultAggregatedEventPageWindow"
+                        :key="`fault-aggregate-event-page-${pageNum}`"
+                        class="pagination-page-btn"
+                        :class="{ active: pageNum === faultAggregatedEventPage }"
+                        type="button"
+                        :disabled="
+                          pageNum === faultAggregatedEventPage || isFaultAggregatedEventsLoading
+                        "
+                        @click="goFaultAggregatedEventPage(pageNum)"
+                      >
+                        {{ pageNum }}
+                      </button>
+                    </span>
+                    <button
+                      class="ghost-btn"
                       type="button"
                       :disabled="
-                        pageNum === faultAggregatedEventPage || isFaultAggregatedEventsLoading
+                        faultAggregatedEventPage >= faultAggregatedEventPageCount ||
+                        isFaultAggregatedEventsLoading
                       "
-                      @click="goFaultAggregatedEventPage(pageNum)"
+                      @click="goFaultAggregatedEventPage(faultAggregatedEventPage + 1)"
                     >
-                      {{ pageNum }}
+                      下一页
                     </button>
-                  </span>
-                  <button
-                    class="ghost-btn"
-                    type="button"
-                    :disabled="
-                      faultAggregatedEventPage >= faultAggregatedEventPageCount ||
-                      isFaultAggregatedEventsLoading
-                    "
-                    @click="goFaultAggregatedEventPage(faultAggregatedEventPage + 1)"
-                  >
-                    下一页
-                  </button>
-                  <span class="pagination-jump">
-                    <span>
-                      第 {{ faultAggregatedEventPage }} / {{ faultAggregatedEventPageCount }} 页
+                    <span class="pagination-jump">
+                      <span>
+                        第 {{ faultAggregatedEventPage }} / {{ faultAggregatedEventPageCount }} 页
+                      </span>
+                      <input
+                        v-model="faultAggregatedEventPageInput"
+                        class="pagination-jump-input"
+                        type="number"
+                        min="1"
+                        :max="faultAggregatedEventPageCount"
+                        aria-label="跳转故障聚合事件页码"
+                        @keyup.enter="jumpFaultAggregatedEventPage"
+                      />
+                      <button
+                        class="pagination-jump-btn"
+                        type="button"
+                        :disabled="isFaultAggregatedEventsLoading"
+                        @click="jumpFaultAggregatedEventPage"
+                      >
+                        跳转
+                      </button>
                     </span>
-                    <input
-                      v-model="faultAggregatedEventPageInput"
-                      class="pagination-jump-input"
-                      type="number"
-                      min="1"
-                      :max="faultAggregatedEventPageCount"
-                      aria-label="跳转故障聚合事件页码"
-                      @keyup.enter="jumpFaultAggregatedEventPage"
-                    />
-                    <button
-                      class="pagination-jump-btn"
-                      type="button"
-                      :disabled="isFaultAggregatedEventsLoading"
-                      @click="jumpFaultAggregatedEventPage"
-                    >
-                      跳转
-                    </button>
-                  </span>
-                </div>
+                  </div>
                 </template>
 
                 <div v-if="isFaultAggregatedEventsLoading" class="aggregate-table-state">
@@ -8339,30 +9024,62 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div v-else class="aggregate-table" :class="{
-                'aggregate-table-state-mode':
-                  isFaultTraceEventsLoading ||
-                  !!faultTraceEventsError ||
-                  faultTraceRows.length === 0 ||
-                  getFilteredFaultTraceRows().length === 0
-              }">
-                <div ref="faultTraceTableRef" class="aggregate-table-frame abnormal-trace-frame fault-trace-list">
+              <div
+                v-else
+                class="aggregate-table"
+                :class="{
+                  'aggregate-table-state-mode':
+                    isFaultTraceEventsLoading ||
+                    !!faultTraceEventsError ||
+                    faultTraceRows.length === 0 ||
+                    getFilteredFaultTraceRows().length === 0,
+                }"
+              >
+                <div
+                  ref="faultTraceTableRef"
+                  class="aggregate-table-frame abnormal-trace-frame fault-trace-list"
+                >
                   <div class="aggregate-fixed-left">
-                    <div class="abnormal-left-grid fault-trace-left-grid aggregate-table-header" :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }">
+                    <div
+                      class="abnormal-left-grid fault-trace-left-grid aggregate-table-header"
+                      :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
+                    >
                       <div class="aggregate-cell column-resizable">
                         故障类型
-                        <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 0)"></div>
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 0)"
+                        ></div>
                       </div>
                       <div class="aggregate-cell column-resizable">
                         时间
-                        <div class="column-resize-handle" @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 1)"></div>
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 1)"
+                        ></div>
                       </div>
                       <div class="aggregate-cell">Trace ID</div>
                     </div>
-                    <template v-if="!isFaultTraceEventsLoading && !faultTraceEventsError && getFilteredFaultTraceRows().length > 0">
-                      <div v-for="trace in getFilteredFaultTraceRows()" :key="`${trace.id}-fixed`" class="abnormal-left-grid fault-trace-left-grid aggregate-body-row" :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }">
+                    <template
+                      v-if="
+                        !isFaultTraceEventsLoading &&
+                        !faultTraceEventsError &&
+                        getFilteredFaultTraceRows().length > 0
+                      "
+                    >
+                      <div
+                        v-for="trace in getFilteredFaultTraceRows()"
+                        :key="`${trace.id}-fixed`"
+                        class="abnormal-left-grid fault-trace-left-grid aggregate-body-row"
+                        :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
+                      >
                         <div class="aggregate-cell">
-                          <span v-for="tag in getTraceTags(trace.traceId, 'fault')" :key="tag.type" class="trace-type-tag" :class="`trace-type-tag-${tag.type}`">
+                          <span
+                            v-for="tag in getTraceTags(trace.traceId, 'fault')"
+                            :key="tag.type"
+                            class="trace-type-tag"
+                            :class="`trace-type-tag-${tag.type}`"
+                          >
                             {{ tag.label }}
                           </span>
                         </div>
@@ -8372,58 +9089,119 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
 
-                  <div class="aggregate-latency-scroll fault-trace-scroll scroll-section-outline" :class="{ 'scroll-section-outline-full': !isFaultTraceEventsLoading && !faultTraceEventsError && getFilteredFaultTraceRows().length > 0 }">
+                  <div
+                    class="aggregate-latency-scroll fault-trace-scroll scroll-section-outline"
+                    :class="{
+                      'scroll-section-outline-full':
+                        !isFaultTraceEventsLoading &&
+                        !faultTraceEventsError &&
+                        getFilteredFaultTraceRows().length > 0,
+                    }"
+                  >
                     <div class="aggregate-latency-head aggregate-latency-sync">
-                      <div class="fault-trace-scroll-grid aggregate-table-header" :style="faultTraceScrollGridStyle">
+                      <div
+                        class="fault-trace-scroll-grid aggregate-table-header"
+                        :style="faultTraceScrollGridStyle"
+                      >
                         <div class="aggregate-cell column-resizable">
                           Pod IP
-                          <div class="column-resize-handle" @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 0)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 0)"
+                          ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
                           集群
-                          <div class="column-resize-handle" @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 1)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 1)"
+                          ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
                           主机IP
-                          <div class="column-resize-handle" @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 2)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 2)"
+                          ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
                           故障码
-                          <div class="column-resize-handle" @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 3)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 3)"
+                          ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
                           故障名称
-                          <div class="column-resize-handle" @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 4)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 4)"
+                          ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
                           故障域
-                          <div class="column-resize-handle" @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 5)"></div>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 5)"
+                          ></div>
                         </div>
                       </div>
                     </div>
-                    <div class="aggregate-latency-scrollbar aggregate-latency-sync" @scroll="syncAggregateLatencyScroll">
-                      <div class="aggregate-latency-scrollbar-spacer fault-trace-scrollbar-spacer" :style="{ width: faultTraceScrollGridStyle.minWidth }"></div>
+                    <div
+                      class="aggregate-latency-scrollbar aggregate-latency-sync"
+                      @scroll="syncAggregateLatencyScroll"
+                    >
+                      <div
+                        class="aggregate-latency-scrollbar-spacer fault-trace-scrollbar-spacer"
+                        :style="{ width: faultTraceScrollGridStyle.minWidth }"
+                      ></div>
                     </div>
-                    <div class="aggregate-latency-body aggregate-latency-sync" @scroll="syncAggregateLatencyScroll">
-                      <template v-if="!isFaultTraceEventsLoading && !faultTraceEventsError && getFilteredFaultTraceRows().length > 0">
-                        <div v-for="trace in getFilteredFaultTraceRows()" :key="`${trace.id}-scroll`" class="fault-trace-scroll-grid aggregate-body-row" :style="faultTraceScrollGridStyle">
+                    <div
+                      class="aggregate-latency-body aggregate-latency-sync"
+                      @scroll="syncAggregateLatencyScroll"
+                    >
+                      <template
+                        v-if="
+                          !isFaultTraceEventsLoading &&
+                          !faultTraceEventsError &&
+                          getFilteredFaultTraceRows().length > 0
+                        "
+                      >
+                        <div
+                          v-for="trace in getFilteredFaultTraceRows()"
+                          :key="`${trace.id}-scroll`"
+                          class="fault-trace-scroll-grid aggregate-body-row"
+                          :style="faultTraceScrollGridStyle"
+                        >
                           <div class="aggregate-cell fault-trace-pod-cell">
-                            <span v-for="podName in trace.podNames" :key="`${trace.id}-pod-${podName}`" class="fault-trace-pod-item">
+                            <span
+                              v-for="podName in trace.podNames"
+                              :key="`${trace.id}-pod-${podName}`"
+                              class="fault-trace-pod-item"
+                            >
                               {{ podName }}
                             </span>
                           </div>
                           <div class="aggregate-cell fault-trace-cluster-cell">
-                            <span v-for="clusterName in trace.clusterNames" :key="`${trace.id}-cluster-${clusterName}`" class="fault-trace-cluster-item">
+                            <span
+                              v-for="clusterName in trace.clusterNames"
+                              :key="`${trace.id}-cluster-${clusterName}`"
+                              class="fault-trace-cluster-item"
+                            >
                               {{ clusterName }}
                             </span>
                           </div>
                           <div class="aggregate-cell fault-trace-host-cell">
-                            <span v-for="hostName in trace.hostNames" :key="`${trace.id}-host-${hostName}`" class="fault-trace-host-item">
+                            <span
+                              v-for="hostName in trace.hostNames"
+                              :key="`${trace.id}-host-${hostName}`"
+                              class="fault-trace-host-item"
+                            >
                               {{ hostName }}
                             </span>
                           </div>
                           <div class="aggregate-cell">
-                            <span 
+                            <span
                               v-if="trace.faultCode"
                               class="fault-code-pill fault-code-clickable"
                               @click="openStatusCodePopover(trace.faultCode, $event)"
@@ -8451,12 +9229,30 @@ onBeforeUnmount(() => {
 
                   <div class="aggregate-fixed-actions">
                     <div class="aggregate-cell action-cell aggregate-table-header">Trace分析</div>
-                    <template v-if="!isFaultTraceEventsLoading && !faultTraceEventsError && getFilteredFaultTraceRows().length > 0">
-                      <div v-for="trace in getFilteredFaultTraceRows()" :key="`${trace.id}-action`" class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row">
-                        <button class="metric-action-btn detail-action-btn" type="button" @click="openFaultTraceDialog(trace)">
+                    <template
+                      v-if="
+                        !isFaultTraceEventsLoading &&
+                        !faultTraceEventsError &&
+                        getFilteredFaultTraceRows().length > 0
+                      "
+                    >
+                      <div
+                        v-for="trace in getFilteredFaultTraceRows()"
+                        :key="`${trace.id}-action`"
+                        class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row"
+                      >
+                        <button
+                          class="metric-action-btn detail-action-btn"
+                          type="button"
+                          @click="openFaultTraceDialog(trace)"
+                        >
                           查看链路
                         </button>
-                        <button class="metric-action-btn" type="button" @click="openTraceFilterDialog(trace)">
+                        <button
+                          class="metric-action-btn"
+                          type="button"
+                          @click="openTraceFilterDialog(trace)"
+                        >
                           ➕筛选
                         </button>
                       </div>
@@ -8466,21 +9262,24 @@ onBeforeUnmount(() => {
                 <div v-if="isFaultTraceEventsLoading" class="aggregate-table-state">
                   正在加载错误日志...
                 </div>
-                <div v-else-if="faultTraceEventsError" class="aggregate-table-state metric-table-error">
+                <div
+                  v-else-if="faultTraceEventsError"
+                  class="aggregate-table-state metric-table-error"
+                >
                   {{ faultTraceEventsError }}
                 </div>
                 <div v-else-if="faultTraceRows.length === 0" class="aggregate-table-state">
                   暂无错误日志数据
                 </div>
-                <div v-else-if="getFilteredFaultTraceRows().length === 0" class="aggregate-table-state">
+                <div
+                  v-else-if="getFilteredFaultTraceRows().length === 0"
+                  class="aggregate-table-state"
+                >
                   无匹配错误日志
                 </div>
               </div>
               <div
-                v-if="
-                  activeFaultMonitorTab === 'trace' &&
-                  faultTraceEventsTotal > 0
-                "
+                v-if="activeFaultMonitorTab === 'trace' && faultTraceEventsTotal > 0"
                 class="aggregate-pagination"
               >
                 <button
@@ -8508,8 +9307,7 @@ onBeforeUnmount(() => {
                   class="ghost-btn"
                   type="button"
                   :disabled="
-                    faultTraceEventsPage >= faultTraceEventsPageCount ||
-                    isFaultTraceEventsLoading
+                    faultTraceEventsPage >= faultTraceEventsPageCount || isFaultTraceEventsLoading
                   "
                   @click="goFaultTraceEventsPage(faultTraceEventsPage + 1)"
                 >
@@ -8581,9 +9379,7 @@ onBeforeUnmount(() => {
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M4.5 7h15" />
                   <path d="M9.75 7V4.75h4.5V7" />
-                  <path
-                    d="M7 7l.75 12.25a1.5 1.5 0 0 0 1.5 1.25h5.5a1.5 1.5 0 0 0 1.5-1.25L17 7"
-                  />
+                  <path d="M7 7l.75 12.25a1.5 1.5 0 0 0 1.5 1.25h5.5a1.5 1.5 0 0 0 1.5-1.25L17 7" />
                   <path d="M10 11v5.5" />
                   <path d="M14 11v5.5" />
                 </svg>
@@ -8593,6 +9389,27 @@ onBeforeUnmount(() => {
         </header>
 
         <section class="log-upload-section">
+          <div class="parse-config-bar">
+            <div class="parse-config-main">
+              <span class="parse-config-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6" />
+                </svg>
+              </span>
+              <div class="parse-config-copy">
+                <div class="parse-config-title-row">
+                  <strong>日志解析配置</strong>
+                  <span class="parse-config-scope">本资产库</span>
+                </div>
+                <span class="parse-config-summary">{{ parseConfigSummary }}</span>
+              </div>
+            </div>
+            <div class="parse-config-action">
+              <button type="button" class="parse-config-edit-btn" @click="openParseConfigDrawer">
+                修改配置
+              </button>
+            </div>
+          </div>
           <div class="log-upload-area">
             <input
               v-model="logSourceInput"
@@ -8703,10 +9520,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <div
-              v-if="logFilesTotal > 0"
-              class="aggregate-pagination log-file-pagination"
-            >
+            <div v-if="logFilesTotal > 0" class="aggregate-pagination log-file-pagination">
               <button
                 class="ghost-btn"
                 type="button"
@@ -9202,7 +10016,10 @@ onBeforeUnmount(() => {
             >
               <div class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
                 <div class="aggregate-fixed-left">
-                  <div class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header" :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }">
+                  <div
+                    class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
+                    :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
+                  >
                     <div class="aggregate-cell">标签</div>
                     <div class="aggregate-cell">时间</div>
                     <div class="aggregate-cell">Trace ID</div>
@@ -9254,58 +10071,172 @@ onBeforeUnmount(() => {
                   }"
                 >
                   <div class="aggregate-latency-head aggregate-latency-sync">
-                    <div class="abnormal-latency-grid aggregate-table-header" :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }">
-                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('total_latency')">
+                    <div
+                      class="abnormal-latency-grid aggregate-table-header"
+                      :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
+                    >
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="detailParseResultSort.handleHeaderClick('total_latency')"
+                      >
                         <span class="sort-header-content">
                           总时延 (ms)
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('total_latency') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('total_latency') === 'desc' }">▼</span>
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('total_latency') === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('total_latency') === 'desc',
+                              }"
+                              >▼</span
+                            >
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('worker_query_meta_latency')">
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="
+                          detailParseResultSort.handleHeaderClick('worker_query_meta_latency')
+                        "
+                      >
                         <span class="sort-header-content">
                           查询元数据时延 (ms)
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('worker_query_meta_latency') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('worker_query_meta_latency') === 'desc' }">▼</span>
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder(
+                                    'worker_query_meta_latency',
+                                  ) === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder(
+                                    'worker_query_meta_latency',
+                                  ) === 'desc',
+                              }"
+                              >▼</span
+                            >
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('urma_total_latency')">
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="detailParseResultSort.handleHeaderClick('urma_total_latency')"
+                      >
                         <span class="sort-header-content">
                           URMA总时延 (ms)
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_total_latency') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_total_latency') === 'desc' }">▼</span>
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('urma_total_latency') ===
+                                  'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('urma_total_latency') ===
+                                  'desc',
+                              }"
+                              >▼</span
+                            >
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('urma_link_latency')">
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="detailParseResultSort.handleHeaderClick('urma_link_latency')"
+                      >
                         <span class="sort-header-content">
                           URMA建链时延 (ms)
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_link_latency') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('urma_link_latency') === 'desc' }">▼</span>
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('urma_link_latency') === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('urma_link_latency') ===
+                                  'desc',
+                              }"
+                              >▼</span
+                            >
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('c2w_urma_latency')">
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="detailParseResultSort.handleHeaderClick('c2w_urma_latency')"
+                      >
                         <span class="sort-header-content">
                           C2W URMA时延 (ms)
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('c2w_urma_latency') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('c2w_urma_latency') === 'desc' }">▼</span>
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('c2w_urma_latency') === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('c2w_urma_latency') === 'desc',
+                              }"
+                              >▼</span
+                            >
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell aggregate-sortable-cell" @click="detailParseResultSort.handleHeaderClick('w2w_urma_latency')">
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="detailParseResultSort.handleHeaderClick('w2w_urma_latency')"
+                      >
                         <span class="sort-header-content">
                           W2W URMA时延 (ms)
                           <span class="sort-icons">
-                            <span class="sort-icon-up" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('w2w_urma_latency') === 'asc' }">▲</span>
-                            <span class="sort-icon-down" :class="{ 'sort-icon-active': detailParseResultSort.getSortOrder('w2w_urma_latency') === 'desc' }">▼</span>
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('w2w_urma_latency') === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  detailParseResultSort.getSortOrder('w2w_urma_latency') === 'desc',
+                              }"
+                              >▼</span
+                            >
                           </span>
                         </span>
                       </div>
@@ -9460,10 +10391,7 @@ onBeforeUnmount(() => {
                 暂无时延异常记录
               </div>
             </div>
-            <div
-              v-if="detailParseResultsTotal > 0"
-              class="parse-result-pagination"
-            >
+            <div v-if="detailParseResultsTotal > 0" class="parse-result-pagination">
               <button
                 class="ghost-btn"
                 type="button"
@@ -9578,8 +10506,7 @@ onBeforeUnmount(() => {
               </div>
               <div
                 v-else-if="
-                  selectedFaultDetailChartCodes.length === 0 ||
-                  faultDetailChartBuckets.length === 0
+                  selectedFaultDetailChartCodes.length === 0 || faultDetailChartBuckets.length === 0
                 "
                 class="chart-state detail-chart-state"
               >
@@ -9683,9 +10610,7 @@ onBeforeUnmount(() => {
               <button
                 class="ghost-btn"
                 type="button"
-                :disabled="
-                  faultDetailTraceEventsPage <= 1 || isFaultDetailTraceEventsLoading
-                "
+                :disabled="faultDetailTraceEventsPage <= 1 || isFaultDetailTraceEventsLoading"
                 @click="goFaultDetailTraceEventsPage(faultDetailTraceEventsPage - 1)"
               >
                 上一页
@@ -9954,9 +10879,7 @@ onBeforeUnmount(() => {
                 <tbody>
                   <tr v-for="column in traceDelayColumns" :key="column.key">
                     <td class="trace-stage-name">{{ getTraceDelayLabel(column) }}</td>
-                    <td
-                      :class="{ 'delay-timeout': isTraceDelayAbnormal(selectedTrace, column) }"
-                    >
+                    <td :class="{ 'delay-timeout': isTraceDelayAbnormal(selectedTrace, column) }">
                       {{
                         formatTraceDelayColumnValue(
                           getTraceDelayValue(selectedTrace, column),
@@ -10251,6 +11174,277 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
+    <div
+      v-if="isParseConfigDrawerOpen"
+      class="side-drawer-mask parse-config-drawer-mask"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="parse-config-drawer-title"
+      @click.self="closeParseConfigDrawer"
+    >
+      <aside class="side-drawer parse-config-drawer">
+        <header class="side-drawer-header">
+          <div class="side-drawer-title parse-config-drawer-title">
+            <h2 id="parse-config-drawer-title">日志解析配置</h2>
+            <span>{{ selectedAsset?.name || '当前资产库' }}</span>
+          </div>
+          <button
+            class="close-modal"
+            type="button"
+            title="关闭"
+            aria-label="关闭配置"
+            @click="closeParseConfigDrawer"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="side-drawer-body parse-config-drawer-body">
+          <div v-if="diagnosisConfigError" class="diagnosis-config-error" role="alert">
+            {{ diagnosisConfigError }}
+          </div>
+          <div v-if="isDiagnosisConfigLoading" class="diagnosis-config-loading">
+            正在读取当前配置...
+          </div>
+
+          <section v-show="!isDiagnosisConfigLoading" class="config-import-section">
+            <div class="config-import-copy">
+              <strong>导入其他资产库配置</strong>
+              <span>导入后仅填充当前表单，点击“保存配置”后才会应用到当前资产库。</span>
+            </div>
+            <div class="config-import-controls">
+              <select
+                v-model="diagnosisConfigImportAssetId"
+                :disabled="
+                  isDiagnosisConfigImportListLoading ||
+                  isDiagnosisConfigImporting ||
+                  diagnosisConfigImportAssets.length === 0
+                "
+                aria-label="选择要导入配置的资产库"
+              >
+                <option value="">
+                  {{
+                    isDiagnosisConfigImportListLoading
+                      ? '正在加载资产库...'
+                      : diagnosisConfigImportAssets.length
+                        ? '选择资产库'
+                        : '暂无其他资产库'
+                  }}
+                </option>
+                <option
+                  v-for="asset in diagnosisConfigImportAssets"
+                  :key="asset.id"
+                  :value="asset.id"
+                >
+                  {{ asset.name }}
+                </option>
+              </select>
+              <button
+                type="button"
+                :disabled="!diagnosisConfigImportAssetId || isDiagnosisConfigImporting"
+                @click="importDiagnosisConfigFromAsset"
+              >
+                {{ isDiagnosisConfigImporting ? '导入中...' : '导入配置' }}
+              </button>
+            </div>
+            <span v-if="diagnosisConfigImportMessage" class="config-import-message">
+              {{ diagnosisConfigImportMessage }}
+            </span>
+          </section>
+
+          <section
+            v-show="!isDiagnosisConfigLoading"
+            class="parse-config-section pattern-config-section"
+          >
+            <div class="parse-config-section-heading">
+              <div>
+                <h3>日志文件名 Pattern</h3>
+                <p>
+                  使用 <strong>glob 模式</strong>识别不同类型的日志文件。可添加自定义规则，点击标签上的 ×
+                  可删除。
+                </p>
+              </div>
+            </div>
+
+            <div class="pattern-type-list">
+              <article
+                v-for="option in patternTypeOptions"
+                :key="option.key"
+                class="pattern-type-item"
+              >
+                <div class="pattern-type-heading">
+                  <div>
+                    <strong>{{ option.label }}</strong>
+                    <span>{{ option.description }}</span>
+                  </div>
+                  <span class="pattern-count">
+                    {{ diagnosisConfigDraft.logFilenamePattern[option.key].length }} 个
+                  </span>
+                </div>
+                <div
+                  v-if="diagnosisConfigDraft.logFilenamePattern[option.key].length"
+                  class="pattern-chip-list"
+                >
+                  <span
+                    v-for="(pattern, patternIndex) in diagnosisConfigDraft.logFilenamePattern[
+                      option.key
+                    ]"
+                    :key="`${option.key}-${pattern}-${patternIndex}`"
+                    class="pattern-chip"
+                  >
+                    <code>{{ pattern }}</code>
+                    <button
+                      type="button"
+                      :aria-label="`删除 ${pattern}`"
+                      @click="removeFilenamePattern(option.key, patternIndex)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
+                <div v-else class="pattern-empty">暂无 Pattern，请至少添加一项</div>
+                <div class="pattern-add-row">
+                  <input
+                    v-model="patternInputs[option.key]"
+                    type="text"
+                    placeholder="输入 Pattern"
+                    @keydown.enter.prevent="addFilenamePattern(option.key)"
+                  />
+                  <button
+                    type="button"
+                    :disabled="!patternInputs[option.key].trim()"
+                    @click="addFilenamePattern(option.key)"
+                  >
+                    添加
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section
+            v-show="!isDiagnosisConfigLoading"
+            class="parse-config-section analyzer-config-section"
+          >
+            <div class="parse-config-section-heading">
+              <div>
+                <h3>日志分析参数</h3>
+                <p>调整异常检测使用的时延阈值、滑动窗口以及区间异常密度。</p>
+              </div>
+            </div>
+
+            <h4 class="analyzer-group-title">时延阈值</h4>
+            <div class="analyzer-threshold-grid">
+              <label
+                v-for="option in analyzerThresholdOptions"
+                :key="option.key"
+                class="analyzer-threshold-field"
+              >
+                <span class="analyzer-field-name">{{ option.label }}</span>
+                <span class="analyzer-field-description">{{ option.description }}</span>
+                <span class="parse-config-input-suffix">
+                  <input
+                    v-model.number="diagnosisConfigDraft.logAnalyzerParams[option.key]"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                  />
+                  <em>ms</em>
+                </span>
+              </label>
+            </div>
+
+            <div class="analyzer-divider"></div>
+            <div class="analyzer-group-heading">
+              <div>
+                <h4 class="analyzer-group-title">滑动窗口</h4>
+                <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
+              </div>
+              <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
+                + 添加窗口
+              </button>
+            </div>
+            <div class="window-pair-list">
+              <div
+                v-for="(windowPair, index) in diagnosisConfigDraft.logAnalyzerParams
+                  .slidingWindowPairs"
+                :key="index"
+                class="window-pair-row"
+              >
+                <span class="window-index">{{ index + 1 }}</span>
+                <label>
+                  <span>窗口大小</span>
+                  <input v-model.number="windowPair.size" type="number" min="1" step="1" />
+                </label>
+                <label>
+                  <span>窗口步长</span>
+                  <input v-model.number="windowPair.step" type="number" min="1" step="1" />
+                </label>
+                <button
+                  type="button"
+                  class="window-remove-btn"
+                  title="删除该窗口"
+                  aria-label="删除该窗口"
+                  @click="removeSlidingWindowPair(index)"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div class="analyzer-divider"></div>
+            <label class="density-field">
+              <span>
+                <strong>区间异常密度阈值</strong>
+                <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
+              </span>
+              <span class="density-input">
+                <input
+                  v-model.number="
+                    diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
+                  "
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                />
+                <em>0–1</em>
+              </span>
+            </label>
+          </section>
+        </div>
+
+        <footer class="parse-config-drawer-footer">
+          <button
+            class="parse-config-reset-btn"
+            type="button"
+            :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving"
+            @click="resetParseConfigDraft"
+          >
+            恢复默认
+          </button>
+          <div>
+            <button
+              class="ghost-btn"
+              type="button"
+              :disabled="isDiagnosisConfigSaving"
+              @click="closeParseConfigDrawer"
+            >
+              取消
+            </button>
+            <button
+              class="save-btn"
+              type="button"
+              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving"
+              @click="saveParseConfig"
+            >
+              {{ isDiagnosisConfigSaving ? '保存中...' : '保存配置' }}
+            </button>
+          </div>
+        </footer>
+      </aside>
+    </div>
+
     <aside
       v-if="isAbnormalMonitorPage && isAgentChatOpen"
       class="agent-chat-panel"
@@ -10289,12 +11483,18 @@ onBeforeUnmount(() => {
           </div>
           <div class="agent-chat-bubble">
             <section
-              v-if="message.role === 'assistant' && (message.reasoning || message.status === 'thinking')"
+              v-if="
+                message.role === 'assistant' && (message.reasoning || message.status === 'thinking')
+              "
               class="agent-reasoning"
             >
               <div class="agent-response-label">
                 <span>思考过程</span>
-                <span v-if="message.status === 'thinking'" class="agent-thinking-dots" aria-label="思考中">
+                <span
+                  v-if="message.status === 'thinking'"
+                  class="agent-thinking-dots"
+                  aria-label="思考中"
+                >
                   <i></i><i></i><i></i>
                 </span>
               </div>

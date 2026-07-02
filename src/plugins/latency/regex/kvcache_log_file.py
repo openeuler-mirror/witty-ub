@@ -56,10 +56,31 @@ def _load_patterns():
         )
 
 
-SDK_ACCESS_LOG_PATTERNS, WORKER_ACCESS_LOG_PATTERNS, WORKER_INFO_LOG_PATTERNS = _load_patterns()
+def reload_patterns():
+    """从当前运行时配置刷新所有向后兼容的 Pattern 列表。"""
+    global SDK_ACCESS_LOG_PATTERNS
+    global WORKER_ACCESS_LOG_PATTERNS
+    global WORKER_INFO_LOG_PATTERNS
+    global URMA_LOG_PATTERNS
+    global REMOTE_PULL_LOG_PATTERNS
+    global LINK_LOG_PATTERNS
+    global QUERY_META_LOG_PATTERNS
 
-# 以下变量保持向后兼容，均使用Worker信息日志模式
-URMA_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
-REMOTE_PULL_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
-LINK_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
-QUERY_META_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
+    loaded = _load_patterns()
+    # 原地更新，确保通过 from ... import 获取到列表的解析器也能看到新值。
+    if "SDK_ACCESS_LOG_PATTERNS" in globals():
+        SDK_ACCESS_LOG_PATTERNS[:] = loaded[0]
+        WORKER_ACCESS_LOG_PATTERNS[:] = loaded[1]
+        WORKER_INFO_LOG_PATTERNS[:] = loaded[2]
+    else:
+        SDK_ACCESS_LOG_PATTERNS = loaded[0]
+        WORKER_ACCESS_LOG_PATTERNS = loaded[1]
+        WORKER_INFO_LOG_PATTERNS = loaded[2]
+
+    URMA_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
+    REMOTE_PULL_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
+    LINK_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
+    QUERY_META_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
+
+
+reload_patterns()

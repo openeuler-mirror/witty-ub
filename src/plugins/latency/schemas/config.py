@@ -1,5 +1,5 @@
 """系统配置类"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from uuid import uuid4
 from latency.ENUM.general import OnlineStatus, LogLevel
 from latency.ENUM.model import ModelProvider, ModelLabel
@@ -60,6 +60,38 @@ class LogFilenamePatternConfig(BaseModel):
     ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker访问日志文件匹配模式")
     ds_worker_info_log_file: list[str] = Field(default_factory=list, description="Worker信息日志文件匹配模式")
     resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
+
+
+class DiagnosisRuntimeConfig(BaseModel):
+    """可在服务运行期间热更新的诊断配置。"""
+
+    log_filename_pattern: LogFilenamePatternConfig
+    log_analyzer_params: DSLogAnalyzerConfig
+
+    @model_validator(mode="after")
+    def validate_runtime_config(self):
+        empty_pattern_types = [
+            key
+            for key, patterns in self.log_filename_pattern.model_dump().items()
+            if not patterns
+        ]
+        if empty_pattern_types:
+            raise ValueError(
+                f"日志文件名 Pattern 不能为空: {', '.join(empty_pattern_types)}"
+            )
+
+        params = self.log_analyzer_params
+        if not params.sliding_window_sizes:
+            raise ValueError("至少需要配置一组滑动窗口")
+        if len(params.sliding_window_sizes) != len(params.sliding_window_steps):
+            raise ValueError("滑动窗口大小与步长数量必须一致")
+        if any(value <= 0 for value in params.sliding_window_sizes):
+            raise ValueError("滑动窗口大小必须大于 0")
+        if any(value <= 0 for value in params.sliding_window_steps):
+            raise ValueError("滑动窗口步长必须大于 0")
+        if not 0 <= params.zone_anomaly_density_threshold <= 1:
+            raise ValueError("区间异常密度阈值必须在 0 到 1 之间")
+        return self
 
 
 class ConfigModel(BaseModel):

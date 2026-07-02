@@ -168,7 +168,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 logger.info("failure_trace.log 中没有可落库的 trace_id")
                 return 0
 
-            config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config()
+            log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_id)
+            config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config(
+                log_file_model.kb_id if log_file_model else None
+            )
             failure_mode_cache = await FailureModeKnowledgeManager.get_all_failure_modes()
             worker_access_patterns = config.get("ds_worker_access_log_file", [])
             client_access_patterns = config.get("ds_client_access_log_file", [])
@@ -441,18 +444,26 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             trace_failure_event["failure_mode"] = new_leaf_mode
     
     @staticmethod
-    async def parse_filepath_config():
+    async def parse_filepath_config(kb_id: str | None = None):
         try:
-            args = Config().get_config().log_filename_pattern.model_dump()
-            logger.info("从统一配置文件读取日志文件名参数: %s", args)
+            if kb_id:
+                from latency.database.managers.diagnosis_config import DiagnosisConfigManager
+
+                config = await DiagnosisConfigManager.get_or_create(kb_id)
+                args = config.log_filename_pattern.model_dump()
+            else:
+                args = Config().get_config().log_filename_pattern.model_dump()
+            logger.info("读取日志文件名参数: %s", args)
             return args
         except Exception as e:
             logger.error("读取统一配置文件失败: %s", e)
             return {}
     
     @staticmethod
-    async def run_diagnosis_tool(file_path: str, task: TaskModel, random_str: str) -> bool:
-        config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config()
+    async def run_diagnosis_tool(
+        file_path: str, task: TaskModel, random_str: str, kb_id: str | None = None
+    ) -> bool:
+        config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config(kb_id)
         # 获取当前机器时间
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -768,7 +779,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
             # TODO: 运行时启用真实业务逻辑
             print("故障定界工具开始运行")
-            result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(file_path=extracted_log_file_path, task=task, random_str=random_str)
+            result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(
+                file_path=extracted_log_file_path,
+                task=task,
+                random_str=random_str,
+                kb_id=log_file.kb_id,
+            )
             try:
               if extracted_log_file_path == os.path.join(witty_dir, "log_extracted_" + random_str):
                   shutil.rmtree(extracted_log_file_path)

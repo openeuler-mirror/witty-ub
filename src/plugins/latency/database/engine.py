@@ -24,6 +24,14 @@ table_ddl_list = {
             updated_at TEXT NOT NULL
         )
     """,
+    "diagnosis_config_table": """
+        CREATE TABLE IF NOT EXISTS diagnosis_config_table (
+            kb_id TEXT PRIMARY KEY,
+            config_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """,
     "failure_mode_knowledge_table": """
         CREATE TABLE IF NOT EXISTS failure_mode_knowledge_table (
             id TEXT PRIMARY KEY,
