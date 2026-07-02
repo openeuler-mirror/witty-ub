@@ -215,8 +215,11 @@ RackResult DiagnosisToolModule::ConfigureMergedPath()
 std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::string &dir, const std::string &pattern)
 {
     std::vector<std::string> matchedFiles;
+    std::vector<std::string_view> patternViews;
+    log_helper::SplitView(patternViews, pattern, ",");
+    const std::vector<std::string> patterns = log_helper::ToStringFields(patternViews);
+
     std::error_code ec;
-    const bool isWildcard = pattern.find('*') != std::string::npos;
 
     for (fs::recursive_directory_iterator it(dir, ec), end; it != end; it.increment(ec)) {
         if (ec) {
@@ -231,7 +234,11 @@ std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::strin
         if (filename.empty() || filename.front() == '.') {
             continue;
         }
-        if ((isWildcard && log_helper::WildcardMatch(pattern, filename)) || (!isWildcard && filename == pattern)) {
+        const bool matched = std::any_of(patterns.begin(), patterns.end(), [&](const std::string &item) {
+            const bool isWildcard = item.find('*') != std::string::npos;
+            return (isWildcard && log_helper::WildcardMatch(item, filename)) || (!isWildcard && filename == item);
+        });
+        if (matched) {
             matchedFiles.push_back(it->path().string());
         }
     }

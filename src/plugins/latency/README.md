@@ -88,7 +88,6 @@ latency/
 ├── sdk/                    # SDK
 │   └── xxx.py
 ├── static/                 # 静态资源
-│   ├── config.toml         # TOML 配置文件
 │   └── fault_patterns_tree.json
 ├── deploy/                 # 部署文件
 │   ├── deploy.sh           # 一键部署脚本

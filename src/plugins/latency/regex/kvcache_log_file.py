@@ -29,18 +29,18 @@ def _load_patterns():
         from latency.config.config import Config
 
         config = Config().get_config()
-        ds_log_config = config.ds_log_analyzer
+        filename_config = config.log_filename_pattern
 
-        # ds-client-access-log-file + ds-client-info-log-file -> SDK_ACCESS_LOG_PATTERNS
-        sdk_access_patterns = ds_log_config.ds_client_access_log_file.copy()
-        if ds_log_config.ds_client_info_log_file:
-            sdk_access_patterns.extend(ds_log_config.ds_client_info_log_file)
+        # Client access and info logs share the SDK parser set.
+        # ds_client_access_log_file + ds_client_info_log_file -> SDK_ACCESS_LOG_PATTERNS
+        sdk_access_patterns = filename_config.ds_client_access_log_file.copy()
+        sdk_access_patterns.extend(filename_config.ds_client_info_log_file)
 
-        # ds-worker-access-log-file -> WORKER_ACCESS_LOG_PATTERNS
-        worker_access_patterns = ds_log_config.ds_worker_access_log_file.copy()
+        # ds_worker_access_log_file -> WORKER_ACCESS_LOG_PATTERNS
+        worker_access_patterns = filename_config.ds_worker_access_log_file.copy()
 
-        # ds-worker-info-log-file -> URMA_LOG_PATTERNS, REMOTE_PULL_LOG_PATTERNS, LINK_LOG_PATTERNS, QUERY_META_LOG_PATTERNS
-        worker_info_patterns = ds_log_config.ds_worker_info_log_file.copy()
+        # ds_worker_info_log_file -> URMA_LOG_PATTERNS, REMOTE_PULL_LOG_PATTERNS, LINK_LOG_PATTERNS, QUERY_META_LOG_PATTERNS
+        worker_info_patterns = filename_config.ds_worker_info_log_file.copy()
 
         return (
             sdk_access_patterns if sdk_access_patterns else _DEFAULT_SDK_ACCESS_LOG_PATTERNS,

@@ -1,9 +1,9 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
 """配置文件处理模块"""
 
+import json
 import os
 from copy import deepcopy
-import toml
 from latency.schemas.config import ConfigModel
 
 
@@ -13,13 +13,23 @@ class Config:
     _config: ConfigModel
 
     def __init__(self) -> None:
-        """读取配置文件；当PROD环境变量设置时，配置文件将在读取后删除"""
-        config_file = os.getenv("CONFIG") or "/var/witty-ub/config/latency/latency_config.toml"
+        """从统一配置文件读取服务、日志分析及日志文件名配置。"""
+        config_file = os.getenv("CONFIG") or "/var/witty-ub/config/diagnosis_config.json"
         if not os.path.exists(config_file):
-            # Fallback to development environment
+            # Fallback to the repository config in development environments.
             latency_dir = os.path.dirname(os.path.dirname(__file__))
-            config_file = os.path.join(latency_dir, "static", "config.toml")
-        self._config = ConfigModel.model_validate(toml.load(config_file))
+            config_file = os.path.abspath(
+                os.path.join(
+                    latency_dir,
+                    "..",
+                    "..",
+                    "..",
+                    "config",
+                    "diagnosis_config.json",
+                )
+            )
+        with open(config_file, "r", encoding="utf-8") as file:
+            self._config = ConfigModel.model_validate(json.load(file))
 
     def get_config(self) -> ConfigModel:
         """获取配置文件内容"""

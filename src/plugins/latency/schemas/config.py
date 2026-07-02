@@ -41,25 +41,25 @@ class ModelConfig(BaseModel):
 
 
 class DSLogAnalyzerConfig(BaseModel):
-    model_config = {"populate_by_name": True}
-
     # 多窗口配置（每个指标都会使用所有窗口检测）
-    sliding_window_sizes: list[int] = Field(default=[100, 200, 300, 500], alias="SLIDING_WINDOW_SIZES", description="滑动窗口大小列表")
-    sliding_window_steps: list[int] = Field(default=[20, 30, 40, 50], alias="SLIDING_WINDOW_STEPS", description="滑动窗口步长列表，与窗口大小一一对应")
-    zone_anomaly_density_threshold: float = Field(default=0.5, alias="ZONE_ANOMALY_DENSITY_THRESHOLD", description="区间异常密度阈值，超过此比例则整个区间标记为异常")
+    sliding_window_sizes: list[int] = Field(default=[100, 200, 300, 500], description="滑动窗口大小列表")
+    sliding_window_steps: list[int] = Field(default=[20, 30, 40, 50], description="滑动窗口步长列表，与窗口大小一一对应")
+    zone_anomaly_density_threshold: float = Field(default=0.5, description="区间异常密度阈值，超过此比例则整个区间标记为异常")
 
     # 各指标阈值配置
-    total_p99_threshold_ms: float = Field(default=2.0, alias="TOTAL_P99_THRESHOLD_MS", description="总时延P99阈值，单位毫秒")
-    c2w_p99_threshold_ms: float = Field(default=1.0, alias="C2W_P99_THRESHOLD_MS", description="C2W时延P99阈值，单位毫秒")
-    w2w_p99_threshold_ms: float = Field(default=1.0, alias="W2W_P99_THRESHOLD_MS", description="W2W时延P99阈值，单位毫秒")
-    urma_link_p99_threshold_ms: float = Field(default=1.0, alias="URMA_LINK_P99_THRESHOLD_MS", description="URMA建链时延P99阈值，单位毫秒")
-    query_meta_p99_threshold_ms: float = Field(default=1.0, alias="QUERY_META_P99_THRESHOLD_MS", description="Worker QueryMeta时延P99阈值，单位毫秒")
+    total_p99_threshold_ms: float = Field(default=2.0, description="总时延P99阈值，单位毫秒")
+    c2w_p99_threshold_ms: float = Field(default=1.0, description="C2W时延P99阈值，单位毫秒")
+    w2w_p99_threshold_ms: float = Field(default=1.0, description="W2W时延P99阈值，单位毫秒")
+    urma_link_p99_threshold_ms: float = Field(default=1.0, description="URMA建链时延P99阈值，单位毫秒")
+    query_meta_p99_threshold_ms: float = Field(default=1.0, description="Worker QueryMeta时延P99阈值，单位毫秒")
 
-    # 日志文件路径配置
-    ds_client_access_log_file: list[str] = Field(default=[], alias="ds-client-access-log-file", description="SDK客户端访问日志文件匹配模式")
-    ds_client_info_log_file: list[str] = Field(default=[], alias="ds-client-info-log-file", description="SDK客户端信息日志文件匹配模式")
-    ds_worker_access_log_file: list[str] = Field(default=[], alias="ds-worker-access-log-file", description="Worker访问日志文件匹配模式")
-    ds_worker_info_log_file: list[str] = Field(default=[], alias="ds-worker-info-log-file", description="Worker信息日志文件匹配模式")
+
+class LogFilenamePatternConfig(BaseModel):
+    ds_client_access_log_file: list[str] = Field(default_factory=list, description="SDK客户端访问日志文件匹配模式")
+    ds_client_info_log_file: list[str] = Field(default_factory=list, description="SDK客户端信息日志文件匹配模式")
+    ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker访问日志文件匹配模式")
+    ds_worker_info_log_file: list[str] = Field(default_factory=list, description="Worker信息日志文件匹配模式")
+    resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
 
 
 class ConfigModel(BaseModel):
@@ -72,8 +72,11 @@ class ConfigModel(BaseModel):
     embedding_model: ModelConfig | None = Field(
         default=None, description="向量化模型配置"
     )
-    ds_log_analyzer: DSLogAnalyzerConfig = Field(
+    log_filename_pattern: LogFilenamePatternConfig = Field(
+        default_factory=LogFilenamePatternConfig,
+        description="日志文件名匹配模式",
+    )
+    log_analyzer_params: DSLogAnalyzerConfig = Field(
         default_factory=DSLogAnalyzerConfig,
-        alias="DS_LOG_ANALYZER",
         description="DS日志分析配置",
     )

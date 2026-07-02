@@ -1,10 +1,9 @@
 import asyncio
+import fnmatch
 import logging
 import os
 import uuid
-import json
 import subprocess
-import re
 import shutil
 import gzip
 import zipfile
@@ -13,6 +12,7 @@ from datetime import datetime
 from latency.schemas.log_failure_event import TraceFailureEventModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.common.ds_log_io import glob_paths, open_log
+from latency.config.config import Config
 from latency.detect import AnomalyDetector
 from latency.database.engine import AsyncSQLiteSingleton
 from latency.database.managers.log_parse_result import LogParseResultManager
@@ -170,12 +170,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
 
             config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config()
             failure_mode_cache = await FailureModeKnowledgeManager.get_all_failure_modes()
-            worker_access_pattern = None  
-            client_access_pattern = None  
-            if "ds-worker-access-log-file" in config:  
-                worker_access_pattern = re.compile(config["ds-worker-access-log-file"])
-            if "ds-client-access-log-file" in config:  
-                client_access_pattern = re.compile(config["ds-client-access-log-file"])
+            worker_access_patterns = config.get("ds_worker_access_log_file", [])
+            client_access_patterns = config.get("ds_client_access_log_file", [])
                
             log_files = []
             for file in os.listdir(output_log_path):
@@ -190,17 +186,21 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             total_log_failure_events = KVCacheLogEventDiagnosisWorker._count_log_failure_events(
                 log_files,
                 trace_id_set,
-                worker_access_pattern,
-                client_access_pattern,
+                worker_access_patterns,
+                client_access_patterns,
             )
             
             print(f"开始日志落库，共{len(trace_id_set)}条故障trace，{total_log_failure_events}条日志事件")
             for log_file_name, log_file_path in log_files:
                 try:
                     is_access_log = False  
-                    if worker_access_pattern and worker_access_pattern.search(log_file_name):  
-                        is_access_log = True  
-                    if client_access_pattern and client_access_pattern.search(log_file_name):  
+                    if KVCacheLogEventDiagnosisWorker._matches_any(
+                        log_file_name, worker_access_patterns
+                    ):
+                        is_access_log = True
+                    if KVCacheLogEventDiagnosisWorker._matches_any(
+                        log_file_name, client_access_patterns
+                    ):
                         is_access_log = True
                     with open(log_file_path, 'r', encoding='utf-8') as f:
                         for line in f:
@@ -320,16 +320,20 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     def _count_log_failure_events(
         log_files: list[tuple[str, str]],
         trace_id_set: set[str],
-        worker_access_pattern,
-        client_access_pattern,
+        worker_access_patterns: list[str],
+        client_access_patterns: list[str],
     ) -> int:
         total = 0
         for log_file_name, log_file_path in log_files:
             try:
                 is_access_log = False
-                if worker_access_pattern and worker_access_pattern.search(log_file_name):
+                if KVCacheLogEventDiagnosisWorker._matches_any(
+                    log_file_name, worker_access_patterns
+                ):
                     is_access_log = True
-                if client_access_pattern and client_access_pattern.search(log_file_name):
+                if KVCacheLogEventDiagnosisWorker._matches_any(
+                    log_file_name, client_access_patterns
+                ):
                     is_access_log = True
 
                 with open(log_file_path, "r", encoding="utf-8") as f:
@@ -354,6 +358,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 logger.warning(f"统计日志文件 {log_file_path} 失败: {e}")
                 continue
         return total
+
+    @staticmethod
+    def _matches_any(filename: str, patterns: list[str]) -> bool:
+        return any(fnmatch.fnmatch(filename, pattern) for pattern in patterns)
 
     @staticmethod
     def _merge_trace_failure_event(
@@ -434,18 +442,13 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     
     @staticmethod
     async def parse_filepath_config():
-        config_path = os.path.join(witty_dir, "config", "filepath_config.json")
-        args = {}
         try:
-            if os.path.exists(config_path):
-                with open(config_path, "r", encoding="utf-8") as f:
-                    args = json.load(f)
-                logger.info(f"从 {config_path} 读取配置参数: {args}")
-            else:
-                logger.warning(f"配置文件 {config_path} 不存在，使用默认参数")
+            args = Config().get_config().log_filename_pattern.model_dump()
+            logger.info("从统一配置文件读取日志文件名参数: %s", args)
+            return args
         except Exception as e:
-            logger.error(f"读取配置文件 {config_path} 失败: {e}")
-        return args
+            logger.error("读取统一配置文件失败: %s", e)
+            return {}
     
     @staticmethod
     async def run_diagnosis_tool(file_path: str, task: TaskModel, random_str: str) -> bool:
@@ -466,10 +469,16 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         ]
         
         # 添加配置文件中的参数
-        for key, value in config.items():
-            new_value = value.replace("\\", "")
-            new_value = new_value.replace(".*", "*")
-            cmd_args.extend([f"--{key}", new_value])
+        for key, patterns in config.items():
+            plain_patterns = [
+                pattern for pattern in patterns
+                if not pattern.lower().endswith(".gz")
+            ]
+            if plain_patterns:
+                cmd_args.extend([
+                    f"--{key.replace('_', '-')}",
+                    ",".join(plain_patterns),
+                ])
         
         for arg in cmd_args:
             print(arg)

@@ -82,7 +82,6 @@ latency/
 ├── sdk/                    # SDK
 │   └── xxx.py
 ├── static/                 # Static resources
-│   ├── config.toml
 │   └── fault_patterns_tree.json
 ├── deploy/                 # Deployment files
 │   ├── deploy.sh           # One-click deployment script
