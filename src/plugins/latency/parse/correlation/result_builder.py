@@ -508,12 +508,21 @@ class ParseResultBuilder:
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
         for i, w in enumerate(self.worker_entries):
-            worker_success = self._is_success_status(w.status_code, w.resp_msg)
+            w_status_code = w[T_STATUS_CODE] if isinstance(w, tuple) else w.status_code
+            w_resp_msg = w[T_RESP_MSG] if isinstance(w, tuple) else w.resp_msg
+            w_elapsed_us = w[T_ELAPSED_US] if isinstance(w, tuple) else w.elapsed_us
+            w_log_id = w[T_LOG_ID] if isinstance(w, tuple) else w.log_id
+            w_trace_id = w[T_TRACE_ID] if isinstance(w, tuple) else w.trace_id
+            w_timestamp = w[T_TIMESTAMP] if isinstance(w, tuple) else w.timestamp
+            w_pod_ip = w[T_POD_IP] if isinstance(w, tuple) else w.pod_ip
+            w_cluster_name = w[T_CLUSTER_NAME] if isinstance(w, tuple) else w.cluster_name
+
+            worker_success = self._is_success_status(w_status_code, w_resp_msg)
             urma_info = self._resolve_urma_info(i, True, worker_success)
 
             remark = ""
             if not worker_success:
-                remark = self._format_failure_remark("Worker", w.status_code, w.resp_msg)
+                remark = self._format_failure_remark("Worker", w_status_code, w_resp_msg)
             is_anomalous = bool(remark)
             if is_anomalous:
                 self.anomalous_count += 1
@@ -533,19 +542,19 @@ class ParseResultBuilder:
             master_rpc_total_list = self.correlated.worker_master_rpc_map.get(i, [])
 
             # 优先使用传入的 log_file_id（数据库中的日志文件ID），其次使用 entry.log_id，最后使用 log_dir
-            log_id = self.log_file_id or w.log_id or self.log_dir
+            log_id = self.log_file_id or w_log_id or self.log_dir
 
             # 使用 LogParseResultDataclass 替代 LogParseResultModel.model_construct
             results.append(LogParseResultDataclass(
                 log_id=log_id,
-                trace_id=w.trace_id,
-                timestamp=self._format_timestamp(w.timestamp),
+                trace_id=w_trace_id,
+                timestamp=w_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if w_timestamp else None,
                 src_ip=urma_info["src_ip"],
                 dst_ip=urma_info["dst_ip"],
-                pod_ip=w.pod_ip,
-                cluster_name=w.cluster_name,
+                pod_ip=w_pod_ip,
+                cluster_name=w_cluster_name,
                 host=None,
-                total_latency=self._format_latency(w.elapsed_us / 1000),
+                total_latency=self._format_latency(w_elapsed_us / 1000),
                 worker_query_meta_latency=self._format_latency(query_meta_list[0].elapsed_us / 1000) if query_meta_list else None,
                 urma_total_latency=urma_info["urma_latency"],
                 urma_link_latency=self._format_latency(link_list[0].elapsed_us / 1000) if link_list else None,
