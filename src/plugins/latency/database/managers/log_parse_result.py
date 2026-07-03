@@ -1,4 +1,5 @@
 import os
+import time
 
 from latency.schemas.log import (
     LogParseResultDataclass,
@@ -139,6 +140,9 @@ def _log_parse_result_to_minimal_db_tuple(
 class LogParseResultManager:
     """日志解析结果管理器"""
 
+    last_store_metrics: dict[str, object] = {}
+    profile_explicit_wal_checkpoint = False
+
     @staticmethod
     async def add_log_parse_result(result: LogParseResultModel) -> bool:
         """添加日志解析结果"""
@@ -180,20 +184,49 @@ class LogParseResultManager:
         import logging
         
         logger = logging.getLogger(__name__)
-        
+
+        LogParseResultManager.last_store_metrics = {}
         if not results:
             return True
 
         total_count = len(results)
         db = AsyncSQLiteSingleton()
         id_prefix = os.urandom(10).hex()
+        profile_checkpoint = LogParseResultManager.profile_explicit_wal_checkpoint
         
         # 全局协程锁，保证同一时间只有一组操作操作sqlite连接
         async with db._async_lock:
             def sync_batch_insert():
                 """同步函数：全部sqlite操作放到同一个子线程，线程安全"""
                 conn = db._conn
+                sync_started = time.perf_counter()
+                original_wal_autocheckpoint = None
+                metrics: dict[str, object] = {
+                    "rows": total_count,
+                    "batch_size": batch_size,
+                    "batch_count": (total_count + batch_size - 1) // batch_size,
+                    "minimal_rows": 0,
+                    "sparse_rows": 0,
+                    "full_rows": 0,
+                    "setup_seconds": 0.0,
+                    "parameter_build_seconds": 0.0,
+                    "minimal_insert_seconds": 0.0,
+                    "sparse_insert_seconds": 0.0,
+                    "full_insert_seconds": 0.0,
+                    "commit_seconds": 0.0,
+                    "checkpoint_seconds": 0.0,
+                    "explicit_checkpoint": profile_checkpoint,
+                    "commit_includes_auto_checkpoint": not profile_checkpoint,
+                }
+                success = False
                 try:
+                    setup_started = time.perf_counter()
+                    if profile_checkpoint:
+                        original_wal_autocheckpoint = conn.execute(
+                            "PRAGMA wal_autocheckpoint;"
+                        ).fetchone()[0]
+                        conn.execute("PRAGMA wal_autocheckpoint = 0;")
+
                     # 写入性能调优（事务内生效，不影响其他连接）
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
@@ -203,6 +236,9 @@ class LogParseResultManager:
                     
                     # 开启统一事务
                     conn.execute("BEGIN IMMEDIATE;")
+                    metrics["setup_seconds"] = (
+                        time.perf_counter() - setup_started
+                    )
                     
                     sql_str = """
                         INSERT INTO log_parse_result_table (
@@ -247,6 +283,7 @@ class LogParseResultManager:
                         minimal_batch = []
                         sparse_batch = []
                         full_batch = []
+                        parameter_started = time.perf_counter()
                         for index in range(i, end):
                             result = results[index]
                             if not result.id:
@@ -264,22 +301,94 @@ class LogParseResultManager:
                                     )
                             else:
                                 full_batch.append(_log_parse_result_to_db_tuple(result))
+                        metrics["parameter_build_seconds"] += (
+                            time.perf_counter() - parameter_started
+                        )
+                        metrics["minimal_rows"] += len(minimal_batch)
+                        metrics["sparse_rows"] += len(sparse_batch)
+                        metrics["full_rows"] += len(full_batch)
 
                         if minimal_batch:
+                            insert_started = time.perf_counter()
                             conn.executemany(minimal_sql_str, minimal_batch)
+                            metrics["minimal_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
                         if sparse_batch:
+                            insert_started = time.perf_counter()
                             conn.executemany(sparse_sql_str, sparse_batch)
+                            metrics["sparse_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
                         if full_batch:
+                            insert_started = time.perf_counter()
                             conn.executemany(sql_str, full_batch)
+                            metrics["full_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
                     
                     # 一次性提交
+                    commit_started = time.perf_counter()
                     conn.commit()
-                    logger.info(f"[Store] 单事务插入成功，共 {total_count:,} 条记录")
-                    return True
+                    metrics["commit_seconds"] = (
+                        time.perf_counter() - commit_started
+                    )
+                    success = True
+
+                    if profile_checkpoint:
+                        try:
+                            checkpoint_started = time.perf_counter()
+                            checkpoint_result = conn.execute(
+                                "PRAGMA wal_checkpoint(PASSIVE);"
+                            ).fetchone()
+                            metrics["checkpoint_seconds"] = (
+                                time.perf_counter() - checkpoint_started
+                            )
+                            if checkpoint_result:
+                                metrics["checkpoint_busy"] = checkpoint_result[0]
+                                metrics["checkpoint_log_frames"] = checkpoint_result[1]
+                                metrics["checkpointed_frames"] = checkpoint_result[2]
+                        except Exception as checkpoint_error:
+                            metrics["checkpoint_error"] = str(checkpoint_error)
+                            logger.warning(
+                                "[Store] WAL checkpoint计时失败: %s",
+                                checkpoint_error,
+                            )
                 except Exception as e:
                     conn.rollback()
+                    metrics["error"] = str(e)
                     logger.error(f"[Store] 插入失败，事务回滚: {str(e)}")
-                    return False
+                finally:
+                    if original_wal_autocheckpoint is not None:
+                        try:
+                            conn.execute(
+                                f"PRAGMA wal_autocheckpoint = "
+                                f"{original_wal_autocheckpoint};"
+                            )
+                        except Exception as restore_error:
+                            metrics["wal_autocheckpoint_restore_error"] = str(
+                                restore_error
+                            )
+                    metrics["total_sync_seconds"] = (
+                        time.perf_counter() - sync_started
+                    )
+                    db_path = getattr(db, "DB_PATH", "")
+                    wal_path = f"{db_path}-wal" if db_path else ""
+                    metrics["wal_size_bytes"] = (
+                        os.path.getsize(wal_path)
+                        if wal_path and os.path.exists(wal_path)
+                        else 0
+                    )
+                    metrics["success"] = success
+                    LogParseResultManager.last_store_metrics = metrics
+
+                if success:
+                    logger.info(
+                        "[Store] 单事务插入成功，共 %s 条记录，明细=%s",
+                        f"{total_count:,}",
+                        metrics,
+                    )
+                return success
             
             # 所有sqlite操作全部在同一个线程执行，避免多线程争抢conn
             success = await asyncio.to_thread(sync_batch_insert)

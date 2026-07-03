@@ -439,6 +439,10 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
         LogParseResultManager.add_log_parse_results(results, batch_size=2)
     )
     assert stored
+    assert LogParseResultManager.last_store_metrics["minimal_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["sparse_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["full_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["success"] is True
     assert database._conn.insert_sql.count("?") == 17
     assert database._conn.params == [
         _log_parse_result_to_minimal_db_tuple(results[0]),
