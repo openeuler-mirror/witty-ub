@@ -140,6 +140,7 @@ bash deploy.sh
 ### 启动 opencode serve
 
 ```bash
+# (pwd): /path/to/latency/deploy
 bash run_opencode.sh
 ```
 
@@ -195,10 +196,19 @@ MCP 默认使用 `stdio` 传输。可用环境变量调整：
 
 该 MCP 服务只开放日志状态、时延、通断故障和故障知识查询工具，不开放上传、修改、删除或停止任务操作。
 
-OpenCode 会读取仓库根目录的 `opencode.json` 并按需启动 MCP 服务。确认 FastAPI 已启动后，可检查连接状态：
+OpenCode 配置位于仓库的 `config/opencode.json`。手动运行 OpenCode 前，先在
+仓库根目录显式指定配置文件、Latency 虚拟环境和插件目录：
 
 ```bash
 cd /path/to/witty-ub
+export OPENCODE_CONFIG="/path/to/witty-ub/config/opencode.json"
+export WITTY_UB_LATENCY_PYTHON="/path/to/witty-ub/src/plugins/latency/.venv/bin/python"
+export WITTY_UB_PLUGINS_DIR="/path/to/witty-ub/src/plugins"
+```
+
+确认 FastAPI 已启动后，可检查 MCP 连接状态：
+
+```bash
 opencode mcp list
 ```
 
