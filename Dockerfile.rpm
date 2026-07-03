@@ -1,0 +1,49 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+
+# ============================================
+# Build image using RPM package
+# ============================================
+FROM openeuler/openeuler:24.03-lts
+
+ARG REPO_URL
+
+LABEL maintainer="witty-ub"
+LABEL description="Witty-UB: Fault localization tool using RPM package"
+
+RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
+    echo "name=Witty-UB Repository" >> /etc/yum.repos.d/witty-ub.repo && \
+    echo "baseurl=$REPO_URL" >> /etc/yum.repos.d/witty-ub.repo && \
+    echo "enabled=1" >> /etc/yum.repos.d/witty-ub.repo && \
+    echo "gpgcheck=0" >> /etc/yum.repos.d/witty-ub.repo
+
+# Install witty-ub and dependencies
+RUN yum install -y witty-ub && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+# Create additional directories if not created by RPM
+RUN mkdir -p /var/witty-ub/latency/file/file_upload \
+    /var/witty-ub/latency/file/file_parse_result \
+    /etc/witty-ub/web \
+    /run/witty-ub-web \
+    /var/log/witty-ub-web
+
+# Copy container-optimized nginx configuration
+COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
+
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Expose ports
+EXPOSE 8080 9772
+
+# Volumes for persistent data
+VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:9772/health_check || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]
