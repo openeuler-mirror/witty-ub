@@ -31,6 +31,7 @@ import logging
 import os
 from pathlib import Path
 import pstats
+import re
 import sys
 import tempfile
 import time
@@ -48,6 +49,169 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ProfileOperation = Callable[[], Awaitable[dict[str, object]]]
+
+
+class ParseTimingCollector(logging.Handler):
+    """Collect parent-side wall time for parse stages and process-pool scans."""
+
+    _REPORTED_STAGE_PATTERNS = {
+        "reported_scan_and_deserialize_seconds": re.compile(
+            r"Scan \+ deserialize:\s+([0-9.]+)s"
+        ),
+        "sort_entries_seconds": re.compile(r"Sort entries:\s+([0-9.]+)s"),
+        "reported_correlate_seconds": re.compile(r"Correlate:\s+([0-9.]+)s"),
+        "reported_build_results_seconds": re.compile(
+            r"Build results:\s+([0-9.]+)s"
+        ),
+        "reported_parse_total_seconds": re.compile(
+            r"Timing Breakdown \(total=([0-9.]+)s\)"
+        ),
+    }
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.timings: dict[str, float] = {}
+        self._installed = False
+        self._original_scan_all = None
+        self._original_split_worker_info = None
+        self._original_correlate = None
+        self._original_build = None
+        self._worker_logger = None
+
+    def _add(self, name: str, elapsed: float) -> None:
+        self.timings[name] = self.timings.get(name, 0.0) + elapsed
+
+    @staticmethod
+    def _scan_name(parsers: list[object]) -> str:
+        parser_names = {type(parser).__name__ for parser in parsers}
+        if "SdkAccessLogParser" in parser_names:
+            return "sdk_scan_seconds"
+        if "WorkerAccessLogParser" in parser_names:
+            return "worker_access_scan_seconds"
+        if "WorkerInfoParser" in parser_names:
+            return "worker_info_scan_seconds"
+        return "other_scan_seconds"
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = record.getMessage()
+        for name, pattern in self._REPORTED_STAGE_PATTERNS.items():
+            match = pattern.search(message)
+            if match:
+                self.timings[name] = float(match.group(1))
+
+    def install(self) -> None:
+        if self._installed:
+            return
+
+        from latency.parse.correlation.correlator import LogCorrelator
+        from latency.parse.correlation.result_builder import ParseResultBuilder
+        from latency.parse.parallel_scanner.scanner import ParallelFileScanner
+        from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+        collector = self
+        self._original_scan_all = ParallelFileScanner.scan_all
+        self._original_split_worker_info = (
+            KVCacheLogParseWorker._split_worker_info_entries
+        )
+        self._original_correlate = LogCorrelator.correlate
+        self._original_build = ParseResultBuilder.build
+
+        async def timed_scan_all(scanner, *args, **kwargs):
+            parsers = args[1] if len(args) > 1 else kwargs.get("parsers", [])
+            scan_name = collector._scan_name(parsers)
+            started = time.perf_counter()
+            try:
+                return await collector._original_scan_all(
+                    scanner, *args, **kwargs
+                )
+            finally:
+                collector._add(scan_name, time.perf_counter() - started)
+
+        def timed_split_worker_info(parsed):
+            started = time.perf_counter()
+            try:
+                return collector._original_split_worker_info(parsed)
+            finally:
+                collector._add(
+                    "worker_info_split_seconds", time.perf_counter() - started
+                )
+
+        def timed_correlate(correlator):
+            started = time.perf_counter()
+            try:
+                return collector._original_correlate(correlator)
+            finally:
+                collector._add(
+                    "correlate_seconds", time.perf_counter() - started
+                )
+
+        def timed_build(builder):
+            started = time.perf_counter()
+            try:
+                return collector._original_build(builder)
+            finally:
+                collector._add(
+                    "build_results_seconds", time.perf_counter() - started
+                )
+
+        ParallelFileScanner.scan_all = timed_scan_all
+        KVCacheLogParseWorker._split_worker_info_entries = staticmethod(
+            timed_split_worker_info
+        )
+        LogCorrelator.correlate = timed_correlate
+        ParseResultBuilder.build = timed_build
+
+        self._worker_logger = logging.getLogger(
+            "latency.task.worker.kv_cache_log_parse_worker"
+        )
+        self._worker_logger.addHandler(self)
+        self._installed = True
+
+    def restore(self) -> None:
+        if not self._installed:
+            return
+
+        from latency.parse.correlation.correlator import LogCorrelator
+        from latency.parse.correlation.result_builder import ParseResultBuilder
+        from latency.parse.parallel_scanner.scanner import ParallelFileScanner
+        from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
+
+        ParallelFileScanner.scan_all = self._original_scan_all
+        KVCacheLogParseWorker._split_worker_info_entries = staticmethod(
+            self._original_split_worker_info
+        )
+        LogCorrelator.correlate = self._original_correlate
+        ParseResultBuilder.build = self._original_build
+        if self._worker_logger is not None:
+            self._worker_logger.removeHandler(self)
+        self._installed = False
+
+    def snapshot(self) -> dict[str, float]:
+        details = {
+            name: round(elapsed, 6)
+            for name, elapsed in self.timings.items()
+        }
+        scan_total = sum(
+            self.timings.get(name, 0.0)
+            for name in (
+                "sdk_scan_seconds",
+                "worker_access_scan_seconds",
+                "worker_info_scan_seconds",
+                "other_scan_seconds",
+            )
+        )
+        if scan_total:
+            details["individual_scans_total_seconds"] = round(scan_total, 6)
+            worker_info_scan = self.timings.get("worker_info_scan_seconds", 0.0)
+            details["worker_info_scan_share_percent"] = round(
+                worker_info_scan / scan_total * 100, 3
+            )
+            details["worker_info_total_seconds"] = round(
+                worker_info_scan
+                + self.timings.get("worker_info_split_seconds", 0.0),
+                6,
+            )
+        return details
 
 
 def parse_args() -> argparse.Namespace:
@@ -147,6 +311,13 @@ def write_text_report(
         stream.write(f"elapsed_seconds: {elapsed:.6f}\n")
         stream.write(f"summary: {summary}\n\n")
 
+        parse_timings = summary.get("parse_timings")
+        if isinstance(parse_timings, dict):
+            stream.write("Parse timing details\n")
+            for name, seconds in parse_timings.items():
+                stream.write(f"  {name}: {seconds:.6f}\n")
+            stream.write("\n")
+
         stats = pstats.Stats(str(profile_path), stream=stream).strip_dirs()
         stream.write("Top functions by cumulative time\n")
         stats.sort_stats("cumulative").print_stats(limit)
@@ -162,6 +333,7 @@ async def profile_operation(
     report_path: Path,
     sort_by: str,
     limit: int,
+    timing_collector: ParseTimingCollector,
 ) -> dict[str, object]:
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profiler = cProfile.Profile()
@@ -170,6 +342,9 @@ async def profile_operation(
     profiler.enable()
     try:
         summary = await operation()
+        parse_timings = timing_collector.snapshot()
+        if parse_timings:
+            summary["parse_timings"] = parse_timings
     finally:
         profiler.disable()
         profiler.dump_stats(str(profile_path))
@@ -197,7 +372,10 @@ async def profile_operation(
     return summary
 
 
-async def run_profile(args: argparse.Namespace) -> dict[str, object]:
+async def _run_profile(
+    args: argparse.Namespace,
+    timing_collector: ParseTimingCollector,
+) -> dict[str, object]:
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
     command = "pipeline" if args.command == "all" else args.command
@@ -322,7 +500,17 @@ async def run_profile(args: argparse.Namespace) -> dict[str, object]:
         report_path=report_path,
         sort_by=args.sort,
         limit=args.limit,
+        timing_collector=timing_collector,
     )
+
+
+async def run_profile(args: argparse.Namespace) -> dict[str, object]:
+    timing_collector = ParseTimingCollector()
+    timing_collector.install()
+    try:
+        return await _run_profile(args, timing_collector)
+    finally:
+        timing_collector.restore()
 
 
 def main() -> None:
