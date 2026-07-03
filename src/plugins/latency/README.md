@@ -138,6 +138,16 @@ bash deploy.sh
 4. 创建必要的目录
 5. 启动 FastAPI 服务（`http://127.0.0.1:9772`）
 
+### 启动 opencode serve
+
+```bash
+bash run_opencode.sh
+```
+
+脚本将自动完成：
+1. 检查 `opencode` 是否安装，若未安装则通过 `npm` 安装
+2. 启动 OpenCode 服务，默认监听 `http://127.0.0.1:4096`
+
 ### 手动部署
 
 #### 1. 创建虚拟环境并安装依赖
@@ -201,6 +211,12 @@ opencode mcp list
 
 ```bash
 opencode agent list
+```
+
+#### 4. 启动 opencode serve
+
+```bash
+opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
 ### 依赖版本说明
