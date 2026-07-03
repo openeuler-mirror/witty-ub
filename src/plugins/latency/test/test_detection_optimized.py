@@ -2,7 +2,12 @@ import asyncio
 from dataclasses import asdict
 
 from latency.ENUM.detect import DetectionMode
-from latency.common.stats import percentile, percentile_from_sorted, stats
+from latency.common.stats import (
+    percentile,
+    percentile_from_sorted,
+    percentile_near_max,
+    stats,
+)
 from latency.database.managers import anomalous_event as anomalous_event_module
 from latency.database.managers import (
     src_dst_aggregated_event as aggregated_event_module,
@@ -82,6 +87,12 @@ def test_percentiles_reuse_one_sorted_sequence() -> None:
         "p95": percentile(values, 95),
         "p99": percentile(values, 99),
     }
+
+
+def test_near_max_percentile_matches_full_sort() -> None:
+    for size in (1, 2, 4, 100, 500):
+        values = [float((index * 37) % 101) for index in range(size)]
+        assert percentile_near_max(values, 99) == percentile(values, 99)
 
 
 def test_windows_for_same_metric_share_field_extraction() -> None:

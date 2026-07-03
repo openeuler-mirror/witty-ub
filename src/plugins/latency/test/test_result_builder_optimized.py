@@ -6,8 +6,10 @@ from latency.ENUM.ds_log import EntryType
 from latency.database.managers import log_parse_result as log_parse_result_manager_module
 from latency.database.managers.log_parse_result import (
     LogParseResultManager,
+    _can_use_minimal_insert,
     _can_use_sparse_insert,
     _log_parse_result_to_db_tuple,
+    _log_parse_result_to_minimal_db_tuple,
     _log_parse_result_to_sparse_db_tuple,
 )
 from latency.parse.correlation.result_builder import ParseResultBuilder
@@ -353,6 +355,7 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
     )
 
     assert _can_use_sparse_insert(sparse)
+    assert not _can_use_minimal_insert(sparse)
     assert _log_parse_result_to_sparse_db_tuple(sparse) == (
         "id", "log", "", "", "trace", "timestamp", "pod", "cluster",
         12.3, 6.0, "operation", "data-size", False, None, "OK", True,
@@ -378,6 +381,19 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
     full.worker_query_meta_latency = 1.0
     assert not _can_use_sparse_insert(full)
 
+    minimal = SparseLogParseResultDataclass(
+        total_latency=1.0,
+        is_anomalous=False,
+        trace_id="minimal",
+        remark="OK",
+        created_at="created-at",
+    )
+    assert _can_use_minimal_insert(minimal)
+    assert _log_parse_result_to_minimal_db_tuple(minimal) == (
+        "", "", "minimal", None, None, None, 1.0, None, None, False,
+        "OK", True, "created-at",
+    )
+
 
 def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
     results = [
@@ -385,6 +401,7 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
         for index in range(3)
     ]
     results[1].c2w_latency = 1.0
+    results[2].c2w_urma_latency = 2.0
 
     class FakeAsyncLock:
         async def __aenter__(self):
@@ -424,7 +441,7 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
     assert stored
     assert database._conn.insert_sql.count("?") == 17
     assert database._conn.params == [
-        _log_parse_result_to_sparse_db_tuple(results[0]),
+        _log_parse_result_to_minimal_db_tuple(results[0]),
         _log_parse_result_to_db_tuple(results[1]),
         _log_parse_result_to_sparse_db_tuple(results[2]),
     ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from typing import Dict, List, Type
 
-from latency.common.stats import percentile_from_sorted
+from latency.common.stats import percentile_near_max
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
 from latency.schemas.log import LogParseResultModel
 from latency.ENUM.detect import DetectionMode
@@ -94,8 +94,7 @@ class SlidingWindowP99Detector(DetectorBase):
             # 原插值公式精确计算P99，检测语义不变。
             if exceeded_indices is None and max(window_values) <= threshold_ms:
                 continue
-            window_values.sort()
-            p99 = percentile_from_sorted(window_values, 99)
+            p99 = percentile_near_max(window_values, 99)
             if p99 is not None and p99 > threshold_ms:
                 degraded_windows.append((start, end, p99))
 

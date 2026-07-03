@@ -40,26 +40,15 @@ class DetectionEngine:
         for field_name, detectors in detectors_by_field.items():
             values = list(map(attrgetter(field_name), results))
             thresholds = {detector.config.threshold_ms for detector in detectors}
-            exceeded_by_threshold = {threshold: [] for threshold in thresholds}
-            values_complete = True
-
-            if len(thresholds) == 1:
-                threshold = next(iter(thresholds))
-                exceeded_indices = exceeded_by_threshold[threshold]
-                for idx, value in enumerate(values):
-                    if value is None:
-                        values_complete = False
-                    elif value > threshold:
-                        exceeded_indices.append(idx)
-            else:
-                threshold_items = tuple(exceeded_by_threshold.items())
-                for idx, value in enumerate(values):
-                    if value is None:
-                        values_complete = False
-                        continue
-                    for threshold, exceeded_indices in threshold_items:
-                        if value > threshold:
-                            exceeded_indices.append(idx)
+            values_complete = None not in values
+            exceeded_by_threshold = {
+                threshold: [
+                    idx
+                    for idx, value in enumerate(values)
+                    if value is not None and value > threshold
+                ]
+                for threshold in thresholds
+            }
 
             for detector in detectors:
                 detection_results.append(

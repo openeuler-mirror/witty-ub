@@ -276,21 +276,6 @@ class ParseResultBuilder:
             else:
                 c2w_urma_latency = None
             if w_idx is None:
-                query_meta_latency = None
-                urma_link_latency = None
-                w2w_urma_latency = None
-                sdk_process = None
-                sdk_rpc = None
-                local_worker_cost = None
-                local_worker_lock = None
-                remote_worker_cost = None
-                remote_worker_rpc = None
-                master_process = None
-                master_rpc_total = None
-                urma_latency = None
-                urma_inflight_count = None
-                src_ip = None
-                dst_ip = None
                 urma_empty_reason = None
             else:
                 query_meta_latency = first_elapsed_ms(worker_query_meta_get(w_idx))

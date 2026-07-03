@@ -106,6 +106,36 @@ def _log_parse_result_to_sparse_db_tuple(
     )
 
 
+def _can_use_minimal_insert(result: LogParseResultStorage) -> bool:
+    """判断稀疏结果的非必填字段是否也等于数据库默认值。"""
+    return (
+        not result.aggregated_event_id
+        and not result.anomalous_event_id
+        and result.c2w_urma_latency is None
+        and result.anomaly_reason is None
+    )
+
+
+def _log_parse_result_to_minimal_db_tuple(
+    result: LogParseResultStorage,
+) -> tuple:
+    return (
+        result.id,
+        result.log_id,
+        result.trace_id,
+        result.timestamp,
+        result.pod_ip,
+        result.cluster_name,
+        result.total_latency,
+        result.operation,
+        result.data_size,
+        result.is_anomalous,
+        result.remark,
+        result.existed_status,
+        result.created_at,
+    )
+
+
 class LogParseResultManager:
     """日志解析结果管理器"""
 
@@ -201,10 +231,20 @@ class LogParseResultManager:
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
+                    minimal_sql_str = """
+                        INSERT INTO log_parse_result_table (
+                            id, log_id, trace_id, timestamp, pod_ip,
+                            cluster_name, total_latency, operation, data_size,
+                            is_anomalous, remark, existed_status, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                    """
 
                     # 每批只保留参数tuple；常见的无Worker结果不绑定恒为NULL的列。
                     for i in range(0, total_count, batch_size):
                         end = min(i + batch_size, total_count)
+                        minimal_batch = []
                         sparse_batch = []
                         full_batch = []
                         for index in range(i, end):
@@ -214,12 +254,19 @@ class LogParseResultManager:
                                 # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
                                 result.id = id_prefix + f"{index:012x}"
                             if _can_use_sparse_insert(result):
-                                sparse_batch.append(
-                                    _log_parse_result_to_sparse_db_tuple(result)
-                                )
+                                if _can_use_minimal_insert(result):
+                                    minimal_batch.append(
+                                        _log_parse_result_to_minimal_db_tuple(result)
+                                    )
+                                else:
+                                    sparse_batch.append(
+                                        _log_parse_result_to_sparse_db_tuple(result)
+                                    )
                             else:
                                 full_batch.append(_log_parse_result_to_db_tuple(result))
 
+                        if minimal_batch:
+                            conn.executemany(minimal_sql_str, minimal_batch)
                         if sparse_batch:
                             conn.executemany(sparse_sql_str, sparse_batch)
                         if full_batch:
