@@ -192,15 +192,18 @@ volumes:
   - ./config/filepath_config.json:/var/witty-ub/config/filepath_config.json:ro
 ```
 
-### Latency Plugin 配置
+### 统一配置
 
-配置文件位于: `/var/witty-ub/config/latency/latency_config.toml`
+配置文件位于: `/var/witty-ub/config/diagnosis_config.json`
 
-```toml
-[DS_LOG_ANALYZER]
-TOTAL_P99_THRESHOLD_MS = 2.0
-C2W_P99_THRESHOLD_MS = 2.0
-W2W_P99_THRESHOLD_MS = 1.5
+```json
+{
+  "log_analyzer_params": {
+    "total_p99_threshold_ms": 2.0,
+    "c2w_p99_threshold_ms": 2.0,
+    "w2w_p99_threshold_ms": 1.5
+  }
+}
 ```
 
 ### Nginx 配置

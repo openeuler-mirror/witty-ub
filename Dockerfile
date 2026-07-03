@@ -43,7 +43,7 @@ COPY data/view-vis /var/witty-ub/data/view-vis/
 COPY data/failure_mode_tree.json /var/witty-ub/data/
 COPY data/kvcache/kvcache_conn_fault_mode.json /var/witty-ub/data/kvcache/
 COPY data/urma/urma_failure_mode.json /var/witty-ub/data/urma/
-COPY config/filepath_config.json /var/witty-ub/config/
+COPY config/diagnosis_config.json /var/witty-ub/config/
 
 # Copy web frontend from builder
 COPY --from=builder-web /web/dist /var/witty-ub/web/
@@ -67,9 +67,6 @@ COPY src/plugins/latency/services /var/witty-ub/latency/services/
 COPY src/plugins/latency/static /var/witty-ub/latency/static/
 COPY src/plugins/latency/task /var/witty-ub/latency/task/
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
-
-# Copy latency config
-COPY src/plugins/latency/static/config.toml /var/witty-ub/config/latency/latency_config.toml
 
 # Set permissions
 RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo /usr/bin/witty-ub-diag-tool && \

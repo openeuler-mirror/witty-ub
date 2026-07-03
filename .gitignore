@@ -12,7 +12,7 @@ data/docs/
 data/original_docs/
 data/projects/
 
-latency_server.log
+*.log
 latency.db
 latency.db-shm
 latency.db-wal

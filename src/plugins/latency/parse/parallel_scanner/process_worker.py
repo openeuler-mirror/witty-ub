@@ -108,7 +108,9 @@ def _rebuild_parsers(
         class_name = info["class_name"]
         parser_class = parser_class_map.get(class_name)
         if parser_class:
-            parsers.append(parser_class(parse_config))
+            parser = parser_class(parse_config)
+            parser._runtime_patterns = list(info.get("patterns", parser.patterns))
+            parsers.append(parser)
         else:
             logger.warning(f"Unknown parser class: {class_name}")
 

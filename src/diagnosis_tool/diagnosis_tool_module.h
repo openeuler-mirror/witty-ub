@@ -44,7 +44,6 @@ private:
     RackResult ExtractLogsByTimeWindow();
     std::vector<std::string> FindMatchingFiles(const std::string &dir, const std::string &pattern);
     bool ExtractLogLinesByTimeWindow(const std::string &inputPath, const std::string &outputPath, bool append = false);
-    RackResult SetEnvVars();
     RackResult BuildFailureModeTree();
     RackResult BuildLogTypeToPathMap();
     RackResult AnalyzeAccessLogs();

@@ -25,31 +25,25 @@ sudo yum install -y witty-ub
 - witty-ub-log: 超节点多源系统日志解析工具，采集超节点各组件日志，识别组件故障事件及关联日志
 - witty-ub-diag-tool: 超节点故障定界工具，基于故障树驱动的诊断引擎，对KVCache和URMA组件日志进行多级故障定界分析，生成可视化故障分析报告
 
-2. 完成配置
-    1. 时延配置：在 `/var/witty-ub/config/latency/latency_config.toml` 中配置时延参数
+2. 完成配置：在 `/var/witty-ub/config/diagnosis_config.json` 中统一配置
+    1. `log_analyzer_params`：时延分析参数
         1. 时延阈值：各指标的P99异常阈值
-            - `TOTAL_P99_THRESHOLD_MS`：总时延 P99 阈值
-            - `C2W_P99_THRESHOLD_MS`：C2W 时延 P99 阈值
-            - `W2W_P99_THRESHOLD_MS`：W2W 时延 P99 阈值
-            - `URMA_P99_THRESHOLD_MS`：URMA 时延 P99 阈值
-            - `QUERY_META_P99_THRESHOLD_MS`：查询元数据时延 P99 阈值
+            - `total_p99_threshold_ms`：总时延 P99 阈值
+            - `c2w_p99_threshold_ms`：C2W 时延 P99 阈值
+            - `w2w_p99_threshold_ms`：W2W 时延 P99 阈值
+            - `urma_link_p99_threshold_ms`：URMA 建链时延 P99 阈值
+            - `query_meta_p99_threshold_ms`：查询元数据时延 P99 阈值
         2. 滑动窗口参数：各指标滑动窗口检测的参数
-            - `SLIDING_WINDOW_SIZES`：滑动窗口大小
-            - `SLIDING_WINDOW_STEPS`：滑动窗口步长
+            - `sliding_window_sizes`：滑动窗口大小
+            - `sliding_window_steps`：滑动窗口步长
         3. 异常密度阈值：窗口被判定为异常的密度阈值
-            - `ZONE_ANOMALY_DENSITY_THRESHOLD`：异常密度阈值
-        4. 日志路径 pattern
-            - `ds-client-access-log-file`：client接口日志
-            - `ds-client-info-log-file`：client运行日志
-            - `ds-worker-access-log-file`：worker接口日志
-            - `ds-worker-info-log-file`：worker运行日志
-    2. 通断配置：在 `/var/witty-ub/config/filepath_config.json` 中配置通断参数
-        1. 日志路径 pattern
-            - `ds-client-access-log-file`：client接口日志
-            - `ds-client-info-log-file`：client运行日志
-            - `ds-worker-access-log-file`：worker接口日志
-            - `ds-worker-info-log-file`：worker运行日志
-            - `resource-log-file`：资源日志
+            - `zone_anomaly_density_threshold`：异常密度阈值
+    2. `log_filename_pattern`：Glob 风格的日志文件名 pattern
+        - `ds_client_access_log_file`：client接口日志
+        - `ds_client_info_log_file`：client运行日志
+        - `ds_worker_access_log_file`：worker接口日志
+        - `ds_worker_info_log_file`：worker运行日志
+        - `resource_log_file`：资源日志
 
 3. 启动服务：
 
@@ -98,8 +92,6 @@ export WITTY_INSTALL_PATH=<project-path>/build/src
 ```bash
 sudo cp -r ./data /var/witty-ub/
 sudo cp -r ./config /var/witty-ub/
-sudo mkdir -p /var/witty-ub/config/latency
-cp src/plugins/latency/static/config.toml /var/witty-ub/config/latency/latency_config.toml
 ```
 
 6. 启动后端服务
@@ -135,7 +127,7 @@ npm run dev # 仅localhost访问，默认端口为 5173
 
 ### 超节点多源系统日志解析工具witty-ub-log使用指导
 
-- 在witty-ub根目录下执行以下命令，输出对应json格式的拓扑信息到文件```/var/witty-ub```目录下```failure-event.json```文件中。
+- 在witty-ub根目录下执行以下命令，输出对应json格式的拓扑信息到文件```/var/witty-ub```目录下```failure_event.json```文件中。
 - 命令行参数如下，详情请见[witty-ub工具使用指导](./witty-ub数据采集工具指导.md)
     ```bash
     witty-ub-log --pod-mode on \

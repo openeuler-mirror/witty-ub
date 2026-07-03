@@ -14,7 +14,22 @@ readonly NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly LATENCY_PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 readonly PLUGINS_DIR="$(dirname "${LATENCY_PROJECT_DIR}")"
-readonly VENV_PYTHON="${LATENCY_PROJECT_DIR}/.venv/bin/python"
+readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/config/opencode.json"
+readonly REPO_ROOT="$(cd "${PLUGINS_DIR}/../.." && pwd)"
+readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/config/opencode.json"
+
+# Prefer the deployed configuration, then fall back to config under the
+# directory from which this script was invoked.
+if [[ -f "${DEPLOYED_OPENCODE_CONFIG}" ]]; then
+    readonly OPENCODE_CONFIG_PATH="${DEPLOYED_OPENCODE_CONFIG}"
+elif [[ -f "${LOCAL_OPENCODE_CONFIG}" ]]; then
+    readonly OPENCODE_CONFIG_PATH="${LOCAL_OPENCODE_CONFIG}"
+else
+    echo "[ERROR] OpenCode configuration not found." >&2
+    echo "        Checked: ${DEPLOYED_OPENCODE_CONFIG}" >&2
+    echo "        Checked: ${LOCAL_OPENCODE_CONFIG}" >&2
+    exit 1
+fi
 
 # Skip installation when a working OpenCode command is already available.
 if "${COMMAND_NAME}" -v >/dev/null 2>&1; then
@@ -39,10 +54,11 @@ fi
 echo "[OK] OpenCode is ready: $(${COMMAND_NAME} -v)"
 
 # Pass dynamically resolved Python paths to opencode.json.
-export WITTY_UB_LATENCY_PYTHON="${VENV_PYTHON}"
+export OPENCODE_CONFIG="${OPENCODE_CONFIG_PATH}"
 export WITTY_UB_PLUGINS_DIR="${PLUGINS_DIR}"
 
 # Start the OpenCode service in the background.
+echo "[INFO] Using OpenCode configuration: ${OPENCODE_CONFIG}"
 echo "[INFO] Starting OpenCode server at http://127.0.0.1:4096 ..."
 nohup "${COMMAND_NAME}" serve --hostname 127.0.0.1 --port 4096 \
     > "${LATENCY_PROJECT_DIR}/opencode_server.log" 2>&1 &

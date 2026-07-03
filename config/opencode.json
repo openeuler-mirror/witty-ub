@@ -4,7 +4,7 @@
     "witty_ub_diag_mcp": {
       "type": "local",
       "command": [
-        "{env:WITTY_UB_LATENCY_PYTHON}",
+        "{env:WITTY_UB_PLUGINS_DIR}/latency/.venv/bin/python",
         "-m",
         "latency.access.mcp_server"
       ],

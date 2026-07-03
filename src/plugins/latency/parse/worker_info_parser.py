@@ -58,7 +58,7 @@ class WorkerInfoParser(LogParser):
 
     @property
     def patterns(self) -> list[str]:
-        return WORKER_INFO_LOG_PATTERNS
+        return getattr(self, "_runtime_patterns", WORKER_INFO_LOG_PATTERNS)
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)

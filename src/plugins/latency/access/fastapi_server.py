@@ -35,6 +35,7 @@ from latency.routers import (
     failure_mode_knowledge,
     log_failure_event_result,
     diagnosis_case,
+    diagnosis_config,
 )
 from latency.database.engine import AsyncSQLiteSingleton
 
@@ -63,6 +64,7 @@ async def configure():
     app.include_router(failure_mode_knowledge.router)
     app.include_router(log_failure_event_result.router)
     app.include_router(diagnosis_case.router)
+    app.include_router(diagnosis_config.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):

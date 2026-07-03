@@ -210,6 +210,7 @@ class ParallelFileScanner:
             {
                 "label": p.label,
                 "class_name": p.__class__.__name__,
+                "patterns": list(p.patterns),
             }
             for p in parsers
         ]
