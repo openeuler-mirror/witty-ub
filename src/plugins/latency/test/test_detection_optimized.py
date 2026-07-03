@@ -13,6 +13,7 @@ from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventManager,
     _aggregated_event_to_db_tuple,
 )
+from latency.detect.detectors import SlidingWindowP99Detector
 from latency.detect.engine import DetectionEngine
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
 from latency.schemas.log import (
@@ -103,6 +104,58 @@ def test_windows_for_same_metric_share_field_extraction() -> None:
     assert all(not result.anomalous_indices for result in detected)
 
 
+def test_sliding_window_complete_hint_preserves_detection_result() -> None:
+    config = MetricConfig(
+        field_name="latency",
+        threshold_ms=10.0,
+        mode=DetectionMode.SLIDING_WINDOW_P99,
+        window_config=WindowConfig(
+            window_size=4,
+            window_step=1,
+            density_threshold=0.5,
+        ),
+    )
+    detector = SlidingWindowP99Detector(config)
+    values = [1.0, 2.0, 20.0, 30.0, 2.0, 1.0]
+    results = [CountingResult(value) for value in values]
+
+    inferred = asyncio.run(detector.detect(results, values))
+    hinted = asyncio.run(
+        detector.detect(
+            results,
+            values,
+            values_complete=True,
+            exceeded_indices=[2, 3],
+        )
+    )
+
+    assert hinted == inferred
+    assert hinted.anomalous_indices
+
+
+def test_sliding_window_incomplete_values_keep_none_filtering() -> None:
+    config = MetricConfig(
+        field_name="latency",
+        threshold_ms=10.0,
+        mode=DetectionMode.SLIDING_WINDOW_P99,
+        window_config=WindowConfig(window_size=4, window_step=1),
+    )
+    detector = SlidingWindowP99Detector(config)
+    values = [None, 2.0, 20.0, None, 30.0, 1.0]
+
+    inferred = asyncio.run(detector.detect([object()] * len(values), values))
+    hinted = asyncio.run(
+        detector.detect(
+            [object()] * len(values),
+            values,
+            values_complete=False,
+            exceeded_indices=[2, 4],
+        )
+    )
+
+    assert hinted == inferred
+
+
 def test_merged_events_have_complete_constructed_fields() -> None:
     source = type(
         "SourceResult",
@@ -134,6 +187,29 @@ def test_merged_events_have_complete_constructed_fields() -> None:
         "existed_status": True,
         "created_at": events[0].created_at,
     }
+
+
+def test_merge_results_deduplicates_repeated_reasons() -> None:
+    source = type(
+        "SourceResult",
+        (),
+        {
+            "log_id": "log-id",
+            "is_anomalous": False,
+            "anomaly_reason": None,
+            "c2w_latency": None,
+            "c2w_urma_latency": None,
+        },
+    )()
+    duplicate = DetectionResult(
+        metric_name="latency",
+        anomalous_indices=[0],
+        reasons={0: ["slow"]},
+    )
+
+    events = DetectionEngine([]).merge_results([duplicate, duplicate], [source])
+
+    assert events[0].anomaly_reason == "slow"
 
 
 def test_aggregate_hot_path_returns_dataclass_with_all_statistics() -> None:

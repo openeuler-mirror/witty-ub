@@ -9,7 +9,10 @@ from latency.schemas.ds_log import (
     CorrelationResult,
     TupleField,
 )
-from latency.schemas.log import LogParseResultDataclass
+from latency.schemas.log import (
+    LogParseResultDataclass,
+    SparseLogParseResultDataclass,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,9 @@ class ParseResultBuilder:
         self.log_file_id = log_file_id  # 数据库中的日志文件ID
         self.anomalous_count = 0
 
-    def build(self) -> list[LogParseResultDataclass]:
+    def build(
+        self,
+    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
         self.anomalous_count = 0
         if self.sdk_entries:
             entry_type = type(self.sdk_entries[0])
@@ -163,8 +168,12 @@ class ParseResultBuilder:
             remark = self._format_failure_remark("SDK", sdk.status_code, sdk.resp_msg)
         return remark
 
-    def _build_from_sdk_raw(self) -> list[LogParseResultDataclass]:
-        results: list[LogParseResultDataclass] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
+    def _build_from_sdk_raw(
+        self,
+    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
+        results: list[
+            LogParseResultDataclass | SparseLogParseResultDataclass
+        ] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
         correlated = self.correlated
@@ -193,6 +202,7 @@ class ParseResultBuilder:
         merge_remark = self._merge_remark
         not_found_search = NOT_FOUND_RE.search
         result_type = LogParseResultDataclass
+        sparse_result_type = SparseLogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
         cached_second_key = None
@@ -380,45 +390,66 @@ class ParseResultBuilder:
 
             # LogParseResultDataclass 的字段顺序由回归测试锁定。位置参数避免
             # 千万次构造时重复进行约 30 个关键字参数匹配，实测构造快约 2 倍。
-            results[i] = result_type(
-                total_latency,
-                is_anomalous,
-                "",  # id
-                log_id,
-                "",  # aggregated_event_id
-                "",  # anomalous_event_id
-                sdk[T_POD_IP],
-                src_ip,
-                dst_ip,
-                w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
-                None,  # host
-                remark if is_anomalous else None,
-                None,  # anomaly_score
-                None,  # content
-                sdk[3],  # data_size
-                True,  # existed_status
-                None,  # offset
-                sdk[1],  # operation
-                remark or "OK",
-                sdk[T_TRACE_ID],
-                urma_inflight_count,
-                urma_link_latency,
-                urma_latency,
-                c2w_latency,
-                query_meta_latency,
-                c2w_urma_latency,
-                w2w_urma_latency,
-                sdk_process,
-                sdk_rpc,
-                local_worker_cost,
-                local_worker_lock,
-                remote_worker_cost,
-                remote_worker_rpc,
-                master_process,
-                master_rpc_total,
-                timestamp,
-                shared_created_at,
-            )
+            if w_idx is None:
+                results[i] = sparse_result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                    remark if is_anomalous else None,
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    c2w_urma_latency,
+                    timestamp,
+                    shared_created_at,
+                )
+            else:
+                results[i] = result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    src_ip,
+                    dst_ip,
+                    w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                    None,  # host
+                    remark if is_anomalous else None,
+                    None,  # anomaly_score
+                    None,  # content
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    None,  # offset
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    urma_inflight_count,
+                    urma_link_latency,
+                    urma_latency,
+                    c2w_latency,
+                    query_meta_latency,
+                    c2w_urma_latency,
+                    w2w_urma_latency,
+                    sdk_process,
+                    sdk_rpc,
+                    local_worker_cost,
+                    local_worker_lock,
+                    remote_worker_cost,
+                    remote_worker_rpc,
+                    master_process,
+                    master_rpc_total,
+                    timestamp,
+                    shared_created_at,
+                )
         return results
 
     def _build_from_sdk(self) -> list[LogParseResultDataclass]:

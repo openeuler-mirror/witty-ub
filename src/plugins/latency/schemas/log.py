@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass, field as dataclass_field
-from typing import Optional
+from typing import ClassVar, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 from latency.schemas.task import TaskModel
@@ -531,6 +531,57 @@ class LogParseResultDataclass:
             timestamp=self.timestamp,
             created_at=self.created_at,
         )
+
+
+@dataclass(slots=True)
+class SparseLogParseResultDataclass:
+    """无 Worker 匹配时使用的紧凑解析结果。
+
+    省略字段以类属性形式暴露为 None，因此检测、聚合和存库代码仍可按
+    LogParseResultDataclass 的属性接口读取；流水线只会修改这里保留的字段。
+    """
+
+    total_latency: float
+    is_anomalous: bool
+    id: str = ""
+    log_id: str = ""
+    aggregated_event_id: str = ""
+    anomalous_event_id: str = ""
+    pod_ip: Optional[str] = None
+    cluster_name: Optional[str] = None
+    anomaly_reason: Optional[str] = None
+    data_size: Optional[str] = None
+    existed_status: bool = True
+    operation: Optional[str] = None
+    remark: Optional[str] = None
+    trace_id: Optional[str] = None
+    c2w_urma_latency: Optional[float] = None
+    timestamp: Optional[str] = None
+    created_at: str = ""
+
+    src_ip: ClassVar[None] = None
+    dst_ip: ClassVar[None] = None
+    host: ClassVar[None] = None
+    anomaly_score: ClassVar[None] = None
+    content: ClassVar[None] = None
+    offset: ClassVar[None] = None
+    urma_inflight_count: ClassVar[None] = None
+    urma_link_latency: ClassVar[None] = None
+    urma_total_latency: ClassVar[None] = None
+    c2w_latency: ClassVar[None] = None
+    worker_query_meta_latency: ClassVar[None] = None
+    w2w_urma_latency: ClassVar[None] = None
+    sdk_process: ClassVar[None] = None
+    sdk_rpc: ClassVar[None] = None
+    local_worker_cost: ClassVar[None] = None
+    local_worker_lock: ClassVar[None] = None
+    remote_worker_cost: ClassVar[None] = None
+    remote_worker_rpc: ClassVar[None] = None
+    master_process: ClassVar[None] = None
+    master_rpc_total: ClassVar[None] = None
+
+    def to_pydantic(self) -> "LogParseResultModel":
+        return LogParseResultDataclass.to_pydantic(self)  # type: ignore[arg-type]
 
 
 def generate_uuids_hex(count: int) -> list[str]:

@@ -6,12 +6,18 @@ from latency.ENUM.ds_log import EntryType
 from latency.database.managers import log_parse_result as log_parse_result_manager_module
 from latency.database.managers.log_parse_result import (
     LogParseResultManager,
+    _can_use_sparse_insert,
     _log_parse_result_to_db_tuple,
+    _log_parse_result_to_sparse_db_tuple,
 )
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
 from latency.schemas.ds_log import CorrelationResult
-from latency.schemas.log import LogParseResultDataclass, generate_uuids_hex
+from latency.schemas.log import (
+    LogParseResultDataclass,
+    SparseLogParseResultDataclass,
+    generate_uuids_hex,
+)
 from latency.task.worker import kv_cache_log_parse_worker as worker_module
 from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
@@ -116,6 +122,10 @@ def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:
     assert not ok.is_anomalous
     assert ok.remark == "OK"
     assert results[1].remark == "SDK not found,K_NOT_FOUND object-key"
+    assert isinstance(results[1], SparseLogParseResultDataclass)
+    assert results[1].c2w_latency is None
+    assert results[1].src_ip is None
+    assert results[1].to_pydantic().worker_query_meta_latency is None
     assert results[2].remark == (
         "SDK failed with status_code=1 resp_msg=sdk error;"
         "Worker failed with status_code=2 resp_msg=worker error;"
@@ -294,6 +304,13 @@ def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
         "remote_worker_rpc", "master_process", "master_rpc_total", "timestamp",
         "created_at",
     ]
+    assert [field.name for field in fields(SparseLogParseResultDataclass)] == [
+        "total_latency", "is_anomalous", "id", "log_id",
+        "aggregated_event_id", "anomalous_event_id", "pod_ip",
+        "cluster_name", "anomaly_reason", "data_size", "existed_status",
+        "operation", "remark", "trace_id", "c2w_urma_latency",
+        "timestamp", "created_at",
+    ]
 
 
 def test_database_tuple_matches_insert_column_order() -> None:
@@ -318,11 +335,56 @@ def test_database_tuple_matches_insert_column_order() -> None:
     )
 
 
+def test_sparse_database_tuple_only_omits_null_fields() -> None:
+    sparse = SparseLogParseResultDataclass(
+        total_latency=12.3,
+        is_anomalous=False,
+        id="id",
+        log_id="log",
+        trace_id="trace",
+        timestamp="timestamp",
+        pod_ip="pod",
+        cluster_name="cluster",
+        c2w_urma_latency=6.0,
+        operation="operation",
+        data_size="data-size",
+        remark="OK",
+        created_at="created-at",
+    )
+
+    assert _can_use_sparse_insert(sparse)
+    assert _log_parse_result_to_sparse_db_tuple(sparse) == (
+        "id", "log", "", "", "trace", "timestamp", "pod", "cluster",
+        12.3, 6.0, "operation", "data-size", False, None, "OK", True,
+        "created-at",
+    )
+    full = LogParseResultDataclass(
+        total_latency=12.3,
+        is_anomalous=False,
+        id="id",
+        log_id="log",
+        trace_id="trace",
+        timestamp="timestamp",
+        pod_ip="pod",
+        cluster_name="cluster",
+        c2w_urma_latency=6.0,
+        operation="operation",
+        data_size="data-size",
+        remark="OK",
+        created_at="created-at",
+    )
+    assert _log_parse_result_to_db_tuple(sparse) == _log_parse_result_to_db_tuple(full)
+
+    full.worker_query_meta_latency = 1.0
+    assert not _can_use_sparse_insert(full)
+
+
 def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
     results = [
         LogParseResultDataclass(total_latency=float(index), is_anomalous=False)
         for index in range(3)
     ]
+    results[1].c2w_latency = 1.0
 
     class FakeAsyncLock:
         async def __aenter__(self):
@@ -360,9 +422,11 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
         LogParseResultManager.add_log_parse_results(results, batch_size=2)
     )
     assert stored
-    assert database._conn.insert_sql.count("?") == 37
+    assert database._conn.insert_sql.count("?") == 17
     assert database._conn.params == [
-        _log_parse_result_to_db_tuple(result) for result in results
+        _log_parse_result_to_sparse_db_tuple(results[0]),
+        _log_parse_result_to_db_tuple(results[1]),
+        _log_parse_result_to_sparse_db_tuple(results[2]),
     ]
     assert len({result.id[:20] for result in results}) == 1
     assert [int(result.id[20:], 16) for result in results] == [0, 1, 2]

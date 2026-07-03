@@ -1,11 +1,18 @@
 import os
 
-from latency.schemas.log import LogParseResultDataclass, LogParseResultModel
+from latency.schemas.log import (
+    LogParseResultDataclass,
+    LogParseResultModel,
+    SparseLogParseResultDataclass,
+)
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.database.engine import AsyncSQLiteSingleton
 
 
-def _log_parse_result_to_db_tuple(result: LogParseResultDataclass) -> tuple:
+LogParseResultStorage = LogParseResultDataclass | SparseLogParseResultDataclass
+
+
+def _log_parse_result_to_db_tuple(result: LogParseResultStorage) -> tuple:
     """按 INSERT 列顺序生成 SQLite 参数，跳过 Pydantic 中间对象。"""
     return (
         result.id,
@@ -47,6 +54,58 @@ def _log_parse_result_to_db_tuple(result: LogParseResultDataclass) -> tuple:
         result.master_rpc_total,
     )
 
+
+def _can_use_sparse_insert(result: LogParseResultStorage) -> bool:
+    """省略值为 NULL 的 Worker/诊断字段，保证落库结果与完整 INSERT 一致。"""
+    return (
+        result.c2w_latency is None
+        and result.worker_query_meta_latency is None
+        and result.urma_total_latency is None
+        and result.urma_link_latency is None
+        and result.urma_inflight_count is None
+        and result.w2w_urma_latency is None
+        and result.src_ip is None
+        and result.dst_ip is None
+        and result.host is None
+        and result.offset is None
+        and result.content is None
+        and result.anomaly_score is None
+        and result.sdk_process is None
+        and result.sdk_rpc is None
+        and result.local_worker_cost is None
+        and result.local_worker_lock is None
+        and result.remote_worker_cost is None
+        and result.remote_worker_rpc is None
+        and result.master_process is None
+        and result.master_rpc_total is None
+    )
+
+
+def _log_parse_result_to_sparse_db_tuple(
+    result: LogParseResultStorage,
+) -> tuple:
+    """生成常见无 Worker 结果的精简 SQLite 参数。"""
+    return (
+        result.id,
+        result.log_id,
+        result.aggregated_event_id,
+        result.anomalous_event_id,
+        result.trace_id,
+        result.timestamp,
+        result.pod_ip,
+        result.cluster_name,
+        result.total_latency,
+        result.c2w_urma_latency,
+        result.operation,
+        result.data_size,
+        result.is_anomalous,
+        result.anomaly_reason,
+        result.remark,
+        result.existed_status,
+        result.created_at,
+    )
+
+
 class LogParseResultManager:
     """日志解析结果管理器"""
 
@@ -83,10 +142,10 @@ class LogParseResultManager:
 
     @staticmethod
     async def add_log_parse_results(
-        results: list[LogParseResultDataclass],
+        results: list[LogParseResultStorage],
         batch_size: int = 50000,
     ) -> bool:
-        """将 dataclass 直接批量写入 SQLite，不创建 Pydantic/字典副本。"""
+        """将 dataclass 分批写入 SQLite，不创建 Pydantic/字典副本。"""
         import asyncio
         import logging
         
@@ -113,7 +172,7 @@ class LogParseResultManager:
                     conn.execute("PRAGMA foreign_keys = OFF;")
                     
                     # 开启统一事务
-                    conn.execute("BEGIN TRANSACTION;")
+                    conn.execute("BEGIN IMMEDIATE;")
                     
                     sql_str = """
                         INSERT INTO log_parse_result_table (
@@ -131,20 +190,40 @@ class LogParseResultManager:
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
-                    # 参数逐条产生，不复制成 Pydantic、字典或批次 tuple 列表。
+                    sparse_sql_str = """
+                        INSERT INTO log_parse_result_table (
+                            id, log_id, aggregated_event_id, anomalous_event_id,
+                            trace_id, timestamp, pod_ip, cluster_name,
+                            total_latency, c2w_urma_latency, operation, data_size,
+                            is_anomalous, anomaly_reason, remark, existed_status,
+                            created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                    """
+
+                    # 每批只保留参数tuple；常见的无Worker结果不绑定恒为NULL的列。
                     for i in range(0, total_count, batch_size):
                         end = min(i + batch_size, total_count)
-                        def batch_params():
-                            for index in range(i, end):
-                                result = results[index]
-                                if not result.id:
-                                    # 80-bit随机前缀保证批次唯一，48-bit递增后缀
-                                    # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
-                                    result.id = id_prefix + f"{index:012x}"
-                                yield _log_parse_result_to_db_tuple(result)
+                        sparse_batch = []
+                        full_batch = []
+                        for index in range(i, end):
+                            result = results[index]
+                            if not result.id:
+                                # 80-bit随机前缀保证批次唯一，48-bit递增后缀
+                                # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
+                                result.id = id_prefix + f"{index:012x}"
+                            if _can_use_sparse_insert(result):
+                                sparse_batch.append(
+                                    _log_parse_result_to_sparse_db_tuple(result)
+                                )
+                            else:
+                                full_batch.append(_log_parse_result_to_db_tuple(result))
 
-                        batch = batch_params()
-                        conn.executemany(sql_str, batch)
+                        if sparse_batch:
+                            conn.executemany(sparse_sql_str, sparse_batch)
+                        if full_batch:
+                            conn.executemany(sql_str, full_batch)
                     
                     # 一次性提交
                     conn.commit()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from operator import attrgetter
 from typing import List
 
 from latency.config.config import Config
@@ -37,9 +38,38 @@ class DetectionEngine:
 
         detection_results: List[DetectionResult] = []
         for field_name, detectors in detectors_by_field.items():
-            values = [getattr(result, field_name, None) for result in results]
+            values = list(map(attrgetter(field_name), results))
+            thresholds = {detector.config.threshold_ms for detector in detectors}
+            exceeded_by_threshold = {threshold: [] for threshold in thresholds}
+            values_complete = True
+
+            if len(thresholds) == 1:
+                threshold = next(iter(thresholds))
+                exceeded_indices = exceeded_by_threshold[threshold]
+                for idx, value in enumerate(values):
+                    if value is None:
+                        values_complete = False
+                    elif value > threshold:
+                        exceeded_indices.append(idx)
+            else:
+                threshold_items = tuple(exceeded_by_threshold.items())
+                for idx, value in enumerate(values):
+                    if value is None:
+                        values_complete = False
+                        continue
+                    for threshold, exceeded_indices in threshold_items:
+                        if value > threshold:
+                            exceeded_indices.append(idx)
+
             for detector in detectors:
-                detection_results.append(await detector.detect(results, values))
+                detection_results.append(
+                    await detector.detect(
+                        results,
+                        values,
+                        values_complete,
+                        exceeded_by_threshold[detector.config.threshold_ms],
+                    )
+                )
         return detection_results
 
     def merge_results(
@@ -48,21 +78,19 @@ class DetectionEngine:
         original_results: List[LogParseResultModel]
     ) -> List[AnomalousEventDataclass]:
         """合并多个检测器结果，去重并聚合原因，同时补充额外异常检查"""
-        merged_reasons: dict[int, List[str]] = {}
+        merged_reasons: dict[int, dict[str, None]] = {}
 
         for result in detection_results:
             for idx in result.anomalous_indices:
-                if idx not in merged_reasons:
-                    merged_reasons[idx] = []
-                merged_reasons[idx].extend(result.reasons.get(idx, []))
+                target_reasons = merged_reasons.setdefault(idx, {})
+                for reason in result.reasons.get(idx, []):
+                    target_reasons[reason] = None
 
         events = []
         shared_created_at = datetime.now().isoformat(
             sep=" ", timespec="milliseconds"
         )
         for idx, reasons in merged_reasons.items():
-            unique_reasons = list(dict.fromkeys(reasons))
-
             # 补充额外的异常原因检查
             r = original_results[idx]
             extra_reasons = []
@@ -73,7 +101,7 @@ class DetectionEngine:
             if r.c2w_urma_latency is not None:
                 extra_reasons.append(f"c2w_urma_latency={r.c2w_urma_latency:.3f}ms (remote URMA path)")
 
-            all_reasons = extra_reasons + unique_reasons
+            all_reasons = extra_reasons + list(reasons)
 
             events.append(AnomalousEventDataclass(
                 id="",
