@@ -88,7 +88,6 @@ latency/
 ├── sdk/                    # SDK
 │   └── xxx.py
 ├── static/                 # 静态资源
-│   ├── config.toml         # TOML 配置文件
 │   └── fault_patterns_tree.json
 ├── deploy/                 # 部署文件
 │   ├── deploy.sh           # 一键部署脚本
@@ -138,6 +137,17 @@ bash deploy.sh
 4. 创建必要的目录
 5. 启动 FastAPI 服务（`http://127.0.0.1:9772`）
 
+### 启动 opencode serve
+
+```bash
+# (pwd): /path/to/latency/deploy
+bash run_opencode.sh
+```
+
+脚本将自动完成：
+1. 检查 `opencode` 是否安装，若未安装则通过 `npm` 安装
+2. 启动 OpenCode 服务，默认监听 `http://127.0.0.1:4096`
+
 ### 手动部署
 
 #### 1. 创建虚拟环境并安装依赖
@@ -186,10 +196,19 @@ MCP 默认使用 `stdio` 传输。可用环境变量调整：
 
 该 MCP 服务只开放日志状态、时延、通断故障和故障知识查询工具，不开放上传、修改、删除或停止任务操作。
 
-OpenCode 会读取仓库根目录的 `opencode.json` 并按需启动 MCP 服务。确认 FastAPI 已启动后，可检查连接状态：
+OpenCode 配置位于仓库的 `config/opencode.json`。手动运行 OpenCode 前，先在
+仓库根目录显式指定配置文件、Latency 虚拟环境和插件目录：
 
 ```bash
 cd /path/to/witty-ub
+export OPENCODE_CONFIG="/path/to/witty-ub/config/opencode.json"
+export WITTY_UB_LATENCY_PYTHON="/path/to/witty-ub/src/plugins/latency/.venv/bin/python"
+export WITTY_UB_PLUGINS_DIR="/path/to/witty-ub/src/plugins"
+```
+
+确认 FastAPI 已启动后，可检查 MCP 连接状态：
+
+```bash
 opencode mcp list
 ```
 
@@ -201,6 +220,12 @@ opencode mcp list
 
 ```bash
 opencode agent list
+```
+
+#### 4. 启动 opencode serve
+
+```bash
+opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
 ### 依赖版本说明

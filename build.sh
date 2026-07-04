@@ -6,6 +6,8 @@ BASE_IMAGE="witty-ub-base:latest"
 APP_IMAGE="witty-ub:latest"
 REGISTRY=""
 PLATFORM="local"
+USE_RPM="false"
+REPO_URL=""
 
 show_usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -14,6 +16,8 @@ show_usage() {
     echo "  --multi        Build multi-architecture image (x86_64 + arm64)"
     echo "  --registry     Specify registry for multi-arch push (required with --multi)"
     echo "  --platform     Target platform: local, linux/amd64, linux/arm64"
+    echo "  --rpm          Build image using RPM package (instead of source code)"
+    echo "  --repo-url     Specify custom RPM repository URL (used with --rpm)"
     echo "  -h, --help     Show this help message"
 }
 
@@ -31,6 +35,14 @@ while [ $# -gt 0 ]; do
             PLATFORM="$2"
             shift 2
             ;;
+        --rpm)
+            USE_RPM="true"
+            shift
+            ;;
+        --repo-url)
+            REPO_URL="$2"
+            shift 2
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -45,6 +57,13 @@ done
 
 if [ "$PLATFORM" = "linux/amd64,linux/arm64" ] && [ -z "$REGISTRY" ]; then
     echo "Error: --registry is required when building multi-architecture images"
+    show_usage
+    exit 1
+fi
+
+if [ "$USE_RPM" = "true" ] && [ -z "$REPO_URL" ]; then
+    echo "Error: --repo-url is required when building with --rpm"
+    echo "       Example: --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<子目录>"
     show_usage
     exit 1
 fi
@@ -74,7 +93,7 @@ build_base() {
     else
         target_image="$BASE_IMAGE"
         if [ -n "$REGISTRY" ]; then
-            target_image="$REGISTRY/$BASE_IMAGE"
+            target_image="${REGISTRY}-base:latest"
         fi
 
         if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
@@ -105,7 +124,7 @@ build_app() {
     else
         target_image="$APP_IMAGE"
         if [ -n "$REGISTRY" ]; then
-            target_image="$REGISTRY/$APP_IMAGE"
+            target_image="$REGISTRY:latest"
         fi
 
         if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
@@ -124,13 +143,54 @@ build_app() {
     fi
 }
 
-build_base
-build_app
+build_rpm() {
+    echo ""
+    echo "============================================"
+    echo "Building RPM-based image: $APP_IMAGE"
+    echo "Platform: $PLATFORM"
+    echo "============================================"
+
+    target_image="$APP_IMAGE"
+    if [ -n "$REGISTRY" ]; then
+        target_image="$REGISTRY:latest"
+    fi
+
+    REPO_URL_FULL="${REPO_URL%/}/everything/\$basearch/"
+    build_args="--build-arg REPO_URL=\"$REPO_URL_FULL\""
+
+    if [ "$PLATFORM" = "local" ]; then
+        eval docker build $build_args -f Dockerfile.rpm -t "$target_image" .
+    elif [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
+        eval docker buildx build \
+            $build_args \
+            --platform "$PLATFORM" \
+            --push \
+            -f Dockerfile.rpm \
+            -t "$target_image" .
+    else
+        eval docker buildx build \
+            $build_args \
+            --platform "$PLATFORM" \
+            --load \
+            -f Dockerfile.rpm \
+            -t "$target_image" .
+    fi
+}
+
+if [ "$USE_RPM" = "true" ]; then
+    build_rpm
+else
+    build_base
+    build_app
+fi
 
 echo ""
 echo "============================================"
 echo "Build completed successfully!"
-echo "Base image: $BASE_IMAGE"
 echo "App image: $APP_IMAGE"
 echo "Platform: $PLATFORM"
+echo "Build method: $(if [ "$USE_RPM" = "true" ]; then echo "RPM"; else echo "Source"; fi)"
+if [ -n "$REGISTRY" ]; then
+    echo "Registry: $REGISTRY"
+fi
 echo "============================================"

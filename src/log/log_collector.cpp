@@ -27,9 +27,9 @@
 namespace failure::log {
 using namespace ubse::context;
 
-constexpr const char *FAILURE_MODE_FILE = "/var/witty-ub/data/failure-mode.json";
-constexpr const char *FAILURE_MODE_FILE_DEV = "./data/failure-mode.json";
-constexpr const char *FAILURE_EVENT_FILE = "/var/witty-ub/failure-event.json";
+constexpr const char *FAILURE_MODE_FILE = "/var/witty-ub/data/failure_mode.json";
+constexpr const char *FAILURE_MODE_FILE_DEV = "./data/failure_mode.json";
+constexpr const char *FAILURE_EVENT_FILE = "/var/witty-ub/failure_event.json";
 constexpr mode_t FAILURE_EVENT_FILE_PERM_640 = 0640;
 constexpr const int64_t TIME_WINDOW_US = 10 * 1000000LL;
 constexpr const int LOCAL_EID_IDX = 1;

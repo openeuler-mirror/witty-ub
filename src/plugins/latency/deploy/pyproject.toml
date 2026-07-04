@@ -9,7 +9,7 @@ description = "Latency plugin for log parsing and anomaly detection"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi==0.110.2",
+    "fastapi==0.120.1",
     "uvicorn==0.49.0",
     "apscheduler==3.10.4",
     "pydantic==2.12.3",
@@ -18,7 +18,6 @@ dependencies = [
     "aiofiles==25.1.0",
     "chardet==4.0.0",
     "requests==2.32.2",
-    "toml==0.10.2",
     "httpx==0.28.1",
     "mcp>=1.28.0,<2.0.0",
     "rarfile>=4.0",
@@ -28,7 +27,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
-    "httpx==0.27.0",
+    "httpx==0.28.1",
 ]
 
 [tool.setuptools.packages.find]

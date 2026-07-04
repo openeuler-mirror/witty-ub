@@ -63,9 +63,6 @@ RackResult DiagnosisToolModule::Initialize()
     if (ExtractLogsByTimeWindow() != RACK_OK) {
         return RACK_FAIL;
     }
-    if (SetEnvVars() != RACK_OK) {
-        return RACK_FAIL;
-    }
     if (BuildFailureModeTree() != RACK_OK) {
         return RACK_FAIL;
     }
@@ -215,8 +212,11 @@ RackResult DiagnosisToolModule::ConfigureMergedPath()
 std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::string &dir, const std::string &pattern)
 {
     std::vector<std::string> matchedFiles;
+    std::vector<std::string_view> patternViews;
+    log_helper::SplitView(patternViews, pattern, ",");
+    const std::vector<std::string> patterns = log_helper::ToStringFields(patternViews);
+
     std::error_code ec;
-    const bool isWildcard = pattern.find('*') != std::string::npos;
 
     for (fs::recursive_directory_iterator it(dir, ec), end; it != end; it.increment(ec)) {
         if (ec) {
@@ -231,7 +231,11 @@ std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::strin
         if (filename.empty() || filename.front() == '.') {
             continue;
         }
-        if ((isWildcard && log_helper::WildcardMatch(pattern, filename)) || (!isWildcard && filename == pattern)) {
+        const bool matched = std::any_of(patterns.begin(), patterns.end(), [&](const std::string &item) {
+            const bool isWildcard = item.find('*') != std::string::npos;
+            return (isWildcard && log_helper::WildcardMatch(item, filename)) || (!isWildcard && filename == item);
+        });
+        if (matched) {
             matchedFiles.push_back(it->path().string());
         }
     }
@@ -338,35 +342,6 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
     return true;
 }
 
-RackResult DiagnosisToolModule::SetEnvVars()
-{
-    struct LogEnvVar {
-        const std::string *logFile;
-        const char *envName;
-    };
-
-    const std::array<LogEnvVar, 5> logEnvVars = {{
-        {&dsClientAccessLogFile_, "WITTY_UB_CLIENT_ACCESS_LOG"},
-        {&dsClientInfoLogFile_, "WITTY_UB_CLIENT_INFO_LOG"},
-        {&dsWorkerInfoLogFile_, "WITTY_UB_WORKER_INFO_LOG"},
-        {&dsWorkerAccessLogFile_, "WITTY_UB_WORKER_ACCESS_LOG"},
-        {&resourceLogFile_, "WITTY_UB_RESOURCES_LOG"},
-    }};
-
-    for (const auto &entry : logEnvVars) {
-        std::string envValue;
-        if (!entry.logFile->empty()) {
-            envValue = mergedLogDir_ + '/' + *entry.logFile;
-        }
-        if (setenv(entry.envName, envValue.c_str(), 1) != 0) {
-            LOG_ERROR << "Failed to set " << entry.envName << " environment variable";
-            return RACK_FAIL;
-        }
-        LOG_INFO << entry.envName << " set to: " << envValue;
-    }
-    return RACK_OK;
-}
-
 RackResult DiagnosisToolModule::BuildFailureModeTree()
 {
     failureModeJson_.clear();
@@ -438,6 +413,14 @@ RackResult DiagnosisToolModule::BuildFailureModeTree()
 
 RackResult DiagnosisToolModule::BuildLogTypeToPathMap()
 {
+    auto matchesAnyPattern = [](const std::string &patternList, const fs::path &filename) {
+        std::vector<std::string_view> patternViews;
+        log_helper::SplitView(patternViews, patternList, ",");
+        return std::any_of(patternViews.begin(), patternViews.end(), [&](std::string_view pattern) {
+            return !pattern.empty() && log_helper::WildcardMatch(std::string(pattern), filename);
+        });
+    };
+
     std::error_code ec;
     for (fs::recursive_directory_iterator it(mergedLogDir_, fs::directory_options::skip_permission_denied, ec);
          it != fs::recursive_directory_iterator(); it.increment(ec)) {
@@ -448,12 +431,12 @@ RackResult DiagnosisToolModule::BuildLogTypeToPathMap()
         if (!it->is_regular_file()) {
             continue;
         }
-        if (log_helper::WildcardMatch(dsClientAccessLogFile_, it->path().filename()) ||
-            log_helper::WildcardMatch(dsWorkerAccessLogFile_, it->path().filename())) {
+        if (matchesAnyPattern(dsClientAccessLogFile_, it->path().filename()) ||
+            matchesAnyPattern(dsWorkerAccessLogFile_, it->path().filename())) {
             logTypeToPath_[LOG_TYPE_ACCESS].push_back(it->path().string());
         }
-        if (log_helper::WildcardMatch(dsClientInfoLogFile_, it->path().filename()) ||
-            log_helper::WildcardMatch(dsWorkerInfoLogFile_, it->path().filename())) {
+        if (matchesAnyPattern(dsClientInfoLogFile_, it->path().filename()) ||
+            matchesAnyPattern(dsWorkerInfoLogFile_, it->path().filename())) {
             logTypeToPath_[LOG_TYPE_RUNTIME].push_back(it->path().string());
         }
     }

@@ -113,10 +113,12 @@ class AnomalyDetector:
         self.engine = DetectionEngine(configs)
 
     @classmethod
-    def from_config(cls) -> "AnomalyDetector":
+    def from_config(
+        cls, analyzer_config: DSLogAnalyzerConfig | None = None
+    ) -> "AnomalyDetector":
         """从配置文件创建检测器"""
-        
-        cfg: DSLogAnalyzerConfig = Config().get_config().ds_log_analyzer
+
+        cfg = analyzer_config or Config().get_config().log_analyzer_params
 
         # 获取窗口配置（多窗口模式）
         window_sizes = cfg.sliding_window_sizes

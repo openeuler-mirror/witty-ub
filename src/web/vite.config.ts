@@ -1,12 +1,12 @@
 import { fileURLToPath, URL } from 'node:url'
 
-import { defineConfig } from 'vite'
+import { defineConfig, type PluginOption } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const plugins = [vue()]
+  const plugins: PluginOption[] = [vue()]
   
   // Only include vueDevTools in development mode
   if (mode === 'development') {
@@ -32,6 +32,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
         '/log_file': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/diagnosis_config': {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },

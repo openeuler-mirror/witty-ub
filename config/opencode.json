@@ -4,12 +4,12 @@
     "witty_ub_diag_mcp": {
       "type": "local",
       "command": [
-        "/root/witty-ub/src/plugins/latency/.venv/bin/python",
+        "{env:WITTY_UB_PLUGINS_DIR}/latency/.venv/bin/python",
         "-m",
         "latency.access.mcp_server"
       ],
       "environment": {
-        "PYTHONPATH": "/root/witty-ub/src/plugins",
+        "PYTHONPATH": "{env:WITTY_UB_PLUGINS_DIR}",
         "LATENCY_API_BASE_URL": "http://127.0.0.1:9772",
         "LATENCY_API_TIMEOUT_SECONDS": "30",
         "LATENCY_MCP_TRANSPORT": "stdio"

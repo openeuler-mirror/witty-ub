@@ -54,7 +54,7 @@ witty-ub-log命令行参数说明如下：
 | --local-eid | string | 用于筛选故障的本端urma设备eid | 如不指定，默认全部采集 | 否 |
 | --jetty-id | string | 用于筛选故障的本端jetty的jetty-id | 如不指定，默认全部采集 | 否 |
  
-* 当前支持基于URMA通信组件日志进行分析采集，输出故障的相关数据到```/var/witty-ub```目录下```failure-event.json```文件中
+* 当前支持基于URMA通信组件日志进行分析采集，输出故障的相关数据到```/var/witty-ub```目录下```failure_event.json```文件中
 
 * 容器化部署
     ```shell

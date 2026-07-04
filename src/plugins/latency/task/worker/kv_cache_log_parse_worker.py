@@ -316,12 +316,28 @@ class KVCacheLogParseWorker(BaseWorker):
             if not log_file:
                 raise ValueError(f"Log file with id {log_id} not found")
             log_dir = log_file.file_path
+            from latency.database.managers.diagnosis_config import DiagnosisConfigManager
+
+            diagnosis_config = await DiagnosisConfigManager.get_or_create(log_file.kb_id)
         elif not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
+        else:
+            diagnosis_config = Config().get_diagnosis_config()
 
         sdk_parsers = [SdkAccessLogParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
         info_parsers = [WorkerInfoParser(parse_config), WorkerMetricsLogParser(parse_config)]
+        filename_config = diagnosis_config.log_filename_pattern
+        sdk_patterns = [
+            *filename_config.ds_client_access_log_file,
+            *filename_config.ds_client_info_log_file,
+        ]
+        for parser in sdk_parsers:
+            parser._runtime_patterns = sdk_patterns
+        for parser in worker_access_parsers:
+            parser._runtime_patterns = list(filename_config.ds_worker_access_log_file)
+        for parser in info_parsers:
+            parser._runtime_patterns = list(filename_config.ds_worker_info_log_file)
 
         sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
         worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
@@ -654,11 +670,12 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def detect_exception(
         list_log_parse_results: list[LogParseResultModel],
+        analyzer_config=None,
     ) -> list[AnomalousEventDataclass]:
         """使用多窗口并行检测引擎检测异常事件"""
         n = len(list_log_parse_results)
 
-        detector = AnomalyDetector.from_config()
+        detector = AnomalyDetector.from_config(analyzer_config)
         events = await detector.detect(list_log_parse_results)
 
         if not events:
@@ -934,7 +951,16 @@ class KVCacheLogParseWorker(BaseWorker):
 
             # 先检测异常（填充 anomalous_event_id）
             t_detect_start = time.perf_counter()
-            anomalous_events = await KVCacheLogParseWorker.detect_exception(list_log_parse_results)
+            analyzer_config = None
+            if kb_id:
+                from latency.database.managers.diagnosis_config import DiagnosisConfigManager
+
+                analyzer_config = (
+                    await DiagnosisConfigManager.get_or_create(kb_id)
+                ).log_analyzer_params
+            anomalous_events = await KVCacheLogParseWorker.detect_exception(
+                list_log_parse_results, analyzer_config
+            )
             t_detect = time.perf_counter() - t_detect_start
             await BaseWorker.report(task.id, "Anomaly detection done", 50.0)
             await BaseWorker.report(

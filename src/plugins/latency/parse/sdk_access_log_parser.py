@@ -16,7 +16,7 @@ class SdkAccessLogParser(AccessLogParser):
 
     @property
     def patterns(self) -> list[str]:
-        return SDK_ACCESS_LOG_PATTERNS
+        return getattr(self, "_runtime_patterns", SDK_ACCESS_LOG_PATTERNS)
 
     label = "SDK access parse"
     _keywords = ("DS_KV_CLIENT_GET", "DS_OBJECT_CLIENT_GET")
