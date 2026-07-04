@@ -397,8 +397,9 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
 
 def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
     results = [
-        LogParseResultDataclass(total_latency=float(index), is_anomalous=False)
-        for index in range(3)
+        SparseLogParseResultDataclass(total_latency=0.0, is_anomalous=False),
+        LogParseResultDataclass(total_latency=1.0, is_anomalous=False),
+        SparseLogParseResultDataclass(total_latency=2.0, is_anomalous=False),
     ]
     results[1].c2w_latency = 1.0
     results[2].c2w_urma_latency = 2.0

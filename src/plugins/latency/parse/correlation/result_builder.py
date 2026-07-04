@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from latency.ENUM.ds_log import StatusCode
@@ -182,7 +182,9 @@ class ParseResultBuilder:
         sdk_urma_map = correlated.sdk_urma_map
         sdk_urma_get = sdk_urma_map.get
         has_legacy_sdk_urma_map = bool(sdk_urma_map)
-        sdk_urma_index_get = correlated.sdk_urma_index.get
+        sdk_urma_index = correlated.sdk_urma_index
+        sdk_urma_index_get = sdk_urma_index.get
+        has_sdk_urma_index = bool(sdk_urma_index)
         worker_urma_get = correlated.worker_urma_map.get
         worker_remote_pull_get = correlated.worker_remote_pull_map.get
         worker_worker_urma_get = correlated.worker_worker_urma_map.get
@@ -205,8 +207,10 @@ class ParseResultBuilder:
         sparse_result_type = SparseLogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
-        cached_second_key = None
+        cached_second_start = None
+        cached_second_end = None
         cached_second_prefix = ""
+        one_second = timedelta(seconds=1)
 
         def first_elapsed_ms(values: Optional[list]) -> Optional[float]:
             if not values:
@@ -257,14 +261,16 @@ class ParseResultBuilder:
 
             if has_legacy_sdk_urma_map:
                 sdk_urma_values = sdk_urma_get(i)
-                if not sdk_urma_values:
+                if not sdk_urma_values and has_sdk_urma_index:
                     sdk_urma_values = sdk_urma_index_get(
                         (sdk[T_POD_IP], sdk[T_TRACE_ID])
                     )
-            else:
+            elif has_sdk_urma_index:
                 sdk_urma_values = sdk_urma_index_get(
                     (sdk[T_POD_IP], sdk[T_TRACE_ID])
                 )
+            else:
+                sdk_urma_values = None
             if sdk_urma_values:
                 first_sdk_urma = sdk_urma_values[0]
                 sdk_urma_elapsed_us = (
@@ -349,16 +355,13 @@ class ParseResultBuilder:
                 # 保持旧 strftime 语义：结果不携带时区后缀。
                 timestamp = self._format_timestamp(sdk_timestamp)
             else:
-                second_key = (
-                    sdk_timestamp.year,
-                    sdk_timestamp.month,
-                    sdk_timestamp.day,
-                    sdk_timestamp.hour,
-                    sdk_timestamp.minute,
-                    sdk_timestamp.second,
-                )
-                if second_key != cached_second_key:
-                    cached_second_key = second_key
+                if (
+                    cached_second_end is None
+                    or sdk_timestamp < cached_second_start
+                    or sdk_timestamp >= cached_second_end
+                ):
+                    cached_second_start = sdk_timestamp.replace(microsecond=0)
+                    cached_second_end = cached_second_start + one_second
                     cached_second_prefix = sdk_timestamp.isoformat(
                         sep=" ", timespec="seconds"
                     )

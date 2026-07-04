@@ -290,7 +290,10 @@ class LogParseResultManager:
                                 # 80-bit随机前缀保证批次唯一，48-bit递增后缀
                                 # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
                                 result.id = id_prefix + f"{index:012x}"
-                            if _can_use_sparse_insert(result):
+                            if (
+                                isinstance(result, SparseLogParseResultDataclass)
+                                or _can_use_sparse_insert(result)
+                            ):
                                 if _can_use_minimal_insert(result):
                                     minimal_batch.append(
                                         _log_parse_result_to_minimal_db_tuple(result)
