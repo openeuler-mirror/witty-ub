@@ -3444,18 +3444,18 @@ button {
 }
 
 .trace-modal-content {
-  max-width: 1500px;
+  max-width: 1600px;
   width: 90%;
-  min-width: min(1200px, 90vw);
+  min-width: min(1300px, 90vw);
   max-height: 85vh;
   display: flex;
   flex-direction: column;
 }
 
 .fault-trace-modal-content {
-  max-width: 1760px;
+  max-width: 1860px;
   width: 96%;
-  min-width: min(1440px, 96vw);
+  min-width: min(1540px, 96vw);
 }
 
 .trace-filter-modal {
