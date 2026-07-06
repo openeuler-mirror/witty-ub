@@ -1542,6 +1542,11 @@ const setTimeWindowIpPairPage = (twIdx: number, page: number) => {
 const getTimeWindowIpPairTotalPages = (twEvent: TimeWindowAggregatedEvent) =>
   Math.max(1, Math.ceil(twEvent.ip_pairs.length / IP_PAIR_PAGE_SIZE))
 
+const getTimeWindowIpPairPageWindow = (
+  twIdx: number,
+  twEvent: TimeWindowAggregatedEvent,
+) => getPageWindow(getTimeWindowIpPairPage(twIdx), getTimeWindowIpPairTotalPages(twEvent))
+
 const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) => {
   const sorted = getSortedIpPairs(twEvent)
   const page = getTimeWindowIpPairPage(twIdx)
@@ -2044,9 +2049,21 @@ const faultTraceEventsPageCount = computed(() =>
   Math.max(1, Math.ceil(faultTraceEventsTotal.value / faultTraceEventsPageSize)),
 )
 const getPageWindow = (currentPage: number, pageCount: number) => {
-  const start = Math.max(1, currentPage - 5)
-  const end = Math.min(pageCount, currentPage + 5)
-  return Array.from({ length: end - start + 1 }, (_, index) => start + index)
+  const visiblePages = new Set([1, pageCount])
+  const start = Math.max(1, currentPage - 2)
+  const end = Math.min(pageCount, currentPage + 2)
+  for (let page = start; page <= end; page += 1) visiblePages.add(page)
+
+  const pages = [...visiblePages].sort((first, second) => first - second)
+  const pageWindow: number[] = []
+  pages.forEach((page, index) => {
+    const previousPage = pages[index - 1]
+    if (previousPage !== undefined && page - previousPage > 1) {
+      pageWindow.push(previousPage === 1 ? -1 : -2)
+    }
+    pageWindow.push(page)
+  })
+  return pageWindow
 }
 const assetPageWindow = computed(() => getPageWindow(assetPage.value, assetPageCount.value))
 const logFilesPageWindow = computed(() =>
@@ -6847,12 +6864,12 @@ onBeforeUnmount(() => {
               v-for="pageNum in assetPageWindow"
               :key="`asset-page-${pageNum}`"
               class="pagination-page-btn"
-              :class="{ active: pageNum === assetPage }"
+              :class="{ active: pageNum === assetPage, ellipsis: pageNum < 0 }"
               type="button"
-              :disabled="pageNum === assetPage || isListLoading"
-              @click="goAssetPage(pageNum)"
+              :disabled="pageNum < 0 || pageNum === assetPage || isListLoading"
+              @click="pageNum > 0 && goAssetPage(pageNum)"
             >
-              {{ pageNum }}
+              {{ pageNum < 0 ? '…' : pageNum }}
             </button>
           </span>
           <button
@@ -7615,9 +7632,25 @@ onBeforeUnmount(() => {
                                 >
                                   &lt;
                                 </button>
-                                <span class="page-info">
-                                  {{ getTimeWindowIpPairPage(twIdx) }} /
-                                  {{ getTimeWindowIpPairTotalPages(twEvent) }}
+                                <span class="pagination-pages" aria-label="IP对页码">
+                                  <button
+                                    v-for="pageNum in getTimeWindowIpPairPageWindow(twIdx, twEvent)"
+                                    :key="`${twIdx}-ip-pair-page-${pageNum}`"
+                                    class="pagination-page-btn"
+                                    :class="{
+                                      active: pageNum === getTimeWindowIpPairPage(twIdx),
+                                      ellipsis: pageNum < 0,
+                                    }"
+                                    type="button"
+                                    :disabled="
+                                      pageNum < 0 || pageNum === getTimeWindowIpPairPage(twIdx)
+                                    "
+                                    @click="
+                                      pageNum > 0 && setTimeWindowIpPairPage(twIdx, pageNum)
+                                    "
+                                  >
+                                    {{ pageNum < 0 ? '…' : pageNum }}
+                                  </button>
                                 </span>
                                 <button
                                   class="page-btn"
@@ -7867,12 +7900,12 @@ onBeforeUnmount(() => {
                         v-for="pageNum in timeWindowPageWindow"
                         :key="`tw-page-${pageNum}`"
                         class="pagination-page-btn"
-                        :class="{ active: pageNum === timeWindowPage }"
+                        :class="{ active: pageNum === timeWindowPage, ellipsis: pageNum < 0 }"
                         type="button"
-                        :disabled="pageNum === timeWindowPage || isTimeWindowLoading"
-                        @click="goTimeWindowPage(pageNum)"
+                        :disabled="pageNum < 0 || pageNum === timeWindowPage || isTimeWindowLoading"
+                        @click="pageNum > 0 && goTimeWindowPage(pageNum)"
                       >
-                        {{ pageNum }}
+                        {{ pageNum < 0 ? '…' : pageNum }}
                       </button>
                     </span>
                     <button
@@ -8380,12 +8413,16 @@ onBeforeUnmount(() => {
                       v-for="pageNum in abnormalTracesPageWindow"
                       :key="`abnormal-traces-page-${pageNum}`"
                       class="pagination-page-btn"
-                      :class="{ active: pageNum === abnormalTracesPage }"
+                      :class="{ active: pageNum === abnormalTracesPage, ellipsis: pageNum < 0 }"
                       type="button"
-                      :disabled="pageNum === abnormalTracesPage || isAbnormalTracesLoading"
-                      @click="goAbnormalTracesPage(pageNum)"
+                      :disabled="
+                        pageNum < 0 ||
+                        pageNum === abnormalTracesPage ||
+                        isAbnormalTracesLoading
+                      "
+                      @click="pageNum > 0 && goAbnormalTracesPage(pageNum)"
                     >
-                      {{ pageNum }}
+                      {{ pageNum < 0 ? '…' : pageNum }}
                     </button>
                   </span>
                   <button
@@ -8836,15 +8873,19 @@ onBeforeUnmount(() => {
                                     class="pagination-page-btn"
                                     :class="{
                                       active: pageNum === getFaultAggregatedEventPodPage(row),
+                                      ellipsis: pageNum < 0,
                                     }"
                                     type="button"
                                     :disabled="
+                                      pageNum < 0 ||
                                       pageNum === getFaultAggregatedEventPodPage(row) ||
                                       isFaultAggregatedEventPodLoading(row)
                                     "
-                                    @click.stop="goFaultAggregatedEventPodPage(row, pageNum)"
+                                    @click.stop="
+                                      pageNum > 0 && goFaultAggregatedEventPodPage(row, pageNum)
+                                    "
                                   >
-                                    {{ pageNum }}
+                                    {{ pageNum < 0 ? '…' : pageNum }}
                                   </button>
                                 </span>
                                 <button
@@ -8994,14 +9035,18 @@ onBeforeUnmount(() => {
                         v-for="pageNum in faultAggregatedEventPageWindow"
                         :key="`fault-aggregate-event-page-${pageNum}`"
                         class="pagination-page-btn"
-                        :class="{ active: pageNum === faultAggregatedEventPage }"
+                        :class="{
+                          active: pageNum === faultAggregatedEventPage,
+                          ellipsis: pageNum < 0,
+                        }"
                         type="button"
                         :disabled="
+                          pageNum < 0 ||
                           pageNum === faultAggregatedEventPage || isFaultAggregatedEventsLoading
                         "
-                        @click="goFaultAggregatedEventPage(pageNum)"
+                        @click="pageNum > 0 && goFaultAggregatedEventPage(pageNum)"
                       >
-                        {{ pageNum }}
+                        {{ pageNum < 0 ? '…' : pageNum }}
                       </button>
                     </span>
                     <button
@@ -9328,12 +9373,16 @@ onBeforeUnmount(() => {
                     v-for="pageNum in faultTraceEventsPageWindow"
                     :key="`fault-trace-events-page-${pageNum}`"
                     class="pagination-page-btn"
-                    :class="{ active: pageNum === faultTraceEventsPage }"
+                    :class="{ active: pageNum === faultTraceEventsPage, ellipsis: pageNum < 0 }"
                     type="button"
-                    :disabled="pageNum === faultTraceEventsPage || isFaultTraceEventsLoading"
-                    @click="goFaultTraceEventsPage(pageNum)"
+                    :disabled="
+                      pageNum < 0 ||
+                      pageNum === faultTraceEventsPage ||
+                      isFaultTraceEventsLoading
+                    "
+                    @click="pageNum > 0 && goFaultTraceEventsPage(pageNum)"
                   >
-                    {{ pageNum }}
+                    {{ pageNum < 0 ? '…' : pageNum }}
                   </button>
                 </span>
                 <button
@@ -9567,12 +9616,12 @@ onBeforeUnmount(() => {
                   v-for="pageNum in logFilesPageWindow"
                   :key="`log-file-page-${pageNum}`"
                   class="pagination-page-btn"
-                  :class="{ active: pageNum === logFilesPage }"
+                  :class="{ active: pageNum === logFilesPage, ellipsis: pageNum < 0 }"
                   type="button"
-                  :disabled="pageNum === logFilesPage || isLogFilesLoading"
-                  @click="goLogFilesPage(pageNum)"
+                  :disabled="pageNum < 0 || pageNum === logFilesPage || isLogFilesLoading"
+                  @click="pageNum > 0 && goLogFilesPage(pageNum)"
                 >
-                  {{ pageNum }}
+                  {{ pageNum < 0 ? '…' : pageNum }}
                 </button>
               </span>
               <button
@@ -10438,12 +10487,16 @@ onBeforeUnmount(() => {
                   v-for="pageNum in detailParseResultsPageWindow"
                   :key="`detail-parse-results-page-${pageNum}`"
                   class="pagination-page-btn"
-                  :class="{ active: pageNum === detailParseResultsPage }"
+                  :class="{ active: pageNum === detailParseResultsPage, ellipsis: pageNum < 0 }"
                   type="button"
-                  :disabled="pageNum === detailParseResultsPage || isDetailParseResultsLoading"
-                  @click="goDetailParseResultsPage(pageNum)"
+                  :disabled="
+                    pageNum < 0 ||
+                    pageNum === detailParseResultsPage ||
+                    isDetailParseResultsLoading
+                  "
+                  @click="pageNum > 0 && goDetailParseResultsPage(pageNum)"
                 >
-                  {{ pageNum }}
+                  {{ pageNum < 0 ? '…' : pageNum }}
                 </button>
               </span>
               <button
@@ -10653,14 +10706,18 @@ onBeforeUnmount(() => {
                   v-for="pageNum in faultDetailTraceEventsPageWindow"
                   :key="`fault-detail-trace-page-${pageNum}`"
                   class="pagination-page-btn"
-                  :class="{ active: pageNum === faultDetailTraceEventsPage }"
+                  :class="{
+                    active: pageNum === faultDetailTraceEventsPage,
+                    ellipsis: pageNum < 0,
+                  }"
                   type="button"
                   :disabled="
+                    pageNum < 0 ||
                     pageNum === faultDetailTraceEventsPage || isFaultDetailTraceEventsLoading
                   "
-                  @click="goFaultDetailTraceEventsPage(pageNum)"
+                  @click="pageNum > 0 && goFaultDetailTraceEventsPage(pageNum)"
                 >
-                  {{ pageNum }}
+                  {{ pageNum < 0 ? '…' : pageNum }}
                 </button>
               </span>
               <button

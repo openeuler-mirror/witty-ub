@@ -854,6 +854,13 @@ button {
   opacity: 1;
 }
 
+.pagination-page-btn.ellipsis {
+  cursor: default;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
 .pagination-page-btn:disabled,
 .pagination-jump-btn:disabled {
   cursor: not-allowed;
