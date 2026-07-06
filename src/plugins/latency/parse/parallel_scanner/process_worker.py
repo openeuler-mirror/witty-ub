@@ -20,9 +20,50 @@ from latency.common.ds_log_io import open_log
 logger = logging.getLogger(__name__)
 
 _PROGRESS_UPDATE_LINES = 100_000
+_CPROFILE_DIR_ENV = "WITTY_UB_CPROFILE_DIR"
 
 
 def process_worker_func(
+    file_group_files: list[tuple[str, list[int]]],
+    group_id: int,
+    parsers_info: list[dict],
+    parse_config_dict: Optional[dict] = None,
+    scan_scope: Optional[dict] = None,
+) -> dict[str, list[dict]]:
+    profile_dir = os.environ.get(_CPROFILE_DIR_ENV)
+    if not profile_dir:
+        return _process_worker_func(
+            file_group_files,
+            group_id,
+            parsers_info,
+            parse_config_dict,
+            scan_scope,
+        )
+
+    import cProfile
+    from pathlib import Path
+    import time
+
+    output_dir = Path(profile_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = output_dir / (
+        f"worker-{os.getpid()}-group-{group_id}-{time.time_ns()}.prof"
+    )
+    profiler = cProfile.Profile()
+    try:
+        return profiler.runcall(
+            _process_worker_func,
+            file_group_files,
+            group_id,
+            parsers_info,
+            parse_config_dict,
+            scan_scope,
+        )
+    finally:
+        profiler.dump_stats(str(profile_path))
+
+
+def _process_worker_func(
     file_group_files: list[tuple[str, list[int]]],
     group_id: int,
     parsers_info: list[dict],
