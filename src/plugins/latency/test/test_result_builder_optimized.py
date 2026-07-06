@@ -342,6 +342,76 @@ def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
             assert values[0][TupleField.ENTRY_TYPE] == entry_type.value
 
 
+def test_empty_sdk_worker_correlation_falls_back_to_worker_results() -> None:
+    timestamp = datetime(2026, 7, 2, 1, 2, 3)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="sdk-trace",
+        elapsed_us=2000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id="worker-trace",
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+        cluster_name="worker-cluster",
+    )
+    query_meta = _raw_entry(
+        timestamp=timestamp,
+        trace_id="worker-trace",
+        elapsed_us=120,
+        entry_type=EntryType.QUERY_META.value,
+    )
+    sdk_process = _raw_entry(
+        timestamp=timestamp,
+        trace_id="worker-trace",
+        elapsed_us=340,
+        entry_type=EntryType.SDK_PROCESS.value,
+    )
+    urma = _raw_entry(
+        timestamp=timestamp,
+        trace_id="",
+        elapsed_us=560,
+        entry_type=EntryType.URMA.value,
+        src_addr="10.0.0.1:1",
+        dst_addr="10.0.0.2:1",
+        inflight_count=3,
+    )
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [worker],
+            "Worker query meta parse": [query_meta],
+            "Worker metrics parse": [sdk_process],
+            "Worker urma parse": [urma],
+        }
+    ).correlate()
+
+    assert correlated.sdk_worker_map == {}
+    assert correlated.worker_query_meta_map[0] == [query_meta]
+    assert correlated.worker_sdk_process_map[0] == [sdk_process]
+    assert correlated.worker_urma_map[0] == [urma]
+
+    results = ParseResultBuilder(
+        [sdk],
+        [worker],
+        correlated,
+        log_file_id="file-id",
+    ).build()
+
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, LogParseResultDataclass)
+    assert result.trace_id == "worker-trace"
+    assert result.operation == "DS_POSIX_GET"
+    assert result.total_latency == 1.0
+    assert result.worker_query_meta_latency == 0.12
+    assert result.sdk_process == 0.34
+    assert result.urma_total_latency == 0.56
+    assert (result.src_ip, result.dst_ip) == ("10.0.0.1:1", "10.0.0.2:1")
+
+
 def test_large_trace_scope_is_not_copied_to_processes(monkeypatch) -> None:
     monkeypatch.setattr(worker_module, "MAX_PROCESS_SCAN_SCOPE_TRACE_IDS", 2)
     timestamp = datetime(2026, 7, 2)

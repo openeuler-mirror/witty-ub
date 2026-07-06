@@ -764,7 +764,10 @@ class LogCorrelator:
             "worker_idx",
             lambda: WorkerIdxCorrelator(im).correlate(sdk_worker_map),
         )
-        worker_indices = set(worker_idx_map.values()) if self.sdk_entries else None
+        # SDK 日志存在但一个 Worker 都未匹配时，不能把 Worker 关联范围收缩成
+        # 空集合。此时结果构建会回退到 Worker 视角，需要完整的 URMA、
+        # QueryMeta 和细分时延指标。
+        worker_indices = set(worker_idx_map.values()) if sdk_worker_map else None
         target_pod_traces = None
         if worker_indices is not None:
             target_pod_traces = {
