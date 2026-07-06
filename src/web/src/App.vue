@@ -26,6 +26,7 @@ type AgentChatMessage = {
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+  activeTextPartId?: string
 }
 
 type OpenCodeEvent = {
@@ -829,6 +830,17 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       target.reasoningParts[reasoningPartId] = part.text || ''
       target.reasoning = Object.values(target.reasoningParts).filter(Boolean).join('\n\n')
     } else if (part.type === 'text') {
+      const textPartId = part.id || 'text'
+      if (
+        target.activeTextPartId &&
+        target.activeTextPartId !== textPartId &&
+        target.content
+      ) {
+        target.reasoningParts ||= {}
+        target.reasoningParts[`text:${target.activeTextPartId}`] = target.content
+        target.reasoning = Object.values(target.reasoningParts).filter(Boolean).join('\n\n')
+      }
+      target.activeTextPartId = textPartId
       target.content = part.text || ''
     }
     void scrollAgentChatToBottom()
