@@ -18,7 +18,7 @@ class LogFailureEventManager:
         VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
     """
     _LOG_FAILURE_EVENT_RAW_INSERT_SQL = """
-        INSERT INTO log_failure_event_table 
+        INSERT OR REPLACE INTO log_failure_event_table 
         (id, log_id, log_file, raw_text, host_name, timestamp, level, filename, pod_name, pid, tid, trace_id, cluster_name, message, status_code, failure_mode)
         VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
     """
