@@ -46,6 +46,7 @@ def _without_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
+# API: POST /log_kb/list
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -74,6 +75,7 @@ async def list_log_kbs(
     return await _client().post("/log_kb/list", json=_without_none(payload))
 
 
+# API: GET /log_kb/{kb_id}
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -85,6 +87,7 @@ async def get_log_kb(kb_id: str) -> dict[str, Any]:
     return await _client().get(f"/log_kb/{quote(kb_id, safe='')}")
 
 
+# API: POST /log_file/list/{kb_id}
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -107,6 +110,7 @@ async def list_log_files(
     )
 
 
+# API: GET /task/{task_id}
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -118,6 +122,7 @@ async def get_parse_task(task_id: str) -> dict[str, Any]:
     return await _client().get(f"/task/{quote(task_id, safe='')}")
 
 
+# API: POST /aggregated_event/list
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -150,6 +155,62 @@ async def list_latency_events(
     )
 
 
+# API: POST /aggregated_event/list_time_window
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "List latency aggregates grouped into time windows. Use this to identify "
+        "when latency increased and compare source/destination IP pairs within the "
+        "same interval."
+    )
+)
+async def list_latency_time_windows(
+    kb_id: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    src_ip: str | None = None,
+    dst_ip: str | None = None,
+    interval: Literal["second", "minute", "hour"] = "minute",
+    stat_type: Literal["p99", "p95", "ave", "min", "max"] = "p99",
+    sort_by: Literal["start_time", "total_latency"] = "start_time",
+    sort_order: Literal["asc", "desc"] = "asc",
+    page_num: int = 1,
+    page_cnt: int = 20,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kb_id": kb_id,
+        "start_time": start_time,
+        "end_time": end_time,
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
+        "interval": interval,
+        "stat_type": stat_type,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+        **_page(page_num, page_cnt),
+    }
+    return await _client().post(
+        "/aggregated_event/list_time_window",
+        json=_without_none(payload),
+    )
+
+
+# API: GET /log_parse_result/options
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "Get available cluster and host filter values from parsed logs. Optionally "
+        "limit the options to one knowledge base."
+    )
+)
+async def get_log_parse_options(kb_id: str | None = None) -> dict[str, Any]:
+    path = "/log_parse_result/options"
+    if kb_id is not None:
+        path = f"{path}?kb_id={quote(kb_id, safe='')}"
+    return await _client().get(path)
+
+
+# API: POST /log_parse_result/list
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -192,6 +253,7 @@ async def list_log_parse_results(
     )
 
 
+# API: POST /log_parse_result/metrics/latency
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -231,6 +293,7 @@ async def get_latency_metrics(
     return await _client().post("/log_parse_result/metrics/latency", json=payload)
 
 
+# API: POST /log_failure_event_result/list_time_aggregated_failure_events
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -261,6 +324,77 @@ async def list_failure_time_windows(
     )
 
 
+# API: POST /log_failure_event_result/list_pod_aggregated_failure_events
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "Aggregate connectivity fault codes by pod within a time range. Use this "
+        "after locating a failure window to identify the pods contributing faults."
+    )
+)
+async def list_failure_pod_aggregates(
+    kb_id: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    sort_by: str = "all",
+    sort_order: Literal["asc", "desc"] = "desc",
+    page_num: int = 1,
+    page_cnt: int = 20,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kb_id": kb_id,
+        "created_at_start": start_time,
+        "created_at_end": end_time,
+        "sort_by": sort_by,
+        "created_sorted_desc": sort_order == "desc",
+        **_page(page_num, page_cnt),
+    }
+    return await _client().post(
+        "/log_failure_event_result/list_pod_aggregated_failure_events",
+        json=_without_none(payload),
+    )
+
+
+# API: POST /log_failure_event_result/metrics/err_code
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "Get connectivity error-code metric time series for a knowledge base. "
+        "Filter by error code, cluster, host, pod or time range to quantify fault "
+        "frequency and correlate spikes."
+    )
+)
+async def get_error_code_metrics(
+    kb_id: str,
+    err_codes: list[str] | None = None,
+    cluster_names: list[str] | None = None,
+    host_names: list[str] | None = None,
+    pod_names: list[str] | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    max_points: int = 1000,
+) -> dict[str, Any]:
+    if not 1 <= max_points <= 5000:
+        raise ValueError("max_points must be between 1 and 5000")
+    payload = _without_none(
+        {
+            "kb_id": kb_id,
+            "err_codes": err_codes or [],
+            "cluster_names": cluster_names or [],
+            "host_names": host_names or [],
+            "pod_names": pod_names or [],
+            "start_time": start_time,
+            "end_time": end_time,
+            "max_points": max_points,
+        }
+    )
+    return await _client().post(
+        "/log_failure_event_result/metrics/err_code",
+        json=payload,
+    )
+
+
+# API: POST /log_failure_event_result/list_trace_events
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -299,6 +433,7 @@ async def list_failure_traces(
     )
 
 
+# API: POST /log_failure_event_result/list_log_events
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -324,6 +459,7 @@ async def list_failure_logs(
     )
 
 
+# API: GET /failure_mode/status_code/{status_code}
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -338,6 +474,7 @@ async def get_status_code_knowledge(status_code: str) -> dict[str, Any]:
     )
 
 
+# API: GET /failure_mode/{failure_mode_id}
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -351,6 +488,7 @@ async def get_failure_mode(failure_mode_id: str) -> dict[str, Any]:
     )
 
 
+# API: POST /diagnosis_case/search
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(
@@ -397,6 +535,7 @@ async def search_diagnosis_cases(
     )
 
 
+# API: GET /diagnosis_case/{case_id}
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
     description=(

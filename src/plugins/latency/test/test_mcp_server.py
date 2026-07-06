@@ -89,6 +89,85 @@ def test_list_failure_logs_requires_trace_ids():
         asyncio.run(mcp_server.list_failure_logs([]))
 
 
+def test_new_read_tools_map_api_requests(monkeypatch):
+    calls = []
+
+    class FakeClient:
+        async def get(self, path):
+            calls.append(("GET", path, None))
+            return {"code": 200, "result": {}}
+
+        async def post(self, path, *, json):
+            calls.append(("POST", path, json))
+            return {"code": 200, "result": {}}
+
+    monkeypatch.setattr(mcp_server, "_client", lambda: FakeClient())
+
+    asyncio.run(mcp_server.get_log_parse_options("kb/1"))
+    asyncio.run(
+        mcp_server.list_latency_time_windows(
+            "kb-1",
+            src_ip="10.0.0.1",
+            interval="hour",
+        )
+    )
+    asyncio.run(
+        mcp_server.list_failure_pod_aggregates(
+            "kb-1",
+            start_time="2026-06-29 10:00:00",
+        )
+    )
+    asyncio.run(
+        mcp_server.get_error_code_metrics(
+            "kb-1",
+            err_codes=["1004"],
+            pod_names=["pod-1"],
+        )
+    )
+
+    assert calls == [
+        ("GET", "/log_parse_result/options?kb_id=kb%2F1", None),
+        (
+            "POST",
+            "/aggregated_event/list_time_window",
+            {
+                "kb_id": "kb-1",
+                "src_ip": "10.0.0.1",
+                "interval": "hour",
+                "stat_type": "p99",
+                "sort_by": "start_time",
+                "sort_order": "asc",
+                "page_num": 1,
+                "page_cnt": 20,
+            },
+        ),
+        (
+            "POST",
+            "/log_failure_event_result/list_pod_aggregated_failure_events",
+            {
+                "kb_id": "kb-1",
+                "created_at_start": "2026-06-29 10:00:00",
+                "sort_by": "all",
+                "created_sorted_desc": True,
+                "page_num": 1,
+                "page_cnt": 20,
+            },
+        ),
+        (
+            "POST",
+            "/log_failure_event_result/metrics/err_code",
+            {
+                "kb_id": "kb-1",
+                "err_codes": ["1004"],
+                "cluster_names": [],
+                "host_names": [],
+                "pod_names": ["pod-1"],
+                "max_points": 1000,
+            },
+        ),
+    ]
+
+
 def test_search_diagnosis_cases_maps_signals(monkeypatch):
     calls = []
 
@@ -147,9 +226,13 @@ def test_mcp_exposes_only_expected_read_tools():
         "list_log_files",
         "get_parse_task",
         "list_latency_events",
+        "list_latency_time_windows",
+        "get_log_parse_options",
         "list_log_parse_results",
         "get_latency_metrics",
         "list_failure_time_windows",
+        "list_failure_pod_aggregates",
+        "get_error_code_metrics",
         "list_failure_traces",
         "list_failure_logs",
         "get_status_code_knowledge",
