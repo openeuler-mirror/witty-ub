@@ -1,8 +1,8 @@
 ---
 description: 使用只读诊断 MCP 分析 KVC 分布式缓存的时延和通断故障
 mode: primary
-temperature: 0.1
-steps: 30
+temperature: 0.25
+steps: 15
 color: warning
 permission:
   "*": deny
