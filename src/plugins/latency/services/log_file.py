@@ -27,6 +27,7 @@ from latency.schemas.response import (
 )
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
+from latency.task.progress import parallel_overall_progress
 from latency.common.zip_handler import ZipHandler
 from latency.exceptions import NotFoundBizException, BadRequestBizException
 
@@ -52,28 +53,6 @@ class LogFileService:
         ]:
             return parse_task
         return diagnosis_task
-
-    @staticmethod
-    def _clamp_progress(progress: float | int | None) -> float:
-        if progress is None:
-            return 0.0
-        return min(100.0, max(0.0, float(progress)))
-
-    @staticmethod
-    def _latest_progress(task) -> float:
-        if not task or not task.task_reports:
-            return 0.0
-        return max(LogFileService._clamp_progress(report.progress) for report in task.task_reports)
-
-    @staticmethod
-    def _average_task_report_progress(task, companion_task) -> None:
-        if not task or not companion_task:
-            return
-        companion_progress = LogFileService._latest_progress(companion_task)
-        for report in task.task_reports:
-            report.progress = (
-                LogFileService._clamp_progress(report.progress) + companion_progress
-            ) / 2.0
 
     @staticmethod
     def get_upload_path(*paths: str) -> str:
@@ -321,19 +300,14 @@ class LogFileService:
             if diagnosis_task:
                 diagnosis_task.task_reports = task_report_dict.get(diagnosis_task.id, [])
 
+            log_file_model.overall_progress = parallel_overall_progress(
+                parse_task,
+                diagnosis_task,
+            )
             log_file_model.task = task_dict.get(log_file_model.id)
             if log_file_model.task:
                 log_file_model.task.task_reports = task_report_dict.get(
                     log_file_model.task.id, []
-                )
-                companion_task = (
-                    diagnosis_task
-                    if log_file_model.task.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
-                    else parse_task
-                )
-                LogFileService._average_task_report_progress(
-                    log_file_model.task,
-                    companion_task,
                 )
                 log_file_model.task.task_reports.sort(
                     key=lambda x: x.created_at, reverse=True
@@ -371,17 +345,12 @@ class LogFileService:
                 parse_task.task_reports = parse_reports
             if diagnosis_task:
                 diagnosis_task.task_reports = diagnosis_reports
+            log_file_model.overall_progress = parallel_overall_progress(
+                parse_task,
+                diagnosis_task,
+            )
             task_model.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
                 [task_model.id]
-            )
-            companion_task = (
-                diagnosis_task
-                if task_model.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
-                else parse_task
-            )
-            LogFileService._average_task_report_progress(
-                task_model,
-                companion_task,
             )
         log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)

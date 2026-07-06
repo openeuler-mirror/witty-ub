@@ -82,6 +82,7 @@ type LogFileModel = {
   anomaly_cnt: number
   trace_failure_event_cnt?: number
   task: TaskModel | null
+  overall_progress?: number
   existed_status: boolean
   created_at: string
 }
@@ -6117,16 +6118,6 @@ const getLogFileTaskStatus = (file: LogFileModel) =>
 
 const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
-const getTaskReportProgress = (report: TaskReportModel | null) => {
-  if (!report) return null
-  const value = report.progress
-  if (typeof value === 'number' && Number.isFinite(value)) return clampProgress(value)
-  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
-    return clampProgress(Number(value))
-  }
-  return null
-}
-
 const getTaskReportTime = (report: TaskReportModel) => {
   if (!report.created_at) return 0
   const time = Date.parse(report.created_at)
@@ -6182,18 +6173,8 @@ const getLatestLogFileTaskReport = (file: LogFileModel) => {
 }
 
 const getLogFileProgress = (file: LogFileModel) => {
-  const validProgressValues = getValidLogFileTaskReports(file)
-    .map(getTaskReportProgress)
-    .filter((progress): progress is number => progress !== null)
-  const maxReportProgress = validProgressValues.length > 0 ? Math.max(...validProgressValues) : null
-
-  const status = getLogFileTaskStatus(file)
-  if (status === 'successful' || status === 'successful_pending_remove') return 100
-  if (maxReportProgress !== null) {
-    return status === 'running' ? Math.max(5, maxReportProgress) : maxReportProgress
-  }
-  if (status === 'running') return 5
-  return 0
+  const progress = Number(file.overall_progress)
+  return Number.isFinite(progress) ? clampProgress(progress) : 0
 }
 
 const getLogFileProgressText = (file: LogFileModel) => `${Math.round(getLogFileProgress(file))}%`
