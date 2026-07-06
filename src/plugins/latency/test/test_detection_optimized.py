@@ -23,6 +23,7 @@ from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
 from latency.schemas.log import (
     AnomalousEventDataclass,
     LogParseResultDataclass,
+    SparseLogParseResultDataclass,
     SrcDstAggregatedEventDataclass,
 )
 from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
@@ -104,6 +105,49 @@ def test_windows_for_same_metric_share_field_extraction() -> None:
     assert len(detected) == 2
     assert CountingResult.field_reads == len(results)
     assert all(not result.anomalous_indices for result in detected)
+
+
+def test_all_sparse_results_skip_only_unavailable_metrics() -> None:
+    configs = [
+        MetricConfig(
+            field_name=field_name,
+            threshold_ms=threshold,
+            mode=DetectionMode.THRESHOLD_DIRECT,
+        )
+        for field_name, threshold in (
+            ("total_latency", 10.0),
+            ("c2w_urma_latency", 5.0),
+            ("c2w_latency", 1.0),
+            ("worker_query_meta_latency", 1.0),
+        )
+    ]
+    results = [
+        SparseLogParseResultDataclass(
+            total_latency=1.0,
+            is_anomalous=False,
+            c2w_urma_latency=None,
+        ),
+        SparseLogParseResultDataclass(
+            total_latency=20.0,
+            is_anomalous=False,
+            c2w_urma_latency=7.0,
+        ),
+    ]
+
+    detected = asyncio.run(DetectionEngine(configs).run_parallel(results))
+
+    assert [result.metric_name for result in detected] == [
+        "total_latency",
+        "c2w_urma_latency",
+        "c2w_latency",
+        "worker_query_meta_latency",
+    ]
+    assert [result.anomalous_indices for result in detected] == [
+        [1],
+        [1],
+        [],
+        [],
+    ]
 
 
 def test_sliding_window_complete_hint_preserves_detection_result() -> None:
@@ -239,6 +283,24 @@ def test_aggregate_hot_path_returns_dataclass_with_all_statistics() -> None:
     assert aggregate.max_total_latency == 5.0
     assert aggregate.p95_total_latency == percentile([1.0, 3.0, 5.0], 95)
     assert aggregate.p99_total_latency == percentile([1.0, 3.0, 5.0], 99)
+
+
+def test_all_sparse_results_skip_endpoint_aggregation() -> None:
+    results = [
+        SparseLogParseResultDataclass(
+            total_latency=float(index),
+            is_anomalous=False,
+        )
+        for index in range(3)
+    ]
+
+    aggregates, id_map = asyncio.run(
+        KVCacheLogParseWorker.generate_aggregate_result(results)
+    )
+
+    assert aggregates == []
+    assert id_map == {}
+    assert all(result.aggregated_event_id == "" for result in results)
 
 
 def test_internal_dataclasses_convert_directly_to_database_tuples() -> None:

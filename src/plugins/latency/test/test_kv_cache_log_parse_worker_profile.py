@@ -177,7 +177,11 @@ class ParseTimingCollector(logging.Handler):
         if builder is None:
             return {}
 
-        target_code = type(builder)._build_from_sdk_raw.__code__
+        target_codes = {
+            type(builder)._build_from_sdk_raw.__code__,
+            type(builder)._build_unmatched_sdk_raw.__code__,
+        }
+        target_filename = type(builder)._build_from_sdk_raw.__code__.co_filename
         line_seconds: dict[int, float] = {}
         line_hits: dict[int, int] = {}
         frame_state: dict[int, tuple[int | None, float]] = {}
@@ -202,7 +206,7 @@ class ParseTimingCollector(logging.Handler):
             return local_trace
 
         def global_trace(frame, event, arg):
-            if event == "call" and frame.f_code is target_code:
+            if event == "call" and frame.f_code in target_codes:
                 frame_state[id(frame)] = (None, time.perf_counter())
                 return local_trace
             return None
@@ -229,7 +233,7 @@ class ParseTimingCollector(logging.Handler):
                     "seconds": round(seconds, 6),
                     "percent": round(seconds / elapsed * 100, 3),
                     "source": linecache.getline(
-                        target_code.co_filename, line_number
+                        target_filename, line_number
                     ).strip(),
                 }
             )

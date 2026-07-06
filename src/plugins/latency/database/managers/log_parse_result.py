@@ -290,10 +290,56 @@ class LogParseResultManager:
                                 # 80-bit随机前缀保证批次唯一，48-bit递增后缀
                                 # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
                                 result.id = id_prefix + f"{index:012x}"
-                            if (
-                                isinstance(result, SparseLogParseResultDataclass)
-                                or _can_use_sparse_insert(result)
-                            ):
+                            if type(result) is SparseLogParseResultDataclass:
+                                # 解析主路径已经用紧凑类型证明所有 Worker 字段
+                                # 均为 NULL，直接分类和构造参数，避免千万次通用
+                                # 稀疏判定以及多层 Python 函数调用。
+                                if (
+                                    not result.aggregated_event_id
+                                    and not result.anomalous_event_id
+                                    and result.c2w_urma_latency is None
+                                    and result.anomaly_reason is None
+                                ):
+                                    minimal_batch.append(
+                                        (
+                                            result.id,
+                                            result.log_id,
+                                            result.trace_id,
+                                            result.timestamp,
+                                            result.pod_ip,
+                                            result.cluster_name,
+                                            result.total_latency,
+                                            result.operation,
+                                            result.data_size,
+                                            result.is_anomalous,
+                                            result.remark,
+                                            result.existed_status,
+                                            result.created_at,
+                                        )
+                                    )
+                                else:
+                                    sparse_batch.append(
+                                        (
+                                            result.id,
+                                            result.log_id,
+                                            result.aggregated_event_id,
+                                            result.anomalous_event_id,
+                                            result.trace_id,
+                                            result.timestamp,
+                                            result.pod_ip,
+                                            result.cluster_name,
+                                            result.total_latency,
+                                            result.c2w_urma_latency,
+                                            result.operation,
+                                            result.data_size,
+                                            result.is_anomalous,
+                                            result.anomaly_reason,
+                                            result.remark,
+                                            result.existed_status,
+                                            result.created_at,
+                                        )
+                                    )
+                            elif _can_use_sparse_insert(result):
                                 if _can_use_minimal_insert(result):
                                     minimal_batch.append(
                                         _log_parse_result_to_minimal_db_tuple(result)

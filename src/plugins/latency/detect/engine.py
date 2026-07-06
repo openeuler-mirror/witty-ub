@@ -6,7 +6,11 @@ from typing import List
 
 from latency.config.config import Config
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
-from latency.schemas.log import AnomalousEventDataclass, LogParseResultModel
+from latency.schemas.log import (
+    AnomalousEventDataclass,
+    LogParseResultModel,
+    SparseLogParseResultDataclass,
+)
 from latency.detect.detectors import DetectorBase, get_detector
 from latency.ENUM.detect import DetectionMode
 from latency.schemas.config import DSLogAnalyzerConfig
@@ -36,8 +40,23 @@ class DetectionEngine:
             field_name = detector.config.field_name
             detectors_by_field.setdefault(field_name, []).append(detector)
 
+        all_sparse = bool(results) and all(
+            type(result) is SparseLogParseResultDataclass for result in results
+        )
+        sparse_slots = SparseLogParseResultDataclass.__slots__
+
         detection_results: List[DetectionResult] = []
         for field_name, detectors in detectors_by_field.items():
+            if all_sparse and field_name not in sparse_slots:
+                detection_results.extend(
+                    DetectionResult(
+                        metric_name=field_name,
+                        anomalous_indices=[],
+                        reasons={},
+                    )
+                    for _ in detectors
+                )
+                continue
             values = list(map(attrgetter(field_name), results))
             thresholds = {detector.config.threshold_ms for detector in detectors}
             values_complete = None not in values

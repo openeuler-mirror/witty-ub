@@ -168,15 +168,136 @@ class ParseResultBuilder:
             remark = self._format_failure_remark("SDK", sdk.status_code, sdk.resp_msg)
         return remark
 
+    def _build_unmatched_sdk_raw(
+        self,
+    ) -> list[SparseLogParseResultDataclass]:
+        """构建没有 Worker 匹配的 SDK 结果，保留可用的 SDK→URMA 指标。"""
+        results: list[SparseLogParseResultDataclass] = [None] * len(  # type: ignore[list-item]
+            self.sdk_entries
+        )
+        shared_created_at = self._format_timestamp(datetime.now()) or ""
+        correlated = self.correlated
+        sdk_urma_map = correlated.sdk_urma_map
+        sdk_urma_get = sdk_urma_map.get
+        has_legacy_sdk_urma_map = bool(sdk_urma_map)
+        sdk_urma_index = correlated.sdk_urma_index
+        sdk_urma_index_get = sdk_urma_index.get
+        has_sdk_urma_index = bool(sdk_urma_index)
+        not_found_search = NOT_FOUND_RE.search
+        format_failure_remark = self._format_failure_remark
+        merge_remark = self._merge_remark
+        result_type = SparseLogParseResultDataclass
+        fixed_log_id = self.log_file_id
+        fallback_log_dir = self.log_dir
+        cached_second_start = None
+        cached_second_end = None
+        cached_second_prefix = ""
+        one_second = timedelta(seconds=1)
+
+        for i, sdk in enumerate(self.sdk_entries):
+            sdk_status_code = sdk[T_STATUS_CODE]
+            sdk_resp_msg = sdk[T_RESP_MSG]
+            sdk_success = sdk_status_code == StatusCode.OK and (
+                not sdk_resp_msg or not_found_search(sdk_resp_msg) is None
+            )
+
+            if has_legacy_sdk_urma_map:
+                sdk_urma_values = sdk_urma_get(i)
+                if not sdk_urma_values and has_sdk_urma_index:
+                    sdk_urma_values = sdk_urma_index_get(
+                        (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                    )
+            elif has_sdk_urma_index:
+                sdk_urma_values = sdk_urma_index_get(
+                    (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                )
+            else:
+                sdk_urma_values = None
+            if sdk_urma_values:
+                first_sdk_urma = sdk_urma_values[0]
+                sdk_urma_elapsed_us = (
+                    first_sdk_urma[T_ELAPSED_US]
+                    if isinstance(first_sdk_urma, tuple)
+                    else first_sdk_urma.elapsed_us
+                )
+                c2w_urma_latency = round(sdk_urma_elapsed_us / 1000, 3)
+            else:
+                c2w_urma_latency = None
+
+            remark = ""
+            if not sdk_success:
+                remark = format_failure_remark(
+                    "SDK", sdk_status_code, sdk_resp_msg
+                )
+            if c2w_urma_latency is not None and c2w_urma_latency < 0:
+                remark = merge_remark(
+                    remark, "Client2WorkerTime(us) < 0"
+                )
+            is_anomalous = bool(remark) and remark != "OK"
+            if is_anomalous:
+                self.anomalous_count += 1
+
+            sdk_timestamp = sdk[T_TIMESTAMP]
+            if sdk_timestamp is None:
+                timestamp = None
+            elif sdk_timestamp.tzinfo is not None:
+                timestamp = self._format_timestamp(sdk_timestamp)
+            else:
+                if (
+                    cached_second_end is None
+                    or sdk_timestamp < cached_second_start
+                    or sdk_timestamp >= cached_second_end
+                ):
+                    cached_second_start = sdk_timestamp.replace(microsecond=0)
+                    cached_second_end = cached_second_start + one_second
+                    cached_second_prefix = sdk_timestamp.isoformat(
+                        sep=" ", timespec="seconds"
+                    )
+                timestamp = (
+                    cached_second_prefix
+                    + "."
+                    + str(sdk_timestamp.microsecond // 1000).zfill(3)
+                )
+
+            sdk_elapsed_us = sdk[T_ELAPSED_US]
+            total_latency = (
+                sdk_elapsed_us / 1000
+                if isinstance(sdk_elapsed_us, int)
+                else round(sdk_elapsed_us / 1000, 3)
+            )
+            results[i] = result_type(
+                total_latency,
+                is_anomalous,
+                "",
+                fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir,
+                "",
+                "",
+                sdk[T_POD_IP],
+                sdk[T_CLUSTER_NAME],
+                remark if is_anomalous else None,
+                sdk[3],
+                True,
+                sdk[1],
+                remark or "OK",
+                sdk[T_TRACE_ID],
+                c2w_urma_latency,
+                timestamp,
+                shared_created_at,
+            )
+        return results
+
     def _build_from_sdk_raw(
         self,
     ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
+        correlated = self.correlated
+        if not correlated.sdk_worker_map:
+            return self._build_unmatched_sdk_raw()
+
         results: list[
             LogParseResultDataclass | SparseLogParseResultDataclass
         ] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
-        correlated = self.correlated
         sdk_worker_get = correlated.sdk_worker_map.get
         worker_idx_get = correlated.worker_idx_map.get
         sdk_urma_map = correlated.sdk_urma_map

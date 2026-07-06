@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import fields
+from dataclasses import asdict, fields
 from datetime import datetime, timedelta, timezone
 
 from latency.ENUM.ds_log import EntryType
@@ -69,6 +69,100 @@ def test_timestamp_format_matches_previous_output() -> None:
         expected = value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         assert ParseResultBuilder._format_timestamp(value) == expected
     assert ParseResultBuilder._format_timestamp(None) is None
+
+
+def test_unmatched_sdk_fast_path_matches_general_builder() -> None:
+    timestamps = [
+        datetime(2026, 7, 2, 1, 2, 3, 456789),
+        datetime(2026, 7, 2, 1, 2, 3),
+        datetime(2026, 7, 2, 1, 2, 4, 999999),
+        datetime(
+            2026,
+            7,
+            2,
+            1,
+            2,
+            5,
+            123456,
+            tzinfo=timezone(timedelta(hours=8)),
+        ),
+    ]
+    sdk_entries = [
+        _raw_entry(
+            timestamp=timestamps[0],
+            trace_id="ok-float",
+            elapsed_us=2200.444,
+            entry_type="SDK_GET",
+        ),
+        _raw_entry(
+            timestamp=timestamps[1],
+            trace_id="ok-int",
+            elapsed_us=1000,
+            entry_type="SDK_GET",
+            resp_msg=None,
+        ),
+        _raw_entry(
+            timestamp=timestamps[2],
+            trace_id="not-found",
+            elapsed_us=3000,
+            entry_type="SDK_GET",
+            resp_msg="K_NOT_FOUND object-key",
+        ),
+        _raw_entry(
+            timestamp=timestamps[3],
+            trace_id="failed",
+            elapsed_us=4000,
+            entry_type="SDK_GET",
+            status_code=1,
+            resp_msg="sdk error",
+        ),
+    ]
+    positive_urma = _raw_entry(
+        timestamp=timestamps[0],
+        trace_id="ok-float",
+        elapsed_us=321.987,
+        entry_type="URMA",
+    )
+    negative_urma = _raw_entry(
+        timestamp=timestamps[1],
+        trace_id="ok-int",
+        elapsed_us=-100,
+        entry_type="URMA",
+    )
+    sdk_urma_index = {
+        ("10.0.0.1", "ok-float"): [positive_urma],
+        ("10.0.0.1", "ok-int"): [negative_urma],
+    }
+    fast_builder = ParseResultBuilder(
+        sdk_entries,
+        [],
+        CorrelationResult(sdk_urma_index=sdk_urma_index),
+        log_dir="fallback-dir",
+        log_file_id="file-id",
+    )
+    # An unused SDK→Worker entry forces the general path while keeping every
+    # SDK in this fixture semantically unmatched.
+    reference_builder = ParseResultBuilder(
+        sdk_entries,
+        [],
+        CorrelationResult(
+            sdk_worker_map={len(sdk_entries): sdk_entries[0]},
+            sdk_urma_index=sdk_urma_index,
+        ),
+        log_dir="fallback-dir",
+        log_file_id="file-id",
+    )
+
+    fast_results = fast_builder.build()
+    reference_results = reference_builder.build()
+
+    assert fast_builder.anomalous_count == reference_builder.anomalous_count == 3
+    assert all(isinstance(result, SparseLogParseResultDataclass) for result in fast_results)
+    assert [
+        {**asdict(result), "created_at": ""} for result in fast_results
+    ] == [
+        {**asdict(result), "created_at": ""} for result in reference_results
+    ]
 
 
 def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:

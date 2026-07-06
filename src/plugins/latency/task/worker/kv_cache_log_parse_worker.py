@@ -6,7 +6,11 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
-from latency.schemas.log import LogParseResultModel, LogParseResultDataclass
+from latency.schemas.log import (
+    LogParseResultModel,
+    LogParseResultDataclass,
+    SparseLogParseResultDataclass,
+)
 from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
@@ -774,6 +778,16 @@ class KVCacheLogParseWorker(BaseWorker):
         list[SrcDstAggregatedEventDataclass], dict[tuple[str, str], str]
     ]:
         """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
+        if list_log_parse_results and all(
+            type(result) is SparseLogParseResultDataclass
+            for result in list_log_parse_results
+        ):
+            logger.info(
+                "Aggregate result: skipped %s sparse results without endpoints",
+                f"{len(list_log_parse_results):,}",
+            )
+            return [], {}
+
         latency_fields = [
             ("total_latency", "total_latency"),
             ("query_meta_latency", "worker_query_meta_latency"),
