@@ -190,11 +190,12 @@ class ParseTimingCollector(logging.Handler):
         if builder is None:
             return {}
 
-        target_codes = {
-            type(builder)._build_from_sdk_raw.__code__,
-            type(builder)._build_unmatched_sdk_raw.__code__,
-        }
-        target_filename = type(builder)._build_from_sdk_raw.__code__.co_filename
+        if builder.correlated.sdk_worker_map:
+            target_method = builder._build_from_sdk_raw
+        else:
+            target_method = builder._build_unmatched_sdk_raw
+        target_code = target_method.__code__
+        target_filename = target_code.co_filename
         line_seconds: dict[int, float] = {}
         line_hits: dict[int, int] = {}
         frame_state: dict[int, tuple[int | None, float]] = {}
@@ -219,7 +220,7 @@ class ParseTimingCollector(logging.Handler):
             return local_trace
 
         def global_trace(frame, event, arg):
-            if event == "call" and frame.f_code in target_codes:
+            if event == "call" and frame.f_code is target_code:
                 frame_state[id(frame)] = (None, time.perf_counter())
                 return local_trace
             return None
@@ -228,7 +229,7 @@ class ParseTimingCollector(logging.Handler):
         started = time.perf_counter()
         try:
             sys.settrace(global_trace)
-            sampled_results = builder._build_from_sdk_raw()
+            sampled_results = target_method()
         finally:
             sys.settrace(original_trace)
         elapsed = time.perf_counter() - started

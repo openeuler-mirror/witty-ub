@@ -778,10 +778,17 @@ class KVCacheLogParseWorker(BaseWorker):
         list[SrcDstAggregatedEventDataclass], dict[tuple[str, str], str]
     ]:
         """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
-        if list_log_parse_results and all(
-            type(result) is SparseLogParseResultDataclass
-            for result in list_log_parse_results
-        ):
+        sparse_hint = getattr(list_log_parse_results, "all_sparse", None)
+        all_sparse = (
+            sparse_hint
+            if sparse_hint is not None
+            else bool(list_log_parse_results)
+            and all(
+                type(result) is SparseLogParseResultDataclass
+                for result in list_log_parse_results
+            )
+        )
+        if all_sparse:
             logger.info(
                 "Aggregate result: skipped %s sparse results without endpoints",
                 f"{len(list_log_parse_results):,}",

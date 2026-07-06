@@ -22,6 +22,7 @@ from latency.detect.engine import DetectionEngine
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
 from latency.schemas.log import (
     AnomalousEventDataclass,
+    LogParseResultBatch,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
     SrcDstAggregatedEventDataclass,
@@ -121,7 +122,7 @@ def test_all_sparse_results_skip_only_unavailable_metrics() -> None:
             ("worker_query_meta_latency", 1.0),
         )
     ]
-    results = [
+    sparse_results = [
         SparseLogParseResultDataclass(
             total_latency=1.0,
             is_anomalous=False,
@@ -133,6 +134,8 @@ def test_all_sparse_results_skip_only_unavailable_metrics() -> None:
             c2w_urma_latency=7.0,
         ),
     ]
+    results = LogParseResultBatch(len(sparse_results), all_sparse=True)
+    results[:] = sparse_results
 
     detected = asyncio.run(DetectionEngine(configs).run_parallel(results))
 

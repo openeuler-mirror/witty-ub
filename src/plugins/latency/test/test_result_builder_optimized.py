@@ -16,6 +16,7 @@ from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
 from latency.schemas.ds_log import CorrelationResult
 from latency.schemas.log import (
+    LogParseResultBatch,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
     generate_uuids_hex,
@@ -156,6 +157,8 @@ def test_unmatched_sdk_fast_path_matches_general_builder() -> None:
     fast_results = fast_builder.build()
     reference_results = reference_builder.build()
 
+    assert isinstance(fast_results, LogParseResultBatch)
+    assert fast_results.all_sparse is True
     assert fast_builder.anomalous_count == reference_builder.anomalous_count == 3
     assert all(isinstance(result, SparseLogParseResultDataclass) for result in fast_results)
     assert [

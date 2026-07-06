@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass, field as dataclass_field
+from itertools import repeat
 from typing import ClassVar, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -432,6 +433,17 @@ class LatencyMetricItem(BaseModel):
     remote_worker_rpc: Optional[float] = Field(default=None, description="远程Worker RPC延迟，单位毫秒")
     master_process: Optional[float] = Field(default=None, description="Master处理延迟，单位毫秒")
     master_rpc_total: Optional[float] = Field(default=None, description="Master RPC总延迟，单位微秒")
+
+
+class LogParseResultBatch(list):
+    """解析结果列表及其批次级结构提示。"""
+
+    __slots__ = ("all_sparse",)
+
+    def __init__(self, size: int, *, all_sparse: bool) -> None:
+        # repeat 带长度提示，list 可一次分配目标容量且不创建临时大列表。
+        super().__init__(repeat(None, size))
+        self.all_sparse = all_sparse
 
 
 @dataclass(slots=True)
