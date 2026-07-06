@@ -675,8 +675,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     ) -> dict[str, tuple[int, int]]:
         """按日志字段数拆分不符合配置文件名规则的文本日志。
 
-        每行包含 7 个 ``" | "`` 时写入 ``*_runtime.log``，包含 12 或
-        13 个时写入 ``*_access.log``，其他行忽略。拆分成功后删除原文件。
+        支持普通 ``*.log`` 以及 ``*.log_*`` 形式的轮转日志。每行包含
+        7 个 ``" | "`` 时写入 ``*_runtime.log``，包含 12 或 13 个时
+        写入 ``*_access.log``，其他行忽略。拆分成功后删除原文件。
         """
         patterns = [
             pattern
@@ -689,13 +690,23 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             for filename in files:
                 if any(fnmatch.fnmatch(filename, pattern) for pattern in patterns):
                     continue
-                if not filename.lower().endswith(".log"):
+                filename_lower = filename.lower()
+                if not (
+                    filename_lower.endswith(".log")
+                    or ".log_" in filename_lower
+                ):
                     continue
-                if filename.endswith(("_runtime.log", "_access.log")):
+                if filename_lower.endswith(("_runtime.log", "_access.log")):
                     continue
 
                 source_path = os.path.join(root, filename)
-                stem, _ = os.path.splitext(filename)
+                # 保留轮转后缀，避免 abcd.log_001 和 abcd.log_002 的拆分
+                # 结果都落到 abcd_runtime.log 而互相覆盖。
+                stem = (
+                    os.path.splitext(filename)[0]
+                    if filename_lower.endswith(".log")
+                    else filename
+                )
                 runtime_path = os.path.join(root, f"{stem}_runtime.log")
                 access_path = os.path.join(root, f"{stem}_access.log")
                 runtime_count = 0

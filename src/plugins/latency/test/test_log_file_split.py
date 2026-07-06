@@ -27,3 +27,24 @@ def test_split_unmatched_log_files(tmp_path):
     ) == access_line_12 + access_line_13
     assert not (tmp_path / "access_runtime.log").exists()
     assert not unmatched.exists()
+
+
+def test_split_unmatched_rotated_log_file(tmp_path):
+    unmatched = tmp_path / "abcd.log_yyy"
+    runtime_line = " | ".join(str(i) for i in range(8)) + "\n"
+    access_line = " | ".join(str(i) for i in range(13)) + "\n"
+    unmatched.write_text(runtime_line + access_line, encoding="utf-8")
+
+    stats = KVCacheLogEventDiagnosisWorker.split_unmatched_log_files(
+        str(tmp_path),
+        {"ds_worker_access_log_file": ["access.log"]},
+    )
+
+    assert stats == {str(unmatched): (1, 1)}
+    assert (
+        tmp_path / "abcd.log_yyy_runtime.log"
+    ).read_text(encoding="utf-8") == runtime_line
+    assert (
+        tmp_path / "abcd.log_yyy_access.log"
+    ).read_text(encoding="utf-8") == access_line
+    assert not unmatched.exists()
