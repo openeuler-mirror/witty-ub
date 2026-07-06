@@ -3613,7 +3613,9 @@ button {
 }
 
 .trace-raw-log-item.log-error,
-.trace-raw-log-item.log-failure-mode {
+.trace-raw-log-item.log-failure-mode,
+.trace-raw-log-table tr.log-error,
+.trace-raw-log-table tr.log-failure-mode {
   border-color: #fecaca;
   background: #fff7f7;
 }
@@ -3674,13 +3676,11 @@ button {
 }
 
 .trace-raw-log-table th {
-  position: sticky;
-  left: 0;
-  z-index: 1;
   min-width: 56px;
   background: #f1f5f9;
   color: #1e3a5f;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .trace-raw-log-table td {
@@ -3688,15 +3688,20 @@ button {
   color: #334155;
 }
 
-.trace-raw-log-table tr:first-child td {
-  background: #f8fafc;
-  color: #1e3a5f;
-  font-weight: 800;
+.trace-raw-log-table .trace-log-level-cell {
+  width: 1%;
+  min-width: 0;
   white-space: nowrap;
 }
 
 .log-error {
   background: #fef2f2;
+}
+
+.trace-raw-log-item.log-warning:not(.log-failure-mode),
+.trace-raw-log-table tr.log-warning:not(.log-failure-mode) {
+  border-color: #fde68a;
+  background: #fffbeb;
 }
 
 .log-info {
@@ -3711,6 +3716,15 @@ button {
 .log-level-info {
   color: #166534;
   font-weight: 800;
+}
+
+.log-level-warning {
+  color: #a16207;
+  font-weight: 800;
+}
+
+.trace-message-failure-mode {
+  margin-left: 8px;
 }
 
 .trace-fault-detail-list {

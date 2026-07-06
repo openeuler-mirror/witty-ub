@@ -399,7 +399,7 @@ type TraceRawLogColumn = {
 
 type TraceLogRow = {
   time: string
-  level: 'INFO' | 'ERROR'
+  level: string
   filename: string
   podIp: string
   pidTid: string
@@ -3480,11 +3480,11 @@ const selectedFaultDetailErrorLogTotal = computed(() => faultDetailTraceEventsTo
 
 const getTraceLogTimeValue = (log: TraceLogRow) => parseFilterDate(log.time)?.getTime() ?? 0
 
-const sortTraceLogsByFile = (logs: TraceLogRow[]) =>
+const sortTraceLogsByTime = (logs: TraceLogRow[]) =>
   [...logs].sort(
     (a, b) =>
+      getTraceLogTimeValue(b) - getTraceLogTimeValue(a) ||
       a.filename.localeCompare(b.filename, undefined, { numeric: true }) ||
-      getTraceLogTimeValue(a) - getTraceLogTimeValue(b) ||
       a.pidTid.localeCompare(b.pidTid, undefined, { numeric: true }) ||
       a.message.localeCompare(b.message),
   )
@@ -3600,12 +3600,18 @@ const buildTraceRawColumns = (
   }
 
   if (fields.length >= accessLogHeaders.length) {
+    const accessFields = [
+      ...fields.slice(0, accessLogHeaders.length - 1),
+      fields.slice(accessLogHeaders.length - 1).join(' | '),
+    ]
+    const message = accessLogHeaders
+      .slice(7)
+      .map((header, index) => `${header}: ${accessFields[index + 7] || '-'}`)
+      .join(' | ')
+
     return {
-      formatName: '访问日志',
-      columns: normalizeTraceLogColumns(accessLogHeaders, [
-        ...fields.slice(0, accessLogHeaders.length - 1),
-        fields.slice(accessLogHeaders.length - 1).join(' | '),
-      ]),
+      formatName: '接口日志',
+      columns: normalizeTraceLogColumns(runLogHeaders, [...accessFields.slice(0, 7), message]),
     }
   }
 
@@ -3653,7 +3659,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
 
   return {
     time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
-    level: level === 'ERROR' ? 'ERROR' : 'INFO',
+    level,
     filename: logFile,
     podIp: getRecordString(record, ['pod_ip', 'pod_name', 'pod_id', 'podId', 'pod']),
     pidTid: pid || tid ? `${pid || '-'}:${tid || '-'}` : getRecordString(record, ['pid_tid'], '-'),
@@ -3677,11 +3683,31 @@ const getTraceLogFailureModeLabels = (log: TraceLogRow) =>
     }))
     .filter((item) => item.id && item.label)
 
+const getVisibleTraceLogColumns = (log?: TraceLogRow) =>
+  log?.rawColumns.filter((column) => column.label.toLowerCase() !== 'trace_id') ?? []
+
+const isTraceLogMessageColumn = (column: TraceRawLogColumn) =>
+  column.label.toLowerCase() === 'message'
+
+const getTraceLogRowClass = (log: TraceLogRow) => ({
+  'log-error': ['E', 'ERROR'].includes(log.level),
+  'log-warning': ['W', 'WARN', 'WARNING'].includes(log.level),
+  'log-info': !['E', 'ERROR', 'W', 'WARN', 'WARNING'].includes(log.level),
+  'log-failure-mode': log.failureModeIds.length > 0,
+})
+
+const getTraceLogLevelClass = (log: TraceLogRow) =>
+  ['E', 'ERROR'].includes(log.level)
+    ? 'log-level-error'
+    : ['W', 'WARN', 'WARNING'].includes(log.level)
+      ? 'log-level-warning'
+      : 'log-level-info'
+
 const getTraceLogs = (trace?: TraceDetailRow | null) => {
   if (!trace) return []
   const traceId = trace.traceId
   return Object.prototype.hasOwnProperty.call(traceFailureLogsByTrace.value, traceId)
-    ? sortTraceLogsByFile(traceFailureLogsByTrace.value[traceId] ?? [])
+    ? sortTraceLogsByTime(traceFailureLogsByTrace.value[traceId] ?? [])
     : []
 }
 
@@ -4546,7 +4572,7 @@ const loadTraceFailureLogs = async (traceId: string, shouldLoadFailureModes = fa
     }
     traceFailureLogsByTrace.value = {
       ...traceFailureLogsByTrace.value,
-      [traceId]: sortTraceLogsByFile(events.map(toTraceLogRow)),
+      [traceId]: sortTraceLogsByTime(events.map(toTraceLogRow)),
     }
   } catch (error) {
     traceFailureLogsByTrace.value = {
@@ -10699,61 +10725,56 @@ onBeforeUnmount(() => {
               <div v-else-if="getSelectedTraceLogs().length === 0" class="trace-empty">
                 暂无匹配日志
               </div>
-              <template v-else>
-                <article
-                  v-for="log in getSelectedTraceLogs()"
-                  :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
-                  class="trace-raw-log-item"
-                  :class="[
-                    log.level === 'ERROR' ? 'log-error' : 'log-info',
-                    { 'log-failure-mode': log.failureModeIds.length > 0 },
-                  ]"
-                >
-                  <div class="trace-raw-log-meta">
-                    <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
-                      {{ log.level }}
-                    </span>
-                    <span>{{ log.time }}</span>
-                    <span>{{ log.formatName }}</span>
-                    <span class="trace-raw-log-file">{{ log.filename }}</span>
-                    <button
-                      v-for="mode in getTraceLogFailureModeLabels(log)"
-                      :key="mode.id"
-                      type="button"
-                      class="failure-mode-tag"
-                      :class="{ active: selectedTraceFailureModeId === mode.id }"
-                      @click="selectTraceFailureMode(mode.id)"
+              <div v-else class="trace-raw-log-table-wrapper">
+                <table class="trace-raw-log-table">
+                  <thead>
+                    <tr>
+                      <th
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(
+                          getSelectedTraceLogs()[0],
+                        )"
+                        :key="`${column.label}-${columnIndex}`"
+                        :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
+                      >
+                        {{ column.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="log in getSelectedTraceLogs()"
+                      :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                      :class="getTraceLogRowClass(log)"
                     >
-                      🔴 {{ mode.label }}
-                    </button>
-                  </div>
-                  <div class="trace-raw-log-table-wrapper">
-                    <table class="trace-raw-log-table">
-                      <tbody>
-                        <tr>
-                          <th>格式</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
+                      <td
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
+                        :key="`${column.label}-${columnIndex}`"
+                        :title="column.value"
+                        :class="[
+                          { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
+                          column.label.toLowerCase() === 'level'
+                            ? getTraceLogLevelClass(log)
+                            : '',
+                        ]"
+                      >
+                        {{ column.value }}
+                        <template v-if="isTraceLogMessageColumn(column)">
+                          <button
+                            v-for="mode in getTraceLogFailureModeLabels(log)"
+                            :key="mode.id"
+                            type="button"
+                            class="failure-mode-tag trace-message-failure-mode"
+                            :class="{ active: selectedTraceFailureModeId === mode.id }"
+                            @click="selectTraceFailureMode(mode.id)"
                           >
-                            {{ column.label }}
-                          </td>
-                        </tr>
-                        <tr>
-                          <th>内容</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
-                            :title="column.value"
-                          >
-                            {{ column.value }}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              </template>
+                            🔴 {{ mode.label }}
+                          </button>
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
 
@@ -10932,61 +10953,56 @@ onBeforeUnmount(() => {
               <div v-else-if="getSelectedFaultTraceLogs().length === 0" class="trace-empty">
                 暂无匹配日志
               </div>
-              <template v-else>
-                <article
-                  v-for="log in getSelectedFaultTraceLogs()"
-                  :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
-                  class="trace-raw-log-item"
-                  :class="[
-                    log.level === 'ERROR' ? 'log-error' : 'log-info',
-                    { 'log-failure-mode': log.failureModeIds.length > 0 },
-                  ]"
-                >
-                  <div class="trace-raw-log-meta">
-                    <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
-                      {{ log.level }}
-                    </span>
-                    <span>{{ log.time }}</span>
-                    <span>{{ log.formatName }}</span>
-                    <span class="trace-raw-log-file">{{ log.filename }}</span>
-                    <button
-                      v-for="mode in getTraceLogFailureModeLabels(log)"
-                      :key="mode.id"
-                      type="button"
-                      class="failure-mode-tag"
-                      :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
-                      @click="selectFaultTraceFailureMode(mode.id)"
+              <div v-else class="trace-raw-log-table-wrapper">
+                <table class="trace-raw-log-table">
+                  <thead>
+                    <tr>
+                      <th
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(
+                          getSelectedFaultTraceLogs()[0],
+                        )"
+                        :key="`${column.label}-${columnIndex}`"
+                        :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
+                      >
+                        {{ column.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="log in getSelectedFaultTraceLogs()"
+                      :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                      :class="getTraceLogRowClass(log)"
                     >
-                      🔴 {{ mode.label }}
-                    </button>
-                  </div>
-                  <div class="trace-raw-log-table-wrapper">
-                    <table class="trace-raw-log-table">
-                      <tbody>
-                        <tr>
-                          <th>格式</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
+                      <td
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
+                        :key="`${column.label}-${columnIndex}`"
+                        :title="column.value"
+                        :class="[
+                          { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
+                          column.label.toLowerCase() === 'level'
+                            ? getTraceLogLevelClass(log)
+                            : '',
+                        ]"
+                      >
+                        {{ column.value }}
+                        <template v-if="isTraceLogMessageColumn(column)">
+                          <button
+                            v-for="mode in getTraceLogFailureModeLabels(log)"
+                            :key="mode.id"
+                            type="button"
+                            class="failure-mode-tag trace-message-failure-mode"
+                            :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
+                            @click="selectFaultTraceFailureMode(mode.id)"
                           >
-                            {{ column.label }}
-                          </td>
-                        </tr>
-                        <tr>
-                          <th>内容</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
-                            :title="column.value"
-                          >
-                            {{ column.value }}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              </template>
+                            🔴 {{ mode.label }}
+                          </button>
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
 
