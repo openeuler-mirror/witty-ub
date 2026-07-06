@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-import asyncio
+from datetime import datetime
+from operator import attrgetter
 from typing import List
 
 from latency.config.config import Config
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
-from latency.schemas.log import AnomalousEventModel, LogParseResultModel
+from latency.schemas.log import (
+    AnomalousEventDataclass,
+    LogParseResultModel,
+    SparseLogParseResultDataclass,
+)
 from latency.detect.detectors import DetectorBase, get_detector
 from latency.ENUM.detect import DetectionMode
 from latency.schemas.config import DSLogAnalyzerConfig
@@ -26,30 +31,74 @@ class DetectionEngine:
                 logger.warning(f"Failed to create detector for mode {cfg.mode}: {e}")
 
     async def run_parallel(self, results: List[LogParseResultModel]) -> List[DetectionResult]:
-        """并行执行所有检测器"""
+        """按指标执行检测，同一指标的多个窗口共享一次字段提取。"""
         if not self.detectors:
             return []
-        tasks = [detector.detect(results) for detector in self.detectors]
-        return await asyncio.gather(*tasks)
+
+        detectors_by_field: dict[str, list[DetectorBase]] = {}
+        for detector in self.detectors:
+            field_name = detector.config.field_name
+            detectors_by_field.setdefault(field_name, []).append(detector)
+
+        all_sparse = bool(results) and all(
+            type(result) is SparseLogParseResultDataclass for result in results
+        )
+        sparse_slots = SparseLogParseResultDataclass.__slots__
+
+        detection_results: List[DetectionResult] = []
+        for field_name, detectors in detectors_by_field.items():
+            if all_sparse and field_name not in sparse_slots:
+                detection_results.extend(
+                    DetectionResult(
+                        metric_name=field_name,
+                        anomalous_indices=[],
+                        reasons={},
+                    )
+                    for _ in detectors
+                )
+                continue
+            values = list(map(attrgetter(field_name), results))
+            thresholds = {detector.config.threshold_ms for detector in detectors}
+            values_complete = None not in values
+            exceeded_by_threshold = {
+                threshold: [
+                    idx
+                    for idx, value in enumerate(values)
+                    if value is not None and value > threshold
+                ]
+                for threshold in thresholds
+            }
+
+            for detector in detectors:
+                detection_results.append(
+                    await detector.detect(
+                        results,
+                        values,
+                        values_complete,
+                        exceeded_by_threshold[detector.config.threshold_ms],
+                    )
+                )
+        return detection_results
 
     def merge_results(
         self,
         detection_results: List[DetectionResult],
         original_results: List[LogParseResultModel]
-    ) -> List[AnomalousEventModel]:
+    ) -> List[AnomalousEventDataclass]:
         """合并多个检测器结果，去重并聚合原因，同时补充额外异常检查"""
-        merged_reasons: dict[int, List[str]] = {}
+        merged_reasons: dict[int, dict[str, None]] = {}
 
         for result in detection_results:
             for idx in result.anomalous_indices:
-                if idx not in merged_reasons:
-                    merged_reasons[idx] = []
-                merged_reasons[idx].extend(result.reasons.get(idx, []))
+                target_reasons = merged_reasons.setdefault(idx, {})
+                for reason in result.reasons.get(idx, []):
+                    target_reasons[reason] = None
 
         events = []
+        shared_created_at = datetime.now().isoformat(
+            sep=" ", timespec="milliseconds"
+        )
         for idx, reasons in merged_reasons.items():
-            unique_reasons = list(dict.fromkeys(reasons))
-
             # 补充额外的异常原因检查
             r = original_results[idx]
             extra_reasons = []
@@ -60,14 +109,17 @@ class DetectionEngine:
             if r.c2w_urma_latency is not None:
                 extra_reasons.append(f"c2w_urma_latency={r.c2w_urma_latency:.3f}ms (remote URMA path)")
 
-            all_reasons = extra_reasons + unique_reasons
+            all_reasons = extra_reasons + list(reasons)
 
-            events.append(AnomalousEventModel(
+            events.append(AnomalousEventDataclass(
+                id="",
                 log_id=r.log_id or "",
                 aggregated_event_id="",
                 start_log_parse_offset=idx,
                 end_log_parse_offset=idx,
                 anomaly_reason="; ".join(all_reasons),
+                existed_status=True,
+                created_at=shared_created_at,
             ))
 
         return events
@@ -136,7 +188,9 @@ class AnomalyDetector:
 
         return cls(metric_configs)
 
-    async def detect(self, results: List[LogParseResultModel]) -> List[AnomalousEventModel]:
+    async def detect(
+        self, results: List[LogParseResultModel]
+    ) -> List[AnomalousEventDataclass]:
         """执行检测流程"""
         detection_results = await self.engine.run_parallel(results)
         events = self.engine.merge_results(detection_results, results)

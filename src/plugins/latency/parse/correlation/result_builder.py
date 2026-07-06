@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from latency.ENUM.ds_log import StatusCode
@@ -9,7 +9,10 @@ from latency.schemas.ds_log import (
     CorrelationResult,
     TupleField,
 )
-from latency.schemas.log import LogParseResultDataclass
+from latency.schemas.log import (
+    LogParseResultDataclass,
+    SparseLogParseResultDataclass,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,9 @@ class ParseResultBuilder:
         self.log_file_id = log_file_id  # 数据库中的日志文件ID
         self.anomalous_count = 0
 
-    def build(self) -> list[LogParseResultDataclass]:
+    def build(
+        self,
+    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
         self.anomalous_count = 0
         if self.sdk_entries:
             entry_type = type(self.sdk_entries[0])
@@ -163,17 +168,144 @@ class ParseResultBuilder:
             remark = self._format_failure_remark("SDK", sdk.status_code, sdk.resp_msg)
         return remark
 
-    def _build_from_sdk_raw(self) -> list[LogParseResultDataclass]:
-        results: list[LogParseResultDataclass] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
+    def _build_unmatched_sdk_raw(
+        self,
+    ) -> list[SparseLogParseResultDataclass]:
+        """构建没有 Worker 匹配的 SDK 结果，保留可用的 SDK→URMA 指标。"""
+        results: list[SparseLogParseResultDataclass] = [None] * len(  # type: ignore[list-item]
+            self.sdk_entries
+        )
+        shared_created_at = self._format_timestamp(datetime.now()) or ""
+        correlated = self.correlated
+        sdk_urma_map = correlated.sdk_urma_map
+        sdk_urma_get = sdk_urma_map.get
+        has_legacy_sdk_urma_map = bool(sdk_urma_map)
+        sdk_urma_index = correlated.sdk_urma_index
+        sdk_urma_index_get = sdk_urma_index.get
+        has_sdk_urma_index = bool(sdk_urma_index)
+        not_found_search = NOT_FOUND_RE.search
+        format_failure_remark = self._format_failure_remark
+        merge_remark = self._merge_remark
+        result_type = SparseLogParseResultDataclass
+        fixed_log_id = self.log_file_id
+        fallback_log_dir = self.log_dir
+        cached_second_start = None
+        cached_second_end = None
+        cached_second_prefix = ""
+        one_second = timedelta(seconds=1)
+
+        for i, sdk in enumerate(self.sdk_entries):
+            sdk_status_code = sdk[T_STATUS_CODE]
+            sdk_resp_msg = sdk[T_RESP_MSG]
+            sdk_success = sdk_status_code == StatusCode.OK and (
+                not sdk_resp_msg or not_found_search(sdk_resp_msg) is None
+            )
+
+            if has_legacy_sdk_urma_map:
+                sdk_urma_values = sdk_urma_get(i)
+                if not sdk_urma_values and has_sdk_urma_index:
+                    sdk_urma_values = sdk_urma_index_get(
+                        (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                    )
+            elif has_sdk_urma_index:
+                sdk_urma_values = sdk_urma_index_get(
+                    (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                )
+            else:
+                sdk_urma_values = None
+            if sdk_urma_values:
+                first_sdk_urma = sdk_urma_values[0]
+                sdk_urma_elapsed_us = (
+                    first_sdk_urma[T_ELAPSED_US]
+                    if isinstance(first_sdk_urma, tuple)
+                    else first_sdk_urma.elapsed_us
+                )
+                c2w_urma_latency = round(sdk_urma_elapsed_us / 1000, 3)
+            else:
+                c2w_urma_latency = None
+
+            remark = ""
+            if not sdk_success:
+                remark = format_failure_remark(
+                    "SDK", sdk_status_code, sdk_resp_msg
+                )
+            if c2w_urma_latency is not None and c2w_urma_latency < 0:
+                remark = merge_remark(
+                    remark, "Client2WorkerTime(us) < 0"
+                )
+            is_anomalous = bool(remark) and remark != "OK"
+            if is_anomalous:
+                self.anomalous_count += 1
+
+            sdk_timestamp = sdk[T_TIMESTAMP]
+            if sdk_timestamp is None:
+                timestamp = None
+            elif sdk_timestamp.tzinfo is not None:
+                timestamp = self._format_timestamp(sdk_timestamp)
+            else:
+                if (
+                    cached_second_end is None
+                    or sdk_timestamp < cached_second_start
+                    or sdk_timestamp >= cached_second_end
+                ):
+                    cached_second_start = sdk_timestamp.replace(microsecond=0)
+                    cached_second_end = cached_second_start + one_second
+                    cached_second_prefix = sdk_timestamp.isoformat(
+                        sep=" ", timespec="seconds"
+                    )
+                timestamp = (
+                    cached_second_prefix
+                    + "."
+                    + str(sdk_timestamp.microsecond // 1000).zfill(3)
+                )
+
+            sdk_elapsed_us = sdk[T_ELAPSED_US]
+            total_latency = (
+                sdk_elapsed_us / 1000
+                if isinstance(sdk_elapsed_us, int)
+                else round(sdk_elapsed_us / 1000, 3)
+            )
+            results[i] = result_type(
+                total_latency,
+                is_anomalous,
+                "",
+                fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir,
+                "",
+                "",
+                sdk[T_POD_IP],
+                sdk[T_CLUSTER_NAME],
+                remark if is_anomalous else None,
+                sdk[3],
+                True,
+                sdk[1],
+                remark or "OK",
+                sdk[T_TRACE_ID],
+                c2w_urma_latency,
+                timestamp,
+                shared_created_at,
+            )
+        return results
+
+    def _build_from_sdk_raw(
+        self,
+    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
+        correlated = self.correlated
+        if not correlated.sdk_worker_map:
+            return self._build_unmatched_sdk_raw()
+
+        results: list[
+            LogParseResultDataclass | SparseLogParseResultDataclass
+        ] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
-        correlated = self.correlated
         sdk_worker_get = correlated.sdk_worker_map.get
         worker_idx_get = correlated.worker_idx_map.get
         sdk_urma_map = correlated.sdk_urma_map
         sdk_urma_get = sdk_urma_map.get
         has_legacy_sdk_urma_map = bool(sdk_urma_map)
-        sdk_urma_index_get = correlated.sdk_urma_index.get
+        sdk_urma_index = correlated.sdk_urma_index
+        sdk_urma_index_get = sdk_urma_index.get
+        has_sdk_urma_index = bool(sdk_urma_index)
         worker_urma_get = correlated.worker_urma_map.get
         worker_remote_pull_get = correlated.worker_remote_pull_map.get
         worker_worker_urma_get = correlated.worker_worker_urma_map.get
@@ -193,10 +325,13 @@ class ParseResultBuilder:
         merge_remark = self._merge_remark
         not_found_search = NOT_FOUND_RE.search
         result_type = LogParseResultDataclass
+        sparse_result_type = SparseLogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
-        cached_second_key = None
+        cached_second_start = None
+        cached_second_end = None
         cached_second_prefix = ""
+        one_second = timedelta(seconds=1)
 
         def first_elapsed_ms(values: Optional[list]) -> Optional[float]:
             if not values:
@@ -247,14 +382,16 @@ class ParseResultBuilder:
 
             if has_legacy_sdk_urma_map:
                 sdk_urma_values = sdk_urma_get(i)
-                if not sdk_urma_values:
+                if not sdk_urma_values and has_sdk_urma_index:
                     sdk_urma_values = sdk_urma_index_get(
                         (sdk[T_POD_IP], sdk[T_TRACE_ID])
                     )
-            else:
+            elif has_sdk_urma_index:
                 sdk_urma_values = sdk_urma_index_get(
                     (sdk[T_POD_IP], sdk[T_TRACE_ID])
                 )
+            else:
+                sdk_urma_values = None
             if sdk_urma_values:
                 first_sdk_urma = sdk_urma_values[0]
                 sdk_urma_elapsed_us = (
@@ -266,21 +403,6 @@ class ParseResultBuilder:
             else:
                 c2w_urma_latency = None
             if w_idx is None:
-                query_meta_latency = None
-                urma_link_latency = None
-                w2w_urma_latency = None
-                sdk_process = None
-                sdk_rpc = None
-                local_worker_cost = None
-                local_worker_lock = None
-                remote_worker_cost = None
-                remote_worker_rpc = None
-                master_process = None
-                master_rpc_total = None
-                urma_latency = None
-                urma_inflight_count = None
-                src_ip = None
-                dst_ip = None
                 urma_empty_reason = None
             else:
                 query_meta_latency = first_elapsed_ms(worker_query_meta_get(w_idx))
@@ -354,16 +476,13 @@ class ParseResultBuilder:
                 # 保持旧 strftime 语义：结果不携带时区后缀。
                 timestamp = self._format_timestamp(sdk_timestamp)
             else:
-                second_key = (
-                    sdk_timestamp.year,
-                    sdk_timestamp.month,
-                    sdk_timestamp.day,
-                    sdk_timestamp.hour,
-                    sdk_timestamp.minute,
-                    sdk_timestamp.second,
-                )
-                if second_key != cached_second_key:
-                    cached_second_key = second_key
+                if (
+                    cached_second_end is None
+                    or sdk_timestamp < cached_second_start
+                    or sdk_timestamp >= cached_second_end
+                ):
+                    cached_second_start = sdk_timestamp.replace(microsecond=0)
+                    cached_second_end = cached_second_start + one_second
                     cached_second_prefix = sdk_timestamp.isoformat(
                         sep=" ", timespec="seconds"
                     )
@@ -380,45 +499,66 @@ class ParseResultBuilder:
 
             # LogParseResultDataclass 的字段顺序由回归测试锁定。位置参数避免
             # 千万次构造时重复进行约 30 个关键字参数匹配，实测构造快约 2 倍。
-            results[i] = result_type(
-                total_latency,
-                is_anomalous,
-                "",  # id
-                log_id,
-                "",  # aggregated_event_id
-                "",  # anomalous_event_id
-                sdk[T_POD_IP],
-                src_ip,
-                dst_ip,
-                w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
-                None,  # host
-                remark if is_anomalous else None,
-                None,  # anomaly_score
-                None,  # content
-                sdk[3],  # data_size
-                True,  # existed_status
-                None,  # offset
-                sdk[1],  # operation
-                remark or "OK",
-                sdk[T_TRACE_ID],
-                urma_inflight_count,
-                urma_link_latency,
-                urma_latency,
-                c2w_latency,
-                query_meta_latency,
-                c2w_urma_latency,
-                w2w_urma_latency,
-                sdk_process,
-                sdk_rpc,
-                local_worker_cost,
-                local_worker_lock,
-                remote_worker_cost,
-                remote_worker_rpc,
-                master_process,
-                master_rpc_total,
-                timestamp,
-                shared_created_at,
-            )
+            if w_idx is None:
+                results[i] = sparse_result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                    remark if is_anomalous else None,
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    c2w_urma_latency,
+                    timestamp,
+                    shared_created_at,
+                )
+            else:
+                results[i] = result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    src_ip,
+                    dst_ip,
+                    w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                    None,  # host
+                    remark if is_anomalous else None,
+                    None,  # anomaly_score
+                    None,  # content
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    None,  # offset
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    urma_inflight_count,
+                    urma_link_latency,
+                    urma_latency,
+                    c2w_latency,
+                    query_meta_latency,
+                    c2w_urma_latency,
+                    w2w_urma_latency,
+                    sdk_process,
+                    sdk_rpc,
+                    local_worker_cost,
+                    local_worker_lock,
+                    remote_worker_cost,
+                    remote_worker_rpc,
+                    master_process,
+                    master_rpc_total,
+                    timestamp,
+                    shared_created_at,
+                )
         return results
 
     def _build_from_sdk(self) -> list[LogParseResultDataclass]:

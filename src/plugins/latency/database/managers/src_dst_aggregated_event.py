@@ -1,6 +1,55 @@
-from latency.schemas.log import SrcDstAggregatedEventModel
+from latency.schemas.log import (
+    SrcDstAggregatedEventDataclass,
+    SrcDstAggregatedEventModel,
+)
 from latency.schemas.request import ListSrcDstAggregatedEventRequest
 from latency.database.engine import AsyncSQLiteSingleton
+
+
+def _aggregated_event_to_db_tuple(
+    event: SrcDstAggregatedEventDataclass | SrcDstAggregatedEventModel,
+) -> tuple:
+    return (
+        event.id,
+        event.src_ip,
+        event.dst_ip,
+        event.log_id,
+        event.log_parse_result_cnt,
+        event.anomaly_log_parse_result_cnt,
+        event.anomaly_cnt,
+        event.ave_total_latency,
+        event.min_total_latency,
+        event.max_total_latency,
+        event.p99_total_latency,
+        event.p95_total_latency,
+        event.ave_query_meta_latency,
+        event.min_query_meta_latency,
+        event.max_query_meta_latency,
+        event.p99_query_meta_latency,
+        event.p95_query_meta_latency,
+        event.ave_urma_total_latency,
+        event.min_urma_total_latency,
+        event.max_urma_total_latency,
+        event.p99_urma_total_latency,
+        event.p95_urma_total_latency,
+        event.ave_urma_link_latency,
+        event.min_urma_link_latency,
+        event.max_urma_link_latency,
+        event.p99_urma_link_latency,
+        event.p95_urma_link_latency,
+        event.ave_c2w_urma_latency,
+        event.min_c2w_urma_latency,
+        event.max_c2w_urma_latency,
+        event.p99_c2w_urma_latency,
+        event.p95_c2w_urma_latency,
+        event.ave_w2w_urma_latency,
+        event.min_w2w_urma_latency,
+        event.max_w2w_urma_latency,
+        event.p99_w2w_urma_latency,
+        event.p95_w2w_urma_latency,
+        event.existed_status,
+        event.created_at,
+    )
 
 
 class SrcDstAggregatedEventManager:
@@ -45,7 +94,8 @@ class SrcDstAggregatedEventManager:
 
     @staticmethod
     async def add_aggregated_events(
-        events: list[SrcDstAggregatedEventModel],
+        events: list[SrcDstAggregatedEventDataclass]
+        | list[SrcDstAggregatedEventModel],
         batch_size: int = 50000,
     ) -> list[str]:
         """批量添加聚合事件：全局单事务 + SQLite写入优化 + 线程安全修复"""
@@ -58,8 +108,7 @@ class SrcDstAggregatedEventManager:
             return []
             
         ids_added = [event.id for event in events]
-        params = [event.model_dump(exclude_none=False, by_alias=True) for event in events]
-        total_count = len(params)
+        total_count = len(events)
         db = AsyncSQLiteSingleton()
         
         async with db._async_lock:
@@ -68,7 +117,7 @@ class SrcDstAggregatedEventManager:
                 try:
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
-                    conn.execute("PRAGMA cache_size = -7500;")
+                    conn.execute("PRAGMA cache_size = -65536;")
                     conn.execute("PRAGMA temp_store = MEMORY;")
                     conn.execute("PRAGMA foreign_keys = OFF;")
                     
@@ -89,22 +138,16 @@ class SrcDstAggregatedEventManager:
                             min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
                             p95_w2w_urma_latency, existed_status, created_at
                         ) VALUES (
-                            :id, :src_ip, :dst_ip, :log_id, :log_parse_result_cnt,
-                            :anomaly_log_parse_result_cnt, :anomaly_cnt, :ave_total_latency,
-                            :min_total_latency, :max_total_latency, :p99_total_latency, :p95_total_latency,
-                            :ave_query_meta_latency, :min_query_meta_latency, :max_query_meta_latency,
-                            :p99_query_meta_latency, :p95_query_meta_latency, :ave_urma_total_latency,
-                            :min_urma_total_latency, :max_urma_total_latency, :p99_urma_total_latency,
-                            :p95_urma_total_latency, :ave_urma_link_latency, :min_urma_link_latency,
-                            :max_urma_link_latency, :p99_urma_link_latency, :p95_urma_link_latency,
-                            :ave_c2w_urma_latency, :min_c2w_urma_latency, :max_c2w_urma_latency,
-                            :p99_c2w_urma_latency, :p95_c2w_urma_latency, :ave_w2w_urma_latency,
-                            :min_w2w_urma_latency, :max_w2w_urma_latency, :p99_w2w_urma_latency,
-                            :p95_w2w_urma_latency, :existed_status, :created_at
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
                     for i in range(0, total_count, batch_size):
-                        batch = params[i:i + batch_size]
+                        end = min(i + batch_size, total_count)
+                        batch = (
+                            _aggregated_event_to_db_tuple(events[index])
+                            for index in range(i, end)
+                        )
                         conn.executemany(sql_str, batch)
                     
                     conn.commit()

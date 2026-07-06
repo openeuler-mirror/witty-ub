@@ -6,7 +6,11 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
-from latency.schemas.log import LogParseResultModel, LogParseResultDataclass
+from latency.schemas.log import (
+    LogParseResultModel,
+    LogParseResultDataclass,
+    SparseLogParseResultDataclass,
+)
 from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
@@ -37,8 +41,8 @@ from latency.database.managers.anomalous_event import AnomalousEventManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainManager
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
-    SrcDstAggregatedEventModel,
-    AnomalousEventModel,
+    SrcDstAggregatedEventDataclass,
+    AnomalousEventDataclass,
     AnomalousEventChainModel,
 )
 from latency.task.worker.base import BaseWorker
@@ -671,7 +675,7 @@ class KVCacheLogParseWorker(BaseWorker):
     async def detect_exception(
         list_log_parse_results: list[LogParseResultModel],
         analyzer_config=None,
-    ) -> list[AnomalousEventModel]:
+    ) -> list[AnomalousEventDataclass]:
         """使用多窗口并行检测引擎检测异常事件"""
         n = len(list_log_parse_results)
 
@@ -681,8 +685,11 @@ class KVCacheLogParseWorker(BaseWorker):
         if not events:
             return events
 
-        for event in events:
-            event.id = str(uuid.uuid4())
+        from latency.schemas.log import generate_uuids_hex
+
+        event_ids = generate_uuids_hex(len(events))
+        for event, event_id in zip(events, event_ids):
+            event.id = event_id
             event.aggregated_event_id = ""
             start_idx = event.start_log_parse_offset
             end_idx = event.end_log_parse_offset
@@ -750,7 +757,7 @@ class KVCacheLogParseWorker(BaseWorker):
     # 异常事件匹配故障
     @staticmethod
     async def match_fault(
-        anomalous_events: list[AnomalousEventModel],
+        anomalous_events: list[AnomalousEventDataclass],
     ) -> list[AnomalousEventChainModel]:
         """异常事件匹配故障"""
         pass
@@ -767,8 +774,20 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
-    ) -> tuple[list[SrcDstAggregatedEventModel], dict[tuple[str, str], str]]:
+    ) -> tuple[
+        list[SrcDstAggregatedEventDataclass], dict[tuple[str, str], str]
+    ]:
         """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
+        if list_log_parse_results and all(
+            type(result) is SparseLogParseResultDataclass
+            for result in list_log_parse_results
+        ):
+            logger.info(
+                "Aggregate result: skipped %s sparse results without endpoints",
+                f"{len(list_log_parse_results):,}",
+            )
+            return [], {}
+
         latency_fields = [
             ("total_latency", "total_latency"),
             ("query_meta_latency", "worker_query_meta_latency"),
@@ -808,7 +827,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     g.latency_values[prefix].append(val)
         
         # 第二遍：构建聚合结果 + 反向写入 aggregated_event_id
-        results: list[SrcDstAggregatedEventModel] = []
+        results: list[SrcDstAggregatedEventDataclass] = []
         src_dst_to_agg_id_map: dict[tuple[str, str], str] = {}
         
         for (src, dst), g in groups.items():
@@ -830,7 +849,7 @@ class KVCacheLogParseWorker(BaseWorker):
                         agg[f] = None
                 g.latency_values[prefix] = []  # 计算完立即释放
             
-            results.append(SrcDstAggregatedEventModel(
+            results.append(SrcDstAggregatedEventDataclass(
                 id=agg_id,
                 src_ip=src,
                 dst_ip=dst,
@@ -860,9 +879,9 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def store_result(
         list_log_parse_results: list[LogParseResultDataclass],
-        anomalous_events: list[AnomalousEventModel],
+        anomalous_events: list[AnomalousEventDataclass],
         anomalous_event_chains: list[AnomalousEventChainModel],
-        src_dst_aggregated_events: list[SrcDstAggregatedEventModel],
+        src_dst_aggregated_events: list[SrcDstAggregatedEventDataclass],
     ) -> bool:
         """存库
 
@@ -872,17 +891,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
         if list_log_parse_results:
             try:
-                from latency.schemas.log import generate_uuids_hex
-
                 count = len(list_log_parse_results)
-
-                id_batch_size = 50_000
-                for start in range(0, count, id_batch_size):
-                    end = min(start + id_batch_size, count)
-                    batch_ids = generate_uuids_hex(end - start)
-                    for offset, result_id in enumerate(batch_ids):
-                        list_log_parse_results[start + offset].id = result_id
-
                 stored = await LogParseResultManager.add_log_parse_results(
                     list_log_parse_results
                 )

@@ -1,9 +1,19 @@
-from latency.schemas.log import LogParseResultDataclass, LogParseResultModel
+import os
+import time
+
+from latency.schemas.log import (
+    LogParseResultDataclass,
+    LogParseResultModel,
+    SparseLogParseResultDataclass,
+)
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.database.engine import AsyncSQLiteSingleton
 
 
-def _log_parse_result_to_db_tuple(result: LogParseResultDataclass) -> tuple:
+LogParseResultStorage = LogParseResultDataclass | SparseLogParseResultDataclass
+
+
+def _log_parse_result_to_db_tuple(result: LogParseResultStorage) -> tuple:
     """按 INSERT 列顺序生成 SQLite 参数，跳过 Pydantic 中间对象。"""
     return (
         result.id,
@@ -45,8 +55,93 @@ def _log_parse_result_to_db_tuple(result: LogParseResultDataclass) -> tuple:
         result.master_rpc_total,
     )
 
+
+def _can_use_sparse_insert(result: LogParseResultStorage) -> bool:
+    """省略值为 NULL 的 Worker/诊断字段，保证落库结果与完整 INSERT 一致。"""
+    return (
+        result.c2w_latency is None
+        and result.worker_query_meta_latency is None
+        and result.urma_total_latency is None
+        and result.urma_link_latency is None
+        and result.urma_inflight_count is None
+        and result.w2w_urma_latency is None
+        and result.src_ip is None
+        and result.dst_ip is None
+        and result.host is None
+        and result.offset is None
+        and result.content is None
+        and result.anomaly_score is None
+        and result.sdk_process is None
+        and result.sdk_rpc is None
+        and result.local_worker_cost is None
+        and result.local_worker_lock is None
+        and result.remote_worker_cost is None
+        and result.remote_worker_rpc is None
+        and result.master_process is None
+        and result.master_rpc_total is None
+    )
+
+
+def _log_parse_result_to_sparse_db_tuple(
+    result: LogParseResultStorage,
+) -> tuple:
+    """生成常见无 Worker 结果的精简 SQLite 参数。"""
+    return (
+        result.id,
+        result.log_id,
+        result.aggregated_event_id,
+        result.anomalous_event_id,
+        result.trace_id,
+        result.timestamp,
+        result.pod_ip,
+        result.cluster_name,
+        result.total_latency,
+        result.c2w_urma_latency,
+        result.operation,
+        result.data_size,
+        result.is_anomalous,
+        result.anomaly_reason,
+        result.remark,
+        result.existed_status,
+        result.created_at,
+    )
+
+
+def _can_use_minimal_insert(result: LogParseResultStorage) -> bool:
+    """判断稀疏结果的非必填字段是否也等于数据库默认值。"""
+    return (
+        not result.aggregated_event_id
+        and not result.anomalous_event_id
+        and result.c2w_urma_latency is None
+        and result.anomaly_reason is None
+    )
+
+
+def _log_parse_result_to_minimal_db_tuple(
+    result: LogParseResultStorage,
+) -> tuple:
+    return (
+        result.id,
+        result.log_id,
+        result.trace_id,
+        result.timestamp,
+        result.pod_ip,
+        result.cluster_name,
+        result.total_latency,
+        result.operation,
+        result.data_size,
+        result.is_anomalous,
+        result.remark,
+        result.existed_status,
+        result.created_at,
+    )
+
+
 class LogParseResultManager:
     """日志解析结果管理器"""
+
+    last_store_metrics: dict[str, object] = {}
+    profile_explicit_wal_checkpoint = False
 
     @staticmethod
     async def add_log_parse_result(result: LogParseResultModel) -> bool:
@@ -81,36 +176,69 @@ class LogParseResultManager:
 
     @staticmethod
     async def add_log_parse_results(
-        results: list[LogParseResultDataclass],
+        results: list[LogParseResultStorage],
         batch_size: int = 50000,
     ) -> bool:
-        """将 dataclass 直接批量写入 SQLite，不创建 Pydantic/字典副本。"""
+        """将 dataclass 分批写入 SQLite，不创建 Pydantic/字典副本。"""
         import asyncio
         import logging
         
         logger = logging.getLogger(__name__)
-        
+
+        LogParseResultManager.last_store_metrics = {}
         if not results:
             return True
 
         total_count = len(results)
         db = AsyncSQLiteSingleton()
+        id_prefix = os.urandom(10).hex()
+        profile_checkpoint = LogParseResultManager.profile_explicit_wal_checkpoint
         
         # 全局协程锁，保证同一时间只有一组操作操作sqlite连接
         async with db._async_lock:
             def sync_batch_insert():
                 """同步函数：全部sqlite操作放到同一个子线程，线程安全"""
                 conn = db._conn
+                sync_started = time.perf_counter()
+                original_wal_autocheckpoint = None
+                metrics: dict[str, object] = {
+                    "rows": total_count,
+                    "batch_size": batch_size,
+                    "batch_count": (total_count + batch_size - 1) // batch_size,
+                    "minimal_rows": 0,
+                    "sparse_rows": 0,
+                    "full_rows": 0,
+                    "setup_seconds": 0.0,
+                    "parameter_build_seconds": 0.0,
+                    "minimal_insert_seconds": 0.0,
+                    "sparse_insert_seconds": 0.0,
+                    "full_insert_seconds": 0.0,
+                    "commit_seconds": 0.0,
+                    "checkpoint_seconds": 0.0,
+                    "explicit_checkpoint": profile_checkpoint,
+                    "commit_includes_auto_checkpoint": not profile_checkpoint,
+                }
+                success = False
                 try:
+                    setup_started = time.perf_counter()
+                    if profile_checkpoint:
+                        original_wal_autocheckpoint = conn.execute(
+                            "PRAGMA wal_autocheckpoint;"
+                        ).fetchone()[0]
+                        conn.execute("PRAGMA wal_autocheckpoint = 0;")
+
                     # 写入性能调优（事务内生效，不影响其他连接）
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
-                    conn.execute("PRAGMA cache_size = -7500;")  # 7.5MB缓存
+                    conn.execute("PRAGMA cache_size = -65536;")  # 64MB缓存
                     conn.execute("PRAGMA temp_store = MEMORY;")
                     conn.execute("PRAGMA foreign_keys = OFF;")
                     
                     # 开启统一事务
-                    conn.execute("BEGIN TRANSACTION;")
+                    conn.execute("BEGIN IMMEDIATE;")
+                    metrics["setup_seconds"] = (
+                        time.perf_counter() - setup_started
+                    )
                     
                     sql_str = """
                         INSERT INTO log_parse_result_table (
@@ -128,23 +256,188 @@ class LogParseResultManager:
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
-                    # 参数逐条产生，不复制成 Pydantic、字典或批次 tuple 列表。
+                    sparse_sql_str = """
+                        INSERT INTO log_parse_result_table (
+                            id, log_id, aggregated_event_id, anomalous_event_id,
+                            trace_id, timestamp, pod_ip, cluster_name,
+                            total_latency, c2w_urma_latency, operation, data_size,
+                            is_anomalous, anomaly_reason, remark, existed_status,
+                            created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                    """
+                    minimal_sql_str = """
+                        INSERT INTO log_parse_result_table (
+                            id, log_id, trace_id, timestamp, pod_ip,
+                            cluster_name, total_latency, operation, data_size,
+                            is_anomalous, remark, existed_status, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                    """
+
+                    # 每批只保留参数tuple；常见的无Worker结果不绑定恒为NULL的列。
                     for i in range(0, total_count, batch_size):
                         end = min(i + batch_size, total_count)
-                        batch = (
-                            _log_parse_result_to_db_tuple(results[index])
-                            for index in range(i, end)
+                        minimal_batch = []
+                        sparse_batch = []
+                        full_batch = []
+                        parameter_started = time.perf_counter()
+                        for index in range(i, end):
+                            result = results[index]
+                            if not result.id:
+                                # 80-bit随机前缀保证批次唯一，48-bit递增后缀
+                                # 让SQLite主键索引按顺序写入，避免UUID随机写放大。
+                                result.id = id_prefix + f"{index:012x}"
+                            if type(result) is SparseLogParseResultDataclass:
+                                # 解析主路径已经用紧凑类型证明所有 Worker 字段
+                                # 均为 NULL，直接分类和构造参数，避免千万次通用
+                                # 稀疏判定以及多层 Python 函数调用。
+                                if (
+                                    not result.aggregated_event_id
+                                    and not result.anomalous_event_id
+                                    and result.c2w_urma_latency is None
+                                    and result.anomaly_reason is None
+                                ):
+                                    minimal_batch.append(
+                                        (
+                                            result.id,
+                                            result.log_id,
+                                            result.trace_id,
+                                            result.timestamp,
+                                            result.pod_ip,
+                                            result.cluster_name,
+                                            result.total_latency,
+                                            result.operation,
+                                            result.data_size,
+                                            result.is_anomalous,
+                                            result.remark,
+                                            result.existed_status,
+                                            result.created_at,
+                                        )
+                                    )
+                                else:
+                                    sparse_batch.append(
+                                        (
+                                            result.id,
+                                            result.log_id,
+                                            result.aggregated_event_id,
+                                            result.anomalous_event_id,
+                                            result.trace_id,
+                                            result.timestamp,
+                                            result.pod_ip,
+                                            result.cluster_name,
+                                            result.total_latency,
+                                            result.c2w_urma_latency,
+                                            result.operation,
+                                            result.data_size,
+                                            result.is_anomalous,
+                                            result.anomaly_reason,
+                                            result.remark,
+                                            result.existed_status,
+                                            result.created_at,
+                                        )
+                                    )
+                            elif _can_use_sparse_insert(result):
+                                if _can_use_minimal_insert(result):
+                                    minimal_batch.append(
+                                        _log_parse_result_to_minimal_db_tuple(result)
+                                    )
+                                else:
+                                    sparse_batch.append(
+                                        _log_parse_result_to_sparse_db_tuple(result)
+                                    )
+                            else:
+                                full_batch.append(_log_parse_result_to_db_tuple(result))
+                        metrics["parameter_build_seconds"] += (
+                            time.perf_counter() - parameter_started
                         )
-                        conn.executemany(sql_str, batch)
+                        metrics["minimal_rows"] += len(minimal_batch)
+                        metrics["sparse_rows"] += len(sparse_batch)
+                        metrics["full_rows"] += len(full_batch)
+
+                        if minimal_batch:
+                            insert_started = time.perf_counter()
+                            conn.executemany(minimal_sql_str, minimal_batch)
+                            metrics["minimal_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
+                        if sparse_batch:
+                            insert_started = time.perf_counter()
+                            conn.executemany(sparse_sql_str, sparse_batch)
+                            metrics["sparse_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
+                        if full_batch:
+                            insert_started = time.perf_counter()
+                            conn.executemany(sql_str, full_batch)
+                            metrics["full_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
                     
                     # 一次性提交
+                    commit_started = time.perf_counter()
                     conn.commit()
-                    logger.info(f"[Store] 单事务插入成功，共 {total_count:,} 条记录")
-                    return True
+                    metrics["commit_seconds"] = (
+                        time.perf_counter() - commit_started
+                    )
+                    success = True
+
+                    if profile_checkpoint:
+                        try:
+                            checkpoint_started = time.perf_counter()
+                            checkpoint_result = conn.execute(
+                                "PRAGMA wal_checkpoint(PASSIVE);"
+                            ).fetchone()
+                            metrics["checkpoint_seconds"] = (
+                                time.perf_counter() - checkpoint_started
+                            )
+                            if checkpoint_result:
+                                metrics["checkpoint_busy"] = checkpoint_result[0]
+                                metrics["checkpoint_log_frames"] = checkpoint_result[1]
+                                metrics["checkpointed_frames"] = checkpoint_result[2]
+                        except Exception as checkpoint_error:
+                            metrics["checkpoint_error"] = str(checkpoint_error)
+                            logger.warning(
+                                "[Store] WAL checkpoint计时失败: %s",
+                                checkpoint_error,
+                            )
                 except Exception as e:
                     conn.rollback()
+                    metrics["error"] = str(e)
                     logger.error(f"[Store] 插入失败，事务回滚: {str(e)}")
-                    return False
+                finally:
+                    if original_wal_autocheckpoint is not None:
+                        try:
+                            conn.execute(
+                                f"PRAGMA wal_autocheckpoint = "
+                                f"{original_wal_autocheckpoint};"
+                            )
+                        except Exception as restore_error:
+                            metrics["wal_autocheckpoint_restore_error"] = str(
+                                restore_error
+                            )
+                    metrics["total_sync_seconds"] = (
+                        time.perf_counter() - sync_started
+                    )
+                    db_path = getattr(db, "DB_PATH", "")
+                    wal_path = f"{db_path}-wal" if db_path else ""
+                    metrics["wal_size_bytes"] = (
+                        os.path.getsize(wal_path)
+                        if wal_path and os.path.exists(wal_path)
+                        else 0
+                    )
+                    metrics["success"] = success
+                    LogParseResultManager.last_store_metrics = metrics
+
+                if success:
+                    logger.info(
+                        "[Store] 单事务插入成功，共 %s 条记录，明细=%s",
+                        f"{total_count:,}",
+                        metrics,
+                    )
+                return success
             
             # 所有sqlite操作全部在同一个线程执行，避免多线程争抢conn
             success = await asyncio.to_thread(sync_batch_insert)

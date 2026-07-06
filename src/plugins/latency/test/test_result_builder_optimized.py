@@ -1,17 +1,25 @@
 import asyncio
-from dataclasses import fields
+from dataclasses import asdict, fields
 from datetime import datetime, timedelta, timezone
 
 from latency.ENUM.ds_log import EntryType
 from latency.database.managers import log_parse_result as log_parse_result_manager_module
 from latency.database.managers.log_parse_result import (
     LogParseResultManager,
+    _can_use_minimal_insert,
+    _can_use_sparse_insert,
     _log_parse_result_to_db_tuple,
+    _log_parse_result_to_minimal_db_tuple,
+    _log_parse_result_to_sparse_db_tuple,
 )
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
 from latency.schemas.ds_log import CorrelationResult
-from latency.schemas.log import LogParseResultDataclass, generate_uuids_hex
+from latency.schemas.log import (
+    LogParseResultDataclass,
+    SparseLogParseResultDataclass,
+    generate_uuids_hex,
+)
 from latency.task.worker import kv_cache_log_parse_worker as worker_module
 from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
@@ -61,6 +69,100 @@ def test_timestamp_format_matches_previous_output() -> None:
         expected = value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         assert ParseResultBuilder._format_timestamp(value) == expected
     assert ParseResultBuilder._format_timestamp(None) is None
+
+
+def test_unmatched_sdk_fast_path_matches_general_builder() -> None:
+    timestamps = [
+        datetime(2026, 7, 2, 1, 2, 3, 456789),
+        datetime(2026, 7, 2, 1, 2, 3),
+        datetime(2026, 7, 2, 1, 2, 4, 999999),
+        datetime(
+            2026,
+            7,
+            2,
+            1,
+            2,
+            5,
+            123456,
+            tzinfo=timezone(timedelta(hours=8)),
+        ),
+    ]
+    sdk_entries = [
+        _raw_entry(
+            timestamp=timestamps[0],
+            trace_id="ok-float",
+            elapsed_us=2200.444,
+            entry_type="SDK_GET",
+        ),
+        _raw_entry(
+            timestamp=timestamps[1],
+            trace_id="ok-int",
+            elapsed_us=1000,
+            entry_type="SDK_GET",
+            resp_msg=None,
+        ),
+        _raw_entry(
+            timestamp=timestamps[2],
+            trace_id="not-found",
+            elapsed_us=3000,
+            entry_type="SDK_GET",
+            resp_msg="K_NOT_FOUND object-key",
+        ),
+        _raw_entry(
+            timestamp=timestamps[3],
+            trace_id="failed",
+            elapsed_us=4000,
+            entry_type="SDK_GET",
+            status_code=1,
+            resp_msg="sdk error",
+        ),
+    ]
+    positive_urma = _raw_entry(
+        timestamp=timestamps[0],
+        trace_id="ok-float",
+        elapsed_us=321.987,
+        entry_type="URMA",
+    )
+    negative_urma = _raw_entry(
+        timestamp=timestamps[1],
+        trace_id="ok-int",
+        elapsed_us=-100,
+        entry_type="URMA",
+    )
+    sdk_urma_index = {
+        ("10.0.0.1", "ok-float"): [positive_urma],
+        ("10.0.0.1", "ok-int"): [negative_urma],
+    }
+    fast_builder = ParseResultBuilder(
+        sdk_entries,
+        [],
+        CorrelationResult(sdk_urma_index=sdk_urma_index),
+        log_dir="fallback-dir",
+        log_file_id="file-id",
+    )
+    # An unused SDK→Worker entry forces the general path while keeping every
+    # SDK in this fixture semantically unmatched.
+    reference_builder = ParseResultBuilder(
+        sdk_entries,
+        [],
+        CorrelationResult(
+            sdk_worker_map={len(sdk_entries): sdk_entries[0]},
+            sdk_urma_index=sdk_urma_index,
+        ),
+        log_dir="fallback-dir",
+        log_file_id="file-id",
+    )
+
+    fast_results = fast_builder.build()
+    reference_results = reference_builder.build()
+
+    assert fast_builder.anomalous_count == reference_builder.anomalous_count == 3
+    assert all(isinstance(result, SparseLogParseResultDataclass) for result in fast_results)
+    assert [
+        {**asdict(result), "created_at": ""} for result in fast_results
+    ] == [
+        {**asdict(result), "created_at": ""} for result in reference_results
+    ]
 
 
 def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:
@@ -116,6 +218,10 @@ def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:
     assert not ok.is_anomalous
     assert ok.remark == "OK"
     assert results[1].remark == "SDK not found,K_NOT_FOUND object-key"
+    assert isinstance(results[1], SparseLogParseResultDataclass)
+    assert results[1].c2w_latency is None
+    assert results[1].src_ip is None
+    assert results[1].to_pydantic().worker_query_meta_latency is None
     assert results[2].remark == (
         "SDK failed with status_code=1 resp_msg=sdk error;"
         "Worker failed with status_code=2 resp_msg=worker error;"
@@ -294,6 +400,13 @@ def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
         "remote_worker_rpc", "master_process", "master_rpc_total", "timestamp",
         "created_at",
     ]
+    assert [field.name for field in fields(SparseLogParseResultDataclass)] == [
+        "total_latency", "is_anomalous", "id", "log_id",
+        "aggregated_event_id", "anomalous_event_id", "pod_ip",
+        "cluster_name", "anomaly_reason", "data_size", "existed_status",
+        "operation", "remark", "trace_id", "c2w_urma_latency",
+        "timestamp", "created_at",
+    ]
 
 
 def test_database_tuple_matches_insert_column_order() -> None:
@@ -318,8 +431,72 @@ def test_database_tuple_matches_insert_column_order() -> None:
     )
 
 
+def test_sparse_database_tuple_only_omits_null_fields() -> None:
+    sparse = SparseLogParseResultDataclass(
+        total_latency=12.3,
+        is_anomalous=False,
+        id="id",
+        log_id="log",
+        trace_id="trace",
+        timestamp="timestamp",
+        pod_ip="pod",
+        cluster_name="cluster",
+        c2w_urma_latency=6.0,
+        operation="operation",
+        data_size="data-size",
+        remark="OK",
+        created_at="created-at",
+    )
+
+    assert _can_use_sparse_insert(sparse)
+    assert not _can_use_minimal_insert(sparse)
+    assert _log_parse_result_to_sparse_db_tuple(sparse) == (
+        "id", "log", "", "", "trace", "timestamp", "pod", "cluster",
+        12.3, 6.0, "operation", "data-size", False, None, "OK", True,
+        "created-at",
+    )
+    full = LogParseResultDataclass(
+        total_latency=12.3,
+        is_anomalous=False,
+        id="id",
+        log_id="log",
+        trace_id="trace",
+        timestamp="timestamp",
+        pod_ip="pod",
+        cluster_name="cluster",
+        c2w_urma_latency=6.0,
+        operation="operation",
+        data_size="data-size",
+        remark="OK",
+        created_at="created-at",
+    )
+    assert _log_parse_result_to_db_tuple(sparse) == _log_parse_result_to_db_tuple(full)
+
+    full.worker_query_meta_latency = 1.0
+    assert not _can_use_sparse_insert(full)
+
+    minimal = SparseLogParseResultDataclass(
+        total_latency=1.0,
+        is_anomalous=False,
+        trace_id="minimal",
+        remark="OK",
+        created_at="created-at",
+    )
+    assert _can_use_minimal_insert(minimal)
+    assert _log_parse_result_to_minimal_db_tuple(minimal) == (
+        "", "", "minimal", None, None, None, 1.0, None, None, False,
+        "OK", True, "created-at",
+    )
+
+
 def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
-    result = LogParseResultDataclass(total_latency=1.0, is_anomalous=False, id="id")
+    results = [
+        SparseLogParseResultDataclass(total_latency=0.0, is_anomalous=False),
+        LogParseResultDataclass(total_latency=1.0, is_anomalous=False),
+        SparseLogParseResultDataclass(total_latency=2.0, is_anomalous=False),
+    ]
+    results[1].c2w_latency = 1.0
+    results[2].c2w_urma_latency = 2.0
 
     class FakeAsyncLock:
         async def __aenter__(self):
@@ -353,10 +530,23 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
 
     database = FakeDatabase()
     monkeypatch.setattr(log_parse_result_manager_module, "AsyncSQLiteSingleton", lambda: database)
-    stored = asyncio.run(LogParseResultManager.add_log_parse_results([result]))
+    stored = asyncio.run(
+        LogParseResultManager.add_log_parse_results(results, batch_size=2)
+    )
     assert stored
-    assert database._conn.insert_sql.count("?") == 37
-    assert database._conn.params == [_log_parse_result_to_db_tuple(result)]
+    assert LogParseResultManager.last_store_metrics["minimal_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["sparse_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["full_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["success"] is True
+    assert database._conn.insert_sql.count("?") == 17
+    assert database._conn.params == [
+        _log_parse_result_to_minimal_db_tuple(results[0]),
+        _log_parse_result_to_db_tuple(results[1]),
+        _log_parse_result_to_sparse_db_tuple(results[2]),
+    ]
+    assert len({result.id[:20] for result in results}) == 1
+    assert [int(result.id[20:], 16) for result in results] == [0, 1, 2]
+    assert all(len(result.id) == 32 for result in results)
 
 
 def test_store_result_passes_dataclasses_directly(monkeypatch) -> None:
@@ -375,7 +565,6 @@ def test_store_result_passes_dataclasses_directly(monkeypatch) -> None:
     stored = asyncio.run(KVCacheLogParseWorker.store_result([result], [], [], []))
     assert stored
     assert captured == [result]
-    assert result.id
 
 
 def test_generated_ids_keep_uuid_hex_shape() -> None:

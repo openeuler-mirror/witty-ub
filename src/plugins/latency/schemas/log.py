@@ -1,6 +1,6 @@
 import uuid
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field as dataclass_field
+from typing import ClassVar, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 from latency.schemas.task import TaskModel
@@ -157,6 +157,55 @@ class SrcDstAggregatedEventModel(BaseModel):
     )
 
 
+@dataclass(slots=True)
+class SrcDstAggregatedEventDataclass:
+    """聚合计算和批量存库使用的轻量对象。"""
+
+    id: str
+    src_ip: str
+    dst_ip: str
+    log_id: str
+    log_parse_result_cnt: int = 0
+    anomaly_log_parse_result_cnt: int = 0
+    anomaly_cnt: int = 0
+    ave_total_latency: float | None = None
+    min_total_latency: float | None = None
+    max_total_latency: float | None = None
+    p99_total_latency: float | None = None
+    p95_total_latency: float | None = None
+    ave_query_meta_latency: float | None = None
+    min_query_meta_latency: float | None = None
+    max_query_meta_latency: float | None = None
+    p99_query_meta_latency: float | None = None
+    p95_query_meta_latency: float | None = None
+    ave_urma_total_latency: float | None = None
+    min_urma_total_latency: float | None = None
+    max_urma_total_latency: float | None = None
+    p99_urma_total_latency: float | None = None
+    p95_urma_total_latency: float | None = None
+    ave_urma_link_latency: float | None = None
+    min_urma_link_latency: float | None = None
+    max_urma_link_latency: float | None = None
+    p99_urma_link_latency: float | None = None
+    p95_urma_link_latency: float | None = None
+    ave_c2w_urma_latency: float | None = None
+    min_c2w_urma_latency: float | None = None
+    max_c2w_urma_latency: float | None = None
+    p99_c2w_urma_latency: float | None = None
+    p95_c2w_urma_latency: float | None = None
+    ave_w2w_urma_latency: float | None = None
+    min_w2w_urma_latency: float | None = None
+    max_w2w_urma_latency: float | None = None
+    p99_w2w_urma_latency: float | None = None
+    p95_w2w_urma_latency: float | None = None
+    existed_status: bool = True
+    created_at: str = dataclass_field(
+        default_factory=lambda: datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )[:-3]
+    )
+
+
 class TimeWindowAggregatedIpPair(BaseModel):
     """时间窗口内的IP对聚合统计"""
     src_ip: str = Field(..., description="源IP地址")
@@ -247,6 +296,24 @@ class AnomalousEventModel(BaseModel):
     created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="异常事件创建时间",
+    )
+
+
+@dataclass(slots=True)
+class AnomalousEventDataclass:
+    """异常检测和批量存库使用的轻量对象。"""
+
+    id: str = ""
+    log_id: str = ""
+    aggregated_event_id: str = ""
+    start_log_parse_offset: int = 0
+    end_log_parse_offset: int = 0
+    anomaly_reason: str = ""
+    existed_status: bool = True
+    created_at: str = dataclass_field(
+        default_factory=lambda: datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )[:-3]
     )
 
 
@@ -464,6 +531,57 @@ class LogParseResultDataclass:
             timestamp=self.timestamp,
             created_at=self.created_at,
         )
+
+
+@dataclass(slots=True)
+class SparseLogParseResultDataclass:
+    """无 Worker 匹配时使用的紧凑解析结果。
+
+    省略字段以类属性形式暴露为 None，因此检测、聚合和存库代码仍可按
+    LogParseResultDataclass 的属性接口读取；流水线只会修改这里保留的字段。
+    """
+
+    total_latency: float
+    is_anomalous: bool
+    id: str = ""
+    log_id: str = ""
+    aggregated_event_id: str = ""
+    anomalous_event_id: str = ""
+    pod_ip: Optional[str] = None
+    cluster_name: Optional[str] = None
+    anomaly_reason: Optional[str] = None
+    data_size: Optional[str] = None
+    existed_status: bool = True
+    operation: Optional[str] = None
+    remark: Optional[str] = None
+    trace_id: Optional[str] = None
+    c2w_urma_latency: Optional[float] = None
+    timestamp: Optional[str] = None
+    created_at: str = ""
+
+    src_ip: ClassVar[None] = None
+    dst_ip: ClassVar[None] = None
+    host: ClassVar[None] = None
+    anomaly_score: ClassVar[None] = None
+    content: ClassVar[None] = None
+    offset: ClassVar[None] = None
+    urma_inflight_count: ClassVar[None] = None
+    urma_link_latency: ClassVar[None] = None
+    urma_total_latency: ClassVar[None] = None
+    c2w_latency: ClassVar[None] = None
+    worker_query_meta_latency: ClassVar[None] = None
+    w2w_urma_latency: ClassVar[None] = None
+    sdk_process: ClassVar[None] = None
+    sdk_rpc: ClassVar[None] = None
+    local_worker_cost: ClassVar[None] = None
+    local_worker_lock: ClassVar[None] = None
+    remote_worker_cost: ClassVar[None] = None
+    remote_worker_rpc: ClassVar[None] = None
+    master_process: ClassVar[None] = None
+    master_rpc_total: ClassVar[None] = None
+
+    def to_pydantic(self) -> "LogParseResultModel":
+        return LogParseResultDataclass.to_pydantic(self)  # type: ignore[arg-type]
 
 
 def generate_uuids_hex(count: int) -> list[str]:
