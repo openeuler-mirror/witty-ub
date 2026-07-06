@@ -11,10 +11,10 @@ class LogFileManager:
             INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at)
             VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :trace_failure_event_cnt, :existed_status, :created_at)
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, log_file.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_log_files(log_files: list[LogFileModel]) -> list[str]:
@@ -32,7 +32,7 @@ class LogFileManager:
                     log_file.model_dump(exclude_none=False, by_alias=True)
                     for log_file in batch
                 ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([log_file.id for log_file in batch])
             except Exception as e:
                 print(f"批量添加日志文件失败，错误信息: {str(e)}")
@@ -46,12 +46,12 @@ class LogFileManager:
             WHERE id = :log_file_id
         """
         params = {"log_file_id": log_file_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
-    async def update_log_file(log_file_id: str, log_file_info_dict: dict) -> bool:
-        """根据日志文件ID更新日志文件信息"""
+    async def update_log_file(log_file_id: str, log_file_info_dict: dict) -> int:
+        """根据日志文件ID更新日志文件信息，返回影响行数"""
         set_clauses = []
         for key in log_file_info_dict.keys():
             set_clauses.append(f"{key} = :{key}")
@@ -62,8 +62,8 @@ class LogFileManager:
             WHERE id = :log_file_id
         """
         params = {"log_file_id": log_file_id, **log_file_info_dict}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        _, rowcount = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return rowcount
 
     @staticmethod
     async def list_log_files(

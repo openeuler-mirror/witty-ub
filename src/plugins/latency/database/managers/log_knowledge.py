@@ -14,10 +14,10 @@ class LogKnowledgeManager:
             INSERT INTO log_knowledge_table (id, image_bytes, name, description, task_cnt, log_file_cnt, anomaly_cnt, existed_status, created_at, updated_at)
             VALUES (:id, :image_bytes, :name, :description, :task_cnt, :log_file_cnt, :anomaly_cnt, :existed_status, :created_at, :updated_at)
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, log_kb_model.model_dump(exclude_none=True)
         )
-        return log_kb_model.id if result else ""
+        return log_kb_model.id if success else ""
 
     @staticmethod
     async def add_log_kbs(log_kbs: list[LogKnowledgeModel]) -> list[str]:
@@ -40,7 +40,7 @@ class LogKnowledgeManager:
                     log_kb.model_dump(exclude_none=False, by_alias=True)
                     for log_kb in batch
                 ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([log_kb.id for log_kb in batch])
             except Exception as e:
                 print(f"批量添加日志知识库失败，错误信息: {str(e)}")
@@ -54,12 +54,12 @@ class LogKnowledgeManager:
             WHERE id = :kb_id
         """
         params = {"kb_id": kb_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
-    async def update_log_kb(log_kb_id: str, log_kb_info_dict: dict) -> bool:
-        """根据知识库ID更新日志知识库信息"""
+    async def update_log_kb(log_kb_id: str, log_kb_info_dict: dict) -> int:
+        """根据知识库ID更新日志知识库信息，返回影响行数"""
         set_clause = ", ".join([f"{key} = :{key}" for key in log_kb_info_dict.keys()])
         sql_str = f"""
             UPDATE log_knowledge_table
@@ -71,8 +71,8 @@ class LogKnowledgeManager:
             "kb_id": log_kb_id,
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         }
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        _, rowcount = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return rowcount
 
     @staticmethod
     async def count_log_kbs(req: ListLogKnowledgeRequest) -> int:
@@ -133,7 +133,7 @@ class LogKnowledgeManager:
         sql_str = """
             SELECT id, image_bytes, name, description, task_cnt, log_file_cnt, anomaly_cnt, existed_status, created_at, updated_at
             FROM log_knowledge_table
-            WHERE id = :kb_id
+            WHERE id = :kb_id AND existed_status = 1
         """
         params = {"kb_id": kb_id}
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)

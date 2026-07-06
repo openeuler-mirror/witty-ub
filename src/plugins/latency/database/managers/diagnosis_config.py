@@ -31,7 +31,7 @@ class DiagnosisConfigManager:
         kb_id: str, config: DiagnosisRuntimeConfig
     ) -> DiagnosisRuntimeConfig:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             """
             INSERT INTO diagnosis_config_table (kb_id, config_json, created_at, updated_at)
             VALUES (:kb_id, :config_json, :created_at, :updated_at)
@@ -58,7 +58,8 @@ class DiagnosisConfigManager:
 
     @staticmethod
     async def delete(kb_id: str) -> bool:
-        return await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             "DELETE FROM diagnosis_config_table WHERE kb_id = :kb_id",
             {"kb_id": kb_id},
         )
+        return success

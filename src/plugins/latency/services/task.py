@@ -13,6 +13,7 @@ from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.task.task_handler import TaskHandler
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.exceptions import NotFoundBizException, ConflictBizException
 
 logger = logging.getLogger(__name__)
 
@@ -71,48 +72,38 @@ class TaskService:
     @staticmethod
     async def create_task(req: CreateTaskRequest) -> CreateTaskMsg:
         """创建任务"""
-        try:
-            task_id = await TaskHandler.init_task(
-                task_type=req.task_type,
-                op_id=req.op_id,
-            )
-            return CreateTaskMsg(task_id=task_id)
-        except Exception as e:
-            logger.error(f"创建任务失败: {str(e)}")
-            return CreateTaskMsg(task_id=None)
+        task_id = await TaskHandler.init_task(
+            task_type=req.task_type,
+            op_id=req.op_id,
+        )
+        if not task_id:
+            raise NotFoundBizException(resource="关联操作")
+        return CreateTaskMsg(task_id=task_id)
 
     @staticmethod
     async def stop_task(task_id: str) -> StopTaskMsg:
         """停止任务"""
-        try:
-            task = await TaskManager.get_task_by_task_id(task_id)
-            if not task:
-                return StopTaskMsg(task_id=None)
-            
-            if task.status not in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
-                return StopTaskMsg(task_id=None)
-            
-            await TaskHandler.stop_task(task_id)
-            return StopTaskMsg(task_id=task_id)
-        except Exception as e:
-            logger.error(f"停止任务失败: {str(e)}")
-            return StopTaskMsg(task_id=None)
+        task = await TaskManager.get_task_by_task_id(task_id)
+        if not task:
+            raise NotFoundBizException(resource="任务")
+        
+        if task.status not in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
+            raise ConflictBizException(message=f"任务状态为{task.status}，不可停止")
+        
+        await TaskHandler.stop_task(task_id)
+        return StopTaskMsg(task_id=task_id)
 
     @staticmethod
     async def delete_task(task_id: str) -> DeleteTaskMsg:
         """删除任务"""
-        try:
-            task = await TaskManager.get_task_by_task_id(task_id)
-            if not task:
-                return DeleteTaskMsg(task_id=None)
-            
-            result_id = await TaskHandler.delete_task(task_id)
-            if result_id:
-                return DeleteTaskMsg(task_id=task_id)
-            return DeleteTaskMsg(task_id=None)
-        except Exception as e:
-            logger.error(f"删除任务失败: {str(e)}")
-            return DeleteTaskMsg(task_id=None)
+        task = await TaskManager.get_task_by_task_id(task_id)
+        if not task:
+            raise NotFoundBizException(resource="任务")
+        
+        result_id = await TaskHandler.delete_task(task_id)
+        if result_id:
+            return DeleteTaskMsg(task_id=task_id)
+        raise NotFoundBizException(resource="任务")
 
     @staticmethod
     async def list_tasks(req: ListTasksRequest) -> ListTasksMsg:

@@ -5,6 +5,7 @@ import aiohttp
 import logging
 from fastapi import UploadFile
 from latency.database.managers.log_file import LogFileManager
+from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.schemas.log import LogFileModel
@@ -27,6 +28,7 @@ from latency.schemas.response import (
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
 from latency.common.zip_handler import ZipHandler
+from latency.exceptions import NotFoundBizException, BadRequestBizException
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +103,22 @@ class LogFileService:
         for upload_log_file_config in req.upload_log_file_configs:
             log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name)
             if upload_log_file_config.source_type == SourceType.LOCAL:
-                log_file_model.file_path = upload_log_file_config.source
-                try:
-                    log_file_model.file_size = os.path.getsize(
-                        upload_log_file_config.source
-                    )
-                except (FileNotFoundError, OSError):
-                    log_file_model.file_size = 0
+                source_path = upload_log_file_config.source
+                source = os.path.abspath(source_path)
+                if not os.path.exists(source):
+                    raise BadRequestBizException(message=f"路径不存在: {source}")
+                if os.path.isdir(source):
+                    if not os.access(source, os.R_OK):
+                        raise BadRequestBizException(message=f"目录不可读: {source}")
+                    log_file_model.file_path = source
+                    log_file_model.file_size = await LogFileService.get_readable_dir_size(source)
+                elif os.path.isfile(source):
+                    if not os.access(source, os.R_OK):
+                        raise BadRequestBizException(message=f"文件不可读: {source}")
+                    log_file_model.file_path = source
+                    log_file_model.file_size = os.path.getsize(source)
+                else:
+                    raise BadRequestBizException(message=f"路径既不是文件也不是目录: {source}")
             elif upload_log_file_config.source_type == SourceType.REMOTE:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
                 try:
@@ -209,21 +220,24 @@ class LogFileService:
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
-        flag = await LogFileManager.update_log_file(
-            log_file_id, {"existed_status": False}
-        )
-        if flag:
-            return DeleteLogFilesMsg(log_file_id=log_file_id)
-        return DeleteLogFilesMsg(log_file_id=None)
+        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
+        await LogFileManager.update_log_file(log_file_id, {"existed_status": False})
+        await LogParseResultManager.delete_log_parse_results_by_log_id(log_file_id)
+        return DeleteLogFilesMsg(log_file_ids=[log_file_id])
 
     @staticmethod
     async def update_log_file(
         log_file_id: str, req: UpdateLogFileRequest
     ) -> UpdateLogFileMsg:
-        flag = await LogFileManager.update_log_file(
+        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
+        rowcount = await LogFileManager.update_log_file(
             log_file_id, req.model_dump(exclude_none=True)
         )
-        if flag:
+        if rowcount > 0:
             return UpdateLogFileMsg(log_file_id=log_file_id)
         return UpdateLogFileMsg(log_file_id=None)
 
@@ -329,6 +343,8 @@ class LogFileService:
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> GetLogFileMsg:
         log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
         parse_task = await TaskManager.get_current_task_by_op_id(
             log_file_id,
             TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
