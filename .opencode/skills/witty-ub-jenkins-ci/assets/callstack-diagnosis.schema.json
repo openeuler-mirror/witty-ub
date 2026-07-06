@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openeuler.org/witty-ub/callstack-diagnosis.schema.json",
+  "title": "Witty-UB source-linked call-stack diagnosis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "evidence_artifact",
+    "summary",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1"},
+    "artifact_type": {"const": "witty_ub_callstack_diagnosis"},
+    "evidence_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "source_revision", "target"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "source_revision": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overall_status",
+        "findings_count",
+        "confirmed_count",
+        "investigation_count",
+        "conclusion"
+      ],
+      "properties": {
+        "overall_status": {
+          "enum": ["confirmed", "investigation", "no_action"]
+        },
+        "findings_count": {"type": "integer", "minimum": 0},
+        "confirmed_count": {"type": "integer", "minimum": 0},
+        "investigation_count": {"type": "integer", "minimum": 0},
+        "conclusion": {"type": "string", "minLength": 20}
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    }
+  },
+  "$defs": {
+    "source_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "symbol",
+        "anchor",
+        "line_hint",
+        "line_span",
+        "role"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "symbol": {"type": "string", "minLength": 1},
+        "anchor": {"type": "string", "minLength": 4},
+        "line_hint": {"type": "integer", "minimum": 1},
+        "line_span": {"type": "integer", "minimum": 1},
+        "role": {"type": "string", "minLength": 10}
+      }
+    },
+    "causal_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_location", "symbol", "role", "evidence"],
+      "properties": {
+        "source_location": {"type": "string", "minLength": 1},
+        "symbol": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 10},
+        "evidence": {"type": "string", "minLength": 10}
+      }
+    },
+    "controlled_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "baseline",
+        "variant",
+        "controlled_variables",
+        "result"
+      ],
+      "properties": {
+        "method": {"type": "string", "minLength": 10},
+        "baseline": {"type": "string", "minLength": 5},
+        "variant": {"type": "string", "minLength": 5},
+        "controlled_variables": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 2}
+        },
+        "result": {"type": "string", "minLength": 10}
+      }
+    },
+    "next_experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hypothesis",
+        "change",
+        "controlled_variables",
+        "metrics",
+        "confirmation_rule"
+      ],
+      "properties": {
+        "hypothesis": {"type": "string", "minLength": 10},
+        "change": {"type": "string", "minLength": 10},
+        "controlled_variables": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 2}
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 2}
+        },
+        "confirmation_rule": {"type": "string", "minLength": 10}
+      }
+    },
+    "cause_pattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "plain_cause",
+        "cost_model",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "algorithmic_complexity",
+            "repeated_work",
+            "process_overhead",
+            "io_wait",
+            "lock_contention",
+            "serialization_overhead",
+            "database_query",
+            "memory_allocation",
+            "other"
+          ]
+        },
+        "plain_cause": {"type": "string", "minLength": 15},
+        "cost_model": {"type": "string", "minLength": 8},
+        "before": {"type": "string", "minLength": 15},
+        "after": {"type": "string", "minLength": 15}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "title",
+        "status",
+        "confidence",
+        "classification",
+        "cause_pattern",
+        "evidence_function_ids",
+        "observation",
+        "causal_chain",
+        "root_cause",
+        "source_locations",
+        "recommendation",
+        "verification"
+      ],
+      "properties": {
+        "finding_id": {"type": "string", "pattern": "^PERF-[0-9]{3}$"},
+        "title": {"type": "string", "minLength": 10},
+        "status": {"enum": ["confirmed", "investigation"]},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "classification": {"const": "performance_investigation"},
+        "cause_pattern": {"$ref": "#/$defs/cause_pattern"},
+        "evidence_function_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^F[0-9]{3}$"}
+        },
+        "observation": {"type": "string", "minLength": 20},
+        "causal_chain": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/causal_step"}
+        },
+        "root_cause": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["statement", "mechanism", "evidence_boundary"],
+          "properties": {
+            "statement": {"type": "string", "minLength": 20},
+            "mechanism": {"type": "string", "minLength": 20},
+            "evidence_boundary": {"type": "string", "minLength": 20}
+          }
+        },
+        "source_locations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/source_location"}
+        },
+        "recommendation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target_layer",
+            "target_symbol",
+            "change_steps",
+            "mechanism",
+            "expected_effect",
+            "risks",
+            "alternatives"
+          ],
+          "properties": {
+            "target_layer": {"type": "string", "minLength": 2},
+            "target_symbol": {"type": "string", "minLength": 2},
+            "change_steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 15}
+            },
+            "mechanism": {"type": "string", "minLength": 20},
+            "expected_effect": {"type": "string", "minLength": 15},
+            "risks": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 5}
+            },
+            "alternatives": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 5}
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["correctness_invariants", "benchmark"],
+          "properties": {
+            "correctness_invariants": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 5}
+            },
+            "benchmark": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "command",
+                "same_input",
+                "metrics",
+                "acceptance"
+              ],
+              "properties": {
+                "command": {"type": "string", "minLength": 3},
+                "same_input": {"type": "string", "minLength": 5},
+                "metrics": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {"type": "string", "minLength": 2}
+                },
+                "acceptance": {"type": "string", "minLength": 10}
+              }
+            },
+            "controlled_validation": {
+              "$ref": "#/$defs/controlled_validation"
+            },
+            "next_experiment": {"$ref": "#/$defs/next_experiment"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "confirmed"}}},
+          "then": {
+            "properties": {
+              "verification": {"required": ["controlled_validation"]}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "investigation"}}},
+          "then": {
+            "properties": {
+              "verification": {"required": ["next_experiment"]}
+            }
+          }
+        }
+      ]
+    }
+  }
+}
