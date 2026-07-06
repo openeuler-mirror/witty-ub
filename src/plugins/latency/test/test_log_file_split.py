@@ -1,6 +1,10 @@
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import (
     KVCacheLogEventDiagnosisWorker,
 )
+from latency.task.worker.kv_cache_log_parse_worker import (
+    KVCacheLogParseWorker,
+    MIXED_ROTATED_GZ_PATTERN,
+)
 
 
 def test_split_unmatched_log_files(tmp_path):
@@ -48,3 +52,18 @@ def test_split_unmatched_rotated_log_file(tmp_path):
         tmp_path / "abcd.log_yyy_access.log"
     ).read_text(encoding="utf-8") == access_line
     assert not unmatched.exists()
+
+
+def test_latency_parser_derives_gzip_patterns():
+    patterns = KVCacheLogParseWorker._include_gzip_patterns(
+        ["access.log", "*_access.log", "access.log.gz"]
+    )
+
+    assert patterns == [
+        "access.log",
+        "access.log.gz",
+        "*_access.log",
+        "*_access.log.gz",
+        MIXED_ROTATED_GZ_PATTERN,
+    ]
+    assert KVCacheLogParseWorker._include_gzip_patterns(patterns) == patterns
