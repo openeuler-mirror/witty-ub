@@ -134,14 +134,8 @@ class WorkerInfoParser(LogParser):
                     line_count += 1
                     if not line or line[0] != "2":
                         continue
-                    allow_pod_scoped_labels = (
-                        not self._scan_scope_enabled
-                        or pod_ip in self._target_pod_ips
-                    )
-                    label = self._label_for_line(line, allow_pod_scoped_labels)
+                    label = self._label_for_line(line)
                     if not label:
-                        continue
-                    if not self._file_scope_may_allow(label, pod_ip):
                         continue
 
                     parts = line.split("|")
@@ -151,6 +145,8 @@ class WorkerInfoParser(LogParser):
 
                     parsed = self._build_run(parts, plen)
                     entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+                    if not self._file_scope_may_allow(label, entry_pod_ip):
+                        continue
                     if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
                         continue
                     ts = parse_timestamp(parsed["timestamp"])
@@ -178,16 +174,8 @@ class WorkerInfoParser(LogParser):
         """兼容单行匹配接口（非热路径）"""
         if not line or line[0] != "2":
             return None
-        allow_pod_scoped_labels = (
-            not self._scan_scope_enabled
-            or pod_ip in self._target_pod_ips
-        )
-        label = self._label_for_line(line, allow_pod_scoped_labels)
+        label = self._label_for_line(line)
         if not label:
-            return None
-        
-        # 添加文件级别作用域检查（与 scan_file 方法保持一致）
-        if not self._file_scope_may_allow(label, pod_ip):
             return None
 
         parts = line.split("|")
@@ -197,6 +185,8 @@ class WorkerInfoParser(LogParser):
 
         parsed = self._build_run(parts, plen)
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        if not self._file_scope_may_allow(label, entry_pod_ip):
+            return None
         if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
             return None
         ts = parse_timestamp(parsed["timestamp"])

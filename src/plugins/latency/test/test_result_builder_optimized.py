@@ -14,7 +14,8 @@ from latency.database.managers.log_parse_result import (
 )
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
-from latency.schemas.ds_log import CorrelationResult
+from latency.parse.worker_info_parser import WorkerInfoParser
+from latency.schemas.ds_log import CorrelationResult, TupleField
 from latency.schemas.log import (
     LogParseResultBatch,
     LogParseResultDataclass,
@@ -265,6 +266,80 @@ def test_scan_scope_reuses_trace_set_and_info_split_is_single_pass() -> None:
         "Worker query meta parse",
     ]
     assert all(len(entries) == 1 for entries in parsed.values())
+
+
+def test_worker_query_meta_scope_uses_pod_ip_from_log_line() -> None:
+    trace_id = "wanted-trace"
+    parser = WorkerInfoParser()
+    parser.set_scan_scope(
+        {
+            "enabled": True,
+            "trace_ids": {trace_id},
+            "pod_trace_keys": {("192.168.1.10", trace_id)},
+            "pod_ips": {"192.168.1.10"},
+        }
+    )
+    line = (
+        "2026-05-11T00:09:31.042186 | I | worker.cpp:1 | "
+        f"192.168.1.10 | 1:2 | {trace_id} | cluster | "
+        "[Get] Master query done, targets: 1, hits: 1, cost: 0.048ms\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.1.10")
+
+    assert entries is not None
+    assert len(entries) == 1
+    assert entries[0].entry_type == EntryType.QUERY_META
+    assert entries[0].elapsed_us == 48.0
+
+
+def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
+    timestamp = datetime(2026, 7, 2)
+    trace_id = "wanted"
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=2000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+    )
+    metric_maps = (
+        (EntryType.SDK_PROCESS, "worker_sdk_process_map"),
+        (EntryType.SDK_RPC, "worker_sdk_rpc_map"),
+        (EntryType.LOCAL_WORKER_COST, "worker_local_worker_cost_map"),
+        (EntryType.LOCAL_WORKER_LOCK, "worker_local_worker_lock_map"),
+        (EntryType.REMOTE_WORKER_COST, "worker_remote_worker_cost_map"),
+        (EntryType.REMOTE_WORKER_RPC, "worker_remote_worker_rpc_map"),
+        (EntryType.MASTER_PROCESS, "worker_master_process_map"),
+        (EntryType.MASTER_RPC, "worker_master_rpc_map"),
+    )
+    metrics = [
+        _raw_entry(
+            timestamp=timestamp,
+            trace_id=trace_id,
+            elapsed_us=index + 1,
+            entry_type=entry_type.value,
+        )
+        for index, (entry_type, _) in enumerate(metric_maps)
+    ]
+
+    for sdk_entries in ([], [sdk]):
+        correlated = LogCorrelator(
+            {
+                "SDK access parse": sdk_entries,
+                "Worker access parse": [worker],
+                "Worker metrics parse": metrics,
+            }
+        ).correlate()
+
+        for entry_type, map_name in metric_maps:
+            values = getattr(correlated, map_name)[0]
+            assert values[0][TupleField.ENTRY_TYPE] == entry_type.value
 
 
 def test_large_trace_scope_is_not_copied_to_processes(monkeypatch) -> None:

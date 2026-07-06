@@ -639,14 +639,14 @@ class WorkerMetricsCorrelator(BaseCorrelator):
         
         if target_trace_ids is None:
             for m in metrics_entries:
-                m_trace_id = m[5] if self._metrics_is_tuple else m.trace_id
-                m_entry_type = m[3] if self._metrics_is_tuple else m.entry_type
+                m_trace_id = m[T_TRACE_ID] if self._metrics_is_tuple else m.trace_id
+                m_entry_type = m[T_ENTRY_TYPE] if self._metrics_is_tuple else m.entry_type
                 metrics_by_pod_trace_type[(m_trace_id, m_entry_type)].append(m)
         else:
             for m in metrics_entries:
-                m_trace_id = m[5] if self._metrics_is_tuple else m.trace_id
+                m_trace_id = m[T_TRACE_ID] if self._metrics_is_tuple else m.trace_id
                 if m_trace_id in target_trace_ids:
-                    m_entry_type = m[3] if self._metrics_is_tuple else m.entry_type
+                    m_entry_type = m[T_ENTRY_TYPE] if self._metrics_is_tuple else m.entry_type
                     metrics_by_pod_trace_type[(m_trace_id, m_entry_type)].append(m)
         self.metrics_by_pod_trace_type = dict(metrics_by_pod_trace_type)
 
