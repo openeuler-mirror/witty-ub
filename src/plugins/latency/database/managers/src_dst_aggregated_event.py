@@ -87,10 +87,10 @@ class SrcDstAggregatedEventManager:
                 :p95_w2w_urma_latency, :existed_status, :created_at
             )
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, event.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_aggregated_events(
@@ -170,8 +170,8 @@ class SrcDstAggregatedEventManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def update_aggregated_events_existed_status_by_log_id(
@@ -184,8 +184,8 @@ class SrcDstAggregatedEventManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id, "existed_status": existed_status}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def list_aggregated_events(

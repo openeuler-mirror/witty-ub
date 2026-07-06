@@ -13,10 +13,10 @@ class TaskManager:
             INSERT INTO task_table (id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds)
             VALUES (:id, :kb_id, :op_id, :retry_times, :task_name, :task_type, :status, :existed_status, :created_at, :completed_at, :duration_seconds)
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, task.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_tasks(tasks: list[TaskModel]) -> list[str]:
@@ -33,7 +33,7 @@ class TaskManager:
                 params = [
                     task.model_dump(exclude_none=False, by_alias=True) for task in batch
                 ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([task.id for task in batch])
             except Exception as e:
                 print(f"批量添加任务失败，错误信息: {str(e)}")
@@ -47,8 +47,8 @@ class TaskManager:
             WHERE id = :task_id
         """
         params = {"task_id": task_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def delete_tasks_by_task_ids(task_ids: list[str]) -> bool:
@@ -60,8 +60,8 @@ class TaskManager:
             DELETE FROM task_table
             WHERE id IN ({placeholders})
         """
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, tuple(task_ids))
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, tuple(task_ids))
+        return success
 
     @staticmethod
     async def delete_tasks_by_status(status: str) -> bool:
@@ -71,8 +71,8 @@ class TaskManager:
             WHERE status = :status
         """
         params = {"status": status}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def update_task(task_id: str, task_info_dict: dict) -> bool:
@@ -89,8 +89,8 @@ class TaskManager:
             SET {set_clause_str}
             WHERE id = :task_id
         """
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def update_running_tasks_to_pending_tasks():
@@ -104,8 +104,8 @@ class TaskManager:
             "pending_status": TaskStatusEnum.PENDING.value,
             "running_status": TaskStatusEnum.RUNNING.value,
         }
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def list_tasks_by_task_ids(task_ids: list[str]) -> list[TaskModel]:

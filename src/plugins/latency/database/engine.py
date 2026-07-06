@@ -493,12 +493,12 @@ class AsyncSQLiteSingleton:
             logger.error(f"执行查询失败: {e} (SQL: {sql}, params: {params})")
             return []
 
-    def _sync_execute_modify(self, sql: str, params: Any = ()) -> bool:
+    def _sync_execute_modify(self, sql: str, params: Any = ()) -> tuple[bool, int]:
         """
         同步执行增删改（支持单条/批量，复用连接）
         :param sql: SQL修改语句（位置参数用?，命名参数用:param_name）
         :param params: 单条：dict/元组；批量：list[元组]
-        :return: 是否执行成功
+        :return: (是否执行成功, 影响行数)
         """
         if not self._conn:
             self._init_connection()
@@ -513,20 +513,22 @@ class AsyncSQLiteSingleton:
             if isinstance(params, list) and len(params) > 0:
                 # 批量操作：使用 executemany
                 cursor.executemany(sql, params)
-                logger.debug(f"批量执行修改成功，影响行数: {cursor.rowcount}")
+                rowcount = cursor.rowcount
+                logger.debug(f"批量执行修改成功，影响行数: {rowcount}")
             else:
                 # 单条操作：使用 execute
                 cursor.execute(sql, params)
-                logger.debug(f"单条执行修改成功，影响行数: {cursor.rowcount}")
+                rowcount = cursor.rowcount
+                logger.debug(f"单条执行修改成功，影响行数: {rowcount}")
 
             if started_transaction:
                 self._conn.commit()
-            return True
+            return True, rowcount
         except sqlite3.Error as e:
             if self._conn.in_transaction:
                 self._conn.rollback()
             logger.error(f"执行修改失败: {e} (SQL: {sql}, params: {params})")
-            return False
+            return False, 0
 
     # -------------------------- 异步封装接口 --------------------------
     async def init_database(self) -> bool:
@@ -544,12 +546,12 @@ class AsyncSQLiteSingleton:
         async with self._async_lock:
             return await asyncio.to_thread(self._sync_execute_query, sql, params)
 
-    async def execute_modify(self, sql: str, params: Any = ()) -> bool:
+    async def execute_modify(self, sql: str, params: Any = ()) -> tuple[bool, int]:
         """
         异步执行增删改语句
         :param sql: SQL修改语句（支持命名参数 :param_name 或位置参数 ?）
         :param params: 命名参数字典或位置参数元组
-        :return: 是否执行成功
+        :return: (是否执行成功, 影响行数)
         """
         async with self._async_lock:
             return await asyncio.to_thread(self._sync_execute_modify, sql, params)

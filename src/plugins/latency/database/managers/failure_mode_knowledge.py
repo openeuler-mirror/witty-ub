@@ -32,7 +32,7 @@ class FailureModeKnowledgeManager:
             VALUES (:status_code, :symptom, :root_cause)
         """
         params = [result.model_dump() for result in results]
-        await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
         return [result.status_code for result in results]
 
     @staticmethod
@@ -75,7 +75,7 @@ class FailureModeKnowledgeManager:
                     failure_mode.model_dump(exclude_none=False, by_alias=True)
                     for failure_mode in batch
                 ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([failure_mode.id for failure_mode in batch])
             except Exception as e:
                 print(f"批量添加故障模式知识失败，错误信息: {str(e)}")

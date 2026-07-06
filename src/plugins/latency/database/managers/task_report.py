@@ -13,10 +13,10 @@ class TaskReportManager:
             INSERT INTO task_report_table (task_id, progress, message, existed_status, created_at)
             VALUES (:task_id, :progress, :message, :existed_status, :created_at)
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, task_report.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_task_reports(task_reports: list[TaskReportModel]) -> list[str]:
@@ -36,7 +36,7 @@ class TaskReportManager:
                 params = [
                     tr.model_dump(exclude_none=False, by_alias=True) for tr in batch
                 ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([tr.task_id for tr in batch])
             except Exception as e:
                 print(f"批量添加任务报告失败，错误信息: {str(e)}")
@@ -53,8 +53,8 @@ class TaskReportManager:
             WHERE task_id = :task_id
         """
         params = {"task_id": task_id, "existed_status": existed_status}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def list_task_reports_by_task_ids(

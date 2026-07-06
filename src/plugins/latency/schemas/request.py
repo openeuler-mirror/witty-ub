@@ -46,8 +46,8 @@ class ParseConfig(BaseModel):
 
 class CreateLogKnowledgeRequest(BaseModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
-    name: str = Field(..., description="知识名称")
-    description: str = Field(..., description="知识描述")
+    name: str = Field(..., min_length=1, description="知识名称")
+    description: str = Field(..., min_length=1, description="知识描述")
 
 
 class UpdateLogKnowledgeRequest(BaseModel):
@@ -73,8 +73,8 @@ class ListLogKnowledgeRequest(BaseModel):
         default=True,
         description="知识创建时间排序，True表示降序，False表示升序，默认为True",
     )
-    page_cnt: int = Field(default=10, description="每页的知识数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_cnt: int = Field(default=10, ge=1, description="每页的知识数量，默认为10")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class UpLoadLogFileConfig(BaseModel):
@@ -90,7 +90,7 @@ class UpLoadLogFileConfig(BaseModel):
 
 class UpLoadLogFilesRequest(BaseModel):
     upload_log_file_configs: list[UpLoadLogFileConfig] = Field(
-        default_factory=list, description="日志文件配置列表"
+        default_factory=list, min_length=1, description="日志文件配置列表"
     )
     parse_config: Optional[ParseConfig] = Field(
         default=None, description="全局解析配置，应用于所有上传的日志文件"
@@ -126,8 +126,8 @@ class ListLogFilesRequest(BaseModel):
         default=True,
         description="日志文件创建时间排序，True表示降序，False表示升序，默认为True",
     )
-    page_cnt: int = Field(default=10, description="每页的日志文件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_cnt: int = Field(default=10, ge=1, description="每页的日志文件数量，默认为10")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListSrcDstAggregatedEventRequest(BaseModel):
@@ -169,12 +169,8 @@ class ListLogParseResultRequest(BaseModel):
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
-    start_time: Optional[str] = Field(default=None, description="日志时间戳范围开始时间，格式为YYYY-MM-DD HH:MM:SS")
-    end_time: Optional[str] = Field(default=None, description="日志时间戳范围结束时间，格式为YYYY-MM-DD HH:MM:SS")
-    is_anomalous: Optional[bool] = Field(
-        default=None,
-        description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
-    )
+    start_time: Optional[str] = Field(default=None, description="日志事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
+    end_time: Optional[str] = Field(default=None, description="日志事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
     created_at_start: Optional[str] = Field(
         default=None,
         description="日志解析结果创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
@@ -183,13 +179,9 @@ class ListLogParseResultRequest(BaseModel):
         default=None,
         description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    start_time: Optional[str] = Field(
+    is_anomalous: Optional[bool] = Field(
         default=None,
-        description="日志事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
-    )
-    end_time: Optional[str] = Field(
-        default=None,
-        description="日志事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
+        description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
     )
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
@@ -211,8 +203,8 @@ class ListLogParseResultRequest(BaseModel):
         default=False,
         description="是否排除正常日志，仅返回失败日志或严重超时日志",
     )
-    page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_cnt: int = Field(default=10, ge=1, description="每页的日志解析结果数量，默认为10")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListLogFailureEventResultRequest(BaseModel):

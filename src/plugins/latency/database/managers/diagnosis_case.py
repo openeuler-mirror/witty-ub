@@ -163,19 +163,19 @@ class DiagnosisCaseManager:
                 :last_seen_at, :created_at, :updated_at
             )
         """
-        saved = await AsyncSQLiteSingleton().execute_modify(
+        saved_success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, DiagnosisCaseManager._case_to_row(case)
         )
-        if not saved:
+        if not saved_success:
             return ""
 
-        await AsyncSQLiteSingleton().execute_modify(
+        _, _ = await AsyncSQLiteSingleton().execute_modify(
             "DELETE FROM diagnosis_case_signal_table WHERE case_id = :case_id",
             {"case_id": case.id},
         )
         signals = DiagnosisCaseManager._signals_for_case(case)
         if signals:
-            await AsyncSQLiteSingleton().execute_modify(
+            _, _ = await AsyncSQLiteSingleton().execute_modify(
                 """
                 INSERT OR REPLACE INTO diagnosis_case_signal_table
                 (case_id, signal_type, signal_value, weight)
@@ -202,7 +202,7 @@ class DiagnosisCaseManager:
     @staticmethod
     async def mark_case_hit(case_id: str) -> bool:
         now = _now()
-        return await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             """
             UPDATE diagnosis_case_table
             SET hit_count = hit_count + 1, last_seen_at = :now, updated_at = :now
@@ -210,6 +210,7 @@ class DiagnosisCaseManager:
             """,
             {"case_id": case_id, "now": now},
         )
+        return success
 
     @staticmethod
     async def search_cases(req: SearchDiagnosisCasesRequest) -> tuple[int, list[DiagnosisCaseMatchModel]]:

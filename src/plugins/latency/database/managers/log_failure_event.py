@@ -43,7 +43,7 @@ class LogFailureEventManager:
                     param = log_failure_event.model_dump(exclude_none=False, by_alias=True)
                     param["failure_mode"] = ",".join(param.get("failure_mode", []))
                     params.append(param)
-                await AsyncSQLiteSingleton().execute_modify(
+                success, _ = await AsyncSQLiteSingleton().execute_modify(
                     LogFailureEventManager._LOG_FAILURE_EVENT_INSERT_SQL,
                     params,
                 )
@@ -70,7 +70,7 @@ class LogFailureEventManager:
                     param["failure_mode"] = ""
                 param.setdefault("host_name", "Unknown")
                 params.append(param)
-            await AsyncSQLiteSingleton().execute_modify(
+            success, _ = await AsyncSQLiteSingleton().execute_modify(
                 LogFailureEventManager._LOG_FAILURE_EVENT_RAW_INSERT_SQL,
                 params,
             )
@@ -99,7 +99,7 @@ class LogFailureEventManager:
                     param = log_failure_event.model_dump(exclude_none=False, by_alias=True)
                     param["failure_mode"] = ",".join(param.get("failure_mode", []))
                     params.append(param)
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([log_failure_event.id for log_failure_event in batch])
             except Exception as e:
                 print(f"批量添加故障模式知识失败，错误信息: {str(e)}")
@@ -114,8 +114,8 @@ class LogFailureEventManager:
             WHERE log_id = :log_id AND raw_text = :raw_text
         """
         params = {"log_id": log_id, "raw_text": raw_text, "failure_mode": failure_mode}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def delete_unclassified_log_events_by_log_id(log_id: str) -> bool:
@@ -125,7 +125,8 @@ class LogFailureEventManager:
             WHERE log_id = :log_id
               AND (failure_mode IS NULL OR failure_mode = '')
         """
-        return await AsyncSQLiteSingleton().execute_modify(sql_str, {"log_id": log_id})
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, {"log_id": log_id})
+        return success
     
     @staticmethod
     async def add_trace_failure_event(results: list[TraceFailureEventModel]) -> list[str]:
@@ -158,7 +159,7 @@ class LogFailureEventManager:
                     }
                     params.append(param)
                 
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([trace_failure_event.trace_id for trace_failure_event in batch])
             except Exception as e:
                 print(f"批量添加trace故障事件失败，错误信息: {str(e)}")
@@ -185,7 +186,7 @@ class LogFailureEventManager:
                 param.setdefault("failure_mode", "")
                 params.append(param)
 
-            await AsyncSQLiteSingleton().execute_modify(
+            success, _ = await AsyncSQLiteSingleton().execute_modify(
                 LogFailureEventManager._TRACE_FAILURE_EVENT_RAW_INSERT_SQL,
                 params,
             )

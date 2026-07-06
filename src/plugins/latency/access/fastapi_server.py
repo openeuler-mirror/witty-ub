@@ -38,8 +38,64 @@ from latency.routers import (
     diagnosis_config,
 )
 from latency.database.engine import AsyncSQLiteSingleton
+from latency.exceptions import BaseBizException, NotFoundBizException, ConflictBizException, BadRequestBizException
+from pydantic import ValidationError
 
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)
+
+
+@app.exception_handler(NotFoundBizException)
+async def not_found_exception_handler(request: fastapi.Request, exc: NotFoundBizException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=404,
+        content={"code": 404, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(ConflictBizException)
+async def conflict_exception_handler(request: fastapi.Request, exc: ConflictBizException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=409,
+        content={"code": 409, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(BadRequestBizException)
+async def bad_request_exception_handler(request: fastapi.Request, exc: BadRequestBizException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=400,
+        content={"code": 400, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: fastapi.Request, exc: RequestValidationError):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": "请求参数校验失败", "result": None, "detail": exc.errors()},
+    )
+
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: fastapi.Request, exc: ValidationError):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": "请求参数校验失败", "result": None, "detail": str(exc)},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(request: fastapi.Request, exc: StarletteHTTPException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.status_code, "message": exc.detail, "result": None},
+    )
 
 app.add_middleware(
     CORSMiddleware,
