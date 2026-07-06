@@ -10,6 +10,7 @@ from latency.schemas.ds_log import (
     TupleField,
 )
 from latency.schemas.log import (
+    LogParseResultBatch,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
 )
@@ -150,8 +151,9 @@ class ParseResultBuilder:
         self,
     ) -> list[SparseLogParseResultDataclass]:
         """构建没有 Worker 匹配的 SDK 结果，保留可用的 SDK→URMA 指标。"""
-        results: list[SparseLogParseResultDataclass] = [None] * len(  # type: ignore[list-item]
-            self.sdk_entries
+        results: list[SparseLogParseResultDataclass] = LogParseResultBatch(
+            len(self.sdk_entries),
+            all_sparse=True,
         )
         shared_created_at = self._format_timestamp(datetime.now()) or ""
         correlated = self.correlated

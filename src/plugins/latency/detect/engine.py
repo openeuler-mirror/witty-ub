@@ -40,8 +40,15 @@ class DetectionEngine:
             field_name = detector.config.field_name
             detectors_by_field.setdefault(field_name, []).append(detector)
 
-        all_sparse = bool(results) and all(
-            type(result) is SparseLogParseResultDataclass for result in results
+        sparse_hint = getattr(results, "all_sparse", None)
+        all_sparse = (
+            sparse_hint
+            if sparse_hint is not None
+            else bool(results)
+            and all(
+                type(result) is SparseLogParseResultDataclass
+                for result in results
+            )
         )
         sparse_slots = SparseLogParseResultDataclass.__slots__
 
