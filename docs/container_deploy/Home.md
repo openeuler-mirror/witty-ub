@@ -1,3 +1,6 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+
 # Witty-UB 容器化部署指南
 
 > 用于 Lingqu(UB) 架构 SuperPod 故障定位的工具容器化部署文档。

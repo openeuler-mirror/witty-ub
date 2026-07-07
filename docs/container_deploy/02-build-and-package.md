@@ -1,3 +1,6 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+
 # 2. 镜像构建、上传与打包
 
 > 返回 [首页](Home.md)
