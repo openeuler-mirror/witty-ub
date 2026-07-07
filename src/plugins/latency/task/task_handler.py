@@ -70,7 +70,7 @@ class TaskHandler:
             result.reused,
         )
         message = "复用已完成的日志预处理目录" if result.reused else "日志预处理完成"
-        await BaseWorker.report(task.id, message, 3.0)
+        await BaseWorker.report(task.id, message, 10.0)
         return result.output_dir
 
     @staticmethod
