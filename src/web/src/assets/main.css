@@ -3457,18 +3457,12 @@ button {
 }
 
 .trace-modal-content {
-  max-width: 1600px;
-  width: 90%;
-  min-width: min(1300px, 90vw);
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.fault-trace-modal-content {
   max-width: 1860px;
   width: 96%;
   min-width: min(1540px, 96vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .trace-filter-modal {
