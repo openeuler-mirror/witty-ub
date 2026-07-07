@@ -53,17 +53,7 @@ class ParseResultBuilder:
     ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
         self.anomalous_count = 0
         if self.sdk_entries:
-            if self.correlated.sdk_worker_map:
-                return self._build_from_sdk_raw()
-            if self.worker_entries:
-                logger.warning(
-                    "SDK→Worker correlation is empty; building %s Worker results "
-                    "instead of %s unmatched SDK results",
-                    f"{len(self.worker_entries):,}",
-                    f"{len(self.sdk_entries):,}",
-                )
-                return self._build_from_worker()
-            return self._build_unmatched_sdk_raw()
+            return self._build_from_sdk_raw()
         return self._build_from_worker()
 
     @staticmethod

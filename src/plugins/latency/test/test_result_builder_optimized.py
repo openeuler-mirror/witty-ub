@@ -433,7 +433,7 @@ def test_result_builder_falls_back_to_remote_metric_endpoint() -> None:
     )
 
 
-def test_empty_sdk_worker_correlation_falls_back_to_worker_results() -> None:
+def test_empty_sdk_worker_correlation_keeps_unmatched_sdk_results() -> None:
     timestamp = datetime(2026, 7, 2, 1, 2, 3)
     sdk = _raw_entry(
         timestamp=timestamp,
@@ -493,14 +493,15 @@ def test_empty_sdk_worker_correlation_falls_back_to_worker_results() -> None:
 
     assert len(results) == 1
     result = results[0]
-    assert isinstance(result, LogParseResultDataclass)
-    assert result.trace_id == "worker-trace"
-    assert result.operation == "DS_POSIX_GET"
-    assert result.total_latency == 1.0
-    assert result.worker_query_meta_latency == 0.12
-    assert result.sdk_process == 0.34
-    assert result.urma_total_latency == 0.56
-    assert (result.src_ip, result.dst_ip) == ("10.0.0.1:1", "10.0.0.2:1")
+    assert isinstance(result, SparseLogParseResultDataclass)
+    assert result.trace_id == "sdk-trace"
+    assert result.operation == "DS_KV_CLIENT_GET"
+    assert result.total_latency == 2.0
+    assert result.c2w_urma_latency is None
+    assert result.worker_query_meta_latency is None
+    assert result.sdk_process is None
+    assert result.urma_total_latency is None
+    assert (result.src_ip, result.dst_ip) == (None, None)
 
 
 def test_large_trace_scope_is_not_copied_to_processes(monkeypatch) -> None:
