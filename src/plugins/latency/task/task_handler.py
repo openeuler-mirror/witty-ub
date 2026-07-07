@@ -14,10 +14,6 @@ class TaskHandler:
     """任务队列"""
     
     _task_configs: dict[str, Optional["ParseConfig"]] = {}
-    _PREPROCESS_TASK_TYPES = {
-        TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-        TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-    }
 
     @staticmethod
     async def init_task_queue():
@@ -47,13 +43,9 @@ class TaskHandler:
         TaskHandler._task_configs.pop(task_id, None)
 
     @staticmethod
-    async def _preprocess_task_logs(task) -> str | None:
-        if task.task_type not in TaskHandler._PREPROCESS_TASK_TYPES:
-            return None
-
+    async def _preprocess_log_source(task) -> str | None:
         log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
         if not log_file:
-            logger.error("日志文件不存在，无法预处理: %s", task.op_id)
             return None
 
         output_dir = default_preprocess_dir(log_file.id)
@@ -143,11 +135,8 @@ class TaskHandler:
         running_task_ids = []
         for task in pending_tasks:
             try:
-                log_dir = await TaskHandler._preprocess_task_logs(task)
-                if task.task_type in TaskHandler._PREPROCESS_TASK_TYPES and not log_dir:
-                    flag = False
-                else:
-                    flag = await BaseWorker.run(task.id, log_dir=log_dir)
+                log_dir = await TaskHandler._preprocess_log_source(task)
+                flag = await BaseWorker.run(task.id, log_dir=log_dir)
             except Exception as e:
                 flag = False
                 err = f"[TaskQueueService] 处理待处理任务失败 {e}"
