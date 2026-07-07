@@ -4,6 +4,8 @@ import logging
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.worker.base import BaseWorker
 from latency.database.managers.task import TaskManager
+from latency.database.managers.log_file import LogFileManager
+from latency.task.log_preprocessor import default_preprocess_dir, preprocess_log_dir
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,10 @@ class TaskHandler:
     """任务队列"""
     
     _task_configs: dict[str, Optional["ParseConfig"]] = {}
+    _PREPROCESS_TASK_TYPES = {
+        TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
+    }
 
     @staticmethod
     async def init_task_queue():
@@ -39,6 +45,33 @@ class TaskHandler:
     def remove_task_config(task_id: str):
         """移除任务的解析配置"""
         TaskHandler._task_configs.pop(task_id, None)
+
+    @staticmethod
+    async def _preprocess_task_logs(task) -> str | None:
+        if task.task_type not in TaskHandler._PREPROCESS_TASK_TYPES:
+            return None
+
+        log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+        if not log_file:
+            logger.error("日志文件不存在，无法预处理: %s", task.op_id)
+            return None
+
+        output_dir = default_preprocess_dir(log_file.id)
+        result = preprocess_log_dir(log_file.file_path, output_dir)
+        logger.info(
+            "日志预处理完成: task=%s log_file=%s source=%s output=%s extracted=%d copied=%d split=%d reused=%s",
+            task.id,
+            log_file.id,
+            result.source_dir,
+            result.output_dir,
+            result.extracted_count,
+            result.copied_count,
+            result.split_count,
+            result.reused,
+        )
+        message = "复用已完成的日志预处理目录" if result.reused else "日志预处理完成"
+        await BaseWorker.report(task.id, message, 3.0)
+        return result.output_dir
 
     @staticmethod
     async def stop_task(task_id: str) -> Optional[str]:
@@ -110,11 +143,15 @@ class TaskHandler:
         running_task_ids = []
         for task in pending_tasks:
             try:
-                flag = await BaseWorker.run(task.id)
+                log_dir = await TaskHandler._preprocess_task_logs(task)
+                if task.task_type in TaskHandler._PREPROCESS_TASK_TYPES and not log_dir:
+                    flag = False
+                else:
+                    flag = await BaseWorker.run(task.id, log_dir=log_dir)
             except Exception as e:
                 flag = False
                 err = f"[TaskQueueService] 处理待处理任务失败 {e}"
-                logger.error(err)
+                logger.exception(err)
             if not flag:
                 break
             running_task_ids.append(task.id)

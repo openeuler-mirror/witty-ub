@@ -4,9 +4,6 @@ import logging
 import os
 import uuid
 import subprocess
-import shutil
-import gzip
-import zipfile
 import time
 from datetime import datetime
 from latency.schemas.log_failure_event import TraceFailureEventModel
@@ -481,14 +478,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         # 添加配置文件中的参数
         for key, patterns in config.items():
-            plain_patterns = [
-                pattern for pattern in patterns
-                if not pattern.lower().endswith(".gz")
-            ]
-            if plain_patterns:
+            if patterns:
                 cmd_args.extend([
                     f"--{key.replace('_', '-')}",
-                    ",".join(plain_patterns),
+                    ",".join(patterns),
                 ])
         
         for arg in cmd_args:
@@ -670,179 +663,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         return failure_modes[0]
 
     @staticmethod
-    def split_unmatched_log_files(
-        log_dir: str, filename_patterns: dict[str, list[str]]
-    ) -> dict[str, tuple[int, int]]:
-        """按日志字段数拆分不符合配置文件名规则的文本日志。
-
-        支持普通 ``*.log`` 以及 ``*.log_*`` 形式的轮转日志。每行包含
-        7 个 ``" | "`` 时写入 ``*_runtime.log``，包含 12 或 13 个时
-        写入 ``*_access.log``，其他行忽略。拆分成功后删除原文件。
-        """
-        patterns = [
-            pattern
-            for pattern_list in filename_patterns.values()
-            for pattern in pattern_list
-        ]
-        split_stats: dict[str, tuple[int, int]] = {}
-
-        for root, _, files in os.walk(log_dir):
-            for filename in files:
-                if any(fnmatch.fnmatch(filename, pattern) for pattern in patterns):
-                    continue
-                filename_lower = filename.lower()
-                if not (
-                    filename_lower.endswith(".log")
-                    or ".log_" in filename_lower
-                ):
-                    continue
-                if filename_lower.endswith(("_runtime.log", "_access.log")):
-                    continue
-
-                source_path = os.path.join(root, filename)
-                # 保留轮转后缀，避免 abcd.log_001 和 abcd.log_002 的拆分
-                # 结果都落到 abcd_runtime.log 而互相覆盖。
-                stem = (
-                    os.path.splitext(filename)[0]
-                    if filename_lower.endswith(".log")
-                    else filename
-                )
-                runtime_path = os.path.join(root, f"{stem}_runtime.log")
-                access_path = os.path.join(root, f"{stem}_access.log")
-                runtime_count = 0
-                access_count = 0
-
-                try:
-                    with open(
-                        source_path, "r", encoding="utf-8", errors="ignore"
-                    ) as source, open(
-                        runtime_path, "w", encoding="utf-8"
-                    ) as runtime_file, open(
-                        access_path, "w", encoding="utf-8"
-                    ) as access_file:
-                        for line in source:
-                            delimiter_count = line.count(" | ")
-                            if delimiter_count == 7:
-                                runtime_file.write(line)
-                                runtime_count += 1
-                            elif delimiter_count in (12, 13):
-                                access_file.write(line)
-                                access_count += 1
-                except OSError as e:
-                    logger.error("拆分日志 %s 失败: %s", source_path, e)
-                    continue
-
-                try:
-                    os.remove(source_path)
-                except OSError as e:
-                    logger.error("删除已拆分日志 %s 失败: %s", source_path, e)
-                    continue
-
-                split_stats[source_path] = (
-                    runtime_count,
-                    access_count,
-                )
-                logger.info(
-                    "拆分未匹配日志 %s: runtime=%d, access=%d",
-                    source_path,
-                    runtime_count,
-                    access_count,
-                )
-
-        return split_stats
-
-    @staticmethod
-    async def extract_log_file(
-        file_path: str,
-        random_str: str,
-        filename_patterns: dict[str, list[str]] | None = None,
-    ) -> str:
-        """解压所有文件到目录下"""
-        # TODO: 首先，递归扫描目录中所有文件，如果文件没有.gz结尾的，即没有压缩文件，则直接返回file_path
-        # 如果有，则extracted_log_file_path=os.path.join(witty_dir, "log_extracted_" + random_str)
-        # 然后，保持目录结构不变，将所有.gz结尾的压缩包解压到相应目录下，其他文件按原样复制到相应目录下     
-        try:
-            import rarfile
-            HAS_RARFILE = True
-        except ImportError:
-            HAS_RARFILE = False
-            logger.warning("rarfile 模块未安装，.rar 文件将不会被解压")
-        
-        has_compressed_file = False
-        compressed_extensions = ('.gz', '.zip', '.rar')
-        
-        for root, dirs, files in os.walk(file_path):
-            for file in files:
-                if file.lower().endswith(compressed_extensions):
-                    has_compressed_file = True
-                    break
-            if has_compressed_file:
-                break
-        
-        if not has_compressed_file:
-            return file_path
-        
-        extracted_log_file_path = os.path.join(witty_dir, "log_extracted_" + random_str)
-        
-        os.makedirs(extracted_log_file_path, exist_ok=True)
-        
-        for root, dirs, files in os.walk(file_path):
-            relative_path = os.path.relpath(root, file_path)
-            target_dir = os.path.join(extracted_log_file_path, relative_path)
-            
-            if not os.path.exists(target_dir):
-                os.makedirs(target_dir, exist_ok=True)
-            
-            for file in files:
-                source_file = os.path.join(root, file)
-                file_lower = file.lower()
-                
-                if file_lower.endswith('.gz'):
-                    target_file = os.path.join(target_dir, file[:-3])
-                    try:
-                        with gzip.open(source_file, 'rb') as f_in:
-                            with open(target_file, 'wb') as f_out:
-                                shutil.copyfileobj(f_in, f_out)
-                    except Exception as e:
-                        logger.error(f"解压 .gz 文件 {source_file} 失败: {e}")
-                        continue
-                
-                elif file_lower.endswith('.zip'):
-                    try:
-                        with zipfile.ZipFile(source_file, 'r') as zip_ref:
-                            zip_ref.extractall(target_dir)
-                    except Exception as e:
-                        logger.error(f"解压 .zip 文件 {source_file} 失败: {e}")
-                        continue
-                
-                elif file_lower.endswith('.rar'):
-                    if not HAS_RARFILE:
-                        logger.warning(f"跳过 .rar 文件 {source_file}：rarfile 模块未安装")
-                        continue
-                    try:
-                        with rarfile.RarFile(source_file, 'r') as rar_ref:
-                            rar_ref.extractall(target_dir)
-                    except Exception as e:
-                        logger.error(f"解压 .rar 文件 {source_file} 失败: {e}")
-                        continue
-                
-                else:
-                    target_file = os.path.join(target_dir, file)
-                    try:
-                        shutil.copy2(source_file, target_file)
-                    except Exception as e:
-                        logger.error(f"复制文件 {source_file} 失败: {e}")
-                        continue
-
-        if filename_patterns is not None:
-            KVCacheLogEventDiagnosisWorker.split_unmatched_log_files(
-                extracted_log_file_path, filename_patterns
-            )
-
-        return extracted_log_file_path
-        
-    @staticmethod
-    async def run(task_id: str) -> bool:
+    async def run(task_id: str, log_dir: str | None = None) -> bool:
         """运行任务"""
         try:
             task = await TaskManager.get_task_by_task_id(task_id)
@@ -863,32 +684,16 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 )
                 return False
             
-            # TODO: 运行时启用真实业务逻辑
             random_str = log_file.id[:8]
-            filename_patterns = (
-                Config()
-                .get_default_diagnosis_config()
-                .log_filename_pattern.model_dump()
-            )
-            extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(
-                log_file.file_path,
-                random_str,
-                filename_patterns=filename_patterns,
-            )
+            preprocessed_log_dir = log_dir or log_file.file_path
             
-            # TODO: 运行时启用真实业务逻辑
             print("故障定界工具开始运行")
             result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(
-                file_path=extracted_log_file_path,
+                file_path=preprocessed_log_dir,
                 task=task,
                 random_str=random_str,
                 kb_id=log_file.kb_id,
             )
-            try:
-              if extracted_log_file_path == os.path.join(witty_dir, "log_extracted_" + random_str):
-                  shutil.rmtree(extracted_log_file_path)
-            except Exception as e:
-                logger.exception(f"删除文件夹 {extracted_log_file_path} 失败: {e}")
             if not result:
                 return False
             print("故障定界工具运行完成")
