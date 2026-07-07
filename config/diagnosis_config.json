@@ -10,7 +10,9 @@
         ],
         "ds_worker_access_log_file": [
             "access.log",
-            "access.log.gz"
+            "access*.log",
+            "access.log.gz",
+            "access*.log.gz"
         ],
         "ds_worker_info_log_file": [
             "datasystem_worker.INFO*.log",

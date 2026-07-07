@@ -12,6 +12,7 @@ from latency.database.managers.log_parse_result import (
     _log_parse_result_to_minimal_db_tuple,
     _log_parse_result_to_sparse_db_tuple,
 )
+from latency.parse.base_parser import AccessLogParser
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
 from latency.parse.worker_info_parser import WorkerInfoParser
@@ -267,6 +268,35 @@ def test_scan_scope_reuses_trace_set_and_info_split_is_single_pass() -> None:
         "Worker query meta parse",
     ]
     assert all(len(entries) == 1 for entries in parsed.values())
+
+
+def test_worker_access_patterns_include_numbered_access_logs() -> None:
+    assert worker_module._expand_worker_access_patterns(
+        ["access.log", "access.log.gz"]
+    ) == [
+        "access.log",
+        "access*.log",
+        "access.log.gz",
+        "access*.log.gz",
+    ]
+    assert worker_module._expand_worker_access_patterns(
+        ["*worker_*/access.log"]
+    ) == ["*worker_*/access.log", "*worker_*/access*.log"]
+
+
+def test_object_key_strips_sdk_square_bracket_suffix() -> None:
+    assert (
+        AccessLogParser.extract_object_key(
+            "{Object_key:[T_yxh_master_kvclient_1_1],timeout:2000}"
+        )
+        == "T_yxh_master_kvclient_1_1"
+    )
+    assert (
+        AccessLogParser.extract_object_key(
+            "{Object_key:T_yxh_master_kvclient_1_1,count:1}"
+        )
+        == "T_yxh_master_kvclient_1_1"
+    )
 
 
 def test_worker_query_meta_scope_uses_pod_ip_from_log_line() -> None:

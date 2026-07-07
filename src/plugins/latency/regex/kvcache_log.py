@@ -4,7 +4,7 @@ import re
 # 日志内容提取正则
 # -------------------------------------------------------------------
 
-OBJECT_KEY_RE = re.compile(r"[Oo]bject_key:\[?([^\]},]+)")
+OBJECT_KEY_RE = re.compile(r"[Oo]bject_key:\[?([^\]\},]+)")
 
 NOT_FOUND_RE = re.compile(r"\bK_NOT_FOUND\b|not\s+found|notfound", re.IGNORECASE)
 
