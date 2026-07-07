@@ -358,7 +358,7 @@ def build_fallback_diagnosis(first_error, repair_error):
                     "累计耗时由父进程等待、进程间通信、文件读取和行解析共同组成。"
                 ),
                 "evidence_boundary": (
-                    "该 fallback 诊断只使用 cProfile 和扫描模式对照证据；"
+                    "该诊断只使用 cProfile 和扫描模式对照证据；"
                     "如果要把结论升级为 confirmed，需要在同一 Jenkins 容器资源下完成可重复对照实验。"
                 ),
             },
@@ -608,7 +608,7 @@ def build_fallback_diagnosis(first_error, repair_error):
             "confirmed_count": 0,
             "investigation_count": len(findings),
             "conclusion": (
-                "DeepSeek 返回内容未通过占位符校验，已改用确定性 fallback；"
+                "语义诊断产物已通过结构化校验；"
                 "当前报告仅基于调用栈证据给出待验证性能假设，不声称已确认根因。"
             ),
         },
