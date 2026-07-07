@@ -485,7 +485,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 "",
                 f"- **直接原因**：{cause_pattern['plain_cause']}",
                 f"- **原因范式**：{CAUSE_PATTERN_LABELS[cause_pattern['type']]}",
-                f"- **复杂度/开销模型**：`{markdown_escape(cause_pattern['cost_model'])}`",
+                f"- **复杂度/开销估算**：`{markdown_escape(cause_pattern['cost_model'])}`",
                 f"- **改前**：{cause_pattern['before']}",
                 f"- **改后**：{cause_pattern['after']}",
                 f"- **修改位置**：`{first_location['reference']}` "
@@ -505,7 +505,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"- 状态：`{finding['status']}`",
                 f"- 置信度：`{finding['confidence']}`",
                 f"- 原因范式：`{CAUSE_PATTERN_LABELS[cause_pattern['type']]}`",
-                f"- 开销模型：`{markdown_escape(cause_pattern['cost_model'])}`",
+                f"- 开销估算：`{markdown_escape(cause_pattern['cost_model'])}`",
                 f"- Profile 证据：`{', '.join(finding['evidence_function_ids'])}`",
                 f"- 观察：{finding['observation']}",
                 "",

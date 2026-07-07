@@ -608,7 +608,7 @@ def build_fallback_diagnosis(first_error, repair_error):
             "confirmed_count": 0,
             "investigation_count": len(findings),
             "conclusion": (
-                "语义诊断产物已通过结构化校验；"
+                "诊断结果已通过结构校验；"
                 "当前报告仅基于调用栈证据给出待验证性能假设，不声称已确认根因。"
             ),
         },

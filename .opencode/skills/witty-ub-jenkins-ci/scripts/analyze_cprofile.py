@@ -428,11 +428,10 @@ def render_markdown(evidence: dict[str, Any]) -> str:
         f"- 源码版本：`{evidence['source_revision']}`",
         f"- Profile：`{evidence['profile_file']}`",
         f"- 采集范围：{evidence['profiling_scope']}",
-        "- 语义根因分析：`未执行`",
+        "- 根因结论：`待复验`",
         "",
         "> 本文件只保存性能证据，不自动认定根因，也不生成模板化修改建议。",
-        "> 若启用 `RUN_SEMANTIC_DIAGNOSIS`，下一阶段将自动生成并校验诊断；",
-        "> 否则请把 JSON 证据包和同版本源码交给代码智能体，按 Skill 完成诊断。",
+        "> 后续如需形成结论，请结合 JSON 证据包和同版本源码继续分析，并保留可复验依据。",
         "",
     ]
     experiment = evidence.get("controlled_experiment")
@@ -479,9 +478,9 @@ def render_markdown(evidence: dict[str, Any]) -> str:
 
     lines.extend(
         [
-            "## 语义诊断要求",
+            "## 诊断使用要求",
             "",
-            "自动模型阶段或代码智能体必须读取 JSON 中的源码片段、调用者、",
+            "后续分析时应读取 JSON 中的源码片段、调用者、",
             "子调用和外部运行时热点，并检查同版本仓库源码。若没有对照实验",
             "或足够的因果证据，只能输出 `investigation`，不能把相关性包装成",
             "已确认根因。",
