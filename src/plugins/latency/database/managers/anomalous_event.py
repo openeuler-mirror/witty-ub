@@ -33,10 +33,10 @@ class AnomalousEventManager:
                 :end_log_parse_offset, :anomaly_reason, :existed_status, :created_at
             )
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, event.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_anomalous_events(
@@ -102,8 +102,8 @@ class AnomalousEventManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def update_anomalous_events_existed_status_by_log_id(
@@ -116,8 +116,8 @@ class AnomalousEventManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id, "existed_status": existed_status}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def list_anomalous_events_by_log_id(log_id: str) -> list[AnomalousEventModel]:

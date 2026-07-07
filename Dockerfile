@@ -23,6 +23,7 @@ COPY src/web/package.json src/web/package-lock.json ./
 RUN npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
 
 COPY src/web/ .
+COPY config/ /config/
 RUN export HUSKY=0 && npm run build-only
 
 # ============================================
@@ -58,13 +59,13 @@ COPY src/plugins/latency/common /var/witty-ub/latency/common/
 COPY src/plugins/latency/config /var/witty-ub/latency/config/
 COPY src/plugins/latency/database /var/witty-ub/latency/database/
 COPY src/plugins/latency/detect /var/witty-ub/latency/detect/
+COPY src/plugins/latency/exceptions /var/witty-ub/latency/exceptions/
 COPY src/plugins/latency/models /var/witty-ub/latency/models/
 COPY src/plugins/latency/parse /var/witty-ub/latency/parse/
 COPY src/plugins/latency/regex /var/witty-ub/latency/regex/
 COPY src/plugins/latency/routers /var/witty-ub/latency/routers/
 COPY src/plugins/latency/schemas /var/witty-ub/latency/schemas/
 COPY src/plugins/latency/services /var/witty-ub/latency/services/
-COPY src/plugins/latency/static /var/witty-ub/latency/static/
 COPY src/plugins/latency/task /var/witty-ub/latency/task/
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 

@@ -131,14 +131,6 @@ class GetLogFileResponse(ResponseBase):
     result: GetLogFileMsg = Field(..., description="查询日志文件详情响应结果")
 
 
-class GetLogFileMsg(BaseModel):
-    log_file: Optional[LogFileModel] = Field(default=None, description="日志文件详情")
-
-
-class GetLogFileResponse(ResponseBase):
-    result: GetLogFileMsg = Field(..., description="查询日志文件详情响应结果")
-
-
 class GetFailureModeMsg(BaseModel):
     failure_mode: Optional[FailureModeModel] = Field(default=None, description="故障模式详情")
 
@@ -178,7 +170,7 @@ class ListTimeAggregatedFailureEventMsg(BaseModel):
     )
 
 
-class ListTimeAggregatedFailureEventResponse(BaseModel):
+class ListTimeAggregatedFailureEventResponse(ResponseBase):
     result: ListTimeAggregatedFailureEventMsg = Field(
         ..., description="查询聚合时间列表相应结果"
     )
@@ -275,7 +267,7 @@ class ListTraceFailureEventResultMsg(BaseModel):
         default_factory=list, description="故障Trace结果列表"
     )
 
-class ListTraceFailureEventResultReponse(ResponseBase):
+class ListTraceFailureEventResultResponse(ResponseBase):
     result: ListTraceFailureEventResultMsg = Field(
         ..., description="查询故障Trace列表响应结果"
     )

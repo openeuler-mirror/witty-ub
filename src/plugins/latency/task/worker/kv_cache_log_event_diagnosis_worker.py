@@ -670,7 +670,93 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         return failure_modes[0]
 
     @staticmethod
-    async def extract_log_file(file_path: str, random_str: str) -> str:
+    def split_unmatched_log_files(
+        log_dir: str, filename_patterns: dict[str, list[str]]
+    ) -> dict[str, tuple[int, int]]:
+        """按日志字段数拆分不符合配置文件名规则的文本日志。
+
+        支持普通 ``*.log`` 以及 ``*.log_*`` 形式的轮转日志。每行包含
+        7 个 ``" | "`` 时写入 ``*_runtime.log``，包含 12 或 13 个时
+        写入 ``*_access.log``，其他行忽略。拆分成功后删除原文件。
+        """
+        patterns = [
+            pattern
+            for pattern_list in filename_patterns.values()
+            for pattern in pattern_list
+        ]
+        split_stats: dict[str, tuple[int, int]] = {}
+
+        for root, _, files in os.walk(log_dir):
+            for filename in files:
+                if any(fnmatch.fnmatch(filename, pattern) for pattern in patterns):
+                    continue
+                filename_lower = filename.lower()
+                if not (
+                    filename_lower.endswith(".log")
+                    or ".log_" in filename_lower
+                ):
+                    continue
+                if filename_lower.endswith(("_runtime.log", "_access.log")):
+                    continue
+
+                source_path = os.path.join(root, filename)
+                # 保留轮转后缀，避免 abcd.log_001 和 abcd.log_002 的拆分
+                # 结果都落到 abcd_runtime.log 而互相覆盖。
+                stem = (
+                    os.path.splitext(filename)[0]
+                    if filename_lower.endswith(".log")
+                    else filename
+                )
+                runtime_path = os.path.join(root, f"{stem}_runtime.log")
+                access_path = os.path.join(root, f"{stem}_access.log")
+                runtime_count = 0
+                access_count = 0
+
+                try:
+                    with open(
+                        source_path, "r", encoding="utf-8", errors="ignore"
+                    ) as source, open(
+                        runtime_path, "w", encoding="utf-8"
+                    ) as runtime_file, open(
+                        access_path, "w", encoding="utf-8"
+                    ) as access_file:
+                        for line in source:
+                            delimiter_count = line.count(" | ")
+                            if delimiter_count == 7:
+                                runtime_file.write(line)
+                                runtime_count += 1
+                            elif delimiter_count in (12, 13):
+                                access_file.write(line)
+                                access_count += 1
+                except OSError as e:
+                    logger.error("拆分日志 %s 失败: %s", source_path, e)
+                    continue
+
+                try:
+                    os.remove(source_path)
+                except OSError as e:
+                    logger.error("删除已拆分日志 %s 失败: %s", source_path, e)
+                    continue
+
+                split_stats[source_path] = (
+                    runtime_count,
+                    access_count,
+                )
+                logger.info(
+                    "拆分未匹配日志 %s: runtime=%d, access=%d",
+                    source_path,
+                    runtime_count,
+                    access_count,
+                )
+
+        return split_stats
+
+    @staticmethod
+    async def extract_log_file(
+        file_path: str,
+        random_str: str,
+        filename_patterns: dict[str, list[str]] | None = None,
+    ) -> str:
         """解压所有文件到目录下"""
         # TODO: 首先，递归扫描目录中所有文件，如果文件没有.gz结尾的，即没有压缩文件，则直接返回file_path
         # 如果有，则extracted_log_file_path=os.path.join(witty_dir, "log_extracted_" + random_str)
@@ -747,7 +833,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     except Exception as e:
                         logger.error(f"复制文件 {source_file} 失败: {e}")
                         continue
-        
+
+        if filename_patterns is not None:
+            KVCacheLogEventDiagnosisWorker.split_unmatched_log_files(
+                extracted_log_file_path, filename_patterns
+            )
+
         return extracted_log_file_path
         
     @staticmethod
@@ -774,8 +865,16 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
             # TODO: 运行时启用真实业务逻辑
             random_str = log_file.id[:8]
-            
-            extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(log_file.file_path, random_str)
+            filename_patterns = (
+                Config()
+                .get_default_diagnosis_config()
+                .log_filename_pattern.model_dump()
+            )
+            extracted_log_file_path = await KVCacheLogEventDiagnosisWorker.extract_log_file(
+                log_file.file_path,
+                random_str,
+                filename_patterns=filename_patterns,
+            )
             
             # TODO: 运行时启用真实业务逻辑
             print("故障定界工具开始运行")

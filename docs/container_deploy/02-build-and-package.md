@@ -1,3 +1,6 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+
 # 2. 镜像构建、上传与打包
 
 > 返回 [首页](Home.md)
@@ -15,7 +18,7 @@ cd witty-ub
 
 首次构建需要 15-20 分钟（主要是安装依赖），后续源码改动后重建只需 2-5 分钟。
 
-### 使用 build.sh 脚本（推荐）
+### 方法一：使用 build.sh 脚本（推荐）
 
 ```bash
 # 本地构建（自动识别当前架构）
@@ -28,7 +31,7 @@ bash build.sh
 docker build -f Dockerfile -t witty-ub:latest .
 ```
 
-### 使用 RPM 包构建（推荐用于生产环境）
+### 方法二：使用 RPM 包构建（推荐用于生产环境）
 
 使用 RPM 包构建无需源码编译，直接安装 witty-ub RPM 包，构建速度更快。**使用 `--rpm` 时必须提供 `--repo-url` 参数**，用户只需输入到子目录级别，脚本自动拼接 `everything/$basearch/`。
 
@@ -69,7 +72,7 @@ bash build.sh --rpm --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub
 | **调试便捷性** | 源码在镜像中 | 源码不在镜像中 |
 | **适用场景** | 开发、测试 | 生产环境 |
 
-### 使用 docker compose 构建
+### 方法三：使用 docker compose 构建
 
 ```bash
 # 完整构建
@@ -82,7 +85,7 @@ DOCKER_BUILDKIT=1 docker compose build
 docker compose build --no-cache
 ```
 
-### 使用纯 Docker 命令构建（低版本 Docker）
+### 方法四：使用纯 Docker 命令构建（低版本 Docker）
 
 ```bash
 # 第一步：构建依赖基座镜像

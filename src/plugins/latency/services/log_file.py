@@ -5,6 +5,7 @@ import aiohttp
 import logging
 from fastapi import UploadFile
 from latency.database.managers.log_file import LogFileManager
+from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.schemas.log import LogFileModel
@@ -26,7 +27,9 @@ from latency.schemas.response import (
 )
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
+from latency.task.progress import parallel_overall_progress
 from latency.common.zip_handler import ZipHandler
+from latency.exceptions import NotFoundBizException, BadRequestBizException
 
 logger = logging.getLogger(__name__)
 
@@ -50,28 +53,6 @@ class LogFileService:
         ]:
             return parse_task
         return diagnosis_task
-
-    @staticmethod
-    def _clamp_progress(progress: float | int | None) -> float:
-        if progress is None:
-            return 0.0
-        return min(100.0, max(0.0, float(progress)))
-
-    @staticmethod
-    def _latest_progress(task) -> float:
-        if not task or not task.task_reports:
-            return 0.0
-        return max(LogFileService._clamp_progress(report.progress) for report in task.task_reports)
-
-    @staticmethod
-    def _average_task_report_progress(task, companion_task) -> None:
-        if not task or not companion_task:
-            return
-        companion_progress = LogFileService._latest_progress(companion_task)
-        for report in task.task_reports:
-            report.progress = (
-                LogFileService._clamp_progress(report.progress) + companion_progress
-            ) / 2.0
 
     @staticmethod
     def get_upload_path(*paths: str) -> str:
@@ -101,13 +82,22 @@ class LogFileService:
         for upload_log_file_config in req.upload_log_file_configs:
             log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name)
             if upload_log_file_config.source_type == SourceType.LOCAL:
-                log_file_model.file_path = upload_log_file_config.source
-                try:
-                    log_file_model.file_size = os.path.getsize(
-                        upload_log_file_config.source
-                    )
-                except (FileNotFoundError, OSError):
-                    log_file_model.file_size = 0
+                source_path = upload_log_file_config.source
+                source = os.path.abspath(source_path)
+                if not os.path.exists(source):
+                    raise BadRequestBizException(message=f"路径不存在: {source}")
+                if os.path.isdir(source):
+                    if not os.access(source, os.R_OK):
+                        raise BadRequestBizException(message=f"目录不可读: {source}")
+                    log_file_model.file_path = source
+                    log_file_model.file_size = await LogFileService.get_readable_dir_size(source)
+                elif os.path.isfile(source):
+                    if not os.access(source, os.R_OK):
+                        raise BadRequestBizException(message=f"文件不可读: {source}")
+                    log_file_model.file_path = source
+                    log_file_model.file_size = os.path.getsize(source)
+                else:
+                    raise BadRequestBizException(message=f"路径既不是文件也不是目录: {source}")
             elif upload_log_file_config.source_type == SourceType.REMOTE:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
                 try:
@@ -209,21 +199,24 @@ class LogFileService:
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
-        flag = await LogFileManager.update_log_file(
-            log_file_id, {"existed_status": False}
-        )
-        if flag:
-            return DeleteLogFilesMsg(log_file_id=log_file_id)
-        return DeleteLogFilesMsg(log_file_id=None)
+        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
+        await LogFileManager.update_log_file(log_file_id, {"existed_status": False})
+        await LogParseResultManager.delete_log_parse_results_by_log_id(log_file_id)
+        return DeleteLogFilesMsg(log_file_ids=[log_file_id])
 
     @staticmethod
     async def update_log_file(
         log_file_id: str, req: UpdateLogFileRequest
     ) -> UpdateLogFileMsg:
-        flag = await LogFileManager.update_log_file(
+        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
+        rowcount = await LogFileManager.update_log_file(
             log_file_id, req.model_dump(exclude_none=True)
         )
-        if flag:
+        if rowcount > 0:
             return UpdateLogFileMsg(log_file_id=log_file_id)
         return UpdateLogFileMsg(log_file_id=None)
 
@@ -307,19 +300,14 @@ class LogFileService:
             if diagnosis_task:
                 diagnosis_task.task_reports = task_report_dict.get(diagnosis_task.id, [])
 
+            log_file_model.overall_progress = parallel_overall_progress(
+                parse_task,
+                diagnosis_task,
+            )
             log_file_model.task = task_dict.get(log_file_model.id)
             if log_file_model.task:
                 log_file_model.task.task_reports = task_report_dict.get(
                     log_file_model.task.id, []
-                )
-                companion_task = (
-                    diagnosis_task
-                    if log_file_model.task.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
-                    else parse_task
-                )
-                LogFileService._average_task_report_progress(
-                    log_file_model.task,
-                    companion_task,
                 )
                 log_file_model.task.task_reports.sort(
                     key=lambda x: x.created_at, reverse=True
@@ -329,6 +317,8 @@ class LogFileService:
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> GetLogFileMsg:
         log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
         parse_task = await TaskManager.get_current_task_by_op_id(
             log_file_id,
             TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
@@ -355,17 +345,12 @@ class LogFileService:
                 parse_task.task_reports = parse_reports
             if diagnosis_task:
                 diagnosis_task.task_reports = diagnosis_reports
+            log_file_model.overall_progress = parallel_overall_progress(
+                parse_task,
+                diagnosis_task,
+            )
             task_model.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
                 [task_model.id]
-            )
-            companion_task = (
-                diagnosis_task
-                if task_model.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
-                else parse_task
-            )
-            LogFileService._average_task_report_progress(
-                task_model,
-                companion_task,
             )
         log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)
