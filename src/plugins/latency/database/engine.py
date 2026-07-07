@@ -3,8 +3,10 @@ from multiprocessing import Lock as ProcessLock
 import asyncio
 import sqlite3
 import logging
+import threading
 from typing import Any, Optional
 from latency.config.config import Config
+from latency.ENUM.general import InitStatus
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -299,6 +301,8 @@ class AsyncSQLiteSingleton:
     _process_lock = ProcessLock()
     # 类级锁（单例创建保护）
     _class_lock = asyncio.Lock()
+    # 线程级锁（保护初始化过程）
+    _init_lock = threading.Lock()
 
     def __new__(cls):
         """实现单例模式"""
@@ -310,7 +314,7 @@ class AsyncSQLiteSingleton:
 
     def __init__(self):
         # 防止重复初始化
-        if hasattr(self, "_initialized") and self._initialized:
+        if hasattr(self, "_initialized") and self._initialized != InitStatus.UNINITIALIZED:
             return
 
         # 数据库配置
@@ -328,8 +332,8 @@ class AsyncSQLiteSingleton:
         self._async_lock = asyncio.Lock()
         # 数据库连接（复用连接，避免频繁创建/关闭）
         self._conn: Optional[sqlite3.Connection] = None
-        # 初始化标记
-        self._initialized = False
+        # 初始化状态标记（UNINITIALIZED/SUCCESS/FAILED）
+        self._initialized: InitStatus = InitStatus.UNINITIALIZED
 
         # 初始化数据库连接
         self._init_connection()
@@ -470,10 +474,11 @@ class AsyncSQLiteSingleton:
             # 执行数据库迁移
             self._sync_migrate_database()
             
-            self._initialized = True
+            self._initialized = InitStatus.SUCCESS
             return True
         except sqlite3.Error as e:
             self._conn.rollback()
+            self._initialized = InitStatus.FAILED
             logger.error(f"数据库初始化失败: {e}")
             return False
 
@@ -481,6 +486,8 @@ class AsyncSQLiteSingleton:
         """同步执行查询（复用连接）"""
         if not self._conn:
             self._init_connection()
+        
+        self.ensure_initialized()
 
         try:
             self._conn.row_factory = sqlite3.Row
@@ -502,6 +509,8 @@ class AsyncSQLiteSingleton:
         """
         if not self._conn:
             self._init_connection()
+        
+        self.ensure_initialized()
 
         try:
             cursor = self._conn.cursor()
@@ -567,6 +576,27 @@ class AsyncSQLiteSingleton:
                     logger.info("数据库连接已关闭")
 
             await asyncio.to_thread(_close)
+
+    def ensure_initialized(self):
+        """确保数据库连接和表结构已初始化（线程安全）"""
+        if not self._conn:
+            self._init_connection()
+        
+        if self._initialized == InitStatus.SUCCESS:
+            return
+        
+        if self._initialized == InitStatus.FAILED:
+            raise RuntimeError("数据库初始化已失败，无法执行数据库操作")
+        
+        with self._init_lock:
+            if self._initialized == InitStatus.SUCCESS:
+                return
+            if self._initialized == InitStatus.FAILED:
+                raise RuntimeError("数据库初始化已失败，无法执行数据库操作")
+            
+            success = self._sync_init_database()
+            if not success:
+                raise RuntimeError(f"数据库初始化失败，路径: {self.DB_PATH}")
 
     def __del__(self):
         """析构函数：确保连接关闭"""

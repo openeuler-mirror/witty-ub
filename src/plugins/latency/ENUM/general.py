@@ -31,3 +31,11 @@ class FilePath(StrEnum):
 
     FILE_UPLOAD_PATH = "latency/file/file_upload/"
     FILE_PARSE_RESULT_PATH = "latency/file/file_parse_result/"
+
+
+class InitStatus(StrEnum):
+    """数据库初始化状态"""
+
+    UNINITIALIZED = "uninitialized"
+    SUCCESS = "success"
+    FAILED = "failed"
