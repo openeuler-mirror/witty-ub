@@ -12,7 +12,7 @@ from latency.schemas.response import (
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.task.task_handler import TaskHandler
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.ENUM.task import TaskStatusEnum
 from latency.exceptions import NotFoundBizException, ConflictBizException
 
 logger = logging.getLogger(__name__)
@@ -20,54 +20,6 @@ logger = logging.getLogger(__name__)
 
 class TaskService:
     """任务服务"""
-
-    @staticmethod
-    def _clamp_progress(progress: float | int | None) -> float:
-        if progress is None:
-            return 0.0
-        return min(100.0, max(0.0, float(progress)))
-
-    @staticmethod
-    def _latest_progress(task) -> float:
-        if not task or not task.task_reports:
-            return 0.0
-        return max(TaskService._clamp_progress(report.progress) for report in task.task_reports)
-
-    @staticmethod
-    def _average_task_report_progress(task, companion_task) -> None:
-        if not task or not companion_task:
-            return
-        companion_progress = TaskService._latest_progress(companion_task)
-        for report in task.task_reports:
-            report.progress = (
-                TaskService._clamp_progress(report.progress) + companion_progress
-            ) / 2.0
-
-    @staticmethod
-    async def _apply_combined_task_progress(task) -> None:
-        if not task:
-            return
-        if task.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER:
-            companion_task = await TaskManager.get_current_task_by_op_id(
-                task.op_id,
-                TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-            )
-            if not companion_task:
-                return
-        elif task.task_type == TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER:
-            companion_task = await TaskManager.get_current_task_by_op_id(
-                task.op_id,
-                TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-            )
-            if not companion_task:
-                return
-        else:
-            return
-
-        companion_task.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
-            [companion_task.id]
-        )
-        TaskService._average_task_report_progress(task, companion_task)
 
     @staticmethod
     async def create_task(req: CreateTaskRequest) -> CreateTaskMsg:
@@ -148,7 +100,6 @@ class TaskService:
         
         for task in paginated_tasks:
             task.task_reports = task_report_dict.get(task.id, [])
-            await TaskService._apply_combined_task_progress(task)
             task.task_reports.sort(key=lambda x: x.created_at, reverse=True)
         
         return ListTasksMsg(total=total, tasks=paginated_tasks)
@@ -163,6 +114,5 @@ class TaskService:
         task_reports = await TaskReportManager.list_task_reports_by_task_ids([task_id])
         task_reports.sort(key=lambda x: x.created_at, reverse=True)
         task.task_reports = task_reports
-        await TaskService._apply_combined_task_progress(task)
         
         return GetTaskMsg(task=task)

@@ -2,21 +2,20 @@
     "log_filename_pattern": {
         "ds_client_access_log_file": [
             "ds_client_access*.log",
-            "ds_client_access*.log.gz"
+            "*_access.log"
         ],
         "ds_client_info_log_file": [
             "ds_client*.INFO.log",
-            "ds_client*.INFO.log.gz"
+            "*_runtime.log"
         ],
         "ds_worker_access_log_file": [
             "access.log",
-            "access.log.gz"
+            "*_access.log"
         ],
         "ds_worker_info_log_file": [
             "datasystem_worker.INFO*.log",
-            "datasystem_worker.INFO*.log.gz",
             "kvcache.INFO*.log",
-            "kvcache.INFO*.log.gz"
+            "*_runtime.log"
         ],
         "resource_log_file": [
             "resource.log"

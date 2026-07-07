@@ -270,11 +270,24 @@ button {
   color: #64748b;
 }
 
+.agent-reasoning + .agent-reasoning,
+.agent-final-answer + .agent-reasoning {
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid #dce4ef;
+}
+
 .agent-final-answer {
   margin-top: 11px;
   padding-top: 11px;
   border-top: 1px solid #dce4ef;
   color: #1e293b;
+}
+
+.agent-chat-bubble > .agent-final-answer:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .agent-markdown {
@@ -852,6 +865,13 @@ button {
   background: var(--primary);
   color: #ffffff;
   opacity: 1;
+}
+
+.pagination-page-btn.ellipsis {
+  cursor: default;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
 }
 
 .pagination-page-btn:disabled,
@@ -3437,18 +3457,12 @@ button {
 }
 
 .trace-modal-content {
-  max-width: 1500px;
-  width: 90%;
-  min-width: min(1200px, 90vw);
+  max-width: 1860px;
+  width: 96%;
+  min-width: min(1540px, 96vw);
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-}
-
-.fault-trace-modal-content {
-  max-width: 1760px;
-  width: 96%;
-  min-width: min(1440px, 96vw);
 }
 
 .trace-filter-modal {
@@ -3613,7 +3627,9 @@ button {
 }
 
 .trace-raw-log-item.log-error,
-.trace-raw-log-item.log-failure-mode {
+.trace-raw-log-item.log-failure-mode,
+.trace-raw-log-table tr.log-error,
+.trace-raw-log-table tr.log-failure-mode {
   border-color: #fecaca;
   background: #fff7f7;
 }
@@ -3674,13 +3690,11 @@ button {
 }
 
 .trace-raw-log-table th {
-  position: sticky;
-  left: 0;
-  z-index: 1;
   min-width: 56px;
   background: #f1f5f9;
   color: #1e3a5f;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .trace-raw-log-table td {
@@ -3688,15 +3702,20 @@ button {
   color: #334155;
 }
 
-.trace-raw-log-table tr:first-child td {
-  background: #f8fafc;
-  color: #1e3a5f;
-  font-weight: 800;
+.trace-raw-log-table .trace-log-level-cell {
+  width: 1%;
+  min-width: 0;
   white-space: nowrap;
 }
 
 .log-error {
   background: #fef2f2;
+}
+
+.trace-raw-log-item.log-warning:not(.log-failure-mode),
+.trace-raw-log-table tr.log-warning:not(.log-failure-mode) {
+  border-color: #fde68a;
+  background: #fffbeb;
 }
 
 .log-info {
@@ -3711,6 +3730,15 @@ button {
 .log-level-info {
   color: #166534;
   font-weight: 800;
+}
+
+.log-level-warning {
+  color: #a16207;
+  font-weight: 800;
+}
+
+.trace-message-failure-mode {
+  margin-left: 8px;
 }
 
 .trace-fault-detail-list {

@@ -21,11 +21,18 @@ type AgentChatMessage = {
   id: string
   role: 'user' | 'assistant'
   reasoning: string
-  reasoningParts?: Record<string, string>
+  parts?: AgentChatPart[]
   reasoningCollapsed: boolean
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+}
+
+type AgentChatPart = {
+  id: string
+  type: 'reasoning' | 'text'
+  text: string
+  collapsed?: boolean
 }
 
 type OpenCodeEvent = {
@@ -82,6 +89,7 @@ type LogFileModel = {
   anomaly_cnt: number
   trace_failure_event_cnt?: number
   task: TaskModel | null
+  overall_progress?: number
   existed_status: boolean
   created_at: string
 }
@@ -399,7 +407,7 @@ type TraceRawLogColumn = {
 
 type TraceLogRow = {
   time: string
-  level: 'INFO' | 'ERROR'
+  level: string
   filename: string
   podIp: string
   pidTid: string
@@ -729,6 +737,44 @@ const getPendingAssistantMessage = () =>
     .reverse()
     .find((message) => message.role === 'assistant' && message.status === 'thinking')
 
+const getAgentMessagePart = (
+  message: AgentChatMessage,
+  type: AgentChatPart['type'],
+  partId: string,
+) => {
+  const id = `${type}:${partId}`
+  message.parts ||= []
+  let messagePart = message.parts.find((part) => part.id === id)
+  if (!messagePart) {
+    messagePart = { id, type, text: '', collapsed: false }
+    message.parts.push(messagePart)
+  }
+  return messagePart
+}
+
+const syncAgentMessageText = (message: AgentChatMessage) => {
+  const parts = message.parts ?? []
+  message.reasoning = parts
+    .filter((part) => part.type === 'reasoning' && part.text)
+    .map((part) => part.text)
+    .join('\n\n')
+  message.content = parts
+    .filter((part) => part.type === 'text' && part.text)
+    .map((part) => part.text)
+    .join('\n\n')
+}
+
+const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
+  if (message.role !== 'assistant') return []
+  const parts = (message.parts ?? []).filter((part) => part.text || part.type === 'reasoning')
+  if (parts.length > 0) return parts
+  if (message.content) return [{ id: `${message.id}:content`, type: 'text', text: message.content }]
+  if (message.status === 'thinking') {
+    return [{ id: `${message.id}:reasoning-placeholder`, type: 'reasoning', text: '' }]
+  }
+  return []
+}
+
 const extractOpenCodeError = (payload: unknown, fallback: string) => {
   if (!payload || typeof payload !== 'object') return fallback
   const value = payload as {
@@ -824,11 +870,12 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     target.messageId = part.messageID
     if (part.type === 'reasoning') {
       const reasoningPartId = part.id || 'reasoning'
-      target.reasoningParts ||= {}
-      target.reasoningParts[reasoningPartId] = part.text || ''
-      target.reasoning = Object.values(target.reasoningParts).filter(Boolean).join('\n\n')
+      getAgentMessagePart(target, 'reasoning', reasoningPartId).text = part.text || ''
+      syncAgentMessageText(target)
     } else if (part.type === 'text') {
-      target.content = part.text || ''
+      const textPartId = part.id || 'text'
+      getAgentMessagePart(target, 'text', textPartId).text = part.text || ''
+      syncAgentMessageText(target)
     }
     void scrollAgentChatToBottom()
     return
@@ -932,7 +979,7 @@ const sendAgentMessage = async () => {
     id: nextAgentLocalMessageId(),
     role: 'assistant',
     reasoning: '',
-    reasoningParts: {},
+    parts: [],
     reasoningCollapsed: false,
     content: '',
     status: 'thinking',
@@ -1542,6 +1589,11 @@ const setTimeWindowIpPairPage = (twIdx: number, page: number) => {
 const getTimeWindowIpPairTotalPages = (twEvent: TimeWindowAggregatedEvent) =>
   Math.max(1, Math.ceil(twEvent.ip_pairs.length / IP_PAIR_PAGE_SIZE))
 
+const getTimeWindowIpPairPageWindow = (
+  twIdx: number,
+  twEvent: TimeWindowAggregatedEvent,
+) => getPageWindow(getTimeWindowIpPairPage(twIdx), getTimeWindowIpPairTotalPages(twEvent))
+
 const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) => {
   const sorted = getSortedIpPairs(twEvent)
   const page = getTimeWindowIpPairPage(twIdx)
@@ -2044,9 +2096,21 @@ const faultTraceEventsPageCount = computed(() =>
   Math.max(1, Math.ceil(faultTraceEventsTotal.value / faultTraceEventsPageSize)),
 )
 const getPageWindow = (currentPage: number, pageCount: number) => {
-  const start = Math.max(1, currentPage - 5)
-  const end = Math.min(pageCount, currentPage + 5)
-  return Array.from({ length: end - start + 1 }, (_, index) => start + index)
+  const visiblePages = new Set([1, pageCount])
+  const start = Math.max(1, currentPage - 2)
+  const end = Math.min(pageCount, currentPage + 2)
+  for (let page = start; page <= end; page += 1) visiblePages.add(page)
+
+  const pages = [...visiblePages].sort((first, second) => first - second)
+  const pageWindow: number[] = []
+  pages.forEach((page, index) => {
+    const previousPage = pages[index - 1]
+    if (previousPage !== undefined && page - previousPage > 1) {
+      pageWindow.push(previousPage === 1 ? -1 : -2)
+    }
+    pageWindow.push(page)
+  })
+  return pageWindow
 }
 const assetPageWindow = computed(() => getPageWindow(assetPage.value, assetPageCount.value))
 const logFilesPageWindow = computed(() =>
@@ -3480,11 +3544,11 @@ const selectedFaultDetailErrorLogTotal = computed(() => faultDetailTraceEventsTo
 
 const getTraceLogTimeValue = (log: TraceLogRow) => parseFilterDate(log.time)?.getTime() ?? 0
 
-const sortTraceLogsByFile = (logs: TraceLogRow[]) =>
+const sortTraceLogsByTime = (logs: TraceLogRow[]) =>
   [...logs].sort(
     (a, b) =>
+      getTraceLogTimeValue(b) - getTraceLogTimeValue(a) ||
       a.filename.localeCompare(b.filename, undefined, { numeric: true }) ||
-      getTraceLogTimeValue(a) - getTraceLogTimeValue(b) ||
       a.pidTid.localeCompare(b.pidTid, undefined, { numeric: true }) ||
       a.message.localeCompare(b.message),
   )
@@ -3600,12 +3664,18 @@ const buildTraceRawColumns = (
   }
 
   if (fields.length >= accessLogHeaders.length) {
+    const accessFields = [
+      ...fields.slice(0, accessLogHeaders.length - 1),
+      fields.slice(accessLogHeaders.length - 1).join(' | '),
+    ]
+    const message = accessLogHeaders
+      .slice(7)
+      .map((header, index) => `${header}: ${accessFields[index + 7] || '-'}`)
+      .join(' | ')
+
     return {
-      formatName: '访问日志',
-      columns: normalizeTraceLogColumns(accessLogHeaders, [
-        ...fields.slice(0, accessLogHeaders.length - 1),
-        fields.slice(accessLogHeaders.length - 1).join(' | '),
-      ]),
+      formatName: '接口日志',
+      columns: normalizeTraceLogColumns(runLogHeaders, [...accessFields.slice(0, 7), message]),
     }
   }
 
@@ -3653,7 +3723,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
 
   return {
     time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
-    level: level === 'ERROR' ? 'ERROR' : 'INFO',
+    level,
     filename: logFile,
     podIp: getRecordString(record, ['pod_ip', 'pod_name', 'pod_id', 'podId', 'pod']),
     pidTid: pid || tid ? `${pid || '-'}:${tid || '-'}` : getRecordString(record, ['pid_tid'], '-'),
@@ -3677,11 +3747,31 @@ const getTraceLogFailureModeLabels = (log: TraceLogRow) =>
     }))
     .filter((item) => item.id && item.label)
 
+const getVisibleTraceLogColumns = (log?: TraceLogRow) =>
+  log?.rawColumns.filter((column) => column.label.toLowerCase() !== 'trace_id') ?? []
+
+const isTraceLogMessageColumn = (column: TraceRawLogColumn) =>
+  column.label.toLowerCase() === 'message'
+
+const getTraceLogRowClass = (log: TraceLogRow) => ({
+  'log-error': ['E', 'ERROR'].includes(log.level),
+  'log-warning': ['W', 'WARN', 'WARNING'].includes(log.level),
+  'log-info': !['E', 'ERROR', 'W', 'WARN', 'WARNING'].includes(log.level),
+  'log-failure-mode': log.failureModeIds.length > 0,
+})
+
+const getTraceLogLevelClass = (log: TraceLogRow) =>
+  ['E', 'ERROR'].includes(log.level)
+    ? 'log-level-error'
+    : ['W', 'WARN', 'WARNING'].includes(log.level)
+      ? 'log-level-warning'
+      : 'log-level-info'
+
 const getTraceLogs = (trace?: TraceDetailRow | null) => {
   if (!trace) return []
   const traceId = trace.traceId
   return Object.prototype.hasOwnProperty.call(traceFailureLogsByTrace.value, traceId)
-    ? sortTraceLogsByFile(traceFailureLogsByTrace.value[traceId] ?? [])
+    ? sortTraceLogsByTime(traceFailureLogsByTrace.value[traceId] ?? [])
     : []
 }
 
@@ -4546,7 +4636,7 @@ const loadTraceFailureLogs = async (traceId: string, shouldLoadFailureModes = fa
     }
     traceFailureLogsByTrace.value = {
       ...traceFailureLogsByTrace.value,
-      [traceId]: sortTraceLogsByFile(events.map(toTraceLogRow)),
+      [traceId]: sortTraceLogsByTime(events.map(toTraceLogRow)),
     }
   } catch (error) {
     traceFailureLogsByTrace.value = {
@@ -6074,16 +6164,6 @@ const getLogFileTaskStatus = (file: LogFileModel) =>
 
 const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
-const getTaskReportProgress = (report: TaskReportModel | null) => {
-  if (!report) return null
-  const value = report.progress
-  if (typeof value === 'number' && Number.isFinite(value)) return clampProgress(value)
-  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
-    return clampProgress(Number(value))
-  }
-  return null
-}
-
 const getTaskReportTime = (report: TaskReportModel) => {
   if (!report.created_at) return 0
   const time = Date.parse(report.created_at)
@@ -6139,18 +6219,8 @@ const getLatestLogFileTaskReport = (file: LogFileModel) => {
 }
 
 const getLogFileProgress = (file: LogFileModel) => {
-  const validProgressValues = getValidLogFileTaskReports(file)
-    .map(getTaskReportProgress)
-    .filter((progress): progress is number => progress !== null)
-  const maxReportProgress = validProgressValues.length > 0 ? Math.max(...validProgressValues) : null
-
-  const status = getLogFileTaskStatus(file)
-  if (status === 'successful' || status === 'successful_pending_remove') return 100
-  if (maxReportProgress !== null) {
-    return status === 'running' ? Math.max(5, maxReportProgress) : maxReportProgress
-  }
-  if (status === 'running') return 5
-  return 0
+  const progress = Number(file.overall_progress)
+  return Number.isFinite(progress) ? clampProgress(progress) : 0
 }
 
 const getLogFileProgressText = (file: LogFileModel) => `${Math.round(getLogFileProgress(file))}%`
@@ -6821,12 +6891,12 @@ onBeforeUnmount(() => {
               v-for="pageNum in assetPageWindow"
               :key="`asset-page-${pageNum}`"
               class="pagination-page-btn"
-              :class="{ active: pageNum === assetPage }"
+              :class="{ active: pageNum === assetPage, ellipsis: pageNum < 0 }"
               type="button"
-              :disabled="pageNum === assetPage || isListLoading"
-              @click="goAssetPage(pageNum)"
+              :disabled="pageNum < 0 || pageNum === assetPage || isListLoading"
+              @click="pageNum > 0 && goAssetPage(pageNum)"
             >
-              {{ pageNum }}
+              {{ pageNum < 0 ? '…' : pageNum }}
             </button>
           </span>
           <button
@@ -7589,9 +7659,25 @@ onBeforeUnmount(() => {
                                 >
                                   &lt;
                                 </button>
-                                <span class="page-info">
-                                  {{ getTimeWindowIpPairPage(twIdx) }} /
-                                  {{ getTimeWindowIpPairTotalPages(twEvent) }}
+                                <span class="pagination-pages" aria-label="IP对页码">
+                                  <button
+                                    v-for="pageNum in getTimeWindowIpPairPageWindow(twIdx, twEvent)"
+                                    :key="`${twIdx}-ip-pair-page-${pageNum}`"
+                                    class="pagination-page-btn"
+                                    :class="{
+                                      active: pageNum === getTimeWindowIpPairPage(twIdx),
+                                      ellipsis: pageNum < 0,
+                                    }"
+                                    type="button"
+                                    :disabled="
+                                      pageNum < 0 || pageNum === getTimeWindowIpPairPage(twIdx)
+                                    "
+                                    @click="
+                                      pageNum > 0 && setTimeWindowIpPairPage(twIdx, pageNum)
+                                    "
+                                  >
+                                    {{ pageNum < 0 ? '…' : pageNum }}
+                                  </button>
                                 </span>
                                 <button
                                   class="page-btn"
@@ -7841,12 +7927,12 @@ onBeforeUnmount(() => {
                         v-for="pageNum in timeWindowPageWindow"
                         :key="`tw-page-${pageNum}`"
                         class="pagination-page-btn"
-                        :class="{ active: pageNum === timeWindowPage }"
+                        :class="{ active: pageNum === timeWindowPage, ellipsis: pageNum < 0 }"
                         type="button"
-                        :disabled="pageNum === timeWindowPage || isTimeWindowLoading"
-                        @click="goTimeWindowPage(pageNum)"
+                        :disabled="pageNum < 0 || pageNum === timeWindowPage || isTimeWindowLoading"
+                        @click="pageNum > 0 && goTimeWindowPage(pageNum)"
                       >
-                        {{ pageNum }}
+                        {{ pageNum < 0 ? '…' : pageNum }}
                       </button>
                     </span>
                     <button
@@ -8354,12 +8440,16 @@ onBeforeUnmount(() => {
                       v-for="pageNum in abnormalTracesPageWindow"
                       :key="`abnormal-traces-page-${pageNum}`"
                       class="pagination-page-btn"
-                      :class="{ active: pageNum === abnormalTracesPage }"
+                      :class="{ active: pageNum === abnormalTracesPage, ellipsis: pageNum < 0 }"
                       type="button"
-                      :disabled="pageNum === abnormalTracesPage || isAbnormalTracesLoading"
-                      @click="goAbnormalTracesPage(pageNum)"
+                      :disabled="
+                        pageNum < 0 ||
+                        pageNum === abnormalTracesPage ||
+                        isAbnormalTracesLoading
+                      "
+                      @click="pageNum > 0 && goAbnormalTracesPage(pageNum)"
                     >
-                      {{ pageNum }}
+                      {{ pageNum < 0 ? '…' : pageNum }}
                     </button>
                   </span>
                   <button
@@ -8810,15 +8900,19 @@ onBeforeUnmount(() => {
                                     class="pagination-page-btn"
                                     :class="{
                                       active: pageNum === getFaultAggregatedEventPodPage(row),
+                                      ellipsis: pageNum < 0,
                                     }"
                                     type="button"
                                     :disabled="
+                                      pageNum < 0 ||
                                       pageNum === getFaultAggregatedEventPodPage(row) ||
                                       isFaultAggregatedEventPodLoading(row)
                                     "
-                                    @click.stop="goFaultAggregatedEventPodPage(row, pageNum)"
+                                    @click.stop="
+                                      pageNum > 0 && goFaultAggregatedEventPodPage(row, pageNum)
+                                    "
                                   >
-                                    {{ pageNum }}
+                                    {{ pageNum < 0 ? '…' : pageNum }}
                                   </button>
                                 </span>
                                 <button
@@ -8968,14 +9062,18 @@ onBeforeUnmount(() => {
                         v-for="pageNum in faultAggregatedEventPageWindow"
                         :key="`fault-aggregate-event-page-${pageNum}`"
                         class="pagination-page-btn"
-                        :class="{ active: pageNum === faultAggregatedEventPage }"
+                        :class="{
+                          active: pageNum === faultAggregatedEventPage,
+                          ellipsis: pageNum < 0,
+                        }"
                         type="button"
                         :disabled="
+                          pageNum < 0 ||
                           pageNum === faultAggregatedEventPage || isFaultAggregatedEventsLoading
                         "
-                        @click="goFaultAggregatedEventPage(pageNum)"
+                        @click="pageNum > 0 && goFaultAggregatedEventPage(pageNum)"
                       >
-                        {{ pageNum }}
+                        {{ pageNum < 0 ? '…' : pageNum }}
                       </button>
                     </span>
                     <button
@@ -9302,12 +9400,16 @@ onBeforeUnmount(() => {
                     v-for="pageNum in faultTraceEventsPageWindow"
                     :key="`fault-trace-events-page-${pageNum}`"
                     class="pagination-page-btn"
-                    :class="{ active: pageNum === faultTraceEventsPage }"
+                    :class="{ active: pageNum === faultTraceEventsPage, ellipsis: pageNum < 0 }"
                     type="button"
-                    :disabled="pageNum === faultTraceEventsPage || isFaultTraceEventsLoading"
-                    @click="goFaultTraceEventsPage(pageNum)"
+                    :disabled="
+                      pageNum < 0 ||
+                      pageNum === faultTraceEventsPage ||
+                      isFaultTraceEventsLoading
+                    "
+                    @click="pageNum > 0 && goFaultTraceEventsPage(pageNum)"
                   >
-                    {{ pageNum }}
+                    {{ pageNum < 0 ? '…' : pageNum }}
                   </button>
                 </span>
                 <button
@@ -9541,12 +9643,12 @@ onBeforeUnmount(() => {
                   v-for="pageNum in logFilesPageWindow"
                   :key="`log-file-page-${pageNum}`"
                   class="pagination-page-btn"
-                  :class="{ active: pageNum === logFilesPage }"
+                  :class="{ active: pageNum === logFilesPage, ellipsis: pageNum < 0 }"
                   type="button"
-                  :disabled="pageNum === logFilesPage || isLogFilesLoading"
-                  @click="goLogFilesPage(pageNum)"
+                  :disabled="pageNum < 0 || pageNum === logFilesPage || isLogFilesLoading"
+                  @click="pageNum > 0 && goLogFilesPage(pageNum)"
                 >
-                  {{ pageNum }}
+                  {{ pageNum < 0 ? '…' : pageNum }}
                 </button>
               </span>
               <button
@@ -10412,12 +10514,16 @@ onBeforeUnmount(() => {
                   v-for="pageNum in detailParseResultsPageWindow"
                   :key="`detail-parse-results-page-${pageNum}`"
                   class="pagination-page-btn"
-                  :class="{ active: pageNum === detailParseResultsPage }"
+                  :class="{ active: pageNum === detailParseResultsPage, ellipsis: pageNum < 0 }"
                   type="button"
-                  :disabled="pageNum === detailParseResultsPage || isDetailParseResultsLoading"
-                  @click="goDetailParseResultsPage(pageNum)"
+                  :disabled="
+                    pageNum < 0 ||
+                    pageNum === detailParseResultsPage ||
+                    isDetailParseResultsLoading
+                  "
+                  @click="pageNum > 0 && goDetailParseResultsPage(pageNum)"
                 >
-                  {{ pageNum }}
+                  {{ pageNum < 0 ? '…' : pageNum }}
                 </button>
               </span>
               <button
@@ -10627,14 +10733,18 @@ onBeforeUnmount(() => {
                   v-for="pageNum in faultDetailTraceEventsPageWindow"
                   :key="`fault-detail-trace-page-${pageNum}`"
                   class="pagination-page-btn"
-                  :class="{ active: pageNum === faultDetailTraceEventsPage }"
+                  :class="{
+                    active: pageNum === faultDetailTraceEventsPage,
+                    ellipsis: pageNum < 0,
+                  }"
                   type="button"
                   :disabled="
+                    pageNum < 0 ||
                     pageNum === faultDetailTraceEventsPage || isFaultDetailTraceEventsLoading
                   "
-                  @click="goFaultDetailTraceEventsPage(pageNum)"
+                  @click="pageNum > 0 && goFaultDetailTraceEventsPage(pageNum)"
                 >
-                  {{ pageNum }}
+                  {{ pageNum < 0 ? '…' : pageNum }}
                 </button>
               </span>
               <button
@@ -10699,61 +10809,56 @@ onBeforeUnmount(() => {
               <div v-else-if="getSelectedTraceLogs().length === 0" class="trace-empty">
                 暂无匹配日志
               </div>
-              <template v-else>
-                <article
-                  v-for="log in getSelectedTraceLogs()"
-                  :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
-                  class="trace-raw-log-item"
-                  :class="[
-                    log.level === 'ERROR' ? 'log-error' : 'log-info',
-                    { 'log-failure-mode': log.failureModeIds.length > 0 },
-                  ]"
-                >
-                  <div class="trace-raw-log-meta">
-                    <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
-                      {{ log.level }}
-                    </span>
-                    <span>{{ log.time }}</span>
-                    <span>{{ log.formatName }}</span>
-                    <span class="trace-raw-log-file">{{ log.filename }}</span>
-                    <button
-                      v-for="mode in getTraceLogFailureModeLabels(log)"
-                      :key="mode.id"
-                      type="button"
-                      class="failure-mode-tag"
-                      :class="{ active: selectedTraceFailureModeId === mode.id }"
-                      @click="selectTraceFailureMode(mode.id)"
+              <div v-else class="trace-raw-log-table-wrapper">
+                <table class="trace-raw-log-table">
+                  <thead>
+                    <tr>
+                      <th
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(
+                          getSelectedTraceLogs()[0],
+                        )"
+                        :key="`${column.label}-${columnIndex}`"
+                        :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
+                      >
+                        {{ column.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="log in getSelectedTraceLogs()"
+                      :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                      :class="getTraceLogRowClass(log)"
                     >
-                      🔴 {{ mode.label }}
-                    </button>
-                  </div>
-                  <div class="trace-raw-log-table-wrapper">
-                    <table class="trace-raw-log-table">
-                      <tbody>
-                        <tr>
-                          <th>格式</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
+                      <td
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
+                        :key="`${column.label}-${columnIndex}`"
+                        :title="column.value"
+                        :class="[
+                          { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
+                          column.label.toLowerCase() === 'level'
+                            ? getTraceLogLevelClass(log)
+                            : '',
+                        ]"
+                      >
+                        {{ column.value }}
+                        <template v-if="isTraceLogMessageColumn(column)">
+                          <button
+                            v-for="mode in getTraceLogFailureModeLabels(log)"
+                            :key="mode.id"
+                            type="button"
+                            class="failure-mode-tag trace-message-failure-mode"
+                            :class="{ active: selectedTraceFailureModeId === mode.id }"
+                            @click="selectTraceFailureMode(mode.id)"
                           >
-                            {{ column.label }}
-                          </td>
-                        </tr>
-                        <tr>
-                          <th>内容</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
-                            :title="column.value"
-                          >
-                            {{ column.value }}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              </template>
+                            🔴 {{ mode.label }}
+                          </button>
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
 
@@ -10932,61 +11037,56 @@ onBeforeUnmount(() => {
               <div v-else-if="getSelectedFaultTraceLogs().length === 0" class="trace-empty">
                 暂无匹配日志
               </div>
-              <template v-else>
-                <article
-                  v-for="log in getSelectedFaultTraceLogs()"
-                  :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
-                  class="trace-raw-log-item"
-                  :class="[
-                    log.level === 'ERROR' ? 'log-error' : 'log-info',
-                    { 'log-failure-mode': log.failureModeIds.length > 0 },
-                  ]"
-                >
-                  <div class="trace-raw-log-meta">
-                    <span :class="log.level === 'ERROR' ? 'log-level-error' : 'log-level-info'">
-                      {{ log.level }}
-                    </span>
-                    <span>{{ log.time }}</span>
-                    <span>{{ log.formatName }}</span>
-                    <span class="trace-raw-log-file">{{ log.filename }}</span>
-                    <button
-                      v-for="mode in getTraceLogFailureModeLabels(log)"
-                      :key="mode.id"
-                      type="button"
-                      class="failure-mode-tag"
-                      :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
-                      @click="selectFaultTraceFailureMode(mode.id)"
+              <div v-else class="trace-raw-log-table-wrapper">
+                <table class="trace-raw-log-table">
+                  <thead>
+                    <tr>
+                      <th
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(
+                          getSelectedFaultTraceLogs()[0],
+                        )"
+                        :key="`${column.label}-${columnIndex}`"
+                        :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
+                      >
+                        {{ column.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="log in getSelectedFaultTraceLogs()"
+                      :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                      :class="getTraceLogRowClass(log)"
                     >
-                      🔴 {{ mode.label }}
-                    </button>
-                  </div>
-                  <div class="trace-raw-log-table-wrapper">
-                    <table class="trace-raw-log-table">
-                      <tbody>
-                        <tr>
-                          <th>格式</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
+                      <td
+                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
+                        :key="`${column.label}-${columnIndex}`"
+                        :title="column.value"
+                        :class="[
+                          { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
+                          column.label.toLowerCase() === 'level'
+                            ? getTraceLogLevelClass(log)
+                            : '',
+                        ]"
+                      >
+                        {{ column.value }}
+                        <template v-if="isTraceLogMessageColumn(column)">
+                          <button
+                            v-for="mode in getTraceLogFailureModeLabels(log)"
+                            :key="mode.id"
+                            type="button"
+                            class="failure-mode-tag trace-message-failure-mode"
+                            :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
+                            @click="selectFaultTraceFailureMode(mode.id)"
                           >
-                            {{ column.label }}
-                          </td>
-                        </tr>
-                        <tr>
-                          <th>内容</th>
-                          <td
-                            v-for="(column, columnIndex) in log.rawColumns"
-                            :key="`${column.label}-${columnIndex}`"
-                            :title="column.value"
-                          >
-                            {{ column.value }}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              </template>
+                            🔴 {{ mode.label }}
+                          </button>
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
 
@@ -11489,41 +11589,37 @@ onBeforeUnmount(() => {
             AI
           </div>
           <div class="agent-chat-bubble">
-            <section
-              v-if="
-                message.role === 'assistant' && (message.reasoning || message.status === 'thinking')
-              "
-              class="agent-reasoning"
-            >
-              <button
-                type="button"
-                class="agent-response-label agent-reasoning-toggle"
-                :aria-expanded="!message.reasoningCollapsed"
-                @click="message.reasoningCollapsed = !message.reasoningCollapsed"
+            <template v-if="message.role === 'assistant'">
+              <section
+                v-for="part in getAgentDisplayParts(message)"
+                :key="part.id"
+                :class="part.type === 'reasoning' ? 'agent-reasoning' : 'agent-final-answer'"
               >
-                <span>思考过程</span>
-                <span
-                  v-if="message.status === 'thinking'"
-                  class="agent-thinking-dots"
-                  aria-label="思考中"
-                >
-                  <i></i><i></i><i></i>
-                </span>
-                <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-              </button>
-              <div v-show="!message.reasoningCollapsed">
-                <p v-if="message.reasoning">{{ message.reasoning }}</p>
-                <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-              </div>
-            </section>
-
-            <section
-              v-if="message.role === 'assistant' && message.content"
-              class="agent-final-answer"
-            >
-              <div class="agent-response-label">最终结果</div>
-              <div class="agent-markdown" v-html="renderAgentMarkdown(message.content)"></div>
-            </section>
+                <template v-if="part.type === 'reasoning'">
+                  <button
+                    type="button"
+                    class="agent-response-label agent-reasoning-toggle"
+                    :aria-expanded="!part.collapsed"
+                    @click="part.collapsed = !part.collapsed"
+                  >
+                    <span>思考过程</span>
+                    <span
+                      v-if="message.status === 'thinking'"
+                      class="agent-thinking-dots"
+                      aria-label="思考中"
+                    >
+                      <i></i><i></i><i></i>
+                    </span>
+                    <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  <div v-show="!part.collapsed">
+                    <p v-if="part.text">{{ part.text }}</p>
+                    <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
+                  </div>
+                </template>
+                <div v-else class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
+              </section>
+            </template>
             <p v-else-if="message.role === 'user'">{{ message.content }}</p>
           </div>
         </article>

@@ -42,6 +42,12 @@ class LogFileModel(BaseModel):
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
     task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
+    overall_progress: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="日志解析和诊断两个并行任务的平均进度",
+    )
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"
     )
