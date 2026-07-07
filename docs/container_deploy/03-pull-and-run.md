@@ -4,21 +4,19 @@
 
 ## 拉取镜像
 
-### 从镜像仓库拉取
+### 方法一：从镜像仓库拉取
 
 ```bash
-# 拉取最新版本
-docker pull <registry-url>/witty-ub:latest
-
-# 例如：
+# 拉取官方多架构镜像（自动匹配宿主机架构）
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 
-# 拉取指定架构镜像
-docker pull <registry-url>/witty-ub-x86_64:latest
-docker pull <registry-url>/witty-ub-aarch64:latest
+# 拉取私有镜像
+docker pull <registry-url>/witty-ub:latest
 ```
 
-### 从 tar 包加载
+> **说明：** `witty-ub:latest` 是多架构 manifest list，Docker 会自动选择匹配宿主机架构的镜像层。架构特定标签（如 `witty-ub-x86_64:latest`、`witty-ub-aarch64:latest`）需手动构建并推送，详情参见 [02-build-and-package.md](02-build-and-package.md)。
+
+### 方法二：从离线 tar 包加载
 
 ```bash
 # 加载镜像
@@ -28,7 +26,7 @@ docker load -i witty-ub.tar
 gunzip -c witty-ub.tar.gz | docker load
 ```
 
-### 验证镜像
+## 验证镜像
 
 ```bash
 docker images | grep witty-ub
@@ -38,7 +36,21 @@ docker images | grep witty-ub
 
 ## 启动容器
 
-### 使用 docker compose 启动（推荐）
+### 启动参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `-d` | 后台运行 |
+| `--name witty-ub` | 指定容器名称 |
+| `-p 32412:8080` | 端口映射（宿主机:容器） |
+| `-v /host/path:/container/path` | 挂载宿主机目录 |
+| `--restart always` | 自动重启 |
+
+**说明：**
+- `/host/path:/container/path:ro` 表示只读挂载，容器只能读取日志文件，不能写入，在容器中输入'/container/path/'等价于访问'/host/path/'目录。
+- 端口映射中的宿主机端口号取决于当前宿主机开放端口设置，建议使用未被占用的端口号，例如`-p 32412:8080`。
+
+### 方法一：使用 docker compose 启动（推荐）
 
 **步骤 1**：创建工作目录
 
@@ -63,7 +75,7 @@ services:
       - witty-ub-logs:/var/log/witty-ub
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
-      - /home/tsn/jingpai:/home/tsn/jingpai:ro
+      - /to/path/log:/to/path/log:ro
     environment:
       - PYTHONPATH=/var/witty-ub
       - LOG_LEVEL=info
@@ -107,7 +119,7 @@ docker compose -f docker-compose.yml up -d
 docker compose up -d --build
 ```
 
-### 使用纯 Docker 命令启动（完整配置，低版本 Docker）
+### 方法二：使用纯 Docker 命令启动（完整配置，低版本 Docker）
 
 ```bash
 # 创建网络（首次启动时执行）
@@ -140,17 +152,7 @@ docker run -d \
   witty-ub:latest
 ```
 
-### 启动参数说明
-
-| 参数 | 说明 |
-|------|------|
-| `-d` | 后台运行 |
-| `--name witty-ub` | 指定容器名称 |
-| `-p 32412:8080` | 端口映射（宿主机:容器） |
-| `-v /host/path:/container/path` | 挂载宿主机目录 |
-| `--restart always` | 自动重启 |
-
-### 使用 docker run 启动（临时测试）
+### 方法三：使用 docker run 启动（临时测试）
 
 ```bash
 docker run -d \

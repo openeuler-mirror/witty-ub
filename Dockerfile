@@ -59,6 +59,7 @@ COPY src/plugins/latency/common /var/witty-ub/latency/common/
 COPY src/plugins/latency/config /var/witty-ub/latency/config/
 COPY src/plugins/latency/database /var/witty-ub/latency/database/
 COPY src/plugins/latency/detect /var/witty-ub/latency/detect/
+COPY src/plugins/latency/exceptions /var/witty-ub/latency/exceptions/
 COPY src/plugins/latency/models /var/witty-ub/latency/models/
 COPY src/plugins/latency/parse /var/witty-ub/latency/parse/
 COPY src/plugins/latency/regex /var/witty-ub/latency/regex/

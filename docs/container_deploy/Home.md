@@ -16,6 +16,7 @@
 ## 快速入口
 
 - **快速开始**: 先阅读 [概述](01-overview.md) → [构建镜像](02-build-and-package.md) → [启动使用](03-pull-and-run.md)
+- **快速部署**: 直接查看 [启动使用](03-pull-and-run.md)
 - **常见问题**: 直接查看 [故障排查](04-troubleshooting.md)
 - **镜像分发**: 参考 [上传与打包](02-build-and-package.md)
 
