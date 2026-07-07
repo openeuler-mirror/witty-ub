@@ -478,7 +478,7 @@ def render_markdown(evidence: dict[str, Any]) -> str:
 
     lines.extend(
         [
-            "## 诊断使用要求",
+            "## 证据使用说明",
             "",
             "后续分析时应读取 JSON 中的源码片段、调用者、",
             "子调用和外部运行时热点，并检查同版本仓库源码。若没有对照实验",
