@@ -10,6 +10,7 @@ from latency.schemas.ds_log import (
     TupleField,
 )
 from latency.schemas.log import (
+    C2WLogParseResultDataclass,
     LogParseResultBatch,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
@@ -349,13 +350,19 @@ class ParseResultBuilder:
 
     def _build_from_sdk_raw(
         self,
-    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
+    ) -> list[
+        LogParseResultDataclass
+        | C2WLogParseResultDataclass
+        | SparseLogParseResultDataclass
+    ]:
         correlated = self.correlated
         if not correlated.sdk_worker_map:
             return self._build_unmatched_sdk_raw()
 
         results: list[
-            LogParseResultDataclass | SparseLogParseResultDataclass
+            LogParseResultDataclass
+            | C2WLogParseResultDataclass
+            | SparseLogParseResultDataclass
         ] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
@@ -386,6 +393,7 @@ class ParseResultBuilder:
         merge_remark = self._merge_remark
         not_found_search = NOT_FOUND_RE.search
         result_type = LogParseResultDataclass
+        c2w_result_type = C2WLogParseResultDataclass
         sparse_result_type = SparseLogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
@@ -598,6 +606,43 @@ class ParseResultBuilder:
                     remark or "OK",
                     sdk[T_TRACE_ID],
                     c2w_urma_latency,
+                    timestamp,
+                    shared_created_at,
+                )
+            elif (
+                src_ip is None
+                and dst_ip is None
+                and urma_inflight_count is None
+                and urma_link_latency is None
+                and urma_latency is None
+                and query_meta_latency is None
+                and c2w_urma_latency is None
+                and w2w_urma_latency is None
+                and sdk_process is None
+                and sdk_rpc is None
+                and local_worker_cost is None
+                and local_worker_lock is None
+                and remote_worker_cost is None
+                and remote_worker_rpc is None
+                and master_process is None
+                and master_rpc_total is None
+            ):
+                results[i] = c2w_result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                    remark if is_anomalous else None,
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    c2w_latency,
                     timestamp,
                     shared_created_at,
                 )
