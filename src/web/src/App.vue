@@ -21,12 +21,18 @@ type AgentChatMessage = {
   id: string
   role: 'user' | 'assistant'
   reasoning: string
-  reasoningParts?: Record<string, string>
+  parts?: AgentChatPart[]
   reasoningCollapsed: boolean
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
-  activeTextPartId?: string
+}
+
+type AgentChatPart = {
+  id: string
+  type: 'reasoning' | 'text'
+  text: string
+  collapsed?: boolean
 }
 
 type OpenCodeEvent = {
@@ -731,6 +737,44 @@ const getPendingAssistantMessage = () =>
     .reverse()
     .find((message) => message.role === 'assistant' && message.status === 'thinking')
 
+const getAgentMessagePart = (
+  message: AgentChatMessage,
+  type: AgentChatPart['type'],
+  partId: string,
+) => {
+  const id = `${type}:${partId}`
+  message.parts ||= []
+  let messagePart = message.parts.find((part) => part.id === id)
+  if (!messagePart) {
+    messagePart = { id, type, text: '', collapsed: false }
+    message.parts.push(messagePart)
+  }
+  return messagePart
+}
+
+const syncAgentMessageText = (message: AgentChatMessage) => {
+  const parts = message.parts ?? []
+  message.reasoning = parts
+    .filter((part) => part.type === 'reasoning' && part.text)
+    .map((part) => part.text)
+    .join('\n\n')
+  message.content = parts
+    .filter((part) => part.type === 'text' && part.text)
+    .map((part) => part.text)
+    .join('\n\n')
+}
+
+const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
+  if (message.role !== 'assistant') return []
+  const parts = (message.parts ?? []).filter((part) => part.text || part.type === 'reasoning')
+  if (parts.length > 0) return parts
+  if (message.content) return [{ id: `${message.id}:content`, type: 'text', text: message.content }]
+  if (message.status === 'thinking') {
+    return [{ id: `${message.id}:reasoning-placeholder`, type: 'reasoning', text: '' }]
+  }
+  return []
+}
+
 const extractOpenCodeError = (payload: unknown, fallback: string) => {
   if (!payload || typeof payload !== 'object') return fallback
   const value = payload as {
@@ -826,22 +870,12 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     target.messageId = part.messageID
     if (part.type === 'reasoning') {
       const reasoningPartId = part.id || 'reasoning'
-      target.reasoningParts ||= {}
-      target.reasoningParts[reasoningPartId] = part.text || ''
-      target.reasoning = Object.values(target.reasoningParts).filter(Boolean).join('\n\n')
+      getAgentMessagePart(target, 'reasoning', reasoningPartId).text = part.text || ''
+      syncAgentMessageText(target)
     } else if (part.type === 'text') {
       const textPartId = part.id || 'text'
-      if (
-        target.activeTextPartId &&
-        target.activeTextPartId !== textPartId &&
-        target.content
-      ) {
-        target.reasoningParts ||= {}
-        target.reasoningParts[`text:${target.activeTextPartId}`] = target.content
-        target.reasoning = Object.values(target.reasoningParts).filter(Boolean).join('\n\n')
-      }
-      target.activeTextPartId = textPartId
-      target.content = part.text || ''
+      getAgentMessagePart(target, 'text', textPartId).text = part.text || ''
+      syncAgentMessageText(target)
     }
     void scrollAgentChatToBottom()
     return
@@ -945,7 +979,7 @@ const sendAgentMessage = async () => {
     id: nextAgentLocalMessageId(),
     role: 'assistant',
     reasoning: '',
-    reasoningParts: {},
+    parts: [],
     reasoningCollapsed: false,
     content: '',
     status: 'thinking',
@@ -11555,41 +11589,37 @@ onBeforeUnmount(() => {
             AI
           </div>
           <div class="agent-chat-bubble">
-            <section
-              v-if="
-                message.role === 'assistant' && (message.reasoning || message.status === 'thinking')
-              "
-              class="agent-reasoning"
-            >
-              <button
-                type="button"
-                class="agent-response-label agent-reasoning-toggle"
-                :aria-expanded="!message.reasoningCollapsed"
-                @click="message.reasoningCollapsed = !message.reasoningCollapsed"
+            <template v-if="message.role === 'assistant'">
+              <section
+                v-for="part in getAgentDisplayParts(message)"
+                :key="part.id"
+                :class="part.type === 'reasoning' ? 'agent-reasoning' : 'agent-final-answer'"
               >
-                <span>思考过程</span>
-                <span
-                  v-if="message.status === 'thinking'"
-                  class="agent-thinking-dots"
-                  aria-label="思考中"
-                >
-                  <i></i><i></i><i></i>
-                </span>
-                <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-              </button>
-              <div v-show="!message.reasoningCollapsed">
-                <p v-if="message.reasoning">{{ message.reasoning }}</p>
-                <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-              </div>
-            </section>
-
-            <section
-              v-if="message.role === 'assistant' && message.content"
-              class="agent-final-answer"
-            >
-              <div class="agent-response-label">最终结果</div>
-              <div class="agent-markdown" v-html="renderAgentMarkdown(message.content)"></div>
-            </section>
+                <template v-if="part.type === 'reasoning'">
+                  <button
+                    type="button"
+                    class="agent-response-label agent-reasoning-toggle"
+                    :aria-expanded="!part.collapsed"
+                    @click="part.collapsed = !part.collapsed"
+                  >
+                    <span>思考过程</span>
+                    <span
+                      v-if="message.status === 'thinking'"
+                      class="agent-thinking-dots"
+                      aria-label="思考中"
+                    >
+                      <i></i><i></i><i></i>
+                    </span>
+                    <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  <div v-show="!part.collapsed">
+                    <p v-if="part.text">{{ part.text }}</p>
+                    <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
+                  </div>
+                </template>
+                <div v-else class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
+              </section>
+            </template>
             <p v-else-if="message.role === 'user'">{{ message.content }}</p>
           </div>
         </article>
