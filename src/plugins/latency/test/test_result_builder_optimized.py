@@ -15,6 +15,7 @@ from latency.database.managers.log_parse_result import (
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
 from latency.parse.worker_info_parser import WorkerInfoParser
+from latency.parse.worker_metrics_log_parser import WorkerMetricsLogParser
 from latency.schemas.ds_log import CorrelationResult, TupleField
 from latency.schemas.log import (
     LogParseResultBatch,
@@ -293,6 +294,53 @@ def test_worker_query_meta_scope_uses_pod_ip_from_log_line() -> None:
     assert entries[0].elapsed_us == 48.0
 
 
+def test_worker_metrics_preserves_remote_endpoint_from_message() -> None:
+    parser = WorkerMetricsLogParser()
+    trace_id = "trace-with-endpoint"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get] Remote done, count: 1, path: UB, cost: 0.616ms, "
+        "src=192.168.102.119:31402, dst=192.168.182.7:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.REMOTE_WORKER_RPC
+    assert entry.elapsed_us == 616.0
+    assert entry.src_addr == "192.168.102.119:31402"
+    assert entry.dst_addr == "192.168.182.7:31402"
+
+
+def test_worker_info_urma_parses_target_dst_and_destination_address() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-with-urma-endpoint"
+
+    for target_field in ("target address", "dst address", "destination address"):
+        line = (
+            "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+            f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+            "[URMA_ELAPSED_TOTAL] read done, cost 1.234ms, "
+            f"src address:192.168.102.119:31402, "
+            f"{target_field}:192.168.182.7:31402, "
+            "urma_inflight_wr_count:7\n"
+        )
+
+        entries = parser.match_line(line, "worker_192.168.102.119")
+
+        assert entries is not None
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.entry_type == EntryType.URMA
+        assert entry.elapsed_us == 1234.0
+        assert entry.src_addr == "192.168.102.119:31402"
+        assert entry.dst_addr == "192.168.182.7:31402"
+        assert entry.inflight_count == 7
+
+
 def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
     timestamp = datetime(2026, 7, 2)
     trace_id = "wanted"
@@ -340,6 +388,49 @@ def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
         for entry_type, map_name in metric_maps:
             values = getattr(correlated, map_name)[0]
             assert values[0][TupleField.ENTRY_TYPE] == entry_type.value
+
+
+def test_result_builder_falls_back_to_remote_metric_endpoint() -> None:
+    timestamp = datetime(2026, 7, 2, 1, 2, 3)
+    trace_id = "trace-with-metric-endpoint"
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=3000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+    )
+    remote_rpc = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=616,
+        entry_type=EntryType.REMOTE_WORKER_RPC.value,
+        src_addr="192.168.102.119:31402",
+        dst_addr="192.168.182.7:31402",
+    )
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [worker],
+            "Worker metrics parse": [remote_rpc],
+        }
+    ).correlate()
+
+    results = ParseResultBuilder([sdk], [worker], correlated).build()
+
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, LogParseResultDataclass)
+    assert result.remote_worker_rpc == 0.616
+    assert (result.src_ip, result.dst_ip) == (
+        "192.168.102.119:31402",
+        "192.168.182.7:31402",
+    )
 
 
 def test_empty_sdk_worker_correlation_falls_back_to_worker_results() -> None:
@@ -460,6 +551,52 @@ def test_sdk_urma_uses_shared_index_without_sdk_sized_map() -> None:
 
     assert correlated.sdk_urma_map == {}
     assert correlated.sdk_urma_index[("10.0.0.1", "trace")] == [urma]
+
+
+def test_unmatched_sdk_with_urma_endpoint_builds_full_result() -> None:
+    timestamp = datetime(2026, 7, 2)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=3000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    urma = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=560,
+        entry_type=EntryType.URMA.value,
+        src_addr="10.0.0.1:1",
+        dst_addr="10.0.0.2:1",
+        inflight_count=3,
+    )
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [],
+            "Worker urma parse": [urma],
+        }
+    ).correlate()
+
+    results = ParseResultBuilder(
+        [sdk],
+        [],
+        correlated,
+        log_file_id="file-id",
+    ).build()
+
+    assert isinstance(results, LogParseResultBatch)
+    assert results.all_sparse is False
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, LogParseResultDataclass)
+    assert result.log_id == "file-id"
+    assert result.total_latency == 3.0
+    assert result.c2w_latency is None
+    assert result.c2w_urma_latency == 0.56
+    assert result.urma_total_latency == 0.56
+    assert result.urma_inflight_count == 3
+    assert (result.src_ip, result.dst_ip) == ("10.0.0.1:1", "10.0.0.2:1")
 
 
 def test_single_worker_trace_skips_sort_and_timestamp_index() -> None:

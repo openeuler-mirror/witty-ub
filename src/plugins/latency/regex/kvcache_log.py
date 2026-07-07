@@ -14,8 +14,10 @@ NOT_FOUND_RE = re.compile(r"\bK_NOT_FOUND\b|not\s+found|notfound", re.IGNORECASE
 
 URMA_RE = re.compile(
     r"\[URMA_ELAPSED_TOTAL\].*?cost\s+([\d.]+)ms.*?"
-    r"src address:([^,]*?)\s*,\s*target address:([^,]*?)\s*,.*?"
-    r"urma_inflight_wr_count:\s*(\d+)"
+    r"src\s+address\s*:\s*([^,]*?)\s*,\s*"
+    r"(?:target|dst|destination)\s+address\s*:\s*([^,]*?)\s*,.*?"
+    r"urma_inflight_wr_count:\s*(\d+)",
+    re.IGNORECASE,
 )
 
 URMA_LINK_RE = re.compile(
@@ -33,6 +35,12 @@ REMOTE_GET_RE = re.compile(
 
 REMOTE_PULL_RE = re.compile(
     r"Processing pull object\[.*?src[= ]([^,]+),\s*dst[= ]([^,|\]]+)"
+)
+
+REMOTE_ENDPOINT_RE = re.compile(
+    r"\bsrc\s*(?:=|:|\s+)\s*([^,\]\s]+)\s*,\s*"
+    r"dst\s*(?:=|:|\s+)\s*([^,\]\s]+)",
+    re.IGNORECASE,
 )
 
 # -------------------------------------------------------------------
