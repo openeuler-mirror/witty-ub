@@ -156,7 +156,7 @@ async def startup_event():
     await mk_dirs()
     await AsyncSQLiteSingleton().init_database()
     await FailureModeKnowledge().init_failure_mode_knowledge()
-    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5)
+    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5, max_instances=3)
     scheduler.start()
 
 

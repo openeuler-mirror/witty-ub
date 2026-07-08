@@ -129,11 +129,14 @@ class TaskHandler:
     @staticmethod
     async def handle_pending_tasks():
         handle_pending_task_limit = 128
+        single_batch_limit = 10
         pending_tasks = await TaskManager.get_oldest_tasks_by_status(
             TaskStatusEnum.PENDING, handle_pending_task_limit
         )
         running_task_ids = []
-        for task in pending_tasks:
+        for i, task in enumerate(pending_tasks):
+            if i >= single_batch_limit:
+                break
             try:
                 log_dir = await TaskHandler._preprocess_log_source(task)
                 flag = await BaseWorker.run(task.id, log_dir=log_dir)
