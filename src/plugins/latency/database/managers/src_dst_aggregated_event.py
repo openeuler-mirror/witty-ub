@@ -473,18 +473,28 @@ class SrcDstAggregatedEventManager:
                 "p99_total_latencies": [],
                 "p95_total_latencies": [],
                 "ave_query_meta_latencies": [],
+                "min_query_meta_latencies": [],
+                "max_query_meta_latencies": [],
                 "p99_query_meta_latencies": [],
                 "p95_query_meta_latencies": [],
                 "ave_urma_total_latencies": [],
+                "min_urma_total_latencies": [],
+                "max_urma_total_latencies": [],
                 "p99_urma_total_latencies": [],
                 "p95_urma_total_latencies": [],
                 "ave_urma_link_latencies": [],
+                "min_urma_link_latencies": [],
+                "max_urma_link_latencies": [],
                 "p99_urma_link_latencies": [],
                 "p95_urma_link_latencies": [],
                 "ave_c2w_urma_latencies": [],
+                "min_c2w_urma_latencies": [],
+                "max_c2w_urma_latencies": [],
                 "p99_c2w_urma_latencies": [],
                 "p95_c2w_urma_latencies": [],
                 "ave_w2w_urma_latencies": [],
+                "min_w2w_urma_latencies": [],
+                "max_w2w_urma_latencies": [],
                 "p99_w2w_urma_latencies": [],
                 "p95_w2w_urma_latencies": [],
             })
@@ -512,6 +522,10 @@ class SrcDstAggregatedEventManager:
 
                 if row["ave_query_meta_latency"] is not None:
                     g["ave_query_meta_latencies"].append(row["ave_query_meta_latency"])
+                if row["min_query_meta_latency"] is not None:
+                    g["min_query_meta_latencies"].append(row["min_query_meta_latency"])
+                if row["max_query_meta_latency"] is not None:
+                    g["max_query_meta_latencies"].append(row["max_query_meta_latency"])
                 if row["p99_query_meta_latency"] is not None:
                     g["p99_query_meta_latencies"].append(row["p99_query_meta_latency"])
                 if row["p95_query_meta_latency"] is not None:
@@ -519,6 +533,10 @@ class SrcDstAggregatedEventManager:
 
                 if row["ave_urma_total_latency"] is not None:
                     g["ave_urma_total_latencies"].append(row["ave_urma_total_latency"])
+                if row["min_urma_total_latency"] is not None:
+                    g["min_urma_total_latencies"].append(row["min_urma_total_latency"])
+                if row["max_urma_total_latency"] is not None:
+                    g["max_urma_total_latencies"].append(row["max_urma_total_latency"])
                 if row["p99_urma_total_latency"] is not None:
                     g["p99_urma_total_latencies"].append(row["p99_urma_total_latency"])
                 if row["p95_urma_total_latency"] is not None:
@@ -526,6 +544,10 @@ class SrcDstAggregatedEventManager:
 
                 if row["ave_urma_link_latency"] is not None:
                     g["ave_urma_link_latencies"].append(row["ave_urma_link_latency"])
+                if row["min_urma_link_latency"] is not None:
+                    g["min_urma_link_latencies"].append(row["min_urma_link_latency"])
+                if row["max_urma_link_latency"] is not None:
+                    g["max_urma_link_latencies"].append(row["max_urma_link_latency"])
                 if row["p99_urma_link_latency"] is not None:
                     g["p99_urma_link_latencies"].append(row["p99_urma_link_latency"])
                 if row["p95_urma_link_latency"] is not None:
@@ -533,6 +555,10 @@ class SrcDstAggregatedEventManager:
 
                 if row["ave_c2w_urma_latency"] is not None:
                     g["ave_c2w_urma_latencies"].append(row["ave_c2w_urma_latency"])
+                if row["min_c2w_urma_latency"] is not None:
+                    g["min_c2w_urma_latencies"].append(row["min_c2w_urma_latency"])
+                if row["max_c2w_urma_latency"] is not None:
+                    g["max_c2w_urma_latencies"].append(row["max_c2w_urma_latency"])
                 if row["p99_c2w_urma_latency"] is not None:
                     g["p99_c2w_urma_latencies"].append(row["p99_c2w_urma_latency"])
                 if row["p95_c2w_urma_latency"] is not None:
@@ -540,6 +566,10 @@ class SrcDstAggregatedEventManager:
 
                 if row["ave_w2w_urma_latency"] is not None:
                     g["ave_w2w_urma_latencies"].append(row["ave_w2w_urma_latency"])
+                if row["min_w2w_urma_latency"] is not None:
+                    g["min_w2w_urma_latencies"].append(row["min_w2w_urma_latency"])
+                if row["max_w2w_urma_latency"] is not None:
+                    g["max_w2w_urma_latencies"].append(row["max_w2w_urma_latency"])
                 if row["p99_w2w_urma_latency"] is not None:
                     g["p99_w2w_urma_latencies"].append(row["p99_w2w_urma_latency"])
                 if row["p95_w2w_urma_latency"] is not None:
@@ -566,47 +596,57 @@ class SrcDstAggregatedEventManager:
                 }
 
                 aves_qm = g["ave_query_meta_latencies"]
+                mins_qm = g["min_query_meta_latencies"]
+                maxs_qm = g["max_query_meta_latencies"]
                 p99s_qm = g["p99_query_meta_latencies"]
                 p95s_qm = g["p95_query_meta_latencies"]
                 ip_pair["ave_query_meta_latency"] = sum(aves_qm) / len(aves_qm) if aves_qm else None
-                ip_pair["min_query_meta_latency"] = ip_pair["ave_query_meta_latency"]
-                ip_pair["max_query_meta_latency"] = ip_pair["ave_query_meta_latency"]
+                ip_pair["min_query_meta_latency"] = min(mins_qm) if mins_qm else None
+                ip_pair["max_query_meta_latency"] = max(maxs_qm) if maxs_qm else None
                 ip_pair["p99_query_meta_latency"] = calc_percentile(p99s_qm[:], 99) if p99s_qm else None
                 ip_pair["p95_query_meta_latency"] = calc_percentile(p95s_qm[:], 95) if p95s_qm else None
 
                 aves_ut = g["ave_urma_total_latencies"]
+                mins_ut = g["min_urma_total_latencies"]
+                maxs_ut = g["max_urma_total_latencies"]
                 p99s_ut = g["p99_urma_total_latencies"]
                 p95s_ut = g["p95_urma_total_latencies"]
                 ip_pair["ave_urma_total_latency"] = sum(aves_ut) / len(aves_ut) if aves_ut else None
-                ip_pair["min_urma_total_latency"] = ip_pair["ave_urma_total_latency"]
-                ip_pair["max_urma_total_latency"] = ip_pair["ave_urma_total_latency"]
+                ip_pair["min_urma_total_latency"] = min(mins_ut) if mins_ut else None
+                ip_pair["max_urma_total_latency"] = max(maxs_ut) if maxs_ut else None
                 ip_pair["p99_urma_total_latency"] = calc_percentile(p99s_ut[:], 99) if p99s_ut else None
                 ip_pair["p95_urma_total_latency"] = calc_percentile(p95s_ut[:], 95) if p95s_ut else None
 
                 aves_ul = g["ave_urma_link_latencies"]
+                mins_ul = g["min_urma_link_latencies"]
+                maxs_ul = g["max_urma_link_latencies"]
                 p99s_ul = g["p99_urma_link_latencies"]
                 p95s_ul = g["p95_urma_link_latencies"]
                 ip_pair["ave_urma_link_latency"] = sum(aves_ul) / len(aves_ul) if aves_ul else None
-                ip_pair["min_urma_link_latency"] = ip_pair["ave_urma_link_latency"]
-                ip_pair["max_urma_link_latency"] = ip_pair["ave_urma_link_latency"]
+                ip_pair["min_urma_link_latency"] = min(mins_ul) if mins_ul else None
+                ip_pair["max_urma_link_latency"] = max(maxs_ul) if maxs_ul else None
                 ip_pair["p99_urma_link_latency"] = calc_percentile(p99s_ul[:], 99) if p99s_ul else None
                 ip_pair["p95_urma_link_latency"] = calc_percentile(p95s_ul[:], 95) if p95s_ul else None
 
                 aves_c2w = g["ave_c2w_urma_latencies"]
+                mins_c2w = g["min_c2w_urma_latencies"]
+                maxs_c2w = g["max_c2w_urma_latencies"]
                 p99s_c2w = g["p99_c2w_urma_latencies"]
                 p95s_c2w = g["p95_c2w_urma_latencies"]
                 ip_pair["ave_c2w_urma_latency"] = sum(aves_c2w) / len(aves_c2w) if aves_c2w else None
-                ip_pair["min_c2w_urma_latency"] = ip_pair["ave_c2w_urma_latency"]
-                ip_pair["max_c2w_urma_latency"] = ip_pair["ave_c2w_urma_latency"]
+                ip_pair["min_c2w_urma_latency"] = min(mins_c2w) if mins_c2w else None
+                ip_pair["max_c2w_urma_latency"] = max(maxs_c2w) if maxs_c2w else None
                 ip_pair["p99_c2w_urma_latency"] = calc_percentile(p99s_c2w[:], 99) if p99s_c2w else None
                 ip_pair["p95_c2w_urma_latency"] = calc_percentile(p95s_c2w[:], 95) if p95s_c2w else None
 
                 aves_w2w = g["ave_w2w_urma_latencies"]
+                mins_w2w = g["min_w2w_urma_latencies"]
+                maxs_w2w = g["max_w2w_urma_latencies"]
                 p99s_w2w = g["p99_w2w_urma_latencies"]
                 p95s_w2w = g["p95_w2w_urma_latencies"]
                 ip_pair["ave_w2w_urma_latency"] = sum(aves_w2w) / len(aves_w2w) if aves_w2w else None
-                ip_pair["min_w2w_urma_latency"] = ip_pair["ave_w2w_urma_latency"]
-                ip_pair["max_w2w_urma_latency"] = ip_pair["ave_w2w_urma_latency"]
+                ip_pair["min_w2w_urma_latency"] = min(mins_w2w) if mins_w2w else None
+                ip_pair["max_w2w_urma_latency"] = max(maxs_w2w) if maxs_w2w else None
                 ip_pair["p99_w2w_urma_latency"] = calc_percentile(p99s_w2w[:], 99) if p99s_w2w else None
                 ip_pair["p95_w2w_urma_latency"] = calc_percentile(p95s_w2w[:], 95) if p95s_w2w else None
 

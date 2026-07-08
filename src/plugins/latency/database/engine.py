@@ -553,7 +553,12 @@ class AsyncSQLiteSingleton:
             self._write_conn.commit()
             logger.info("数据库初始化成功，表创建完成")
             
-            self._sync_migrate_database()
+            migrate_result = self._sync_migrate_database()
+            if not migrate_result:
+                logger.error("数据库迁移失败")
+                self._write_conn.rollback()
+                self._initialized = InitStatus.FAILED
+                return False
             
             self._initialized = InitStatus.SUCCESS
             return True
@@ -650,7 +655,21 @@ class AsyncSQLiteSingleton:
     def _is_read_only(self, sql: str) -> bool:
         """判断 SQL 是否为只读操作"""
         stripped = sql.strip().upper()
-        return stripped.startswith('SELECT') or stripped.startswith('PRAGMA')
+        if stripped.startswith('SELECT'):
+            return True
+        if stripped.startswith('PRAGMA'):
+            pragma_parts = stripped.split()
+            if len(pragma_parts) >= 2:
+                pragma_name = pragma_parts[1].strip(';')
+                read_only_pragmas = {
+                    'DATABASE_LIST', 'TABLE_INFO', 'INDEX_LIST', 'INDEX_INFO',
+                    'FOREIGN_KEY_LIST', 'COLLATION_LIST', 'SCHEMA_VERSION',
+                    'USER_VERSION', 'INTEGRITY_CHECK', 'QUICK_CHECK', 'PAGE_COUNT',
+                    'PAGE_SIZE', 'ENCODING', 'TEMP_STORE', 'AUTO_VACUUM', 'CACHE_SIZE',
+                }
+                return pragma_name in read_only_pragmas
+            return False
+        return False
 
     async def execute_modify(self, sql: str, params: Any = ()) -> tuple[bool, int]:
         """
