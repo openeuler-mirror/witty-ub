@@ -1,4 +1,4 @@
-"""Worker INFO 日志合并解析器 - 一次遍历处理所有 Run-format 日志类型"""
+"""Worker运行日志合并解析器 - 一次遍历处理所有 Run-format 日志类型"""
 
 import logging
 import os
@@ -46,7 +46,7 @@ ALL_KEYWORDS = BASE_KEYWORDS + METRICS_KEYWORDS
 
 
 class WorkerInfoParser(LogParser):
-    """Worker INFO 日志合并解析器
+    """Worker运行日志合并解析器
 
     合并 Urma / RemotePull / Link / QueryMeta 4 个解析器，
     一次读文件 + 一次 if/elif 分派，消除重复的 _build_parsed_run 和 parse_timestamp。

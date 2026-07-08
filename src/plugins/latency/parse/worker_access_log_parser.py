@@ -1,4 +1,4 @@
-"""Worker访问日志解析器"""
+"""Worker接口日志解析器"""
 
 from datetime import datetime
 from typing import Optional
@@ -12,7 +12,7 @@ from latency.parse.base_parser import AccessLogParser, WORKER_GET_OPS, logger
 
 
 class WorkerAccessLogParser(AccessLogParser):
-    """Worker访问日志解析器"""
+    """Worker接口日志解析器"""
 
     @property
     def patterns(self) -> list[str]:
@@ -95,7 +95,7 @@ class WorkerAccessLogParser(AccessLogParser):
         )
 
     def parse(self, input_dir: str) -> list[LogEntry]:
-        """解析Worker访问日志"""
+        """解析Worker接口日志"""
         self._filtered_by_time = 0
         entries = super().parse(input_dir)
         if self._filtered_by_time > 0:

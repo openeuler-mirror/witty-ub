@@ -2,14 +2,26 @@
 
 - [快速入门](#快速入门)
   - [部署指导](#部署指导)
+    - [docker 容器部署](#docker-容器部署)
     - [从 RPM 包安装](#从-rpm-包安装)
     - [源码编译安装](#源码编译安装)
   - [使用指导](#使用指导)
+    - [超节点故障智能监控诊断平台使用指导](#超节点故障智能监控诊断平台使用指导)
     - [超节点系统拓扑实时感知工具witty-ub-topo使用指导](#超节点系统拓扑实时感知工具witty-ub-topo使用指导)
     - [超节点多源系统日志解析工具witty-ub-log使用指导](#超节点多源系统日志解析工具witty-ub-log使用指导)
     - [超节点故障定界工具witty-ub-diag-tool使用指导](#超节点故障定界工具witty-ub-diag-tool使用指导)
 
 ## 部署指导
+
+### docker 容器部署
+
+本项目提供了 docker 容器化部署方式，替代传统的 RPM 包部署方式。
+
+- 容器化部署指南首页：[容器化部署指南](./container_deploy/Home.md)
+- 已经通过 RPM 包进行部署，希望迁移到容器化部署，请参考[从 RPM 迁移到容器化](./container_deploy/01-overview.md#从-rpm-迁移到容器化)
+- 需要构建本地镜像，请参考[镜像构建、上传与打包](./container_deploy/02-build-and-package.md)
+- 本项目提供打包好的镜像，可以直接拉取并运行 witty-ub 服务，参考[拉取镜像并运行](./container_deploy/03-pull-and-run.md)
+- 部分问题排查与解决方案，请参考[问题排查与解决方案](./container_deploy/04-troubleshooting.md)
 
 ### 从 RPM 包安装
 
@@ -25,33 +37,7 @@ sudo yum install -y witty-ub
 - witty-ub-log: 超节点多源系统日志解析工具，采集超节点各组件日志，识别组件故障事件及关联日志
 - witty-ub-diag-tool: 超节点故障定界工具，基于故障树驱动的诊断引擎，对KVCache和URMA组件日志进行多级故障定界分析，生成可视化故障分析报告
 
-2. 完成配置：在 `/var/witty-ub/config/diagnosis_config.json` 中统一配置
-    1. `log_analyzer_params`：时延分析参数
-        1. 时延阈值：各指标的P99异常阈值
-            - `total_p99_threshold_ms`：总时延 P99 阈值
-            - `c2w_p99_threshold_ms`：C2W 时延 P99 阈值
-            - `w2w_p99_threshold_ms`：W2W 时延 P99 阈值
-            - `urma_link_p99_threshold_ms`：URMA 建链时延 P99 阈值
-            - `query_meta_p99_threshold_ms`：查询元数据时延 P99 阈值
-        2. 滑动窗口参数：各指标滑动窗口检测的参数
-            - `sliding_window_sizes`：滑动窗口大小
-            - `sliding_window_steps`：滑动窗口步长
-        3. 异常密度阈值：窗口被判定为异常的密度阈值
-            - `zone_anomaly_density_threshold`：异常密度阈值
-    2. `log_filename_pattern`：Glob 风格的日志文件名 pattern
-        - `ds_client_access_log_file`：client接口日志
-        - `ds_client_info_log_file`：client运行日志
-        - `ds_worker_access_log_file`：worker接口日志
-        - `ds_worker_info_log_file`：worker运行日志
-        - `resource_log_file`：资源日志
-
-3. 启动服务：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl start witty-ub-latency   # 启动后端服务
-sudo systemctl start witty-ub-web       # 启动 Web 服务
-```
+安装 RPM 包后，超节点故障智能监控诊断平台的后端和 Web 服务会自动启动，使用方式参考[witty-ub超节点故障智能监控诊断平台使用指导](./witty-ub超节点故障智能监控诊断平台使用指导.md)
 
 ### 源码编译安装
 
@@ -117,10 +103,17 @@ npm run dev # 仅localhost访问，默认端口为 5173
 
 ## 使用指导
 
+### 超节点故障智能监控诊断平台使用指导
+
+本项目提供了基于 Web 的超节点故障智能监控诊断平台，部署完成后，用户可以通过浏览器访问该平台，进行超节点故障定界分析。
+- 使用指导：请参考[witty-ub超节点故障智能监控诊断平台使用指导](./witty-ub超节点故障智能监控诊断平台使用指导.md)
+- 访问方式；浏览器访问`http://localhost:<web-port>`
+    - Web服务在生产环境中默认监听8080端口，开发环境（源码编译安装）监听5173端口，通过docker部署时容器外部访问端口为32412
+
 ### 超节点系统拓扑实时感知工具witty-ub-topo使用指导
 
 - 在witty-ub根目录下执行以下命令，输出对应json格式的拓扑信息到文件```/var/witty-ub```目录下```lcne-topology.json```和```urma-topology.json```文件中。        
-- 命令行参数如下，详情请见[witty-ub工具使用指导](./witty-ub数据采集工具指导.md)
+- 命令行参数如下，详情请见[witty-ub数据采集工具使用指导](./witty-ub数据采集工具指导.md)
     ```bash
     ./build/src/witty-ub-topo --network-mode fullmesh --pod-mode on --umq-log-path "pod-name1:/log/path/to/pod-name1,pod-name2:/log/path/to/pod-name2" --pod-id pod-name1,pod-name2
     ```
@@ -128,7 +121,7 @@ npm run dev # 仅localhost访问，默认端口为 5173
 ### 超节点多源系统日志解析工具witty-ub-log使用指导
 
 - 在witty-ub根目录下执行以下命令，输出对应json格式的拓扑信息到文件```/var/witty-ub```目录下```failure_event.json```文件中。
-- 命令行参数如下，详情请见[witty-ub工具使用指导](./witty-ub数据采集工具指导.md)
+- 命令行参数如下，详情请见[witty-ub数据采集工具使用指导](./witty-ub数据采集工具指导.md)
     ```bash
     witty-ub-log --pod-mode on \
     --ubsocket-log-path "pod-name1:/log/messages/path/to/pod-name1,pod-name2:/log/messages/path/to/pod-name2" \
@@ -140,6 +133,16 @@ npm run dev # 仅localhost访问，默认端口为 5173
 
 ### 超节点故障定界工具witty-ub-diag-tool使用指导
 
-- 浏览器访问 `http://localhost:<web-port>`
-    - web-port为witty-ub-web服务启动时的端口号，安装 RPM 包部署时为8080，源码编译部署时为5173
-    - 远程访问时，请确保防火墙已放行web-port端口，或使用SSH隧道转发web-port端口
+- 在witty-ub根目录下执行以下命令，输出对应json格式的拓扑信息到文件```/var/witty-ub/log_<random_string>```目录下```failure_view_vis.html```和```failure_traces.log```文件中。
+- 命令行参数如下
+    ```bash
+    witty-ub-diag-tool  \
+        --ds-log-path "/path/to/ds_log" \
+        --ds-client-access-log-file "<client_access_log_filename_pattern>" \
+        --ds-client-info-log-file "<client_info_log_filename_pattern>" \
+        --ds-worker-access-log-file "<worker_access_log_filename_pattern>" \
+        --ds-worker-info-log-file "<worker_info_log_filename_pattern>" \
+        --resource-log-file "<resource_log_filename_pattern>" \
+        --start-time "2026-03-09 00:00:00" --end-time "2026-03-10 00:00:00" \
+        --random-str "<random_string>" \
+    ```

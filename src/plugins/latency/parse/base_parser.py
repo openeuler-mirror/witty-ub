@@ -191,7 +191,7 @@ class LogParser(ABC):
 
 
 class AccessLogParser(LogParser):
-    """访问日志解析器基类，提供Access格式日志的便捷解析能力"""
+    """接口日志解析器基类，提供Access格式日志的便捷解析能力"""
 
     @staticmethod
     def parse_status_code(raw: str) -> int:
