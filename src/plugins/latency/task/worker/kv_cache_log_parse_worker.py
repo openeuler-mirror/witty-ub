@@ -46,10 +46,6 @@ from latency.schemas.log import (
     AnomalousEventChainModel,
 )
 from latency.task.worker.base import BaseWorker
-from latency.regex.kvcache_log_file import (
-    MIXED_ROTATED_GZ_PATTERN,
-    include_gzip_patterns,
-)
 
 
 
@@ -115,11 +111,6 @@ class KVCacheLogParseWorker(BaseWorker):
     """
 
     name = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
-
-    @staticmethod
-    def _include_gzip_patterns(patterns: list[str]) -> list[str]:
-        """兼容 Worker 内部调用，实际规则由统一 pattern 模块维护。"""
-        return include_gzip_patterns(patterns)
 
     @staticmethod
     async def init(op_id: str) -> str | None:
@@ -351,7 +342,8 @@ class KVCacheLogParseWorker(BaseWorker):
             log_file = await LogFileManager.get_log_file_by_log_file_id(log_id)
             if not log_file:
                 raise ValueError(f"Log file with id {log_id} not found")
-            log_dir = log_file.file_path
+            if not log_dir:
+                log_dir = log_file.file_path
             from latency.database.managers.diagnosis_config import DiagnosisConfigManager
 
             diagnosis_config = await DiagnosisConfigManager.get_or_create(log_file.kb_id)
@@ -981,7 +973,7 @@ class KVCacheLogParseWorker(BaseWorker):
         return success
 
     @staticmethod
-    async def run(task_id: str) -> bool:
+    async def run(task_id: str, log_dir: str | None = None) -> bool:
         """运行任务"""
         try:
             task = await TaskManager.get_task_by_task_id(task_id)
@@ -1002,9 +994,14 @@ class KVCacheLogParseWorker(BaseWorker):
 
             # 直接使用 task.op_id 作为 log_id，parse_log 内部会获取 log_file 信息
             t_run_start = time.perf_counter()
-            list_log_parse_results = await KVCacheLogParseWorker.parse_log(task.op_id, parse_config, task_id=task_id)
+            list_log_parse_results = await KVCacheLogParseWorker.parse_log(
+                task.op_id,
+                parse_config,
+                log_dir=log_dir or "",
+                task_id=task_id,
+            )
             t_parse = time.perf_counter() - t_run_start
-            await BaseWorker.report(task.id, "Log parse completed", 40.0)
+            await BaseWorker.report(task.id, "Log parse completed", 20.0)
             await BaseWorker.report(
                 task.id,
                 f"[perf][parse.results] rows={len(list_log_parse_results)}",
@@ -1028,7 +1025,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 list_log_parse_results, analyzer_config
             )
             t_detect = time.perf_counter() - t_detect_start
-            await BaseWorker.report(task.id, "Anomaly detection done", 50.0)
+            await BaseWorker.report(task.id, "Anomaly detection done", 30.0)
             await BaseWorker.report(
                 task.id,
                 f"[perf][detect.summary] results={len(list_log_parse_results)}, events={len(anomalous_events)}, time={t_detect:.3f}s",
@@ -1039,7 +1036,7 @@ class KVCacheLogParseWorker(BaseWorker):
             t_agg_start = time.perf_counter()
             src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
             t_agg = time.perf_counter() - t_agg_start
-            await BaseWorker.report(task.id, "Aggregate events done", 60.0)
+            await BaseWorker.report(task.id, "Aggregate events done", 40.0)
             await BaseWorker.report(
                 task.id,
                 (
@@ -1060,7 +1057,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst), "")
             
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
-            await BaseWorker.report(task.id, "Fault matching done", 75.0)
+            await BaseWorker.report(task.id, "Fault matching done", 50.0)
             await BaseWorker.report(
                 task.id,
                 f"[perf][fault.summary] events={len(anomalous_events)}, chains={len(anomalous_event_chains or [])}",
@@ -1075,7 +1072,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 src_dst_aggregated_events=src_dst_aggregated_events,
             )
             t_store = time.perf_counter() - t_store_start
-            await BaseWorker.report(task.id, "Results stored", 90.0)
+            await BaseWorker.report(task.id, "Results stored", 70.0)
             await BaseWorker.report(
                 task.id,
                 (
@@ -1093,7 +1090,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 t_context_start = time.perf_counter()
                 context_log_count = await KVCacheLogParseWorker.store_trace_context_logs(
                     log_id=task.op_id,
-                    log_dir=log_file.file_path,
+                    log_dir=log_dir or log_file.file_path,
                     list_log_parse_results=list_log_parse_results,
                 )
                 t_context = time.perf_counter() - t_context_start
@@ -1101,7 +1098,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     await BaseWorker.report(
                         task.id,
                         f"Trace context logs stored: {context_log_count}",
-                        97.0,
+                        85.0,
                     )
                 await BaseWorker.report(
                     task.id,
