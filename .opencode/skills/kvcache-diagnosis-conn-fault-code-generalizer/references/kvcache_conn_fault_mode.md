@@ -2,7 +2,7 @@
 
 > **生成依据**：本文档基于 `docs/observable/08-fault-triage-consolidated.md`（简称"08手册"）和 `docs/observable/10-customer-fault-scenarios.md`（简称"10案例"）生成。
 > **故障编码规则**：`kvcache_conn_fault_XXX` 表示通断场景故障，子级编码形式为 `kvcache_conn_fault_XXX_YYY`。
-> **日志模板**：运行日志格式为 `Time | level | filename | pod_name | pid:tid | trace_id | cluster_name | message`；访问日志格式为 `Time | level | filename | pod_name | pid:tid | trace_id | cluster_name | status_code | action | cost | data size | request param | response param`。详见 `.opencode/skills/kvcache/references/log_template.md:L31-37`。
+> **日志模板**：运行日志格式为 `Time | level | filename | pod_name | pid:tid | trace_id | cluster_name | message`；接口日志格式为 `Time | level | filename | pod_name | pid:tid | trace_id | cluster_name | status_code | action | cost | data size | request param | response param`。详见 `.opencode/skills/kvcache/references/log_template.md:L31-37`。
 
 ---
 
@@ -19,7 +19,7 @@
 ```
 来源：`.opencode/skills/kvcache/references/log-example/ds_client_1234.INFO.log:L1`
 
-### 访问日志 (access log)
+### 接口日志 (access log)
 文件路径：`$log_dir/ds_client_access_<pid>.log`
 
 格式：`Time | level | filename | pod_name | pid:tid | trace_id | cluster_name | status_code | action | cost | data size | request param | response param`

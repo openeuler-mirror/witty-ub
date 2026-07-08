@@ -1,4 +1,4 @@
-"""SDK访问日志解析器"""
+"""SDK接口日志解析器"""
 import os
 from datetime import datetime
 from typing import Optional
@@ -12,7 +12,7 @@ from latency.parse.base_parser import AccessLogParser, SDK_GET_OPS, logger
 
 
 class SdkAccessLogParser(AccessLogParser):
-    """SDK访问日志解析器"""
+    """SDK接口日志解析器"""
 
     @property
     def patterns(self) -> list[str]:
@@ -93,7 +93,7 @@ class SdkAccessLogParser(AccessLogParser):
         )
 
     def parse(self, input_dir: str) -> list[LogEntry]:
-        """解析SDK访问日志"""
+        """解析SDK接口日志"""
         self._filtered_by_time = 0
         self._filtered_by_elapsed = 0
         entries = super().parse(input_dir)

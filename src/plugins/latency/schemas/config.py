@@ -55,9 +55,9 @@ class DSLogAnalyzerConfig(BaseModel):
 
 
 class LogFilenamePatternConfig(BaseModel):
-    ds_client_access_log_file: list[str] = Field(default_factory=list, description="SDK客户端访问日志文件匹配模式")
+    ds_client_access_log_file: list[str] = Field(default_factory=list, description="SDK客户端接口日志文件匹配模式")
     ds_client_info_log_file: list[str] = Field(default_factory=list, description="SDK客户端信息日志文件匹配模式")
-    ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker访问日志文件匹配模式")
+    ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker接口日志文件匹配模式")
     ds_worker_info_log_file: list[str] = Field(default_factory=list, description="Worker信息日志文件匹配模式")
     resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
 

@@ -221,7 +221,7 @@ docker exec witty-ub cat /var/log/witty-ub-web/error.log
 
 容器内日志路径:
 
-- **Nginx 访问日志**: `/var/log/witty-ub-web/access.log`
+- **Nginx 接口日志**: `/var/log/witty-ub-web/access.log`
 - **Nginx 错误日志**: `/var/log/witty-ub-web/error.log`
 - **Latency 服务日志**: `/var/log/witty-ub/latency_server.log`
 - **应用日志**: `/var/log/witty-ub/`

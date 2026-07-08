@@ -1102,22 +1102,22 @@ const patternTypeOptions: Array<{
 }> = [
   {
     key: 'ds_client_access_log_file',
-    label: 'SDK 客户端访问日志',
+    label: 'SDK 客户端接口日志',
     description: '客户端请求与调用链日志',
   },
   {
     key: 'ds_client_info_log_file',
-    label: 'SDK 客户端 INFO 日志',
+    label: 'SDK 客户端运行日志',
     description: '客户端运行与状态日志',
   },
   {
     key: 'ds_worker_access_log_file',
-    label: 'Worker 访问日志',
-    description: 'Worker 请求访问日志',
+    label: 'Worker 接口日志',
+    description: 'Worker 请求接口日志',
   },
   {
     key: 'ds_worker_info_log_file',
-    label: 'Worker INFO 日志',
+    label: 'Worker 运行日志',
     description: 'Worker 运行与状态日志',
   },
   { key: 'resource_log_file', label: '资源日志', description: '资源监控与资源状态日志' },
