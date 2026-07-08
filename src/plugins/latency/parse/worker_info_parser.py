@@ -10,6 +10,7 @@ from latency.regex.kvcache_log import (
     QUERY_META_RE, SDK_PROCESS_RE, SDK_RPC_RE,
     LOCAL_WORKER_COST_RE, LOCAL_WORKER_LOCK_RE,
     REMOTE_WORKER_COST_RE, REMOTE_WORKER_RPC_RE,
+    REMOTE_ENDPOINT_RE,
     MASTER_PROCESS_RE, MASTER_RPC_RE,
 )
 from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS
@@ -424,6 +425,12 @@ class WorkerInfoParser(LogParser):
     @staticmethod
     def _mk_metrics(parsed: dict, ts, pod_ip: str, entry_type: EntryType, elapsed_us: float) -> LogEntry:
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        endpoint_match = REMOTE_ENDPOINT_RE.search(parsed["msg"])
+        if endpoint_match:
+            src_addr, dst_addr = (value.strip() for value in endpoint_match.groups())
+        else:
+            src_addr = None
+            dst_addr = None
         return LogEntry(
             timestamp=ts,
             elapsed_us=elapsed_us,
@@ -431,6 +438,8 @@ class WorkerInfoParser(LogParser):
             trace_id=parsed["trace_id"],
             entry_type=entry_type,
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
+            src_addr=src_addr,
+            dst_addr=dst_addr,
         )
 
     @staticmethod

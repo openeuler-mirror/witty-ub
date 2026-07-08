@@ -7,16 +7,21 @@ from latency.database.managers import log_parse_result as log_parse_result_manag
 from latency.database.managers.log_parse_result import (
     LogParseResultManager,
     _can_use_minimal_insert,
+    _can_use_c2w_insert,
     _can_use_sparse_insert,
+    _log_parse_result_to_c2w_db_tuple,
     _log_parse_result_to_db_tuple,
     _log_parse_result_to_minimal_db_tuple,
     _log_parse_result_to_sparse_db_tuple,
 )
+from latency.parse.base_parser import AccessLogParser
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
 from latency.parse.worker_info_parser import WorkerInfoParser
+from latency.parse.worker_metrics_log_parser import WorkerMetricsLogParser
 from latency.schemas.ds_log import CorrelationResult, TupleField
 from latency.schemas.log import (
+    C2WLogParseResultDataclass,
     LogParseResultBatch,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
@@ -234,6 +239,45 @@ def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:
     assert (results[3].src_ip, results[3].dst_ip) == ("10.3.0.1", "10.4.0.1")
 
 
+def test_plain_sdk_worker_match_uses_c2w_result() -> None:
+    timestamp = datetime(2026, 7, 2, 1, 2, 3, 456789)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="plain",
+        elapsed_us=2200,
+        entry_type="SDK_GET",
+    )
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id="plain",
+        elapsed_us=1200,
+        entry_type="WORKER_GET",
+        cluster_name="worker-cluster",
+    )
+    correlated = CorrelationResult(
+        sdk_worker_map={0: worker},
+        worker_idx_map={0: 0},
+    )
+
+    results = ParseResultBuilder(
+        [sdk],
+        [worker],
+        correlated,
+        log_file_id="file-id",
+    ).build()
+
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, C2WLogParseResultDataclass)
+    assert result.log_id == "file-id"
+    assert result.cluster_name == "worker-cluster"
+    assert result.total_latency == 2.2
+    assert result.c2w_latency == 1.0
+    assert result.src_ip is None
+    assert result.dst_ip is None
+    assert result.to_pydantic().c2w_latency == 1.0
+
+
 def test_scan_scope_reuses_trace_set_and_info_split_is_single_pass() -> None:
     timestamp = datetime(2026, 7, 2)
     sdk_entries = [
@@ -268,6 +312,35 @@ def test_scan_scope_reuses_trace_set_and_info_split_is_single_pass() -> None:
     assert all(len(entries) == 1 for entries in parsed.values())
 
 
+def test_worker_access_patterns_include_numbered_access_logs() -> None:
+    assert worker_module._expand_worker_access_patterns(
+        ["access.log", "access.log.gz"]
+    ) == [
+        "access.log",
+        "access*.log",
+        "access.log.gz",
+        "access*.log.gz",
+    ]
+    assert worker_module._expand_worker_access_patterns(
+        ["*worker_*/access.log"]
+    ) == ["*worker_*/access.log", "*worker_*/access*.log"]
+
+
+def test_object_key_strips_sdk_square_bracket_suffix() -> None:
+    assert (
+        AccessLogParser.extract_object_key(
+            "{Object_key:[T_yxh_master_kvclient_1_1],timeout:2000}"
+        )
+        == "T_yxh_master_kvclient_1_1"
+    )
+    assert (
+        AccessLogParser.extract_object_key(
+            "{Object_key:T_yxh_master_kvclient_1_1,count:1}"
+        )
+        == "T_yxh_master_kvclient_1_1"
+    )
+
+
 def test_worker_query_meta_scope_uses_pod_ip_from_log_line() -> None:
     trace_id = "wanted-trace"
     parser = WorkerInfoParser()
@@ -291,6 +364,53 @@ def test_worker_query_meta_scope_uses_pod_ip_from_log_line() -> None:
     assert len(entries) == 1
     assert entries[0].entry_type == EntryType.QUERY_META
     assert entries[0].elapsed_us == 48.0
+
+
+def test_worker_metrics_preserves_remote_endpoint_from_message() -> None:
+    parser = WorkerMetricsLogParser()
+    trace_id = "trace-with-endpoint"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get] Remote done, count: 1, path: UB, cost: 0.616ms, "
+        "src=192.168.102.119:31402, dst=192.168.182.7:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.REMOTE_WORKER_RPC
+    assert entry.elapsed_us == 616.0
+    assert entry.src_addr == "192.168.102.119:31402"
+    assert entry.dst_addr == "192.168.182.7:31402"
+
+
+def test_worker_info_urma_parses_target_dst_and_destination_address() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-with-urma-endpoint"
+
+    for target_field in ("target address", "dst address", "destination address"):
+        line = (
+            "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+            f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+            "[URMA_ELAPSED_TOTAL] read done, cost 1.234ms, "
+            f"src address:192.168.102.119:31402, "
+            f"{target_field}:192.168.182.7:31402, "
+            "urma_inflight_wr_count:7\n"
+        )
+
+        entries = parser.match_line(line, "worker_192.168.102.119")
+
+        assert entries is not None
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.entry_type == EntryType.URMA
+        assert entry.elapsed_us == 1234.0
+        assert entry.src_addr == "192.168.102.119:31402"
+        assert entry.dst_addr == "192.168.182.7:31402"
+        assert entry.inflight_count == 7
 
 
 def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
@@ -342,6 +462,120 @@ def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
             assert values[0][TupleField.ENTRY_TYPE] == entry_type.value
 
 
+def test_result_builder_falls_back_to_remote_metric_endpoint() -> None:
+    timestamp = datetime(2026, 7, 2, 1, 2, 3)
+    trace_id = "trace-with-metric-endpoint"
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=3000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+    )
+    remote_rpc = _raw_entry(
+        timestamp=timestamp,
+        trace_id=trace_id,
+        elapsed_us=616,
+        entry_type=EntryType.REMOTE_WORKER_RPC.value,
+        src_addr="192.168.102.119:31402",
+        dst_addr="192.168.182.7:31402",
+    )
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [worker],
+            "Worker metrics parse": [remote_rpc],
+        }
+    ).correlate()
+
+    results = ParseResultBuilder([sdk], [worker], correlated).build()
+
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, LogParseResultDataclass)
+    assert result.remote_worker_rpc == 0.616
+    assert (result.src_ip, result.dst_ip) == (
+        "192.168.102.119:31402",
+        "192.168.182.7:31402",
+    )
+
+
+def test_empty_sdk_worker_correlation_keeps_unmatched_sdk_results() -> None:
+    timestamp = datetime(2026, 7, 2, 1, 2, 3)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="sdk-trace",
+        elapsed_us=2000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id="worker-trace",
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+        cluster_name="worker-cluster",
+    )
+    query_meta = _raw_entry(
+        timestamp=timestamp,
+        trace_id="worker-trace",
+        elapsed_us=120,
+        entry_type=EntryType.QUERY_META.value,
+    )
+    sdk_process = _raw_entry(
+        timestamp=timestamp,
+        trace_id="worker-trace",
+        elapsed_us=340,
+        entry_type=EntryType.SDK_PROCESS.value,
+    )
+    urma = _raw_entry(
+        timestamp=timestamp,
+        trace_id="",
+        elapsed_us=560,
+        entry_type=EntryType.URMA.value,
+        src_addr="10.0.0.1:1",
+        dst_addr="10.0.0.2:1",
+        inflight_count=3,
+    )
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [worker],
+            "Worker query meta parse": [query_meta],
+            "Worker metrics parse": [sdk_process],
+            "Worker urma parse": [urma],
+        }
+    ).correlate()
+
+    assert correlated.sdk_worker_map == {}
+    assert correlated.worker_query_meta_map[0] == [query_meta]
+    assert correlated.worker_sdk_process_map[0] == [sdk_process]
+    assert correlated.worker_urma_map[0] == [urma]
+
+    results = ParseResultBuilder(
+        [sdk],
+        [worker],
+        correlated,
+        log_file_id="file-id",
+    ).build()
+
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, SparseLogParseResultDataclass)
+    assert result.trace_id == "sdk-trace"
+    assert result.operation == "DS_KV_CLIENT_GET"
+    assert result.total_latency == 2.0
+    assert result.c2w_urma_latency is None
+    assert result.worker_query_meta_latency is None
+    assert result.sdk_process is None
+    assert result.urma_total_latency is None
+    assert (result.src_ip, result.dst_ip) == (None, None)
+
+
 def test_large_trace_scope_is_not_copied_to_processes(monkeypatch) -> None:
     monkeypatch.setattr(worker_module, "MAX_PROCESS_SCAN_SCOPE_TRACE_IDS", 2)
     timestamp = datetime(2026, 7, 2)
@@ -390,6 +624,52 @@ def test_sdk_urma_uses_shared_index_without_sdk_sized_map() -> None:
 
     assert correlated.sdk_urma_map == {}
     assert correlated.sdk_urma_index[("10.0.0.1", "trace")] == [urma]
+
+
+def test_unmatched_sdk_with_urma_endpoint_builds_full_result() -> None:
+    timestamp = datetime(2026, 7, 2)
+    sdk = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=3000,
+        entry_type=EntryType.SDK_GET.value,
+    )
+    urma = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=560,
+        entry_type=EntryType.URMA.value,
+        src_addr="10.0.0.1:1",
+        dst_addr="10.0.0.2:1",
+        inflight_count=3,
+    )
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk],
+            "Worker access parse": [],
+            "Worker urma parse": [urma],
+        }
+    ).correlate()
+
+    results = ParseResultBuilder(
+        [sdk],
+        [],
+        correlated,
+        log_file_id="file-id",
+    ).build()
+
+    assert isinstance(results, LogParseResultBatch)
+    assert results.all_sparse is False
+    assert len(results) == 1
+    result = results[0]
+    assert isinstance(result, LogParseResultDataclass)
+    assert result.log_id == "file-id"
+    assert result.total_latency == 3.0
+    assert result.c2w_latency is None
+    assert result.c2w_urma_latency == 0.56
+    assert result.urma_total_latency == 0.56
+    assert result.urma_inflight_count == 3
+    assert (result.src_ip, result.dst_ip) == ("10.0.0.1:1", "10.0.0.2:1")
 
 
 def test_single_worker_trace_skips_sort_and_timestamp_index() -> None:
@@ -478,6 +758,13 @@ def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
         "remote_worker_rpc", "master_process", "master_rpc_total", "timestamp",
         "created_at",
     ]
+    assert [field.name for field in fields(C2WLogParseResultDataclass)] == [
+        "total_latency", "is_anomalous", "id", "log_id",
+        "aggregated_event_id", "anomalous_event_id", "pod_ip",
+        "cluster_name", "anomaly_reason", "data_size", "existed_status",
+        "operation", "remark", "trace_id", "c2w_latency",
+        "timestamp", "created_at",
+    ]
     assert [field.name for field in fields(SparseLogParseResultDataclass)] == [
         "total_latency", "is_anomalous", "id", "log_id",
         "aggregated_event_id", "anomalous_event_id", "pod_ip",
@@ -507,6 +794,51 @@ def test_database_tuple_matches_insert_column_order() -> None:
         "operation", "data-size", 8, True, "content", "reason", 0.9, "remark",
         True, "created-at", 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     )
+
+
+def test_c2w_database_tuple_only_omits_null_fields() -> None:
+    c2w = C2WLogParseResultDataclass(
+        total_latency=12.3,
+        is_anomalous=False,
+        id="id",
+        log_id="log",
+        trace_id="trace",
+        timestamp="timestamp",
+        pod_ip="pod",
+        cluster_name="cluster",
+        c2w_latency=1.5,
+        operation="operation",
+        data_size="data-size",
+        remark="OK",
+        created_at="created-at",
+    )
+
+    assert _can_use_c2w_insert(c2w)
+    assert _log_parse_result_to_c2w_db_tuple(c2w) == (
+        "id", "log", "", "", "trace", "timestamp", "pod", "cluster",
+        12.3, 1.5, "operation", "data-size", False, None, "OK", True,
+        "created-at",
+    )
+    full = LogParseResultDataclass(
+        total_latency=12.3,
+        is_anomalous=False,
+        id="id",
+        log_id="log",
+        trace_id="trace",
+        timestamp="timestamp",
+        pod_ip="pod",
+        cluster_name="cluster",
+        c2w_latency=1.5,
+        operation="operation",
+        data_size="data-size",
+        remark="OK",
+        created_at="created-at",
+    )
+    assert _can_use_c2w_insert(full)
+    assert _log_parse_result_to_db_tuple(c2w) == _log_parse_result_to_db_tuple(full)
+
+    full.worker_query_meta_latency = 1.0
+    assert not _can_use_c2w_insert(full)
 
 
 def test_sparse_database_tuple_only_omits_null_fields() -> None:
@@ -570,11 +902,13 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
 def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
     results = [
         SparseLogParseResultDataclass(total_latency=0.0, is_anomalous=False),
-        LogParseResultDataclass(total_latency=1.0, is_anomalous=False),
+        C2WLogParseResultDataclass(total_latency=1.0, is_anomalous=False),
         SparseLogParseResultDataclass(total_latency=2.0, is_anomalous=False),
+        LogParseResultDataclass(total_latency=3.0, is_anomalous=False),
     ]
     results[1].c2w_latency = 1.0
     results[2].c2w_urma_latency = 2.0
+    results[3].worker_query_meta_latency = 3.0
 
     class FakeAsyncLock:
         async def __aenter__(self):
@@ -613,17 +947,19 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
     )
     assert stored
     assert LogParseResultManager.last_store_metrics["minimal_rows"] == 1
+    assert LogParseResultManager.last_store_metrics["c2w_rows"] == 1
     assert LogParseResultManager.last_store_metrics["sparse_rows"] == 1
     assert LogParseResultManager.last_store_metrics["full_rows"] == 1
     assert LogParseResultManager.last_store_metrics["success"] is True
-    assert database._conn.insert_sql.count("?") == 17
+    assert database._conn.insert_sql.count("?") == 37
     assert database._conn.params == [
         _log_parse_result_to_minimal_db_tuple(results[0]),
-        _log_parse_result_to_db_tuple(results[1]),
+        _log_parse_result_to_c2w_db_tuple(results[1]),
         _log_parse_result_to_sparse_db_tuple(results[2]),
+        _log_parse_result_to_db_tuple(results[3]),
     ]
     assert len({result.id[:20] for result in results}) == 1
-    assert [int(result.id[20:], 16) for result in results] == [0, 1, 2]
+    assert [int(result.id[20:], 16) for result in results] == [0, 1, 2, 3]
     assert all(len(result.id) == 32 for result in results)
 
 

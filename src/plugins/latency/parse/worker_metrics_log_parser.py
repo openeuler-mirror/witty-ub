@@ -10,6 +10,7 @@ from latency.regex.kvcache_log import (
     LOCAL_WORKER_LOCK_RE,
     REMOTE_WORKER_COST_RE,
     REMOTE_WORKER_RPC_RE,
+    REMOTE_ENDPOINT_RE,
     MASTER_PROCESS_RE,
     MASTER_RPC_RE,
 )
@@ -137,6 +138,13 @@ class WorkerMetricsLogParser(LogParser):
             logger.debug(f"No trace_id found in line: {line[:100]}")
             return None
         
+        endpoint_match = REMOTE_ENDPOINT_RE.search(parsed["msg"] if parsed else line)
+        if endpoint_match:
+            src_addr, dst_addr = (value.strip() for value in endpoint_match.groups())
+        else:
+            src_addr = None
+            dst_addr = None
+
         # 为每个指标创建一个LogEntry
         entries = []
         for entry_type, elapsed_us in results:
@@ -147,6 +155,8 @@ class WorkerMetricsLogParser(LogParser):
                 trace_id=trace_id,
                 entry_type=entry_type,
                 cluster_name=cluster_name,
+                src_addr=src_addr,
+                dst_addr=dst_addr,
             ))
         
         return entries

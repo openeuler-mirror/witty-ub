@@ -85,6 +85,7 @@ class ParseTimingCollector(logging.Handler):
     def __init__(self, builder_line_sample: int = 0) -> None:
         super().__init__(level=logging.INFO)
         self.timings: dict[str, float] = {}
+        self.counts: dict[str, int] = {}
         self.builder_line_sample = builder_line_sample
         self.builder_line_profile: dict[str, object] = {}
         self._builder_sample = None
@@ -103,9 +104,6 @@ class ParseTimingCollector(logging.Handler):
     def _capture_builder_sample(self, builder) -> None:
         if self.builder_line_sample <= 0 or self._builder_sample is not None:
             return
-        sdk_entries = builder.sdk_entries
-        if not sdk_entries or not isinstance(sdk_entries[0], tuple):
-            return
 
         from latency.parse.correlation.result_builder import (
             ParseResultBuilder,
@@ -114,20 +112,75 @@ class ParseTimingCollector(logging.Handler):
         )
         from latency.schemas.ds_log import CorrelationResult
 
-        sample_count = min(self.builder_line_sample, len(sdk_entries))
-        if sample_count == len(sdk_entries):
+        correlated = builder.correlated
+        use_worker_fallback = bool(builder.worker_entries) and not bool(
+            correlated.sdk_worker_map
+        )
+        source_entries = (
+            builder.worker_entries if use_worker_fallback else builder.sdk_entries
+        )
+        if not source_entries or not isinstance(source_entries[0], tuple):
+            return
+
+        sample_count = min(self.builder_line_sample, len(source_entries))
+        if sample_count == len(source_entries):
             original_indices = list(range(sample_count))
         elif sample_count == 1:
             original_indices = [0]
         else:
-            last_index = len(sdk_entries) - 1
+            last_index = len(source_entries) - 1
             original_indices = [
                 sample_index * last_index // (sample_count - 1)
                 for sample_index in range(sample_count)
             ]
-        sample_entries = [sdk_entries[index] for index in original_indices]
-        correlated = builder.correlated
+        sample_entries = [source_entries[index] for index in original_indices]
         sample_to_original = dict(enumerate(original_indices))
+
+        worker_map_names = (
+            "worker_urma_map",
+            "worker_worker_urma_map",
+            "worker_remote_pull_map",
+            "worker_link_map",
+            "worker_query_meta_map",
+            "worker_sdk_process_map",
+            "worker_sdk_rpc_map",
+            "worker_local_worker_cost_map",
+            "worker_local_worker_lock_map",
+            "worker_remote_worker_cost_map",
+            "worker_remote_worker_rpc_map",
+            "worker_master_process_map",
+            "worker_master_rpc_map",
+        )
+
+        if use_worker_fallback:
+
+            def remap_worker_map(mapping: dict) -> dict:
+                return {
+                    sample_index: mapping[original_index]
+                    for sample_index, original_index in sample_to_original.items()
+                    if original_index in mapping
+                }
+
+            sampled_correlation = CorrelationResult(
+                urma_empty_reasons=remap_worker_map(
+                    correlated.urma_empty_reasons
+                ),
+                **{
+                    name: remap_worker_map(getattr(correlated, name))
+                    for name in worker_map_names
+                },
+            )
+            self._builder_sample = ParseResultBuilder(
+                sdk_entries=[],
+                worker_entries=sample_entries,
+                correlated=sampled_correlation,
+                log_dir=builder.log_dir,
+                log_file_id=builder.log_file_id,
+            )
+            self._builder_full_rows = len(source_entries)
+            return
+
+        sdk_entries = source_entries
 
         def remap_sdk_map(mapping: dict) -> dict:
             return {
@@ -146,21 +199,6 @@ class ParseTimingCollector(logging.Handler):
             if values:
                 sdk_urma_index[key] = values
 
-        worker_map_names = (
-            "worker_urma_map",
-            "worker_worker_urma_map",
-            "worker_remote_pull_map",
-            "worker_link_map",
-            "worker_query_meta_map",
-            "worker_sdk_process_map",
-            "worker_sdk_rpc_map",
-            "worker_local_worker_cost_map",
-            "worker_local_worker_lock_map",
-            "worker_remote_worker_cost_map",
-            "worker_remote_worker_rpc_map",
-            "worker_master_process_map",
-            "worker_master_rpc_map",
-        )
         worker_maps = {
             name: self._subset_map(getattr(correlated, name), worker_keys)
             for name in worker_map_names
@@ -192,6 +230,8 @@ class ParseTimingCollector(logging.Handler):
 
         if builder.correlated.sdk_worker_map:
             target_method = builder._build_from_sdk_raw
+        elif builder.worker_entries:
+            target_method = builder._build_from_worker
         else:
             target_method = builder._build_unmatched_sdk_raw
         target_code = target_method.__code__
@@ -233,7 +273,7 @@ class ParseTimingCollector(logging.Handler):
         finally:
             sys.settrace(original_trace)
         elapsed = time.perf_counter() - started
-        sample_rows = len(builder.sdk_entries)
+        sample_rows = len(builder.worker_entries or builder.sdk_entries)
         del sampled_results
 
         top_lines = []
@@ -324,7 +364,30 @@ class ParseTimingCollector(logging.Handler):
         def timed_correlate(correlator):
             started = time.perf_counter()
             try:
-                return collector._original_correlate(correlator)
+                result = collector._original_correlate(correlator)
+                metric_worker_indices = set()
+                for mapping in (
+                    result.worker_sdk_process_map,
+                    result.worker_sdk_rpc_map,
+                    result.worker_local_worker_cost_map,
+                    result.worker_local_worker_lock_map,
+                    result.worker_remote_worker_cost_map,
+                    result.worker_remote_worker_rpc_map,
+                    result.worker_master_process_map,
+                    result.worker_master_rpc_map,
+                ):
+                    metric_worker_indices.update(mapping)
+                collector.counts = {
+                    "sdk_entries": len(correlator.sdk_entries),
+                    "worker_entries": len(correlator.worker_entries),
+                    "sdk_worker_matches": len(result.sdk_worker_map),
+                    "worker_urma_matches": len(result.worker_urma_map),
+                    "worker_query_meta_matches": len(
+                        result.worker_query_meta_map
+                    ),
+                    "worker_metric_matches": len(metric_worker_indices),
+                }
+                return result
             finally:
                 collector._add(
                     "correlate_seconds", time.perf_counter() - started
@@ -381,6 +444,7 @@ class ParseTimingCollector(logging.Handler):
             name: round(elapsed, 6)
             for name, elapsed in self.timings.items()
         }
+        details.update(self.counts)
         scan_total = sum(
             self.timings.get(name, 0.0)
             for name in (
@@ -560,7 +624,10 @@ def write_text_report(
         if isinstance(parse_timings, dict):
             stream.write("Parse timing details\n")
             for name, seconds in parse_timings.items():
-                stream.write(f"  {name}: {seconds:.6f}\n")
+                if isinstance(seconds, int):
+                    stream.write(f"  {name}: {seconds}\n")
+                else:
+                    stream.write(f"  {name}: {seconds:.6f}\n")
             stream.write("\n")
 
         builder_profile = summary.get("builder_line_profile")

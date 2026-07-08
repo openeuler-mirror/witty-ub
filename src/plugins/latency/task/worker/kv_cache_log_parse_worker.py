@@ -71,6 +71,30 @@ WORKER_INFO_LABEL_BY_ENTRY_TYPE = {
 # SDK 都有唯一 trace_id；传递百万级集合的序列化成本远高于直接扫描日志。
 MAX_PROCESS_SCAN_SCOPE_TRACE_IDS = 50_000
 
+def _expand_worker_access_patterns(patterns: list[str]) -> list[str]:
+    """兼容 access_*.log 形式的 Worker access 日志文件名。
+
+    诊断配置里常见默认值是 access.log/access.log.gz，但部分采集包会按滚动
+    编号保存成 access_111.log。WorkerAccessLogParser 仍会按 DS_POSIX_GET
+    关键字过滤内容，因此扩展文件名不会把 SDK access 误解析成 Worker 结果。
+    """
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(pattern: str) -> None:
+        if pattern and pattern not in seen:
+            expanded.append(pattern)
+            seen.add(pattern)
+
+    for pattern in patterns:
+        add(pattern)
+        if pattern.endswith("access.log"):
+            add(f"{pattern[:-len('access.log')]}access*.log")
+        elif pattern.endswith("access.log.gz"):
+            add(f"{pattern[:-len('access.log.gz')]}access*.log.gz")
+    return expanded
+
+
 @dataclass
 class GroupStats:
     """增量统计分组（不维护完整对象引用，降低内存峰值）"""
@@ -337,11 +361,24 @@ class KVCacheLogParseWorker(BaseWorker):
             *filename_config.ds_client_info_log_file,
         ]
         for parser in sdk_parsers:
-            parser._runtime_patterns = sdk_patterns
+            parser._runtime_patterns = (
+                KVCacheLogParseWorker._include_gzip_patterns(sdk_patterns)
+            )
+        worker_access_patterns = _expand_worker_access_patterns(
+            list(filename_config.ds_worker_access_log_file)
+        )
         for parser in worker_access_parsers:
-            parser._runtime_patterns = filename_config.ds_worker_access_log_file
+            parser._runtime_patterns = (
+                KVCacheLogParseWorker._include_gzip_patterns(
+                    worker_access_patterns
+                )
+            )
         for parser in info_parsers:
-            parser._runtime_patterns = filename_config.ds_worker_info_log_file
+            parser._runtime_patterns = (
+                KVCacheLogParseWorker._include_gzip_patterns(
+                    filename_config.ds_worker_info_log_file
+                )
+            )
 
         sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
         worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()

@@ -2,6 +2,7 @@ import os
 import time
 
 from latency.schemas.log import (
+    C2WLogParseResultDataclass,
     LogParseResultDataclass,
     LogParseResultModel,
     SparseLogParseResultDataclass,
@@ -10,7 +11,11 @@ from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostR
 from latency.database.engine import AsyncSQLiteSingleton
 
 
-LogParseResultStorage = LogParseResultDataclass | SparseLogParseResultDataclass
+LogParseResultStorage = (
+    LogParseResultDataclass
+    | C2WLogParseResultDataclass
+    | SparseLogParseResultDataclass
+)
 
 
 def _log_parse_result_to_db_tuple(result: LogParseResultStorage) -> tuple:
@@ -79,6 +84,58 @@ def _can_use_sparse_insert(result: LogParseResultStorage) -> bool:
         and result.remote_worker_rpc is None
         and result.master_process is None
         and result.master_rpc_total is None
+    )
+
+
+def _can_use_c2w_insert(result: LogParseResultStorage) -> bool:
+    """省略普通 SDK→Worker 匹配结果中恒为 NULL 的端点/诊断字段。"""
+    return (
+        result.c2w_latency is not None
+        and result.worker_query_meta_latency is None
+        and result.urma_total_latency is None
+        and result.urma_link_latency is None
+        and result.urma_inflight_count is None
+        and result.c2w_urma_latency is None
+        and result.w2w_urma_latency is None
+        and result.src_ip is None
+        and result.dst_ip is None
+        and result.host is None
+        and result.offset is None
+        and result.content is None
+        and result.anomaly_score is None
+        and result.sdk_process is None
+        and result.sdk_rpc is None
+        and result.local_worker_cost is None
+        and result.local_worker_lock is None
+        and result.remote_worker_cost is None
+        and result.remote_worker_rpc is None
+        and result.master_process is None
+        and result.master_rpc_total is None
+    )
+
+
+def _log_parse_result_to_c2w_db_tuple(
+    result: LogParseResultStorage,
+) -> tuple:
+    """生成只有 SDK→Worker c2w_latency 的精简 SQLite 参数。"""
+    return (
+        result.id,
+        result.log_id,
+        result.aggregated_event_id,
+        result.anomalous_event_id,
+        result.trace_id,
+        result.timestamp,
+        result.pod_ip,
+        result.cluster_name,
+        result.total_latency,
+        result.c2w_latency,
+        result.operation,
+        result.data_size,
+        result.is_anomalous,
+        result.anomaly_reason,
+        result.remark,
+        result.existed_status,
+        result.created_at,
     )
 
 
@@ -206,11 +263,13 @@ class LogParseResultManager:
                     "batch_size": batch_size,
                     "batch_count": (total_count + batch_size - 1) // batch_size,
                     "minimal_rows": 0,
+                    "c2w_rows": 0,
                     "sparse_rows": 0,
                     "full_rows": 0,
                     "setup_seconds": 0.0,
                     "parameter_build_seconds": 0.0,
                     "minimal_insert_seconds": 0.0,
+                    "c2w_insert_seconds": 0.0,
                     "sparse_insert_seconds": 0.0,
                     "full_insert_seconds": 0.0,
                     "commit_seconds": 0.0,
@@ -267,6 +326,17 @@ class LogParseResultManager:
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
+                    c2w_sql_str = """
+                        INSERT INTO log_parse_result_table (
+                            id, log_id, aggregated_event_id, anomalous_event_id,
+                            trace_id, timestamp, pod_ip, cluster_name,
+                            total_latency, c2w_latency, operation, data_size,
+                            is_anomalous, anomaly_reason, remark, existed_status,
+                            created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                    """
                     minimal_sql_str = """
                         INSERT INTO log_parse_result_table (
                             id, log_id, trace_id, timestamp, pod_ip,
@@ -281,6 +351,7 @@ class LogParseResultManager:
                     for i in range(0, total_count, batch_size):
                         end = min(i + batch_size, total_count)
                         minimal_batch = []
+                        c2w_batch = []
                         sparse_batch = []
                         full_batch = []
                         parameter_started = time.perf_counter()
@@ -339,6 +410,32 @@ class LogParseResultManager:
                                             result.created_at,
                                         )
                                     )
+                            elif type(result) is C2WLogParseResultDataclass:
+                                c2w_batch.append(
+                                    (
+                                        result.id,
+                                        result.log_id,
+                                        result.aggregated_event_id,
+                                        result.anomalous_event_id,
+                                        result.trace_id,
+                                        result.timestamp,
+                                        result.pod_ip,
+                                        result.cluster_name,
+                                        result.total_latency,
+                                        result.c2w_latency,
+                                        result.operation,
+                                        result.data_size,
+                                        result.is_anomalous,
+                                        result.anomaly_reason,
+                                        result.remark,
+                                        result.existed_status,
+                                        result.created_at,
+                                    )
+                                )
+                            elif _can_use_c2w_insert(result):
+                                c2w_batch.append(
+                                    _log_parse_result_to_c2w_db_tuple(result)
+                                )
                             elif _can_use_sparse_insert(result):
                                 if _can_use_minimal_insert(result):
                                     minimal_batch.append(
@@ -354,6 +451,7 @@ class LogParseResultManager:
                             time.perf_counter() - parameter_started
                         )
                         metrics["minimal_rows"] += len(minimal_batch)
+                        metrics["c2w_rows"] += len(c2w_batch)
                         metrics["sparse_rows"] += len(sparse_batch)
                         metrics["full_rows"] += len(full_batch)
 
@@ -361,6 +459,12 @@ class LogParseResultManager:
                             insert_started = time.perf_counter()
                             conn.executemany(minimal_sql_str, minimal_batch)
                             metrics["minimal_insert_seconds"] += (
+                                time.perf_counter() - insert_started
+                            )
+                        if c2w_batch:
+                            insert_started = time.perf_counter()
+                            conn.executemany(c2w_sql_str, c2w_batch)
+                            metrics["c2w_insert_seconds"] += (
                                 time.perf_counter() - insert_started
                             )
                         if sparse_batch:

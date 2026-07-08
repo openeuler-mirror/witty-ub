@@ -10,6 +10,7 @@ from latency.schemas.ds_log import (
     TupleField,
 )
 from latency.schemas.log import (
+    C2WLogParseResultDataclass,
     LogParseResultBatch,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
@@ -109,6 +110,21 @@ class ParseResultBuilder:
         first = values[0]
         return first[T_ELAPSED_US] if isinstance(first, tuple) else first.elapsed_us
 
+    @staticmethod
+    def _first_endpoint(values: Optional[list]) -> tuple[str, str] | None:
+        if not values:
+            return None
+        for entry in values:
+            if isinstance(entry, tuple):
+                src_addr = entry[T_SRC_ADDR]
+                dst_addr = entry[T_DST_ADDR]
+            else:
+                src_addr = entry.src_addr
+                dst_addr = entry.dst_addr
+            if src_addr and dst_addr:
+                return src_addr, dst_addr
+        return None
+
     def _resolve_urma_info(self, w_idx: Optional[int], sdk_success: bool, worker_success: bool) -> dict[str, Any]:
         urma_latency: Optional[float] = None
         urma_inflight_count: Optional[int] = None
@@ -139,6 +155,13 @@ class ParseResultBuilder:
                 first_pull = remote_pulls[0]
                 src_ip = first_pull[T_SRC_ADDR] if isinstance(first_pull, tuple) else first_pull.src_addr
                 dst_ip = first_pull[T_DST_ADDR] if isinstance(first_pull, tuple) else first_pull.dst_addr
+            else:
+                endpoint = (
+                    self._first_endpoint(self.correlated.worker_remote_worker_rpc_map.get(w_idx))
+                    or self._first_endpoint(self.correlated.worker_remote_worker_cost_map.get(w_idx))
+                )
+                if endpoint:
+                    src_ip, dst_ip = endpoint
         else:
             urma_empty_reason = self.correlated.urma_empty_reasons.get(
                 w_idx, "URMA fields empty: no matching URMA entry"
@@ -149,9 +172,11 @@ class ParseResultBuilder:
 
     def _build_unmatched_sdk_raw(
         self,
-    ) -> list[SparseLogParseResultDataclass]:
+    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
         """构建没有 Worker 匹配的 SDK 结果，保留可用的 SDK→URMA 指标。"""
-        results: list[SparseLogParseResultDataclass] = LogParseResultBatch(
+        results: list[
+            LogParseResultDataclass | SparseLogParseResultDataclass
+        ] = LogParseResultBatch(
             len(self.sdk_entries),
             all_sparse=True,
         )
@@ -166,7 +191,8 @@ class ParseResultBuilder:
         not_found_search = NOT_FOUND_RE.search
         format_failure_remark = self._format_failure_remark
         merge_remark = self._merge_remark
-        result_type = SparseLogParseResultDataclass
+        sparse_result_type = SparseLogParseResultDataclass
+        full_result_type = LogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
         cached_second_start = None
@@ -193,6 +219,10 @@ class ParseResultBuilder:
                 )
             else:
                 sdk_urma_values = None
+            src_ip = None
+            dst_ip = None
+            urma_inflight_count = None
+            urma_total_latency = None
             if sdk_urma_values:
                 first_sdk_urma = sdk_urma_values[0]
                 sdk_urma_elapsed_us = (
@@ -201,6 +231,15 @@ class ParseResultBuilder:
                     else first_sdk_urma.elapsed_us
                 )
                 c2w_urma_latency = round(sdk_urma_elapsed_us / 1000, 3)
+                urma_total_latency = c2w_urma_latency
+                urma_inflight_count = (
+                    first_sdk_urma[T_INFLIGHT_COUNT]
+                    if isinstance(first_sdk_urma, tuple)
+                    else first_sdk_urma.inflight_count
+                )
+                endpoint = self._first_endpoint(sdk_urma_values)
+                if endpoint:
+                    src_ip, dst_ip = endpoint
             else:
                 c2w_urma_latency = None
 
@@ -245,36 +284,85 @@ class ParseResultBuilder:
                 if isinstance(sdk_elapsed_us, int)
                 else round(sdk_elapsed_us / 1000, 3)
             )
-            results[i] = result_type(
-                total_latency,
-                is_anomalous,
-                "",
-                fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir,
-                "",
-                "",
-                sdk[T_POD_IP],
-                sdk[T_CLUSTER_NAME],
-                remark if is_anomalous else None,
-                sdk[3],
-                True,
-                sdk[1],
-                remark or "OK",
-                sdk[T_TRACE_ID],
-                c2w_urma_latency,
-                timestamp,
-                shared_created_at,
-            )
+            log_id = fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir
+            if src_ip and dst_ip:
+                results.all_sparse = False
+                results[i] = full_result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    src_ip,
+                    dst_ip,
+                    sdk[T_CLUSTER_NAME],
+                    None,  # host
+                    remark if is_anomalous else None,
+                    None,  # anomaly_score
+                    None,  # content
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    None,  # offset
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    urma_inflight_count,
+                    None,  # urma_link_latency
+                    urma_total_latency,
+                    None,  # c2w_latency
+                    None,  # worker_query_meta_latency
+                    c2w_urma_latency,
+                    None,  # w2w_urma_latency
+                    None,  # sdk_process
+                    None,  # sdk_rpc
+                    None,  # local_worker_cost
+                    None,  # local_worker_lock
+                    None,  # remote_worker_cost
+                    None,  # remote_worker_rpc
+                    None,  # master_process
+                    None,  # master_rpc_total
+                    timestamp,
+                    shared_created_at,
+                )
+            else:
+                results[i] = sparse_result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",
+                    log_id,
+                    "",
+                    "",
+                    sdk[T_POD_IP],
+                    sdk[T_CLUSTER_NAME],
+                    remark if is_anomalous else None,
+                    sdk[3],
+                    True,
+                    sdk[1],
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    c2w_urma_latency,
+                    timestamp,
+                    shared_created_at,
+                )
         return results
 
     def _build_from_sdk_raw(
         self,
-    ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
+    ) -> list[
+        LogParseResultDataclass
+        | C2WLogParseResultDataclass
+        | SparseLogParseResultDataclass
+    ]:
         correlated = self.correlated
         if not correlated.sdk_worker_map:
             return self._build_unmatched_sdk_raw()
 
         results: list[
-            LogParseResultDataclass | SparseLogParseResultDataclass
+            LogParseResultDataclass
+            | C2WLogParseResultDataclass
+            | SparseLogParseResultDataclass
         ] = [None] * len(self.sdk_entries)  # type: ignore[list-item]
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
@@ -305,6 +393,7 @@ class ParseResultBuilder:
         merge_remark = self._merge_remark
         not_found_search = NOT_FOUND_RE.search
         result_type = LogParseResultDataclass
+        c2w_result_type = C2WLogParseResultDataclass
         sparse_result_type = SparseLogParseResultDataclass
         fixed_log_id = self.log_file_id
         fallback_log_dir = self.log_dir
@@ -325,6 +414,20 @@ class ParseResultBuilder:
                 return None
             first = values[0]
             return first[T_ELAPSED_US] if isinstance(first, tuple) else first.elapsed_us
+
+        def first_endpoint(values: Optional[list]) -> tuple[str, str] | None:
+            if not values:
+                return None
+            for entry in values:
+                if isinstance(entry, tuple):
+                    src_addr = entry[T_SRC_ADDR]
+                    dst_addr = entry[T_DST_ADDR]
+                else:
+                    src_addr = entry.src_addr
+                    dst_addr = entry.dst_addr
+                if src_addr and dst_addr:
+                    return src_addr, dst_addr
+            return None
 
         for i, sdk in enumerate(self.sdk_entries):
             worker = sdk_worker_get(i)
@@ -425,6 +528,13 @@ class ParseResultBuilder:
                         else:
                             src_ip = first_pull.src_addr
                             dst_ip = first_pull.dst_addr
+                    else:
+                        endpoint = (
+                            first_endpoint(worker_remote_worker_rpc_get(w_idx))
+                            or first_endpoint(worker_remote_worker_cost_get(w_idx))
+                        )
+                        if endpoint:
+                            src_ip, dst_ip = endpoint
                 else:
                     urma_empty_reason = urma_empty_reason_get(
                         w_idx, "URMA fields empty: no matching URMA entry"
@@ -496,6 +606,43 @@ class ParseResultBuilder:
                     remark or "OK",
                     sdk[T_TRACE_ID],
                     c2w_urma_latency,
+                    timestamp,
+                    shared_created_at,
+                )
+            elif (
+                src_ip is None
+                and dst_ip is None
+                and urma_inflight_count is None
+                and urma_link_latency is None
+                and urma_latency is None
+                and query_meta_latency is None
+                and c2w_urma_latency is None
+                and w2w_urma_latency is None
+                and sdk_process is None
+                and sdk_rpc is None
+                and local_worker_cost is None
+                and local_worker_lock is None
+                and remote_worker_cost is None
+                and remote_worker_rpc is None
+                and master_process is None
+                and master_rpc_total is None
+            ):
+                results[i] = c2w_result_type(
+                    total_latency,
+                    is_anomalous,
+                    "",  # id
+                    log_id,
+                    "",  # aggregated_event_id
+                    "",  # anomalous_event_id
+                    sdk[T_POD_IP],
+                    w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
+                    remark if is_anomalous else None,
+                    sdk[3],  # data_size
+                    True,  # existed_status
+                    sdk[1],  # operation
+                    remark or "OK",
+                    sdk[T_TRACE_ID],
+                    c2w_latency,
                     timestamp,
                     shared_created_at,
                 )
