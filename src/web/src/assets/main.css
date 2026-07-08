@@ -1131,6 +1131,7 @@ button {
 }
 
 .filter-footer {
+  flex: 0 0 auto;
   border-top: 1px solid var(--line-soft);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), #ffffff);
   padding: 12px 20px 16px;

@@ -7084,7 +7084,7 @@ onBeforeUnmount(() => {
 
           <div v-if="isLatencyEventListFilterMode" class="filter-section">
             <div class="filter-section-title">
-              <span>⬅️ 按源IP</span>
+              <span>📤 按源IP</span>
               <button
                 class="reset-category-btn"
                 type="button"
@@ -7125,7 +7125,7 @@ onBeforeUnmount(() => {
 
           <div v-if="isLatencyEventListFilterMode" class="filter-section">
             <div class="filter-section-title">
-              <span>➡️ 按目标IP</span>
+              <span>📥 按目标IP</span>
               <button
                 class="reset-category-btn"
                 type="button"
@@ -7205,13 +7205,13 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="filter-footer">
-            <p v-if="filterApplyMessage" class="filter-apply-message">{{ filterApplyMessage }}</p>
-            <div class="filter-footer-actions">
-              <button class="apply-filter-btn" type="button" @click="applyGlobalFilters">
-                确认筛选
-              </button>
-            </div>
+        </div>
+        <div class="filter-footer">
+          <p v-if="filterApplyMessage" class="filter-apply-message">{{ filterApplyMessage }}</p>
+          <div class="filter-footer-actions">
+            <button class="apply-filter-btn" type="button" @click="applyGlobalFilters">
+              确认筛选
+            </button>
           </div>
         </div>
       </section>
