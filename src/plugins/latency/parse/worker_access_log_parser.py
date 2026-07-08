@@ -8,7 +8,7 @@ from latency.regex.kvcache_log_file import WORKER_ACCESS_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.request import ParseConfig
-from latency.parse.base_parser import AccessLogParser, WORKER_GET_OPS, logger
+from latency.parse.base_parser import AccessLogParser, WORKER_GET_OPS, WORKER_SET_OPS, logger
 
 
 class WorkerAccessLogParser(AccessLogParser):
@@ -19,7 +19,7 @@ class WorkerAccessLogParser(AccessLogParser):
         return getattr(self, "_runtime_patterns", WORKER_ACCESS_LOG_PATTERNS)
 
     label = "Worker access parse"
-    _keywords = ("DS_POSIX_GET",)
+    _keywords = ("DS_POSIX_GET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH")
 
     def __init__(
         self,
@@ -62,9 +62,9 @@ class WorkerAccessLogParser(AccessLogParser):
             self._target_trace_ids = set(trace_ids or ())
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
-        """匹配Worker GET操作日志行"""
+        """匹配Worker GET/SET操作日志行"""
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
-        if not parsed or parsed["handle"] not in WORKER_GET_OPS:
+        if not parsed or (parsed["handle"] not in WORKER_GET_OPS and parsed["handle"] not in WORKER_SET_OPS):
             return None
         trace_id = self.resolve_trace_id(
             parsed["trace_id"],
@@ -86,15 +86,23 @@ class WorkerAccessLogParser(AccessLogParser):
                 return None
         # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        # 根据操作类型设置 entry_type
+        if parsed["handle"] == "DS_POSIX_CREATE":
+            entry_type = EntryType.WORKER_CREATE
+        elif parsed["handle"] == "DS_POSIX_PUBLISH":
+            entry_type = EntryType.WORKER_PUBLISH
+        else:
+            entry_type = EntryType.WORKER_GET
         return LogEntry(
             timestamp=ts,
+            operation=parsed["handle"],
             elapsed_us=elapsed,
             object_key=self.extract_object_key(parsed["req_msg"]),
             trace_id=trace_id,
             pod_ip=entry_pod_ip,
             status_code=self.parse_status_code(parsed["status_code"]),
             resp_msg=parsed["resp_msg"],
-            entry_type=EntryType.WORKER_GET,
+            entry_type=entry_type,
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 

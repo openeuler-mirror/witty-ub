@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 SDK_GET_OPS = frozenset({OpType.DS_KV_CLIENT_GET, OpType.DS_OBJECT_CLIENT_GET})
 WORKER_GET_OPS = frozenset({OpType.DS_POSIX_GET})
+SDK_SET_OPS = frozenset({OpType.DS_KV_CLIENT_SET})
+WORKER_SET_OPS = frozenset({OpType.DS_POSIX_CREATE, OpType.DS_POSIX_PUBLISH})
 ACCESS_LOG_MIN_PARTS = 13
 RUN_LOG_MIN_PARTS = 8
 

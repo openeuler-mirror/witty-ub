@@ -909,7 +909,7 @@ class KVCacheLogParseWorker(BaseWorker):
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
     ) -> tuple[
-        list[SrcDstAggregatedEventDataclass], dict[tuple[str, str], str], list[TimeWindowAggregatedEventDataclass]
+        list[SrcDstAggregatedEventDataclass], dict[tuple[str, str, str], str], list[TimeWindowAggregatedEventDataclass]
     ]:
         """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
         sparse_hint = getattr(list_log_parse_results, "all_sparse", None)
@@ -936,6 +936,9 @@ class KVCacheLogParseWorker(BaseWorker):
             ("urma_link_latency", "urma_link_latency"),
             ("c2w_urma_latency", "c2w_urma_latency"),
             ("w2w_urma_latency", "w2w_urma_latency"),
+            ("create_latency", "create_latency"),
+            ("publish_latency", "publish_latency"),
+            ("worker_total_latency", "worker_total_latency"),
         ]
 
         time_window_latency_fields = [
@@ -945,6 +948,9 @@ class KVCacheLogParseWorker(BaseWorker):
             ("urma_link_latency", "urma_link_latency"),
             ("c2w_urma_latency", "c2w_urma_latency"),
             ("w2w_urma_latency", "w2w_urma_latency"),
+            ("create_latency", "create_latency"),
+            ("publish_latency", "publish_latency"),
+            ("worker_total_latency", "worker_total_latency"),
             ("sdk_process", "sdk_process"),
             ("sdk_rpc", "sdk_rpc"),
             ("local_worker_cost", "local_worker_cost"),
@@ -955,7 +961,7 @@ class KVCacheLogParseWorker(BaseWorker):
             ("master_rpc_total", "master_rpc_total"),
         ]
 
-        groups: dict[tuple[str, str], GroupStats] = defaultdict(
+        groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
             lambda: GroupStats(
                 latency_values={prefix: [] for prefix, _ in src_dst_latency_fields}
             )
@@ -970,11 +976,14 @@ class KVCacheLogParseWorker(BaseWorker):
         for r in list_log_parse_results:
             src = r.src_ip or ""
             dst = r.dst_ip or ""
-            
+
+            op = (r.operation or "").strip().upper()
+            op_key = "SET" if "SET" in op else "GET"
+
             time_bucket = (r.timestamp or "")[:19]
-            
+
             if src or dst:
-                key = (src, dst)
+                key = (src, dst, op_key)
                 g = groups[key]
                 g.count += 1
                 if r.is_anomalous:
@@ -984,7 +993,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 if not g.first_log_id:
                     g.first_log_id = r.log_id or ""
             
-            key2 = (time_bucket, src, dst)
+            key2 = (time_bucket, src, dst, op_key)
             g2 = time_window_groups[key2]
             g2.count += 1
             if r.is_anomalous:
@@ -1010,11 +1019,11 @@ class KVCacheLogParseWorker(BaseWorker):
                     g2.latency_values[prefix].append(val)
         
         results: list[SrcDstAggregatedEventDataclass] = []
-        src_dst_to_agg_id_map: dict[tuple[str, str], str] = {}
+        src_dst_to_agg_id_map: dict[tuple[str, str, str], str] = {}
         
-        for (src, dst), g in groups.items():
+        for (src, dst, op_key), g in groups.items():
             agg_id = str(uuid.uuid4())
-            src_dst_to_agg_id_map[(src, dst)] = agg_id
+            src_dst_to_agg_id_map[(src, dst, op_key)] = agg_id
             
             agg: dict[str, float | None] = {}
             for prefix, _ in src_dst_latency_fields:
@@ -1036,6 +1045,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 src_ip=src,
                 dst_ip=dst,
                 log_id=g.first_log_id,
+                operation=op_key,
                 log_parse_result_cnt=g.count,
                 anomaly_log_parse_result_cnt=g.anomaly_log_count,
                 anomaly_cnt=g.anomaly_count,
@@ -1045,7 +1055,7 @@ class KVCacheLogParseWorker(BaseWorker):
         del groups
         
         time_window_results: list[TimeWindowAggregatedEventDataclass] = []
-        for (time_bucket, src, dst), g in time_window_groups.items():
+        for (time_bucket, src, dst, op_key), g in time_window_groups.items():
             agg: dict[str, float | None] = {}
             for prefix, _ in time_window_latency_fields:
                 values = g.latency_values[prefix]
@@ -1069,6 +1079,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 time_bucket=time_bucket,
                 src_ip=src,
                 dst_ip=dst,
+                operation=op_key,
                 log_parse_result_cnt=g.count,
                 anomaly_cnt=g.anomaly_count,
                 **agg,
@@ -1079,7 +1090,9 @@ class KVCacheLogParseWorker(BaseWorker):
         for r in list_log_parse_results:
             src = r.src_ip or ""
             dst = r.dst_ip or ""
-            key = (src, dst)
+            op = (r.operation or "").strip().upper()
+            op_key = "SET" if "SET" in op else "GET"
+            key = (src, dst, op_key)
             if key in src_dst_to_agg_id_map:
                 r.aggregated_event_id = src_dst_to_agg_id_map[key]
         
@@ -1251,7 +1264,9 @@ class KVCacheLogParseWorker(BaseWorker):
                     r = list_log_parse_results[start_idx]
                     src = r.src_ip or ""
                     dst = r.dst_ip or ""
-                    event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst), "")
+                    op = (r.operation or "").strip().upper()
+                    op_key = "SET" if "SET" in op else "GET"
+                    event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst, op_key), "")
             
             anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
             await BaseWorker.report(task.id, "Fault matching done", 50.0)

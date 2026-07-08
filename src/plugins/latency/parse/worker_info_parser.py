@@ -7,7 +7,7 @@ from typing import Optional
 
 from latency.common.ds_log_io import parse_timestamp, open_log
 from latency.regex.kvcache_log import (
-    URMA_RE, URMA_LINK_RE, REMOTE_GET_RE, REMOTE_PULL_RE,
+    URMA_RE, CREATE_META_REQ_RE, URMA_LINK_RE, REMOTE_GET_RE, REMOTE_PULL_RE,
     QUERY_META_RE, SDK_PROCESS_RE, SDK_RPC_RE,
     LOCAL_WORKER_COST_RE, LOCAL_WORKER_LOCK_RE,
     REMOTE_WORKER_COST_RE, REMOTE_WORKER_RPC_RE,
@@ -49,7 +49,7 @@ TIMED_LABELS = (
 
 # 基础关键字（WorkerInfoParser 使用）
 BASE_KEYWORDS = (
-    "URMA_ELAPSED_TOTAL", "Remote get request", "Processing pull object[",
+    "URMA_ELAPSED_TOTAL", "Processing CreateMetaReq", "Remote get request", "Processing pull object[",
     "elapsed ms:", "Master query done",
 )
 
@@ -288,6 +288,16 @@ class WorkerInfoParser(LogParser):
                 allow_trace_fallback=True,
                 trace_source=line,
             )
+        if "Processing CreateMetaReq" in line:
+            return self._parse_label(
+                URMA_LABEL,
+                self._parse_urma,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
         if "Remote get request" in line:
             return self._parse_label(
                 REMOTE_PULL_LABEL,
@@ -450,21 +460,37 @@ class WorkerInfoParser(LogParser):
     def _parse_urma(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
         msg = parsed["msg"]
         m = URMA_RE.search(msg)
-        if not m:
-            return None
-        elapsed_ms, src, dst, inflight = m.groups()
-        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
-        return LogEntry(
-            timestamp=ts,
-            elapsed_us=float(elapsed_ms) * 1000,
-            src_addr=src.strip(),
-            dst_addr=dst.strip(),
-            inflight_count=int(inflight),
-            pod_ip=entry_pod_ip,
-            trace_id=parsed["trace_id"],
-            entry_type=EntryType.URMA,
-            cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
-        )
+        if m:
+            elapsed_ms, src, dst, inflight = m.groups()
+            entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+            return LogEntry(
+                timestamp=ts,
+                elapsed_us=float(elapsed_ms) * 1000,
+                src_addr=src.strip(),
+                dst_addr=dst.strip(),
+                inflight_count=int(inflight),
+                pod_ip=entry_pod_ip,
+                trace_id=parsed["trace_id"],
+                entry_type=EntryType.URMA,
+                cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
+            )
+        # SET 请求：Master 端 CreateMetaReq 日志，提取 src/dst 端点
+        m2 = CREATE_META_REQ_RE.search(msg)
+        if m2:
+            src, dst = m2.groups()
+            entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+            return LogEntry(
+                timestamp=ts,
+                elapsed_us=0,
+                src_addr=src.strip(),
+                dst_addr=dst.strip(),
+                inflight_count=0,
+                pod_ip=entry_pod_ip,
+                trace_id=parsed["trace_id"],
+                entry_type=EntryType.URMA,
+                cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
+            )
+        return None
 
     def _parse_remote_get(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
         msg = parsed["msg"]
