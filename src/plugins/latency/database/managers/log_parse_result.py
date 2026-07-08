@@ -256,7 +256,7 @@ class LogParseResultManager:
             def sync_batch_insert():
                 """同步函数：全部sqlite操作放到同一个子线程，线程安全"""
                 db.ensure_initialized()
-                conn = db._conn
+                conn = db._write_conn
                 sync_started = time.perf_counter()
                 original_wal_autocheckpoint = None
                 metrics: dict[str, object] = {

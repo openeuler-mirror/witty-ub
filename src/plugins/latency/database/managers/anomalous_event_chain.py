@@ -45,7 +45,7 @@ class AnomalousEventChainManager:
         async with db._async_lock:
             def sync_batch_insert():
                 db.ensure_initialized()
-                conn = db._conn
+                conn = db._write_conn
                 try:
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
