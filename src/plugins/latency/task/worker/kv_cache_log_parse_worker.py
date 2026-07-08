@@ -365,25 +365,13 @@ class KVCacheLogParseWorker(BaseWorker):
             *filename_config.ds_client_access_log_file,
             *filename_config.ds_client_info_log_file,
         ]
+        
         for parser in sdk_parsers:
-            parser._runtime_patterns = (
-                KVCacheLogParseWorker._include_gzip_patterns(sdk_patterns)
-            )
-        worker_access_patterns = _expand_worker_access_patterns(
-            list(filename_config.ds_worker_access_log_file)
-        )
+            parser._runtime_patterns = sdk_patterns
         for parser in worker_access_parsers:
-            parser._runtime_patterns = (
-                KVCacheLogParseWorker._include_gzip_patterns(
-                    worker_access_patterns
-                )
-            )
+            parser._runtime_patterns = filename_config.ds_worker_access_log_file
         for parser in info_parsers:
-            parser._runtime_patterns = (
-                KVCacheLogParseWorker._include_gzip_patterns(
-                    filename_config.ds_worker_info_log_file
-                )
-            )
+            parser._runtime_patterns = filename_config.ds_worker_info_log_file
 
         sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
         worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
