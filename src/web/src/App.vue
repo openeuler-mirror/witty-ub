@@ -2870,13 +2870,7 @@ const renderLatencyEchart = () => {
         latencyChartCenterTime.value = bucket.time
         selectedFaultScale.value = selectedLatencyScale.value
         faultChartCenterTime.value = bucket.time
-        void loadLatencyChart()
-        void loadAbnormalTraces(1)
-        void loadLatencyDetail(1)
-        void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
-        void loadFaultChart()
-        void loadFaultTraceEvents(1)
-        void loadFaultAggregatedEvents(1)
+        void loadAllLatencyData(latencyChartRange.value)
       }
     }
   })
@@ -2921,13 +2915,7 @@ const renderFaultEchart = () => {
         faultChartCenterTime.value = bucket.time
         selectedLatencyScale.value = selectedFaultScale.value
         latencyChartCenterTime.value = bucket.time
-        void loadFaultChart()
-        void loadFaultTraceEvents(1)
-        void loadFaultAggregatedEvents(1)
-        void loadLatencyChart()
-        void loadAbnormalTraces(1)
-        void loadLatencyDetail(1)
-        void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
+        void loadAllFaultData()
       }
     }
   })
@@ -2964,28 +2952,50 @@ const resizeLatencyCharts = () => {
   faultDetailChartInstance?.resize()
 }
 
+const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: number } | null) => {
+  await loadLatencyChart()
+
+  await Promise.all([
+    loadLatencyDetail(1),
+    loadAbnormalTraces(1),
+  ])
+
+  await Promise.all([
+    loadFaultTraceEvents(1),
+    loadFaultAggregatedEvents(1),
+    loadFaultChart(),
+  ])
+
+  await loadTimeWindowAggregatedEvents(1, chartRange)
+}
+
+const loadAllFaultData = async () => {
+  await loadFaultChart()
+
+  await Promise.all([
+    loadFaultTraceEvents(1),
+    loadFaultAggregatedEvents(1),
+  ])
+
+  await Promise.all([
+    loadLatencyChart(),
+    loadAbnormalTraces(1),
+    loadLatencyDetail(1),
+  ])
+
+  await loadTimeWindowAggregatedEvents(1, null)
+}
+
 const resetLatencyChartRange = () => {
   latencyChartCenterTime.value = null
   faultChartCenterTime.value = null
-  void loadLatencyChart()
-  void loadAbnormalTraces(1)
-  void loadLatencyDetail(1)
-  void loadTimeWindowAggregatedEvents(1, null)
-  void loadFaultChart()
-  void loadFaultTraceEvents(1)
-  void loadFaultAggregatedEvents(1)
+  void loadAllLatencyData(null)
 }
 
 const resetFaultChartRange = () => {
   faultChartCenterTime.value = null
   latencyChartCenterTime.value = null
-  void loadFaultChart()
-  void loadFaultTraceEvents(1)
-  void loadFaultAggregatedEvents(1)
-  void loadLatencyChart()
-  void loadAbnormalTraces(1)
-  void loadLatencyDetail(1)
-  void loadTimeWindowAggregatedEvents(1, null)
+  void loadAllFaultData()
 }
 
 const faultCodes = computed(() => {
@@ -4550,17 +4560,26 @@ const applyGlobalFilters = () => {
   filterApplyMessage.value = activeCount > 0 ? `已确认 ${activeCount} 个筛选条件` : '已清空筛选条件'
 
   if (isAbnormalMonitorPage.value) {
-    if (activeAggregateTab.value === 'trace') {
-      void loadAbnormalTraces(1)
-    } else {
-      void loadLatencyDetail(1)
-      void loadTimeWindowAggregatedEvents(1)
+    const loadFilteredData = async () => {
+      const fastRequests: Promise<void>[] = []
+      const slowRequests: Promise<void>[] = []
+
+      if (activeAggregateTab.value === 'trace') {
+        fastRequests.push(loadAbnormalTraces(1))
+      } else {
+        fastRequests.push(loadLatencyDetail(1))
+        slowRequests.push(loadTimeWindowAggregatedEvents(1))
+      }
+
+      if (isFaultCodeFeatureEnabled) {
+        fastRequests.push(loadFaultAggregatedEvents(1), loadFaultTraceEvents(1))
+        slowRequests.push(loadFaultChart())
+      }
+
+      await Promise.all(fastRequests)
+      await Promise.all(slowRequests)
     }
-    if (isFaultCodeFeatureEnabled) {
-      void loadFaultAggregatedEvents(1)
-      void loadFaultChart()
-      void loadFaultTraceEvents(1)
-    }
+    void loadFilteredData()
   }
 }
 

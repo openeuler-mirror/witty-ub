@@ -146,6 +146,58 @@ table_ddl_list = {
             created_at TEXT NOT NULL
         )
     """,
+    "time_window_aggregated_table": """
+        CREATE TABLE IF NOT EXISTS time_window_aggregated_table (
+            id TEXT PRIMARY KEY,
+            kb_id TEXT,
+            log_id TEXT,
+            time_bucket TEXT,
+            src_ip TEXT,
+            dst_ip TEXT,
+            log_parse_result_cnt INTEGER,
+            anomaly_cnt INTEGER,
+            ave_total_latency REAL,
+            min_total_latency REAL,
+            max_total_latency REAL,
+            p99_total_latency REAL,
+            p95_total_latency REAL,
+            ave_query_meta_latency REAL,
+            min_query_meta_latency REAL,
+            max_query_meta_latency REAL,
+            p99_query_meta_latency REAL,
+            p95_query_meta_latency REAL,
+            ave_urma_total_latency REAL,
+            min_urma_total_latency REAL,
+            max_urma_total_latency REAL,
+            p99_urma_total_latency REAL,
+            p95_urma_total_latency REAL,
+            ave_urma_link_latency REAL,
+            min_urma_link_latency REAL,
+            max_urma_link_latency REAL,
+            p99_urma_link_latency REAL,
+            p95_urma_link_latency REAL,
+            ave_c2w_urma_latency REAL,
+            min_c2w_urma_latency REAL,
+            max_c2w_urma_latency REAL,
+            p99_c2w_urma_latency REAL,
+            p95_c2w_urma_latency REAL,
+            ave_w2w_urma_latency REAL,
+            min_w2w_urma_latency REAL,
+            max_w2w_urma_latency REAL,
+            p99_w2w_urma_latency REAL,
+            p95_w2w_urma_latency REAL,
+            existed_status BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+    """,
+    "time_window_aggregated_table_idx_kb_time": """
+        CREATE INDEX IF NOT EXISTS idx_tw_kb_time
+        ON time_window_aggregated_table(kb_id, time_bucket)
+    """,
+    "time_window_aggregated_table_idx_kb_src_dst": """
+        CREATE INDEX IF NOT EXISTS idx_tw_kb_src_dst
+        ON time_window_aggregated_table(kb_id, src_ip, dst_ip)
+    """,
     "anomalous_event_table": """
     CREATE TABLE IF NOT EXISTS anomalous_event_table (
         id TEXT PRIMARY KEY,
@@ -465,6 +517,11 @@ class AsyncSQLiteSingleton:
             self._init_connection()
 
         try:
+            # 启用 WAL 模式，提升并发性能
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            
             # 初始化所有表
             for table_name, ddl in table_ddl_list.items():
                 self._conn.execute(ddl)
@@ -552,8 +609,16 @@ class AsyncSQLiteSingleton:
         :param params: 命名参数字典或位置参数元组
         :return: 查询结果列表（每行是字典）
         """
-        async with self._async_lock:
+        if self._is_read_only(sql):
             return await asyncio.to_thread(self._sync_execute_query, sql, params)
+        else:
+            async with self._async_lock:
+                return await asyncio.to_thread(self._sync_execute_query, sql, params)
+    
+    def _is_read_only(self, sql: str) -> bool:
+        """判断 SQL 是否为只读操作"""
+        stripped = sql.strip().upper()
+        return stripped.startswith('SELECT') or stripped.startswith('PRAGMA')
 
     async def execute_modify(self, sql: str, params: Any = ()) -> tuple[bool, int]:
         """

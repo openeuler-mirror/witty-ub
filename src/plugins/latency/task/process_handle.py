@@ -15,7 +15,7 @@ class ProcessHandler:
     tasks = {}  # 存储进程的字典
     lock = multiprocessing.Lock()  # 创建一个锁对象
     max_processes = max(1, Config().get_config().task.cpu_limit)
-    time_out = 10
+    time_out = 2
 
     @staticmethod
     async def _run_target_after_init(target, *args, **kwargs):
