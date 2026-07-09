@@ -1,5 +1,5 @@
-# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-# witty-ub is licensed under the Mulan PSL v2.
+<!-- Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved. -->
+<!-- witty-ub is licensed under the Mulan PSL v2. -->
 
 # Witty-UB 容器化部署指南
 

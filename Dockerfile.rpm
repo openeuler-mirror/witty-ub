@@ -17,8 +17,8 @@ RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
     echo "enabled=1" >> /etc/yum.repos.d/witty-ub.repo && \
     echo "gpgcheck=0" >> /etc/yum.repos.d/witty-ub.repo
 
-# Install witty-ub and dependencies
-RUN yum install -y witty-ub && \
+# Install witty-ub, dependencies, and Node.js for OpenCode
+RUN yum install -y witty-ub nodejs npm && \
     yum clean all && \
     rm -rf /var/cache/yum
 
@@ -32,12 +32,16 @@ RUN mkdir -p /var/witty-ub/latency/file/file_upload \
 # Copy container-optimized nginx configuration
 COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
 
+# Install OpenCode (requires Node.js for postinstall script)
+RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
+
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Expose ports
-EXPOSE 8080 9772
+EXPOSE 8080 9772 4096
 
 # Volumes for persistent data
 VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]

@@ -19,6 +19,8 @@ services:
       # Optional: Mount uploaded files
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
+      # opencode
+      - ~/.config/opencode:/root/.config/opencode
     environment:
       # Python path for latency plugin
       - PYTHONPATH=/var/witty-ub

@@ -18,7 +18,7 @@ RUN dnf update -y && \
     zlib-devel brotli-devel re2-devel \
     log4cplus sqlite brotli zlib jsoncpp tinyxml2 \
     openssl-libs re2 nginx python3 python3-pip curl \
-    git wget && \
+    git wget nodejs npm && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 

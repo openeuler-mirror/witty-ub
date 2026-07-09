@@ -9,13 +9,31 @@ echo "Witty-UB Container Startup"
 echo "========================================"
 
 # Start nginx for web frontend
-echo "[1/3] Starting Nginx web server..."
+echo "[1/4] Starting Nginx web server..."
 nginx -c /etc/witty-ub/web/nginx.conf
 echo "[OK] Nginx started on port 8080"
 
-# Start latency plugin (FastAPI)
-echo "[2/3] Starting Latency Plugin..."
+# Start OpenCode server first
+echo "[2/4] Starting OpenCode server..."
 cd /var/witty-ub/latency
+export OPENCODE_CONFIG="/var/witty-ub/config/opencode.json"
+export WITTY_UB_PLUGINS_DIR="/var/witty-ub"
+export WITTY_DIR="/var/witty-ub/config"
+nohup /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 \
+    > /var/log/witty-ub/opencode_server.log 2>&1 &
+OPENCODE_PID=$!
+
+# Wait for OpenCode server to be ready (reference: run_opencode.sh)
+echo "  Waiting for OpenCode server to be ready..."
+sleep 1
+if ! kill -0 "${OPENCODE_PID}" 2>/dev/null; then
+    echo "[ERROR] OpenCode server failed to start. Check /var/log/witty-ub/opencode_server.log"
+    exit 1
+fi
+echo "[OK] OpenCode server started on port 4096"
+
+# Start latency plugin (FastAPI)
+echo "[3/4] Starting Latency Plugin..."
 /var/witty-ub/latency/.venv/bin/python \
     /var/witty-ub/latency/access/fastapi_server.py \
     > /var/log/witty-ub/latency_server.log 2>&1 &
@@ -34,15 +52,16 @@ for i in $(seq 1 20); do
     sleep 2
 done
 
-echo "[3/3] All services started successfully!"
+echo "[4/4] All services started successfully!"
 echo "========================================"
 echo "  - Web UI:     http://localhost:8080"
 echo "  - API:        http://localhost:9772"
+echo "  - OpenCode:   http://localhost:4096"
 echo "  - Health:     http://localhost:9772/health_check"
 echo "  - Logs:       /var/log/witty-ub/"
 echo "========================================"
 
 # Keep container running and forward signals
 # Use tail to keep the container alive and capture any background process output
-tail -f /var/log/witty-ub/latency_server.log &
+tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log &
 wait
