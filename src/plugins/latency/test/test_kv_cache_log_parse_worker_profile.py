@@ -365,7 +365,7 @@ class ParseTimingCollector(logging.Handler):
             started = time.perf_counter()
             try:
                 result = collector._original_correlate(correlator)
-                metric_worker_indices = set()
+                timed_worker_indices = set()
                 for mapping in (
                     result.worker_sdk_process_map,
                     result.worker_sdk_rpc_map,
@@ -376,7 +376,7 @@ class ParseTimingCollector(logging.Handler):
                     result.worker_master_process_map,
                     result.worker_master_rpc_map,
                 ):
-                    metric_worker_indices.update(mapping)
+                    timed_worker_indices.update(mapping)
                 collector.counts = {
                     "sdk_entries": len(correlator.sdk_entries),
                     "worker_entries": len(correlator.worker_entries),
@@ -385,7 +385,7 @@ class ParseTimingCollector(logging.Handler):
                     "worker_query_meta_matches": len(
                         result.worker_query_meta_map
                     ),
-                    "worker_metric_matches": len(metric_worker_indices),
+                    "worker_timed_matches": len(timed_worker_indices),
                 }
                 return result
             finally:

@@ -61,26 +61,64 @@ LEADING_FLOAT_RE = re.compile(r"^\s*([\d.]+)(?:ms)?(?:\(|\s*$)")
 # 新增时延指标正则 (按用户需求添加)
 # -------------------------------------------------------------------
 
-# 1. sdk_process - 关键字: totalCost: Xms
-SDK_PROCESS_RE = re.compile(r"totalCost:\s*([\d.]+)ms")
+# 1. sdk_process - 关键字: [Get] Done ... totalCost: Xms
+SDK_PROCESS_RE = re.compile(
+    r"(?:\[Get\]\s+Done,\s*"
+    r"clientId:\s*(?P<client_id>[^,\s]+),\s*"
+    r"objects:\s*(?P<objects>\d+),\s*"
+    r"transferPath:\s*(?P<transfer_path>[^,]+),\s*)?"
+    r"totalCost:\s*(?P<cost>[\d.]+)ms"
+    r"(?:,\s*inflightRemoteGet:\s*(?P<inflight_remote_get>\d+)"
+    r"(?:\s+exceed\s+[\d.]+ms:\s*\{(?P<slow_items>.*?)\})?)?"
+)
 
 # 2. sdk_rpc - 关键字: Worker to master rpc QueryMeta: Xms
-SDK_RPC_RE = re.compile(r"Worker to master rpc QueryMeta:\s*([\d.]+)\s*ms")
+SDK_RPC_RE = re.compile(r"Worker to master rpc QueryMeta:\s*(?P<cost>[\d.]+)\s*ms")
 
 # 3. local_worker_cost - 关键字: ProcessGetObjectRequest: Xms
-LOCAL_WORKER_COST_RE = re.compile(r"ProcessGetObjectRequest:\s*([\d.]+)\s*ms")
+LOCAL_WORKER_COST_RE = re.compile(r"ProcessGetObjectRequest:\s*(?P<cost>[\d.]+)\s*ms")
 
 # 4. local_worker_lock - 关键字: worker SafeObject WLock: Xms
-LOCAL_WORKER_LOCK_RE = re.compile(r"worker SafeObject WLock:\s*([\d.]+)ms")
+LOCAL_WORKER_LOCK_RE = re.compile(r"worker SafeObject WLock:\s*(?P<cost>[\d.]+)\s*ms")
 
 # 5. remote_worker_cost - 关键字: [Get/RemotePull] finish ... cost: Xms
-REMOTE_WORKER_COST_RE = re.compile(r"\[Get/RemotePull\]\s+finish.*?cost:\s*([\d.]+)ms")
+REMOTE_WORKER_COST_RE = re.compile(
+    r"\[Get/RemotePull\]\s+finish"
+    r"(?:,\s*count:\s*(?P<count>\d+),\s*"
+    r"firstObjectKey:\s*(?P<first_object_key>[^,]*),\s*"
+    r"payload size:\s*(?P<payload_size>\d+),\s*"
+    r"start remainingTime:\s*(?P<start_remaining_time>[^,]+))?"
+    r".*?cost:\s*(?P<cost>[\d.]+)ms"
+    r"(?:,\s*src\s*=\s*(?P<src>[^,\s]+),\s*dst\s*=\s*(?P<dst>[^,\s]+))?"
+)
 
 # 6. remote_worker_rpc - 关键字: [Get] Remote done ... cost: Xms
-REMOTE_WORKER_RPC_RE = re.compile(r"\[Get\]\s+Remote done.*?cost:\s*([\d.]+)ms")
+REMOTE_WORKER_RPC_RE = re.compile(
+    r"\[Get\]\s+Remote done"
+    r"(?:,\s*count:\s*(?P<count>\d+),\s*path:\s*(?P<path>[^,]+))?"
+    r".*?cost:\s*(?P<cost>[\d.]+)ms"
+    r"(?:,\s*src\s*=\s*(?P<src>[^,\s]+),\s*dst\s*=\s*(?P<dst>[^,\s]+))?"
+)
 
 # 7. master_process - 关键字: QueryMeta done ... cost: Xms
-MASTER_PROCESS_RE = re.compile(r"QueryMeta done.*?cost:\s*([\d.]+)ms")
+MASTER_PROCESS_RE = re.compile(
+    r"QueryMeta done"
+    r"(?:,\s*target num\s*(?P<target_num>\d+),\s*"
+    r"success num\s*(?P<success_num>\d+))?"
+    r".*?cost:\s*(?P<cost>[\d.]+)ms"
+)
 
 # 8. master_rpc - 关键字: [ZMQ_RPC_FRAMEWORK_SLOW] ... remote_processing_us=X
-MASTER_RPC_RE = re.compile(r"\[ZMQ_RPC_FRAMEWORK_SLOW\].*?remote_processing_us=(\d+)")
+MASTER_RPC_RE = re.compile(
+    r"\[ZMQ_RPC_FRAMEWORK_SLOW\]\s+"
+    r"trace_id=(?P<rpc_trace_id>\S+)\s+"
+    r"framework_us=(?P<framework_us>\d+)\s+"
+    r"e2e_us=(?P<e2e_us>\d+)\s+"
+    r"client_req_framework_us=(?P<client_req_framework_us>\d+)\s+"
+    r"remote_processing_us=(?P<remote_processing_us>\d+)\s+"
+    r"client_rsp_framework_us=(?P<client_rsp_framework_us>\d+)\s+"
+    r"server_req_queue_us=(?P<server_req_queue_us>\d+)\s+"
+    r"server_exec_us=(?P<server_exec_us>\d+)\s+"
+    r"server_rsp_queue_us=(?P<server_rsp_queue_us>\d+)\s+"
+    r"network_residual_us=(?P<network_residual_us>\d+)"
+)

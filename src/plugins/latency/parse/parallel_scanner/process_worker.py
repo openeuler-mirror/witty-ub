@@ -127,7 +127,6 @@ def _rebuild_parsers(
         RemotePullLogParser,
         LinkLogParser,
         QueryMetaLogParser,
-        WorkerMetricsLogParser,
         WorkerInfoParser,
     )
 
@@ -140,7 +139,6 @@ def _rebuild_parsers(
         "RemotePullLogParser": RemotePullLogParser,
         "LinkLogParser": LinkLogParser,
         "QueryMetaLogParser": QueryMetaLogParser,
-        "WorkerMetricsLogParser": WorkerMetricsLogParser,
         "WorkerInfoParser": WorkerInfoParser,
     }
 
@@ -241,7 +239,7 @@ def _scan_file_multi(
                 try:
                     entries = parser.match_line(line, pod_ip)
                     if entries:
-                        # 处理 match_line 返回列表的情况（如 WorkerMetricsLogParser）
+                        # 处理 match_line 返回列表的情况（如 WorkerInfoParser）
                         if isinstance(entries, list):
                             for entry in entries:
                                 entry.log_id = log_file.id

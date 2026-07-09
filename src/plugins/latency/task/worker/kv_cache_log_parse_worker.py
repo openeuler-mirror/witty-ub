@@ -19,9 +19,23 @@ from latency.parse import (
     SdkAccessLogParser,
     WorkerAccessLogParser,
     WorkerInfoParser,
-    WorkerMetricsLogParser,
     LogCorrelator,
     ParseResultBuilder,
+)
+from latency.parse.worker_info_parser import (
+    URMA_LABEL,
+    REMOTE_PULL_LABEL,
+    LINK_LABEL,
+    QUERY_META_LABEL,
+    SDK_PROCESS_LABEL,
+    SDK_RPC_LABEL,
+    LOCAL_WORKER_COST_LABEL,
+    LOCAL_WORKER_LOCK_LABEL,
+    REMOTE_WORKER_COST_LABEL,
+    REMOTE_WORKER_RPC_LABEL,
+    MASTER_PROCESS_LABEL,
+    MASTER_RPC_LABEL,
+    TIMED_LABELS,
 )
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.ds_log import TupleField
@@ -65,10 +79,18 @@ TRACE_CONTEXT_TIMEOUT_THRESHOLDS_MS = {
 }
 
 WORKER_INFO_LABEL_BY_ENTRY_TYPE = {
-    EntryType.URMA.value: "Worker urma parse",
-    EntryType.REMOTE_PULL.value: "Worker remote pull parse",
-    EntryType.LINK.value: "Worker link parse",
-    EntryType.QUERY_META.value: "Worker query meta parse",
+    EntryType.URMA.value: URMA_LABEL,
+    EntryType.REMOTE_PULL.value: REMOTE_PULL_LABEL,
+    EntryType.LINK.value: LINK_LABEL,
+    EntryType.QUERY_META.value: QUERY_META_LABEL,
+    EntryType.SDK_PROCESS.value: SDK_PROCESS_LABEL,
+    EntryType.SDK_RPC.value: SDK_RPC_LABEL,
+    EntryType.LOCAL_WORKER_COST.value: LOCAL_WORKER_COST_LABEL,
+    EntryType.LOCAL_WORKER_LOCK.value: LOCAL_WORKER_LOCK_LABEL,
+    EntryType.REMOTE_WORKER_COST.value: REMOTE_WORKER_COST_LABEL,
+    EntryType.REMOTE_WORKER_RPC.value: REMOTE_WORKER_RPC_LABEL,
+    EntryType.MASTER_PROCESS.value: MASTER_PROCESS_LABEL,
+    EntryType.MASTER_RPC.value: MASTER_RPC_LABEL,
 }
 
 # scan_scope 会作为 ProcessPool 参数复制到每个子进程。大型日志通常每条
@@ -359,7 +381,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
         sdk_parsers = [SdkAccessLogParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
-        info_parsers = [WorkerInfoParser(parse_config), WorkerMetricsLogParser(parse_config)]
+        info_parsers = [WorkerInfoParser(parse_config)]
         filename_config = diagnosis_config.log_filename_pattern
         sdk_patterns = [
             *filename_config.ds_client_access_log_file,
@@ -446,9 +468,8 @@ class KVCacheLogParseWorker(BaseWorker):
             )
             parsed.update(info_parsed)
             
-            # WorkerInfoParser 将所有结果存储在 "Worker info parse" 标签下，
-            # 但 LogCorrelator 需要按旧独立解析器的标签分别获取。
-            # 这里按 entry_type 拆分为各个旧标签。
+            # 兼容聚合标签路径：如果 WorkerInfoParser 结果落在
+            # "Worker info parse"，按 entry_type 拆成各个细分 label。
             KVCacheLogParseWorker._split_worker_info_entries(parsed)
 
         t_scan = time.perf_counter() - t_scan_start
@@ -476,8 +497,8 @@ class KVCacheLogParseWorker(BaseWorker):
         correlate_stage_timings = list(correlator.stage_timings)
         correlate_worker_scope_count = correlator.worker_scope_count
         correlate_worker_scope_pod_trace_count = correlator.worker_scope_pod_trace_count
-        metric_worker_indices = set()
-        for metric_map in (
+        timed_worker_indices = set()
+        for timed_map in (
             correlated.worker_sdk_process_map,
             correlated.worker_sdk_rpc_map,
             correlated.worker_local_worker_cost_map,
@@ -487,14 +508,15 @@ class KVCacheLogParseWorker(BaseWorker):
             correlated.worker_master_process_map,
             correlated.worker_master_rpc_map,
         ):
-            metric_worker_indices.update(metric_map.keys())
+            timed_worker_indices.update(timed_map.keys())
+        timed_entry_count = sum(entry_counts.get(label, 0) for label in TIMED_LABELS)
         correlate_match_counts = {
             "sdk_worker": len(correlated.sdk_worker_map),
             "sdk_urma_groups": len(correlated.sdk_urma_index),
             "worker_urma": len(correlated.worker_urma_map),
             "worker_link": len(correlated.worker_link_map),
             "worker_meta": len(correlated.worker_query_meta_map),
-            "worker_metrics": len(metric_worker_indices),
+            "worker_timed": len(timed_worker_indices),
         }
 
         # correlator 仍持有 parsed 列表和索引；先断开引用，再依靠引用计数
@@ -654,7 +676,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
                     f"link={entry_counts.get('Worker link parse', 0)}, "
                     f"meta={entry_counts.get('Worker query meta parse', 0)}, "
-                    f"metrics={entry_counts.get('Worker metrics parse', 0)}"
+                    f"timed={timed_entry_count}"
                 ),
                 0.0,
             )
@@ -671,7 +693,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
                     f"link={entry_counts.get('Worker link parse', 0)}, "
                     f"meta={entry_counts.get('Worker query meta parse', 0)}, "
-                    f"metrics={entry_counts.get('Worker metrics parse', 0)}"
+                    f"timed={timed_entry_count}"
                 ),
                 correlate_index_seconds,
             )
@@ -692,7 +714,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"worker_urma={correlate_match_counts['worker_urma']}/{entry_counts.get('Worker access parse', 0)}, "
                     f"worker_link={correlate_match_counts['worker_link']}/{entry_counts.get('Worker access parse', 0)}, "
                     f"worker_meta={correlate_match_counts['worker_meta']}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"worker_metrics={correlate_match_counts['worker_metrics']}/{entry_counts.get('Worker access parse', 0)}"
+                    f"worker_timed={correlate_match_counts['worker_timed']}/{entry_counts.get('Worker access parse', 0)}"
                 ),
                 0.0,
             )

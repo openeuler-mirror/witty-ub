@@ -211,11 +211,11 @@ class ParseResultBuilder:
                 sdk_urma_values = sdk_urma_get(i)
                 if not sdk_urma_values and has_sdk_urma_index:
                     sdk_urma_values = sdk_urma_index_get(
-                        (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                        sdk[T_TRACE_ID]
                     )
             elif has_sdk_urma_index:
                 sdk_urma_values = sdk_urma_index_get(
-                    (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                    sdk[T_TRACE_ID]
                 )
             else:
                 sdk_urma_values = None
@@ -467,11 +467,11 @@ class ParseResultBuilder:
                 sdk_urma_values = sdk_urma_get(i)
                 if not sdk_urma_values and has_sdk_urma_index:
                     sdk_urma_values = sdk_urma_index_get(
-                        (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                        sdk[T_TRACE_ID]
                     )
             elif has_sdk_urma_index:
                 sdk_urma_values = sdk_urma_index_get(
-                    (sdk[T_POD_IP], sdk[T_TRACE_ID])
+                    sdk[T_TRACE_ID]
                 )
             else:
                 sdk_urma_values = None

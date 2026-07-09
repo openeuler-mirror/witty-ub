@@ -17,8 +17,17 @@ from latency.database.managers.log_parse_result import (
 from latency.parse.base_parser import AccessLogParser
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
-from latency.parse.worker_info_parser import WorkerInfoParser
-from latency.parse.worker_metrics_log_parser import WorkerMetricsLogParser
+from latency.parse.worker_info_parser import (
+    WorkerInfoParser,
+    SDK_PROCESS_LABEL,
+    SDK_RPC_LABEL,
+    LOCAL_WORKER_COST_LABEL,
+    LOCAL_WORKER_LOCK_LABEL,
+    REMOTE_WORKER_COST_LABEL,
+    REMOTE_WORKER_RPC_LABEL,
+    MASTER_PROCESS_LABEL,
+    MASTER_RPC_LABEL,
+)
 from latency.schemas.ds_log import CorrelationResult, TupleField
 from latency.schemas.log import (
     C2WLogParseResultDataclass,
@@ -137,8 +146,8 @@ def test_unmatched_sdk_fast_path_matches_general_builder() -> None:
         entry_type="URMA",
     )
     sdk_urma_index = {
-        ("10.0.0.1", "ok-float"): [positive_urma],
-        ("10.0.0.1", "ok-int"): [negative_urma],
+        "ok-float": [positive_urma],
+        "ok-int": [negative_urma],
     }
     fast_builder = ParseResultBuilder(
         sdk_entries,
@@ -194,7 +203,7 @@ def test_raw_builder_preserves_correlated_fields_and_remarks() -> None:
     correlated = CorrelationResult(
         sdk_worker_map={0: workers[0], 2: workers[1], 3: workers[2]},
         worker_idx_map={0: 0, 2: 1, 3: 2},
-        sdk_urma_index={("10.0.0.1", "ok"): [metric]},
+        sdk_urma_index={"ok": [metric]},
         worker_urma_map={0: [urma]},
         worker_remote_pull_map={2: [remote_pull]},
         worker_query_meta_map={0: [metric]},
@@ -366,8 +375,8 @@ def test_worker_query_meta_scope_uses_pod_ip_from_log_line() -> None:
     assert entries[0].elapsed_us == 48.0
 
 
-def test_worker_metrics_preserves_remote_endpoint_from_message() -> None:
-    parser = WorkerMetricsLogParser()
+def test_worker_info_remote_worker_rpc_preserves_endpoint_from_message() -> None:
+    parser = WorkerInfoParser()
     trace_id = "trace-with-endpoint"
     line = (
         "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
@@ -385,6 +394,192 @@ def test_worker_metrics_preserves_remote_endpoint_from_message() -> None:
     assert entry.elapsed_us == 616.0
     assert entry.src_addr == "192.168.102.119:31402"
     assert entry.dst_addr == "192.168.182.7:31402"
+
+
+def test_worker_info_parser_emits_timed_entries() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-with-endpoint"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get] Remote done, count: 1, path: UB, cost: 0.616ms, "
+        "src=192.168.102.119:31402, dst=192.168.182.7:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.REMOTE_WORKER_RPC
+    assert entry.elapsed_us == 616.0
+    assert entry.src_addr == "192.168.102.119:31402"
+    assert entry.dst_addr == "192.168.182.7:31402"
+
+
+def test_worker_info_parser_stops_after_first_keyword_match() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-with-base-and-metrics"
+    line = (
+        "2026-05-11T00:09:31.042186 | I | worker.cpp:1 | "
+        f"192.168.1.10 | 1:2 | {trace_id} | cluster | "
+        "[Get] Master query done, targets: 1, hits: 1, cost: 0.048ms, "
+        "totalCost: 1.5ms, src=192.168.1.10:31402, dst=192.168.1.11:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.1.10")
+
+    assert entries is not None
+    assert len(entries) == 1
+    assert entries[0].entry_type == EntryType.QUERY_META
+    assert entries[0].elapsed_us == 48.0
+
+
+def test_worker_info_sdk_process_preserves_actual_get_done_fields() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-get-done"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get] Done, clientId: ac5061f1-af7a-403a-b05b-b5b55f523a6b, "
+        "objects: 1, transferPath: UB, totalCost: 4.705ms, "
+        "inflightRemoteGet: 5 exceed 3ms: {Worker to master rpc QueryMeta: 3 ms; "
+        "ProcessGetObjectRequest: 4 ms; }\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.SDK_PROCESS
+    assert entry.elapsed_us == 4705.0
+    assert entry.inflight_count == 5
+    assert entry.resp_msg is not None
+    assert "client_id=ac5061f1-af7a-403a-b05b-b5b55f523a6b" in entry.resp_msg
+    assert "objects=1" in entry.resp_msg
+    assert "transfer_path=UB" in entry.resp_msg
+    assert "slow_items=Worker to master rpc QueryMeta: 3 ms; ProcessGetObjectRequest: 4 ms;" in entry.resp_msg
+
+
+def test_worker_info_remote_pull_preserves_actual_message_fields() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-remote-pull"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get/RemotePull] finish, count: 1, "
+        "firstObjectKey: kv_test_28_9_379704584586837_0, payload size: 0, "
+        "start remainingTime: 12, cost: 0.592ms, "
+        "src=192.168.35.22:31402, dst=192.168.233.99:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.REMOTE_WORKER_COST
+    assert entry.elapsed_us == 592.0
+    assert entry.object_key == "kv_test_28_9_379704584586837_0"
+    assert entry.request_size == "0"
+    assert entry.src_addr == "192.168.35.22:31402"
+    assert entry.dst_addr == "192.168.233.99:31402"
+    assert entry.resp_msg is not None
+    assert "count=1" in entry.resp_msg
+    assert "start_remaining_time=12" in entry.resp_msg
+
+
+def test_worker_info_falls_back_to_src_dst_endpoint_without_known_keyword() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-remote-pull-start"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get] Remote pull, count: 1, path: UB, "
+        "src=192.168.233.99:31402, dst=192.168.199.128:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.REMOTE_PULL
+    assert entry.elapsed_us == 0
+    assert entry.src_addr == "192.168.233.99:31402"
+    assert entry.dst_addr == "192.168.199.128:31402"
+    assert entry.resp_msg == (
+        "[Get] Remote pull, count: 1, path: UB, "
+        "src=192.168.233.99:31402, dst=192.168.199.128:31402"
+    )
+
+
+def test_worker_info_falls_back_to_receive_src_dst_endpoint() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-remote-pull-receive"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "[Get/RemotePull] Receive, count: 1, remainingTime: 12, "
+        "src=192.168.35.22:31402, dst=192.168.233.99:31402\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.REMOTE_PULL
+    assert entry.elapsed_us == 0
+    assert entry.src_addr == "192.168.35.22:31402"
+    assert entry.dst_addr == "192.168.233.99:31402"
+    assert entry.resp_msg == (
+        "[Get/RemotePull] Receive, count: 1, remainingTime: 12, "
+        "src=192.168.35.22:31402, dst=192.168.233.99:31402"
+    )
+
+
+def test_worker_info_src_dst_fallback_ignores_non_ip_values() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "trace-non-ip-src-dst"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | worker.cpp:1 | "
+        f"192.168.102.119 | 1:2 | {trace_id} | cluster | "
+        "URMA write useNumaAffinity:1, src:1, dst:2, "
+        "jetty id:1149, urma_inflight_wr_count:1\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is None
+
+
+def test_worker_info_master_rpc_preserves_framework_slow_breakdown() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "38d88464-1cba-472a-b717-cb8ea9f3591b"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | rpc.cpp:1 | "
+        "192.168.102.119 | 1:2 |  | cluster | "
+        f"[ZMQ_RPC_FRAMEWORK_SLOW] trace_id={trace_id} framework_us=281 e2e_us=321 "
+        "client_req_framework_us=23 remote_processing_us=282 client_rsp_framework_us=16 "
+        "server_req_queue_us=21 server_exec_us=40 server_rsp_queue_us=23 "
+        "network_residual_us=196\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entry_type == EntryType.MASTER_RPC
+    assert entry.trace_id == trace_id
+    assert entry.elapsed_us == 282.0
+    assert entry.resp_msg is not None
+    assert "framework_us=281" in entry.resp_msg
+    assert "e2e_us=321" in entry.resp_msg
+    assert "server_exec_us=40" in entry.resp_msg
+    assert "network_residual_us=196" in entry.resp_msg
 
 
 def test_worker_info_urma_parses_target_dst_and_destination_address() -> None:
@@ -413,7 +608,7 @@ def test_worker_info_urma_parses_target_dst_and_destination_address() -> None:
         assert entry.inflight_count == 7
 
 
-def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
+def test_worker_timed_tuple_entry_type_is_correlated() -> None:
     timestamp = datetime(2026, 7, 2)
     trace_id = "wanted"
     sdk = _raw_entry(
@@ -428,41 +623,61 @@ def test_worker_metrics_tuple_entry_type_is_correlated() -> None:
         elapsed_us=1000,
         entry_type=EntryType.WORKER_GET.value,
     )
-    metric_maps = (
-        (EntryType.SDK_PROCESS, "worker_sdk_process_map"),
-        (EntryType.SDK_RPC, "worker_sdk_rpc_map"),
-        (EntryType.LOCAL_WORKER_COST, "worker_local_worker_cost_map"),
-        (EntryType.LOCAL_WORKER_LOCK, "worker_local_worker_lock_map"),
-        (EntryType.REMOTE_WORKER_COST, "worker_remote_worker_cost_map"),
-        (EntryType.REMOTE_WORKER_RPC, "worker_remote_worker_rpc_map"),
-        (EntryType.MASTER_PROCESS, "worker_master_process_map"),
-        (EntryType.MASTER_RPC, "worker_master_rpc_map"),
+    timed_maps = (
+        (EntryType.SDK_PROCESS, "worker_sdk_process_map", SDK_PROCESS_LABEL),
+        (EntryType.SDK_RPC, "worker_sdk_rpc_map", SDK_RPC_LABEL),
+        (
+            EntryType.LOCAL_WORKER_COST,
+            "worker_local_worker_cost_map",
+            LOCAL_WORKER_COST_LABEL,
+        ),
+        (
+            EntryType.LOCAL_WORKER_LOCK,
+            "worker_local_worker_lock_map",
+            LOCAL_WORKER_LOCK_LABEL,
+        ),
+        (
+            EntryType.REMOTE_WORKER_COST,
+            "worker_remote_worker_cost_map",
+            REMOTE_WORKER_COST_LABEL,
+        ),
+        (
+            EntryType.REMOTE_WORKER_RPC,
+            "worker_remote_worker_rpc_map",
+            REMOTE_WORKER_RPC_LABEL,
+        ),
+        (EntryType.MASTER_PROCESS, "worker_master_process_map", MASTER_PROCESS_LABEL),
+        (EntryType.MASTER_RPC, "worker_master_rpc_map", MASTER_RPC_LABEL),
     )
-    metrics = [
+    timed_entries = [
         _raw_entry(
             timestamp=timestamp,
             trace_id=trace_id,
             elapsed_us=index + 1,
             entry_type=entry_type.value,
         )
-        for index, (entry_type, _) in enumerate(metric_maps)
+        for index, (entry_type, _, _) in enumerate(timed_maps)
     ]
+    timed_by_label = {
+        label: [entry]
+        for entry, (_, _, label) in zip(timed_entries, timed_maps)
+    }
 
     for sdk_entries in ([], [sdk]):
         correlated = LogCorrelator(
             {
                 "SDK access parse": sdk_entries,
                 "Worker access parse": [worker],
-                "Worker metrics parse": metrics,
+                **timed_by_label,
             }
         ).correlate()
 
-        for entry_type, map_name in metric_maps:
+        for entry_type, map_name, _ in timed_maps:
             values = getattr(correlated, map_name)[0]
             assert values[0][TupleField.ENTRY_TYPE] == entry_type.value
 
 
-def test_result_builder_falls_back_to_remote_metric_endpoint() -> None:
+def test_result_builder_falls_back_to_remote_timed_endpoint() -> None:
     timestamp = datetime(2026, 7, 2, 1, 2, 3)
     trace_id = "trace-with-metric-endpoint"
     sdk = _raw_entry(
@@ -489,7 +704,7 @@ def test_result_builder_falls_back_to_remote_metric_endpoint() -> None:
         {
             "SDK access parse": [sdk],
             "Worker access parse": [worker],
-            "Worker metrics parse": [remote_rpc],
+            REMOTE_WORKER_RPC_LABEL: [remote_rpc],
         }
     ).correlate()
 
@@ -546,7 +761,7 @@ def test_empty_sdk_worker_correlation_keeps_unmatched_sdk_results() -> None:
             "SDK access parse": [sdk],
             "Worker access parse": [worker],
             "Worker query meta parse": [query_meta],
-            "Worker metrics parse": [sdk_process],
+            SDK_PROCESS_LABEL: [sdk_process],
             "Worker urma parse": [urma],
         }
     ).correlate()
@@ -554,7 +769,7 @@ def test_empty_sdk_worker_correlation_keeps_unmatched_sdk_results() -> None:
     assert correlated.sdk_worker_map == {}
     assert correlated.worker_query_meta_map[0] == [query_meta]
     assert correlated.worker_sdk_process_map[0] == [sdk_process]
-    assert correlated.worker_urma_map[0] == [urma]
+    assert 0 not in correlated.worker_urma_map
 
     results = ParseResultBuilder(
         [sdk],
@@ -623,7 +838,7 @@ def test_sdk_urma_uses_shared_index_without_sdk_sized_map() -> None:
     ).correlate()
 
     assert correlated.sdk_urma_map == {}
-    assert correlated.sdk_urma_index[("10.0.0.1", "trace")] == [urma]
+    assert correlated.sdk_urma_index["trace"] == [urma]
 
 
 def test_unmatched_sdk_with_urma_endpoint_builds_full_result() -> None:
@@ -672,7 +887,7 @@ def test_unmatched_sdk_with_urma_endpoint_builds_full_result() -> None:
     assert (result.src_ip, result.dst_ip) == ("10.0.0.1:1", "10.0.0.2:1")
 
 
-def test_single_worker_trace_skips_sort_and_timestamp_index() -> None:
+def test_single_worker_trace_matches_without_timestamp_index() -> None:
     timestamp = datetime(2026, 7, 2)
     sdk = _raw_entry(
         timestamp=timestamp,
@@ -691,12 +906,11 @@ def test_single_worker_trace_skips_sort_and_timestamp_index() -> None:
         {"SDK access parse": [sdk], "Worker access parse": [worker]}
     )
 
-    assert correlator.index_manager.worker_ts_by_trace == {}
     assert correlator.index_manager.worker_by_trace_object == {}
     assert correlator.correlate().sdk_worker_map == {0: worker}
 
 
-def test_multi_worker_trace_and_best_link_keep_previous_semantics() -> None:
+def test_multi_worker_trace_uses_trace_id_only_and_keeps_best_link() -> None:
     timestamp = datetime(2026, 7, 2)
     sdk = _raw_entry(
         timestamp=timestamp,
@@ -731,18 +945,109 @@ def test_multi_worker_trace_and_best_link_keep_previous_semantics() -> None:
     correlator = LogCorrelator(
         {
             "SDK access parse": [sdk],
-            "Worker access parse": [nearest, earlier],
+            "Worker access parse": [earlier, nearest],
             "Worker link parse": [slow_link, best_link],
         }
     )
 
     correlated = correlator.correlate()
-    assert correlator.index_manager.worker_ts_by_trace["trace"] == [
-        earlier[0], nearest[0]
-    ]
-    assert correlated.sdk_worker_map == {0: nearest}
+    assert correlated.sdk_worker_map == {0: earlier}
     worker_idx = correlated.worker_idx_map[0]
     assert correlated.worker_link_map[worker_idx] == [best_link]
+
+
+def test_remote_pull_correlation_uses_trace_id_only() -> None:
+    timestamp = datetime(2026, 7, 2)
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+    )
+    exact_object_pull = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=0,
+        entry_type=EntryType.REMOTE_PULL.value,
+    )
+    different_object_pull = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=0,
+        entry_type=EntryType.REMOTE_PULL.value,
+    )
+    worker = list(worker)
+    exact_object_pull = list(exact_object_pull)
+    different_object_pull = list(different_object_pull)
+    worker[TupleField.OBJECT_KEY] = "worker-object"
+    exact_object_pull[TupleField.OBJECT_KEY] = "worker-object"
+    different_object_pull[TupleField.OBJECT_KEY] = "different-object"
+    worker = tuple(worker)
+    exact_object_pull = tuple(exact_object_pull)
+    different_object_pull = tuple(different_object_pull)
+
+    correlated = LogCorrelator(
+        {
+            "Worker access parse": [worker],
+            "Worker remote pull parse": [exact_object_pull, different_object_pull],
+        }
+    ).correlate()
+
+    assert correlated.worker_remote_pull_map[0] == [
+        exact_object_pull,
+        different_object_pull,
+    ]
+
+
+def test_query_meta_correlation_uses_trace_id_only() -> None:
+    timestamp = datetime(2026, 7, 2)
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+        pod_ip="10.0.0.1",
+    )
+    query_meta = _raw_entry(
+        timestamp=timestamp + timedelta(hours=1),
+        trace_id="trace",
+        elapsed_us=123,
+        entry_type=EntryType.QUERY_META.value,
+        pod_ip="10.0.0.2",
+    )
+
+    correlated = LogCorrelator(
+        {"Worker access parse": [worker], "Worker query meta parse": [query_meta]}
+    ).correlate()
+
+    assert correlated.worker_query_meta_map[0] == [query_meta]
+
+
+def test_urma_correlation_uses_trace_id_only() -> None:
+    timestamp = datetime(2026, 7, 2)
+    worker = _raw_entry(
+        timestamp=timestamp,
+        trace_id="trace",
+        elapsed_us=1000,
+        entry_type=EntryType.WORKER_GET.value,
+        pod_ip="10.0.0.1",
+    )
+    urma = _raw_entry(
+        timestamp=timestamp + timedelta(hours=1),
+        trace_id="trace",
+        elapsed_us=456,
+        entry_type=EntryType.URMA.value,
+        pod_ip="10.0.0.2",
+        src_addr="10.1.0.1:1",
+        dst_addr="10.1.0.2:1",
+    )
+
+    correlated = LogCorrelator(
+        {"Worker access parse": [worker], "Worker urma parse": [urma]}
+    ).correlate()
+
+    assert correlated.worker_urma_map[0] == [urma]
+    assert correlated.worker_worker_urma_map[0] == [urma]
 
 
 def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
