@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from pydantic import BaseModel, Field
 class LogFailureEventModel(BaseModel):
@@ -6,7 +7,7 @@ class LogFailureEventModel(BaseModel):
     log_id: str = Field(..., description="知识库对应的日志文件目录ID")
     log_file: str = Field(..., description="日志文件")
     raw_text: str = Field(..., description="原始日志")
-    host_name: str = Field(default="Unknown", description="主机名")
+    host_name: Optional[str] = Field(default=None, description="主机名")
     timestamp: str = Field(..., description="日志时间戳")
     level: str = Field(..., description="日志级别")
     filename: str = Field(..., description="报错文件名")

@@ -299,8 +299,8 @@ type TimeWindowAggregatedEvent = {
 
 type LatencyDetailRow = {
   id: string
-  sourceHost: string
-  targetHost: string
+  sourcePodIp: string
+  targetPodIp: string
   traceCount: number
   anomalyTraceCount: number
   event: AggregatedEventModel
@@ -352,8 +352,8 @@ type TraceFilterTarget = {
 
 type FaultDetailRow = {
   id: string
-  sourceHost: string
-  targetHost: string
+  sourcePodIp: string
+  targetPodIp: string
   total: number
   faultCodes: string[]
 }
@@ -439,7 +439,7 @@ type LogFailureEventResultModel = {
   log_id?: string
   log_file?: string
   raw_text?: string
-  host_name?: string
+  host_name?: string | null
   timestamp?: string
   level?: string
   filename?: string
@@ -459,7 +459,7 @@ type TraceFailureEventResultModel = {
   trace_id?: string
   log_id?: string
   pod_names?: string[]
-  host_names?: string[]
+  host_names?: Array<string | null>
   cluster_names?: string[]
   timestamp?: string
   status_code?: string
@@ -1464,7 +1464,7 @@ const traceListColumnWidths = reactive<ColumnWidthMap>({
 
 const faultTraceScrollColumns = reactive({
   widths: [150, 100, 110, 80, 200, 100],
-  labels: ['Pod IP', '集群', '主机IP', '故障码', '故障名称', '故障域'],
+  labels: ['Pod IP', '集群', '主机', '故障码', '故障名称', '故障域'],
 })
 
 const handleFaultTraceScrollColumnResizeStart = (e: MouseEvent, columnIndex: number) => {
@@ -1512,6 +1512,16 @@ const faultTraceScrollGridStyle = computed(() => {
   const width = faultTraceScrollColumns.widths.reduce((sum, w) => sum + w, 0)
   return {
     gridTemplateColumns: faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' '),
+    width: `${width}px`,
+    minWidth: `${width}px`,
+  }
+})
+
+const faultDetailTraceScrollGridStyle = computed(() => {
+  const widths = faultTraceScrollColumns.widths.slice(1)
+  const width = widths.reduce((sum, w) => sum + w, 0)
+  return {
+    gridTemplateColumns: widths.map((w) => `${w}px`).join(' '),
     width: `${width}px`,
     minWidth: `${width}px`,
   }
@@ -2017,9 +2027,9 @@ type GlobalFilterState = {
   endTime: string
   clusters: string[]
   hosts: string[]
-  sourceHosts: string[]
-  targetHosts: string[]
-  faultCodes: string[]
+  podIps: string[]
+  sourcePodIps: string[]
+  targetPodIps: string[]
   traceBoards: string[]
 }
 
@@ -2028,18 +2038,18 @@ const createEmptyFilters = (): GlobalFilterState => ({
   endTime: '',
   clusters: [],
   hosts: [],
-  sourceHosts: [],
-  targetHosts: [],
-  faultCodes: [],
+  podIps: [],
+  sourcePodIps: [],
+  targetPodIps: [],
   traceBoards: [],
 })
 
 const filterDraftInput = reactive({
   cluster: '',
   host: '',
-  sourceHost: '',
-  targetHost: '',
-  faultCode: '',
+  podIp: '',
+  sourcePodIp: '',
+  targetPodIp: '',
 })
 const globalFilters = reactive<GlobalFilterState>(createEmptyFilters())
 const appliedFilters = ref<GlobalFilterState>(createEmptyFilters())
@@ -2049,8 +2059,10 @@ const traceFilterDialog = reactive({
   trace: null as TraceFilterTarget | null,
   addCluster: false,
   addHost: false,
+  addPodIp: false,
+  addSourcePodIp: false,
+  addTargetPodIp: false,
   addTraceBoard: false,
-  addFaultCode: false,
 })
 
 const abnormalTraceFilterDialog = reactive({
@@ -2063,11 +2075,21 @@ const abnormalTraceFilterDialog = reactive({
   error: '',
 })
 
-const latencyHostFilterDialog = reactive({
+const latencyPodIpFilterDialog = reactive({
   open: false,
   row: null as LatencyDetailRow | FaultDetailRow | null,
-  addSourceHost: false,
-  addTargetHost: false,
+  addSourcePodIp: false,
+  addTargetPodIp: false,
+  addSourcePodIpToPodFilter: false,
+  addTargetPodIpToPodFilter: false,
+})
+
+const faultAggregatedPodIpFilterDialog = reactive({
+  open: false,
+  podRow: null as FaultAggregatedEventPodRow | null,
+  addPodIp: false,
+  addSourcePodIp: false,
+  addTargetPodIp: false,
 })
 
 const dialog = reactive({
@@ -2140,12 +2162,6 @@ const faultTraceEventsPageWindow = computed(() =>
 const isAbnormalMonitorPage = computed(() => activePage.value === 'abnormal')
 const isLatencyEventListFilterMode = computed(
   () => isAbnormalMonitorPage.value && activeAggregateTab.value === 'event',
-)
-const shouldShowTraceListFilters = computed(
-  () => activePage.value === 'asset' || isAbnormalMonitorPage.value,
-)
-const shouldShowFaultCodeFilter = computed(
-  () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
 )
 const latencySeriesConfig = [
   {
@@ -3321,8 +3337,8 @@ const latencyDetailRows = computed<LatencyDetailRow[]>(() => {
   aggregatedEvents.value.forEach((event) => {
     rows.push({
       id: event.id,
-      sourceHost: stripHostPort(event.src_ip),
-      targetHost: stripHostPort(event.dst_ip),
+      sourcePodIp: stripHostPort(event.src_ip),
+      targetPodIp: stripHostPort(event.dst_ip),
       traceCount: event.log_parse_result_cnt ?? 0,
       anomalyTraceCount: event.anomaly_log_parse_result_cnt ?? 0,
       event,
@@ -3352,6 +3368,11 @@ const getRecordString = (record: Record<string, unknown>, keys: string[], fallba
     if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   }
   return fallback
+}
+
+const getDisplayHost = (record: Record<string, unknown>) => {
+  const host = getRecordString(record, ['host'], '-').trim()
+  return host.toLowerCase() === 'unknown' ? '-' : host
 }
 
 const stringifyDetailValue = (value: unknown) => {
@@ -3512,7 +3533,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
         getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
       ),
       clusterName: getRecordString(record, ['cluster_name'], 'null'),
-      host: getRecordString(record, ['host'], 'null'),
+      host: getDisplayHost(record),
       totalLatency: getRecordNullableNumber(record, [
         'total_latency',
         'sdk_ms',
@@ -3930,22 +3951,23 @@ const parseFilterDate = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const matchesLatencyRowHostFilters = (row: LatencyDetailRow) => {
-  const { sourceHosts, targetHosts } = appliedFilters.value
-  if (sourceHosts.length > 0 && !sourceHosts.includes(row.sourceHost)) return false
-  if (targetHosts.length > 0 && !targetHosts.includes(row.targetHost)) return false
+const matchesLatencyRowPodIpFilters = (row: LatencyDetailRow) => {
+  const { sourcePodIps, targetPodIps } = appliedFilters.value
+  if (sourcePodIps.length > 0 && !sourcePodIps.includes(row.sourcePodIp)) return false
+  if (targetPodIps.length > 0 && !targetPodIps.includes(row.targetPodIp)) return false
   return true
 }
 
 const getFilteredLatencyRows = () =>
   isLatencyEventListFilterMode.value
     ? latencyDetailRows.value
-    : latencyDetailRows.value.filter(matchesLatencyRowHostFilters)
+    : latencyDetailRows.value.filter(matchesLatencyRowPodIpFilters)
 
 const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
   const filters = appliedFilters.value
   if (filters.clusters.length > 0 && !filters.clusters.includes(row.clusterName)) return false
   if (filters.hosts.length > 0 && !filters.hosts.includes(row.host)) return false
+  if (filters.podIps.length > 0 && !filters.podIps.includes(row.podIp)) return false
   return true
 }
 
@@ -4122,16 +4144,16 @@ const openParseResultChain = async (row: ParseResultTableRow) => {
   await Promise.all([...failureModeIds].map((id) => loadFailureModeDetail(id)))
 }
 
-type FilterTagCategory = 'cluster' | 'host' | 'sourceHost' | 'targetHost' | 'faultCode'
+type FilterTagCategory = 'cluster' | 'host' | 'podIp' | 'sourcePodIp' | 'targetPodIp'
 
-type GlobalFilterListKey = 'clusters' | 'hosts' | 'sourceHosts' | 'targetHosts' | 'faultCodes'
+type GlobalFilterListKey = 'clusters' | 'hosts' | 'podIps' | 'sourcePodIps' | 'targetPodIps'
 
 const filterTagCollections: Record<FilterTagCategory, GlobalFilterListKey> = {
   cluster: 'clusters',
   host: 'hosts',
-  sourceHost: 'sourceHosts',
-  targetHost: 'targetHosts',
-  faultCode: 'faultCodes',
+  podIp: 'podIps',
+  sourcePodIp: 'sourcePodIps',
+  targetPodIp: 'targetPodIps',
 }
 
 const addUniqueFilterItem = (category: FilterTagCategory, value: string) => {
@@ -4154,7 +4176,7 @@ const setSingleFilterItem = (category: 'cluster' | 'host', value: string) => {
   filterApplyMessage.value = ''
 }
 
-const setSingleIpFilterItem = (category: 'sourceHost' | 'targetHost', value: string) => {
+const setSingleIpFilterItem = (category: 'sourcePodIp' | 'targetPodIp', value: string) => {
   const normalized = value.trim()
   if (!normalized) return
 
@@ -4167,12 +4189,10 @@ const addFilterValue = (category: FilterTagCategory) => {
   const value = filterDraftInput[category].trim()
   if (!value) return
 
-  if (category === 'cluster' || category === 'host') {
+  if (category === 'cluster' || category === 'host' || category === 'podIp') {
     addUniqueFilterItem(category, value)
-  } else if (category === 'sourceHost' || category === 'targetHost') {
+  } else if (category === 'sourcePodIp' || category === 'targetPodIp') {
     setSingleIpFilterItem(category, value)
-  } else {
-    addUniqueFilterItem(category, value)
   }
   filterDraftInput[category] = ''
 }
@@ -4201,30 +4221,40 @@ const resetAllFilters = () => {
   globalFilters.endTime = ''
   globalFilters.clusters = []
   globalFilters.hosts = []
-  globalFilters.sourceHosts = []
-  globalFilters.targetHosts = []
-  globalFilters.faultCodes = []
+  globalFilters.podIps = []
+  globalFilters.sourcePodIps = []
+  globalFilters.targetPodIps = []
   filterDraftInput.cluster = ''
   filterDraftInput.host = ''
-  filterDraftInput.sourceHost = ''
-  filterDraftInput.targetHost = ''
-  filterDraftInput.faultCode = ''
+  filterDraftInput.podIp = ''
+  filterDraftInput.sourcePodIp = ''
+  filterDraftInput.targetPodIp = ''
   filterApplyMessage.value = ''
 }
 
-const addSourceHostFilter = (host: string) => {
-  setSingleIpFilterItem('sourceHost', host)
+const addSourcePodIpFilter = (podIp: string) => {
+  setSingleIpFilterItem('sourcePodIp', podIp)
 }
 
-const addTargetHostFilter = (host: string) => {
-  setSingleIpFilterItem('targetHost', host)
+const addTargetPodIpFilter = (podIp: string) => {
+  setSingleIpFilterItem('targetPodIp', podIp)
 }
 
-const openLatencyHostFilterDialog = (row: LatencyDetailRow | FaultDetailRow) => {
-  latencyHostFilterDialog.row = row
-  latencyHostFilterDialog.addSourceHost = false
-  latencyHostFilterDialog.addTargetHost = false
-  latencyHostFilterDialog.open = true
+const openLatencyPodIpFilterDialog = (row: LatencyDetailRow | FaultDetailRow) => {
+  latencyPodIpFilterDialog.row = row
+  latencyPodIpFilterDialog.addSourcePodIp = false
+  latencyPodIpFilterDialog.addTargetPodIp = false
+  latencyPodIpFilterDialog.addSourcePodIpToPodFilter = false
+  latencyPodIpFilterDialog.addTargetPodIpToPodFilter = false
+  latencyPodIpFilterDialog.open = true
+}
+
+const openFaultAggregatedPodIpFilterDialog = (podRow: FaultAggregatedEventPodRow) => {
+  faultAggregatedPodIpFilterDialog.podRow = podRow
+  faultAggregatedPodIpFilterDialog.addPodIp = false
+  faultAggregatedPodIpFilterDialog.addSourcePodIp = false
+  faultAggregatedPodIpFilterDialog.addTargetPodIp = false
+  faultAggregatedPodIpFilterDialog.open = true
 }
 
 const openAggregatedEventDetail = (row: LatencyDetailRow) => {
@@ -4461,23 +4491,51 @@ const viewAbnormalTraceLink = async (row: AbnormalTraceRow) => {
   await Promise.all([...failureModeIds].map((id) => loadFailureModeDetail(id)))
 }
 
-const closeLatencyHostFilterDialog = () => {
-  latencyHostFilterDialog.open = false
-  latencyHostFilterDialog.row = null
+const closeLatencyPodIpFilterDialog = () => {
+  latencyPodIpFilterDialog.open = false
+  latencyPodIpFilterDialog.row = null
 }
 
-const confirmLatencyHostFilterDialog = () => {
-  const row = latencyHostFilterDialog.row
+const confirmLatencyPodIpFilterDialog = () => {
+  const row = latencyPodIpFilterDialog.row
   if (!row) return
 
-  if (latencyHostFilterDialog.addSourceHost) {
-    addSourceHostFilter(row.sourceHost)
+  if (latencyPodIpFilterDialog.addSourcePodIp) {
+    addSourcePodIpFilter(row.sourcePodIp)
   }
-  if (latencyHostFilterDialog.addTargetHost) {
-    addTargetHostFilter(row.targetHost)
+  if (latencyPodIpFilterDialog.addTargetPodIp) {
+    addTargetPodIpFilter(row.targetPodIp)
+  }
+  if (latencyPodIpFilterDialog.addSourcePodIpToPodFilter) {
+    addUniqueFilterItem('podIp', row.sourcePodIp)
+  }
+  if (latencyPodIpFilterDialog.addTargetPodIpToPodFilter) {
+    addUniqueFilterItem('podIp', row.targetPodIp)
   }
 
-  closeLatencyHostFilterDialog()
+  closeLatencyPodIpFilterDialog()
+}
+
+const closeFaultAggregatedPodIpFilterDialog = () => {
+  faultAggregatedPodIpFilterDialog.open = false
+  faultAggregatedPodIpFilterDialog.podRow = null
+}
+
+const confirmFaultAggregatedPodIpFilterDialog = () => {
+  const podIp = faultAggregatedPodIpFilterDialog.podRow?.podIp
+  if (!podIp) return
+
+  if (faultAggregatedPodIpFilterDialog.addPodIp) {
+    addUniqueFilterItem('podIp', podIp)
+  }
+  if (faultAggregatedPodIpFilterDialog.addSourcePodIp) {
+    addSourcePodIpFilter(podIp)
+  }
+  if (faultAggregatedPodIpFilterDialog.addTargetPodIp) {
+    addTargetPodIpFilter(podIp)
+  }
+
+  closeFaultAggregatedPodIpFilterDialog()
 }
 
 const removeTraceBoardValue = (traceId: string) => {
@@ -4499,8 +4557,10 @@ const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.trace = trace
   traceFilterDialog.addCluster = false
   traceFilterDialog.addHost = false
+  traceFilterDialog.addPodIp = false
+  traceFilterDialog.addSourcePodIp = false
+  traceFilterDialog.addTargetPodIp = false
   traceFilterDialog.addTraceBoard = false
-  traceFilterDialog.addFaultCode = false
   traceFilterDialog.open = true
 }
 
@@ -4519,16 +4579,17 @@ const confirmTraceFilterDialog = () => {
   if (traceFilterDialog.addHost && isTraceFilterValueAvailable(trace.host)) {
     setSingleFilterItem('host', trace.host ?? '')
   }
+  if (traceFilterDialog.addPodIp && isTraceFilterValueAvailable(trace.podIp)) {
+    addUniqueFilterItem('podIp', trace.podIp)
+  }
+  if (traceFilterDialog.addSourcePodIp && isTraceFilterValueAvailable(trace.podIp)) {
+    addSourcePodIpFilter(trace.podIp)
+  }
+  if (traceFilterDialog.addTargetPodIp && isTraceFilterValueAvailable(trace.podIp)) {
+    addTargetPodIpFilter(trace.podIp)
+  }
   if (traceFilterDialog.addTraceBoard) {
     addTraceBoardValue(trace.traceId)
-  }
-  const faultCode = trace.faultCode ?? ''
-  if (
-    isFaultCodeFeatureEnabled &&
-    traceFilterDialog.addFaultCode &&
-    isTraceFilterValueAvailable(faultCode)
-  ) {
-    addUniqueFilterItem('faultCode', faultCode)
   }
 
   closeTraceFilterDialog()
@@ -4539,24 +4600,19 @@ const snapshotCurrentFilters = (): GlobalFilterState => ({
   endTime: globalFilters.endTime,
   clusters: globalFilters.clusters.map(normalizeFilterText).filter(Boolean),
   hosts: globalFilters.hosts.map(normalizeFilterText).filter(Boolean),
-  sourceHosts: globalFilters.sourceHosts.map(normalizeFilterText).filter(Boolean),
-  targetHosts: globalFilters.targetHosts.map(normalizeFilterText).filter(Boolean),
-  faultCodes: globalFilters.faultCodes.map(normalizeFilterText).filter(Boolean),
+  podIps: globalFilters.podIps.map(normalizeFilterText).filter(Boolean),
+  sourcePodIps: globalFilters.sourcePodIps.map(normalizeFilterText).filter(Boolean),
+  targetPodIps: globalFilters.targetPodIps.map(normalizeFilterText).filter(Boolean),
   traceBoards: [],
 })
 
 const getActiveFilterCount = (filters: GlobalFilterState) => {
   const traceFilterCount =
-    (filters.startTime || filters.endTime ? 1 : 0) + filters.clusters.length + filters.hosts.length
-  const latencyEventFilterCount = isLatencyEventListFilterMode.value
-    ? filters.sourceHosts.length + filters.targetHosts.length
-    : 0
-
-  if (shouldShowFaultCodeFilter.value) {
-    return traceFilterCount + latencyEventFilterCount + filters.faultCodes.length
-  }
-
-  return traceFilterCount + latencyEventFilterCount
+    (filters.startTime || filters.endTime ? 1 : 0) +
+    filters.clusters.length +
+    filters.hosts.length +
+    filters.podIps.length
+  return traceFilterCount + filters.sourcePodIps.length + filters.targetPodIps.length
 }
 
 const clearFilterApplyMessage = () => {
@@ -4570,29 +4626,6 @@ const applyGlobalFilters = () => {
   const activeCount = getActiveFilterCount(nextFilters)
 
   filterApplyMessage.value = activeCount > 0 ? `已确认 ${activeCount} 个筛选条件` : '已清空筛选条件'
-
-  if (isAbnormalMonitorPage.value) {
-    const loadFilteredData = async () => {
-      const fastRequests: Promise<void>[] = []
-      const slowRequests: Promise<void>[] = []
-
-      if (activeAggregateTab.value === 'trace') {
-        fastRequests.push(loadAbnormalTraces(1))
-      } else {
-        fastRequests.push(loadLatencyDetail(1))
-        slowRequests.push(loadTimeWindowAggregatedEvents(1))
-      }
-
-      if (isFaultCodeFeatureEnabled) {
-        fastRequests.push(loadFaultAggregatedEvents(1), loadFaultTraceEvents(1))
-        slowRequests.push(loadFaultChart())
-      }
-
-      await Promise.all(fastRequests)
-      await Promise.all(slowRequests)
-    }
-    void loadFilteredData()
-  }
 }
 
 const setActiveAggregateTab = (tab: 'event' | 'trace') => {
@@ -4754,9 +4787,6 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     if (filters.hosts.length > 0) {
       requestBody.host_names = filters.hosts
     }
-    if (filters.faultCodes.length > 0) {
-      requestBody.status_codes = filters.faultCodes
-    }
     if (chartRange) {
       requestBody.created_at_start = formatTimestamp(chartRange.startTime)
       requestBody.created_at_end = formatTimestamp(chartRange.endTime)
@@ -4835,9 +4865,6 @@ const loadFaultChart = async () => {
     }
     if (filters.hosts.length > 0) {
       requestBody.host_names = filters.hosts
-    }
-    if (filters.faultCodes.length > 0) {
-      requestBody.err_codes = filters.faultCodes
     }
     if (chartRange) {
       requestBody.start_time = formatTimestamp(chartRange.startTime)
@@ -4979,8 +5006,8 @@ const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
   try {
     const requestBody: Record<string, unknown> = {
       kb_id: assetId,
-      src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
-      dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
+      src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
+      dst_ip: row.targetPodIp === '-' ? undefined : row.targetPodIp,
       max_points: 30,
       sort_by: 'timestamp',
       sort_order: 'asc',
@@ -5042,8 +5069,8 @@ const loadDetailParseResults = async (
         body: JSON.stringify({
           kb_id: assetId,
           aggregated_event_id: row.startTime || row.endTime ? undefined : row.id,
-          src_ip: row.sourceHost === '-' ? undefined : row.sourceHost,
-          dst_ip: row.targetHost === '-' ? undefined : row.targetHost,
+          src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
+          dst_ip: row.targetPodIp === '-' ? undefined : row.targetPodIp,
           start_time: row.startTime || undefined,
           end_time: row.endTime || undefined,
           page_cnt: detailParseResultsPageSize,
@@ -5159,8 +5186,8 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
         page_cnt: aggregateEventPageSize,
         stat_type: statType,
         sort_fields: sortFields.length > 0 ? sortFields : undefined,
-        src_ip: getLogParseFilterValue(filters.sourceHosts),
-        dst_ip: getLogParseFilterValue(filters.targetHosts),
+        src_ip: getLogParseFilterValue(filters.sourcePodIps),
+        dst_ip: getLogParseFilterValue(filters.targetPodIps),
         start_time: chartRange ? formatTimestamp(chartRange.startTime) : undefined,
         end_time: chartRange ? formatTimestamp(chartRange.endTime) : undefined,
       }),
@@ -5240,8 +5267,8 @@ const loadTimeWindowAggregatedEvents = async (
       stat_type: 'p99',
       sort_by: timeWindowSortBy.value,
       sort_order: timeWindowSortOrder.value,
-      src_ip: getLogParseFilterValue(filters.sourceHosts),
-      dst_ip: getLogParseFilterValue(filters.targetHosts),
+      src_ip: getLogParseFilterValue(filters.sourcePodIps),
+      dst_ip: getLogParseFilterValue(filters.targetPodIps),
     }
     if (currentChartRange) {
       requestBody.start_time = formatTimestamp(currentChartRange.startTime)
@@ -5420,8 +5447,8 @@ const openTimeWindowIpPairDetail = (
   }
   const row: LatencyDetailRow = {
     id: `${ipPair.src_ip}-${ipPair.dst_ip}`,
-    sourceHost: ipPair.src_ip,
-    targetHost: ipPair.dst_ip,
+    sourcePodIp: ipPair.src_ip,
+    targetPodIp: ipPair.dst_ip,
     traceCount: ipPair.log_parse_result_cnt,
     anomalyTraceCount: ipPair.anomaly_log_parse_result_cnt,
     startTime: twEvent.start_time,
@@ -5434,13 +5461,13 @@ const openTimeWindowIpPairDetail = (
 const openTimeWindowIpPairFilter = (ipPair: TimeWindowAggregatedIpPair) => {
   const row: LatencyDetailRow = {
     id: `${ipPair.src_ip}-${ipPair.dst_ip}`,
-    sourceHost: ipPair.src_ip,
-    targetHost: ipPair.dst_ip,
+    sourcePodIp: ipPair.src_ip,
+    targetPodIp: ipPair.dst_ip,
     traceCount: ipPair.log_parse_result_cnt,
     anomalyTraceCount: ipPair.anomaly_log_parse_result_cnt,
     event: {} as AggregatedEventModel,
   }
-  openLatencyHostFilterDialog(row)
+  openLatencyPodIpFilterDialog(row)
 }
 
 const getTimeWindowSummaryValue = (twEvent: TimeWindowAggregatedEvent, metric: string) => {
@@ -5462,7 +5489,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
     clusterName: getRecordString(record, ['cluster_name'], 'null'),
-    host: getRecordString(record, ['host'], 'null'),
+    host: getDisplayHost(record),
     totalLatency: getRecordNullableNumber(record, ['total_latency']),
     queryMetaLatency: getRecordNullableNumber(record, ['worker_query_meta_latency']),
     urmaTotalLatency: getRecordNullableNumber(record, ['urma_total_latency']),
@@ -6999,7 +7026,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="filter-scroll">
-          <div v-if="shouldShowTraceListFilters" class="filter-section">
+          <div class="filter-section">
             <div class="filter-section-title">
               <span>🕒 按时间</span>
               <button class="reset-category-btn" type="button" @click="resetFilterCategory('time')">
@@ -7018,7 +7045,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="shouldShowTraceListFilters" class="filter-section">
+          <div class="filter-section">
             <div class="filter-section-title">
               <span>🏭 按集群</span>
               <button
@@ -7055,7 +7082,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="shouldShowTraceListFilters" class="filter-section">
+          <div class="filter-section">
             <div class="filter-section-title">
               <span>🖥️ 按主机</span>
               <button class="reset-category-btn" type="button" @click="resetFilterCategory('host')">
@@ -7082,125 +7109,121 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="isLatencyEventListFilterMode" class="filter-section">
+          <div class="filter-section">
+            <div class="filter-section-title">
+              <span>📦 按Pod IP</span>
+              <button
+                class="reset-category-btn"
+                type="button"
+                @click="resetFilterCategory('podIp')"
+              >
+                重置
+              </button>
+            </div>
+            <div class="filter-entry-row">
+              <input
+                v-model="filterDraftInput.podIp"
+                type="text"
+                placeholder="输入 Pod IP"
+                @keydown.enter.prevent="addFilterValue('podIp')"
+              />
+              <button type="button" @click="addFilterValue('podIp')">添加</button>
+            </div>
+            <div class="selected-tags">
+              <span v-for="podIp in globalFilters.podIps" :key="podIp" class="filter-tag">
+                {{ podIp }}
+                <button
+                  type="button"
+                  class="remove-tag"
+                  @click="removeFilterValue('podIp', podIp)"
+                >
+                  ×
+                </button>
+              </span>
+              <span v-if="globalFilters.podIps.length === 0" class="empty-hint">
+                未选择Pod IP
+              </span>
+            </div>
+          </div>
+
+          <div class="filter-section">
             <div class="filter-section-title">
               <span>📤 按源IP</span>
               <button
                 class="reset-category-btn"
                 type="button"
-                @click="resetFilterCategory('sourceHost')"
+                @click="resetFilterCategory('sourcePodIp')"
               >
                 重置
               </button>
             </div>
             <div class="filter-entry-row">
               <input
-                v-model="filterDraftInput.sourceHost"
+                v-model="filterDraftInput.sourcePodIp"
                 type="text"
                 placeholder="输入源 IP"
-                @keydown.enter.prevent="addFilterValue('sourceHost')"
+                @keydown.enter.prevent="addFilterValue('sourcePodIp')"
               />
-              <button type="button" @click="addFilterValue('sourceHost')">添加</button>
+              <button type="button" @click="addFilterValue('sourcePodIp')">添加</button>
             </div>
             <div class="selected-tags">
               <span
-                v-for="sourceHost in globalFilters.sourceHosts"
-                :key="sourceHost"
+                v-for="sourcePodIp in globalFilters.sourcePodIps"
+                :key="sourcePodIp"
                 class="filter-tag"
               >
-                {{ sourceHost }}
+                {{ sourcePodIp }}
                 <button
                   type="button"
                   class="remove-tag"
-                  @click="removeFilterValue('sourceHost', sourceHost)"
+                  @click="removeFilterValue('sourcePodIp', sourcePodIp)"
                 >
                   ×
                 </button>
               </span>
-              <span v-if="globalFilters.sourceHosts.length === 0" class="empty-hint"
+              <span v-if="globalFilters.sourcePodIps.length === 0" class="empty-hint"
                 >未选择源IP</span
               >
             </div>
           </div>
 
-          <div v-if="isLatencyEventListFilterMode" class="filter-section">
+          <div class="filter-section">
             <div class="filter-section-title">
               <span>📥 按目标IP</span>
               <button
                 class="reset-category-btn"
                 type="button"
-                @click="resetFilterCategory('targetHost')"
+                @click="resetFilterCategory('targetPodIp')"
               >
                 重置
               </button>
             </div>
             <div class="filter-entry-row">
               <input
-                v-model="filterDraftInput.targetHost"
+                v-model="filterDraftInput.targetPodIp"
                 type="text"
                 placeholder="输入目标 IP"
-                @keydown.enter.prevent="addFilterValue('targetHost')"
+                @keydown.enter.prevent="addFilterValue('targetPodIp')"
               />
-              <button type="button" @click="addFilterValue('targetHost')">添加</button>
+              <button type="button" @click="addFilterValue('targetPodIp')">添加</button>
             </div>
             <div class="selected-tags">
               <span
-                v-for="targetHost in globalFilters.targetHosts"
-                :key="targetHost"
+                v-for="targetPodIp in globalFilters.targetPodIps"
+                :key="targetPodIp"
                 class="filter-tag"
               >
-                {{ targetHost }}
+                {{ targetPodIp }}
                 <button
                   type="button"
                   class="remove-tag"
-                  @click="removeFilterValue('targetHost', targetHost)"
+                  @click="removeFilterValue('targetPodIp', targetPodIp)"
                 >
                   ×
                 </button>
               </span>
-              <span v-if="globalFilters.targetHosts.length === 0" class="empty-hint"
+              <span v-if="globalFilters.targetPodIps.length === 0" class="empty-hint"
                 >未选择目标IP</span
-              >
-            </div>
-          </div>
-
-          <div v-if="shouldShowFaultCodeFilter" class="filter-section">
-            <div class="filter-section-title">
-              <span>🔢 按故障码</span>
-              <button
-                class="reset-category-btn"
-                type="button"
-                @click="resetFilterCategory('faultCode')"
-              >
-                重置
-              </button>
-            </div>
-            <div class="filter-entry-row">
-              <input
-                v-model="filterDraftInput.faultCode"
-                type="text"
-                placeholder="输入故障码"
-                @keydown.enter.prevent="addFilterValue('faultCode')"
-              />
-              <button type="button" @click="addFilterValue('faultCode')">添加</button>
-            </div>
-            <div class="selected-tags">
-              <span
-                v-for="code in globalFilters.faultCodes"
-                :key="code"
-                class="filter-tag fault-filter-tag"
-              >
-                {{ code }}
-                <button
-                  type="button"
-                  class="remove-tag"
-                  @click="removeFilterValue('faultCode', code)"
-                >
-                  ×
-                </button>
-              </span>
-              <span v-if="globalFilters.faultCodes.length === 0" class="empty-hint"
-                >未选择故障码</span
               >
             </div>
           </div>
@@ -7734,7 +7757,7 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div
-                      class="aggregate-latency-scroll scroll-section-outline"
+                      class="aggregate-latency-scroll time-window-latency-scroll scroll-section-outline"
                       :class="{
                         'scroll-section-outline-full':
                           !isTimeWindowLoading &&
@@ -8071,7 +8094,7 @@ onBeforeUnmount(() => {
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 5)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell">主机IP</div>
+                      <div class="aggregate-cell">主机</div>
                     </div>
                     <template
                       v-if="
@@ -9066,6 +9089,13 @@ onBeforeUnmount(() => {
                               >
                                 📄详情
                               </button>
+                              <button
+                                class="metric-action-btn filter-action-btn"
+                                type="button"
+                                @click.stop="openFaultAggregatedPodIpFilterDialog(podRow)"
+                              >
+                                ➕筛选
+                              </button>
                             </div>
                             <div
                               v-if="
@@ -9831,7 +9861,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="traceFilterDialog.open" class="modal" role="dialog" aria-modal="true">
-      <section class="modal-content trace-filter-modal">
+      <section class="modal-content filter-modal">
         <header class="modal-header">
           <h2>🔍 添加筛选条件</h2>
           <button class="close-modal" type="button" title="关闭" @click="closeTraceFilterDialog">
@@ -9840,49 +9870,88 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="modal-body">
-          <div class="trace-filter-summary">
-            <span>
-              <strong>集群:</strong>
-              {{ traceFilterDialog.trace?.clusterName || 'null' }}
-            </span>
-            <span>
-              <strong>主机 IP:</strong>
-              {{ traceFilterDialog.trace?.host || 'null' }}
-            </span>
-            <span v-if="isFaultCodeFeatureEnabled">
-              <strong>故障码:</strong> {{ traceFilterDialog.trace?.faultCode || '-' }}
-            </span>
-            <span><strong>Trace ID:</strong> {{ traceFilterDialog.trace?.traceId }}</span>
-          </div>
-          <div class="trace-filter-options">
-            <label class="trace-filter-option">
-              <input
-                v-model="traceFilterDialog.addCluster"
-                type="checkbox"
-                :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.clusterName)"
-              />
-              <span>添加集群</span>
-            </label>
-            <label class="trace-filter-option">
-              <input
-                v-model="traceFilterDialog.addHost"
-                type="checkbox"
-                :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.host)"
-              />
-              <span>添加主机IP</span>
-            </label>
-            <label v-if="isFaultCodeFeatureEnabled" class="trace-filter-option">
-              <input
-                v-model="traceFilterDialog.addFaultCode"
-                type="checkbox"
-                :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.faultCode)"
-              />
-              <span>添加至故障码</span>
-            </label>
-            <label class="trace-filter-option">
-              <input v-model="traceFilterDialog.addTraceBoard" type="checkbox" />
-              <span>添加到Trace看板</span>
-            </label>
+          <div class="filter-bar-list">
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">Trace ID</span>
+                <span class="filter-bar-value">{{ traceFilterDialog.trace?.traceId }}</span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input v-model="traceFilterDialog.addTraceBoard" type="checkbox" />
+                  <span>添加到Trace看板</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">Pod IP</span>
+                <span class="filter-bar-value">{{ traceFilterDialog.trace?.podIp || 'null' }}</span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input
+                    v-model="traceFilterDialog.addPodIp"
+                    type="checkbox"
+                    :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.podIp)"
+                  />
+                  <span>添加到Pod IP</span>
+                </label>
+                <label class="trace-filter-option">
+                  <input
+                    v-model="traceFilterDialog.addSourcePodIp"
+                    type="checkbox"
+                    :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.podIp)"
+                  />
+                  <span>添加到源 IP</span>
+                </label>
+                <label class="trace-filter-option">
+                  <input
+                    v-model="traceFilterDialog.addTargetPodIp"
+                    type="checkbox"
+                    :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.podIp)"
+                  />
+                  <span>添加到目标 IP</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">集群</span>
+                <span class="filter-bar-value">
+                  {{ traceFilterDialog.trace?.clusterName || 'null' }}
+                </span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input
+                    v-model="traceFilterDialog.addCluster"
+                    type="checkbox"
+                    :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.clusterName)"
+                  />
+                  <span>添加到集群</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">主机</span>
+                <span class="filter-bar-value">{{ traceFilterDialog.trace?.host || 'null' }}</span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input
+                    v-model="traceFilterDialog.addHost"
+                    type="checkbox"
+                    :disabled="!isTraceFilterValueAvailable(traceFilterDialog.trace?.host)"
+                  />
+                  <span>添加到主机</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -9894,7 +9963,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="abnormalTraceFilterDialog.open" class="modal" role="dialog" aria-modal="true">
-      <section class="modal-content abnormal-trace-filter-modal">
+      <section class="modal-content filter-modal abnormal-trace-filter-modal">
         <header class="modal-header">
           <h2>按集群/主机过滤</h2>
           <button
@@ -9983,42 +10052,135 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div v-if="latencyHostFilterDialog.open" class="modal" role="dialog" aria-modal="true">
-      <section class="modal-content trace-filter-modal">
+    <div v-if="latencyPodIpFilterDialog.open" class="modal" role="dialog" aria-modal="true">
+      <section class="modal-content filter-modal">
         <header class="modal-header">
           <h2>🔍 添加筛选条件</h2>
           <button
             class="close-modal"
             type="button"
             title="关闭"
-            @click="closeLatencyHostFilterDialog"
+            @click="closeLatencyPodIpFilterDialog"
           >
             x
           </button>
         </header>
 
         <div class="modal-body">
-          <div class="trace-filter-summary">
-            <span><strong>源 IP:</strong> {{ latencyHostFilterDialog.row?.sourceHost }}</span>
-            <span><strong>目标 IP:</strong> {{ latencyHostFilterDialog.row?.targetHost }}</span>
-          </div>
-          <div class="trace-filter-options">
-            <label class="trace-filter-option">
-              <input v-model="latencyHostFilterDialog.addSourceHost" type="checkbox" />
-              <span>添加源IP</span>
-            </label>
-            <label class="trace-filter-option">
-              <input v-model="latencyHostFilterDialog.addTargetHost" type="checkbox" />
-              <span>添加目标IP</span>
-            </label>
+          <div class="filter-bar-list">
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">源 IP</span>
+                <span class="filter-bar-value">
+                  {{ latencyPodIpFilterDialog.row?.sourcePodIp }}
+                </span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input v-model="latencyPodIpFilterDialog.addSourcePodIp" type="checkbox" />
+                  <span>添加到源IP</span>
+                </label>
+                <label class="trace-filter-option">
+                  <input
+                    v-model="latencyPodIpFilterDialog.addSourcePodIpToPodFilter"
+                    type="checkbox"
+                  />
+                  <span>添加到Pod IP</span>
+                </label>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">目标 IP</span>
+                <span class="filter-bar-value">
+                  {{ latencyPodIpFilterDialog.row?.targetPodIp }}
+                </span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input v-model="latencyPodIpFilterDialog.addTargetPodIp" type="checkbox" />
+                  <span>添加到目标IP</span>
+                </label>
+                <label class="trace-filter-option">
+                  <input
+                    v-model="latencyPodIpFilterDialog.addTargetPodIpToPodFilter"
+                    type="checkbox"
+                  />
+                  <span>添加到Pod IP</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
         <footer class="modal-actions">
-          <button class="ghost-btn" type="button" @click="closeLatencyHostFilterDialog">
+          <button class="ghost-btn" type="button" @click="closeLatencyPodIpFilterDialog">
             取消
           </button>
-          <button class="save-btn" type="button" @click="confirmLatencyHostFilterDialog">
+          <button class="save-btn" type="button" @click="confirmLatencyPodIpFilterDialog">
+            确定
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div
+      v-if="faultAggregatedPodIpFilterDialog.open"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+    >
+      <section class="modal-content filter-modal">
+        <header class="modal-header">
+          <h2>🔍 添加筛选条件</h2>
+          <button
+            class="close-modal"
+            type="button"
+            title="关闭"
+            @click="closeFaultAggregatedPodIpFilterDialog"
+          >
+            x
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <div class="filter-bar-list">
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">Pod IP</span>
+                <span class="filter-bar-value">
+                  {{ faultAggregatedPodIpFilterDialog.podRow?.podIp }}
+                </span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input v-model="faultAggregatedPodIpFilterDialog.addPodIp" type="checkbox" />
+                  <span>添加到Pod IP</span>
+                </label>
+                <label class="trace-filter-option">
+                  <input
+                    v-model="faultAggregatedPodIpFilterDialog.addSourcePodIp"
+                    type="checkbox"
+                  />
+                  <span>添加到源IP</span>
+                </label>
+                <label class="trace-filter-option">
+                  <input
+                    v-model="faultAggregatedPodIpFilterDialog.addTargetPodIp"
+                    type="checkbox"
+                  />
+                  <span>添加到目标IP</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="modal-actions">
+          <button class="ghost-btn" type="button" @click="closeFaultAggregatedPodIpFilterDialog">
+            取消
+          </button>
+          <button class="save-btn" type="button" @click="confirmFaultAggregatedPodIpFilterDialog">
             确定
           </button>
         </footer>
@@ -10032,12 +10194,12 @@ onBeforeUnmount(() => {
       aria-modal="true"
       @click.self="closeAggregatedEventDetail"
     >
-      <aside class="side-drawer">
+      <aside class="side-drawer aggregate-event-detail-drawer">
         <header class="side-drawer-header">
           <div class="side-drawer-title">
             <h2>聚合事件详情</h2>
             <span class="aggregate-detail-hosts">
-              {{ selectedAggregatedEvent.sourceHost }} → {{ selectedAggregatedEvent.targetHost }}
+              {{ selectedAggregatedEvent.sourcePodIp }} → {{ selectedAggregatedEvent.targetPodIp }}
             </span>
           </div>
           <button
@@ -10157,7 +10319,7 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-parse-results">
             <div class="aggregate-parse-results-header">
-              <h3>时延异常 / 阶段时延</h3>
+              <h3>异常 Trace</h3>
               <span class="parse-result-count">{{ detailParseResultsBadgeCount }} 条</span>
             </div>
             <div
@@ -10529,6 +10691,13 @@ onBeforeUnmount(() => {
                       >
                         查看链路
                       </button>
+                      <button
+                        class="metric-action-btn"
+                        type="button"
+                        @click="openTraceFilterDialog(row)"
+                      >
+                        ➕筛选
+                      </button>
                     </div>
                   </template>
                 </div>
@@ -10616,7 +10785,7 @@ onBeforeUnmount(() => {
       aria-modal="true"
       @click.self="closeFaultAggregatedEventDetail"
     >
-      <aside class="side-drawer">
+      <aside class="side-drawer aggregate-event-detail-drawer">
         <header class="side-drawer-header">
           <div class="side-drawer-title">
             <h2>聚合事件详情</h2>
@@ -10683,87 +10852,193 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-parse-results">
             <div class="aggregate-parse-results-header">
-              <h3>错误日志</h3>
+              <h3>异常 Trace</h3>
               <span class="parse-result-count">{{ selectedFaultDetailErrorLogTotal }} 条</span>
             </div>
-            <div class="parse-result-table-wrapper fault-detail-log-wrapper">
-              <table class="metric-table fault-detail-log-table">
-                <thead>
-                  <tr>
-                    <th>标签</th>
-                    <th>时间</th>
-                    <th>Trace ID</th>
-                    <th>集群</th>
-                    <th>主机 IP</th>
-                    <th>故障码</th>
-                    <th>故障模式</th>
-                    <th>Trace分析</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="isFaultDetailTraceEventsLoading">
-                    <td colspan="8" class="metric-table-state">正在加载错误日志...</td>
-                  </tr>
-                  <tr v-else-if="faultDetailTraceEventsError">
-                    <td colspan="8" class="metric-table-state metric-table-error">
-                      {{ faultDetailTraceEventsError }}
-                    </td>
-                  </tr>
-                  <tr v-else-if="faultDetailTraceRows.length === 0">
-                    <td colspan="8" class="metric-table-state">暂无错误日志</td>
-                  </tr>
-                  <template v-else>
-                    <tr v-for="row in faultDetailTraceRows" :key="row.id">
-                      <td>
+            <div
+              class="parse-result-table-wrapper fault-detail-log-wrapper aggregate-table"
+              :class="{
+                'aggregate-table-state-mode':
+                  isFaultDetailTraceEventsLoading ||
+                  !!faultDetailTraceEventsError ||
+                  faultDetailTraceRows.length === 0,
+              }"
+            >
+              <div class="aggregate-table-frame abnormal-trace-frame fault-trace-list">
+                <div class="aggregate-fixed-left">
+                  <div
+                    class="abnormal-left-grid fault-trace-left-grid aggregate-table-header"
+                    :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
+                  >
+                    <div class="aggregate-cell">故障类型</div>
+                    <div class="aggregate-cell">时间</div>
+                    <div class="aggregate-cell">Trace ID</div>
+                  </div>
+                  <template
+                    v-if="
+                      !isFaultDetailTraceEventsLoading &&
+                      !faultDetailTraceEventsError &&
+                      faultDetailTraceRows.length > 0
+                    "
+                  >
+                    <div
+                      v-for="trace in faultDetailTraceRows"
+                      :key="`${trace.id}-fixed`"
+                      class="abnormal-left-grid fault-trace-left-grid aggregate-body-row"
+                      :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
+                    >
+                      <div class="aggregate-cell">
                         <span
-                          v-for="tag in getTraceTags(row.traceId, 'fault')"
+                          v-for="tag in getTraceTags(trace.traceId, 'fault')"
                           :key="tag.type"
                           class="trace-type-tag"
                           :class="`trace-type-tag-${tag.type}`"
                         >
                           {{ tag.label }}
                         </span>
-                      </td>
-                      <td>{{ row.time }}</td>
-                      <td class="trace-id">{{ row.traceId }}</td>
-                      <td>{{ row.clusterName }}</td>
-                      <td>{{ row.host }}</td>
-                      <td>
-                        <span
-                          v-if="row.faultCode"
-                          class="fault-code-pill fault-code-clickable"
-                          @click="openStatusCodePopover(row.faultCode, $event)"
-                        >
-                          {{ row.faultCode }}
-                        </span>
-                        <span v-else class="fault-code-pill">-</span>
-                      </td>
-                      <td>
-                        <button
-                          v-if="row.failureMode"
-                          class="failure-mode-link-btn"
-                          type="button"
-                          @click="openFailureModeDetailPopover(row.failureMode, $event)"
-                        >
-                          {{ getFaultTraceFailureModeLabel(row) }}
-                        </button>
-                        <span v-else>{{ getFaultTraceFailureModeLabel(row) }}</span>
-                      </td>
-                      <td class="trace-actions-cell">
-                        <div class="trace-actions">
-                          <button
-                            class="metric-action-btn detail-action-btn"
-                            type="button"
-                            @click="openFaultTraceDialog(row)"
-                          >
-                            查看链路
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      </div>
+                      <div class="aggregate-cell">{{ trace.time }}</div>
+                      <div class="aggregate-cell trace-id">{{ trace.traceId }}</div>
+                    </div>
                   </template>
-                </tbody>
-              </table>
+                </div>
+
+                <div
+                  class="aggregate-latency-scroll fault-trace-scroll scroll-section-outline"
+                  :class="{
+                    'scroll-section-outline-full':
+                      !isFaultDetailTraceEventsLoading &&
+                      !faultDetailTraceEventsError &&
+                      faultDetailTraceRows.length > 0,
+                  }"
+                >
+                  <div class="aggregate-latency-head aggregate-latency-sync">
+                    <div
+                      class="fault-trace-scroll-grid aggregate-table-header"
+                      :style="faultDetailTraceScrollGridStyle"
+                    >
+                      <div class="aggregate-cell">集群</div>
+                      <div class="aggregate-cell">主机IP</div>
+                      <div class="aggregate-cell">故障码</div>
+                      <div class="aggregate-cell">故障名称</div>
+                      <div class="aggregate-cell">故障域</div>
+                    </div>
+                  </div>
+                  <div
+                    class="aggregate-latency-scrollbar aggregate-latency-sync"
+                    @scroll="syncAggregateLatencyScroll"
+                  >
+                    <div
+                      class="aggregate-latency-scrollbar-spacer fault-trace-scrollbar-spacer"
+                      :style="{ width: faultDetailTraceScrollGridStyle.minWidth }"
+                    ></div>
+                  </div>
+                  <div
+                    class="aggregate-latency-body aggregate-latency-sync"
+                    @scroll="syncAggregateLatencyScroll"
+                  >
+                    <template
+                      v-if="
+                        !isFaultDetailTraceEventsLoading &&
+                        !faultDetailTraceEventsError &&
+                        faultDetailTraceRows.length > 0
+                      "
+                    >
+                      <div
+                        v-for="trace in faultDetailTraceRows"
+                        :key="`${trace.id}-scroll`"
+                        class="fault-trace-scroll-grid aggregate-body-row"
+                        :style="faultDetailTraceScrollGridStyle"
+                      >
+                        <div class="aggregate-cell fault-trace-cluster-cell">
+                          <span
+                            v-for="clusterName in trace.clusterNames"
+                            :key="`${trace.id}-cluster-${clusterName}`"
+                            class="fault-trace-cluster-item"
+                          >
+                            {{ clusterName }}
+                          </span>
+                        </div>
+                        <div class="aggregate-cell fault-trace-host-cell">
+                          <span
+                            v-for="hostName in trace.hostNames"
+                            :key="`${trace.id}-host-${hostName}`"
+                            class="fault-trace-host-item"
+                          >
+                            {{ hostName }}
+                          </span>
+                        </div>
+                        <div class="aggregate-cell">
+                          <span
+                            v-if="trace.faultCode"
+                            class="fault-code-pill fault-code-clickable"
+                            @click="openStatusCodePopover(trace.faultCode, $event)"
+                          >
+                            {{ trace.faultCode }}
+                          </span>
+                          <span v-else class="fault-code-pill">-</span>
+                        </div>
+                        <div class="aggregate-cell">
+                          <button
+                            v-if="trace.failureMode"
+                            class="failure-mode-link-btn"
+                            type="button"
+                            @click="openFailureModeDetailPopover(trace.failureMode, $event)"
+                          >
+                            {{ trace.faultType }}
+                          </button>
+                          <span v-else>{{ trace.faultType }}</span>
+                        </div>
+                        <div class="aggregate-cell">{{ trace.faultDomain }}</div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="aggregate-fixed-actions">
+                  <div class="aggregate-cell action-cell aggregate-table-header">Trace分析</div>
+                  <template
+                    v-if="
+                      !isFaultDetailTraceEventsLoading &&
+                      !faultDetailTraceEventsError &&
+                      faultDetailTraceRows.length > 0
+                    "
+                  >
+                    <div
+                      v-for="trace in faultDetailTraceRows"
+                      :key="`${trace.id}-action`"
+                      class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row"
+                    >
+                      <button
+                        class="metric-action-btn detail-action-btn"
+                        type="button"
+                        @click="openFaultTraceDialog(trace)"
+                      >
+                        查看链路
+                      </button>
+                      <button
+                        class="metric-action-btn"
+                        type="button"
+                        @click="openTraceFilterDialog(trace)"
+                      >
+                        ➕筛选
+                      </button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+              <div v-if="isFaultDetailTraceEventsLoading" class="aggregate-table-state">
+                正在加载错误日志...
+              </div>
+              <div
+                v-else-if="faultDetailTraceEventsError"
+                class="aggregate-table-state metric-table-error"
+              >
+                {{ faultDetailTraceEventsError }}
+              </div>
+              <div v-else-if="faultDetailTraceRows.length === 0" class="aggregate-table-state">
+                暂无错误日志
+              </div>
             </div>
             <div v-if="faultDetailTraceEventsTotal > 0" class="parse-result-pagination">
               <button
