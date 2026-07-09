@@ -90,7 +90,7 @@ async def test_aggregate(log_id: str):
         return [], {}
 
     start = time.perf_counter()
-    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events, src_dst_map, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
     elapsed = time.perf_counter() - start
 
     logger.info(f"聚合完成: {len(agg_events):,} 个端点对, 耗时: {elapsed:.3f}s")
@@ -117,7 +117,7 @@ async def test_store(log_id: str):
         return False
 
     events = await KVCacheLogParseWorker.detect_exception(results)
-    agg_events, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events, _, time_window_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
 
     # 更新异常事件的 aggregated_event_id
     for event in events:
@@ -132,6 +132,7 @@ async def test_store(log_id: str):
         anomalous_events=events,
         anomalous_event_chains=[],
         src_dst_aggregated_events=agg_events,
+        time_window_aggregated_events=time_window_events,
     )
     elapsed = time.perf_counter() - start
 
@@ -162,7 +163,7 @@ async def test_run_pipeline(log_id: str):
 
     # 步骤3: 聚合
     logger.info(">>> Step 3: generate_aggregate_result")
-    agg_events, src_dst_map = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events, src_dst_map, time_window_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
     logger.info(f"    -> {len(agg_events):,} aggregated events")
 
     # 步骤4: 更新异常事件的 aggregated_event_id
@@ -179,6 +180,7 @@ async def test_run_pipeline(log_id: str):
         anomalous_events=events,
         anomalous_event_chains=[],
         src_dst_aggregated_events=agg_events,
+        time_window_aggregated_events=time_window_events,
     )
     logger.info(f"    -> stored: {stored}")
 

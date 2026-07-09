@@ -365,7 +365,7 @@ class ParseTimingCollector(logging.Handler):
             started = time.perf_counter()
             try:
                 result = collector._original_correlate(correlator)
-                metric_worker_indices = set()
+                timed_worker_indices = set()
                 for mapping in (
                     result.worker_sdk_process_map,
                     result.worker_sdk_rpc_map,
@@ -376,7 +376,17 @@ class ParseTimingCollector(logging.Handler):
                     result.worker_master_process_map,
                     result.worker_master_rpc_map,
                 ):
-                    metric_worker_indices.update(mapping)
+                    timed_worker_indices.update(mapping)
+                trace_stats = KVCacheLogParseWorker._build_trace_overlap_stats(
+                    {
+                        "SDK access parse": correlator.sdk_entries,
+                        "Worker access parse": correlator.worker_entries,
+                        "Worker urma parse": correlator.urma_entries,
+                        "Worker remote pull parse": correlator.remote_pull_entries,
+                        "Worker query meta parse": correlator.query_meta_entries,
+                        "Worker sdk process parse": correlator.timed_entries,
+                    }
+                )
                 collector.counts = {
                     "sdk_entries": len(correlator.sdk_entries),
                     "worker_entries": len(correlator.worker_entries),
@@ -385,7 +395,8 @@ class ParseTimingCollector(logging.Handler):
                     "worker_query_meta_matches": len(
                         result.worker_query_meta_map
                     ),
-                    "worker_metric_matches": len(metric_worker_indices),
+                    "worker_timed_matches": len(timed_worker_indices),
+                    **trace_stats,
                 }
                 return result
             finally:
@@ -805,11 +816,14 @@ async def _run_profile(
         events = await KVCacheLogParseWorker.detect_exception(results)
 
         async def operation() -> dict[str, object]:
-            aggregates, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
+            aggregates, _, time_window_aggregates = (
+                await KVCacheLogParseWorker.generate_aggregate_result(results)
+            )
             return {
                 "parse_results": len(results),
                 "anomalous_events": len(events),
                 "aggregated_events": len(aggregates),
+                "time_window_aggregated_events": len(time_window_aggregates),
             }
 
     elif command == "pipeline":
@@ -823,13 +837,16 @@ async def _run_profile(
             detect_elapsed = time.perf_counter() - detect_started
 
             aggregate_started = time.perf_counter()
-            aggregates, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
+            aggregates, _, time_window_aggregates = (
+                await KVCacheLogParseWorker.generate_aggregate_result(results)
+            )
             aggregate_elapsed = time.perf_counter() - aggregate_started
 
             return {
                 "parse_results": len(results),
                 "anomalous_events": len(events),
                 "aggregated_events": len(aggregates),
+                "time_window_aggregated_events": len(time_window_aggregates),
                 "parse_seconds": round(parse_elapsed, 6),
                 "detect_seconds": round(detect_elapsed, 6),
                 "aggregate_seconds": round(aggregate_elapsed, 6),
@@ -851,7 +868,7 @@ async def _run_profile(
             detect_elapsed = time.perf_counter() - detect_started
 
             aggregate_started = time.perf_counter()
-            aggregates, src_dst_map = (
+            aggregates, src_dst_map, time_window_aggregates = (
                 await KVCacheLogParseWorker.generate_aggregate_result(results)
             )
             aggregate_elapsed = time.perf_counter() - aggregate_started
@@ -874,6 +891,7 @@ async def _run_profile(
                     anomalous_events=events,
                     anomalous_event_chains=[],
                     src_dst_aggregated_events=aggregates,
+                    time_window_aggregated_events=time_window_aggregates,
                 )
             finally:
                 LogParseResultManager.profile_explicit_wal_checkpoint = False
@@ -886,6 +904,7 @@ async def _run_profile(
                 "parse_results": len(results),
                 "anomalous_events": len(events),
                 "aggregated_events": len(aggregates),
+                "time_window_aggregated_events": len(time_window_aggregates),
                 "stored": stored,
                 "parse_seconds": round(parse_elapsed, 6),
                 "detect_seconds": round(detect_elapsed, 6),

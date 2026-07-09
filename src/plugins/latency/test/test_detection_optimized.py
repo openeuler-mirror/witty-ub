@@ -273,11 +273,12 @@ def test_aggregate_hot_path_returns_dataclass_with_all_statistics() -> None:
         for index, value in enumerate((1.0, 3.0, 5.0))
     ]
 
-    aggregates, id_map = asyncio.run(
+    aggregates, id_map, time_window_aggregates = asyncio.run(
         KVCacheLogParseWorker.generate_aggregate_result(results)
     )
 
     assert len(aggregates) == 1
+    assert len(time_window_aggregates) == 1
     aggregate = aggregates[0]
     assert isinstance(aggregate, SrcDstAggregatedEventDataclass)
     assert id_map[("10.0.0.1", "10.0.0.2")] == aggregate.id
@@ -297,12 +298,13 @@ def test_all_sparse_results_skip_endpoint_aggregation() -> None:
         for index in range(3)
     ]
 
-    aggregates, id_map = asyncio.run(
+    aggregates, id_map, time_window_aggregates = asyncio.run(
         KVCacheLogParseWorker.generate_aggregate_result(results)
     )
 
     assert aggregates == []
     assert id_map == {}
+    assert time_window_aggregates == []
     assert all(result.aggregated_event_id == "" for result in results)
 
 

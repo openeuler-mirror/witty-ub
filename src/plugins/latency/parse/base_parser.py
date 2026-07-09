@@ -32,6 +32,10 @@ class LogParser(ABC):
         r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
         re.IGNORECASE,
     )
+    _TRACE_FIELD_RE = re.compile(
+        r"\btrace[_-]?id\s*(?:=|:)\s*(?P<trace>[^,\s\]\}\)]+)",
+        re.IGNORECASE,
+    )
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         self.parse_config = parse_config or ParseConfig()
@@ -130,10 +134,43 @@ class LogParser(ABC):
         _dir = os.path.basename(os.path.dirname(path))
         return _dir.removeprefix("Worker_").removeprefix("dsworker_").removesuffix("worker_")
 
-    def extract_trace_id(self, line: str) -> str:
-        """从行中提取trace_id"""
-        match = self._UUID_RE.search(line)
+    @staticmethod
+    def _clean_trace_id(value: str) -> str:
+        return value.strip().strip("[]{}()\"'")
+
+    @classmethod
+    def extract_explicit_trace_id(cls, line: str) -> str:
+        """从 trace_id=... / trace_id:... 这类显式字段中提取 trace_id"""
+        match = cls._TRACE_FIELD_RE.search(line or "")
+        return cls._clean_trace_id(match.group("trace")) if match else ""
+
+    @classmethod
+    def extract_trace_id(cls, line: str) -> str:
+        """从行中提取trace_id，优先使用显式 trace_id 字段，其次回退 UUID"""
+        explicit = cls.extract_explicit_trace_id(line)
+        if explicit:
+            return explicit
+        match = cls._UUID_RE.search(line or "")
         return match.group(0) if match else ""
+
+    @classmethod
+    def resolve_trace_id(cls, current: str, *sources: str) -> str:
+        """选择用于关联的 trace_id。
+
+        message 中显式 trace_id=... 比格式列更接近实际链路 trace；
+        没有显式 trace 时保留格式列，只有格式列为空才回退到 UUID。
+        """
+        for source in sources:
+            explicit = cls.extract_explicit_trace_id(source)
+            if explicit:
+                return explicit
+        if current:
+            return current
+        for source in sources:
+            fallback = cls.extract_trace_id(source)
+            if fallback:
+                return fallback
+        return ""
     
     @staticmethod
     def split_by_delimiter(line: str) -> list[str]:

@@ -66,7 +66,11 @@ class WorkerAccessLogParser(AccessLogParser):
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in WORKER_GET_OPS:
             return None
-        trace_id = parsed["trace_id"]
+        trace_id = self.resolve_trace_id(
+            parsed["trace_id"],
+            parsed["req_msg"],
+            parsed["resp_msg"],
+        )
         if not trace_id:
             return None
         if self._scan_scope_enabled and trace_id not in self._target_trace_ids:
