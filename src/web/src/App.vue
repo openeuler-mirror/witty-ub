@@ -1709,7 +1709,7 @@ const faultAggregatedEventSort = useTableSort([], () => {
   faultAggregatedEventPage.value = 1
   void loadFaultAggregatedEvents(1)
 })
-const faultAggregatedEventCreatedSortedDesc = ref(false)
+const faultAggregatedEventSortDesc = ref(false)
 const isFaultAggregatedEventStartTimeSortActive = computed(
   () => faultAggregatedEventSort.getSortFields.value.length === 0,
 )
@@ -1906,10 +1906,18 @@ const faultDetailTraceEventsTotal = ref(0)
 const assetPageInput = ref('')
 const logFilesPageInput = ref('')
 const abnormalTracesPageInput = ref('')
+const abnormalTraceIdInput = ref('')
+const abnormalTraceIdQuery = ref('')
 const faultAggregatedEventPageInput = ref('')
 const faultTraceEventsPageInput = ref('')
+const faultTraceIdInput = ref('')
+const faultTraceIdQuery = ref('')
 const detailParseResultsPageInput = ref('')
+const detailParseResultTraceIdInput = ref('')
+const detailParseResultTraceIdQuery = ref('')
 const faultDetailTraceEventsPageInput = ref('')
+const faultDetailTraceIdInput = ref('')
+const faultDetailTraceIdQuery = ref('')
 const latencyChartRef = ref<HTMLDivElement | null>(null)
 const detailLatencyChartRef = ref<HTMLDivElement | null>(null)
 const faultChartRef = ref<HTMLDivElement | null>(null)
@@ -3064,6 +3072,9 @@ const faultCodes = computed(() => {
   const currentCodes = Object.keys(faultChartMetrics.value).sort((a, b) => a.localeCompare(b))
   return currentCodes.length > 0 ? currentCodes : knownFaultCodes.value
 })
+const hasFaultChartMetricData = computed(() =>
+  Object.values(faultChartMetrics.value).some((metrics) => metrics.length > 0),
+)
 const faultAggregatedEventCodeColumnMaxWidth = 132
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
@@ -4306,6 +4317,9 @@ const openFaultAggregatedPodIpFilterDialog = (podRow: FaultAggregatedEventPodRow
 const openAggregatedEventDetail = (row: LatencyDetailRow) => {
   selectedAggregatedEvent.value = row
   detailParseResultsPage.value = 1
+  detailParseResultsPageInput.value = ''
+  detailParseResultTraceIdInput.value = ''
+  detailParseResultTraceIdQuery.value = ''
   void loadDetailLatencyChart(row)
   void loadDetailParseResults(row, 1)
 }
@@ -4318,9 +4332,17 @@ const closeAggregatedEventDetail = () => {
   detailParseResultsError.value = ''
   detailParseResultsTotal.value = 0
   detailParseResultsPage.value = 1
+  detailParseResultsPageInput.value = ''
+  detailParseResultTraceIdInput.value = ''
+  detailParseResultTraceIdQuery.value = ''
   detailLatencyChartInstance?.dispose()
   detailLatencyChartInstance = null
 }
+
+const getFaultAggregatedEventPodNames = (podRow: FaultAggregatedEventPodRow) =>
+  [podRow.srcIp, podRow.dstIp]
+    .map((podIp) => podIp.trim())
+    .filter((podIp, index, podIps) => podIp && podIp !== '-' && podIps.indexOf(podIp) === index)
 
 const loadFaultAggregatedEventDetailTraceEvents = async (
   detail: FaultAggregatedEventDetail,
@@ -4340,20 +4362,25 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
   faultDetailTraceEventsError.value = ''
 
   try {
+    const requestBody: Record<string, unknown> = {
+      kb_id: selectedAssetId.value,
+      pod_names: getFaultAggregatedEventPodNames(detail.podRow),
+      is_anomalous: true,
+      start_time: detail.eventRow.startTime,
+      end_time: detail.eventRow.endTime,
+      page_cnt: faultDetailTraceEventsPageSize,
+      page_num: pageNum,
+    }
+    if (faultDetailTraceIdQuery.value) {
+      requestBody.trace_ids = [faultDetailTraceIdQuery.value]
+    }
+
     const result = await request<{
       total: number
       trace_failure_event_results: TraceFailureEventResultModel[]
     }>('/log_failure_event_result/list_trace_events', {
       method: 'POST',
-      body: JSON.stringify({
-        kb_id: selectedAssetId.value,
-        pod_names: [detail.podRow.podIp],
-        is_anomalous: true,
-        created_at_start: detail.eventRow.startTime,
-        created_at_end: detail.eventRow.endTime,
-        page_cnt: faultDetailTraceEventsPageSize,
-        page_num: pageNum,
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     if (
@@ -4440,7 +4467,7 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
       body: JSON.stringify({
         kb_id: selectedAssetId.value,
         err_codes: errCodes,
-        pod_names: [detail.podRow.podIp],
+        pod_names: getFaultAggregatedEventPodNames(detail.podRow),
         start_time: detail.eventRow.startTime,
         end_time: detail.eventRow.endTime,
         max_points: 1000,
@@ -4485,6 +4512,8 @@ const openFaultAggregatedEventDetail = (
   faultDetailTraceEventsTotal.value = 0
   faultDetailTraceEventsPage.value = 1
   faultDetailTraceEventsPageInput.value = ''
+  faultDetailTraceIdInput.value = ''
+  faultDetailTraceIdQuery.value = ''
   faultDetailTraceEventsError.value = ''
   faultDetailChartMetrics.value = {}
   faultDetailChartError.value = ''
@@ -4498,6 +4527,8 @@ const closeFaultAggregatedEventDetail = () => {
   faultDetailTraceEventsTotal.value = 0
   faultDetailTraceEventsPage.value = 1
   faultDetailTraceEventsPageInput.value = ''
+  faultDetailTraceIdInput.value = ''
+  faultDetailTraceIdQuery.value = ''
   faultDetailTraceEventsError.value = ''
   isFaultDetailTraceEventsLoading.value = false
   faultDetailChartMetrics.value = {}
@@ -4568,17 +4599,23 @@ const closeFaultAggregatedPodIpFilterDialog = () => {
 }
 
 const confirmFaultAggregatedPodIpFilterDialog = () => {
-  const podIp = faultAggregatedPodIpFilterDialog.podRow?.podIp
-  if (!podIp) return
+  const podRow = faultAggregatedPodIpFilterDialog.podRow
+  if (!podRow) return
 
   if (faultAggregatedPodIpFilterDialog.addPodIp) {
-    addUniqueFilterItem('podIp', podIp)
+    getFaultAggregatedEventPodNames(podRow).forEach((podIp) => addUniqueFilterItem('podIp', podIp))
   }
-  if (faultAggregatedPodIpFilterDialog.addSourcePodIp) {
-    addSourcePodIpFilter(podIp)
+  if (
+    faultAggregatedPodIpFilterDialog.addSourcePodIp &&
+    isTraceFilterValueAvailable(podRow.srcIp)
+  ) {
+    addSourcePodIpFilter(podRow.srcIp)
   }
-  if (faultAggregatedPodIpFilterDialog.addTargetPodIp) {
-    addTargetPodIpFilter(podIp)
+  if (
+    faultAggregatedPodIpFilterDialog.addTargetPodIp &&
+    isTraceFilterValueAvailable(podRow.dstIp)
+  ) {
+    addTargetPodIpFilter(podRow.dstIp)
   }
 
   closeFaultAggregatedPodIpFilterDialog()
@@ -4672,6 +4709,14 @@ const applyGlobalFilters = () => {
   const activeCount = getActiveFilterCount(nextFilters)
 
   filterApplyMessage.value = activeCount > 0 ? `已确认 ${activeCount} 个筛选条件` : '已清空筛选条件'
+  latencyChartCenterTime.value = null
+  faultChartCenterTime.value = null
+  void loadLatencyChart()
+  void loadTimeWindowAggregatedEvents(timeWindowPage.value, null)
+  void loadAbnormalTraces(abnormalTracesPage.value)
+  void loadFaultChart()
+  void loadFaultAggregatedEvents(faultAggregatedEventPage.value)
+  void loadFaultTraceEvents(faultTraceEventsPage.value)
 }
 
 const setActiveAggregateTab = (tab: 'event' | 'trace') => {
@@ -4822,10 +4867,10 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     }
 
     if (filters.startTime) {
-      requestBody.created_at_start = formatDateTime(filters.startTime)
+      requestBody.start_time = formatDateTime(filters.startTime)
     }
     if (filters.endTime) {
-      requestBody.created_at_end = formatDateTime(filters.endTime)
+      requestBody.end_time = formatDateTime(filters.endTime)
     }
     if (filters.clusters.length > 0) {
       requestBody.cluster_names = filters.clusters
@@ -4833,9 +4878,15 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     if (filters.hosts.length > 0) {
       requestBody.host_names = filters.hosts
     }
+    if (filters.podIps.length > 0) {
+      requestBody.pod_names = filters.podIps
+    }
     if (chartRange) {
-      requestBody.created_at_start = formatTimestamp(chartRange.startTime)
-      requestBody.created_at_end = formatTimestamp(chartRange.endTime)
+      requestBody.start_time = formatTimestamp(chartRange.startTime)
+      requestBody.end_time = formatTimestamp(chartRange.endTime)
+    }
+    if (faultTraceIdQuery.value) {
+      requestBody.trace_ids = [faultTraceIdQuery.value]
     }
 
     const result = await request<{
@@ -4912,6 +4963,9 @@ const loadFaultChart = async () => {
     if (filters.hosts.length > 0) {
       requestBody.host_names = filters.hosts
     }
+    if (filters.podIps.length > 0) {
+      requestBody.pod_names = filters.podIps
+    }
     if (chartRange) {
       requestBody.start_time = formatTimestamp(chartRange.startTime)
       requestBody.end_time = formatTimestamp(chartRange.endTime)
@@ -4949,6 +5003,8 @@ const formatTimestamp = (ts: number) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+const normalizeTraceIdQuery = (value: string) => value.trim()
+
 const listLogKbs = async (body: Record<string, unknown>) => {
   const result = await request<{ total: number; kbs: LogKnowledge[] }>('/log_kb/list', {
     method: 'POST',
@@ -4979,10 +5035,10 @@ const extractListItems = <T,>(payload: unknown, keys: string[]) => {
 }
 
 const loadLatencyChart = async () => {
+  const percentile = selectedLatencyPercentile.value
+
   if (!selectedAssetId.value) {
-    latencyPercentileOptions.forEach((option) => {
-      latencyMetricsByPercentile[option.value] = []
-    })
+    latencyMetricsByPercentile[percentile] = []
     latencyChartError.value = ''
     isLatencyChartLoading.value = false
     return
@@ -4995,41 +5051,45 @@ const loadLatencyChart = async () => {
   const range = latencyChartRange.value
 
   try {
-    const results = await Promise.all(
-      latencyPercentileOptions.map(async (option) => {
-        const body: Record<string, unknown> = {
-          kb_id: assetId,
-          max_points: 1000,
-          sample_mode: latencySampleModeMap[option.value],
-          sort_by: 'timestamp',
-          sort_order: 'asc',
-        }
-        if (range) {
-          body.start_time = formatTimestamp(range.startTime)
-          body.end_time = formatTimestamp(range.endTime)
-        }
-        const result = await request<{ total: number; metrics: LatencyMetricItem[] }>(
-          '/log_parse_result/metrics/latency',
-          {
-            method: 'POST',
-            body: JSON.stringify(body),
-          },
-        )
+    const filters = appliedFilters.value
+    const body: Record<string, unknown> = {
+      kb_id: assetId,
+      max_points: 1000,
+      sample_mode: latencySampleModeMap[percentile],
+      sort_by: 'timestamp',
+      sort_order: 'asc',
+    }
 
-        return {
-          percentile: option.value,
-          metrics: result.metrics ?? [],
-        }
-      }),
+    if (filters.startTime) {
+      body.start_time = formatDateTime(filters.startTime)
+    }
+    if (filters.endTime) {
+      body.end_time = formatDateTime(filters.endTime)
+    }
+    if (filters.hosts.length > 0) {
+      body.host = getLogParseFilterValue(filters.hosts)
+    }
+    if (filters.sourcePodIps.length > 0) {
+      body.src_ip = getLogParseFilterValue(filters.sourcePodIps)
+    }
+    if (filters.targetPodIps.length > 0) {
+      body.dst_ip = getLogParseFilterValue(filters.targetPodIps)
+    }
+    if (range) {
+      body.start_time = formatTimestamp(range.startTime)
+      body.end_time = formatTimestamp(range.endTime)
+    }
+    const result = await request<{ total: number; metrics: LatencyMetricItem[] }>(
+      '/log_parse_result/metrics/latency',
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
     )
 
-    results.forEach((result) => {
-      latencyMetricsByPercentile[result.percentile] = result.metrics
-    })
+    latencyMetricsByPercentile[percentile] = result.metrics ?? []
   } catch (error) {
-    latencyPercentileOptions.forEach((option) => {
-      latencyMetricsByPercentile[option.value] = []
-    })
+    latencyMetricsByPercentile[percentile] = []
     latencyChartError.value = error instanceof Error ? error.message : '加载延迟趋势失败'
   } finally {
     isLatencyChartLoading.value = false
@@ -5107,23 +5167,27 @@ const loadDetailParseResults = async (
   try {
     // 构建排序参数
     const sortFields = detailParseResultSort.getSortFields.value
+    const requestBody: Record<string, unknown> = {
+      kb_id: assetId,
+      aggregated_event_id: row.startTime || row.endTime ? undefined : row.id,
+      src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
+      dst_ip: row.targetPodIp === '-' ? undefined : row.targetPodIp,
+      start_time: row.startTime || undefined,
+      end_time: row.endTime || undefined,
+      page_cnt: detailParseResultsPageSize,
+      page_num: pageNum,
+      sort_fields: sortFields.length > 0 ? sortFields : undefined,
+      is_anomalous: true,
+    }
+    if (detailParseResultTraceIdQuery.value) {
+      requestBody.trace_id = detailParseResultTraceIdQuery.value
+    }
 
     const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
       '/log_parse_result/list',
       {
         method: 'POST',
-        body: JSON.stringify({
-          kb_id: assetId,
-          aggregated_event_id: row.startTime || row.endTime ? undefined : row.id,
-          src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
-          dst_ip: row.targetPodIp === '-' ? undefined : row.targetPodIp,
-          start_time: row.startTime || undefined,
-          end_time: row.endTime || undefined,
-          page_cnt: detailParseResultsPageSize,
-          page_num: pageNum,
-          sort_fields: sortFields.length > 0 ? sortFields : undefined,
-          is_anomalous: true,
-        }),
+        body: JSON.stringify(requestBody),
         signal: detailParseResultSort.getAbortSignal(),
       },
     )
@@ -5172,6 +5236,19 @@ const goDetailParseResultsPage = (pageNum: number) => {
   void loadDetailParseResults(row, nextPage)
 }
 
+const submitDetailParseResultTraceIdQuery = () => {
+  const row = selectedAggregatedEvent.value
+  if (!row) return
+  const nextTraceId = normalizeTraceIdQuery(detailParseResultTraceIdInput.value)
+  detailParseResultTraceIdInput.value = nextTraceId
+  if (nextTraceId === detailParseResultTraceIdQuery.value && detailParseResultsPage.value === 1) {
+    return
+  }
+  detailParseResultTraceIdQuery.value = nextTraceId
+  detailParseResultsPageInput.value = ''
+  void loadDetailParseResults(row, 1)
+}
+
 const jumpDetailParseResultsPage = () => {
   const nextPage = normalizePageInput(
     detailParseResultsPageInput.value,
@@ -5188,6 +5265,19 @@ const goFaultDetailTraceEventsPage = (pageNum: number) => {
   const nextPage = Math.min(Math.max(1, pageNum), faultDetailTraceEventsPageCount.value)
   if (nextPage === faultDetailTraceEventsPage.value || isFaultDetailTraceEventsLoading.value) return
   void loadFaultAggregatedEventDetailTraceEvents(detail, nextPage)
+}
+
+const submitFaultDetailTraceIdQuery = () => {
+  const detail = selectedFaultAggregatedEventDetail.value
+  if (!detail) return
+  const nextTraceId = normalizeTraceIdQuery(faultDetailTraceIdInput.value)
+  faultDetailTraceIdInput.value = nextTraceId
+  if (nextTraceId === faultDetailTraceIdQuery.value && faultDetailTraceEventsPage.value === 1) {
+    return
+  }
+  faultDetailTraceIdQuery.value = nextTraceId
+  faultDetailTraceEventsPageInput.value = ''
+  void loadFaultAggregatedEventDetailTraceEvents(detail, 1)
 }
 
 const jumpFaultDetailTraceEventsPage = () => {
@@ -5654,12 +5744,17 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       page_num: pageNum,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       is_anomalous: true,
-      created_at_start: formatDateTime(filters.startTime),
-      created_at_end: formatDateTime(filters.endTime),
-      start_time: chartRange ? formatTimestamp(chartRange.startTime) : undefined,
-      end_time: chartRange ? formatTimestamp(chartRange.endTime) : undefined,
+      start_time: chartRange
+        ? formatTimestamp(chartRange.startTime)
+        : formatDateTime(filters.startTime),
+      end_time: chartRange ? formatTimestamp(chartRange.endTime) : formatDateTime(filters.endTime),
       cluster_name: getLogParseFilterValue(filters.clusters),
       host: getLogParseFilterValue(filters.hosts),
+      src_ip: getLogParseFilterValue(filters.sourcePodIps),
+      dst_ip: getLogParseFilterValue(filters.targetPodIps),
+    }
+    if (abnormalTraceIdQuery.value) {
+      body.trace_id = abnormalTraceIdQuery.value
     }
 
     const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
@@ -5709,6 +5804,15 @@ const goAbnormalTracesPage = (pageNum: number) => {
   const nextPage = Math.min(Math.max(1, pageNum), abnormalTracesPageCount.value)
   if (nextPage === abnormalTracesPageMap[scale] || isAbnormalTracesLoadingMap[scale]) return
   void loadAbnormalTraces(nextPage)
+}
+
+const submitAbnormalTraceIdQuery = () => {
+  const nextTraceId = normalizeTraceIdQuery(abnormalTraceIdInput.value)
+  abnormalTraceIdInput.value = nextTraceId
+  if (nextTraceId === abnormalTraceIdQuery.value && abnormalTracesPage.value === 1) return
+  abnormalTraceIdQuery.value = nextTraceId
+  abnormalTracesPageInput.value = ''
+  void loadAbnormalTraces(1)
 }
 
 const jumpAbnormalTracesPage = () => {
@@ -5784,11 +5888,11 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
         method: 'POST',
         body: JSON.stringify({
           kb_id: selectedAssetId.value,
-          created_at_start: row.startTime,
-          created_at_end: row.endTime,
+          start_time: row.startTime,
+          end_time: row.endTime,
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
           sort_by: 'all',
-          created_sorted_desc: true,
+          sort_desc: true,
           page_cnt: faultAggregatedEventPodPageSize,
           page_num: pageNum,
         }),
@@ -5918,20 +6022,20 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       interval: selectedFaultAggregateInterval.value,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       sort_by: 'timestamp',
-      created_sorted_desc: faultAggregatedEventCreatedSortedDesc.value,
+      sort_desc: faultAggregatedEventSortDesc.value,
       page_cnt: faultAggregatedEventPageSize,
       page_num: pageNum,
     }
 
     if (chartRange) {
-      requestBody.created_at_start = formatTimestamp(chartRange.startTime)
-      requestBody.created_at_end = formatTimestamp(chartRange.endTime)
+      requestBody.start_time = formatTimestamp(chartRange.startTime)
+      requestBody.end_time = formatTimestamp(chartRange.endTime)
     } else {
       if (filters.startTime) {
-        requestBody.created_at_start = formatDateTime(filters.startTime)
+        requestBody.start_time = formatDateTime(filters.startTime)
       }
       if (filters.endTime) {
-        requestBody.created_at_end = formatDateTime(filters.endTime)
+        requestBody.end_time = formatDateTime(filters.endTime)
       }
     }
 
@@ -6001,9 +6105,9 @@ const jumpFaultAggregatedEventPage = () => {
   goFaultAggregatedEventPage(nextPage)
 }
 
-const setFaultAggregatedEventStartTimeSort = (createdSortedDesc: boolean) => {
+const setFaultAggregatedEventStartTimeSort = (sortDesc: boolean) => {
   faultAggregatedEventSort.setSortFields([])
-  faultAggregatedEventCreatedSortedDesc.value = createdSortedDesc
+  faultAggregatedEventSortDesc.value = sortDesc
   faultAggregatedEventPage.value = 1
   faultAggregatedEventPageInput.value = ''
   void loadFaultAggregatedEvents(1)
@@ -6012,7 +6116,7 @@ const setFaultAggregatedEventStartTimeSort = (createdSortedDesc: boolean) => {
 const handleFaultAggregatedEventStartTimeSort = () => {
   setFaultAggregatedEventStartTimeSort(
     isFaultAggregatedEventStartTimeSortActive.value
-      ? !faultAggregatedEventCreatedSortedDesc.value
+      ? !faultAggregatedEventSortDesc.value
       : false,
   )
 }
@@ -6026,6 +6130,15 @@ const goFaultTraceEventsPage = (pageNum: number) => {
   const nextPage = Math.min(Math.max(1, pageNum), faultTraceEventsPageCount.value)
   if (nextPage === faultTraceEventsPage.value || isFaultTraceEventsLoading.value) return
   void loadFaultTraceEvents(nextPage)
+}
+
+const submitFaultTraceIdQuery = () => {
+  const nextTraceId = normalizeTraceIdQuery(faultTraceIdInput.value)
+  faultTraceIdInput.value = nextTraceId
+  if (nextTraceId === faultTraceIdQuery.value && faultTraceEventsPage.value === 1) return
+  faultTraceIdQuery.value = nextTraceId
+  faultTraceEventsPageInput.value = ''
+  void loadFaultTraceEvents(1)
 }
 
 const jumpFaultTraceEventsPage = () => {
@@ -6859,6 +6972,10 @@ watch(selectedLatencyScale, () => {
   }
 })
 
+watch(selectedLatencyPercentile, () => {
+  void loadLatencyChart()
+})
+
 watch(selectedFaultScale, (newVal) => {
   if (selectedLatencyScale.value !== newVal) {
     selectedLatencyScale.value = newVal
@@ -7171,7 +7288,7 @@ onBeforeUnmount(() => {
               <input
                 v-model="filterDraftInput.host"
                 type="text"
-                placeholder="输入主机 IP"
+                placeholder="输入主机名或主机 IP"
                 @keydown.enter.prevent="addFilterValue('host')"
               />
               <button type="button" @click="addFilterValue('host')">添加</button>
@@ -7384,7 +7501,7 @@ onBeforeUnmount(() => {
                       </option>
                     </select>
                   </label>
-                  <span class="scale-label">时延指标：</span>
+                  <span class="scale-label">百分位指标：</span>
                   <label class="latency-percentile-select">
                     <select v-model="selectedLatencyPercentile" aria-label="时延百分位">
                       <option
@@ -7483,6 +7600,25 @@ onBeforeUnmount(() => {
                   </select>
                 </label>
                 <div v-else class="abnormal-trace-filter-actions">
+                  <form class="trace-id-search" @submit.prevent="submitAbnormalTraceIdQuery">
+                    <label class="trace-id-search-field">
+                      <span>Trace ID</span>
+                      <input
+                        v-model="abnormalTraceIdInput"
+                        type="text"
+                        placeholder="输入 Trace ID"
+                        autocomplete="off"
+                        :disabled="isAbnormalTracesLoading"
+                      />
+                    </label>
+                    <button
+                      class="save-btn compact-action-btn trace-id-search-submit"
+                      type="submit"
+                      :disabled="isAbnormalTracesLoading"
+                    >
+                      查询
+                    </button>
+                  </form>
                   <button
                     class="ghost-btn compact-action-btn"
                     type="button"
@@ -8685,7 +8821,9 @@ onBeforeUnmount(() => {
                 <div v-else-if="faultChartError" class="chart-state chart-error">
                   {{ faultChartError }}
                 </div>
-                <div v-else-if="faultCodes.length === 0" class="chart-state">暂无故障码数据</div>
+                <div v-else-if="!hasFaultChartMetricData" class="chart-state">
+                  暂无故障码计数时序数据
+                </div>
                 <div
                   v-else
                   ref="faultChartRef"
@@ -8726,6 +8864,27 @@ onBeforeUnmount(() => {
                     <option value="second">秒</option>
                   </select>
                 </label>
+                <div v-else class="abnormal-trace-filter-actions">
+                  <form class="trace-id-search" @submit.prevent="submitFaultTraceIdQuery">
+                    <label class="trace-id-search-field">
+                      <span>Trace ID</span>
+                      <input
+                        v-model="faultTraceIdInput"
+                        type="text"
+                        placeholder="输入 Trace ID"
+                        autocomplete="off"
+                        :disabled="isFaultTraceEventsLoading"
+                      />
+                    </label>
+                    <button
+                      class="save-btn compact-action-btn trace-id-search-submit"
+                      type="submit"
+                      :disabled="isFaultTraceEventsLoading"
+                    >
+                      查询
+                    </button>
+                  </form>
+                </div>
               </div>
 
               <div
@@ -8762,7 +8921,7 @@ onBeforeUnmount(() => {
                                 :class="{
                                   'sort-icon-active':
                                     isFaultAggregatedEventStartTimeSortActive &&
-                                    !faultAggregatedEventCreatedSortedDesc,
+                                    !faultAggregatedEventSortDesc,
                                 }"
                               >
                                 ▲
@@ -8773,7 +8932,7 @@ onBeforeUnmount(() => {
                                 :class="{
                                   'sort-icon-active':
                                     isFaultAggregatedEventStartTimeSortActive &&
-                                    faultAggregatedEventCreatedSortedDesc,
+                                    faultAggregatedEventSortDesc,
                                 }"
                               >
                                 ▼
@@ -8857,10 +9016,7 @@ onBeforeUnmount(() => {
                                 </div>
                               </template>
                               <div
-                                v-if="
-                                  getFaultAggregatedEventPodTotal(row) >
-                                  faultAggregatedEventPodPageSize
-                                "
+                                v-if="getFaultAggregatedEventPodTotal(row) > 0"
                                 class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-side"
                               >
                                 第 {{ getFaultAggregatedEventPodPage(row) }} /
@@ -9083,14 +9239,11 @@ onBeforeUnmount(() => {
                                 </div>
                               </div>
                               <div
-                                v-if="
-                                  getFaultAggregatedEventPodTotal(row) >
-                                  faultAggregatedEventPodPageSize
-                                "
-                                class="fault-aggregate-sub-pagination"
+                                v-if="getFaultAggregatedEventPodTotal(row) > 0"
+                                class="fault-aggregate-sub-pagination ip-pair-pagination"
                               >
                                 <button
-                                  class="pagination-page-btn"
+                                  class="page-btn"
                                   type="button"
                                   :disabled="
                                     getFaultAggregatedEventPodPage(row) <= 1 ||
@@ -9103,7 +9256,7 @@ onBeforeUnmount(() => {
                                     )
                                   "
                                 >
-                                  上一页
+                                  &lt;
                                 </button>
                                 <span class="pagination-pages" aria-label="故障聚合事件Pod副表页码">
                                   <button
@@ -9128,7 +9281,7 @@ onBeforeUnmount(() => {
                                   </button>
                                 </span>
                                 <button
-                                  class="pagination-page-btn"
+                                  class="page-btn"
                                   type="button"
                                   :disabled="
                                     getFaultAggregatedEventPodPage(row) >=
@@ -9142,37 +9295,8 @@ onBeforeUnmount(() => {
                                     )
                                   "
                                 >
-                                  下一页
+                                  &gt;
                                 </button>
-                                <span class="pagination-jump fault-aggregate-sub-jump">
-                                  <span>
-                                    第 {{ getFaultAggregatedEventPodPage(row) }} /
-                                    {{ getFaultAggregatedEventPodPageCount(row) }} 页
-                                  </span>
-                                  <input
-                                    class="pagination-jump-input"
-                                    type="number"
-                                    min="1"
-                                    :max="getFaultAggregatedEventPodPageCount(row)"
-                                    :value="getFaultAggregatedEventPodPageInput(row)"
-                                    aria-label="跳转故障聚合事件Pod副表页码"
-                                    @input="
-                                      setFaultAggregatedEventPodPageInput(
-                                        row,
-                                        ($event.target as HTMLInputElement).value,
-                                      )
-                                    "
-                                    @keyup.enter="jumpFaultAggregatedEventPodPage(row)"
-                                  />
-                                  <button
-                                    class="pagination-jump-btn"
-                                    type="button"
-                                    :disabled="isFaultAggregatedEventPodLoading(row)"
-                                    @click.stop="jumpFaultAggregatedEventPodPage(row)"
-                                  >
-                                    跳转
-                                  </button>
-                                </span>
                               </div>
                             </div>
                           </template>
@@ -9241,10 +9365,7 @@ onBeforeUnmount(() => {
                               </button>
                             </div>
                             <div
-                              v-if="
-                                getFaultAggregatedEventPodTotal(row) >
-                                faultAggregatedEventPodPageSize
-                              "
+                              v-if="getFaultAggregatedEventPodTotal(row) > 0"
                               class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-actions"
                             ></div>
                           </div>
@@ -10284,15 +10405,16 @@ onBeforeUnmount(() => {
           <div class="filter-bar-list">
             <div class="filter-bar">
               <div class="filter-bar-info">
-                <span class="filter-bar-label">Pod IP</span>
+                <span class="filter-bar-label">源 / 目标 IP</span>
                 <span class="filter-bar-value">
-                  {{ faultAggregatedPodIpFilterDialog.podRow?.podIp }}
+                  {{ faultAggregatedPodIpFilterDialog.podRow?.srcIp }} →
+                  {{ faultAggregatedPodIpFilterDialog.podRow?.dstIp }}
                 </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
                   <input v-model="faultAggregatedPodIpFilterDialog.addPodIp" type="checkbox" />
-                  <span>添加到Pod IP</span>
+                  <span>添加源/目标到Pod IP</span>
                 </label>
                 <label class="trace-filter-option">
                   <input
@@ -10456,8 +10578,29 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-parse-results">
             <div class="aggregate-parse-results-header">
-              <h3>异常 Trace</h3>
-              <span class="parse-result-count">{{ detailParseResultsBadgeCount }} 条</span>
+              <div class="aggregate-parse-results-title">
+                <h3>异常 Trace</h3>
+                <span class="parse-result-count">{{ detailParseResultsBadgeCount }} 条</span>
+              </div>
+              <form class="trace-id-search" @submit.prevent="submitDetailParseResultTraceIdQuery">
+                <label class="trace-id-search-field">
+                  <span>Trace ID</span>
+                  <input
+                    v-model="detailParseResultTraceIdInput"
+                    type="text"
+                    placeholder="输入 Trace ID"
+                    autocomplete="off"
+                    :disabled="isDetailParseResultsLoading"
+                  />
+                </label>
+                <button
+                  class="save-btn compact-action-btn trace-id-search-submit"
+                  type="submit"
+                  :disabled="isDetailParseResultsLoading"
+                >
+                  查询
+                </button>
+              </form>
             </div>
             <div
               class="parse-result-table-wrapper detail-abnormal-trace-wrapper"
@@ -10925,7 +11068,8 @@ onBeforeUnmount(() => {
           <div class="side-drawer-title">
             <h2>聚合事件详情</h2>
             <span class="aggregate-detail-hosts">
-              Pod IP: {{ selectedFaultAggregatedEventDetail.podRow.podIp }}
+              {{ selectedFaultAggregatedEventDetail.podRow.srcIp }} →
+              {{ selectedFaultAggregatedEventDetail.podRow.dstIp }}
             </span>
           </div>
           <button
@@ -10987,8 +11131,29 @@ onBeforeUnmount(() => {
 
           <section class="aggregate-parse-results">
             <div class="aggregate-parse-results-header">
-              <h3>异常 Trace</h3>
-              <span class="parse-result-count">{{ selectedFaultDetailErrorLogTotal }} 条</span>
+              <div class="aggregate-parse-results-title">
+                <h3>异常 Trace</h3>
+                <span class="parse-result-count">{{ selectedFaultDetailErrorLogTotal }} 条</span>
+              </div>
+              <form class="trace-id-search" @submit.prevent="submitFaultDetailTraceIdQuery">
+                <label class="trace-id-search-field">
+                  <span>Trace ID</span>
+                  <input
+                    v-model="faultDetailTraceIdInput"
+                    type="text"
+                    placeholder="输入 Trace ID"
+                    autocomplete="off"
+                    :disabled="isFaultDetailTraceEventsLoading"
+                  />
+                </label>
+                <button
+                  class="save-btn compact-action-btn trace-id-search-submit"
+                  type="submit"
+                  :disabled="isFaultDetailTraceEventsLoading"
+                >
+                  查询
+                </button>
+              </form>
             </div>
             <div
               class="parse-result-table-wrapper fault-detail-log-wrapper aggregate-table"

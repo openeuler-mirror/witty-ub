@@ -135,13 +135,13 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
-    created_at_start: Optional[str] = Field(
+    start_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="聚合事件时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    end_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="聚合事件时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
     stat_type: Optional[str] = Field(default="ave", description="统计类型：p99、p95、ave、min、max")
     sort_fields: Optional[List[SortField]] = Field(
@@ -233,17 +233,17 @@ class ListTraceFailureEventResultRequest(BaseModel):
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
     )
-    created_at_start: Optional[str] = Field(
+    start_time: Optional[str] = Field(
         default=None,
-        description="日志解析结果创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    end_time: Optional[str] = Field(
         default=None,
-        description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_sorted_desc: Optional[bool] = Field(
+    sort_desc: Optional[bool] = Field(
         default=True,
-        description="日志解析结果创建时间排序，True表示降序，False表示升序，默认为True",
+        description="排序方向，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
@@ -287,13 +287,13 @@ class ListTracesByHostRequest(BaseModel):
 
 class ListTimeAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
-    created_at_start: Optional[str] = Field(
+    start_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    end_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
     interval: str = Field(
         default="minute",
@@ -303,9 +303,9 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
         default="timestamp",
         description="聚合事件时间排序依据，可选timestamp"
     )
-    created_sorted_desc: bool = Field(
+    sort_desc: bool = Field(
         default=False,
-        description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
+        description="排序方向，True表示降序，False表示升序，默认为True",
     )
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
@@ -316,21 +316,21 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
 
 class ListPodAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
-    created_at_start: Optional[str] = Field(
+    start_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    end_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
     sort_by: str = Field(
         default="all",
         description="聚合事件排序依据，可选all或故障码，如1004，1009等"
     )
-    created_sorted_desc: bool = Field(
+    sort_desc: bool = Field(
         default=True,
-        description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
+        description="排序方向，True表示降序，False表示升序，默认为True",
     )
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
@@ -341,21 +341,21 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
 
 class ListSrcDstAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
-    created_at_start: Optional[str] = Field(
+    start_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    end_time: Optional[str] = Field(
         default=None,
-        description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
     sort_by: str = Field(
         default="all",
         description="聚合事件排序依据，可选all或故障码，如1004，1009等"
     )
-    created_sorted_desc: bool = Field(
+    sort_desc: bool = Field(
         default=True,
-        description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
+        description="排序方向，True表示降序，False表示升序，默认为True",
     )
     sort_fields: Optional[List[SortField]] = Field(
         default=None,

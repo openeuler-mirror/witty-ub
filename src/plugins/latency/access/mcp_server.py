@@ -142,8 +142,8 @@ async def list_latency_events(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kb_id": kb_id,
-        "created_at_start": start_time,
-        "created_at_end": end_time,
+        "start_time": start_time,
+        "end_time": end_time,
         "src_ip": src_ip,
         "dst_ip": dst_ip,
         "stat_type": stat_type,
@@ -311,11 +311,11 @@ async def list_failure_time_windows(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kb_id": kb_id,
-        "created_at_start": start_time,
-        "created_at_end": end_time,
+        "start_time": start_time,
+        "end_time": end_time,
         "interval": interval,
         "sort_by": "timestamp",
-        "created_sorted_desc": False,
+        "sort_desc": False,
         **_page(page_num, page_cnt),
     }
     return await _client().post(
@@ -343,10 +343,10 @@ async def list_failure_pod_aggregates(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kb_id": kb_id,
-        "created_at_start": start_time,
-        "created_at_end": end_time,
+        "start_time": start_time,
+        "end_time": end_time,
         "sort_by": sort_by,
-        "created_sorted_desc": sort_order == "desc",
+        "sort_desc": sort_order == "desc",
         **_page(page_num, page_cnt),
     }
     return await _client().post(
@@ -421,10 +421,10 @@ async def list_failure_traces(
         "cluster_names": cluster_names or [],
         "host_names": host_names or [],
         "pod_names": pod_names or [],
-        "created_at_start": start_time,
-        "created_at_end": end_time,
+        "start_time": start_time,
+        "end_time": end_time,
         "is_anomalous": is_anomalous,
-        "created_sorted_desc": True,
+        "sort_desc": True,
         **_page(page_num, page_cnt),
     }
     return await _client().post(
