@@ -555,6 +555,51 @@ def test_worker_info_src_dst_fallback_ignores_non_ip_values() -> None:
     assert entries is None
 
 
+def test_process_worker_single_parser_scan_file_results_are_serialized_once(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from latency.parse.parallel_scanner import process_worker
+    import latency.parse as parse_pkg
+
+    timestamp = datetime(2026, 7, 9, 14, 30, 7)
+
+    class FakeWorkerInfoParser:
+        label = "Fake worker info parse"
+        patterns = ["fake.log"]
+
+        def __init__(self, parse_config=None):
+            self._runtime_patterns = self.patterns
+
+        def scan_file(self, path: str):
+            return {
+                self.label: [
+                    process_worker.LogEntry(
+                        timestamp=timestamp,
+                        trace_id="trace",
+                        pod_ip="pod",
+                        elapsed_us=123,
+                        entry_type=EntryType.REMOTE_PULL,
+                    )
+                ]
+            }
+
+    monkeypatch.setattr(parse_pkg, "WorkerInfoParser", FakeWorkerInfoParser)
+
+    result = process_worker._process_worker_func(
+        [(str(tmp_path / "fake.log"), [0])],
+        group_id=1,
+        parsers_info=[
+            {"class_name": "WorkerInfoParser", "patterns": ["fake.log"]},
+        ],
+    )
+
+    entries = result[FakeWorkerInfoParser.label]
+    assert len(entries) == 1
+    assert entries[0][TupleField.TIMESTAMP] == timestamp
+    assert entries[0][TupleField.ENTRY_TYPE] == EntryType.REMOTE_PULL.value
+
+
 def test_worker_info_master_rpc_preserves_framework_slow_breakdown() -> None:
     parser = WorkerInfoParser()
     trace_id = "38d88464-1cba-472a-b717-cb8ea9f3591b"

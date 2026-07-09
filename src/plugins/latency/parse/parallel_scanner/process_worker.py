@@ -104,7 +104,7 @@ def _process_worker_func(
     )
 
     serialized = {
-        label: [_serialize_entry(e) for e in entries]
+        label: [e if isinstance(e, tuple) else _serialize_entry(e) for e in entries]
         for label, entries in merged.items()
     }
 
