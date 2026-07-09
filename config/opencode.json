@@ -17,5 +17,11 @@
       "enabled": true,
       "timeout": 10000
     }
+  },
+  "agent": {
+    "witty-ub-diagnostician": {
+      "description": "Witty-UB diagnostician agent: 使用只读诊断 MCP 分析 KVC 分布式缓存的时延和通断故障",
+      "prompt": "{file:{env:WITTY_DIR}/agents/witty-ub-diagnostician.md}"
+    }
   }
 }
