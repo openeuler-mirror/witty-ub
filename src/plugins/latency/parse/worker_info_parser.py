@@ -279,20 +279,54 @@ class WorkerInfoParser(LogParser):
     ) -> tuple[str, LogEntry] | None:
         """按固定优先级命中第一个关键字并立即解析；一行最多产出一个 entry。"""
         if "URMA_ELAPSED_TOTAL" in line:
-            return self._parse_label(URMA_LABEL, self._parse_urma, parsed, ts, pod_ip)
+            return self._parse_label(
+                URMA_LABEL,
+                self._parse_urma,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
         if "Remote get request" in line:
             return self._parse_label(
-                REMOTE_PULL_LABEL, self._parse_remote_get, parsed, ts, pod_ip
+                REMOTE_PULL_LABEL,
+                self._parse_remote_get,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
             )
         if "Processing pull object[" in line:
             return self._parse_label(
-                REMOTE_PULL_LABEL, self._parse_remote_pull, parsed, ts, pod_ip
+                REMOTE_PULL_LABEL,
+                self._parse_remote_pull,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
             )
         if "elapsed ms:" in line:
-            return self._parse_label(LINK_LABEL, self._parse_link, parsed, ts, pod_ip)
+            return self._parse_label(
+                LINK_LABEL,
+                self._parse_link,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
         if "Master query done" in line:
             return self._parse_label(
-                QUERY_META_LABEL, self._parse_query_meta, parsed, ts, pod_ip
+                QUERY_META_LABEL,
+                self._parse_query_meta,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
             )
         if "totalCost:" in line:
             return self._parse_label(
@@ -396,8 +430,11 @@ class WorkerInfoParser(LogParser):
         allow_trace_fallback: bool = False,
         trace_source: str = "",
     ) -> tuple[str, LogEntry] | None:
-        if allow_trace_fallback and not parsed["trace_id"]:
-            parsed["trace_id"] = self.extract_trace_id(trace_source or parsed["msg"])
+        if allow_trace_fallback:
+            parsed["trace_id"] = self.resolve_trace_id(
+                parsed["trace_id"],
+                trace_source or parsed["msg"],
+            )
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         if not self._file_scope_may_allow(label, entry_pod_ip):
             return None

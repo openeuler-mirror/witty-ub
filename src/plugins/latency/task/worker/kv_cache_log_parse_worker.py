@@ -343,6 +343,57 @@ class KVCacheLogParseWorker(BaseWorker):
                     split_entries[label].append(entry)
         parsed.update(split_entries)
 
+    @staticmethod
+    def _trace_ids(entries: list) -> set[str]:
+        if not entries:
+            return set()
+        if isinstance(entries[0], tuple):
+            return {
+                entry[TupleField.TRACE_ID]
+                for entry in entries
+                if entry[TupleField.TRACE_ID]
+            }
+        return {entry.trace_id for entry in entries if entry.trace_id}
+
+    @staticmethod
+    def _build_trace_overlap_stats(parsed: dict[str, list]) -> dict[str, int]:
+        sdk_traces = KVCacheLogParseWorker._trace_ids(
+            parsed.get("SDK access parse", [])
+        )
+        worker_traces = KVCacheLogParseWorker._trace_ids(
+            parsed.get("Worker access parse", [])
+        )
+        urma_traces = KVCacheLogParseWorker._trace_ids(parsed.get(URMA_LABEL, []))
+        remote_pull_traces = KVCacheLogParseWorker._trace_ids(
+            parsed.get(REMOTE_PULL_LABEL, [])
+        )
+        query_meta_traces = KVCacheLogParseWorker._trace_ids(
+            parsed.get(QUERY_META_LABEL, [])
+        )
+        timed_traces: set[str] = set()
+        for label in TIMED_LABELS:
+            timed_traces.update(
+                KVCacheLogParseWorker._trace_ids(parsed.get(label, []))
+            )
+
+        return {
+            "sdk_trace_ids": len(sdk_traces),
+            "worker_trace_ids": len(worker_traces),
+            "urma_trace_ids": len(urma_traces),
+            "remote_pull_trace_ids": len(remote_pull_traces),
+            "query_meta_trace_ids": len(query_meta_traces),
+            "timed_trace_ids": len(timed_traces),
+            "sdk_worker_trace_overlap": len(sdk_traces & worker_traces),
+            "worker_urma_trace_overlap": len(worker_traces & urma_traces),
+            "worker_remote_pull_trace_overlap": len(
+                worker_traces & remote_pull_traces
+            ),
+            "worker_query_meta_trace_overlap": len(
+                worker_traces & query_meta_traces
+            ),
+            "worker_timed_trace_overlap": len(worker_traces & timed_traces),
+        }
+
     # 解析日志
     @staticmethod
     async def parse_log(
@@ -484,6 +535,19 @@ class KVCacheLogParseWorker(BaseWorker):
                 parsed[label].sort(key=operator.attrgetter("timestamp"))
             logger.info(f"  {label}: {len(parsed[label]):,} entries")
         entry_counts = {label: len(entries) for label, entries in parsed.items()}
+        trace_overlap_stats = KVCacheLogParseWorker._build_trace_overlap_stats(parsed)
+        logger.info(
+            "Trace overlap: "
+            "sdk_traces=%d, worker_traces=%d, sdk∩worker=%d, "
+            "worker∩urma=%d, worker∩pull=%d, worker∩meta=%d, worker∩timed=%d",
+            trace_overlap_stats["sdk_trace_ids"],
+            trace_overlap_stats["worker_trace_ids"],
+            trace_overlap_stats["sdk_worker_trace_overlap"],
+            trace_overlap_stats["worker_urma_trace_overlap"],
+            trace_overlap_stats["worker_remote_pull_trace_overlap"],
+            trace_overlap_stats["worker_query_meta_trace_overlap"],
+            trace_overlap_stats["worker_timed_trace_overlap"],
+        )
         t_sort = time.perf_counter() - t_sort_start
 
         logger.info("=== Stage 2/3: Correlating entries ===")
@@ -677,6 +741,24 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"link={entry_counts.get('Worker link parse', 0)}, "
                     f"meta={entry_counts.get('Worker query meta parse', 0)}, "
                     f"timed={timed_entry_count}"
+                ),
+                0.0,
+            )
+            await BaseWorker.report(
+                task_id,
+                (
+                    "[perf][trace.overlap] "
+                    f"sdk_traces={trace_overlap_stats['sdk_trace_ids']}, "
+                    f"worker_traces={trace_overlap_stats['worker_trace_ids']}, "
+                    f"sdk_worker={trace_overlap_stats['sdk_worker_trace_overlap']}, "
+                    f"urma_traces={trace_overlap_stats['urma_trace_ids']}, "
+                    f"worker_urma={trace_overlap_stats['worker_urma_trace_overlap']}, "
+                    f"pull_traces={trace_overlap_stats['remote_pull_trace_ids']}, "
+                    f"worker_pull={trace_overlap_stats['worker_remote_pull_trace_overlap']}, "
+                    f"meta_traces={trace_overlap_stats['query_meta_trace_ids']}, "
+                    f"worker_meta={trace_overlap_stats['worker_query_meta_trace_overlap']}, "
+                    f"timed_traces={trace_overlap_stats['timed_trace_ids']}, "
+                    f"worker_timed={trace_overlap_stats['worker_timed_trace_overlap']}"
                 ),
                 0.0,
             )

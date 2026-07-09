@@ -17,6 +17,8 @@ from latency.database.managers.log_parse_result import (
 from latency.parse.base_parser import AccessLogParser
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
+from latency.parse.sdk_access_log_parser import SdkAccessLogParser
+from latency.parse.worker_access_log_parser import WorkerAccessLogParser
 from latency.parse.worker_info_parser import (
     WorkerInfoParser,
     SDK_PROCESS_LABEL,
@@ -834,6 +836,122 @@ def test_empty_sdk_worker_correlation_keeps_unmatched_sdk_results() -> None:
     assert result.sdk_process is None
     assert result.urma_total_latency is None
     assert (result.src_ip, result.dst_ip) == (None, None)
+
+
+def test_access_parsers_prefer_explicit_message_trace_id_for_trace_only_correlation() -> None:
+    trace_id = "real-trace"
+    sdk_line = (
+        "2026-05-11T00:08:27.123456 | I | access.cpp:1 | sdk-pod | 1:2 | "
+        "sdk-wrapper-trace | cluster | 0 | DS_KV_CLIENT_GET | 2000 | 4096 | "
+        f"Object_key:[object-key], trace_id={trace_id} | ok\n"
+    )
+    worker_line = (
+        "2026-05-11T00:08:27.223456 | I | access.cpp:1 | worker-pod | 1:2 | "
+        "worker-wrapper-trace | cluster | 0 | DS_POSIX_GET | 1000 | 4096 | "
+        f"Object_key:[object-key], trace_id={trace_id} | ok\n"
+    )
+
+    sdk_entry = SdkAccessLogParser().match_line(sdk_line, "sdk-pod")
+    worker_entry = WorkerAccessLogParser().match_line(worker_line, "worker-pod")
+
+    assert sdk_entry is not None
+    assert worker_entry is not None
+    assert sdk_entry.trace_id == trace_id
+    assert worker_entry.trace_id == trace_id
+    correlated = LogCorrelator(
+        {
+            "SDK access parse": [sdk_entry],
+            "Worker access parse": [worker_entry],
+        }
+    ).correlate()
+    assert correlated.sdk_worker_map == {0: worker_entry}
+
+
+def test_worker_info_prefers_explicit_message_trace_id_over_run_column() -> None:
+    parser = WorkerInfoParser()
+    trace_id = "38d88464-1cba-472a-b717-cb8ea9f3591b"
+    line = (
+        "2026-05-11T00:08:27.123456 | I | rpc.cpp:1 | "
+        "192.168.102.119 | 1:2 | wrapper-trace | cluster | "
+        f"[ZMQ_RPC_FRAMEWORK_SLOW] trace_id={trace_id} framework_us=281 e2e_us=321 "
+        "client_req_framework_us=23 remote_processing_us=282 client_rsp_framework_us=16 "
+        "server_req_queue_us=21 server_exec_us=40 server_rsp_queue_us=23 "
+        "network_residual_us=196\n"
+    )
+
+    entries = parser.match_line(line, "worker_192.168.102.119")
+
+    assert entries is not None
+    assert len(entries) == 1
+    assert entries[0].entry_type == EntryType.MASTER_RPC
+    assert entries[0].trace_id == trace_id
+
+
+def test_trace_overlap_stats_explain_trace_only_match_coverage() -> None:
+    timestamp = datetime(2026, 7, 2)
+    stats = KVCacheLogParseWorker._build_trace_overlap_stats(
+        {
+            "SDK access parse": [
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="shared",
+                    elapsed_us=1,
+                    entry_type=EntryType.SDK_GET.value,
+                ),
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="sdk-only",
+                    elapsed_us=1,
+                    entry_type=EntryType.SDK_GET.value,
+                ),
+            ],
+            "Worker access parse": [
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="shared",
+                    elapsed_us=1,
+                    entry_type=EntryType.WORKER_GET.value,
+                ),
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="worker-only",
+                    elapsed_us=1,
+                    entry_type=EntryType.WORKER_GET.value,
+                ),
+            ],
+            "Worker query meta parse": [
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="shared",
+                    elapsed_us=1,
+                    entry_type=EntryType.QUERY_META.value,
+                ),
+            ],
+            SDK_PROCESS_LABEL: [
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="worker-only",
+                    elapsed_us=1,
+                    entry_type=EntryType.SDK_PROCESS.value,
+                ),
+            ],
+            "Worker urma parse": [
+                _raw_entry(
+                    timestamp=timestamp,
+                    trace_id="unrelated",
+                    elapsed_us=1,
+                    entry_type=EntryType.URMA.value,
+                ),
+            ],
+        }
+    )
+
+    assert stats["sdk_trace_ids"] == 2
+    assert stats["worker_trace_ids"] == 2
+    assert stats["sdk_worker_trace_overlap"] == 1
+    assert stats["worker_query_meta_trace_overlap"] == 1
+    assert stats["worker_timed_trace_overlap"] == 1
+    assert stats["worker_urma_trace_overlap"] == 0
 
 
 def test_large_trace_scope_is_not_copied_to_processes(monkeypatch) -> None:

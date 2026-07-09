@@ -377,6 +377,16 @@ class ParseTimingCollector(logging.Handler):
                     result.worker_master_rpc_map,
                 ):
                     timed_worker_indices.update(mapping)
+                trace_stats = KVCacheLogParseWorker._build_trace_overlap_stats(
+                    {
+                        "SDK access parse": correlator.sdk_entries,
+                        "Worker access parse": correlator.worker_entries,
+                        "Worker urma parse": correlator.urma_entries,
+                        "Worker remote pull parse": correlator.remote_pull_entries,
+                        "Worker query meta parse": correlator.query_meta_entries,
+                        "Worker sdk process parse": correlator.timed_entries,
+                    }
+                )
                 collector.counts = {
                     "sdk_entries": len(correlator.sdk_entries),
                     "worker_entries": len(correlator.worker_entries),
@@ -386,6 +396,7 @@ class ParseTimingCollector(logging.Handler):
                         result.worker_query_meta_map
                     ),
                     "worker_timed_matches": len(timed_worker_indices),
+                    **trace_stats,
                 }
                 return result
             finally:

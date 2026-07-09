@@ -68,7 +68,11 @@ class SdkAccessLogParser(AccessLogParser):
         if self.min_elapsed_us is not None and elapsed < self.min_elapsed_us:
             self._filtered_by_elapsed += 1
             return None
-        trace_id = parsed["trace_id"]
+        trace_id = self.resolve_trace_id(
+            parsed["trace_id"],
+            parsed["req_msg"],
+            parsed["resp_msg"],
+        )
         if not trace_id:
             return None
         ts = parse_timestamp(parsed["timestamp"])
