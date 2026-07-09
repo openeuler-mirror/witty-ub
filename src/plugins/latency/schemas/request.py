@@ -339,6 +339,31 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 
+class ListSrcDstAggregatedFailureEventRequest(BaseModel):
+    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    created_at_start: Optional[str] = Field(
+        default=None,
+        description="聚合事件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    created_at_end: Optional[str] = Field(
+        default=None,
+        description="聚合事件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    sort_by: str = Field(
+        default="all",
+        description="聚合事件排序依据，可选all或故障码，如1004，1009等"
+    )
+    created_sorted_desc: bool = Field(
+        default=True,
+        description="聚合事件创建时间排序，True表示降序，False表示升序，默认为True",
+    )
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
+    )
+    page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
+    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")

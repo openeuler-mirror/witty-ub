@@ -18,6 +18,7 @@ from latency.schemas.log_failure_event import (
     TraceFailureEventModel,
     ErrCodeMetricItem,
     PodAggregatedFailureEventModel,
+    SrcDstAggregatedFailureEventModel,
     TimeAggregatedFailureEventModel,
 )
 from latency.schemas.diagnosis_case import (
@@ -185,6 +186,19 @@ class ListPodAggregatedFailureEventMsg(BaseModel):
 
 class ListPodAggregatedFailureEventResponse(ResponseBase):
     result: ListPodAggregatedFailureEventMsg = Field(
+        ..., description="查询聚合事件列表相应结果"
+    )
+
+
+class ListSrcDstAggregatedFailureEventMsg(BaseModel):
+    total: int = Field(..., description="符合条件的聚合事件总数")
+    events: list[SrcDstAggregatedFailureEventModel] = Field(
+        default_factory=list, description="聚合事件列表"
+    )
+
+
+class ListSrcDstAggregatedFailureEventResponse(ResponseBase):
+    result: ListSrcDstAggregatedFailureEventMsg = Field(
         ..., description="查询聚合事件列表相应结果"
     )
 

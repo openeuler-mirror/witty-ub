@@ -364,12 +364,57 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         return any(fnmatch.fnmatch(filename, pattern) for pattern in patterns)
 
     @staticmethod
+    def _extract_src_dst_ip(raw_text: str):
+        import re
+        
+        ip_pattern = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+        
+        src_ip = ""
+        dst_ip = ""
+        
+        # 模式1: src=IP, dst=IP
+        src_match = re.search(r'src=(' + ip_pattern + ')', raw_text, re.IGNORECASE)
+        dst_match = re.search(r'dst=(' + ip_pattern + ')', raw_text, re.IGNORECASE)
+
+        if src_match:
+            src_ip = src_match.group(1)
+        if dst_match:
+            dst_ip = dst_match.group(1)
+        
+        # 模式2: src address:IP...target address:IP
+        if not src_ip:
+            src_match = re.search(r'src address:(' + ip_pattern + ')', raw_text, re.IGNORECASE)
+            if src_match:
+                src_ip = src_match.group(1)
+        
+        if not dst_ip:
+            dst_match = re.search(r'target address:(' + ip_pattern + ')', raw_text, re.IGNORECASE)
+            if dst_match:
+                dst_ip = dst_match.group(1)
+        
+        # 模式3: srcAddress = IP...targetAddress = IP
+        if not src_ip:
+            src_match = re.search(r'srcAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
+            if src_match:
+                src_ip = src_match.group(1)
+        
+        if not dst_ip:
+            dst_match = re.search(r'targetAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
+            if dst_match:
+                dst_ip = dst_match.group(1)
+        
+        return src_ip, dst_ip
+
+    @staticmethod
     def _merge_trace_failure_event(
         trace_failure_events_map: dict[str, dict],
         log_failure_event: dict,
         failure_mode_cache: dict,
     ) -> None:
         trace_id = log_failure_event["trace_id"]
+        
+        raw_text = log_failure_event.get("raw_text", "")
+        src_ip, dst_ip = KVCacheLogEventDiagnosisWorker._extract_src_dst_ip(raw_text)
 
         if trace_id not in trace_failure_events_map:
             failure_mode = log_failure_event["failure_mode"]
@@ -385,6 +430,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 "log_id": log_failure_event["log_id"],
                 "trace_id": trace_id,
                 "pod_names": [log_failure_event["pod_name"]] if log_failure_event["pod_name"] else [],
+                "src_ip": src_ip,
+                "dst_ip": dst_ip,
                 "host_names": [log_failure_event["host_name"]] if log_failure_event["host_name"] else [],
                 "cluster_names": [log_failure_event["cluster_name"]] if log_failure_event["cluster_name"] else [],
                 "timestamp": log_failure_event["timestamp"],
@@ -419,6 +466,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
 
         if trace_failure_event["status_code"] == "0" and status_code != "0":
             trace_failure_event["status_code"] = status_code
+        
+        if src_ip:
+            trace_failure_event["src_ip"] = src_ip
+        if dst_ip:
+            trace_failure_event["dst_ip"] = dst_ip
 
         if not failure_mode:
             return
@@ -522,104 +574,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             )
             return False
         return True
-
-    @staticmethod
-    async def parse_trace_failure_events(trace_id_set: set[str], log_id: str) -> int:
-        # 从log_failure_event_table中读取trace_id的所有log_failure_events，解析出trace_failure_events
-        # 首先，通过list_log_failure_events读取所有满足条件的log到列表log_failure_events_list，ListLogFailureEventResultRequest的参数中，log_id为log_id，trace_ids为trace_id_set
-        # 然后，构建一个字典trace_failure_events_map，字典的键为trace_id，值为TraceFailureEventModel类型的对象
-        # 依次遍历log_failure_events_list中的元素log_failure_event，用于更新trace_failure_events，更新规则如下：
-        # 若log_failure_events_map中没有trace_id的键，创建一个新的TraceFailureEventModel，其log_id为输入log_id，trace_id、timestamp、status_code、failure_domain、failure_mode与log_failure_event相同，其pod_names、host_names、cluster_names中各有一个元素为log_failure_event的pod_name、host_name、cluster_name
-        # 若log_failure_events_map中已有trace_id的键，记查询到的值为trace_failure_event，遵循以下规则使用log_failure_event更新trace_failure_event：
-        # 1.若现有trace_failure_event的pod_names/host_names不含log_failure_event的pod_name/host_name，将log_failure_event的pod_name/host_name加入trace_failure_event的pod_names/host_names；
-        # 2.将trace_failure_event的timestamp值更新为现有timestamp和log_failure_event的timestamp中更早的值
-        # 3.若当前trace_failure_event的status_code为None且log_failure_event的status_code为非None，将trace_failure_event的status_code覆盖为log_failure_event的status_code；
-        # 4.若当前trace_failure_event和log_failure_event的failure_mode都为非空，则需要判断log_failure_event的故障模式failure_mode是否为trace_failure_event的故障模式的子故障模式。若为子故障模式，则需要更新trace_failure_event的failure_mode为log_failure_event的failure_mode。判断逻辑如下：
-        # 使用FailureModeKnowledgeManager的get_failure_mode_by_id可以通过failure_mode查询故障模式信息，其中children_failure_mode_ids字段是该故障的子故障ID列表，由","分割。如果子故障没有查到，还需要继续该过程进行迭代查询，直至children_failure_mode_ids字段为None。任意下级故障都可认为是上级故障的子故障。
-        # 最后，调用add_trace_failure_event，向trace_failure_event_table数据库中加入解析到的trace_failure_events
-        try:
-            from latency.schemas.request import ListLogFailureEventResultRequest
-            from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
-            
-            failure_mode_cache = await FailureModeKnowledgeManager.get_all_failure_modes()
-            
-            req = ListLogFailureEventResultRequest(
-                log_id=log_id
-            )
-            
-            total, log_failure_events_list = await LogFailureEventManager.list_log_failure_events(req)
-            
-            trace_failure_events_map: dict[str, TraceFailureEventModel] = {}
-            
-            for log_failure_event in log_failure_events_list:
-                trace_id = log_failure_event.trace_id
-                
-                if trace_id not in trace_failure_events_map:
-                    leaf_mode = KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
-                        log_failure_event.failure_mode, failure_mode_cache
-                    ) if log_failure_event.failure_mode else ""
-                    
-                    trace_failure_event = TraceFailureEventModel(
-                        log_id=log_id,
-                        trace_id=trace_id,
-                        pod_names=[log_failure_event.pod_name] if log_failure_event.pod_name else [],
-                        host_names=[log_failure_event.host_name] if log_failure_event.host_name else [],
-                        cluster_names=[log_failure_event.cluster_name] if log_failure_event.cluster_name else [],
-                        timestamp=log_failure_event.timestamp,
-                        status_code=log_failure_event.status_code if log_failure_event.status_code else "",
-                        failure_mode=leaf_mode
-                    )
-                    trace_failure_events_map[trace_id] = trace_failure_event
-                else:
-                    trace_failure_event = trace_failure_events_map[trace_id]
-                    
-                    if log_failure_event.pod_name and log_failure_event.pod_name not in trace_failure_event.pod_names:
-                        trace_failure_event.pod_names.append(log_failure_event.pod_name)
-                    
-                    if log_failure_event.host_name and log_failure_event.host_name not in trace_failure_event.host_names:
-                        trace_failure_event.host_names.append(log_failure_event.host_name)
-                    
-                    if log_failure_event.timestamp < trace_failure_event.timestamp:
-                        trace_failure_event.timestamp = log_failure_event.timestamp
-                    
-                    if not trace_failure_event.status_code and log_failure_event.status_code:
-                        trace_failure_event.status_code = log_failure_event.status_code
-                    
-                    if trace_failure_event.status_code == "0" and log_failure_event.status_code != "0":
-                        trace_failure_event.status_code = log_failure_event.status_code
-                    
-                    if log_failure_event.failure_mode:
-                        new_leaf_mode = KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
-                            log_failure_event.failure_mode, failure_mode_cache
-                        )
-                        
-                        if new_leaf_mode:
-                            if trace_failure_event.failure_mode:
-                                is_child = KVCacheLogEventDiagnosisWorker._is_child_failure_mode(
-                                    trace_failure_event.failure_mode, 
-                                    new_leaf_mode,
-                                    failure_mode_cache
-                                )
-                                if is_child:
-                                    trace_failure_event.failure_mode = new_leaf_mode
-                            else:
-                                trace_failure_event.failure_mode = new_leaf_mode
-            
-            trace_failure_events = list(trace_failure_events_map.values())
-            
-            if trace_failure_events:
-                await LogFailureEventManager.add_trace_failure_event(trace_failure_events)
-                logger.info(f"成功插入 {len(trace_failure_events)} 条trace故障事件")
-            
-            trace_failure_event_cnt = 0
-            for trace_id in trace_failure_events_map.keys():
-                if trace_failure_events_map[trace_id].failure_mode:
-                    trace_failure_event_cnt += 1
-            return trace_failure_event_cnt
-            
-        except Exception as e:
-            logger.error(f"parse_trace_failure_events 执行失败: {e}")
-            return 0
     
     @staticmethod
     def _is_child_failure_mode(parent_mode: str, child_mode: str, failure_mode_cache: dict) -> bool:

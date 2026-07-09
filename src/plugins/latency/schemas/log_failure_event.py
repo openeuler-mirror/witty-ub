@@ -24,6 +24,8 @@ class TraceFailureEventModel(BaseModel):
     trace_id: str = Field(..., description="Trace ID")
     log_id: str = Field(..., description="日志路径ID")
     pod_names: list[str] = Field(..., description="容器名列表")
+    src_ip: str = Field(default="", description="起始容器")
+    dst_ip: str = Field(default="", description="目标容器")
     host_names: list[str] = Field(..., description="主机名列表")
     cluster_names: list[str] = Field(..., description="集群列表")
     timestamp: str = Field(..., description="日志最早时间戳")
@@ -37,6 +39,11 @@ class ErrCodeMetricItem(BaseModel):
 
 class PodAggregatedFailureEventModel(BaseModel):
     pod_name: str = Field(..., description="容器名")
+    status_code_cnt: dict = Field(..., description="故障码计数")
+
+class SrcDstAggregatedFailureEventModel(BaseModel):
+    src_ip: str = Field(..., description="源IP地址")
+    dst_ip: str = Field(..., description="目标IP地址")
     status_code_cnt: dict = Field(..., description="故障码计数")
 
 class TimeAggregatedFailureEventModel(BaseModel):

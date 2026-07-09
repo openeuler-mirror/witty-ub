@@ -8,6 +8,7 @@ from latency.schemas.request import (
     GetErrCodeMetricsRequest,
     ListTimeAggregatedFailureEventRequest,
     ListPodAggregatedFailureEventRequest,
+    ListSrcDstAggregatedFailureEventRequest,
 )
 
 
@@ -23,9 +24,9 @@ class LogFailureEventManager:
         VALUES (:id, :log_id, :log_file, :raw_text, :host_name, :timestamp, :level, :filename, :pod_name, :pid, :tid, :trace_id, :cluster_name, :message, :status_code, :failure_mode)
     """
     _TRACE_FAILURE_EVENT_RAW_INSERT_SQL = """
-        INSERT INTO trace_failure_event_table 
-        (id, log_id, trace_id, pod_names, host_names, cluster_names, timestamp, status_code, failure_mode)
-        VALUES (:id, :log_id, :trace_id, :pod_names, :host_names, :cluster_names, :timestamp, :status_code, :failure_mode)
+        INSERT OR REPLACE INTO trace_failure_event_table 
+        (id, log_id, trace_id, pod_names, src_ip, dst_ip, host_names, cluster_names, timestamp, status_code, failure_mode)
+        VALUES (:id, :log_id, :trace_id, :pod_names, :src_ip, :dst_ip, :host_names, :cluster_names, :timestamp, :status_code, :failure_mode)
     """
 
     @staticmethod
@@ -141,8 +142,8 @@ class LogFailureEventManager:
             try:
                 sql_str = """
                     INSERT OR REPLACE INTO trace_failure_event_table 
-                    (id, log_id, trace_id, pod_names, host_names, cluster_names, timestamp, status_code, failure_mode)
-                    VALUES (:id, :log_id, :trace_id, :pod_names, :host_names, :cluster_names, :timestamp, :status_code, :failure_mode)
+                    (id, log_id, trace_id, pod_names, src_ip, dst_ip, host_names, cluster_names, timestamp, status_code, failure_mode)
+                    VALUES (:id, :log_id, :trace_id, :pod_names, :src_ip, :dst_ip, :host_names, :cluster_names, :timestamp, :status_code, :failure_mode)
                 """
                 params = []
                 for trace_failure_event in batch:
@@ -151,6 +152,8 @@ class LogFailureEventManager:
                         "log_id": trace_failure_event.log_id,
                         "trace_id": trace_failure_event.trace_id,
                         "pod_names": ",".join(trace_failure_event.pod_names),
+                        "src_ip": trace_failure_event.src_ip,
+                        "dst_ip": trace_failure_event.dst_ip,
                         "host_names": ",".join(trace_failure_event.host_names),
                         "cluster_names": ",".join(trace_failure_event.cluster_names),
                         "timestamp": trace_failure_event.timestamp,
@@ -182,6 +185,8 @@ class LogFailureEventManager:
                         param[key] = ",".join(value)
                     elif value is None:
                         param[key] = ""
+                param.setdefault("src_ip", "")
+                param.setdefault("dst_ip", "")
                 param.setdefault("status_code", "")
                 param.setdefault("failure_mode", "")
                 params.append(param)
@@ -221,7 +226,7 @@ class LogFailureEventManager:
                 log_ids = [result["id"] for result in log_id_results]
             
             sql_str = """
-                SELECT id, log_id, trace_id, pod_names, host_names, cluster_names, 
+                SELECT id, log_id, trace_id, pod_names, src_ip, dst_ip, host_names, cluster_names, 
                     timestamp, status_code, failure_mode
                 FROM trace_failure_event_table
                 WHERE 1=1
@@ -315,6 +320,8 @@ class LogFailureEventManager:
                     log_id=result["log_id"],
                     trace_id=result["trace_id"],
                     pod_names=pod_names_list,
+                    src_ip=result.get("src_ip", ""),
+                    dst_ip=result.get("dst_ip", ""),
                     host_names=host_names_list,
                     cluster_names=cluster_names_list,
                     timestamp=result["timestamp"],
@@ -726,6 +733,9 @@ class LogFailureEventManager:
                 sql_str += " AND timestamp <= :end_time"
                 params['end_time'] = req.created_at_end
             
+            sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
+            sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
+            
             sql_str += " GROUP BY time_bucket, status_code"
             
             rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
@@ -875,6 +885,8 @@ class LogFailureEventManager:
                 sql_str += " AND timestamp <= :end_time"
                 params['end_time'] = req.created_at_end
             
+            sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
+            sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
             sql_str += " AND pod_names IS NOT NULL AND pod_names != ''"
             sql_str += " AND status_code IS NOT NULL AND status_code != ''"
             
@@ -959,6 +971,137 @@ class LogFailureEventManager:
         
         except Exception as e:
             print(f"查询pod聚合故障事件失败，错误信息: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return 0, []
+    
+    @staticmethod
+    async def list_src_dst_aggregated_failure_events(
+        req: ListSrcDstAggregatedFailureEventRequest
+    ) -> tuple[int, list[dict]]:
+        from collections import defaultdict
+        
+        try:
+            log_ids = []
+            if req.kb_id:
+                log_id_sql = """
+                    SELECT id FROM log_file_table 
+                    WHERE kb_id = :kb_id AND existed_status = 1
+                """
+                log_id_results = await AsyncSQLiteSingleton().execute_query(
+                    log_id_sql, {"kb_id": req.kb_id}
+                )
+                log_ids = [result["id"] for result in log_id_results]
+            
+            if not log_ids and req.kb_id:
+                return 0, []
+            
+            sql_str = """
+                SELECT src_ip, dst_ip, status_code, COUNT(*) as cnt
+                FROM trace_failure_event_table
+                WHERE 1=1
+            """
+            params = {}
+            
+            if log_ids:
+                placeholders = ', '.join([f':log_id_{i}' for i in range(len(log_ids))])
+                sql_str += f" AND log_id IN ({placeholders})"
+                for i, log_id in enumerate(log_ids):
+                    params[f'log_id_{i}'] = log_id
+            
+            if req.created_at_start:
+                sql_str += " AND timestamp >= :start_time"
+                params['start_time'] = req.created_at_start
+            
+            if req.created_at_end:
+                sql_str += " AND timestamp <= :end_time"
+                params['end_time'] = req.created_at_end
+            
+            sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
+            sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
+            sql_str += " AND status_code IS NOT NULL AND status_code != ''"
+            
+            sql_str += " GROUP BY src_ip, dst_ip, status_code"
+            
+            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+            if not rows:
+                return 0, []
+            
+            src_dst_status_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            all_status_codes = set()
+            
+            for row in rows:
+                src_ip = row["src_ip"]
+                dst_ip = row["dst_ip"]
+                status_code = row["status_code"]
+                cnt = row["cnt"]
+                
+                key = f"{src_ip}|{dst_ip}"
+                src_dst_status_counts[key][status_code] += cnt
+                src_dst_status_counts[key]["all"] += cnt
+                all_status_codes.add(status_code)
+            
+            try:
+                sorted_codes = sorted(list(all_status_codes), key=lambda x: int(x) if x.isdigit() else x)
+            except:
+                sorted_codes = sorted(list(all_status_codes))
+            
+            results = []
+            for key, code_counts in src_dst_status_counts.items():
+                src_ip, dst_ip = key.split("|")
+                result = {
+                    "src_ip": src_ip,
+                    "dst_ip": dst_ip,
+                    "status_code_cnt": {"all": code_counts.get("all", 0)}
+                }
+                for code in sorted_codes:
+                    cnt = code_counts.get(code, 0)
+                    if cnt > 0:
+                        result["status_code_cnt"][code] = cnt
+                results.append(result)
+            
+            sort_fields = req.sort_fields if req.sort_fields and len(req.sort_fields) > 0 else []
+            valid_sort_fields = []
+            valid_codes = ["all"] + sorted_codes
+            for sort_field in sort_fields:
+                if sort_field.field in valid_codes:
+                    valid_sort_fields.append(sort_field)
+
+            if valid_sort_fields:
+                for sort_field in reversed(valid_sort_fields):
+                    field_name = sort_field.field
+                    is_desc = sort_field.order == "desc"
+                    results.sort(
+                        key=lambda x: x["status_code_cnt"].get(field_name, 0),
+                        reverse=is_desc,
+                    )
+            else:
+                sort_key = req.sort_by
+                if sort_key == "all" or sort_key not in valid_codes:
+                    results.sort(
+                        key=lambda x: x["status_code_cnt"].get("all", 0),
+                        reverse=req.created_sorted_desc
+                    )
+                else:
+                    def sort_func(x):
+                        primary = x["status_code_cnt"].get(sort_key, 0)
+                        secondary = x["status_code_cnt"].get("all", 0)
+                        if primary == 0:
+                            return (0, secondary)
+                        else:
+                            return (1, primary)
+
+                    results.sort(key=sort_func, reverse=req.created_sorted_desc)
+
+            total = len(results)
+            start_idx = (req.page_num - 1) * req.page_cnt
+            end_idx = start_idx + req.page_cnt
+            results = results[start_idx:end_idx]
+            
+            return total, results
+        
+        except Exception as e:
+            print(f"查询src_dst聚合故障事件失败，错误信息: {str(e)}")
             import traceback
             traceback.print_exc()
             return 0, []

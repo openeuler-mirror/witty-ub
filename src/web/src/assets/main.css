@@ -2590,6 +2590,28 @@ button {
   color: #334155;
 }
 
+.fault-aggregate-ip-columns {
+  display: grid;
+  grid-template-columns: 160px 160px;
+  gap: 0;
+  width: 100%;
+}
+
+.fault-aggregate-ip-column {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 14px;
+  border-right: 1px solid #eef2f8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fault-aggregate-ip-column:last-child {
+  border-right: 0;
+}
+
 .fault-aggregate-sub-code-panel {
   display: block;
   min-height: 0;
