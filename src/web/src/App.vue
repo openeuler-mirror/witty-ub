@@ -367,7 +367,8 @@ type FaultAggregatedEventRow = {
 
 type FaultAggregatedEventPodRow = {
   id: string
-  podIp: string
+  srcIp: string
+  dstIp: string
   faultCodeCounts: Record<string, number>
 }
 
@@ -393,9 +394,20 @@ type PodAggregatedFailureEventModel = {
   status_code_cnt: Record<string, number>
 }
 
+type SrcDstAggregatedFailureEventModel = {
+  src_ip: string
+  dst_ip: string
+  status_code_cnt: Record<string, number>
+}
+
 type ListPodAggregatedFailureEventMsg = {
   total: number
   events: PodAggregatedFailureEventModel[]
+}
+
+type ListSrcDstAggregatedFailureEventMsg = {
+  total: number
+  events: SrcDstAggregatedFailureEventModel[]
 }
 
 type FaultAggregateInterval = 'hour' | 'minute' | 'second'
@@ -5635,11 +5647,12 @@ const applyFaultAggregatedEventResult = (
 
 const toFaultAggregatedEventPodRows = (
   eventId: string,
-  events: PodAggregatedFailureEventModel[],
+  events: SrcDstAggregatedFailureEventModel[],
 ): FaultAggregatedEventPodRow[] =>
   events.map((event, index) => ({
-    id: `${eventId}-pod-api-${event.pod_name || index}`,
-    podIp: event.pod_name || '-',
+    id: `${eventId}-srcdst-api-${event.src_ip}-${event.dst_ip}-${index}`,
+    srcIp: event.src_ip || '-',
+    dstIp: event.dst_ip || '-',
     faultCodeCounts: event.status_code_cnt ?? {},
   }))
 
@@ -5675,8 +5688,8 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
 
   try {
     const sortFields = faultAggregatedEventPodSort.getSortFields.value
-    const result = await request<ListPodAggregatedFailureEventMsg>(
-      '/log_failure_event_result/list_pod_aggregated_failure_events',
+    const result = await request<ListSrcDstAggregatedFailureEventMsg>(
+      '/log_failure_event_result/list_src_dst_aggregated_failure_events',
       {
         method: 'POST',
         body: JSON.stringify({
@@ -8646,7 +8659,12 @@ onBeforeUnmount(() => {
                           >
                             <div class="fault-aggregate-sub-left">
                               <div class="aggregate-cell fault-expand-cell"></div>
-                              <div class="aggregate-cell fault-aggregate-sub-pod-head">Pod IP</div>
+                              <div class="aggregate-cell fault-aggregate-sub-pod-head">
+                                <div class="fault-aggregate-ip-columns">
+                                  <div class="fault-aggregate-ip-column">源IP</div>
+                                  <div class="fault-aggregate-ip-column">目标IP</div>
+                                </div>
+                              </div>
                               <template
                                 v-if="
                                   isFaultAggregatedEventPodLoading(row) &&
@@ -8655,7 +8673,10 @@ onBeforeUnmount(() => {
                               >
                                 <div class="aggregate-cell fault-expand-cell"></div>
                                 <div class="aggregate-cell fault-aggregate-sub-pod-cell">
-                                  加载中...
+                                  <div class="fault-aggregate-ip-columns">
+                                    <div class="fault-aggregate-ip-column">加载中...</div>
+                                    <div class="fault-aggregate-ip-column">加载中...</div>
+                                  </div>
                                 </div>
                               </template>
                               <template
@@ -8663,16 +8684,22 @@ onBeforeUnmount(() => {
                               >
                                 <div class="aggregate-cell fault-expand-cell"></div>
                                 <div class="aggregate-cell fault-aggregate-sub-pod-cell">
-                                  {{ getFaultAggregatedEventPodError(row) || '暂无Pod聚合数据' }}
+                                  <div class="fault-aggregate-ip-columns">
+                                    <div class="fault-aggregate-ip-column">{{ getFaultAggregatedEventPodError(row) || '暂无数据' }}</div>
+                                    <div class="fault-aggregate-ip-column">{{ getFaultAggregatedEventPodError(row) || '暂无数据' }}</div>
+                                  </div>
                                 </div>
                               </template>
                               <template
                                 v-for="podRow in getFaultAggregatedEventPodRows(row)"
-                                :key="`${podRow.id}-pod-ip`"
+                                :key="`${podRow.id}-srcdst-ip`"
                               >
                                 <div class="aggregate-cell fault-expand-cell"></div>
                                 <div class="aggregate-cell fault-aggregate-sub-pod-cell">
-                                  {{ podRow.podIp }}
+                                  <div class="fault-aggregate-ip-columns">
+                                    <div class="fault-aggregate-ip-column">{{ podRow.srcIp }}</div>
+                                    <div class="fault-aggregate-ip-column">{{ podRow.dstIp }}</div>
+                                  </div>
                                 </div>
                               </template>
                               <div

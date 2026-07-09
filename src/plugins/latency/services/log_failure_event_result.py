@@ -9,6 +9,7 @@ from latency.schemas.request import (
     GetErrCodeMetricsRequest,
     ListTimeAggregatedFailureEventRequest,
     ListPodAggregatedFailureEventRequest,
+    ListSrcDstAggregatedFailureEventRequest,
 )
 from latency.schemas.response import (
     ListLogFailureEventResultMsg,
@@ -16,8 +17,9 @@ from latency.schemas.response import (
     GetErrCodeMetricsMsg,
     ListTimeAggregatedFailureEventMsg,
     ListPodAggregatedFailureEventMsg,
+    ListSrcDstAggregatedFailureEventMsg,
 )
-from latency.schemas.log_failure_event import TimeAggregatedFailureEventModel, PodAggregatedFailureEventModel
+from latency.schemas.log_failure_event import TimeAggregatedFailureEventModel, PodAggregatedFailureEventModel, SrcDstAggregatedFailureEventModel
 
 
 logger = logging.getLogger(__name__)
@@ -94,6 +96,12 @@ class LogFailureEventResultService:
         total, results = await LogFailureEventManager.list_pod_aggregated_failure_events(req)
         events = [PodAggregatedFailureEventModel(**r) for r in results]
         return ListPodAggregatedFailureEventMsg(total=total, events=events)
+
+    @staticmethod
+    async def list_src_dst_aggregated_failure_event_result(req: ListSrcDstAggregatedFailureEventRequest) -> ListSrcDstAggregatedFailureEventMsg:
+        total, results = await LogFailureEventManager.list_src_dst_aggregated_failure_events(req)
+        events = [SrcDstAggregatedFailureEventModel(**r) for r in results]
+        return ListSrcDstAggregatedFailureEventMsg(total=total, events=events)
 
     @staticmethod
     async def get_err_code_metrics(req: GetErrCodeMetricsRequest) -> GetErrCodeMetricsMsg:

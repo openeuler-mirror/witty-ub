@@ -299,6 +299,8 @@ table_ddl_list = {
             log_id TEXT,
             trace_id TEXT,
             pod_names TEXT,
+            src_ip TEXT,
+            dst_ip TEXT,
             host_names TEXT,
             cluster_names TEXT,
             timestamp TEXT,
@@ -426,6 +428,8 @@ class AsyncSQLiteSingleton:
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN remote_worker_rpc REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_process REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_rpc_total REAL"),
+            ("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN src_ip TEXT"),
+            ("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN dst_ip TEXT"),
             (
                 "diagnosis_case_table",
                 """
