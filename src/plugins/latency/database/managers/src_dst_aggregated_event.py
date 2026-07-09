@@ -714,14 +714,30 @@ class SrcDstAggregatedEventManager:
                 "ip_pairs": bucket["ip_pairs"],
             })
 
-        if req.sort_by == "start_time":
-            reverse = req.sort_order == "desc"
-            events.sort(key=lambda e: e["start_time"], reverse=reverse)
-        elif req.sort_by == "total_latency":
-            reverse = True if req.sort_order == "desc" else False
+        def get_sort_value(event: dict, field_name: str):
+            if field_name == "start_time":
+                return event["start_time"]
+            if field_name == "total_cnt":
+                return event["total_cnt"]
+            if field_name == "anomaly_cnt":
+                return event["anomaly_cnt"]
+            metric_key = f"ave_{field_name}"
+            return event.get(metric_key) or 0
+
+        sort_fields = req.sort_fields if req.sort_fields and len(req.sort_fields) > 0 else []
+        if not sort_fields:
+            sort_fields = [{"field": req.sort_by or "start_time", "order": req.sort_order or "asc"}]
+
+        for sort_field in reversed(sort_fields):
+            if isinstance(sort_field, dict):
+                field_name = sort_field.get("field", "start_time")
+                sort_order = sort_field.get("order", "asc")
+            else:
+                field_name = sort_field.field
+                sort_order = sort_field.order or "asc"
             events.sort(
-                key=lambda e: e["ave_total_latency"] or 0,
-                reverse=reverse,
+                key=lambda event, field_name=field_name: get_sort_value(event, field_name),
+                reverse=sort_order == "desc",
             )
 
         total = len(events)

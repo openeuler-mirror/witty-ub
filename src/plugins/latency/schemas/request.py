@@ -490,6 +490,10 @@ class ListTimeWindowAggregatedEventRequest(BaseModel):
         default="asc",
         description="排序方向：asc 升序，desc 降序"
     )
+    sort_fields: Optional[List[SortField]] = Field(
+        default=None,
+        description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"start_time\", \"order\": \"asc\"}]"
+    )
     page_cnt: int = Field(default=10, description="每页的时间窗口数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
 

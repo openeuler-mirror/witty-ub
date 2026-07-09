@@ -1250,7 +1250,8 @@ const activeDiagnosisConfig = computed<DiagnosisConfigForm>(() => {
   return diagnosisConfigsByAsset.value[selectedAssetId.value] ?? createDefaultDiagnosisConfig()
 })
 
-const parseConfigSummary = '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
+const parseConfigSummary =
+  '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
 
 const loadDiagnosisConfigImportAssets = async () => {
   isDiagnosisConfigImportListLoading.value = true
@@ -1279,8 +1280,7 @@ const loadDiagnosisConfigImportAssets = async () => {
       (asset) => asset.existed_status !== false && asset.id !== selectedAssetId.value,
     )
   } catch (error) {
-    diagnosisConfigError.value =
-      error instanceof Error ? error.message : '读取可导入资产库列表失败'
+    diagnosisConfigError.value = error instanceof Error ? error.message : '读取可导入资产库列表失败'
   } finally {
     isDiagnosisConfigImportListLoading.value = false
   }
@@ -1311,8 +1311,7 @@ const openParseConfigDrawer = async () => {
       }
     }
   } catch (error) {
-    diagnosisConfigError.value =
-      error instanceof Error ? error.message : '读取日志解析配置失败'
+    diagnosisConfigError.value = error instanceof Error ? error.message : '读取日志解析配置失败'
   } finally {
     isDiagnosisConfigLoading.value = false
   }
@@ -1334,8 +1333,7 @@ const importDiagnosisConfigFromAsset = async () => {
     diagnosisConfigResetSnapshot.value = ''
     diagnosisConfigImportMessage.value = `已导入“${sourceAsset?.name || '所选资产库'}”的配置，保存后生效`
   } catch (error) {
-    diagnosisConfigError.value =
-      error instanceof Error ? error.message : '导入其他资产库配置失败'
+    diagnosisConfigError.value = error instanceof Error ? error.message : '导入其他资产库配置失败'
   } finally {
     isDiagnosisConfigImporting.value = false
   }
@@ -1386,8 +1384,7 @@ const saveParseConfig = async () => {
     Object.assign(diagnosisConfigDraft, savedConfig)
     closeParseConfigDrawer()
   } catch (error) {
-    diagnosisConfigError.value =
-      error instanceof Error ? error.message : '保存日志解析配置失败'
+    diagnosisConfigError.value = error instanceof Error ? error.message : '保存日志解析配置失败'
   } finally {
     isDiagnosisConfigSaving.value = false
   }
@@ -1436,10 +1433,10 @@ const timeWindowChartRange = ref<{ startTime: number; endTime: number } | null>(
 const timeWindowTotal = ref(0)
 const timeWindowPageInput = ref('')
 const expandedTimeWindowIds = ref<Set<number>>(new Set())
-const timeWindowSortBy = ref<string>('start_time')
-const timeWindowSortOrder = ref<'asc' | 'desc'>('asc')
-const timeWindowIpPairSortBy = ref<string>('total_cnt')
-const timeWindowIpPairSortOrder = ref<'asc' | 'desc'>('desc')
+const timeWindowSortFields = ref<SortField[]>([])
+const timeWindowStartTimeSortOrder = ref<SortField['order']>('asc')
+const isTimeWindowStartTimeSortActive = computed(() => timeWindowSortFields.value.length === 0)
+const timeWindowIpPairSortFields = ref<SortField[]>([{ field: 'total_cnt', order: 'desc' }])
 
 const IP_PAIR_PAGE_SIZE = 10
 const timeWindowIpPairPageMap = ref<Record<number, number>>({})
@@ -1611,10 +1608,54 @@ const setTimeWindowIpPairPage = (twIdx: number, page: number) => {
 const getTimeWindowIpPairTotalPages = (twEvent: TimeWindowAggregatedEvent) =>
   Math.max(1, Math.ceil(twEvent.ip_pairs.length / IP_PAIR_PAGE_SIZE))
 
-const getTimeWindowIpPairPageWindow = (
-  twIdx: number,
-  twEvent: TimeWindowAggregatedEvent,
-) => getPageWindow(getTimeWindowIpPairPage(twIdx), getTimeWindowIpPairTotalPages(twEvent))
+const getTimeWindowIpPairPageWindow = (twIdx: number, twEvent: TimeWindowAggregatedEvent) =>
+  getPageWindow(getTimeWindowIpPairPage(twIdx), getTimeWindowIpPairTotalPages(twEvent))
+
+const getNextTimeWindowSortFields = (fields: SortField[], field: string): SortField[] => {
+  const nextFields = fields.map((sortField) => ({ ...sortField }))
+  const existingIndex = nextFields.findIndex((sortField) => sortField.field === field)
+  const existingField = existingIndex === -1 ? null : nextFields[existingIndex]
+
+  if (existingIndex === -1) {
+    nextFields.push({ field, order: 'asc' })
+  } else if (existingField?.order === 'asc') {
+    nextFields[existingIndex] = { field, order: 'desc' }
+  } else {
+    nextFields.splice(existingIndex, 1)
+  }
+
+  return nextFields
+}
+
+const getTimeWindowSortOrder = (field: string) =>
+  field === 'start_time' && isTimeWindowStartTimeSortActive.value
+    ? timeWindowStartTimeSortOrder.value
+    : (timeWindowSortFields.value.find((sortField) => sortField.field === field)?.order ?? null)
+
+const getTimeWindowIpPairSortOrder = (field: string) =>
+  timeWindowIpPairSortFields.value.find((sortField) => sortField.field === field)?.order ?? null
+
+const getTimeWindowSortPriority = (field: string) => {
+  const index = timeWindowSortFields.value.findIndex((sortField) => sortField.field === field)
+  return index === -1 ? null : index + 1
+}
+
+const getTimeWindowIpPairSortPriority = (field: string) => {
+  const index = timeWindowIpPairSortFields.value.findIndex((sortField) => sortField.field === field)
+  return index === -1 ? null : index + 1
+}
+
+const compareSortValues = (
+  aVal: number | string,
+  bVal: number | string,
+  order: SortField['order'],
+) => {
+  const result =
+    typeof aVal === 'number' && typeof bVal === 'number'
+      ? aVal - bVal
+      : String(aVal).localeCompare(String(bVal))
+  return order === 'asc' ? result : -result
+}
 
 const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) => {
   const sorted = getSortedIpPairs(twEvent)
@@ -1627,12 +1668,9 @@ const timeWindowPageCount = computed(() => Math.max(1, Math.ceil(timeWindowTotal
 
 const sortedTimeWindowAggregatedEvents = computed(() => {
   const events = [...timeWindowAggregatedEvents.value]
-  const sortBy = timeWindowSortBy.value
-  const sortOrder = timeWindowSortOrder.value
-  if (sortBy === 'start_time' || sortBy === 'total_latency') {
-    return events
-  }
-  const getValue = (event: TimeWindowAggregatedEvent, key: string): number => {
+  const sortFields = timeWindowSortFields.value
+  const getValue = (event: TimeWindowAggregatedEvent, key: string): number | string => {
+    if (key === 'start_time') return event.start_time
     if (key === 'total_cnt') return event.total_cnt
     if (key === 'anomaly_cnt') return event.anomaly_cnt
     const metricKey = `ave_${key}` as keyof TimeWindowAggregatedEvent
@@ -1640,9 +1678,15 @@ const sortedTimeWindowAggregatedEvents = computed(() => {
     return typeof val === 'number' ? val : 0
   }
   events.sort((a, b) => {
-    const aVal = getValue(a, sortBy)
-    const bVal = getValue(b, sortBy)
-    return sortOrder === 'asc' ? aVal - bVal : bVal - aVal
+    for (const sortField of sortFields) {
+      const result = compareSortValues(
+        getValue(a, sortField.field),
+        getValue(b, sortField.field),
+        sortField.order,
+      )
+      if (result !== 0) return result
+    }
+    return 0
   })
   return events
 })
@@ -1661,10 +1705,14 @@ const detailParseResultSort = useTableSort([{ field: 'total_latency', order: 'de
 })
 
 // 故障聚合事件列表排序状态
-const faultAggregatedEventSort = useTableSort([{ field: 'all', order: 'desc' }], () => {
+const faultAggregatedEventSort = useTableSort([], () => {
   faultAggregatedEventPage.value = 1
   void loadFaultAggregatedEvents(1)
 })
+const faultAggregatedEventCreatedSortedDesc = ref(false)
+const isFaultAggregatedEventStartTimeSortActive = computed(
+  () => faultAggregatedEventSort.getSortFields.value.length === 0,
+)
 const faultAggregatedEventPodSort = useTableSort([{ field: 'all', order: 'desc' }])
 
 const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
@@ -2983,16 +3031,9 @@ const resizeLatencyCharts = () => {
 const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: number } | null) => {
   await loadLatencyChart()
 
-  await Promise.all([
-    loadLatencyDetail(1),
-    loadAbnormalTraces(1),
-  ])
+  await Promise.all([loadLatencyDetail(1), loadAbnormalTraces(1)])
 
-  await Promise.all([
-    loadFaultTraceEvents(1),
-    loadFaultAggregatedEvents(1),
-    loadFaultChart(),
-  ])
+  await Promise.all([loadFaultTraceEvents(1), loadFaultAggregatedEvents(1), loadFaultChart()])
 
   await loadTimeWindowAggregatedEvents(1, chartRange)
 }
@@ -3000,16 +3041,9 @@ const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: num
 const loadAllFaultData = async () => {
   await loadFaultChart()
 
-  await Promise.all([
-    loadFaultTraceEvents(1),
-    loadFaultAggregatedEvents(1),
-  ])
+  await Promise.all([loadFaultTraceEvents(1), loadFaultAggregatedEvents(1)])
 
-  await Promise.all([
-    loadLatencyChart(),
-    loadAbnormalTraces(1),
-    loadLatencyDetail(1),
-  ])
+  await Promise.all([loadLatencyChart(), loadAbnormalTraces(1), loadLatencyDetail(1)])
 
   await loadTimeWindowAggregatedEvents(1, null)
 }
@@ -3149,6 +3183,18 @@ const getNextFaultAggregatedEventPodSortFields = (field: string): SortField[] =>
   }
 
   return nextFields
+}
+const getFaultAggregatedEventSortPriority = (field: string) => {
+  const index = faultAggregatedEventSort.getSortFields.value.findIndex(
+    (sortField) => sortField.field === field,
+  )
+  return index === -1 ? null : index + 1
+}
+const getFaultAggregatedEventPodSortPriority = (field: string) => {
+  const index = faultAggregatedEventPodSort.getSortFields.value.findIndex(
+    (sortField) => sortField.field === field,
+  )
+  return index === -1 ? null : index + 1
 }
 const handleFaultAggregatedEventPodSortHeaderClick = (
   row: FaultAggregatedEventRow,
@@ -5259,14 +5305,20 @@ const loadTimeWindowAggregatedEvents = async (
 
   try {
     const filters = appliedFilters.value
+    const sortFields = timeWindowSortFields.value
+    const primarySortField = sortFields[0] ?? {
+      field: 'start_time',
+      order: timeWindowStartTimeSortOrder.value,
+    }
     const requestBody: Record<string, unknown> = {
       kb_id: assetId,
       page_num: pageNum,
       page_cnt: 10,
       interval: selectedLatencyTimeWindowInterval.value,
       stat_type: 'p99',
-      sort_by: timeWindowSortBy.value,
-      sort_order: timeWindowSortOrder.value,
+      sort_fields: sortFields.length > 0 ? sortFields : undefined,
+      sort_by: primarySortField.field,
+      sort_order: primarySortField.order,
       src_ip: getLogParseFilterValue(filters.sourcePodIps),
       dst_ip: getLogParseFilterValue(filters.targetPodIps),
     }
@@ -5352,33 +5404,38 @@ const jumpTimeWindowPage = () => {
 }
 
 const handleTimeWindowSort = (sortBy: string) => {
-  if (timeWindowSortBy.value === sortBy) {
-    timeWindowSortOrder.value = timeWindowSortOrder.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    timeWindowSortBy.value = sortBy
-    timeWindowSortOrder.value = 'asc'
-  }
+  timeWindowSortFields.value = getNextTimeWindowSortFields(timeWindowSortFields.value, sortBy)
   timeWindowPage.value = 1
-  // start_time and total_latency: server-side sort, re-fetch
-  // Other fields: client-side sort only
-  if (sortBy === 'start_time' || sortBy === 'total_latency') {
-    void loadTimeWindowAggregatedEvents(1)
-  }
+  void loadTimeWindowAggregatedEvents(1)
+}
+
+const setTimeWindowStartTimeSort = (order: SortField['order']) => {
+  timeWindowSortFields.value = []
+  timeWindowStartTimeSortOrder.value = order
+  timeWindowPage.value = 1
+  timeWindowPageInput.value = ''
+  void loadTimeWindowAggregatedEvents(1)
+}
+
+const handleTimeWindowStartTimeSort = () => {
+  setTimeWindowStartTimeSort(
+    isTimeWindowStartTimeSortActive.value && timeWindowStartTimeSortOrder.value === 'asc'
+      ? 'desc'
+      : 'asc',
+  )
 }
 
 const handleIpPairSort = (sortBy: string) => {
-  if (timeWindowIpPairSortBy.value === sortBy) {
-    timeWindowIpPairSortOrder.value = timeWindowIpPairSortOrder.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    timeWindowIpPairSortBy.value = sortBy
-    timeWindowIpPairSortOrder.value = 'asc'
-  }
+  timeWindowIpPairSortFields.value = getNextTimeWindowSortFields(
+    timeWindowIpPairSortFields.value,
+    sortBy,
+  )
   timeWindowIpPairPageMap.value = {}
 }
 
 const getSortedIpPairs = (event: TimeWindowAggregatedEvent): TimeWindowAggregatedIpPair[] => {
   const pairs = [...event.ip_pairs]
-  const sortBy = timeWindowIpPairSortBy.value
+  const sortFields = timeWindowIpPairSortFields.value
   const getValue = (pair: TimeWindowAggregatedIpPair, key: string): number => {
     if (key === 'total_cnt') return pair.log_parse_result_cnt
     if (key === 'anomaly_cnt') return pair.anomaly_log_parse_result_cnt
@@ -5387,9 +5444,15 @@ const getSortedIpPairs = (event: TimeWindowAggregatedEvent): TimeWindowAggregate
     return typeof val === 'number' ? val : 0
   }
   pairs.sort((a, b) => {
-    const aVal = getValue(a, sortBy)
-    const bVal = getValue(b, sortBy)
-    return timeWindowIpPairSortOrder.value === 'asc' ? aVal - bVal : bVal - aVal
+    for (const sortField of sortFields) {
+      const result = compareSortValues(
+        getValue(a, sortField.field),
+        getValue(b, sortField.field),
+        sortField.order,
+      )
+      if (result !== 0) return result
+    }
+    return 0
   })
   return pairs
 }
@@ -5855,7 +5918,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       interval: selectedFaultAggregateInterval.value,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       sort_by: 'timestamp',
-      created_sorted_desc: false,
+      created_sorted_desc: faultAggregatedEventCreatedSortedDesc.value,
       page_cnt: faultAggregatedEventPageSize,
       page_num: pageNum,
     }
@@ -5936,6 +5999,22 @@ const jumpFaultAggregatedEventPage = () => {
   if (nextPage === null) return
   faultAggregatedEventPageInput.value = ''
   goFaultAggregatedEventPage(nextPage)
+}
+
+const setFaultAggregatedEventStartTimeSort = (createdSortedDesc: boolean) => {
+  faultAggregatedEventSort.setSortFields([])
+  faultAggregatedEventCreatedSortedDesc.value = createdSortedDesc
+  faultAggregatedEventPage.value = 1
+  faultAggregatedEventPageInput.value = ''
+  void loadFaultAggregatedEvents(1)
+}
+
+const handleFaultAggregatedEventStartTimeSort = () => {
+  setFaultAggregatedEventStartTimeSort(
+    isFaultAggregatedEventStartTimeSortActive.value
+      ? !faultAggregatedEventCreatedSortedDesc.value
+      : false,
+  )
 }
 
 const changeFaultAggregateInterval = () => {
@@ -6683,7 +6762,6 @@ const handleFileChange = async (event: Event) => {
     if (typeof data.code === 'number' && data.code !== 200) {
       throw new Error(data.message || '接口返回异常')
     }
-
   } catch (error) {
     uploadLogError.value = error instanceof Error ? error.message : '上传文件失败'
   } finally {
@@ -7132,11 +7210,7 @@ onBeforeUnmount(() => {
             <div class="selected-tags">
               <span v-for="podIp in globalFilters.podIps" :key="podIp" class="filter-tag">
                 {{ podIp }}
-                <button
-                  type="button"
-                  class="remove-tag"
-                  @click="removeFilterValue('podIp', podIp)"
-                >
+                <button type="button" class="remove-tag" @click="removeFilterValue('podIp', podIp)">
                   ×
                 </button>
               </span>
@@ -7227,7 +7301,6 @@ onBeforeUnmount(() => {
               >
             </div>
           </div>
-
         </div>
         <div class="filter-footer">
           <p v-if="filterApplyMessage" class="filter-apply-message">{{ filterApplyMessage }}</p>
@@ -7435,26 +7508,26 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell fault-expand-cell"></div>
                         <div
                           class="aggregate-cell aggregate-sortable-cell"
-                          @click="handleTimeWindowSort('start_time')"
+                          @click="handleTimeWindowStartTimeSort"
                         >
                           <span class="sort-header-content">
                             开始时间
                             <span class="sort-icons">
                               <span
                                 class="sort-icon-up"
+                                @click.stop="setTimeWindowStartTimeSort('asc')"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'start_time' &&
-                                    timeWindowSortOrder === 'asc',
+                                    getTimeWindowSortOrder('start_time') === 'asc',
                                 }"
                                 >▲</span
                               >
                               <span
                                 class="sort-icon-down"
+                                @click.stop="setTimeWindowStartTimeSort('desc')"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'start_time' &&
-                                    timeWindowSortOrder === 'desc',
+                                    getTimeWindowSortOrder('start_time') === 'desc',
                                 }"
                                 >▼</span
                               >
@@ -7472,9 +7545,7 @@ onBeforeUnmount(() => {
                               <span
                                 class="sort-icon-up"
                                 :class="{
-                                  'sort-icon-active':
-                                    timeWindowSortBy === 'total_cnt' &&
-                                    timeWindowSortOrder === 'asc',
+                                  'sort-icon-active': getTimeWindowSortOrder('total_cnt') === 'asc',
                                 }"
                                 >▲</span
                               >
@@ -7482,11 +7553,16 @@ onBeforeUnmount(() => {
                                 class="sort-icon-down"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'total_cnt' &&
-                                    timeWindowSortOrder === 'desc',
+                                    getTimeWindowSortOrder('total_cnt') === 'desc',
                                 }"
                                 >▼</span
                               >
+                              <span
+                                v-if="getTimeWindowSortPriority('total_cnt')"
+                                class="sort-priority-badge"
+                              >
+                                {{ getTimeWindowSortPriority('total_cnt') }}
+                              </span>
                             </span>
                           </span>
                         </div>
@@ -7501,8 +7577,7 @@ onBeforeUnmount(() => {
                                 class="sort-icon-up"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'anomaly_cnt' &&
-                                    timeWindowSortOrder === 'asc',
+                                    getTimeWindowSortOrder('anomaly_cnt') === 'asc',
                                 }"
                                 >▲</span
                               >
@@ -7510,11 +7585,16 @@ onBeforeUnmount(() => {
                                 class="sort-icon-down"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'anomaly_cnt' &&
-                                    timeWindowSortOrder === 'desc',
+                                    getTimeWindowSortOrder('anomaly_cnt') === 'desc',
                                 }"
                                 >▼</span
                               >
+                              <span
+                                v-if="getTimeWindowSortPriority('anomaly_cnt')"
+                                class="sort-priority-badge"
+                              >
+                                {{ getTimeWindowSortPriority('anomaly_cnt') }}
+                              </span>
                             </span>
                           </span>
                         </div>
@@ -7529,8 +7609,7 @@ onBeforeUnmount(() => {
                                 class="sort-icon-up"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'total_latency' &&
-                                    timeWindowSortOrder === 'asc',
+                                    getTimeWindowSortOrder('total_latency') === 'asc',
                                 }"
                                 >▲</span
                               >
@@ -7538,11 +7617,16 @@ onBeforeUnmount(() => {
                                 class="sort-icon-down"
                                 :class="{
                                   'sort-icon-active':
-                                    timeWindowSortBy === 'total_latency' &&
-                                    timeWindowSortOrder === 'desc',
+                                    getTimeWindowSortOrder('total_latency') === 'desc',
                                 }"
                                 >▼</span
                               >
+                              <span
+                                v-if="getTimeWindowSortPriority('total_latency')"
+                                class="sort-priority-badge"
+                              >
+                                {{ getTimeWindowSortPriority('total_latency') }}
+                              </span>
                             </span>
                           </span>
                         </div>
@@ -7603,22 +7687,26 @@ onBeforeUnmount(() => {
                                       class="sort-icon-up"
                                       :class="{
                                         'sort-icon-active':
-                                          timeWindowIpPairSortBy === 'total_cnt' &&
-                                          timeWindowIpPairSortOrder === 'asc',
+                                          getTimeWindowIpPairSortOrder('total_cnt') === 'asc',
                                       }"
                                       >▲</span
                                     >
-                                    <span
-                                      class="sort-icon-down"
-                                      :class="{
-                                        'sort-icon-active':
-                                          timeWindowIpPairSortBy === 'total_cnt' &&
-                                          timeWindowIpPairSortOrder === 'desc',
-                                      }"
-                                      >▼</span
-                                    >
+                                      <span
+                                        class="sort-icon-down"
+                                        :class="{
+                                          'sort-icon-active':
+                                            getTimeWindowIpPairSortOrder('total_cnt') === 'desc',
+                                        }"
+                                        >▼</span
+                                      >
+                                      <span
+                                        v-if="getTimeWindowIpPairSortPriority('total_cnt')"
+                                        class="sort-priority-badge"
+                                      >
+                                        {{ getTimeWindowIpPairSortPriority('total_cnt') }}
+                                      </span>
+                                    </span>
                                   </span>
-                                </span>
                               </div>
                               <div
                                 class="aggregate-cell count-cell aggregate-sortable-cell"
@@ -7631,22 +7719,26 @@ onBeforeUnmount(() => {
                                       class="sort-icon-up"
                                       :class="{
                                         'sort-icon-active':
-                                          timeWindowIpPairSortBy === 'anomaly_cnt' &&
-                                          timeWindowIpPairSortOrder === 'asc',
+                                          getTimeWindowIpPairSortOrder('anomaly_cnt') === 'asc',
                                       }"
                                       >▲</span
                                     >
-                                    <span
-                                      class="sort-icon-down"
-                                      :class="{
-                                        'sort-icon-active':
-                                          timeWindowIpPairSortBy === 'anomaly_cnt' &&
-                                          timeWindowIpPairSortOrder === 'desc',
-                                      }"
-                                      >▼</span
-                                    >
+                                      <span
+                                        class="sort-icon-down"
+                                        :class="{
+                                          'sort-icon-active':
+                                            getTimeWindowIpPairSortOrder('anomaly_cnt') === 'desc',
+                                        }"
+                                        >▼</span
+                                      >
+                                      <span
+                                        v-if="getTimeWindowIpPairSortPriority('anomaly_cnt')"
+                                        class="sort-priority-badge"
+                                      >
+                                        {{ getTimeWindowIpPairSortPriority('anomaly_cnt') }}
+                                      </span>
+                                    </span>
                                   </span>
-                                </span>
                               </div>
                               <div
                                 class="aggregate-cell aggregate-sortable-cell"
@@ -7659,22 +7751,26 @@ onBeforeUnmount(() => {
                                       class="sort-icon-up"
                                       :class="{
                                         'sort-icon-active':
-                                          timeWindowIpPairSortBy === 'total_latency' &&
-                                          timeWindowIpPairSortOrder === 'asc',
+                                          getTimeWindowIpPairSortOrder('total_latency') === 'asc',
                                       }"
                                       >▲</span
                                     >
-                                    <span
-                                      class="sort-icon-down"
-                                      :class="{
-                                        'sort-icon-active':
-                                          timeWindowIpPairSortBy === 'total_latency' &&
-                                          timeWindowIpPairSortOrder === 'desc',
-                                      }"
-                                      >▼</span
-                                    >
+                                      <span
+                                        class="sort-icon-down"
+                                        :class="{
+                                          'sort-icon-active':
+                                            getTimeWindowIpPairSortOrder('total_latency') === 'desc',
+                                        }"
+                                        >▼</span
+                                      >
+                                      <span
+                                        v-if="getTimeWindowIpPairSortPriority('total_latency')"
+                                        class="sort-priority-badge"
+                                      >
+                                        {{ getTimeWindowIpPairSortPriority('total_latency') }}
+                                      </span>
+                                    </span>
                                   </span>
-                                </span>
                               </div>
                             </div>
                             <div
@@ -7727,9 +7823,7 @@ onBeforeUnmount(() => {
                                     :disabled="
                                       pageNum < 0 || pageNum === getTimeWindowIpPairPage(twIdx)
                                     "
-                                    @click="
-                                      pageNum > 0 && setTimeWindowIpPairPage(twIdx, pageNum)
-                                    "
+                                    @click="pageNum > 0 && setTimeWindowIpPairPage(twIdx, pageNum)"
                                   >
                                     {{ pageNum < 0 ? '…' : pageNum }}
                                   </button>
@@ -7780,8 +7874,7 @@ onBeforeUnmount(() => {
                                   class="sort-icon-up"
                                   :class="{
                                     'sort-icon-active':
-                                      timeWindowSortBy === column.key &&
-                                      timeWindowSortOrder === 'asc',
+                                      getTimeWindowSortOrder(column.key) === 'asc',
                                   }"
                                   >▲</span
                                 >
@@ -7789,11 +7882,16 @@ onBeforeUnmount(() => {
                                   class="sort-icon-down"
                                   :class="{
                                     'sort-icon-active':
-                                      timeWindowSortBy === column.key &&
-                                      timeWindowSortOrder === 'desc',
+                                      getTimeWindowSortOrder(column.key) === 'desc',
                                   }"
                                   >▼</span
                                 >
+                                <span
+                                  v-if="getTimeWindowSortPriority(column.key)"
+                                  class="sort-priority-badge"
+                                >
+                                  {{ getTimeWindowSortPriority(column.key) }}
+                                </span>
                               </span>
                             </span>
                           </div>
@@ -7852,22 +7950,26 @@ onBeforeUnmount(() => {
                                         class="sort-icon-up"
                                         :class="{
                                           'sort-icon-active':
-                                            timeWindowIpPairSortBy === column.key &&
-                                            timeWindowIpPairSortOrder === 'asc',
+                                            getTimeWindowIpPairSortOrder(column.key) === 'asc',
                                         }"
                                         >▲</span
                                       >
-                                      <span
-                                        class="sort-icon-down"
-                                        :class="{
-                                          'sort-icon-active':
-                                            timeWindowIpPairSortBy === column.key &&
-                                            timeWindowIpPairSortOrder === 'desc',
-                                        }"
-                                        >▼</span
-                                      >
+                                        <span
+                                          class="sort-icon-down"
+                                          :class="{
+                                            'sort-icon-active':
+                                              getTimeWindowIpPairSortOrder(column.key) === 'desc',
+                                          }"
+                                          >▼</span
+                                        >
+                                        <span
+                                          v-if="getTimeWindowIpPairSortPriority(column.key)"
+                                          class="sort-priority-badge"
+                                        >
+                                          {{ getTimeWindowIpPairSortPriority(column.key) }}
+                                        </span>
+                                      </span>
                                     </span>
-                                  </span>
                                 </div>
                               </div>
                               <div
@@ -7968,7 +8070,7 @@ onBeforeUnmount(() => {
                       </template>
                     </div>
                   </div>
-                  <div v-if="timeWindowTotal > 10" class="aggregate-pagination">
+                  <div v-if="timeWindowTotal > 0" class="aggregate-pagination">
                     <button
                       class="ghost-btn"
                       type="button"
@@ -8498,9 +8600,7 @@ onBeforeUnmount(() => {
                       :class="{ active: pageNum === abnormalTracesPage, ellipsis: pageNum < 0 }"
                       type="button"
                       :disabled="
-                        pageNum < 0 ||
-                        pageNum === abnormalTracesPage ||
-                        isAbnormalTracesLoading
+                        pageNum < 0 || pageNum === abnormalTracesPage || isAbnormalTracesLoading
                       "
                       @click="pageNum > 0 && goAbnormalTracesPage(pageNum)"
                     >
@@ -8649,7 +8749,38 @@ onBeforeUnmount(() => {
                     <div class="aggregate-fixed-left">
                       <div class="fault-aggregate-time-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
-                        <div class="aggregate-cell">开始时间</div>
+                        <div
+                          class="aggregate-cell aggregate-sortable-cell"
+                          @click="handleFaultAggregatedEventStartTimeSort"
+                        >
+                          <span class="sort-header-content">
+                            开始时间
+                            <span class="sort-icons">
+                              <span
+                                class="sort-icon-up"
+                                @click.stop="setFaultAggregatedEventStartTimeSort(false)"
+                                :class="{
+                                  'sort-icon-active':
+                                    isFaultAggregatedEventStartTimeSortActive &&
+                                    !faultAggregatedEventCreatedSortedDesc,
+                                }"
+                              >
+                                ▲
+                              </span>
+                              <span
+                                class="sort-icon-down"
+                                @click.stop="setFaultAggregatedEventStartTimeSort(true)"
+                                :class="{
+                                  'sort-icon-active':
+                                    isFaultAggregatedEventStartTimeSortActive &&
+                                    faultAggregatedEventCreatedSortedDesc,
+                                }"
+                              >
+                                ▼
+                              </span>
+                            </span>
+                          </span>
+                        </div>
                         <div class="aggregate-cell">结束时间</div>
                       </div>
                       <template
@@ -8794,6 +8925,12 @@ onBeforeUnmount(() => {
                                   >
                                     ▼
                                   </span>
+                                  <span
+                                    v-if="getFaultAggregatedEventSortPriority(code)"
+                                    class="sort-priority-badge"
+                                  >
+                                    {{ getFaultAggregatedEventSortPriority(code) }}
+                                  </span>
                                 </span>
                               </span>
                             </div>
@@ -8889,6 +9026,12 @@ onBeforeUnmount(() => {
                                         }"
                                       >
                                         ▼
+                                      </span>
+                                      <span
+                                        v-if="getFaultAggregatedEventPodSortPriority(code)"
+                                        class="sort-priority-badge"
+                                      >
+                                        {{ getFaultAggregatedEventPodSortPriority(code) }}
                                       </span>
                                     </span>
                                   </span>
@@ -9145,7 +9288,8 @@ onBeforeUnmount(() => {
                         type="button"
                         :disabled="
                           pageNum < 0 ||
-                          pageNum === faultAggregatedEventPage || isFaultAggregatedEventsLoading
+                          pageNum === faultAggregatedEventPage ||
+                          isFaultAggregatedEventsLoading
                         "
                         @click="pageNum > 0 && goFaultAggregatedEventPage(pageNum)"
                       >
@@ -9479,9 +9623,7 @@ onBeforeUnmount(() => {
                     :class="{ active: pageNum === faultTraceEventsPage, ellipsis: pageNum < 0 }"
                     type="button"
                     :disabled="
-                      pageNum < 0 ||
-                      pageNum === faultTraceEventsPage ||
-                      isFaultTraceEventsLoading
+                      pageNum < 0 || pageNum === faultTraceEventsPage || isFaultTraceEventsLoading
                     "
                     @click="pageNum > 0 && goFaultTraceEventsPage(pageNum)"
                   >
@@ -10124,12 +10266,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div
-      v-if="faultAggregatedPodIpFilterDialog.open"
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-    >
+    <div v-if="faultAggregatedPodIpFilterDialog.open" class="modal" role="dialog" aria-modal="true">
       <section class="modal-content filter-modal">
         <header class="modal-header">
           <h2>🔍 添加筛选条件</h2>
@@ -10732,9 +10869,7 @@ onBeforeUnmount(() => {
                   :class="{ active: pageNum === detailParseResultsPage, ellipsis: pageNum < 0 }"
                   type="button"
                   :disabled="
-                    pageNum < 0 ||
-                    pageNum === detailParseResultsPage ||
-                    isDetailParseResultsLoading
+                    pageNum < 0 || pageNum === detailParseResultsPage || isDetailParseResultsLoading
                   "
                   @click="pageNum > 0 && goDetailParseResultsPage(pageNum)"
                 >
@@ -11061,7 +11196,8 @@ onBeforeUnmount(() => {
                   type="button"
                   :disabled="
                     pageNum < 0 ||
-                    pageNum === faultDetailTraceEventsPage || isFaultDetailTraceEventsLoading
+                    pageNum === faultDetailTraceEventsPage ||
+                    isFaultDetailTraceEventsLoading
                   "
                   @click="pageNum > 0 && goFaultDetailTraceEventsPage(pageNum)"
                 >
@@ -11157,9 +11293,7 @@ onBeforeUnmount(() => {
                         :title="column.value"
                         :class="[
                           { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
-                          column.label.toLowerCase() === 'level'
-                            ? getTraceLogLevelClass(log)
-                            : '',
+                          column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
                         ]"
                       >
                         {{ column.value }}
@@ -11385,9 +11519,7 @@ onBeforeUnmount(() => {
                         :title="column.value"
                         :class="[
                           { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
-                          column.label.toLowerCase() === 'level'
-                            ? getTraceLogLevelClass(log)
-                            : '',
+                          column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
                         ]"
                       >
                         {{ column.value }}
@@ -11688,7 +11820,8 @@ onBeforeUnmount(() => {
               <div>
                 <h3>日志文件名 Pattern</h3>
                 <p>
-                  使用 <strong>glob 模式</strong>识别不同类型的日志文件。可添加自定义规则，点击标签上的 ×
+                  使用
+                  <strong>glob 模式</strong>识别不同类型的日志文件。可添加自定义规则，点击标签上的 ×
                   可删除。
                 </p>
               </div>

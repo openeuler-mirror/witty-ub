@@ -1908,7 +1908,7 @@ button {
 
 .aggregate-left-grid {
   display: grid;
-  grid-template-columns: 32px 160px 160px 80px 96px 100px;
+  grid-template-columns: 32px 160px 160px 100px 100px 100px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
 }
@@ -2190,10 +2190,12 @@ button {
 
 /* 排序图标容器 */
 .sort-icons {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 1px;
+  row-gap: 1px;
+  column-gap: 5px;
   flex-shrink: 0;
 }
 
@@ -2206,9 +2208,34 @@ button {
   transition: color 0.2s;
 }
 
+.sort-icon-up {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.sort-icon-down {
+  grid-column: 1;
+  grid-row: 2;
+}
+
 /* 激活状态 - 黑色 */
 .sort-icon-active {
   color: #1e293b;
+}
+
+.sort-priority-badge {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
 }
 
 .aggregate-table-header .aggregate-cell,
@@ -2340,14 +2367,14 @@ button {
 }
 
 .aggregate-latency-scrollbar-spacer {
-  min-width: 863px;
+  min-width: 1000px;
   height: 1px;
 }
 
 .aggregate-latency-grid {
   display: grid;
-  grid-template-columns: 180px 168px 165px 175px 175px;
-  min-width: 863px;
+  grid-template-columns: 200px 200px 200px 200px 200px;
+  min-width: 1000px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
 }
