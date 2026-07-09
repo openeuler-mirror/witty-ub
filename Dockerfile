@@ -45,9 +45,15 @@ COPY data/failure_mode_tree.json /var/witty-ub/data/
 COPY data/kvcache/kvcache_conn_fault_mode.json /var/witty-ub/data/kvcache/
 COPY data/urma/urma_failure_mode.json /var/witty-ub/data/urma/
 COPY config/diagnosis_config.json /var/witty-ub/config/
+COPY config/opencode.json /var/witty-ub/config/
+COPY config/agents/witty-ub-diagnostician.md /var/witty-ub/config/agents/
 
 # Copy web frontend from builder
 COPY --from=builder-web /web/dist /var/witty-ub/web/
+
+# Install OpenCode (requires Node.js in base image for postinstall script)
+RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
 
 # Copy nginx configuration (container-optimized)
 COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
@@ -83,7 +89,8 @@ RUN chmod +x /entrypoint.sh
 # Expose ports
 # 8080: Web UI (nginx)
 # 9772: Latency plugin API (FastAPI)
-EXPOSE 8080 9772
+# 4096: OpenCode server
+EXPOSE 8080 9772 4096
 
 # Volumes for persistent data
 VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]

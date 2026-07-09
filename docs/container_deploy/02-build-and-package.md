@@ -1,5 +1,5 @@
-# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-# witty-ub is licensed under the Mulan PSL v2.
+<!-- Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved. -->
+<!-- witty-ub is licensed under the Mulan PSL v2. -->
 
 # 2. 镜像构建、上传与打包
 
@@ -16,7 +16,9 @@ cd witty-ub
 
 ## 构建镜像
 
-首次构建需要 15-20 分钟（主要是安装依赖），后续源码改动后重建只需 2-5 分钟。
+首次构建需要 15-20 分钟（主要是安装依赖和 OpenCode），后续源码改动后重建只需 2-5 分钟。
+
+> **新增服务说明**：Witty-UB 容器现在集成了 **OpenCode** 服务（端口 4096），用于提供 AI 辅助诊断功能。OpenCode 通过 MCP 协议与 latency 插件交互，在构建时自动安装。
 
 ### 方法一：使用 build.sh 脚本（推荐）
 

@@ -1,5 +1,5 @@
-# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-# witty-ub is licensed under the Mulan PSL v2.
+<!-- Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved. -->
+<!-- witty-ub is licensed under the Mulan PSL v2. -->
 
 # 3. 镜像拉取、启动与使用
 
@@ -360,6 +360,7 @@ docker exec witty-ub witty-ub-diag-tool --help
 - **Web UI**: http://localhost:32412
 - **API**: http://localhost:32412/health_check
 - **API 文档**: http://localhost:32412/docs
+- **OpenCode**: http://localhost:32412/opencode/
 
 **远程访问**: 将 `localhost` 替换为服务器 IP 地址，如 `http://服务器IP:32412`
 
@@ -437,10 +438,12 @@ docker rmi <image-id>
 | 32412 | TCP | Web UI (Nginx + API代理) | http://localhost:32412 |
 | 8080 | TCP | Nginx (容器内部) | 不直接访问 |
 | 9772 | TCP | FastAPI (容器内部) | 通过 Nginx 代理访问 |
+| 4096 | TCP | OpenCode (容器内部) | 通过 Nginx 代理访问 |
 
 **端口映射关系**:
 - 宿主机 `32412` → 容器 `8080` (Nginx)
 - Nginx 内部代理 → 容器 `9772` (FastAPI)
+- Nginx 内部代理 → 容器 `4096` (OpenCode)
 
 ---
 
