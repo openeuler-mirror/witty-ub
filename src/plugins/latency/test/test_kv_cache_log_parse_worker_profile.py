@@ -805,11 +805,14 @@ async def _run_profile(
         events = await KVCacheLogParseWorker.detect_exception(results)
 
         async def operation() -> dict[str, object]:
-            aggregates, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
+            aggregates, _, time_window_aggregates = (
+                await KVCacheLogParseWorker.generate_aggregate_result(results)
+            )
             return {
                 "parse_results": len(results),
                 "anomalous_events": len(events),
                 "aggregated_events": len(aggregates),
+                "time_window_aggregated_events": len(time_window_aggregates),
             }
 
     elif command == "pipeline":
@@ -823,13 +826,16 @@ async def _run_profile(
             detect_elapsed = time.perf_counter() - detect_started
 
             aggregate_started = time.perf_counter()
-            aggregates, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
+            aggregates, _, time_window_aggregates = (
+                await KVCacheLogParseWorker.generate_aggregate_result(results)
+            )
             aggregate_elapsed = time.perf_counter() - aggregate_started
 
             return {
                 "parse_results": len(results),
                 "anomalous_events": len(events),
                 "aggregated_events": len(aggregates),
+                "time_window_aggregated_events": len(time_window_aggregates),
                 "parse_seconds": round(parse_elapsed, 6),
                 "detect_seconds": round(detect_elapsed, 6),
                 "aggregate_seconds": round(aggregate_elapsed, 6),
@@ -851,7 +857,7 @@ async def _run_profile(
             detect_elapsed = time.perf_counter() - detect_started
 
             aggregate_started = time.perf_counter()
-            aggregates, src_dst_map = (
+            aggregates, src_dst_map, time_window_aggregates = (
                 await KVCacheLogParseWorker.generate_aggregate_result(results)
             )
             aggregate_elapsed = time.perf_counter() - aggregate_started
@@ -874,6 +880,7 @@ async def _run_profile(
                     anomalous_events=events,
                     anomalous_event_chains=[],
                     src_dst_aggregated_events=aggregates,
+                    time_window_aggregated_events=time_window_aggregates,
                 )
             finally:
                 LogParseResultManager.profile_explicit_wal_checkpoint = False
@@ -886,6 +893,7 @@ async def _run_profile(
                 "parse_results": len(results),
                 "anomalous_events": len(events),
                 "aggregated_events": len(aggregates),
+                "time_window_aggregated_events": len(time_window_aggregates),
                 "stored": stored,
                 "parse_seconds": round(parse_elapsed, 6),
                 "detect_seconds": round(detect_elapsed, 6),
