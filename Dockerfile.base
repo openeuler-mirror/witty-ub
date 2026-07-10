@@ -54,3 +54,8 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     urllib3>=2.1.0 \
     rarfile>=4.0 && \
     rm -rf /root/.cache/pip
+
+# Install OpenCode (install in base image to avoid QEMU issues in multi-arch builds)
+RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode && \
+    opencode --version

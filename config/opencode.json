@@ -4,12 +4,12 @@
     "witty_ub_diag_mcp": {
       "type": "local",
       "command": [
-        "{env:WITTY_UB_PLUGINS_DIR}/latency/.venv/bin/python",
+        "/var/witty-ub/latency/.venv/bin/python",
         "-m",
         "latency.access.mcp_server"
       ],
       "environment": {
-        "PYTHONPATH": "{env:WITTY_UB_PLUGINS_DIR}",
+        "PYTHONPATH": "/var/witty-ub",
         "LATENCY_API_BASE_URL": "http://127.0.0.1:9772",
         "LATENCY_API_TIMEOUT_SECONDS": "30",
         "LATENCY_MCP_TRANSPORT": "stdio"
@@ -21,7 +21,7 @@
   "agent": {
     "witty-ub-diagnostician": {
       "description": "Witty-UB diagnostician agent: 使用只读诊断 MCP 分析 KVC 分布式缓存的时延和通断故障",
-      "prompt": "{file:{env:WITTY_DIR}/agents/witty-ub-diagnostician.md}"
+      "prompt": "{file:/var/witty-ub/config/agents/witty-ub-diagnostician.md}"
     }
   }
 }

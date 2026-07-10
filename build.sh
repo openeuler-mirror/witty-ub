@@ -69,17 +69,28 @@ if [ "$USE_RPM" = "true" ] && [ -z "$REPO_URL" ]; then
 fi
 
 create_builder() {
-    if ! docker buildx ls | grep -q witty-ub-builder; then
-        echo "Creating buildx builder..."
-        docker buildx create --name witty-ub-builder --use
-        docker buildx inspect --bootstrap
+    BUILDKIT_CONFIG="$(dirname "$0")/buildkitd.toml"
+    if [ -f "$BUILDKIT_CONFIG" ]; then
+        BUILDKIT_CONFIG_ARG="--config $BUILDKIT_CONFIG"
     else
-        docker buildx use witty-ub-builder
+        BUILDKIT_CONFIG_ARG=""
     fi
+
+    if docker buildx ls | grep -q witty-ub-builder; then
+        echo "Removing existing builder to apply new config..."
+        docker buildx rm witty-ub-builder
+    fi
+
+    echo "Creating buildx builder..."
+    eval docker buildx create --name witty-ub-builder $BUILDKIT_CONFIG_ARG --use
+    docker buildx inspect --bootstrap
 }
 
-if [ "$PLATFORM" != "local" ]; then
+if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
     create_builder
+elif [ "$PLATFORM" != "local" ]; then
+    echo "Using default builder for single-platform build (can access local images)"
+    docker buildx use default
 fi
 
 build_base() {
@@ -93,7 +104,9 @@ build_base() {
     else
         target_image="$BASE_IMAGE"
         if [ -n "$REGISTRY" ]; then
-            target_image="${REGISTRY}-base:latest"
+            REGISTRY_HOST="${REGISTRY%/*}"
+            REPO_NAME="${REGISTRY##*/}"
+            target_image="${REGISTRY_HOST}/${REPO_NAME}-base:latest"
         fi
 
         if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
@@ -107,9 +120,40 @@ build_base() {
                 --platform "$PLATFORM" \
                 --load \
                 -f Dockerfile.base \
-                -t "$target_image" .
+                -t "$target_image" \
+                -t "$BASE_IMAGE" .
         fi
     fi
+}
+
+build_web() {
+    echo ""
+    echo "============================================"
+    echo "Building web frontend locally"
+    echo "============================================"
+
+    if [ ! -d "src/web" ]; then
+        echo "Error: src/web directory not found"
+        exit 1
+    fi
+
+    cd src/web
+
+    if [ ! -d "node_modules" ]; then
+        echo "Installing npm dependencies..."
+        npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
+    fi
+
+    echo "Building frontend..."
+    export HUSKY=0
+    npm run build-only
+
+    if [ ! -d "dist" ]; then
+        echo "Error: Frontend build failed, dist directory not created"
+        exit 1
+    fi
+
+    cd ../..
 }
 
 build_app() {
@@ -119,24 +163,34 @@ build_app() {
     echo "Platform: $PLATFORM"
     echo "============================================"
 
+    build_web
+
     if [ "$PLATFORM" = "local" ]; then
         docker build -f Dockerfile -t "$APP_IMAGE" .
     else
         target_image="$APP_IMAGE"
+        build_args=""
+        
         if [ -n "$REGISTRY" ]; then
             target_image="$REGISTRY:latest"
+            REGISTRY_HOST="${REGISTRY%/*}"
+            REPO_NAME="${REGISTRY##*/}"
+            base_image_reg="${REGISTRY_HOST}/${REPO_NAME}-base:latest"
+            build_args="--build-arg BASE_IMAGE=${base_image_reg}"
         fi
 
         if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
-            docker buildx build \
+            eval docker buildx build \
                 --platform "$PLATFORM" \
                 --push \
+                $build_args \
                 -f Dockerfile \
                 -t "$target_image" .
         else
             docker buildx build \
                 --platform "$PLATFORM" \
                 --load \
+                $build_args \
                 -f Dockerfile \
                 -t "$target_image" .
         fi

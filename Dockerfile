@@ -1,10 +1,12 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 # witty-ub is licensed under the Mulan PSL v2.
 
+ARG BASE_IMAGE=witty-ub-base:latest
+
 # ============================================
 # Stage 1: Build C++ binaries (based on base image)
 # ============================================
-FROM witty-ub-base:latest AS builder-cpp
+FROM ${BASE_IMAGE} AS builder-cpp
 
 WORKDIR /build
 COPY . .
@@ -14,22 +16,9 @@ RUN mkdir -p build && cd build && \
     make -j$(nproc)
 
 # ============================================
-# Stage 2: Build Web frontend (independent)
+# Stage 2: Runtime image (based on base image)
 # ============================================
-FROM node:20-alpine AS builder-web
-
-WORKDIR /web
-COPY src/web/package.json src/web/package-lock.json ./
-RUN npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
-
-COPY src/web/ .
-COPY config/ /config/
-RUN export HUSKY=0 && npm run build-only
-
-# ============================================
-# Stage 3: Runtime image (based on base image)
-# ============================================
-FROM witty-ub-base:latest
+FROM ${BASE_IMAGE}
 
 LABEL maintainer="witty-ub"
 LABEL description="Witty-UB: Fault localization tool for superpods with Lingqu(UB) architecture"
@@ -48,12 +37,8 @@ COPY config/diagnosis_config.json /var/witty-ub/config/
 COPY config/opencode.json /var/witty-ub/config/
 COPY config/agents/witty-ub-diagnostician.md /var/witty-ub/config/agents/
 
-# Copy web frontend from builder
-COPY --from=builder-web /web/dist /var/witty-ub/web/
-
-# Install OpenCode (requires Node.js in base image for postinstall script)
-RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
-    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
+# Copy web frontend (pre-built locally)
+COPY src/web/dist /var/witty-ub/web/
 
 # Copy nginx configuration (container-optimized)
 COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf

@@ -152,7 +152,58 @@ docker image prune
 docker volume prune
 ```
 
-### 6. 依赖包找不到
+### 6. OpenCode 服务异常
+
+**症状**: AI 诊断功能无法使用，提示 "bad file reference" 或 OpenCode 服务未启动
+
+**解决方案**:
+
+**问题 1: 配置目录未挂载**
+
+```bash
+# 检查 opencode 配置目录是否存在
+ls ~/.config/opencode/
+
+# 确保 docker-compose.yml 中挂载了配置目录
+# - ~/.config/opencode:/root/.config/opencode
+```
+
+**问题 2: WITTY_DIR 环境变量未设置**
+
+```bash
+# 进入容器检查环境变量
+docker exec witty-ub env | grep WITTY_DIR
+
+# 预期输出: WITTY_DIR=/var/witty-ub/config
+
+# 如果未设置，检查 entrypoint.sh 是否正确设置
+docker exec witty-ub cat /var/witty-ub/entrypoint.sh | grep WITTY_DIR
+```
+
+**问题 3: OpenCode 进程未启动**
+
+```bash
+# 检查 OpenCode 进程是否运行
+docker exec witty-ub ps aux | grep opencode
+
+# 检查 OpenCode 日志
+docker exec witty-ub cat /var/log/witty-ub/opencode.log
+
+# 手动启动 OpenCode
+docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=/var/witty-ub/config/opencode.json /usr/bin/opencode serve --log-level DEBUG > /var/log/witty-ub/opencode.log 2>&1 &"
+```
+
+**问题 4: Agent 文件路径错误**
+
+```bash
+# 检查 agent 文件是否存在
+docker exec witty-ub ls -la /var/witty-ub/config/agents/
+
+# 确保 agent 文件使用 {env:WITTY_DIR} 变量引用路径
+docker exec witty-ub cat /var/witty-ub/config/agents/witty-ub-diagnostician.md | head -5
+```
+
+### 7. 依赖包找不到
 
 **症状**: `cpp-httplib-devel` 等包安装失败
 
@@ -384,6 +435,8 @@ find $BACKUP_DIR -name "*.tar.gz" -mtime +30 -delete
 |--------|--------|------|
 | PYTHONPATH | /var/witty-ub | Python 模块搜索路径 |
 | LOG_LEVEL | info | 日志级别 (debug/info/warning/error) |
+| WITTY_DIR | /var/witty-ub/config | OpenCode 配置文件路径引用变量 |
+| OPENCODE_CONFIG | /var/witty-ub/config/opencode.json | OpenCode 配置文件路径 |
 
 ---
 
