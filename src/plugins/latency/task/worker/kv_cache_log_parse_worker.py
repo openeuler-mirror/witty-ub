@@ -1155,6 +1155,17 @@ class KVCacheLogParseWorker(BaseWorker):
                 task_id=task_id,
             )
             t_parse = time.perf_counter() - t_run_start
+
+            if not list_log_parse_results:
+                await BaseWorker.report(task.id, "解析失败：未在路径中识别到日志信息", 100.0)
+                await TaskManager.update_task(
+                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                await LogFileManager.update_log_file(
+                    task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
+                )
+                return False
+
             await BaseWorker.report(task.id, "Log parse completed", 20.0)
             await BaseWorker.report(
                 task.id,

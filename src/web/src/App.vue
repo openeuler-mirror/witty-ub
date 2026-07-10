@@ -6223,6 +6223,7 @@ const logFileTaskMilestoneMessages = new Set([
   '故障事件解析完成',
   'Trace故障解析完成',
   '任务成功',
+  '解析失败：未在路径中识别到日志信息',
 ])
 
 const isIgnoredTaskReportMessage = (message: string) =>
