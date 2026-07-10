@@ -35,6 +35,24 @@ gunzip -c witty-ub.tar.gz | docker load
 docker images | grep witty-ub
 ```
 
+**预期输出**：
+
+```bash
+# 从仓库拉取的镜像（完整路径）
+hub-harbor.oepkgs.net/neocopilot/witty-ub    latest    1c0ca38d7cf9    14 minutes ago    1.81GB
+
+# 本地构建的镜像（简洁名称）
+witty-ub    latest    abc123def456    5 minutes ago    1.81GB
+```
+
+> **镜像名称说明**：
+> - 从远程仓库拉取的镜像会保留完整的 registry 路径作为镜像名（如 `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest`）
+> - 本地构建的镜像使用简洁名称（如 `witty-ub:latest`）
+> - 如需使用简洁名称，可以为镜像打本地 tag：
+>   ```bash
+>   docker tag hub-harbor.oepkgs.net/neocopilot/witty-ub:latest witty-ub:latest
+>   ```
+
 ---
 
 ## 启动容器
@@ -79,6 +97,7 @@ services:
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       - /to/path/log:/to/path/log:ro
+      - ~/.config/opencode:/root/.config/opencode
     environment:
       - PYTHONPATH=/var/witty-ub
       - LOG_LEVEL=info
@@ -144,6 +163,7 @@ docker run -d \
   -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
   -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
   -v /to/path/log:/to/path/log:ro \
+  -v ~/.config/opencode:/root/.config/opencode \
   -e PYTHONPATH=/var/witty-ub \
   -e LOG_LEVEL=info \
   --health-cmd="curl -f http://localhost:9772/health_check" \
@@ -167,7 +187,46 @@ docker run -d \
 
 ---
 
-## 配置说明
+## 启动Web UI
+
+**访问 Web UI**:
+
+- 访问 `http://localhost:32412` 即可访问 Web UI。
+- 或者访问 `http://<宿主机IP>:32412/` 即可访问 Web UI。
+
+## 配置opencode
+
+目前opencode默认使用宿主机的~/.config/opencode目录。
+若需调整opencode的配置，则直接修改宿主机的~/.config/opencode/下的配置即可。
+
+**opencode.json配置LLM参考**
+```
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "my-provider": {
+      "options": {
+        "apiKey": "sk-xxxxx"
+      }
+    },
+    "models": {
+        "model_name": {
+          "name": "my model",
+          "options": {
+            "thinking": {
+              "type": "disabled"
+            },
+            "temperature": 0.3,
+            "topP": 0.7
+          }
+        }  
+      }
+  },
+  "model":"my-provider/model_name"
+}
+```
+
+## 容器配置说明
 
 修改配置后需要重启容器:
 
@@ -218,6 +277,7 @@ volumes:
 主要配置项:
 - Web UI 端口: 8080 (容器内部)
 - API 代理: 转发到 127.0.0.1:9772
+- OpenCode 代理: 转发到 127.0.0.1:4096
 - 静态文件目录: `/var/witty-ub/web`
 
 **端口映射**: 通过 `docker-compose.yml` 配置宿主机端口映射到容器内 8080:
@@ -228,6 +288,43 @@ ports:
 ```
 
 **修改外部端口**: 只需修改 `docker-compose.yml` 中的宿主机端口（前面的数字），容器内部端口无需改动。
+
+### OpenCode 配置
+
+OpenCode 是 AI 辅助诊断服务，需要挂载宿主机的配置目录。
+
+**配置目录挂载**:
+
+```yaml
+volumes:
+  - ~/.config/opencode:/root/.config/opencode
+```
+
+**配置目录结构**:
+
+```
+~/.config/opencode/
+├── config.yaml          # OpenCode 主配置文件
+└── agents/              # 自定义 agent 目录
+    └── witty-ub-diagnostician.md  # 故障诊断 agent
+```
+
+**WITTY_DIR 环境变量**:
+
+容器启动时会自动设置 `WITTY_DIR=/var/witty-ub/config`，OpenCode 通过此环境变量解析配置文件中的路径引用。
+
+**OpenCode 服务配置**:
+
+OpenCode 服务启动参数:
+- 配置文件: `OPENCODE_CONFIG=/var/witty-ub/config/opencode.json`
+- 工作目录: `/var/witty-ub/latency`
+- 日志级别: `DEBUG`
+
+**访问 OpenCode**:
+
+通过 Nginx 反向代理访问:
+- OpenCode API: http://localhost:32412/opencode/
+- OpenCode WebUI: http://localhost:32412/opencode/webui/
 
 ---
 
@@ -243,6 +340,7 @@ ports:
 | `witty-ub-logs` | 应用日志 | `/var/log/witty-ub` |
 | `witty-ub-uploads` | 上传的文件 | `/var/witty-ub/latency/file/file_upload` |
 | `witty-ub-results` | 解析结果 | `/var/witty-ub/latency/file/file_parse_result` |
+| `~/.config/opencode` | OpenCode 配置文件（绑定挂载） | `/root/.config/opencode` |
 
 ### 查看卷数据
 

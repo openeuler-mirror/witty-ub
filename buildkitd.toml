@@ -1,0 +1,2 @@
+[registry."docker.io"]
+  mirrors = ["https://docker.rainbond.cc", "https://cjie.eu.org", "https://docker.1ms.run"]

@@ -16,9 +16,11 @@ cd witty-ub
 
 ## 构建镜像
 
-首次构建需要 15-20 分钟（主要是安装依赖和 OpenCode），后续源码改动后重建只需 2-5 分钟。
+首次构建需要 10-15 分钟（主要是安装依赖和 OpenCode），后续源码改动后重建只需 30 秒 - 2 分钟（利用缓存）。
 
-> **新增服务说明**：Witty-UB 容器现在集成了 **OpenCode** 服务（端口 4096），用于提供 AI 辅助诊断功能。OpenCode 通过 MCP 协议与 latency 插件交互，在构建时自动安装。
+> **新增服务说明**：Witty-UB 容器现在集成了 **OpenCode** 服务（端口 4096），用于提供 AI 辅助诊断功能。OpenCode 在 base 镜像构建时安装（避免 QEMU 环境问题），通过 MCP 协议与 latency 插件交互。
+
+> **前端构建说明**：前端代码在本地环境构建（原生架构，速度快），构建产物通过 COPY 指令打包到镜像中，避免在 QEMU 模拟环境下构建导致的性能问题和内存不足。
 
 ### 方法一：使用 build.sh 脚本（推荐）
 
@@ -132,11 +134,10 @@ bash build.sh
 
 #### 指定单架构构建
 
-```bash
-# 在 x86_64 机器上构建 ARM64 镜像
-bash build.sh --platform linux/arm64
+使用 `--platform` 参数指定目标架构，脚本使用 default builder（能访问本地镜像缓存，速度更快）：
 
-# 在 ARM64 机器上构建 x86_64 镜像
+```bash
+bash build.sh --platform linux/arm64
 bash build.sh --platform linux/amd64
 ```
 
@@ -148,6 +149,12 @@ bash build.sh --platform linux/amd64
 - Docker Buildx 的多架构构建结果是一个 **manifest list**（清单列表）
 - manifest list 无法直接加载到本地 Docker 引擎，必须推送到远程仓库
 - 当不同架构的机器拉取同一镜像时，Docker 会根据宿主机架构自动选择对应的镜像层
+
+**双架构构建流程**：
+
+1. **构建 base 镜像**：先构建包含所有依赖的 base 镜像并推送到 registry
+2. **构建 app 镜像**：从 registry 拉取 base 镜像，构建应用代码并推送到 registry
+3. **创建 manifest list**：自动创建多架构清单，支持按架构自动选择
 
 **标签是如何自动处理的**：
 
@@ -169,7 +176,7 @@ docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 ```
 
-**如果没有镜像仓库**：可以分别构建单架构镜像并通过 tar 包分发（见上文"指定单架构构建"）
+**如果没有镜像仓库**：可以分别构建单架构镜像并通过 tar 包分发（见下文"推送不同架构的镜像"）
 
 ### 构建脚本参数
 
@@ -186,8 +193,21 @@ docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 
 1. **首次使用多架构构建**: 需要 QEMU 支持，脚本会自动安装
 2. **双架构镜像**: 必须推送到镜像仓库（Docker 限制）
-3. **单架构交叉编译**: 使用 `--platform` 指定，可用 `--load` 加载到本地
-4. **运行时**: Docker 会自动拉取匹配宿主机架构的镜像
+3. **单架构构建**: 使用 default builder，能访问本地镜像缓存，速度更快
+4. **前端构建**: 在本地环境构建，避免 QEMU 模拟环境下的性能问题
+5. **OpenCode 安装**: 在 base 镜像中安装，避免 QEMU 环境下的 npm 安装失败
+6. **运行时**: Docker 会自动拉取匹配宿主机架构的镜像
+
+### 构建时间参考
+
+| 构建方式 | 首次时间 | 后续时间（无 Dockerfile.base 修改） |
+|---------|---------|-----------------------------------|
+| 单架构构建 | 10-15 分钟 | 30 秒 - 2 分钟 |
+| 双架构构建 | 15-30 分钟 | 5-10 分钟 |
+| 仅修改前端代码 | 1-2 分钟 | 1-2 分钟 |
+| 仅修改配置文件 | < 30 秒 | < 30 秒 |
+
+> **提示**：双架构构建使用 QEMU 模拟环境，速度比单架构慢 2-3 倍。日常开发推荐使用单架构构建，发布时使用双架构构建。
 
 ---
 
@@ -219,6 +239,8 @@ docker push hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 
 ### 推送不同架构的镜像
 
+如果需要分别构建不同架构的镜像（例如在不同机器上构建），可以按以下步骤操作：
+
 ```bash
 # 构建并推送 x86_64 架构
 bash build.sh --platform linux/amd64
@@ -229,7 +251,15 @@ docker push <registry-url>/witty-ub-x86_64:latest
 bash build.sh --platform linux/arm64
 docker tag witty-ub:latest <registry-url>/witty-ub-aarch64:latest
 docker push <registry-url>/witty-ub-aarch64:latest
+
+# 合并为 manifest list（支持按架构自动选择）
+docker buildx imagetools create \
+    -t <registry-url>/witty-ub:latest \
+    <registry-url>/witty-ub-x86_64:latest \
+    <registry-url>/witty-ub-aarch64:latest
 ```
+
+> **说明**：合并后，当不同架构的机器拉取 `witty-ub:latest` 时，Docker 会根据宿主机架构自动选择对应的镜像。
 
 ### 验证推送结果
 
