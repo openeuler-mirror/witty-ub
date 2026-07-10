@@ -209,8 +209,8 @@ class LogFailureEventManager:
         # 若req的pod_names，host_names，cluster_names非None，则数据中相应pod_names，host_names，cluster_names字段中的元素需要与req的相应字段有重合
         # 若req的status_codes非空，则数据中status_code应该是属于status_codes的元素
         # 若is_anonymous非空，则需要筛选failure_mode字段非空的数据
-        # 若created_at_end/created_at_start非空，则数据的timestamp字段的时间需要小于created_at_end/大于created_at_start
-        # 若created_sorted_desc为True，则返回的数据列表按timestamp降序，否则升序
+        # 若end_time/start_time非空，则数据的timestamp字段的时间需要小于end_time/大于start_time
+        # 若sort_desc为True，则返回的数据列表按timestamp降序，否则升序
         # page_cnt和page_num分别表示返回的数据页每行的数据量以及页码
         try:
             log_ids = []
@@ -287,15 +287,15 @@ class LogFailureEventManager:
                 else:
                     sql_str += " AND (failure_mode IS NULL OR failure_mode = '')"
             
-            if req.created_at_start:
-                sql_str += " AND timestamp >= :created_at_start"
-                params['created_at_start'] = req.created_at_start
+            if req.start_time:
+                sql_str += " AND timestamp >= :start_time"
+                params['start_time'] = req.start_time
             
-            if req.created_at_end:
-                sql_str += " AND timestamp <= :created_at_end"
-                params['created_at_end'] = req.created_at_end
+            if req.end_time:
+                sql_str += " AND timestamp <= :end_time"
+                params['end_time'] = req.end_time
             
-            order_direction = "DESC" if req.created_sorted_desc else "ASC"
+            order_direction = "DESC" if req.sort_desc else "ASC"
             sql_str += f" ORDER BY timestamp {order_direction}"
             
             count_sql = f"SELECT COUNT(*) as total FROM ({sql_str})"
@@ -675,14 +675,14 @@ class LogFailureEventManager:
         req: ListTimeAggregatedFailureEventRequest
     ) -> tuple[int, list[str], list[dict]]:
         # TODO: 添加从trace_failure_event_table数据库中查询每个时段故障码总数和详细情况的逻辑
-        # 首先，对created_at_start到created_at_end按照interval的时间间隔进行遍历，每一段时间
+        # 首先，对start_time到end_time按照interval的时间间隔进行遍历，每一段时间
         # 对应第三个返回值表示的统计结果中的一条数据，数据条数对应第一个返回值；若最后一段不够一个完整时间段，也向上补齐
         # 对于每一个时间段，统计ListTimeAggregatedFailureEventRequest数据库中，kb_id为req的kb_id，timestamp出现在时间段内的数据中，
         # 各个故障码的出现条数，其中trace的时间对应timestamp字段，故障码对应status_code。
         # 第三个返回值统计结果中，每个dict对应的键有start_time, end_time, 故障码字符串，以及"all"，值为每个时间段的开始时间、结束时间、故障码出现的次数，以及所有故障码出现次数的总和
         # 完成聚合后，遍历得到的统计结果，将除了"all"以外的所有故障码按转化为数字后的从小到大进行排序，第二个返回值表示排序后的故障码
         # 列表，列表第一个值是"all"，其余的是排序后的故障码字符串
-        # req的sort_by, created_sorted_desc表示排序的依据和升降序。若sort_by为timestamp，则将统计结果按start_time字段排序，若created_sorted_desc为true，则降序排序，若为false，则升序排序
+        # req的sort_by, sort_desc表示排序的依据和升降序。若sort_by为timestamp，则将统计结果按start_time字段排序，若sort_desc为true，则降序排序，若为false，则升序排序
         # req的page_num和page_cnt表示返回结果是第几页和每页多少行
         from datetime import datetime, timedelta
         from collections import defaultdict
@@ -725,13 +725,13 @@ class LogFailureEventManager:
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
             
-            if req.created_at_start:
+            if req.start_time:
                 sql_str += " AND timestamp >= :start_time"
-                params['start_time'] = req.created_at_start
+                params['start_time'] = req.start_time
             
-            if req.created_at_end:
+            if req.end_time:
                 sql_str += " AND timestamp <= :end_time"
-                params['end_time'] = req.created_at_end
+                params['end_time'] = req.end_time
             
             sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
             sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
@@ -805,11 +805,11 @@ class LogFailureEventManager:
             else:
                 sort_key = req.sort_by
                 if sort_key == "timestamp":
-                    results.sort(key=lambda x: x["start_time"], reverse=req.created_sorted_desc)
+                    results.sort(key=lambda x: x["start_time"], reverse=req.sort_desc)
                 elif sort_key == "all" or sort_key not in err_codes:
                     results.sort(
                         key=lambda x: x["status_code_cnt"].get("all", 0),
-                        reverse=req.created_sorted_desc,
+                        reverse=req.sort_desc,
                     )
                 else:
                     def sort_func(x):
@@ -817,7 +817,7 @@ class LogFailureEventManager:
                         secondary = x["status_code_cnt"].get("all", 0)
                         return primary, secondary
 
-                    results.sort(key=sort_func, reverse=req.created_sorted_desc)
+                    results.sort(key=sort_func, reverse=req.sort_desc)
             total = len(results)
             start_idx = (req.page_num - 1) * req.page_cnt
             end_idx = start_idx + req.page_cnt
@@ -836,13 +836,13 @@ class LogFailureEventManager:
         req: ListPodAggregatedFailureEventRequest
     ) -> tuple[int, list[dict]]:
         # TODO: 添加从trace_failure_event_table数据库中读取满足要求的数据，并按pod进行聚合统计故障码出现次数的逻辑
-        # 首先，筛选timestamp在req的created_at_start到created_at_end之间，kb_id为req的kb_id的所有数据
+        # 首先，筛选timestamp在req的start_time到end_time之间，kb_id为req的kb_id的所有数据
         # 按照pod_names对结果进行聚合，形成一个列表，即第二个返回值的结果列表，第一个返回值表示列表的长度。
         # 列表中每一项是一个dict，存储一个pod的故障码信息。键有pod_name，对应查询结果的pod_names字段，以及status_code_cnt，对应故障码的统计
         # 其中，status_code_cnt是一个dict，键是all以及所有故障码字符串，值是所有故障码出现次数总和以及各个故障码出现次数。
         # 数据库中的pod_names字段可能有多个由","分割的pod_name，因为一个trace可能是跨pod的。对于这种情况，需要将这条trace的故障码计数
         # 拆分到各个pod的故障码计数中，也就是将各个pod_name对应的该故障码计数都加1。最终的结果中，pod_name应该都是单独的pod，没有多个pod的情况
-        # 对查询结果进行排序，req的sort_by字段表示了结果列表的排序依据，为all或其他故障码，created_sorted_desc表示排序升序还是降序，True表示降序，False表示升序。
+        # 对查询结果进行排序，req的sort_by字段表示了结果列表的排序依据，为all或其他故障码，sort_desc表示排序升序还是降序，True表示降序，False表示升序。
         # 如果排序依据的故障码在排序比较的两条结果中都没有出现，那么就按照all的数量进行排序
         # req的page_num和page_cnt表示返回结果是第几页和每页多少行
         # 请你在完成代码时注意计算的效率问题
@@ -877,13 +877,13 @@ class LogFailureEventManager:
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
             
-            if req.created_at_start:
+            if req.start_time:
                 sql_str += " AND timestamp >= :start_time"
-                params['start_time'] = req.created_at_start
+                params['start_time'] = req.start_time
             
-            if req.created_at_end:
+            if req.end_time:
                 sql_str += " AND timestamp <= :end_time"
-                params['end_time'] = req.created_at_end
+                params['end_time'] = req.end_time
             
             sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
             sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
@@ -949,7 +949,7 @@ class LogFailureEventManager:
                 if sort_key == "all" or sort_key not in valid_codes:
                     results.sort(
                         key=lambda x: x["status_code_cnt"].get("all", 0),
-                        reverse=req.created_sorted_desc
+                        reverse=req.sort_desc
                     )
                 else:
                     def sort_func(x):
@@ -960,7 +960,7 @@ class LogFailureEventManager:
                         else:
                             return (1, primary)
 
-                    results.sort(key=sort_func, reverse=req.created_sorted_desc)
+                    results.sort(key=sort_func, reverse=req.sort_desc)
 
             total = len(results)
             start_idx = (req.page_num - 1) * req.page_cnt
@@ -1009,13 +1009,13 @@ class LogFailureEventManager:
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
             
-            if req.created_at_start:
+            if req.start_time:
                 sql_str += " AND timestamp >= :start_time"
-                params['start_time'] = req.created_at_start
+                params['start_time'] = req.start_time
             
-            if req.created_at_end:
+            if req.end_time:
                 sql_str += " AND timestamp <= :end_time"
-                params['end_time'] = req.created_at_end
+                params['end_time'] = req.end_time
             
             sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
             sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
@@ -1080,7 +1080,7 @@ class LogFailureEventManager:
                 if sort_key == "all" or sort_key not in valid_codes:
                     results.sort(
                         key=lambda x: x["status_code_cnt"].get("all", 0),
-                        reverse=req.created_sorted_desc
+                        reverse=req.sort_desc
                     )
                 else:
                     def sort_func(x):
@@ -1091,7 +1091,7 @@ class LogFailureEventManager:
                         else:
                             return (1, primary)
 
-                    results.sort(key=sort_func, reverse=req.created_sorted_desc)
+                    results.sort(key=sort_func, reverse=req.sort_desc)
 
             total = len(results)
             start_idx = (req.page_num - 1) * req.page_cnt

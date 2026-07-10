@@ -29,12 +29,32 @@ class LogFailureEventResultService:
     """日志事件结果服务"""
 
     @staticmethod
+    def _normalize_unknown_host_name(host_name: str | None) -> str | None:
+        if host_name is None:
+            return None
+        normalized = host_name.strip()
+        if not normalized or normalized.lower() == "unknown":
+            return None
+        return host_name
+
+    @staticmethod
+    def _normalize_unknown_host_names(host_names: list[str | None]) -> list[str | None]:
+        return [
+            LogFailureEventResultService._normalize_unknown_host_name(host_name)
+            for host_name in host_names
+        ]
+
+    @staticmethod
     async def list_log_failure_event_result(req: ListLogFailureEventResultRequest) -> ListLogFailureEventResultMsg:
         total, results = await LogFailureEventManager.list_log_failure_events(req)
         if total == 0:
             backfilled = await LogFailureEventResultService._backfill_trace_context_logs(req)
             if backfilled:
                 total, results = await LogFailureEventManager.list_log_failure_events(req)
+        for result in results:
+            result.host_name = LogFailureEventResultService._normalize_unknown_host_name(
+                result.host_name
+            )
         return ListLogFailureEventResultMsg(total=total, log_failure_event_results=results)
 
     @staticmethod
@@ -83,6 +103,10 @@ class LogFailureEventResultService:
     @staticmethod
     async def list_trace_failure_event_result(req: ListTraceFailureEventResultRequest) -> ListTraceFailureEventResultMsg:
         total, results = await LogFailureEventManager.list_trace_failure_events(req)
+        for result in results:
+            result.host_names = LogFailureEventResultService._normalize_unknown_host_names(
+                result.host_names
+            )
         return ListTraceFailureEventResultMsg(total=total, trace_failure_event_results=results)
     
     @staticmethod
