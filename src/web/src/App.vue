@@ -571,6 +571,7 @@ type LogParseOptions = {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const agentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(/\/$/, '')
 const agentName = 'witty-ub-diagnostician'
+const agentUserAbortMessage = '用户终止响应'
 const isAgentChatOpen = ref(false)
 const isAgentSending = ref(false)
 const isAgentAborting = ref(false)
@@ -586,6 +587,7 @@ let agentEventSource: EventSource | null = null
 let agentLocalMessageSequence = 0
 let agentHealthCheckSequence = 0
 let agentRequestSequence = 0
+let shouldIgnoreNextAgentAbortError = false
 
 const nextAgentLocalMessageId = () => {
   agentLocalMessageSequence += 1
@@ -849,6 +851,19 @@ const markAgentResponseFailed = (message: string) => {
   void scrollAgentChatToBottom()
 }
 
+const markAgentResponseAborted = () => {
+  const pending = getPendingAssistantMessage()
+  if (pending) {
+    pending.status = 'done'
+    pending.reasoningCollapsed = true
+    pending.parts = [{ id: `${pending.id}:aborted`, type: 'text', text: agentUserAbortMessage }]
+    syncAgentMessageText(pending)
+  }
+  isAgentSending.value = false
+  agentConnectionError.value = ''
+  void scrollAgentChatToBottom()
+}
+
 const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   let payload: OpenCodeEvent
   try {
@@ -909,6 +924,13 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   }
 
   if (payload.type === 'session.error') {
+    if (shouldIgnoreNextAgentAbortError) {
+      shouldIgnoreNextAgentAbortError = false
+      isAgentSending.value = false
+      isAgentAborting.value = false
+      agentConnectionError.value = ''
+      return
+    }
     markAgentResponseFailed(properties?.error?.message || 'Agent 处理消息时发生错误。')
   }
 }
@@ -977,6 +999,7 @@ const sendAgentMessage = async () => {
   const question = agentChatInput.value.trim()
   if (!question || isAgentAborting.value) return
 
+  shouldIgnoreNextAgentAbortError = false
   agentChatInput.value = ''
   agentConnectionError.value = ''
   agentChatMessages.value.push({
@@ -1028,6 +1051,7 @@ const sendAgentMessage = async () => {
 const abortAgentSession = async () => {
   if (!isAgentSending.value || isAgentAborting.value) return
   isAgentAborting.value = true
+  shouldIgnoreNextAgentAbortError = true
   agentRequestSequence += 1
   agentConnectionError.value = ''
 
@@ -1037,14 +1061,9 @@ const abortAgentSession = async () => {
         method: 'POST',
       })
     }
-    const pending = getPendingAssistantMessage()
-    if (pending) {
-      pending.status = 'done'
-      pending.reasoningCollapsed = true
-      pending.content = pending.content || '本次诊断已停止。'
-    }
-    isAgentSending.value = false
+    markAgentResponseAborted()
   } catch (error) {
+    shouldIgnoreNextAgentAbortError = false
     agentConnectionState.value = 'disconnected'
     agentConnectionError.value = error instanceof Error ? error.message : '停止会话失败。'
   } finally {
