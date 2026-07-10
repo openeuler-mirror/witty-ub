@@ -275,6 +275,20 @@ class LogFailureEventManager:
                     params[f'cluster_name_end_{i}'] = f"%,{cluster_name}"
                 sql_str += f" AND ({' OR '.join(cluster_conditions)})"
             
+            if req.src_ip is not None:
+                if req.src_ip == "":
+                    sql_str += " AND (src_ip IS NULL OR src_ip = '')"
+                else:
+                    sql_str += " AND src_ip = :src_ip"
+                    params['src_ip'] = req.src_ip
+            
+            if req.dst_ip is not None:
+                if req.dst_ip == "":
+                    sql_str += " AND (dst_ip IS NULL OR dst_ip = '')"
+                else:
+                    sql_str += " AND dst_ip = :dst_ip"
+                    params['dst_ip'] = req.dst_ip
+            
             if req.status_codes:
                 placeholders = ', '.join([f':status_code_{i}' for i in range(len(req.status_codes))])
                 sql_str += f" AND status_code IN ({placeholders})"

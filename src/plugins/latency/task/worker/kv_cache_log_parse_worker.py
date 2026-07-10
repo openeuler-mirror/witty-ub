@@ -929,7 +929,7 @@ class KVCacheLogParseWorker(BaseWorker):
             )
             return [], {}, []
 
-        latency_fields = [
+        src_dst_latency_fields = [
             ("total_latency", "total_latency"),
             ("query_meta_latency", "worker_query_meta_latency"),
             ("urma_total_latency", "urma_total_latency"),
@@ -938,35 +938,51 @@ class KVCacheLogParseWorker(BaseWorker):
             ("w2w_urma_latency", "w2w_urma_latency"),
         ]
 
+        time_window_latency_fields = [
+            ("total_latency", "total_latency"),
+            ("query_meta_latency", "worker_query_meta_latency"),
+            ("urma_total_latency", "urma_total_latency"),
+            ("urma_link_latency", "urma_link_latency"),
+            ("c2w_urma_latency", "c2w_urma_latency"),
+            ("w2w_urma_latency", "w2w_urma_latency"),
+            ("sdk_process", "sdk_process"),
+            ("sdk_rpc", "sdk_rpc"),
+            ("local_worker_cost", "local_worker_cost"),
+            ("local_worker_lock", "local_worker_lock"),
+            ("remote_worker_cost", "remote_worker_cost"),
+            ("remote_worker_rpc", "remote_worker_rpc"),
+            ("master_process", "master_process"),
+            ("master_rpc_total", "master_rpc_total"),
+        ]
+
         groups: dict[tuple[str, str], GroupStats] = defaultdict(
             lambda: GroupStats(
-                latency_values={prefix: [] for prefix, _ in latency_fields}
+                latency_values={prefix: [] for prefix, _ in src_dst_latency_fields}
             )
         )
 
         time_window_groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
             lambda: GroupStats(
-                latency_values={prefix: [] for prefix, _ in latency_fields}
+                latency_values={prefix: [] for prefix, _ in time_window_latency_fields}
             )
         )
         
         for r in list_log_parse_results:
             src = r.src_ip or ""
             dst = r.dst_ip or ""
-            if not src and not dst:
-                continue
-
+            
             time_bucket = (r.timestamp or "")[:19]
             
-            key = (src, dst)
-            g = groups[key]
-            g.count += 1
-            if r.is_anomalous:
-                g.anomaly_count += 1
-            if r.anomalous_event_id:
-                g.anomaly_log_count += 1
-            if not g.first_log_id:
-                g.first_log_id = r.log_id or ""
+            if src or dst:
+                key = (src, dst)
+                g = groups[key]
+                g.count += 1
+                if r.is_anomalous:
+                    g.anomaly_count += 1
+                if r.anomalous_event_id:
+                    g.anomaly_log_count += 1
+                if not g.first_log_id:
+                    g.first_log_id = r.log_id or ""
             
             key2 = (time_bucket, src, dst)
             g2 = time_window_groups[key2]
@@ -976,10 +992,21 @@ class KVCacheLogParseWorker(BaseWorker):
             if not g2.first_log_id:
                 g2.first_log_id = r.log_id or ""
             
-            for prefix, field_name in latency_fields:
+            if src or dst:
+                for prefix, field_name in src_dst_latency_fields:
+                    val = getattr(r, field_name)
+                    if val is not None:
+                        g.latency_values[prefix].append(val)
+                        g2.latency_values[prefix].append(val)
+            else:
+                for prefix, field_name in src_dst_latency_fields:
+                    val = getattr(r, field_name)
+                    if val is not None:
+                        g2.latency_values[prefix].append(val)
+            
+            for prefix, field_name in time_window_latency_fields[len(src_dst_latency_fields):]:
                 val = getattr(r, field_name)
                 if val is not None:
-                    g.latency_values[prefix].append(val)
                     g2.latency_values[prefix].append(val)
         
         results: list[SrcDstAggregatedEventDataclass] = []
@@ -990,7 +1017,7 @@ class KVCacheLogParseWorker(BaseWorker):
             src_dst_to_agg_id_map[(src, dst)] = agg_id
             
             agg: dict[str, float | None] = {}
-            for prefix, _ in latency_fields:
+            for prefix, _ in src_dst_latency_fields:
                 values = g.latency_values[prefix]
                 if values:
                     st = stats(values)
@@ -1020,7 +1047,7 @@ class KVCacheLogParseWorker(BaseWorker):
         time_window_results: list[TimeWindowAggregatedEventDataclass] = []
         for (time_bucket, src, dst), g in time_window_groups.items():
             agg: dict[str, float | None] = {}
-            for prefix, _ in latency_fields:
+            for prefix, _ in time_window_latency_fields:
                 values = g.latency_values[prefix]
                 if values:
                     st = stats(values)
@@ -1029,8 +1056,9 @@ class KVCacheLogParseWorker(BaseWorker):
                     agg[f"max_{prefix}"] = st["max"]
                     agg[f"p95_{prefix}"] = st["p95"]
                     agg[f"p99_{prefix}"] = st["p99"]
+                    agg[f"p9999_{prefix}"] = st["p9999"]
                 else:
-                    for f in [f"ave_{prefix}", f"min_{prefix}", f"max_{prefix}", f"p95_{prefix}", f"p99_{prefix}"]:
+                    for f in [f"ave_{prefix}", f"min_{prefix}", f"max_{prefix}", f"p95_{prefix}", f"p99_{prefix}", f"p9999_{prefix}"]:
                         agg[f] = None
                 g.latency_values[prefix] = []
             
@@ -1079,13 +1107,17 @@ class KVCacheLogParseWorker(BaseWorker):
 
         if list_log_parse_results:
             try:
-                count = len(list_log_parse_results)
-                stored = await LogParseResultManager.add_log_parse_results(
-                    list_log_parse_results
-                )
-                if not stored:
-                    raise RuntimeError("Failed to batch insert log parse results")
-                logger.info(f"Stored {count:,} log parse results")
+                anomalous_results = [r for r in list_log_parse_results if r.is_anomalous]
+                count = len(anomalous_results)
+                if count > 0:
+                    stored = await LogParseResultManager.add_log_parse_results(
+                        anomalous_results
+                    )
+                    if not stored:
+                        raise RuntimeError("Failed to batch insert log parse results")
+                    logger.info(f"Stored {count:,} anomalous log parse results (filtered from {len(list_log_parse_results):,})")
+                else:
+                    logger.info(f"No anomalous results to store (out of {len(list_log_parse_results):,} total)")
             except Exception as e:
                 logger.error(f"Failed to store log parse results: {e}")
                 success = False

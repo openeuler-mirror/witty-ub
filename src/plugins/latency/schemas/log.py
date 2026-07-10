@@ -354,7 +354,7 @@ class LogParseResultModel(BaseModel):
         default="",
         description="关联的异常事件ID，如果该解析结果是从异常事件中识别出来的，则记录对应的异常事件ID",
     )
-    pod_ip: Optional[str] = Field(default=None, description="Pod IP地址")
+    pod_ips: Optional[list[str]] = Field(default=None, description="涉及的Pod IP地址列表")
     src_ip: Optional[str] = Field(default=None, description="源IP地址")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址")
     cluster_name: Optional[str] = Field(default=None, description="集群名称")
@@ -472,7 +472,7 @@ class LogParseResultDataclass:
     log_id: str = ""
     aggregated_event_id: str = ""
     anomalous_event_id: str = ""
-    pod_ip: Optional[str] = None
+    pod_ips: Optional[list[str]] = None
     src_ip: Optional[str] = None
     dst_ip: Optional[str] = None
     cluster_name: Optional[str] = None
@@ -515,7 +515,7 @@ class LogParseResultDataclass:
             log_id=self.log_id,
             aggregated_event_id=self.aggregated_event_id,
             anomalous_event_id=self.anomalous_event_id,
-            pod_ip=self.pod_ip,
+            pod_ips=self.pod_ips,
             src_ip=self.src_ip,
             dst_ip=self.dst_ip,
             cluster_name=self.cluster_name,
@@ -566,7 +566,7 @@ class C2WLogParseResultDataclass:
     log_id: str = ""
     aggregated_event_id: str = ""
     anomalous_event_id: str = ""
-    pod_ip: Optional[str] = None
+    pod_ips: Optional[list[str]] = None
     cluster_name: Optional[str] = None
     anomaly_reason: Optional[str] = None
     data_size: Optional[str] = None
@@ -617,7 +617,7 @@ class SparseLogParseResultDataclass:
     log_id: str = ""
     aggregated_event_id: str = ""
     anomalous_event_id: str = ""
-    pod_ip: Optional[str] = None
+    pod_ips: Optional[list[str]] = None
     cluster_name: Optional[str] = None
     anomaly_reason: Optional[str] = None
     data_size: Optional[str] = None

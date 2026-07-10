@@ -1,5 +1,6 @@
 import os
 import time
+import json
 
 from latency.schemas.log import (
     C2WLogParseResultDataclass,
@@ -29,7 +30,7 @@ def _log_parse_result_to_db_tuple(result: LogParseResultStorage) -> tuple:
         result.timestamp,
         result.src_ip,
         result.dst_ip,
-        result.pod_ip,
+        json.dumps(result.pod_ips) if result.pod_ips else None,
         result.cluster_name,
         result.host,
         result.total_latency,
@@ -125,7 +126,7 @@ def _log_parse_result_to_c2w_db_tuple(
         result.anomalous_event_id,
         result.trace_id,
         result.timestamp,
-        result.pod_ip,
+        json.dumps(result.pod_ips) if result.pod_ips else None,
         result.cluster_name,
         result.total_latency,
         result.c2w_latency,
@@ -150,7 +151,7 @@ def _log_parse_result_to_sparse_db_tuple(
         result.anomalous_event_id,
         result.trace_id,
         result.timestamp,
-        result.pod_ip,
+        json.dumps(result.pod_ips) if result.pod_ips else None,
         result.cluster_name,
         result.total_latency,
         result.c2w_urma_latency,
@@ -182,7 +183,7 @@ def _log_parse_result_to_minimal_db_tuple(
         result.log_id,
         result.trace_id,
         result.timestamp,
-        result.pod_ip,
+        json.dumps(result.pod_ips) if result.pod_ips else None,
         result.cluster_name,
         result.total_latency,
         result.operation,
@@ -206,7 +207,7 @@ class LogParseResultManager:
         sql_str = """
             INSERT INTO log_parse_result_table (
                 id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                timestamp, src_ip, dst_ip, pod_ips, cluster_name, host,
                 total_latency, c2w_latency, worker_query_meta_latency,
                 urma_total_latency, urma_link_latency, urma_inflight_count,
                 c2w_urma_latency, w2w_urma_latency, operation, data_size,
@@ -216,7 +217,7 @@ class LogParseResultManager:
                 remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
             ) VALUES (
                 :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
-                :timestamp, :src_ip, :dst_ip, :pod_ip, :cluster_name, :host,
+                :timestamp, :src_ip, :dst_ip, :pod_ips, :cluster_name, :host,
                 :total_latency, :c2w_latency, :worker_query_meta_latency,
                 :urma_total_latency, :urma_link_latency, :urma_inflight_count,
                 :c2w_urma_latency, :w2w_urma_latency, :operation, :data_size,
@@ -226,9 +227,10 @@ class LogParseResultManager:
                 :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
             )
         """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, result.model_dump(exclude_none=False, by_alias=True)
-        )
+        data = result.model_dump(exclude_none=False, by_alias=True)
+        if data.get("pod_ips"):
+            data["pod_ips"] = json.dumps(data["pod_ips"])
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, data)
         return success
 
     @staticmethod
@@ -303,7 +305,7 @@ class LogParseResultManager:
                     sql_str = """
                         INSERT INTO log_parse_result_table (
                             id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                            timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                            timestamp, src_ip, dst_ip, pod_ips, cluster_name, host,
                             total_latency, c2w_latency, worker_query_meta_latency,
                             urma_total_latency, urma_link_latency, urma_inflight_count,
                             c2w_urma_latency, w2w_urma_latency, operation, data_size,
@@ -319,7 +321,7 @@ class LogParseResultManager:
                     sparse_sql_str = """
                         INSERT INTO log_parse_result_table (
                             id, log_id, aggregated_event_id, anomalous_event_id,
-                            trace_id, timestamp, pod_ip, cluster_name,
+                            trace_id, timestamp, pod_ips, cluster_name,
                             total_latency, c2w_urma_latency, operation, data_size,
                             is_anomalous, anomaly_reason, remark, existed_status,
                             created_at
@@ -330,7 +332,7 @@ class LogParseResultManager:
                     c2w_sql_str = """
                         INSERT INTO log_parse_result_table (
                             id, log_id, aggregated_event_id, anomalous_event_id,
-                            trace_id, timestamp, pod_ip, cluster_name,
+                            trace_id, timestamp, pod_ips, cluster_name,
                             total_latency, c2w_latency, operation, data_size,
                             is_anomalous, anomaly_reason, remark, existed_status,
                             created_at
@@ -340,7 +342,7 @@ class LogParseResultManager:
                     """
                     minimal_sql_str = """
                         INSERT INTO log_parse_result_table (
-                            id, log_id, trace_id, timestamp, pod_ip,
+                            id, log_id, trace_id, timestamp, pod_ips,
                             cluster_name, total_latency, operation, data_size,
                             is_anomalous, remark, existed_status, created_at
                         ) VALUES (
@@ -378,7 +380,7 @@ class LogParseResultManager:
                                             result.log_id,
                                             result.trace_id,
                                             result.timestamp,
-                                            result.pod_ip,
+                                            json.dumps(result.pod_ips) if result.pod_ips else None,
                                             result.cluster_name,
                                             result.total_latency,
                                             result.operation,
@@ -398,7 +400,7 @@ class LogParseResultManager:
                                             result.anomalous_event_id,
                                             result.trace_id,
                                             result.timestamp,
-                                            result.pod_ip,
+                                            json.dumps(result.pod_ips) if result.pod_ips else None,
                                             result.cluster_name,
                                             result.total_latency,
                                             result.c2w_urma_latency,
@@ -420,7 +422,7 @@ class LogParseResultManager:
                                         result.anomalous_event_id,
                                         result.trace_id,
                                         result.timestamp,
-                                        result.pod_ip,
+                                        json.dumps(result.pod_ips) if result.pod_ips else None,
                                         result.cluster_name,
                                         result.total_latency,
                                         result.c2w_latency,
@@ -581,7 +583,7 @@ class LogParseResultManager:
         """分页查询日志解析结果"""
         sql_str = """
             SELECT lpr.id, lpr.log_id, lpr.aggregated_event_id, lpr.anomalous_event_id, lpr.trace_id,
-                lpr.timestamp, lpr.src_ip, lpr.dst_ip, lpr.pod_ip, lpr.cluster_name, lpr.host,
+                lpr.timestamp, lpr.src_ip, lpr.dst_ip, lpr.pod_ips, lpr.cluster_name, lpr.host,
                 lpr.total_latency, lpr.c2w_latency, lpr.worker_query_meta_latency,
                 lpr.urma_total_latency, lpr.urma_link_latency, lpr.urma_inflight_count,
                 lpr.c2w_urma_latency, lpr.w2w_urma_latency, lpr.operation, lpr.data_size,
@@ -611,12 +613,18 @@ class LogParseResultManager:
             sql_str += f" AND lpr.trace_id IN ({placeholders})"
             for i, trace_id in enumerate(req.trace_ids):
                 params[f'trace_id_{i}'] = trace_id
-        if req.src_ip:
-            sql_str += " AND lpr.src_ip LIKE :src_ip"
-            params["src_ip"] = f"%{req.src_ip}%"
-        if req.dst_ip:
-            sql_str += " AND lpr.dst_ip LIKE :dst_ip"
-            params["dst_ip"] = f"%{req.dst_ip}%"
+        if req.src_ip is not None:
+            if req.src_ip == "":
+                sql_str += " AND (lpr.src_ip IS NULL OR lpr.src_ip = '')"
+            else:
+                sql_str += " AND lpr.src_ip LIKE :src_ip"
+                params["src_ip"] = f"%{req.src_ip}%"
+        if req.dst_ip is not None:
+            if req.dst_ip == "":
+                sql_str += " AND (lpr.dst_ip IS NULL OR lpr.dst_ip = '')"
+            else:
+                sql_str += " AND lpr.dst_ip LIKE :dst_ip"
+                params["dst_ip"] = f"%{req.dst_ip}%"
         if req.host:
             sql_str += " AND lpr.host LIKE :host"
             params["host"] = f"%{req.host}%"
@@ -647,7 +655,7 @@ class LogParseResultManager:
             "total_latency": "lpr.total_latency",
             "timestamp": "lpr.timestamp",
             "trace_id": "lpr.trace_id",
-            "pod_ip": "lpr.pod_ip",
+            "pod_ips": "lpr.pod_ips",
             "cluster_name": "lpr.cluster_name",
             "host": "lpr.host",
             "query_meta_latency": "lpr.worker_query_meta_latency",
@@ -680,7 +688,16 @@ class LogParseResultManager:
         params["offset"] = offset
 
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        results = [LogParseResultModel(**row) for row in rows]
+        results = []
+        for row in rows:
+            row_dict = dict(row)
+            pod_ips_str = row_dict.get("pod_ips")
+            if pod_ips_str:
+                try:
+                    row_dict["pod_ips"] = json.loads(pod_ips_str)
+                except (json.JSONDecodeError, TypeError):
+                    row_dict["pod_ips"] = None
+            results.append(LogParseResultModel(**row_dict))
         return total, results
 
     @staticmethod
@@ -688,7 +705,7 @@ class LogParseResultManager:
         """根据ID获取日志解析结果"""
         sql_str = """
             SELECT id, log_id, aggregated_event_id, anomalous_event_id, trace_id,
-                timestamp, src_ip, dst_ip, pod_ip, cluster_name, host,
+                timestamp, src_ip, dst_ip, pod_ips, cluster_name, host,
                 total_latency, c2w_latency, worker_query_meta_latency,
                 urma_total_latency, urma_link_latency, urma_inflight_count,
                 c2w_urma_latency, w2w_urma_latency, operation, data_size,
@@ -702,7 +719,14 @@ class LogParseResultManager:
         params = {"result_id": result_id}
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         if rows:
-            return LogParseResultModel(**rows[0])
+            row = dict(rows[0])
+            pod_ips_str = row.get("pod_ips")
+            if pod_ips_str:
+                try:
+                    row["pod_ips"] = json.loads(pod_ips_str)
+                except (json.JSONDecodeError, TypeError):
+                    row["pod_ips"] = None
+            return LogParseResultModel(**row)
         return None
 
     @staticmethod
@@ -718,7 +742,7 @@ class LogParseResultManager:
             SELECT 
                 lpr.id,
                 lpr.trace_id,
-                lpr.pod_ip,
+                lpr.pod_ips,
                 lpr.cluster_name,
                 lpr.host,
                 lpr.timestamp as time,
@@ -733,12 +757,12 @@ class LogParseResultManager:
                 lpr.c2w_latency as req_delay_ms,
                 (lpr.total_latency - lpr.c2w_latency) as rsp_delay_ms,
                 lpr.total_latency as sdk_ms,
-                lpr.pod_ip as pod_id
+                lpr.pod_ips as pod_id
             FROM log_parse_result_table lpr
             LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
-            WHERE lpr.existed_status = 1 AND lpr.pod_ip = :host
+            WHERE lpr.existed_status = 1 AND lpr.pod_ips LIKE :host_pattern
         """
-        params = {"host": req.host}
+        params = {"host_pattern": f"%{req.host}%"}
         
         if req.kb_id:
             sql_str += " AND lf.kb_id = :kb_id"
@@ -775,46 +799,55 @@ class LogParseResultManager:
         
         rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         logger.info(f"Returned {len(rows)} rows")
+        
+        for row in rows:
+            pod_ips_str = row.get("pod_ips")
+            if pod_ips_str:
+                try:
+                    row["pod_ips"] = json.loads(pod_ips_str)
+                except (json.JSONDecodeError, TypeError):
+                    row["pod_ips"] = None
+        
         return total, rows
 
     @staticmethod
     async def get_latency_metrics(
         req: GetLatencyMetricsRequest,
     ) -> tuple[int, list[dict]]:
-        """获取延迟指标时间曲线数据（SQL 分桶 + JSON 存原始值）"""
-        # === 构建 WHERE 条件 ===
-        where_clauses = ["lpr.existed_status = 1"]
+        """获取延迟指标时间曲线数据（从预聚合表查询）"""
+        where_clauses = ["existed_status = 1"]
         params = {}
 
         if req.kb_id:
-            where_clauses.append("lf.kb_id = :kb_id")
+            where_clauses.append("kb_id = :kb_id")
             params["kb_id"] = req.kb_id
         if req.host:
-            where_clauses.append("lpr.pod_ip = :host")
-            params["host"] = req.host
-        if req.src_ip:
-            where_clauses.append("lpr.src_ip LIKE :src_ip")
-            params["src_ip"] = f"%{req.src_ip}%"
-        if req.dst_ip:
-            where_clauses.append("lpr.dst_ip LIKE :dst_ip")
-            params["dst_ip"] = f"%{req.dst_ip}%"
+            where_clauses.append("(src_ip LIKE :host_pattern OR dst_ip LIKE :host_pattern)")
+            params["host_pattern"] = f"%{req.host}%"
+        if req.src_ip is not None:
+            if req.src_ip == "":
+                where_clauses.append("(src_ip IS NULL OR src_ip = '')")
+            else:
+                where_clauses.append("src_ip LIKE :src_ip")
+                params["src_ip"] = f"%{req.src_ip}%"
+        if req.dst_ip is not None:
+            if req.dst_ip == "":
+                where_clauses.append("(dst_ip IS NULL OR dst_ip = '')")
+            else:
+                where_clauses.append("dst_ip LIKE :dst_ip")
+                params["dst_ip"] = f"%{req.dst_ip}%"
         if req.start_time:
-            where_clauses.append("lpr.timestamp >= :start_time")
+            where_clauses.append("time_bucket >= :start_time")
             params["start_time"] = req.start_time
         if req.end_time:
-            where_clauses.append("lpr.timestamp <= :end_time")
+            where_clauses.append("time_bucket <= :end_time")
             params["end_time"] = req.end_time
-        if req.operation:
-            where_clauses.append("lpr.operation LIKE :operation")
-            params["operation"] = f"%{req.operation}%"
 
         where_sql = " AND ".join(where_clauses)
 
-        # === 1. COUNT 查询 ===
         count_sql = f"""
             SELECT COUNT(*) as cnt 
-            FROM log_parse_result_table lpr
-            LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
+            FROM time_window_aggregated_table
             WHERE {where_sql}
         """
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
@@ -823,99 +856,35 @@ class LogParseResultManager:
         if total == 0:
             return 0, []
 
-        # === 2. 判断是否需要分桶 ===
-        max_points = req.max_points
-        if total <= max_points or max_points == -1:
-            sql_str = f"""
-                SELECT 
-                    lpr.timestamp as time,
-                    lpr.total_latency,
-                    lpr.urma_total_latency,
-                    lpr.worker_query_meta_latency,
-                    lpr.sdk_process,
-                    lpr.sdk_rpc,
-                    lpr.local_worker_cost,
-                    lpr.local_worker_lock,
-                    lpr.remote_worker_cost,
-                    lpr.remote_worker_rpc,
-                    lpr.master_process,
-                    lpr.master_rpc_total
-                FROM log_parse_result_table lpr
-                LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
-                WHERE {where_sql}
-                ORDER BY lpr.timestamp ASC
-            """
-            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-            return total, rows
+        sample_field_map = {
+            "avg": "ave_",
+            "min": "min_",
+            "max": "max_",
+            "p95": "p95_",
+            "p99": "p99_",
+            "p9999": "p9999_",
+        }
+        sample_prefix = sample_field_map.get(req.sample_mode, "p99_")
 
-        # === 3. 查询时间范围，计算分桶步长（毫秒级精度） ===
-        # strftime('%f') 返回 SS.SSS，取小数部分需：CAST(strftime('%f', ts) * 1000 AS INTEGER) % 1000
-        range_sql = f"""
+        sql_str = f"""
             SELECT 
-                MIN(CAST(strftime('%s', lpr.timestamp) AS INTEGER) * 1000 + CAST(strftime('%f', lpr.timestamp) * 1000 AS INTEGER) % 1000) as min_ms,
-                MAX(CAST(strftime('%s', lpr.timestamp) AS INTEGER) * 1000 + CAST(strftime('%f', lpr.timestamp) * 1000 AS INTEGER) % 1000) as max_ms
-            FROM log_parse_result_table lpr
-            LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
+                time_bucket as time,
+                {sample_prefix}total_latency as total_latency,
+                {sample_prefix}urma_total_latency as urma_total_latency,
+                {sample_prefix}query_meta_latency as worker_query_meta_latency,
+                {sample_prefix}sdk_process as sdk_process,
+                {sample_prefix}sdk_rpc as sdk_rpc,
+                {sample_prefix}local_worker_cost as local_worker_cost,
+                {sample_prefix}local_worker_lock as local_worker_lock,
+                {sample_prefix}remote_worker_cost as remote_worker_cost,
+                {sample_prefix}remote_worker_rpc as remote_worker_rpc,
+                {sample_prefix}master_process as master_process,
+                {sample_prefix}master_rpc_total as master_rpc_total
+            FROM time_window_aggregated_table
             WHERE {where_sql}
+            ORDER BY time_bucket ASC
         """
-        range_rows = await AsyncSQLiteSingleton().execute_query(range_sql, params)
-        if not range_rows or range_rows[0]["min_ms"] is None:
-            return total, []
-
-        min_ms = float(range_rows[0]["min_ms"])
-        max_ms = float(range_rows[0]["max_ms"])
-        time_span_ms = max_ms - min_ms
-
-        if time_span_ms <= 0:
-            sql_str = f"""
-                SELECT 
-                    MIN(lpr.timestamp) as time,
-                    JSON_GROUP_ARRAY(lpr.total_latency) as total_latency_values,
-                    JSON_GROUP_ARRAY(lpr.urma_total_latency) as urma_total_latency_values,
-                    JSON_GROUP_ARRAY(lpr.worker_query_meta_latency) as worker_query_meta_latency_values,
-                    JSON_GROUP_ARRAY(lpr.sdk_process) as sdk_process_values,
-                    JSON_GROUP_ARRAY(lpr.sdk_rpc) as sdk_rpc_values,
-                    JSON_GROUP_ARRAY(lpr.local_worker_cost) as local_worker_cost_values,
-                    JSON_GROUP_ARRAY(lpr.local_worker_lock) as local_worker_lock_values,
-                    JSON_GROUP_ARRAY(lpr.remote_worker_cost) as remote_worker_cost_values,
-                    JSON_GROUP_ARRAY(lpr.remote_worker_rpc) as remote_worker_rpc_values,
-                    JSON_GROUP_ARRAY(lpr.master_process) as master_process_values,
-                    JSON_GROUP_ARRAY(lpr.master_rpc_total) as master_rpc_total_values
-                FROM log_parse_result_table lpr
-                LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
-                WHERE {where_sql}
-            """
-            rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-            return total, rows
-
-        bucket_step_ms = time_span_ms / max_points  # 动态步长（毫秒）
-
-        # === 4. 分桶聚合查询（毫秒级精度分桶） ===
-        agg_sql = f"""
-            SELECT 
-                MIN(lpr.timestamp) as time,
-                JSON_GROUP_ARRAY(lpr.total_latency) as total_latency_values,
-                JSON_GROUP_ARRAY(lpr.urma_total_latency) as urma_total_latency_values,
-                JSON_GROUP_ARRAY(lpr.worker_query_meta_latency) as worker_query_meta_latency_values,
-                JSON_GROUP_ARRAY(lpr.sdk_process) as sdk_process_values,
-                JSON_GROUP_ARRAY(lpr.sdk_rpc) as sdk_rpc_values,
-                JSON_GROUP_ARRAY(lpr.local_worker_cost) as local_worker_cost_values,
-                JSON_GROUP_ARRAY(lpr.local_worker_lock) as local_worker_lock_values,
-                JSON_GROUP_ARRAY(lpr.remote_worker_cost) as remote_worker_cost_values,
-                JSON_GROUP_ARRAY(lpr.remote_worker_rpc) as remote_worker_rpc_values,
-                JSON_GROUP_ARRAY(lpr.master_process) as master_process_values,
-                JSON_GROUP_ARRAY(lpr.master_rpc_total) as master_rpc_total_values
-            FROM log_parse_result_table lpr
-            LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
-            WHERE {where_sql}
-            GROUP BY CAST(
-                (CAST(strftime('%s', lpr.timestamp) AS INTEGER) * 1000 + CAST(strftime('%f', lpr.timestamp) * 1000 AS INTEGER) % 1000)
-                / :bucket_step_ms
-            AS INTEGER)
-            ORDER BY time ASC
-        """
-        params["bucket_step_ms"] = bucket_step_ms
-        rows = await AsyncSQLiteSingleton().execute_query(agg_sql, params)
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
         return total, rows
 
     @staticmethod

@@ -229,6 +229,8 @@ class ListTraceFailureEventResultRequest(BaseModel):
     status_codes: Optional[list[str]] = Field(
         default_factory=list, description="日志中包含的status_code"
     )
+    src_ip: Optional[str] = Field(default=None, description="源IP地址，用于过滤指定源IP的故障事件")
+    dst_ip: Optional[str] = Field(default=None, description="目的IP地址，用于过滤指定目的IP的故障事件")
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",

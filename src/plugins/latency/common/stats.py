@@ -15,7 +15,7 @@ def percentile(values: list[float], pct: float) -> float:
 
 def stats(values: list[float]) -> dict:
     if not values:
-        return dict(ave=None, min=None, max=None, p95=None, p99=None)
+        return dict(ave=None, min=None, max=None, p95=None, p99=None, p9999=None)
     sorted_values = sorted(values)
     return dict(
         ave=sum(values) / len(values),
@@ -23,4 +23,5 @@ def stats(values: list[float]) -> dict:
         max=sorted_values[-1],
         p95=percentile_from_sorted(sorted_values, 95),
         p99=percentile_from_sorted(sorted_values, 99),
+        p9999=percentile_from_sorted(sorted_values, 99.99),
     )

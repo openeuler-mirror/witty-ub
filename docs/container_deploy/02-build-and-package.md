@@ -76,10 +76,23 @@ bash build.sh --rpm --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub
 | **调试便捷性** | 源码在镜像中 | 源码不在镜像中 |
 | **适用场景** | 开发、测试 | 生产环境 |
 
-### 方法三：使用 docker compose 构建
+### 方法三：使用 docker compose 构建（开发调试）
+
+> **注意**：此方法适用于开发调试，需要先构建 base 镜像和前端代码。
+
+**前置条件**：
+1. 已构建 base 镜像：`docker build -f Dockerfile.base -t witty-ub-base:latest .`
+2. 已构建前端代码：在 `src/web` 目录执行 `npm run build-only`
+3. 当前使用 `default` builder（确保能访问本地镜像）：`docker buildx use default`
 
 ```bash
-# 完整构建
+# 切换到 default builder（确保能访问本地镜像）
+docker buildx use default
+
+# 完整构建（构建镜像并启动容器）
+docker compose up -d --build
+
+# 仅构建镜像（不启动容器）
 docker compose build
 
 # 使用 BuildKit 加速构建
@@ -89,13 +102,37 @@ DOCKER_BUILDKIT=1 docker compose build
 docker compose build --no-cache
 ```
 
+**适用场景**：
+- 开发调试时快速重建容器
+- 修改代码后快速验证
+- 不需要多架构支持
+
+**注意事项**：
+- docker-compose.yml 中配置了 `build` 字段，会直接使用 `Dockerfile` 构建
+- 需要确保 `witty-ub-base:latest` 本地镜像已存在
+- 需要确保 `src/web/dist` 前端构建目录已存在
+
 ### 方法四：使用纯 Docker 命令构建（低版本 Docker）
 
+> **注意**：此方法适用于不支持 docker compose 的低版本 Docker 环境。
+
+**前置条件**：
+1. 当前使用 `default` builder：`docker buildx use default`
+
 ```bash
+# 切换到 default builder（确保能访问本地镜像）
+docker buildx use default
+
 # 第一步：构建依赖基座镜像
 docker build -f Dockerfile.base -t witty-ub-base:latest .
 
-# 第二步：构建应用镜像（基于 base 镜像）
+# 第二步：构建前端代码（在本地环境执行，避免 QEMU 性能问题）
+cd src/web
+npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
+npm run build-only
+cd ../..
+
+# 第三步：构建应用镜像（基于 base 镜像）
 docker build -f Dockerfile -t witty-ub:latest .
 
 # 使用 BuildKit 加速构建
@@ -105,6 +142,16 @@ DOCKER_BUILDKIT=1 docker build -f Dockerfile -t witty-ub:latest .
 docker build -f Dockerfile.base -t witty-ub-base:latest --no-cache .
 docker build -f Dockerfile -t witty-ub:latest --no-cache .
 ```
+
+**适用场景**：
+- 低版本 Docker 环境（不支持 docker compose）
+- 需要精细控制构建过程
+- CI/CD 流水线集成
+
+**注意事项**：
+- 需要手动执行前端构建步骤
+- 需要确保 `witty-ub-base:latest` 本地镜像已存在
+- 构建完成后需要手动启动容器
 
 ### 配置构建参数（可选）
 

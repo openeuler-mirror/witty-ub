@@ -154,7 +154,7 @@ docker volume prune
 
 ### 6. OpenCode 服务异常
 
-**症状**: AI 诊断功能无法使用，提示 "bad file reference" 或 OpenCode 服务未启动
+**症状**: AI 诊断功能无法使用，提示 "bad file reference"、"Agent 处理消息时发生错误" 或 OpenCode 服务未启动
 
 **解决方案**:
 
@@ -168,16 +168,19 @@ ls ~/.config/opencode/
 # - ~/.config/opencode:/root/.config/opencode
 ```
 
-**问题 2: WITTY_DIR 环境变量未设置**
+**问题 2: 环境变量未设置**
 
 ```bash
 # 进入容器检查环境变量
-docker exec witty-ub env | grep WITTY_DIR
+docker exec witty-ub env | grep -E "(OPENCODE_CONFIG|WITTY_DIR|WITTY_UB_PLUGINS_DIR)"
 
-# 预期输出: WITTY_DIR=/var/witty-ub/config
+# 预期输出:
+# OPENCODE_CONFIG=/var/witty-ub/config/opencode.json
+# WITTY_DIR=/var/witty-ub/config
+# WITTY_UB_PLUGINS_DIR=/var/witty-ub
 
 # 如果未设置，检查 entrypoint.sh 是否正确设置
-docker exec witty-ub cat /var/witty-ub/entrypoint.sh | grep WITTY_DIR
+docker exec witty-ub cat /var/witty-ub/entrypoint.sh | grep -E "(OPENCODE_CONFIG|WITTY_DIR)"
 ```
 
 **问题 3: OpenCode 进程未启动**
@@ -187,10 +190,10 @@ docker exec witty-ub cat /var/witty-ub/entrypoint.sh | grep WITTY_DIR
 docker exec witty-ub ps aux | grep opencode
 
 # 检查 OpenCode 日志
-docker exec witty-ub cat /var/log/witty-ub/opencode.log
+docker exec witty-ub cat /var/log/witty-ub/opencode_server.log
 
 # 手动启动 OpenCode
-docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=/var/witty-ub/config/opencode.json /usr/bin/opencode serve --log-level DEBUG > /var/log/witty-ub/opencode.log 2>&1 &"
+docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=/var/witty-ub/config/opencode.json /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 > /var/log/witty-ub/opencode_server.log 2>&1 &"
 ```
 
 **问题 4: Agent 文件路径错误**
@@ -199,8 +202,34 @@ docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=
 # 检查 agent 文件是否存在
 docker exec witty-ub ls -la /var/witty-ub/config/agents/
 
-# 确保 agent 文件使用 {env:WITTY_DIR} 变量引用路径
-docker exec witty-ub cat /var/witty-ub/config/agents/witty-ub-diagnostician.md | head -5
+# 检查 opencode.json 配置文件中的路径是否正确（使用绝对路径）
+docker exec witty-ub cat /var/witty-ub/config/opencode.json | grep -A5 prompt
+
+# 预期输出:
+# "prompt": "{file:/var/witty-ub/config/agents/witty-ub-diagnostician.md}"
+```
+
+**问题 5: 配置文件中的路径使用了环境变量引用**
+
+当前配置文件使用**绝对路径**，如果仍然使用 `{env:WITTY_DIR}` 格式，可能会导致路径解析失败：
+
+```bash
+# 检查配置文件中是否使用了环境变量引用
+docker exec witty-ub cat /var/witty-ub/config/opencode.json | grep "{env:"
+
+# 如果存在，需要修改为绝对路径
+docker exec witty-ub sed -i 's/{env:WITTY_DIR}/\/var\/witty-ub\/config/g' /var/witty-ub/config/opencode.json
+docker exec witty-ub sed -i 's/{env:WITTY_UB_PLUGINS_DIR}/\/var\/witty-ub/g' /var/witty-ub/config/opencode.json
+```
+
+**问题 6: MCP 服务未启动**
+
+```bash
+# 检查 MCP 服务进程是否运行
+docker exec witty-ub ps aux | grep mcp_server
+
+# 检查 Latency 服务是否正常（MCP 依赖它）
+docker exec witty-ub curl http://localhost:9772/health_check
 ```
 
 ### 7. 依赖包找不到
@@ -435,8 +464,14 @@ find $BACKUP_DIR -name "*.tar.gz" -mtime +30 -delete
 |--------|--------|------|
 | PYTHONPATH | /var/witty-ub | Python 模块搜索路径 |
 | LOG_LEVEL | info | 日志级别 (debug/info/warning/error) |
-| WITTY_DIR | /var/witty-ub/config | OpenCode 配置文件路径引用变量 |
 | OPENCODE_CONFIG | /var/witty-ub/config/opencode.json | OpenCode 配置文件路径 |
+| WITTY_DIR | /var/witty-ub | OpenCode Agent 配置文件所在目录 |
+| WITTY_UB_PLUGINS_DIR | /var/witty-ub/src/plugins | Latency 插件目录 |
+
+**环境变量优先级**（从高到低）：
+1. `docker run -e` 命令行参数
+2. `docker-compose.yml` 中的 environment 字段
+3. `entrypoint.sh` 中的默认值（使用 `${VAR:-default}` 语法）
 
 ---
 
