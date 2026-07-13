@@ -55,9 +55,9 @@ type OpenCodeEvent = {
     status?: {
       type?: string
     }
-    error?: {
-      message?: string
-    }
+    error?: unknown
+    message?: string
+    data?: unknown
   }
 }
 
@@ -559,6 +559,26 @@ type OpenCodeHealthResult = {
   version?: string
 }
 
+type OpenCodeModel = {
+  id: string
+  providerID: string
+  name: string
+}
+
+type OpenCodeProvider = {
+  id: string
+  name: string
+  models: Record<string, OpenCodeModel>
+}
+
+type OpenCodeProviderResult = {
+  all: OpenCodeProvider[]
+  connected: string[]
+  default: Record<string, string>
+}
+
+type AgentView = 'login' | 'models' | 'providers' | 'new-models' | 'chat'
+
 type GetLogFileResult = {
   log_file?: LogFileModel | null
 }
@@ -569,10 +589,27 @@ type LogParseOptions = {
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const agentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(/\/$/, '')
+const defaultAgentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(
+  /\/$/,
+  '',
+)
 const agentName = 'witty-ub-diagnostician'
 const agentUserAbortMessage = '用户终止响应'
 const isAgentChatOpen = ref(false)
+const agentView = ref<AgentView>('login')
+const agentUsername = ref('')
+const agentPassword = ref('')
+const agentServerAddress = ref('')
+const agentApiBase = ref(defaultAgentApiBase)
+const agentAuthHeader = ref('')
+const agentProviders = ref<OpenCodeProviderResult | null>(null)
+const selectedAgentProvider = ref<OpenCodeProvider | null>(null)
+const selectedAgentModel = ref<OpenCodeModel | null>(null)
+const providerSearch = ref('')
+const modelSearch = ref('')
+const providerApiKey = ref('')
+const expandedProviderId = ref('')
+const isAgentAuthorizing = ref(false)
 const isAgentSending = ref(false)
 const isAgentAborting = ref(false)
 const agentChatInput = ref('')
@@ -582,11 +619,44 @@ const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('c
 const agentChatMessages = ref<AgentChatMessage[]>([])
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
 const isAgentConnectionUnavailable = computed(() => agentConnectionState.value !== 'connected')
+const connectedAgentModels = computed(() => {
+  const data = agentProviders.value
+  if (!data) return []
+  const connected = new Set(data.connected)
+  const query = modelSearch.value.trim().toLocaleLowerCase()
+  return data.all.flatMap((provider) =>
+    connected.has(provider.id)
+      ? Object.values(provider.models)
+          .filter(
+            (model) =>
+              !query ||
+              provider.name.toLocaleLowerCase().includes(query) ||
+              model.name.toLocaleLowerCase().includes(query),
+          )
+          .map((model) => ({ provider, model }))
+      : [],
+  )
+})
+const availableAgentProviders = computed(() => {
+  const data = agentProviders.value
+  if (!data) return []
+  const ids = new Set(Object.keys(data.default))
+  const query = providerSearch.value.trim().toLocaleLowerCase()
+  return data.all.filter(
+    (provider) =>
+      ids.has(provider.id) && (!query || provider.name.toLocaleLowerCase().includes(query)),
+  )
+})
+const newProviderModels = computed(() =>
+  selectedAgentProvider.value ? Object.values(selectedAgentProvider.value.models) : [],
+)
 const assistantMessageIds = new Set<string>()
-let agentEventSource: EventSource | null = null
+let agentEventController: AbortController | null = null
+let isAgentEventStreamConnected = false
 let agentLocalMessageSequence = 0
 let agentHealthCheckSequence = 0
 let agentRequestSequence = 0
+let agentEventStreamSequence = 0
 let shouldIgnoreNextAgentAbortError = false
 
 const nextAgentLocalMessageId = () => {
@@ -789,21 +859,30 @@ const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
   return []
 }
 
-const extractOpenCodeError = (payload: unknown, fallback: string) => {
+const extractOpenCodeError = (payload: unknown, fallback: string): string => {
+  if (typeof payload === 'string' && payload.trim()) return payload.trim()
   if (!payload || typeof payload !== 'object') return fallback
   const value = payload as {
     message?: string
-    error?: { message?: string }
-    data?: { message?: string }
+    error?: unknown
+    data?: unknown
+    cause?: unknown
   }
-  return value.error?.message || value.data?.message || value.message || fallback
+  return (
+    extractOpenCodeError(value.error, '') ||
+    extractOpenCodeError(value.data, '') ||
+    extractOpenCodeError(value.cause, '') ||
+    value.message ||
+    fallback
+  )
 }
 
 const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
-  const response = await fetch(`${agentApiBase}${path}`, {
+  const response = await fetch(`${agentApiBase.value}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(agentAuthHeader.value ? { Authorization: agentAuthHeader.value } : {}),
       ...init.headers,
     },
   })
@@ -812,6 +891,73 @@ const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
     throw new Error(extractOpenCodeError(payload, `Agent 服务请求失败：${response.status}`))
   }
   return payload as T
+}
+
+const normalizeAgentServerAddress = (address: string) => {
+  const value = address.trim().replace(/\/+$/, '')
+  if (!value) return defaultAgentApiBase
+  return /^https?:\/\//i.test(value) ? value : `http://${value}`
+}
+
+const getAgentRequestModelId = (provider: OpenCodeProvider, model: OpenCodeModel) => {
+  const providerPrefix = `${provider.id}/`
+  return model.id.startsWith(providerPrefix) ? model.id.slice(providerPrefix.length) : model.id
+}
+
+const loginAgent = async () => {
+  if (!agentUsername.value.trim() || !agentPassword.value) {
+    agentConnectionError.value = '请完整填写用户名和密码。'
+    return
+  }
+  agentConnectionError.value = ''
+  agentConnectionState.value = 'connecting'
+  agentApiBase.value = normalizeAgentServerAddress(agentServerAddress.value)
+  agentAuthHeader.value = `Basic ${btoa(
+    unescape(encodeURIComponent(`${agentUsername.value}:${agentPassword.value}`)),
+  )}`
+  try {
+    const health = await requestAgentApi<OpenCodeHealthResult>('/global/health')
+    if (!health?.healthy) throw new Error('OpenCode Server 健康检查未通过。')
+    agentProviders.value = await requestAgentApi<OpenCodeProviderResult>('/provider')
+    agentConnectionState.value = 'connected'
+    agentView.value = 'models'
+  } catch (error) {
+    agentConnectionState.value = 'disconnected'
+    agentConnectionError.value = error instanceof Error ? error.message : '登录失败。'
+  }
+}
+
+const chooseAgentModel = async (provider: OpenCodeProvider, model: OpenCodeModel) => {
+  selectedAgentProvider.value = provider
+  selectedAgentModel.value = { ...model, id: getAgentRequestModelId(provider, model) }
+  agentView.value = 'chat'
+  agentSessionId.value = ''
+  await scrollAgentChatToBottom()
+  ensureAgentSession().catch((error: unknown) => {
+    agentConnectionState.value = 'disconnected'
+    agentConnectionError.value = error instanceof Error ? error.message : '无法创建 Agent 会话。'
+  })
+}
+
+const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
+  if (!providerApiKey.value.trim() || isAgentAuthorizing.value) return
+  isAgentAuthorizing.value = true
+  agentConnectionError.value = ''
+  try {
+    await requestAgentApi<boolean>(`/auth/${encodeURIComponent(provider.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ type: 'api', key: providerApiKey.value.trim() }),
+    })
+    agentProviders.value = await requestAgentApi<OpenCodeProviderResult>('/provider')
+    selectedAgentProvider.value =
+      agentProviders.value.all.find((item) => item.id === provider.id) || provider
+    providerApiKey.value = ''
+    agentView.value = 'new-models'
+  } catch (error) {
+    agentConnectionError.value = error instanceof Error ? error.message : 'API key 认证失败。'
+  } finally {
+    isAgentAuthorizing.value = false
+  }
 }
 
 const checkAgentHealth = async () => {
@@ -931,38 +1077,104 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       agentConnectionError.value = ''
       return
     }
-    markAgentResponseFailed(properties?.error?.message || 'Agent 处理消息时发生错误。')
+    markAgentResponseFailed(extractOpenCodeError(properties?.error ?? properties, 'Agent 处理消息时发生错误。'))
   }
 }
 
-const connectAgentEvents = () =>
-  new Promise<void>((resolve, reject) => {
-    agentEventSource?.close()
-    agentConnectionState.value = 'connecting'
-    const source = new EventSource(`${agentApiBase}/event`)
-    agentEventSource = source
-    const timeoutId = window.setTimeout(() => {
-      source.close()
-      agentConnectionState.value = 'disconnected'
-      reject(new Error('连接 Agent 事件流超时。'))
-    }, 10000)
+const closeAgentEventStream = () => {
+  agentEventController?.abort()
+  agentEventController = null
+  isAgentEventStreamConnected = false
+  agentEventStreamSequence += 1
+}
 
-    source.onopen = () => {
-      window.clearTimeout(timeoutId)
-      agentConnectionError.value = ''
-      agentConnectionState.value = 'connected'
-      agentHealthCheckSequence += 1
-      resolve()
+const dispatchAgentEventStreamChunk = (chunk: string) => {
+  const data = chunk
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+    .join('\n')
+  if (!data) return
+  handleOpenCodeEvent(new MessageEvent('message', { data }))
+}
+
+const readAgentEventStream = async (
+  response: Response,
+  controller: AbortController,
+  streamSequence: number,
+) => {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('Agent 服务没有返回事件流。')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const chunks = buffer.split(/\r?\n\r?\n/)
+      buffer = chunks.pop() ?? ''
+      chunks.forEach(dispatchAgentEventStreamChunk)
     }
-    source.onmessage = handleOpenCodeEvent
-    source.onerror = () => {
-      window.clearTimeout(timeoutId)
-      if (source.readyState === EventSource.CLOSED) {
-        agentConnectionError.value = 'Agent 事件流连接已断开。'
-        agentConnectionState.value = 'disconnected'
-      }
+    buffer += decoder.decode()
+    if (buffer.trim()) dispatchAgentEventStreamChunk(buffer)
+
+    if (streamSequence === agentEventStreamSequence && !controller.signal.aborted) {
+      isAgentEventStreamConnected = false
+      agentConnectionError.value = 'Agent 事件流连接已断开。'
+      agentConnectionState.value = 'disconnected'
     }
-  })
+  } catch (error) {
+    if (streamSequence !== agentEventStreamSequence || controller.signal.aborted) return
+    isAgentEventStreamConnected = false
+    agentConnectionError.value =
+      error instanceof Error ? `Agent 事件流连接已断开：${error.message}` : 'Agent 事件流连接已断开。'
+    agentConnectionState.value = 'disconnected'
+  }
+}
+
+const connectAgentEvents = async () => {
+  closeAgentEventStream()
+  agentConnectionState.value = 'connecting'
+  const eventUrl = new URL(`${agentApiBase.value}/event`, window.location.href)
+  const controller = new AbortController()
+  const streamSequence = agentEventStreamSequence
+  agentEventController = controller
+  let timedOut = false
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, 10000)
+
+  try {
+    const response = await fetch(eventUrl.toString(), {
+      headers: {
+        Accept: 'text/event-stream',
+        ...(agentAuthHeader.value ? { Authorization: agentAuthHeader.value } : {}),
+      },
+      signal: controller.signal,
+    })
+    window.clearTimeout(timeoutId)
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null)
+      throw new Error(extractOpenCodeError(payload, `Agent 事件流连接失败：${response.status}`))
+    }
+    if (!response.body) throw new Error('Agent 服务没有返回事件流。')
+    agentConnectionError.value = ''
+    agentConnectionState.value = 'connected'
+    isAgentEventStreamConnected = true
+    agentHealthCheckSequence += 1
+    void readAgentEventStream(response, controller, streamSequence)
+  } catch (error) {
+    window.clearTimeout(timeoutId)
+    isAgentEventStreamConnected = false
+    agentConnectionState.value = 'disconnected'
+    if (timedOut) throw new Error('连接 Agent 事件流超时。')
+    throw error
+  }
+}
 
 const ensureAgentSession = async () => {
   if (!agentSessionId.value) {
@@ -973,7 +1185,7 @@ const ensureAgentSession = async () => {
     if (!session?.id) throw new Error('Agent 服务没有返回会话 ID。')
     agentSessionId.value = session.id
   }
-  if (!agentEventSource || agentEventSource.readyState === EventSource.CLOSED) {
+  if (!isAgentEventStreamConnected) {
     await connectAgentEvents()
   }
 }
@@ -982,11 +1194,6 @@ const toggleAgentChat = () => {
   isAgentChatOpen.value = !isAgentChatOpen.value
   if (isAgentChatOpen.value) {
     void scrollAgentChatToBottom()
-    ensureAgentSession().catch((error: unknown) => {
-      agentConnectionState.value = 'disconnected'
-      agentConnectionError.value =
-        error instanceof Error ? error.message : '无法连接到 Agent 服务。'
-    })
   }
 }
 
@@ -998,6 +1205,10 @@ const sendAgentMessage = async () => {
 
   const question = agentChatInput.value.trim()
   if (!question || isAgentAborting.value) return
+  if (!selectedAgentProvider.value || !selectedAgentModel.value) {
+    agentConnectionError.value = '请先选择一个模型。'
+    return
+  }
 
   shouldIgnoreNextAgentAbortError = false
   agentChatInput.value = ''
@@ -1036,6 +1247,13 @@ const sendAgentMessage = async () => {
         method: 'POST',
         body: JSON.stringify({
           agent: agentName,
+          model: {
+            providerID: selectedAgentProvider.value.id,
+            modelID: getAgentRequestModelId(
+              selectedAgentProvider.value,
+              selectedAgentModel.value,
+            ),
+          },
           parts: [
             { type: 'text', text: `${contextPrefix}${contextPrefix ? '\n\n' : ''}${question}` },
           ],
@@ -6971,16 +7189,6 @@ watch([selectedAssetId, activePage], () => {
   }
 })
 
-watch(
-  isAbnormalMonitorPage,
-  (isMonitorPage) => {
-    if (isMonitorPage) {
-      void checkAgentHealth()
-    }
-  },
-  { immediate: true },
-)
-
 watch(selectedLatencyScale, () => {
   if (latencyChartCenterTime.value !== null) {
     void loadLatencyChart()
@@ -7017,8 +7225,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
-  agentEventSource?.close()
-  agentEventSource = null
+  closeAgentEventStream()
   window.removeEventListener('resize', resizeLatencyCharts)
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
   latencyChartInstance?.dispose()
@@ -12198,6 +12405,15 @@ onBeforeUnmount(() => {
       aria-label="AI 故障诊断助手"
     >
       <header class="agent-chat-header">
+        <button
+          v-if="agentView !== 'login' && agentView !== 'models'"
+          class="agent-auth-back"
+          type="button"
+          aria-label="返回上一级"
+          @click="agentView = agentView === 'chat' || agentView === 'providers' ? 'models' : 'providers'"
+        >
+          ‹
+        </button>
         <div class="agent-chat-heading">
           <span
             class="agent-chat-status"
@@ -12206,12 +12422,142 @@ onBeforeUnmount(() => {
           ></span>
           <div>
             <strong>AI 故障诊断助手</strong>
-            <span>时延与通断故障分析</span>
+            <span v-if="agentView === 'chat' && selectedAgentModel">
+              {{ selectedAgentProvider?.name }} · {{ selectedAgentModel.name }}
+            </span>
+            <span v-else>时延与通断故障分析</span>
           </div>
         </div>
       </header>
 
-      <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
+      <main v-if="agentView === 'login'" class="agent-auth-page">
+        <div class="agent-auth-intro">
+          <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
+          <h3>连接 OpenCode</h3>
+          <p>请输入 OpenCode Server 的登录信息。</p>
+        </div>
+        <form class="agent-auth-form" @submit.prevent="loginAgent">
+          <label>
+            <span>用户名</span>
+            <input v-model.trim="agentUsername" autocomplete="username" placeholder="请输入用户名" />
+          </label>
+          <label>
+            <span>密码</span>
+            <input
+              v-model="agentPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="请输入密码"
+            />
+          </label>
+          <label>
+            <span>URL（可选）</span>
+            <input v-model.trim="agentServerAddress" placeholder="默认为空，连接到远程服务器时填写 IP:端口号" />
+          </label>
+          <button class="agent-auth-primary" type="submit">连接</button>
+        </form>
+      </main>
+
+      <main v-else-if="agentView === 'models'" class="agent-auth-page agent-selection-page">
+        <div class="agent-selection-title">
+          <div>
+            <h3>选择大模型</h3>
+            <p>选择一个已连接的模型开始诊断。</p>
+          </div>
+          <button class="agent-add-provider" type="button" @click="agentView = 'providers'">
+            ＋ 新增
+          </button>
+        </div>
+        <input v-model.trim="modelSearch" class="agent-search" placeholder="搜索提供商或模型" />
+        <div class="agent-option-list">
+          <button
+            v-for="item in connectedAgentModels"
+            :key="`${item.provider.id}:${item.model.id}`"
+            class="agent-model-option"
+            type="button"
+            @click="chooseAgentModel(item.provider, item.model)"
+          >
+            <span>{{ item.model.name }}</span>
+            <small>{{ item.provider.name }}</small>
+          </button>
+          <p v-if="connectedAgentModels.length === 0" class="agent-empty-options">
+            没有找到已连接的模型
+          </p>
+        </div>
+      </main>
+
+      <main v-else-if="agentView === 'providers'" class="agent-auth-page agent-selection-page">
+        <div class="agent-selection-title">
+          <div>
+            <h3>添加提供商</h3>
+            <p>选择提供商并输入 API key。</p>
+          </div>
+        </div>
+        <input v-model.trim="providerSearch" class="agent-search" placeholder="搜索提供商" />
+        <div class="agent-option-list">
+          <section
+            v-for="provider in availableAgentProviders"
+            :key="provider.id"
+            class="agent-provider-option"
+          >
+            <button
+              type="button"
+              @click="
+                expandedProviderId = expandedProviderId === provider.id ? '' : provider.id;
+                providerApiKey = ''
+              "
+            >
+              <span>{{ provider.name }}</span><span>›</span>
+            </button>
+            <form
+              v-if="expandedProviderId === provider.id"
+              class="agent-api-key-form"
+              @submit.prevent="authorizeAgentProvider(provider)"
+            >
+              <input
+                v-model="providerApiKey"
+                type="password"
+                autocomplete="off"
+                :placeholder="`${provider.name} API key`"
+              />
+              <button
+                type="submit"
+                :disabled="!providerApiKey.trim() || isAgentAuthorizing"
+              >
+                {{ isAgentAuthorizing ? '认证中' : '确认' }}
+              </button>
+            </form>
+          </section>
+        </div>
+      </main>
+
+      <main v-else-if="agentView === 'new-models'" class="agent-auth-page agent-selection-page">
+        <div class="agent-selection-title">
+          <div>
+            <h3>{{ selectedAgentProvider?.name }}</h3>
+            <p>API key 已连接，请选择模型。</p>
+          </div>
+        </div>
+        <div class="agent-option-list">
+          <button
+            v-for="model in newProviderModels"
+            :key="model.id"
+            class="agent-model-option"
+            type="button"
+            @click="selectedAgentProvider && chooseAgentModel(selectedAgentProvider, model)"
+          >
+            <span>{{ model.name }}</span>
+            <small>{{ selectedAgentProvider?.name }}</small>
+          </button>
+        </div>
+      </main>
+
+      <div
+        v-if="agentView === 'chat'"
+        ref="agentChatMessagesRef"
+        class="agent-chat-messages"
+        aria-live="polite"
+      >
         <div v-if="agentChatMessages.length === 0" class="agent-chat-welcome">
           <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
           <strong>你好，我是故障诊断助手</strong>
@@ -12268,7 +12614,7 @@ onBeforeUnmount(() => {
         {{ agentConnectionError }}
       </div>
 
-      <form class="agent-chat-composer" @submit.prevent="sendAgentMessage">
+      <form v-if="agentView === 'chat'" class="agent-chat-composer" @submit.prevent="sendAgentMessage">
         <textarea
           v-model="agentChatInput"
           rows="1"

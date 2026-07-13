@@ -18,6 +18,15 @@ readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/config/opencode.json"
 readonly REPO_ROOT="$(cd "${PLUGINS_DIR}/../.." && pwd)"
 readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/config/opencode.json"
 
+# OpenCode uses these environment variables to protect every server endpoint
+# with HTTP Basic authentication. The password must be supplied explicitly.
+export OPENCODE_SERVER_USERNAME="${OPENCODE_SERVER_USERNAME:-opencode}"
+if [[ -z "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    echo "[ERROR] OPENCODE_SERVER_PASSWORD must be set before starting OpenCode." >&2
+    exit 1
+fi
+export OPENCODE_SERVER_PASSWORD
+
 # Prefer the deployed configuration, then fall back to config under the
 # directory from which this script was invoked.
 if [[ -f "${DEPLOYED_OPENCODE_CONFIG}" ]]; then
@@ -60,6 +69,7 @@ export WITTY_UB_PLUGINS_DIR="${PLUGINS_DIR}"
 # Start the OpenCode service in the background.
 echo "[INFO] Using OpenCode configuration: ${OPENCODE_CONFIG}"
 echo "[INFO] Starting OpenCode server at http://127.0.0.1:4096 ..."
+echo "[INFO] Basic authentication enabled for user '${OPENCODE_SERVER_USERNAME}'."
 nohup "${COMMAND_NAME}" serve --hostname 127.0.0.1 --port 4096 \
     > "${LATENCY_PROJECT_DIR}/opencode_server.log" 2>&1 &
 OPENCODE_PID=$!
