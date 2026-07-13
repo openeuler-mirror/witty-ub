@@ -147,6 +147,189 @@ button {
   gap: 11px;
 }
 
+.agent-auth-back {
+  width: 34px;
+  height: 34px;
+  margin-right: 10px;
+  cursor: pointer;
+  border-radius: 10px;
+  background: #eaf1ff;
+  color: #315ecf;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.agent-auth-page {
+  min-height: 0;
+  flex: 1;
+  padding: 28px;
+  overflow-y: auto;
+}
+
+.agent-auth-intro {
+  margin: 8px 0 24px;
+  text-align: center;
+}
+
+.agent-auth-intro .agent-chat-welcome-icon {
+  margin: 0 auto 12px;
+}
+
+.agent-auth-intro h3,
+.agent-selection-title h3 {
+  margin: 0;
+  color: #172554;
+  font-size: 1.1rem;
+}
+
+.agent-auth-intro p,
+.agent-selection-title p {
+  margin: 7px 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.agent-auth-form {
+  display: grid;
+  max-width: 390px;
+  margin: 0 auto;
+  gap: 16px;
+}
+
+.agent-auth-form label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.agent-auth-form input,
+.agent-search,
+.agent-api-key-form input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 11px;
+  outline: none;
+  background: #fff;
+  color: #1e293b;
+}
+
+.agent-auth-form input:focus,
+.agent-search:focus,
+.agent-api-key-form input:focus {
+  border-color: #739cff;
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.12);
+}
+
+.agent-auth-primary,
+.agent-add-provider {
+  cursor: pointer;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #4f8cff, #4f46e5);
+  color: #fff;
+  font-weight: 700;
+}
+
+.agent-auth-primary {
+  height: 43px;
+  margin-top: 4px;
+}
+
+.agent-selection-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-selection-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.agent-add-provider {
+  padding: 9px 13px;
+}
+
+.agent-search {
+  flex: 0 0 42px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+}
+
+.agent-option-list {
+  display: grid;
+  gap: 9px;
+  overflow-y: auto;
+}
+
+.agent-model-option,
+.agent-provider-option {
+  border: 1px solid #e4eaf3;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.agent-model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 15px;
+  cursor: pointer;
+  color: #24324a;
+  text-align: left;
+}
+
+.agent-model-option:hover,
+.agent-provider-option:hover {
+  border-color: #b9cdfb;
+  background: #f8fbff;
+}
+
+.agent-model-option small {
+  color: #7c8aa0;
+}
+
+.agent-provider-option > button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 15px;
+  cursor: pointer;
+  background: transparent;
+  color: #24324a;
+  text-align: left;
+}
+
+.agent-api-key-form {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.agent-api-key-form button {
+  min-width: 66px;
+  cursor: pointer;
+  border-radius: 9px;
+  background: #4f6fe8;
+  color: #fff;
+}
+
+.agent-api-key-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agent-empty-options {
+  padding: 30px 0;
+  color: #94a3b8;
+  text-align: center;
+}
+
 .agent-chat-heading > div {
   display: flex;
   flex-direction: column;
