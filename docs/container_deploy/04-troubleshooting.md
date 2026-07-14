@@ -115,6 +115,68 @@ docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
 docker exec witty-ub curl http://localhost:9772/health_check
 ```
 
+#### Latency Plugin 报 `can't start new thread`
+
+**症状**: `latency_server.log` 中出现以下错误，Latency Plugin 随后退出:
+
+```text
+RuntimeError: can't start new thread
+ERROR: Application startup failed. Exiting.
+```
+
+先查看服务日志:
+
+```bash
+docker exec witty-ub cat /var/log/witty-ub/latency_server.log
+```
+
+如果容器的进程数、PID 限制和内存均正常，可以使用以下命令确认 Python 是否能在容器内创建线程:
+
+```bash
+docker exec witty-ub \
+  /var/witty-ub/latency/.venv/bin/python \
+  -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
+```
+
+如果该命令同样报 `RuntimeError: can't start new thread`，可能是宿主机的 Docker、runc 或 libseccomp 版本较旧，默认 seccomp 策略拦截了容器内 glibc 创建线程所使用的 `clone3` 系统调用。
+
+可以启动临时容器进行验证:
+
+```bash
+IMAGE=$(docker inspect witty-ub --format '{{.Config.Image}}')
+
+docker run --rm \
+  --security-opt seccomp=unconfined \
+  --entrypoint /var/witty-ub/latency/.venv/bin/python \
+  "$IMAGE" \
+  -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
+```
+
+如果临时容器输出 `thread ok`，可以确认是 seccomp 兼容问题。重新创建 witty-ub 容器时，在原有 `docker run` 参数中加入:
+
+```bash
+--security-opt seccomp=unconfined
+```
+
+使用 Docker Compose 时，在 witty-ub 服务中加入:
+
+```yaml
+services:
+  witty-ub:
+    security_opt:
+      - seccomp=unconfined
+```
+
+然后重新创建容器:
+
+```bash
+docker compose down
+docker compose up -d
+docker logs -f witty-ub
+```
+
+> **安全提示**: `seccomp=unconfined` 会关闭容器的默认 seccomp 系统调用过滤，仅建议用作问题验证或临时兼容方案。长期建议升级宿主机的 Docker Engine、runc 和 libseccomp，并在升级后移除此参数。
+
 ### 4. Nginx 无法访问
 
 **症状**: Web UI 无法打开
