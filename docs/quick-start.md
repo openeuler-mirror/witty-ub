@@ -16,7 +16,7 @@
 2. 快速部署指导：
    - 获取witty-ub镜像
         ```bash
-        docker pull openeuler/witty-ub:latest
+        docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
         ```
     - 运行witty-ub容器，执行如下命令会启动一个witty-ub容器，可以按需进行如下配置：
         - 端口映射：映射主机32412端口到容器8080端口，主机端口可以按需修改为主机没有被占用的其他端口号，容器端口不能修改默认8080端口
