@@ -62,3 +62,6 @@ class CorrelationResult:
     # (pod_ip, trace_id) → list[URMA]。构建结果时直接查此索引，避免为
     # 每条 SDK 复制一份 sdk_idx → list 映射并额外遍历千万条 SDK。
     sdk_urma_index: dict = field(default_factory=dict)
+    # worker_index -> set[pod_ip]。预构建的 worker 索引到所有关联 pod_ip 的映射，
+    # 用于在构建结果时高效收集整条 trace 涉及的所有 pod_ip。
+    worker_pod_ips_map: dict = field(default_factory=dict)
