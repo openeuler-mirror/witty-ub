@@ -91,8 +91,12 @@
     * opencode配置：如需进行`model`、`baseurl`、`api-key`等参数配置，具体配置示例可以[参考](./container_deploy/03-pull-and-run.md#配置opencode)，或者查看opencode[官方说明](https://opencode.ai/docs/zh-cn/providers/)
 
 5. 启动opencode后台服务并进行相关配置：
-    ```
-    bash /var/witty-ub/deploy/run_opencode.sh
+    如果需要使用远程部署的OpenCode Server，跳过此步骤，直接在前端配置中填写远程OpenCode Server的地址和端口即可，参考[witty-ub超节点故障智能监控诊断平台操作流程](./witty-ub超节点故障智能监控诊断平台使用指导.md#操作流程)
+
+    ```bash
+    export OPENCODE_SERVER_PASSWORD=<your-password>
+    export OPENCODE_SERVER_USERNAME=<your-username> # 可选，默认为 opencode
+    bash /var/witty-ub/latency/deploy/run_opencode.sh
     ```
 
 6. 检查witty-ub服务状态：
@@ -146,9 +150,15 @@
     * opencode配置：如需进行`model`、`baseurl`、`api-key`等参数配置，具体配置示例可以[参考](./container_deploy/03-pull-and-run.md#配置opencode)，或者查看opencode[官方说明](https://opencode.ai/docs/zh-cn/providers/)
 
 7. 启动opencode后台服务：
+    如果需要使用远程部署的OpenCode Server，跳过此步骤，直接在前端配置中填写远程OpenCode Server的地址和端口即可，参考[witty-ub超节点故障智能监控诊断平台操作流程](./witty-ub超节点故障智能监控诊断平台使用指导.md#操作流程)
+
+    ```bash
+    export OPENCODE_SERVER_PASSWORD=<your-password>
+    export OPENCODE_SERVER_USERNAME=<your-username> # 可选，默认为 opencode
+    cd src/plugins/latency/deploy
+    bash run_opencode.sh
     ```
-    bash src/plugins/latency/deploy/run_opencode.sh
-    ```
+
 8. 启动后端服务
 
     ```bash
