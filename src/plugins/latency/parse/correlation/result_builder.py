@@ -99,14 +99,27 @@ class ParseResultBuilder:
         return round(value, 3) if value is not None else None
 
     @staticmethod
-    def _collect_pod_ips(sdk_pod_ip: Optional[str], worker_pod_ip: Optional[str]) -> Optional[list[str]]:
-        """收集所有涉及的Pod IP地址"""
-        pod_ips = []
+    def _collect_pod_ips(
+        sdk_pod_ip: Optional[str],
+        worker_pod_ip: Optional[str],
+        worker_pod_ips: Optional[set[str]] = None,
+    ) -> Optional[list[str]]:
+        """收集所有涉及的Pod IP地址
+        
+        Args:
+            sdk_pod_ip: SDK侧的pod_ip
+            worker_pod_ip: Worker Access侧的pod_ip
+            worker_pod_ips: 预构建的worker关联的所有pod_ip集合(包括URMA/RemotePull/Link/QueryMeta/Timed等)
+        """
+        pod_ips = set()
         if sdk_pod_ip:
-            pod_ips.append(sdk_pod_ip)
-        if worker_pod_ip and worker_pod_ip != sdk_pod_ip:
-            pod_ips.append(worker_pod_ip)
-        return pod_ips if pod_ips else None
+            pod_ips.add(sdk_pod_ip)
+        if worker_pod_ip:
+            pod_ips.add(worker_pod_ip)
+        # 合并所有关联条目的pod_ip
+        if worker_pod_ips:
+            pod_ips.update(worker_pod_ips)
+        return list(pod_ips) if pod_ips else None
 
     def _first_elapsed_us(self, entry_list: Optional[dict[int, list] | list], key: Optional[int]) -> Optional[float]:
         values = entry_list.get(key, []) if isinstance(entry_list, dict) else entry_list
@@ -315,7 +328,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    self._collect_pod_ips(sdk[T_POD_IP], None),
+                    self._collect_pod_ips(sdk[T_POD_IP], None, None),
                     src_ip,
                     dst_ip,
                     sdk[T_CLUSTER_NAME],
@@ -355,7 +368,7 @@ class ParseResultBuilder:
                     log_id,
                     "",
                     "",
-                    self._collect_pod_ips(sdk[T_POD_IP], None),
+                    self._collect_pod_ips(sdk[T_POD_IP], None, None),
                     sdk[T_CLUSTER_NAME],
                     remark if is_anomalous else None,
                     sdk[3],
@@ -577,6 +590,9 @@ class ParseResultBuilder:
 
             # LogParseResultDataclass 的字段顺序由回归测试锁定。位置参数避免
             # 千万次构造时重复进行约 30 个关键字参数匹配，实测构造快约 2 倍。
+            # 获取该 worker 关联的所有 pod_ip
+            w_pod_ips = self.correlated.worker_pod_ips_map.get(w_idx) if w_idx is not None else None
+            
             if w_idx is None:
                 results[i] = sparse_result_type(
                     total_latency,
@@ -585,7 +601,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip),
+                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip, w_pod_ips),
                     w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
                     remark if is_anomalous else None,
                     sdk[3],  # data_size
@@ -622,7 +638,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip),
+                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip, w_pod_ips),
                     w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
                     remark if is_anomalous else None,
                     sdk[3],  # data_size
@@ -642,7 +658,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip),
+                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip, w_pod_ips),
                     src_ip,
                     dst_ip,
                     w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
@@ -704,6 +720,10 @@ class ParseResultBuilder:
 
             # 优先使用传入的 log_file_id（数据库中的日志文件ID），其次使用 entry.log_id，最后使用 log_dir
             log_id = self.log_file_id or w_log_id or self.log_dir
+            
+            # 获取该 worker 关联的所有 pod_ip
+            w_pod_ips = self.correlated.worker_pod_ips_map.get(i)
+            all_pod_ips = self._collect_pod_ips(None, w_pod_ip, w_pod_ips)
 
             # 使用 LogParseResultDataclass 替代 LogParseResultModel.model_construct
             results.append(LogParseResultDataclass(
@@ -712,7 +732,7 @@ class ParseResultBuilder:
                 timestamp=w_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if w_timestamp else None,
                 src_ip=urma_info["src_ip"],
                 dst_ip=urma_info["dst_ip"],
-                pod_ips=[w_pod_ip] if w_pod_ip else None,
+                pod_ips=all_pod_ips,
                 cluster_name=w_cluster_name,
                 host=None,
                 total_latency=self._format_latency(w_elapsed_us / 1000),

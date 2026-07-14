@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 T_ELAPSED_US = TupleField.ELAPSED_US
 T_TRACE_ID = TupleField.TRACE_ID
 T_ENTRY_TYPE = TupleField.ENTRY_TYPE
+T_POD_IP = TupleField.POD_IP
 
 
 def _group_by(entries, key_fn, filter_fn=None) -> dict:
@@ -443,6 +444,107 @@ class LogCorrelator:
             entries.extend(parsed.get(label, []))
         return entries
 
+    def _build_worker_pod_ips_map(
+        self,
+        worker_indices: set[int] | None,
+        worker_urma_map: dict,
+        worker_remote_pull_map: dict,
+        worker_link_map: dict,
+        worker_query_meta_map: dict,
+        worker_sdk_process_map: dict,
+        worker_sdk_rpc_map: dict,
+        worker_local_worker_cost_map: dict,
+        worker_local_worker_lock_map: dict,
+        worker_remote_worker_cost_map: dict,
+        worker_remote_worker_rpc_map: dict,
+        worker_master_process_map: dict,
+        worker_master_rpc_map: dict,
+    ) -> dict[int, set[str]]:
+        """为每个 worker_index 收集所有关联条目的 pod_ip。
+        
+        返回: worker_index -> set[pod_ip]
+        """
+        im = self.index_manager
+        worker_pod_ips: dict[int, set[str]] = {}
+        
+        # 辅助函数:从 entry 中提取 pod_ip
+        def get_pod_ip(entry) -> str | None:
+            if isinstance(entry, tuple):
+                return entry[T_POD_IP]
+            return entry.pod_ip
+        
+        # 遍历所有 worker_indices
+        for i, w in im.iter_worker_items(worker_indices):
+            pod_ips = set()
+            
+            # Worker Access 自身的 pod_ip
+            w_pod_ip = w[T_POD_IP] if isinstance(w, tuple) else w.pod_ip
+            if w_pod_ip:
+                pod_ips.add(w_pod_ip)
+            
+            # URMA 条目
+            for entry in worker_urma_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            
+            # Remote Pull 条目
+            for entry in worker_remote_pull_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            
+            # Link 条目
+            for entry in worker_link_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            
+            # Query Meta 条目
+            for entry in worker_query_meta_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            
+            # Timed 条目 (SDK Process, SDK RPC, Local Worker Cost, etc.)
+            for entry in worker_sdk_process_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_sdk_rpc_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_local_worker_cost_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_local_worker_lock_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_remote_worker_cost_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_remote_worker_rpc_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_master_process_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            for entry in worker_master_rpc_map.get(i, []):
+                pod_ip = get_pod_ip(entry)
+                if pod_ip:
+                    pod_ips.add(pod_ip)
+            
+            if pod_ips:
+                worker_pod_ips[i] = pod_ips
+        
+        return worker_pod_ips
+
     def _timed_stage(self, stage_name: str, func):
         start = time.perf_counter()
         result = func()
@@ -522,6 +624,26 @@ class LogCorrelator:
             ).correlate(worker_indices),
         )
 
+        # 预构建 worker_index -> set[pod_ip] 索引，用于结果构建时高效收集所有关联 pod_ip
+        worker_pod_ips_map = self._timed_stage(
+            "worker_pod_ips",
+            lambda: self._build_worker_pod_ips_map(
+                worker_indices,
+                worker_urma_map,
+                worker_remote_pull_map,
+                worker_link_map,
+                worker_query_meta_map,
+                worker_sdk_process_map,
+                worker_sdk_rpc_map,
+                worker_local_worker_cost_map,
+                worker_local_worker_lock_map,
+                worker_remote_worker_cost_map,
+                worker_remote_worker_rpc_map,
+                worker_master_process_map,
+                worker_master_rpc_map,
+            ),
+        )
+
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,
             sdk_urma_index=im.urma_by_trace,
@@ -540,4 +662,5 @@ class LogCorrelator:
             worker_master_rpc_map=worker_master_rpc_map,
             worker_idx_map=worker_idx_map,
             urma_empty_reasons=urma_empty_reasons,
+            worker_pod_ips_map=worker_pod_ips_map,
         )
