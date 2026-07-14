@@ -557,13 +557,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 return False
-
-            if "No files matching" in result.stdout or "No files matching" in result.stderr:
-                logger.error(f"定界工具未找到任何日志文件, stdout: {result.stdout}, stderr: {result.stderr}")
-                await TaskManager.update_task(
-                    task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
-                )
-                return False
             
             logger.info(f"定界工具运行成功: {result.stdout}")
             await BaseWorker.report(task.id, "定界工具运行完成", 40.0)

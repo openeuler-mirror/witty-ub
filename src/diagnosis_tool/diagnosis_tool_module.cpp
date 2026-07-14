@@ -634,16 +634,6 @@ RackResult DiagnosisToolModule::MergeFailureModeByTraceId()
             }
         }
     }
-    for (const auto &[traceId, failureModeIds] : traceIdToFailureModeIds_) {
-        std::cout << "[" << traceId << "]: ";
-        for (int i = 0; i < failureModeIds.size(); i++) {
-            std::cout << failureModeIds[i];
-            if (i != failureModeIds.size() - 1) {
-                std::cout << " -> ";
-            }
-        }
-        std::cout << std::endl;
-    }
     return RACK_OK;
 }
 
