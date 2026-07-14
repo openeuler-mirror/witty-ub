@@ -577,6 +577,21 @@ class LogParseResultManager:
         return success
 
     @staticmethod
+    async def list_anomalous_trace_ids_by_log_id(log_id: str) -> set[str]:
+        """查询指定日志中所有异常解析结果的 trace_id。"""
+        sql_str = """
+            SELECT DISTINCT trace_id
+            FROM log_parse_result_table
+            WHERE log_id = :log_id
+              AND existed_status = 1
+              AND is_anomalous = 1
+              AND trace_id IS NOT NULL
+              AND trace_id != ''
+        """
+        rows = await AsyncSQLiteSingleton().execute_query(sql_str, {"log_id": log_id})
+        return {row["trace_id"].strip() for row in rows if row["trace_id"].strip()}
+
+    @staticmethod
     async def list_log_parse_results(
         req: ListLogParseResultRequest,
     ) -> tuple[int, list[LogParseResultModel]]:

@@ -1284,26 +1284,6 @@ class KVCacheLogParseWorker(BaseWorker):
                 ),
                 t_store,
             )
-
-            if log_file:
-                t_context_start = time.perf_counter()
-                context_log_count = await KVCacheLogParseWorker.store_trace_context_logs(
-                    log_id=task.op_id,
-                    log_dir=log_dir or log_file.file_path,
-                    list_log_parse_results=list_log_parse_results,
-                )
-                t_context = time.perf_counter() - t_context_start
-                if context_log_count:
-                    await BaseWorker.report(
-                        task.id,
-                        f"Trace context logs stored: {context_log_count}",
-                        85.0,
-                    )
-                await BaseWorker.report(
-                    task.id,
-                    f"[perf][trace_context.summary] rows={context_log_count}, time={t_context:.3f}s",
-                    t_context,
-                )
             
             if not stored:
                 logger.warning(f"Task {task_id} store partially failed, still marking as successful")
