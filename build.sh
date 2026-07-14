@@ -88,7 +88,10 @@ create_builder() {
 
 if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
     create_builder
-elif [ "$PLATFORM" != "local" ]; then
+elif [ "$PLATFORM" = "local" ]; then
+    echo "Using default builder for local build (can access local images)"
+    docker buildx use default
+else
     echo "Using default builder for single-platform build (can access local images)"
     docker buildx use default
 fi

@@ -132,7 +132,7 @@ type LogParseResultModel = {
   host?: string | null
   src_ip?: string | null
   dst_ip?: string | null
-  pod_ip?: string | null
+  pod_ips?: string[] | null
   pod_id?: string | null
   pod_name?: string | null
   log_level?: string | null
@@ -3822,7 +3822,13 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       statusReason: getLogDisplayReason(record),
       time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
       traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
-      podIp: getRecordString(record, ['pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']),
+      podIp: (() => {
+        const podIps = record['pod_ips'];
+        if (Array.isArray(podIps)) {
+          return podIps.join('<br>');
+        }
+        return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']);
+      })(),
       operation: normalizeTraceOperation(
         getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
       ),
@@ -4062,7 +4068,13 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
     level,
     filename: logFile,
-    podIp: getRecordString(record, ['pod_ip', 'pod_name', 'pod_id', 'podId', 'pod']),
+    podIp: (() => {
+      const podIps = record['pod_ips'];
+      if (Array.isArray(podIps)) {
+        return podIps.join('<br>');
+      }
+      return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_name', 'pod_id', 'podId', 'pod']);
+    })(),
     pidTid: pid || tid ? `${pid || '-'}:${tid || '-'}` : getRecordString(record, ['pid_tid'], '-'),
     traceId: getRecordString(record, ['trace_id', 'traceId']),
     clusterName: getRecordString(record, ['cluster_name', 'clusterName', 'cluster'], '-'),
@@ -5874,7 +5886,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     statusReason: getLogDisplayReason(record),
     time: result.timestamp ?? result.created_at ?? '-',
     traceId: result.trace_id ?? '-',
-    podIp: result.pod_ip ?? '-',
+    podIp: Array.isArray(result.pod_ips) ? result.pod_ips.join('<br>') : (result.pod_ips ?? '-'),
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
@@ -8586,7 +8598,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
                         <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                        <div class="aggregate-cell">{{ row.podIp }}</div>
+                        <div class="aggregate-cell" v-html="row.podIp"></div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
                         <div class="aggregate-cell">{{ row.host }}</div>
@@ -10877,7 +10889,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="aggregate-cell">{{ row.time }}</div>
                       <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                      <div class="aggregate-cell">{{ row.podIp }}</div>
+                      <div class="aggregate-cell" v-html="row.podIp"></div>
                       <div class="aggregate-cell">{{ row.operation }}</div>
                       <div class="aggregate-cell">{{ row.clusterName }}</div>
                       <div class="aggregate-cell">{{ row.host }}</div>

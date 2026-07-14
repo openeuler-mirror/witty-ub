@@ -16,9 +16,9 @@ echo "[OK] Nginx started on port 8080"
 # Start OpenCode server first
 echo "[2/4] Starting OpenCode server..."
 cd /var/witty-ub/latency
-export OPENCODE_CONFIG="/var/witty-ub/config/opencode.json"
-export WITTY_UB_PLUGINS_DIR="/var/witty-ub"
-export WITTY_DIR="/var/witty-ub/config"
+export OPENCODE_CONFIG="${OPENCODE_CONFIG:-/var/witty-ub/config/opencode.json}"
+export WITTY_UB_PLUGINS_DIR="${WITTY_UB_PLUGINS_DIR:-/var/witty-ub/src/plugins}"
+export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
 nohup /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 \
     > /var/log/witty-ub/opencode_server.log 2>&1 &
 OPENCODE_PID=$!

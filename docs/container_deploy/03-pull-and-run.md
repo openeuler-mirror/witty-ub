@@ -66,6 +66,8 @@ witty-ub    latest    abc123def456    5 minutes ago    1.81GB
 | `-p 32412:8080` | 端口映射（宿主机:容器） |
 | `-v /host/path:/container/path` | 挂载宿主机目录 |
 | `--restart always` | 自动重启 |
+| `-e OPENCODE_SERVER_USERNAME=username` | OpenCode 服务器用户名 |
+| `-e OPENCODE_SERVER_PASSWORD=password` | OpenCode 服务器密码(必须) |
 
 **说明：**
 - `/host/path:/container/path:ro` 表示只读挂载，容器只能读取日志文件，不能写入，在容器中输入'/container/path/'等价于访问'/host/path/'目录。
@@ -101,6 +103,8 @@ services:
     environment:
       - PYTHONPATH=/var/witty-ub
       - LOG_LEVEL=info
+      - OPENCODE_SERVER_USERNAME=username
+      - OPENCODE_SERVER_PASSWORD=password
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -166,6 +170,8 @@ docker run -d \
   -v ~/.config/opencode:/root/.config/opencode \
   -e PYTHONPATH=/var/witty-ub \
   -e LOG_LEVEL=info \
+  -e OPENCODE_SERVER_USERNAME=username \
+  -e OPENCODE_SERVER_PASSWORD=password \
   --health-cmd="curl -f http://localhost:9772/health_check" \
   --health-interval=30s \
   --health-timeout=10s \
@@ -232,8 +238,6 @@ docker run -d \
 
 ```bash
 docker compose restart
-```
-
 ### 环境变量
 
 在 `docker-compose.yml` 中配置环境变量:
@@ -242,7 +246,25 @@ docker compose restart
 environment:
   - PYTHONPATH=/var/witty-ub
   - LOG_LEVEL=info  # 可选: debug, info, warning, error
+  - OPENCODE_CONFIG=/var/witty-ub/config/opencode.json
+  - WITTY_DIR=/var/witty-ub
+  - WITTY_UB_PLUGINS_DIR=/var/witty-ub/src/plugins
+  - OPENCODE_SERVER_USERNAME=username
+  - OPENCODE_SERVER_PASSWORD=password
 ```
+
+**环境变量说明**：
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `PYTHONPATH` | `/var/witty-ub` | Python 模块搜索路径 |
+| `LOG_LEVEL` | `info` | 日志级别 (debug/info/warning/error) |
+| `OPENCODE_CONFIG` | `/var/witty-ub/config/opencode.json` | OpenCode 配置文件路径 |
+| `WITTY_DIR` | `/var/witty-ub` | OpenCode Agent 配置文件所在目录 |
+| `WITTY_UB_PLUGINS_DIR` | `/var/witty-ub/src/plugins` | Latency 插件目录 |
+
+**注意**：容器启动脚本 `entrypoint.sh` 使用 `${VAR:-default}` 语法，允许通过环境变量覆盖默认值。如果未设置环境变量，将使用默认值。
+
 ### 文件名匹配格式 配置
 
 ```bash
@@ -291,7 +313,7 @@ ports:
 
 ### OpenCode 配置
 
-OpenCode 是 AI 辅助诊断服务，需要挂载宿主机的配置目录。
+OpenCode 是 AI 辅助诊断服务，提供 AI 辅助故障诊断能力。
 
 **配置目录挂载**:
 
@@ -309,16 +331,46 @@ volumes:
     └── witty-ub-diagnostician.md  # 故障诊断 agent
 ```
 
-**WITTY_DIR 环境变量**:
-
-容器启动时会自动设置 `WITTY_DIR=/var/witty-ub/config`，OpenCode 通过此环境变量解析配置文件中的路径引用。
-
 **OpenCode 服务配置**:
 
 OpenCode 服务启动参数:
 - 配置文件: `OPENCODE_CONFIG=/var/witty-ub/config/opencode.json`
 - 工作目录: `/var/witty-ub/latency`
 - 日志级别: `DEBUG`
+
+**opencode.json 配置说明**:
+
+容器内的 `/var/witty-ub/config/opencode.json` 配置文件使用**绝对路径**，无需依赖环境变量解析：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "witty_ub_diag_mcp": {
+      "type": "local",
+      "command": [
+        "/var/witty-ub/latency/.venv/bin/python",
+        "-m",
+        "latency.access.mcp_server"
+      ],
+      "environment": {
+        "PYTHONPATH": "/var/witty-ub",
+        "LATENCY_API_BASE_URL": "http://127.0.0.1:9772"
+      },
+      "enabled": true,
+      "timeout": 10000
+    }
+  },
+  "agent": {
+    "witty-ub-diagnostician": {
+      "description": "Witty-UB diagnostician agent",
+      "prompt": "{file:/var/witty-ub/config/agents/witty-ub-diagnostician.md}"
+    }
+  }
+}
+```
+
+> **注意**：配置文件中使用绝对路径（如 `/var/witty-ub/config/agents/witty-ub-diagnostician.md`），而不是环境变量引用（如 `{env:WITTY_DIR}/agents/witty-ub-diagnostician.md`），以确保路径解析的可靠性。
 
 **访问 OpenCode**:
 

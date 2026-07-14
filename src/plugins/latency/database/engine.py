@@ -234,7 +234,7 @@ table_ddl_list = {
             timestamp TEXT,
             src_ip TEXT,
             dst_ip TEXT,
-            pod_ip TEXT,
+            pod_ips TEXT,
             cluster_name TEXT,
             host TEXT,
             total_latency REAL,
@@ -412,6 +412,7 @@ class AsyncSQLiteSingleton:
             ("task_table", "ALTER TABLE task_table ADD COLUMN completed_at TEXT"),
             ("task_table", "ALTER TABLE task_table ADD COLUMN duration_seconds REAL"),
             ("log_parse_result_table", "CREATE INDEX IF NOT EXISTS idx_timestamp ON log_parse_result_table(timestamp)"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN pod_ips TEXT"),
             (
                 "log_failure_event_table",
                 "CREATE INDEX IF NOT EXISTS idx_log_failure_log_order ON log_failure_event_table(log_id, log_file, timestamp, pid, tid)",
@@ -430,6 +431,60 @@ class AsyncSQLiteSingleton:
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_rpc_total REAL"),
             ("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN src_ip TEXT"),
             ("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN dst_ip TEXT"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_query_meta_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_urma_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_urma_link_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_c2w_urma_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_w2w_urma_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_sdk_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_sdk_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_sdk_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_sdk_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_sdk_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_sdk_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_sdk_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_sdk_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_sdk_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_sdk_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_sdk_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_sdk_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_local_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_local_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_local_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_local_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_local_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_local_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_local_worker_lock REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_local_worker_lock REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_local_worker_lock REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_local_worker_lock REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_local_worker_lock REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_local_worker_lock REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_remote_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_remote_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_remote_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_remote_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_remote_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_remote_worker_cost REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_remote_worker_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_remote_worker_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_remote_worker_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_remote_worker_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_remote_worker_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_remote_worker_rpc REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_master_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_master_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_master_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_master_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_master_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_master_process REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_master_rpc_total REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_master_rpc_total REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_master_rpc_total REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_master_rpc_total REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_master_rpc_total REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_master_rpc_total REAL"),
             (
                 "diagnosis_case_table",
                 """
@@ -486,6 +541,24 @@ class AsyncSQLiteSingleton:
                     else:
                         raise
             self._write_conn.commit()
+            
+            try:
+                cursor = self._write_conn.execute("PRAGMA table_info(log_parse_result_table)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if "pod_ip" in columns:
+                    cursor = self._write_conn.execute("SELECT COUNT(*) FROM log_parse_result_table WHERE pod_ip IS NOT NULL AND pod_ips IS NULL")
+                    count = cursor.fetchone()[0]
+                    if count > 0:
+                        self._write_conn.execute("UPDATE log_parse_result_table SET pod_ips = '[\"' || pod_ip || '\"]' WHERE pod_ip IS NOT NULL AND pod_ips IS NULL")
+                        self._write_conn.commit()
+                        logger.info(f"成功迁移 {count} 条记录的 pod_ip 到 pod_ips")
+                    else:
+                        logger.info("无需迁移 pod_ip 数据")
+                else:
+                    logger.info("pod_ip 字段不存在，跳过迁移")
+            except sqlite3.Error as e:
+                logger.warning(f"pod_ip 迁移失败: {e}")
+            
             logger.info("数据库迁移完成")
             return True
         except sqlite3.Error as e:

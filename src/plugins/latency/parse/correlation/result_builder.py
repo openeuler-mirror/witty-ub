@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from latency.ENUM.ds_log import StatusCode
-from latency.regex.kvcache_log import NOT_FOUND_RE
+from latency.regex.kvcache_log import NOT_FOUND_RE, REMOTE_ENDPOINT_RE
 from latency.schemas.ds_log import (
     LogEntry,
     CorrelationResult,
@@ -53,9 +53,13 @@ class ParseResultBuilder:
         self,
     ) -> list[LogParseResultDataclass | SparseLogParseResultDataclass]:
         self.anomalous_count = 0
+        logger.info(f"开始构建解析结果 - SDK条目数: {len(self.sdk_entries)}, Worker条目数: {len(self.worker_entries)}")
         if self.sdk_entries:
-            return self._build_from_sdk_raw()
-        return self._build_from_worker()
+            results = self._build_from_sdk_raw()
+        else:
+            results = self._build_from_worker()
+        logger.info(f"解析结果构建完成 - 结果总数: {len(results)}, 异常数: {self.anomalous_count}")
+        return results
 
     @staticmethod
     def _is_success_status(status_code: int, resp_msg: Optional[str]) -> bool:
@@ -93,6 +97,16 @@ class ParseResultBuilder:
     def _format_latency(value: Optional[float]) -> Optional[float]:
         """格式化延迟值为3位小数，提高存储和传输效率"""
         return round(value, 3) if value is not None else None
+
+    @staticmethod
+    def _collect_pod_ips(sdk_pod_ip: Optional[str], worker_pod_ip: Optional[str]) -> Optional[list[str]]:
+        """收集所有涉及的Pod IP地址"""
+        pod_ips = []
+        if sdk_pod_ip:
+            pod_ips.append(sdk_pod_ip)
+        if worker_pod_ip and worker_pod_ip != sdk_pod_ip:
+            pod_ips.append(worker_pod_ip)
+        return pod_ips if pod_ips else None
 
     def _first_elapsed_us(self, entry_list: Optional[dict[int, list] | list], key: Optional[int]) -> Optional[float]:
         values = entry_list.get(key, []) if isinstance(entry_list, dict) else entry_list
@@ -149,23 +163,32 @@ class ParseResultBuilder:
                 urma_inflight_count = first_urma.inflight_count
                 src_ip = first_urma.src_addr
                 dst_ip = first_urma.dst_addr
+        elif self.correlated.worker_remote_pull_map.get(w_idx):
+            remote_pulls = self.correlated.worker_remote_pull_map.get(w_idx)
+            first_pull = remote_pulls[0]
+            src_ip = first_pull[T_SRC_ADDR] if isinstance(first_pull, tuple) else first_pull.src_addr
+            dst_ip = first_pull[T_DST_ADDR] if isinstance(first_pull, tuple) else first_pull.dst_addr
         elif sdk_success and worker_success:
-            remote_pulls = self.correlated.worker_remote_pull_map.get(w_idx, [])
-            if remote_pulls:
-                first_pull = remote_pulls[0]
-                src_ip = first_pull[T_SRC_ADDR] if isinstance(first_pull, tuple) else first_pull.src_addr
-                dst_ip = first_pull[T_DST_ADDR] if isinstance(first_pull, tuple) else first_pull.dst_addr
-            else:
-                endpoint = (
-                    self._first_endpoint(self.correlated.worker_remote_worker_rpc_map.get(w_idx))
-                    or self._first_endpoint(self.correlated.worker_remote_worker_cost_map.get(w_idx))
-                )
-                if endpoint:
-                    src_ip, dst_ip = endpoint
-        else:
-            urma_empty_reason = self.correlated.urma_empty_reasons.get(
-                w_idx, "URMA fields empty: no matching URMA entry"
+            endpoint = (
+                self._first_endpoint(self.correlated.worker_remote_worker_rpc_map.get(w_idx))
+                or self._first_endpoint(self.correlated.worker_remote_worker_cost_map.get(w_idx))
             )
+            if endpoint:
+                src_ip, dst_ip = endpoint
+        else:
+            if isinstance(self.worker_entries[w_idx], tuple):
+                msg = self.worker_entries[w_idx][T_RESP_MSG]
+            else:
+                msg = self.worker_entries[w_idx].resp_msg
+            if msg:
+                m = REMOTE_ENDPOINT_RE.search(msg)
+                if m:
+                    src_ip, dst_ip = (value.strip() for value in m.groups())
+            
+            if src_ip is None:
+                urma_empty_reason = self.correlated.urma_empty_reasons.get(
+                    w_idx, "URMA fields empty: no matching URMA entry"
+                )
 
         return dict(urma_latency=urma_latency, urma_inflight_count=urma_inflight_count,
                     src_ip=src_ip, dst_ip=dst_ip, urma_empty_reason=urma_empty_reason)
@@ -252,9 +275,7 @@ class ParseResultBuilder:
                 remark = merge_remark(
                     remark, "Client2WorkerTime(us) < 0"
                 )
-            is_anomalous = bool(remark) and remark != "OK"
-            if is_anomalous:
-                self.anomalous_count += 1
+            is_anomalous = False
 
             sdk_timestamp = sdk[T_TIMESTAMP]
             if sdk_timestamp is None:
@@ -294,7 +315,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    sdk[T_POD_IP],
+                    self._collect_pod_ips(sdk[T_POD_IP], None),
                     src_ip,
                     dst_ip,
                     sdk[T_CLUSTER_NAME],
@@ -334,7 +355,7 @@ class ParseResultBuilder:
                     log_id,
                     "",
                     "",
-                    sdk[T_POD_IP],
+                    self._collect_pod_ips(sdk[T_POD_IP], None),
                     sdk[T_CLUSTER_NAME],
                     remark if is_anomalous else None,
                     sdk[3],
@@ -443,6 +464,7 @@ class ParseResultBuilder:
                 w_resp_msg = worker[T_RESP_MSG] if isinstance(worker, tuple) else worker.resp_msg
                 w_elapsed_us = worker[T_ELAPSED_US] if isinstance(worker, tuple) else worker.elapsed_us
                 w_cluster_name = worker[T_CLUSTER_NAME] if isinstance(worker, tuple) else worker.cluster_name
+                w_pod_ip = worker[T_POD_IP] if isinstance(worker, tuple) else worker.pod_ip
                 worker_success = w_status_code == StatusCode.OK and (
                     not w_resp_msg or not_found_search(w_resp_msg) is None
                 )
@@ -450,6 +472,7 @@ class ParseResultBuilder:
                 worker_success = True
                 w_elapsed_us = None
                 w_cluster_name = None
+                w_pod_ip = None
 
             sdk_elapsed_us = sdk[T_ELAPSED_US]
             if w_elapsed_us is not None:
@@ -500,45 +523,12 @@ class ParseResultBuilder:
                 master_process = first_elapsed_ms(worker_master_process_get(w_idx))
                 master_rpc_total = first_elapsed_raw(worker_master_rpc_get(w_idx))
 
-                urma_latency = None
-                urma_inflight_count = None
-                src_ip = None
-                dst_ip = None
-                urma_empty_reason = None
-                urma_list = worker_urma_get(w_idx)
-                if urma_list:
-                    first_urma = urma_list[0]
-                    if isinstance(first_urma, tuple):
-                        urma_latency = round(first_urma[T_ELAPSED_US] / 1000, 3)
-                        urma_inflight_count = first_urma[T_INFLIGHT_COUNT]
-                        src_ip = first_urma[T_SRC_ADDR]
-                        dst_ip = first_urma[T_DST_ADDR]
-                    else:
-                        urma_latency = round(first_urma.elapsed_us / 1000, 3)
-                        urma_inflight_count = first_urma.inflight_count
-                        src_ip = first_urma.src_addr
-                        dst_ip = first_urma.dst_addr
-                elif sdk_success and worker_success:
-                    remote_pulls = worker_remote_pull_get(w_idx)
-                    if remote_pulls:
-                        first_pull = remote_pulls[0]
-                        if isinstance(first_pull, tuple):
-                            src_ip = first_pull[T_SRC_ADDR]
-                            dst_ip = first_pull[T_DST_ADDR]
-                        else:
-                            src_ip = first_pull.src_addr
-                            dst_ip = first_pull.dst_addr
-                    else:
-                        endpoint = (
-                            first_endpoint(worker_remote_worker_rpc_get(w_idx))
-                            or first_endpoint(worker_remote_worker_cost_get(w_idx))
-                        )
-                        if endpoint:
-                            src_ip, dst_ip = endpoint
-                else:
-                    urma_empty_reason = urma_empty_reason_get(
-                        w_idx, "URMA fields empty: no matching URMA entry"
-                    )
+                urma_info = self._resolve_urma_info(w_idx, sdk_success, worker_success)
+                urma_latency = urma_info["urma_latency"]
+                urma_inflight_count = urma_info["urma_inflight_count"]
+                src_ip = urma_info["src_ip"]
+                dst_ip = urma_info["dst_ip"]
+                urma_empty_reason = urma_info["urma_empty_reason"]
 
             remark = ""
             if not sdk_success:
@@ -553,9 +543,7 @@ class ParseResultBuilder:
                 remark = merge_remark(remark, "Client2WorkerTime(us) < 0")
             if urma_empty_reason:
                 remark = merge_remark(remark, urma_empty_reason)
-            is_anomalous = bool(remark) and remark != "OK"
-            if is_anomalous:
-                self.anomalous_count += 1
+            is_anomalous = False
 
             log_id = fixed_log_id or sdk[T_LOG_ID] or fallback_log_dir
 
@@ -597,7 +585,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    sdk[T_POD_IP],
+                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip),
                     w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
                     remark if is_anomalous else None,
                     sdk[3],  # data_size
@@ -634,7 +622,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    sdk[T_POD_IP],
+                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip),
                     w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
                     remark if is_anomalous else None,
                     sdk[3],  # data_size
@@ -654,7 +642,7 @@ class ParseResultBuilder:
                     log_id,
                     "",  # aggregated_event_id
                     "",  # anomalous_event_id
-                    sdk[T_POD_IP],
+                    self._collect_pod_ips(sdk[T_POD_IP], w_pod_ip),
                     src_ip,
                     dst_ip,
                     w_cluster_name if w_cluster_name else sdk[T_CLUSTER_NAME],
@@ -710,9 +698,7 @@ class ParseResultBuilder:
             remark = ""
             if not worker_success:
                 remark = self._format_failure_remark("Worker", w_status_code, w_resp_msg)
-            is_anomalous = bool(remark)
-            if is_anomalous:
-                self.anomalous_count += 1
+            is_anomalous = False
 
             # 获取各指标 - 使用 _first_elapsed_us 统一处理 tuple/LogEntry
 
@@ -726,7 +712,7 @@ class ParseResultBuilder:
                 timestamp=w_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if w_timestamp else None,
                 src_ip=urma_info["src_ip"],
                 dst_ip=urma_info["dst_ip"],
-                pod_ip=w_pod_ip,
+                pod_ips=[w_pod_ip] if w_pod_ip else None,
                 cluster_name=w_cluster_name,
                 host=None,
                 total_latency=self._format_latency(w_elapsed_us / 1000),

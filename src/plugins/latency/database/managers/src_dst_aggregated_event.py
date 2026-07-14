@@ -345,8 +345,8 @@ class SrcDstAggregatedEventManager:
             kb_id=req.kb_id or "",
             start_time=req.start_time or "",
             end_time=req.end_time or "",
-            src_ip=req.src_ip or None,
-            dst_ip=req.dst_ip or None,
+            src_ip=req.src_ip,
+            dst_ip=req.dst_ip,
         )
 
         if not rows:

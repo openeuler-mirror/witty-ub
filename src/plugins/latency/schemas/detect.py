@@ -8,7 +8,7 @@ class WindowConfig:
     """窗口配置"""
     window_size: int = 500
     window_step: int = 50
-    density_threshold: float = 0.5
+    density_threshold: float = 0.9999
 
 
 @dataclass(slots=True)

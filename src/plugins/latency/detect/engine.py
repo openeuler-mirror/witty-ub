@@ -109,8 +109,6 @@ class DetectionEngine:
             # 补充额外的异常原因检查
             r = original_results[idx]
             extra_reasons = []
-            if r.is_anomalous and r.anomaly_reason:
-                extra_reasons.append(r.anomaly_reason)
             if r.c2w_latency is not None and r.c2w_latency < 0:
                 extra_reasons.append("Client2WorkerTime(us) < 0")
             if r.c2w_urma_latency is not None:

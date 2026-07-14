@@ -22,7 +22,24 @@ class ProcessHandler:
         return await target(*args, **kwargs)
 
     @staticmethod
+    def _setup_child_process_logging():
+        config = Config().get_config()
+        log_level_str = config.service.log_level.value
+        numeric_level = getattr(logging, log_level_str, logging.INFO)
+        
+        logging.basicConfig(
+            level=numeric_level,
+            format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        
+        logging.getLogger("latency.task.task_handler").setLevel(logging.WARNING)
+        logging.getLogger("latency.database").setLevel(logging.WARNING)
+        logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+
+    @staticmethod
     def subprocess_target(target, *args, **kwargs):
+        ProcessHandler._setup_child_process_logging()
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
