@@ -17,7 +17,7 @@ from latency.ENUM.task import TaskSplitStrategy
 
 from .file_parser_map_builder import FileParserMapBuilder
 from .preprocessor import LogPreprocessor
-from .process_worker import process_worker_func, _deserialize_entry
+from .process_worker import process_worker_func
 from .task_splitter import FileGroup, ScanTaskSplitter
 
 logger = logging.getLogger(__name__)
@@ -130,9 +130,30 @@ class ParallelFileScanner:
             logger.warning("No file groups after splitting")
             return {}
 
+        # 诊断日志：检查文件分组情况
+        group_sizes = []
+        for group in file_groups:
+            group_file_count = len(group.files)
+            group_size = sum(
+                os.path.getsize(path) if os.path.exists(path) else 0
+                for path, _ in group.files
+            )
+            group_sizes.append((group.group_id, group_file_count, group_size))
+        
+        logger.info(
+            f"Task splitting result: {len(file_groups)} groups, "
+            f"{len(file_parser_map)} total files, "
+            f"use_multiprocessing={self.use_multiprocessing}"
+        )
+        for group_id, file_count, size in group_sizes:
+            logger.info(
+                f"  Group {group_id}: {file_count} files, {size/1024/1024:.2f} MB"
+            )
+
         # Step 3: 执行扫描
         scan_start = time.perf_counter()
         if self.use_multiprocessing and len(file_groups) > 1:
+            logger.info(f"Using multiprocessing with {len(file_groups)} processes")
             try:
                 results = await self._scan_with_multiprocessing(
                     file_groups, parsers, log_dir, parse_config, scan_scope
@@ -145,6 +166,10 @@ class ParallelFileScanner:
                     file_groups, parsers, scan_scope
                 )
         else:
+            logger.info(
+                f"Using asyncio mode: use_multiprocessing={self.use_multiprocessing}, "
+                f"len(file_groups)={len(file_groups)}"
+            )
             results = await self._scan_with_asyncio(file_groups, parsers, scan_scope)
 
         self.metrics.scan_time_ms = (time.perf_counter() - scan_start) * 1000
@@ -185,6 +210,7 @@ class ParallelFileScanner:
             {
                 "label": p.label,
                 "class_name": p.__class__.__name__,
+                "patterns": list(p.patterns),
             }
             for p in parsers
         ]
@@ -251,7 +277,7 @@ class ParallelFileScanner:
         scan_scope: Optional[dict] = None,
     ) -> dict[str, list]:
         """异步扫描单个文件组（单进程模式）"""
-        from .process_worker import _apply_scan_scope, _scan_file_multi
+        from .process_worker import _apply_scan_scope, _scan_file_multi, _serialize_entry
 
         _apply_scan_scope(parsers, scan_scope)
 
@@ -263,11 +289,15 @@ class ParallelFileScanner:
 
         results = await asyncio.gather(*tasks)
 
-        # 汇总
+        # 汇总并序列化（与多进程模式保持一致）
         merged = defaultdict(list)
         for result in results:
             for label, entries in result.items():
-                merged[label].extend(entries)
+                for e in entries:
+                    if isinstance(e, tuple):
+                        merged[label].append(e)
+                    else:
+                        merged[label].append(_serialize_entry(e))
 
         return dict(merged)
 
@@ -277,14 +307,13 @@ class ParallelFileScanner:
     ) -> dict[str, list]:
         merged = defaultdict(list)
         t0 = time.perf_counter()
-        total_deserialized = 0
+        total_tuples = 0
 
         for result in results:
             for label, entries in result.items():
                 if entries and isinstance(entries[0], tuple):
-                    deserialized = [_deserialize_entry(e) for e in entries]
-                    merged[label].extend(deserialized)
-                    total_deserialized += len(deserialized)
+                    merged[label].extend(entries)
+                    total_tuples += len(entries)
                 else:
                     merged[label].extend(entries)
 
@@ -293,7 +322,7 @@ class ParallelFileScanner:
             f"Results merged: {len(results)} groups, "
             f"{len(merged)} parsers, "
             f"{sum(len(e) for e in merged.values()):,} total entries, "
-            f"{total_deserialized:,} deserialized, "
+            f"{total_tuples:,} tuples (no deserialization), "
             f"merge={merge_ms:.0f}ms"
         )
 

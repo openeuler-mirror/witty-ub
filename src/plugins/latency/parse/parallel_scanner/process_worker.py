@@ -12,15 +12,58 @@ from collections import defaultdict
 from typing import Optional
 
 from latency.schemas.log import LogFileModel
+from latency.schemas.ds_log import LogEntry
+from latency.ENUM.ds_log import EntryType, TupleField
 from latency.schemas.request import ParseConfig
 from latency.common.ds_log_io import open_log
 
 logger = logging.getLogger(__name__)
 
 _PROGRESS_UPDATE_LINES = 100_000
+_CPROFILE_DIR_ENV = "WITTY_UB_CPROFILE_DIR"
 
 
 def process_worker_func(
+    file_group_files: list[tuple[str, list[int]]],
+    group_id: int,
+    parsers_info: list[dict],
+    parse_config_dict: Optional[dict] = None,
+    scan_scope: Optional[dict] = None,
+) -> dict[str, list[dict]]:
+    profile_dir = os.environ.get(_CPROFILE_DIR_ENV)
+    if not profile_dir:
+        return _process_worker_func(
+            file_group_files,
+            group_id,
+            parsers_info,
+            parse_config_dict,
+            scan_scope,
+        )
+
+    import cProfile
+    from pathlib import Path
+    import time
+
+    output_dir = Path(profile_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = output_dir / (
+        f"worker-{os.getpid()}-group-{group_id}-{time.time_ns()}.prof"
+    )
+    profiler = cProfile.Profile()
+    try:
+        return profiler.runcall(
+            _process_worker_func,
+            file_group_files,
+            group_id,
+            parsers_info,
+            parse_config_dict,
+            scan_scope,
+        )
+    finally:
+        profiler.dump_stats(str(profile_path))
+
+
+def _process_worker_func(
     file_group_files: list[tuple[str, list[int]]],
     group_id: int,
     parsers_info: list[dict],
@@ -61,9 +104,10 @@ def process_worker_func(
     )
 
     serialized = {
-        label: [_serialize_entry(e) for e in entries]
+        label: [e if isinstance(e, tuple) else _serialize_entry(e) for e in entries]
         for label, entries in merged.items()
     }
+
     return serialized
 
 
@@ -83,7 +127,6 @@ def _rebuild_parsers(
         RemotePullLogParser,
         LinkLogParser,
         QueryMetaLogParser,
-        WorkerMetricsLogParser,
         WorkerInfoParser,
     )
 
@@ -96,7 +139,6 @@ def _rebuild_parsers(
         "RemotePullLogParser": RemotePullLogParser,
         "LinkLogParser": LinkLogParser,
         "QueryMetaLogParser": QueryMetaLogParser,
-        "WorkerMetricsLogParser": WorkerMetricsLogParser,
         "WorkerInfoParser": WorkerInfoParser,
     }
 
@@ -105,7 +147,9 @@ def _rebuild_parsers(
         class_name = info["class_name"]
         parser_class = parser_class_map.get(class_name)
         if parser_class:
-            parsers.append(parser_class(parse_config))
+            parser = parser_class(parse_config)
+            parser._runtime_patterns = list(info.get("patterns", parser.patterns))
+            parsers.append(parser)
         else:
             logger.warning(f"Unknown parser class: {class_name}")
 
@@ -124,7 +168,12 @@ def _scan_file_multi(
     path: str,
 ) -> dict[str, list]:
     if len(parsers) == 1 and hasattr(parsers[0], 'scan_file'):
-        return parsers[0].scan_file(path)
+        result = parsers[0].scan_file(path)
+        # 确保结果被正确序列化（与多解析器模式保持一致）
+        serialized = {}
+        for label, entries in result.items():
+            serialized[label] = [_serialize_entry(e) for e in entries]
+        return serialized
 
     results: dict[str, list] = {p.label: [] for p in parsers}
 
@@ -190,7 +239,7 @@ def _scan_file_multi(
                 try:
                     entries = parser.match_line(line, pod_ip)
                     if entries:
-                        # 处理 match_line 返回列表的情况（如 WorkerMetricsLogParser）
+                        # 处理 match_line 返回列表的情况（如 WorkerInfoParser）
                         if isinstance(entries, list):
                             for entry in entries:
                                 entry.log_id = log_file.id
@@ -244,7 +293,7 @@ def _any_keyword_in(line: str, keywords: tuple[str, ...]) -> bool:
 
 def _serialize_entry(entry) -> tuple:
     return (
-        entry.timestamp.timestamp() if entry.timestamp else None,
+        entry.timestamp,
         entry.operation,
         entry.elapsed_us,
         entry.data_size,
@@ -264,14 +313,7 @@ def _serialize_entry(entry) -> tuple:
 
 
 def _deserialize_entry(t: tuple):
-    from datetime import datetime
-    from latency.schemas.ds_log import LogEntry, EntryType
-
-    timestamp = None
-    if t[0] is not None:
-        timestamp = datetime.fromtimestamp(t[0])
-
-    entry_type = t[9]
+    entry_type = t[TupleField.ENTRY_TYPE]
     if isinstance(entry_type, str):
         try:
             entry_type = EntryType(entry_type)
@@ -279,20 +321,20 @@ def _deserialize_entry(t: tuple):
             entry_type = None
 
     return LogEntry(
-        timestamp=timestamp,
-        operation=t[1],
-        elapsed_us=t[2],
-        data_size=t[3],
-        object_key=t[4],
-        trace_id=t[5],
-        pod_ip=t[6],
-        status_code=t[7],
-        resp_msg=t[8],
+        timestamp=t[TupleField.TIMESTAMP],
+        operation=t[TupleField.OPERATION],
+        elapsed_us=t[TupleField.ELAPSED_US],
+        data_size=t[TupleField.DATA_SIZE],
+        object_key=t[TupleField.OBJECT_KEY],
+        trace_id=t[TupleField.TRACE_ID],
+        pod_ip=t[TupleField.POD_IP],
+        status_code=t[TupleField.STATUS_CODE],
+        resp_msg=t[TupleField.RESP_MSG],
         entry_type=entry_type,
-        cluster_name=t[10],
-        src_addr=t[11],
-        dst_addr=t[12],
-        inflight_count=t[13],
-        request_size=t[14],
-        log_id=t[15],
+        cluster_name=t[TupleField.CLUSTER_NAME],
+        src_addr=t[TupleField.SRC_ADDR],
+        dst_addr=t[TupleField.DST_ADDR],
+        inflight_count=t[TupleField.INFLIGHT_COUNT],
+        request_size=t[TupleField.REQUEST_SIZE],
+        log_id=t[TupleField.LOG_ID],
     )

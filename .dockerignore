@@ -1,0 +1,67 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts
+build/
+*.o
+*.so
+*.a
+
+# Node modules
+node_modules/
+dist/
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Test
+src/plugins/latency/test/
+*.test.*
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Scripts (not needed in container)
+scripts/
+hack/
+
+# Skills
+.opencode/
+.trae/
+skills/
+
+# Deploy artifacts (spec files, etc.)
+packaging/systemd/
+src/plugins/latency/deploy/deploy.sh
+src/plugins/latency/deploy/witty-ub-latency.service
+src/plugins/latency/deploy/log_detection.spec
+src/plugins/latency/deploy/pyproject.toml
+src/plugins/latency/deploy/skill_build.sh
+src/plugins/latency/deploy/Dockerfile
+src/plugins/latency/deploy/Dockerfile-base
+
+# Other
+*.log

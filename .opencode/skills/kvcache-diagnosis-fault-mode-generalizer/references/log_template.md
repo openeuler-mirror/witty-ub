@@ -5,7 +5,7 @@
 openYuanrong datasystem 的日志分为以下类型：
 
 - **运行日志**：记录客户端、服务端运行时的日志信息，包括 INFO、WARNING、ERROR、FATAL；更细粒度调试可通过 VLOG 与 gflags（如 `--v`）控制。
-- **访问日志**：记录每一次访问客户端/服务端的请求，每个请求一条日志，用于定界上游是否访问客户端/服务端（需开启 `log_monitor`）。
+- **接口日志**：记录每一次访问客户端/服务端的请求，每个请求一条日志，用于定界上游是否访问客户端/服务端（需开启 `log_monitor`）。
 - **请求第三方日志（request_out）**：记录 Worker 访问第三方组件的请求，每个请求一条日志，可用于定界 openYuanrong datasystem 是否成功访问该外部组件；当前实现中主要接入 ETCD gRPC（需开启 `log_monitor`）。
 - **资源日志**：定时输出 Worker 运行时关键资源信息，包括共享内存、Spill 磁盘、线程池、队列、流缓存相关统计等（需 `log_monitor` 且 `log_monitor_exporter=harddisk`）。
 - **流缓存指标日志（sc_metrics）**：流缓存运行数据（需开启 `log_monitor`）。
@@ -24,7 +24,7 @@ openYuanrong datasystem 的日志分为以下类型：
 | 5 | datasystem_worker | `/path/yr_datasystem/logs/sc_metrics.log` | 流缓存运行数据；由 `log_monitor` 控制是否开启 |
 | 6 | datasystem_worker | `/path/yr_datasystem/logs/container.log` | 容器运行日志，管理和监控 worker 进程的生命周期 |
 | 7 | Client | `/path/client/ds_client_{pid}.INFO.log`（及 `.WARNING`、`.ERROR` 等；`{pid}` 为进程号） | SDK 运行日志；基名可由启动参数与环境变量 `DATASYSTEM_CLIENT_LOG_NAME` 覆盖 |
-| 8 | Client | `/path/client/ds_client_access_{pid}.log` | SDK 接口访问日志；基名可由 `DATASYSTEM_CLIENT_ACCESS_LOG_NAME` 覆盖 |
+| 8 | Client | `/path/client/ds_client_access_{pid}.log` | SDK 接口接口日志；基名可由 `DATASYSTEM_CLIENT_ACCESS_LOG_NAME` 覆盖 |
 
 ## 日志格式
 
@@ -33,7 +33,7 @@ openYuanrong datasystem 的日志分为以下类型：
 | 序号 | 日志 | 日志格式 |
 |------|------|---------|
 | 1 | 运行日志 | `Time \| level \| filename \| pod_name \| pid:tid \| trace_id \| cluster_name \| message` |
-| 2 | 访问日志 | `Time \| level \| filename \| pod_name \| pid:tid \| trace_id \| cluster_name \| status_code \| action \| cost \| data size \| request param \| response param` |
+| 2 | 接口日志 | `Time \| level \| filename \| pod_name \| pid:tid \| trace_id \| cluster_name \| status_code \| action \| cost \| data size \| request param \| response param` |
 | 3 | 访问第三方日志 | `Time \| level \| filename \| pod_name \| pid:tid \| trace_id \| cluster_name \| status_code \| action \| cost \| data size \| request param \| response param` |
 | 4 | 资源日志 | `Time \| level \| filename \| pod_name \| pid:tid \| trace_id \| cluster_name \| shm info \| spill disk info \| client nums \| object nums \| object total datasize \| WorkerOcService threadpool \| WorkerWorkerOcService threadpool \| MasterWorkerOcService threadpool \| MasterOcService threadpool \| write ETCD queue \| ETCDrequest success rate \| OBSrequest success rate \| Master AsyncTask threadpool \| stream nums \| ClientWorkerSCService threadpool \| WorkerWorkerSCService threadpool \| MasterWorkerSCService threadpool \| MasterSCService threadpool \| remote stream push success rate \| shared disk info \| scLocalCache info \| Cache Hit Info` |
 | 5 | 流缓存数据日志 | `Time \| level \| filename \| pod_name \| pid:tid \| trace_id \| cluster_name \| sc_metric` |
@@ -51,7 +51,7 @@ openYuanrong datasystem 的日志分为以下类型：
 | trace_id | 36 | 请求的 trace_id |
 | cluster_name | 128 | 输出日志的组件名，最大长度为128，超出长度则截断。示例：`ds-worker` |
 | Message | 1024 | 自定义消息内容 |
-| status_code | 5 | 该请求的状态，不同消息类型状态值不一样。SDK/datasystem_worker 访问日志，0表示成功，其他表示失败 |
+| status_code | 5 | 该请求的状态，不同消息类型状态值不一样。SDK/datasystem_worker 接口日志，0表示成功，其他表示失败 |
 | action | 64 | 表示该请求所访问的接口名称。约定前缀：SDK接口：`DS_KV_CLIENT`、`DS_OBJECT_CLIENT`，Worker接口：`DS_OBJECT_POSIX`，ETCD：`DS_ETCD`，HTTP请求：`POST {url path}` |
 | cost | 16 | 记录该请求所花费的时间。单位：us |
 | datasize | 16 | 记录 Publish 请求接收到的 Payload 大小 |
@@ -81,7 +81,7 @@ openYuanrong datasystem 的日志分为以下类型：
 | Cache Hit Info | 9 | 缓存命中统计，格式为：`memHitNum/diskHitNum/l2HitNum/remoteHitNum/missNum`。1) memHitNum：本地内存命中次数。2) diskHitNum：本地磁盘命中次数。3) l2HitNum：二级缓存命中次数。4) remoteHitNum：远端 worker 命中次数。5) missNum：未命中次数。 |
 | sc_metric | 1024 | 流缓存运行数据(sc_stream_metric)。worker 上一个 stream 的流缓存数据，格式：`streamName ["exit"]/numLocalProd/numRemoteProd/numLocalCon/numRemoteCon/sharedMemUsed/localMemUsed/numEleSent/numEleRecv/numEleAck/numSendReq/numRecvReq/numPagesCreated/numPagesReleased/numPagesInUse/numPagesCached/numBigPagesCreated/numBigPagesReleased/numLocalProdBlocked/numRemoteProdBlocked/numRemoteConBlocking/retainData/streamState/numProdMaster/numConMaster`。1) streamName ["exit"]：stream 名字，带有 "exit" 表示 stream 正要关闭；2) numLocalProd：本地 producer 数量；3) numRemoteProd：远端有至少一个 producer 的远端 worker 数量（如果没有本地 consumer 则为0）；4) numLocalCon：本地 consumer 数量；5) numRemoteCon：远端 consumer 数量；6) sharedMemUsed：stream 使用共享内存大小，单位: Byte；7) localMemUsed：stream 使用本地内存大小，单位: Byte；8) numEleSent：所有本地 producer 产生的 element 总数；9) numEleRecv：所有本地 consumer 接收的 element 总数（如果没有本地 consumer 则为0）；10) numEleAck：element acked 数量；11) numSendReq：client 调用 producer.send() 次数；12) numRecvReq：client 调用 consumer.receive() 次数；13) numPagesCreated：page 创建次数；14) numPagesReleased：page 释放次数；15) numPagesInUse：page in use 数量；16) numPagesCached：page cached 数量；17) numBigPagesCreated：big element page 创建次数；18) numBigPagesReleased：big element page 释放次数；19) numLocalProdBlocked：本地 producer blocked 数量；20) numRemoteProdBlocked：远端 producer blocked 数量；21) numRemoteConBlocking：远端 consumer blocking 数量；22) retainData：retain data state；23) streamState：stream state；24) numProdMaster：master 上 producer 数量；25) numConMaster：master 上 consumer 数量。如果 worker 不是 stream 的 master，24-25 会没有数据。如果 worker 只有 master 数据，2-23 会没有数据。 |
 
-## SDK 与 Worker 访问日志关键请求参数
+## SDK 与 Worker 接口日志关键请求参数
 
 | 关键请求参数 | 长度 Byte | 描述 |
 |-------------|-----------|------|

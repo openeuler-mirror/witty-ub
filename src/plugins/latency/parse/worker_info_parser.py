@@ -1,7 +1,8 @@
-"""Worker INFO 日志合并解析器 - 一次遍历处理所有 Run-format 日志类型"""
+"""Worker运行日志合并解析器 - 一次遍历处理所有 Run-format 日志类型"""
 
 import logging
 import os
+import re
 from typing import Optional
 
 from latency.common.ds_log_io import parse_timestamp, open_log
@@ -10,10 +11,12 @@ from latency.regex.kvcache_log import (
     QUERY_META_RE, SDK_PROCESS_RE, SDK_RPC_RE,
     LOCAL_WORKER_COST_RE, LOCAL_WORKER_LOCK_RE,
     REMOTE_WORKER_COST_RE, REMOTE_WORKER_RPC_RE,
+    REMOTE_ENDPOINT_RE,
     MASTER_PROCESS_RE, MASTER_RPC_RE,
 )
 from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS
-from latency.schemas.ds_log import LogEntry, EntryType
+from latency.schemas.ds_log import LogEntry
+from latency.ENUM.ds_log import EntryType
 from latency.schemas.log import LogFileModel
 from latency.schemas.request import ParseConfig
 from latency.parse.base_parser import LogParser, RUN_LOG_MIN_PARTS
@@ -24,7 +27,25 @@ URMA_LABEL = "Worker urma parse"
 REMOTE_PULL_LABEL = "Worker remote pull parse"
 LINK_LABEL = "Worker link parse"
 QUERY_META_LABEL = "Worker query meta parse"
-METRICS_LABEL = "Worker metrics parse"
+SDK_PROCESS_LABEL = "Worker sdk process parse"
+SDK_RPC_LABEL = "Worker sdk rpc parse"
+LOCAL_WORKER_COST_LABEL = "Worker local worker cost parse"
+LOCAL_WORKER_LOCK_LABEL = "Worker local worker lock parse"
+REMOTE_WORKER_COST_LABEL = "Worker remote worker cost parse"
+REMOTE_WORKER_RPC_LABEL = "Worker remote worker rpc parse"
+MASTER_PROCESS_LABEL = "Worker master process parse"
+MASTER_RPC_LABEL = "Worker master rpc parse"
+
+TIMED_LABELS = (
+    SDK_PROCESS_LABEL,
+    SDK_RPC_LABEL,
+    LOCAL_WORKER_COST_LABEL,
+    LOCAL_WORKER_LOCK_LABEL,
+    REMOTE_WORKER_COST_LABEL,
+    REMOTE_WORKER_RPC_LABEL,
+    MASTER_PROCESS_LABEL,
+    MASTER_RPC_LABEL,
+)
 
 # 基础关键字（WorkerInfoParser 使用）
 BASE_KEYWORDS = (
@@ -32,32 +53,35 @@ BASE_KEYWORDS = (
     "elapsed ms:", "Master query done",
 )
 
-# 指标关键字（WorkerMetricsLogParser 使用）
-METRICS_KEYWORDS = (
+# 细分耗时关键字（每个关键字对应一个明确的 Worker info label）
+TIMED_KEYWORDS = (
     "totalCost:", "Worker to master rpc QueryMeta:",
     "ProcessGetObjectRequest:", "worker SafeObject WLock:",
-    "[Get/RemotePull] finish",
-    "[Get] Remote done", "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]",
+    "[Get/RemotePull] finish", "[Get] Remote done",
+    "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]",
 )
 
-ALL_KEYWORDS = BASE_KEYWORDS + METRICS_KEYWORDS
+ALL_KEYWORDS = BASE_KEYWORDS + TIMED_KEYWORDS
+
+_TIMED_RESP_EXCLUDED_FIELDS = frozenset({"cost", "src", "dst"})
+_IP_ENDPOINT_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
 
 
 class WorkerInfoParser(LogParser):
-    """Worker INFO 日志合并解析器
+    """Worker运行日志合并解析器
 
-    合并 Urma / RemotePull / Link / QueryMeta 4 个解析器，
+    合并 URMA / RemotePull / Link / QueryMeta / 细分耗时解析，
     一次读文件 + 一次 if/elif 分派，消除重复的 _build_parsed_run 和 parse_timestamp。
     
-    注意：指标日志由 WorkerMetricsLogParser 单独处理，避免关键字冲突。
+    细分耗时日志也在这里按独立 label 输出，避免多解析器首个命中导致遗漏。
     """
     label = "Worker info parse"
     _handle_errors = True
-    _keywords = BASE_KEYWORDS
+    _keywords = ALL_KEYWORDS
 
     @property
     def patterns(self) -> list[str]:
-        return WORKER_INFO_LOG_PATTERNS
+        return getattr(self, "_runtime_patterns", WORKER_INFO_LOG_PATTERNS)
 
     def __init__(self, parse_config: Optional[ParseConfig] = None):
         super().__init__(parse_config)
@@ -67,7 +91,10 @@ class WorkerInfoParser(LogParser):
         self._target_pod_ips: set[str] = set()
 
     def set_scan_scope(self, scan_scope: Optional[dict]) -> None:
-        """Limit INFO parsing to traces/pods that can contribute to final results."""
+        """Limit INFO parsing to traces/pods that can contribute to final results.
+        
+        优化策略：主进程预构建集合后直接传递，子进程直接使用，避免重新创建集合。
+        """
         if not scan_scope:
             self._scan_scope_enabled = False
             self._target_trace_ids = set()
@@ -76,12 +103,28 @@ class WorkerInfoParser(LogParser):
             return
 
         self._scan_scope_enabled = bool(scan_scope.get("enabled"))
-        self._target_trace_ids = set(scan_scope.get("trace_ids") or ())
-        self._target_pod_trace_keys = {
-            (pod_ip, trace_id)
-            for pod_ip, trace_id in (scan_scope.get("pod_trace_keys") or ())
-        }
-        self._target_pod_ips = set(scan_scope.get("pod_ips") or ())
+        
+        # 直接使用传递过来的集合对象（已经是 set），避免重新创建
+        trace_ids = scan_scope.get("trace_ids")
+        if isinstance(trace_ids, set):
+            self._target_trace_ids = trace_ids
+        else:
+            self._target_trace_ids = set(trace_ids or ())
+        
+        pod_trace_keys = scan_scope.get("pod_trace_keys")
+        if isinstance(pod_trace_keys, set):
+            self._target_pod_trace_keys = pod_trace_keys
+        else:
+            self._target_pod_trace_keys = {
+                (pod_ip, trace_id)
+                for pod_ip, trace_id in (pod_trace_keys or ())
+            }
+        
+        pod_ips = scan_scope.get("pod_ips")
+        if isinstance(pod_ips, set):
+            self._target_pod_ips = pod_ips
+        else:
+            self._target_pod_ips = set(pod_ips or ())
 
     def scan_file(self, path: str) -> dict[str, list[LogEntry]]:
         """扫描单个 Run-format 日志文件，返回按原始 label 分组的 entries"""
@@ -90,7 +133,14 @@ class WorkerInfoParser(LogParser):
             REMOTE_PULL_LABEL: [],
             LINK_LABEL: [],
             QUERY_META_LABEL: [],
-            METRICS_LABEL: [],
+            SDK_PROCESS_LABEL: [],
+            SDK_RPC_LABEL: [],
+            LOCAL_WORKER_COST_LABEL: [],
+            LOCAL_WORKER_LOCK_LABEL: [],
+            REMOTE_WORKER_COST_LABEL: [],
+            REMOTE_WORKER_RPC_LABEL: [],
+            MASTER_PROCESS_LABEL: [],
+            MASTER_RPC_LABEL: [],
         }
         try:
             pod_ip = self.extract_pod_ip(path)
@@ -114,14 +164,7 @@ class WorkerInfoParser(LogParser):
                     line_count += 1
                     if not line or line[0] != "2":
                         continue
-                    allow_pod_scoped_labels = (
-                        not self._scan_scope_enabled
-                        or pod_ip in self._target_pod_ips
-                    )
-                    label = self._label_for_line(line, allow_pod_scoped_labels)
-                    if not label:
-                        continue
-                    if not self._file_scope_may_allow(label, pod_ip):
+                    if not self._line_may_match(line):
                         continue
 
                     parts = line.split("|")
@@ -130,18 +173,18 @@ class WorkerInfoParser(LogParser):
                         continue
 
                     parsed = self._build_run(parts, plen)
-                    entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
-                    if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
-                        continue
                     ts = parse_timestamp(parsed["timestamp"])
                     if not self._filter_by_time(ts):
                         continue
 
-                    entry = self._dispatch(label, parsed, ts, pod_ip)
-                    if entry:
-                        entry.log_id = log_file.id
-                        results[label].append(entry)
-                        match_count += 1
+                    matched = self._parse_first_match(line, parsed, ts, pod_ip)
+                    if not matched:
+                        continue
+
+                    label, entry = matched
+                    entry.log_id = log_file.id
+                    results[label].append(entry)
+                    match_count += 1
 
         except EOFError:
             logger.warning(f"Skipping corrupted file {path}")
@@ -154,20 +197,22 @@ class WorkerInfoParser(LogParser):
         )
         return results
 
-    def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
+    def _scan_file(self, path, pod_ip, log_id, entries, progress, file_idx):
+        """兼容基类 parse() 路径：match_line 返回列表。"""
+        with open_log(path) as f:
+            for line_no, line in enumerate(f, 1):
+                if line_no % 100_000 == 0:
+                    progress.update(file_idx, path, line=line_no, match=len(entries))
+                matched_entries = self.match_line(line, pod_ip)
+                for entry in matched_entries or ():
+                    entry.log_id = log_id
+                    entries.append(entry)
+
+    def match_line(self, line: str, pod_ip: str) -> list[LogEntry] | None:
         """兼容单行匹配接口（非热路径）"""
         if not line or line[0] != "2":
             return None
-        allow_pod_scoped_labels = (
-            not self._scan_scope_enabled
-            or pod_ip in self._target_pod_ips
-        )
-        label = self._label_for_line(line, allow_pod_scoped_labels)
-        if not label:
-            return None
-        
-        # 添加文件级别作用域检查（与 scan_file 方法保持一致）
-        if not self._file_scope_may_allow(label, pod_ip):
+        if not self._line_may_match(line):
             return None
 
         parts = line.split("|")
@@ -176,37 +221,14 @@ class WorkerInfoParser(LogParser):
             return None
 
         parsed = self._build_run(parts, plen)
-        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
-        if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
-            return None
         ts = parse_timestamp(parsed["timestamp"])
         if not self._filter_by_time(ts):
             return None
 
-        return self._dispatch(label, parsed, ts, pod_ip)
-
-    def _dispatch(self, label: str, parsed: dict, ts, pod_ip: str) -> list[LogEntry] | None:
-        """if/elif 关键字分派到对应的提取逻辑，返回列表"""
-        if label == URMA_LABEL:
-            entry = self._parse_urma(parsed, ts, pod_ip)
-            return [entry] if entry else None
-        if label == REMOTE_PULL_LABEL:
-            msg = parsed["msg"]
-            if "Remote get request" in msg:
-                entry = self._parse_remote_get(parsed, ts, pod_ip)
-            else:
-                entry = self._parse_remote_pull(parsed, ts, pod_ip)
-            return [entry] if entry else None
-        if label == LINK_LABEL:
-            entry = self._parse_link(parsed, ts, pod_ip)
-            return [entry] if entry else None
-        if label == QUERY_META_LABEL:
-            entry = self._parse_query_meta(parsed, ts, pod_ip)
-            return [entry] if entry else None
-        if label == METRICS_LABEL:
-            entry = self._parse_metrics(parsed, ts, pod_ip)
-            return [entry] if entry else None
-        return None
+        matched = self._parse_first_match(line, parsed, ts, pod_ip)
+        if not matched:
+            return None
+        return [matched[1]]
 
     def _scope_allows(self, label: str, trace_id: str, pod_ip: str) -> bool:
         if not self._scan_scope_enabled:
@@ -225,7 +247,7 @@ class WorkerInfoParser(LogParser):
                 return True
             return False
 
-        if label in (REMOTE_PULL_LABEL, LINK_LABEL, METRICS_LABEL):
+        if label in (REMOTE_PULL_LABEL, LINK_LABEL, *TIMED_LABELS):
             return bool(trace_id) and trace_id in self._target_trace_ids
 
         return True
@@ -243,24 +265,185 @@ class WorkerInfoParser(LogParser):
         if label == URMA_LABEL:
             return pod_ip in self._target_pod_ips or bool(self._target_trace_ids)
 
-        if label in (REMOTE_PULL_LABEL, LINK_LABEL, METRICS_LABEL):
+        if label in (REMOTE_PULL_LABEL, LINK_LABEL, *TIMED_LABELS):
             return bool(self._target_trace_ids)
 
         return True
 
-    @staticmethod
-    def _label_for_line(line: str, allow_pod_scoped_labels: bool = True) -> str | None:
+    def _parse_first_match(
+        self,
+        line: str,
+        parsed: dict,
+        ts,
+        pod_ip: str,
+    ) -> tuple[str, LogEntry] | None:
+        """按固定优先级命中第一个关键字并立即解析；一行最多产出一个 entry。"""
         if "URMA_ELAPSED_TOTAL" in line:
-            return URMA_LABEL
-        if "Remote get request" in line or "Processing pull object[" in line:
-            return REMOTE_PULL_LABEL
+            return self._parse_label(
+                URMA_LABEL,
+                self._parse_urma,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "Remote get request" in line:
+            return self._parse_label(
+                REMOTE_PULL_LABEL,
+                self._parse_remote_get,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "Processing pull object[" in line:
+            return self._parse_label(
+                REMOTE_PULL_LABEL,
+                self._parse_remote_pull,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
         if "elapsed ms:" in line:
-            return LINK_LABEL
-        if not allow_pod_scoped_labels:
-            return None
+            return self._parse_label(
+                LINK_LABEL,
+                self._parse_link,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
         if "Master query done" in line:
-            return QUERY_META_LABEL
+            return self._parse_label(
+                QUERY_META_LABEL,
+                self._parse_query_meta,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "totalCost:" in line:
+            return self._parse_label(
+                SDK_PROCESS_LABEL,
+                self._parse_sdk_process,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "Worker to master rpc QueryMeta:" in line:
+            return self._parse_label(
+                SDK_RPC_LABEL,
+                self._parse_sdk_rpc,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "ProcessGetObjectRequest:" in line:
+            return self._parse_label(
+                LOCAL_WORKER_COST_LABEL,
+                self._parse_local_worker_cost,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "worker SafeObject WLock:" in line:
+            return self._parse_label(
+                LOCAL_WORKER_LOCK_LABEL,
+                self._parse_local_worker_lock,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "[Get/RemotePull] finish" in line:
+            return self._parse_label(
+                REMOTE_WORKER_COST_LABEL,
+                self._parse_remote_worker_cost,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "[Get] Remote done" in line:
+            return self._parse_label(
+                REMOTE_WORKER_RPC_LABEL,
+                self._parse_remote_worker_rpc,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "QueryMeta done" in line:
+            return self._parse_label(
+                MASTER_PROCESS_LABEL,
+                self._parse_master_process,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "[ZMQ_RPC_FRAMEWORK_SLOW]" in line:
+            return self._parse_label(
+                MASTER_RPC_LABEL,
+                self._parse_master_rpc,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if "src" in line and "dst" in line:
+            return self._parse_label(
+                REMOTE_PULL_LABEL,
+                self._parse_src_dst_fallback,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
         return None
+
+    def _parse_label(
+        self,
+        label: str,
+        parse_func,
+        parsed: dict,
+        ts,
+        pod_ip: str,
+        allow_trace_fallback: bool = False,
+        trace_source: str = "",
+    ) -> tuple[str, LogEntry] | None:
+        if allow_trace_fallback:
+            parsed["trace_id"] = self.resolve_trace_id(
+                parsed["trace_id"],
+                trace_source or parsed["msg"],
+            )
+        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        if not self._file_scope_may_allow(label, entry_pod_ip):
+            return None
+        if not self._scope_allows(label, parsed["trace_id"], entry_pod_ip):
+            return None
+        entry = parse_func(parsed, ts, pod_ip)
+        if not entry:
+            return None
+        return label, entry
 
     # ---- 各类型提取逻辑 (从对应 parser 提取) ----
 
@@ -329,6 +512,35 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
+    def _parse_src_dst_fallback(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        msg = parsed["msg"]
+        trace_id = parsed["trace_id"]
+        if not trace_id:
+            return None
+        m = REMOTE_ENDPOINT_RE.search(msg)
+        if not m:
+            return None
+        src_addr, dst_addr = (value.strip() for value in m.groups())
+        if not (
+            self._looks_like_ip_endpoint(src_addr)
+            and self._looks_like_ip_endpoint(dst_addr)
+        ):
+            return None
+        entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        return LogEntry(
+            timestamp=ts,
+            elapsed_us=0,
+            object_key="",
+            request_size="",
+            resp_msg=msg,
+            src_addr=src_addr,
+            dst_addr=dst_addr,
+            pod_ip=entry_pod_ip,
+            trace_id=trace_id,
+            entry_type=EntryType.REMOTE_PULL,
+            cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
+        )
+
     def _parse_link(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
         msg = parsed["msg"]
         trace_id = parsed["trace_id"]
@@ -370,49 +582,157 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
-    def _parse_metrics(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
-        msg = parsed["msg"]
-        trace_id = parsed["trace_id"]
-        if not trace_id:
+    def _parse_sdk_process(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, SDK_PROCESS_RE, EntryType.SDK_PROCESS
+        )
+
+    def _parse_sdk_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, SDK_RPC_RE, EntryType.SDK_RPC
+        )
+
+    def _parse_local_worker_cost(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, LOCAL_WORKER_COST_RE, EntryType.LOCAL_WORKER_COST
+        )
+
+    def _parse_local_worker_lock(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, LOCAL_WORKER_LOCK_RE, EntryType.LOCAL_WORKER_LOCK
+        )
+
+    def _parse_remote_worker_cost(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, REMOTE_WORKER_COST_RE, EntryType.REMOTE_WORKER_COST
+        )
+
+    def _parse_remote_worker_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, REMOTE_WORKER_RPC_RE, EntryType.REMOTE_WORKER_RPC
+        )
+
+    def _parse_master_process(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, MASTER_PROCESS_RE, EntryType.MASTER_PROCESS
+        )
+
+    def _parse_master_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, MASTER_RPC_RE, EntryType.MASTER_RPC, multiplier=1
+        )
+
+    def _parse_timed_entry(
+        self,
+        parsed: dict,
+        ts,
+        pod_ip: str,
+        regex,
+        entry_type: EntryType,
+        multiplier: float = 1000,
+    ) -> LogEntry | None:
+        if not parsed["trace_id"]:
             return None
-
-        if "totalCost:" in msg:
-            m = SDK_PROCESS_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.SDK_PROCESS, float(m.group(1)) * 1000)
-        if "Worker to master rpc QueryMeta:" in msg:
-            m = SDK_RPC_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.SDK_RPC, float(m.group(1)) * 1000)
-        if "ProcessGetObjectRequest:" in msg:
-            m = LOCAL_WORKER_COST_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.LOCAL_WORKER_COST, float(m.group(1)) * 1000)
-        if "worker SafeObject WLock:" in msg:
-            m = LOCAL_WORKER_LOCK_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.LOCAL_WORKER_LOCK, float(m.group(1)) * 1000)
-        if "[Get] finish" in msg or "[RemotePull] finish" in msg:
-            m = REMOTE_WORKER_COST_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.REMOTE_WORKER_COST, float(m.group(1)) * 1000)
-        if "[Get] Remote done" in msg:
-            m = REMOTE_WORKER_RPC_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.REMOTE_WORKER_RPC, float(m.group(1)) * 1000)
-        if "QueryMeta done" in msg:
-            m = MASTER_PROCESS_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.MASTER_PROCESS, float(m.group(1)) * 1000)
-        if "[ZMQ_RPC_FRAMEWORK_SLOW]" in msg:
-            m = MASTER_RPC_RE.search(msg)
-            if m:
-                return self._mk_metrics(parsed, ts, pod_ip, EntryType.MASTER_RPC, float(m.group(1)))
-
-        return None
+        m = regex.search(parsed["msg"])
+        if not m:
+            return None
+        groups = m.groupdict()
+        elapsed_raw = self._elapsed_value_from_match(m, groups)
+        if elapsed_raw is None:
+            return None
+        timed_fields = self._timed_fields_from_groups(parsed["msg"], groups)
+        return self._mk_timed_entry(
+            parsed,
+            ts,
+            pod_ip,
+            entry_type,
+            float(elapsed_raw) * multiplier,
+            **timed_fields,
+        )
 
     @staticmethod
-    def _mk_metrics(parsed: dict, ts, pod_ip: str, entry_type: EntryType, elapsed_us: float) -> LogEntry:
+    def _elapsed_value_from_match(match, groups: dict[str, str | None]) -> str | None:
+        for key in ("cost", "remote_processing_us"):
+            value = groups.get(key)
+            if value:
+                return value
+        for value in match.groups():
+            if value and value.replace(".", "", 1).isdigit():
+                return value
+        return None
+
+    @classmethod
+    def _timed_fields_from_groups(
+        cls,
+        msg: str,
+        groups: dict[str, str | None],
+    ) -> dict[str, str | int | None]:
+        src_addr = cls._clean_group(groups.get("src"))
+        dst_addr = cls._clean_group(groups.get("dst"))
+        if not src_addr or not dst_addr:
+            endpoint_match = REMOTE_ENDPOINT_RE.search(msg)
+            if endpoint_match:
+                src_addr, dst_addr = (
+                    value.strip() for value in endpoint_match.groups()
+                )
+
+        inflight_count = cls._optional_int(groups.get("inflight_remote_get"))
+        resp_msg = cls._format_timed_resp_msg(groups)
+
+        return {
+            "object_key": cls._clean_group(groups.get("first_object_key")),
+            "request_size": cls._clean_group(groups.get("payload_size")),
+            "src_addr": src_addr,
+            "dst_addr": dst_addr,
+            "inflight_count": inflight_count,
+            "resp_msg": resp_msg,
+        }
+
+    @staticmethod
+    def _clean_group(value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @staticmethod
+    def _optional_int(value: str | None) -> int | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _format_timed_resp_msg(cls, groups: dict[str, str | None]) -> str | None:
+        parts = []
+        for key, value in groups.items():
+            if key in _TIMED_RESP_EXCLUDED_FIELDS:
+                continue
+            cleaned = cls._clean_group(value)
+            if not cleaned:
+                continue
+            parts.append(f"{key}={cleaned}")
+        return ", ".join(parts) if parts else None
+
+    @staticmethod
+    def _mk_timed_entry(
+        parsed: dict,
+        ts,
+        pod_ip: str,
+        entry_type: EntryType,
+        elapsed_us: float,
+        object_key: str | None = None,
+        request_size: str | None = None,
+        src_addr: str | None = None,
+        dst_addr: str | None = None,
+        inflight_count: int | None = None,
+        resp_msg: str | None = None,
+    ) -> LogEntry:
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
         return LogEntry(
             timestamp=ts,
@@ -421,6 +741,12 @@ class WorkerInfoParser(LogParser):
             trace_id=parsed["trace_id"],
             entry_type=entry_type,
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
+            object_key=object_key,
+            request_size=request_size,
+            resp_msg=resp_msg,
+            src_addr=src_addr,
+            dst_addr=dst_addr,
+            inflight_count=inflight_count,
         )
 
     @staticmethod
@@ -430,15 +756,20 @@ class WorkerInfoParser(LogParser):
                 return True
         return False
 
+    @classmethod
+    def _line_may_match(cls, line: str) -> bool:
+        return cls._any_keyword_in(line) or ("src" in line and "dst" in line)
+
     @staticmethod
-    def _any_metrics_keyword_in(line: str) -> bool:
-        for kw in METRICS_KEYWORDS:
-            if kw in line:
-                return True
-        return False
+    def _looks_like_ip_endpoint(value: str) -> bool:
+        return bool(_IP_ENDPOINT_RE.search(value))
 
     @staticmethod
     def _build_run(parts: list[str], plen: int) -> dict:
-        col = (0, 3, 5, 6, 7)
-        keys = ("timestamp", "pod_name", "trace_id", "cluster_name", "msg")
-        return {k: parts[idx].strip() if idx < plen else "" for k, idx in zip(keys, col)}
+        return {
+            "timestamp": parts[0].strip() if plen > 0 else "",
+            "pod_name": parts[3].strip() if plen > 3 else "",
+            "trace_id": parts[5].strip() if plen > 5 else "",
+            "cluster_name": parts[6].strip() if plen > 6 else "",
+            "msg": "|".join(parts[7:]).strip() if plen > 7 else "",
+        }

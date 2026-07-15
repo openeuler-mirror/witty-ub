@@ -1,9 +1,40 @@
 from typing import Optional
-from latency.schemas.failure_mode import FailureModeModel
+from latency.schemas.failure_mode import FailureModeModel, StatusCodeKnowledgeModel
 from latency.database.engine import AsyncSQLiteSingleton
 
 
 class FailureModeKnowledgeManager:
+    @staticmethod
+    async def get_status_code_knowledge(
+        status_code: str,
+    ) -> Optional[StatusCodeKnowledgeModel]:
+        sql_str = """
+            SELECT status_code, symptom, root_cause
+            FROM status_code_knowledge_table
+            WHERE status_code = :status_code
+        """
+        results = await AsyncSQLiteSingleton().execute_query(
+            sql_str, {"status_code": status_code}
+        )
+        if results:
+            return StatusCodeKnowledgeModel(**results[0])
+        return None
+
+    @staticmethod
+    async def add_status_code_knowledge(
+        results: list[StatusCodeKnowledgeModel],
+    ) -> list[str]:
+        if not results:
+            return []
+        sql_str = """
+            INSERT OR REPLACE INTO status_code_knowledge_table
+            (status_code, symptom, root_cause)
+            VALUES (:status_code, :symptom, :root_cause)
+        """
+        params = [result.model_dump() for result in results]
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return [result.status_code for result in results]
+
     @staticmethod
     async def get_failure_mode_by_id(failure_mode_id: str) -> Optional[FailureModeModel]:
         sql_str = """
@@ -44,7 +75,7 @@ class FailureModeKnowledgeManager:
                     failure_mode.model_dump(exclude_none=False, by_alias=True)
                     for failure_mode in batch
                 ]
-                await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
                 ids_added.extend([failure_mode.id for failure_mode in batch])
             except Exception as e:
                 print(f"批量添加故障模式知识失败，错误信息: {str(e)}")

@@ -18,10 +18,10 @@ class AnomalousEventChainManager:
                 :anomaly_code, :offset, :existed_status, :created_at
             )
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, chain.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_event_chains(
@@ -44,7 +44,8 @@ class AnomalousEventChainManager:
         
         async with db._async_lock:
             def sync_batch_insert():
-                conn = db._conn
+                db.ensure_initialized()
+                conn = db._write_conn
                 try:
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
@@ -87,8 +88,8 @@ class AnomalousEventChainManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def update_event_chains_existed_status_by_log_id(
@@ -101,8 +102,8 @@ class AnomalousEventChainManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id, "existed_status": existed_status}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def list_event_chains(

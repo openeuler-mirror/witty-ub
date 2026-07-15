@@ -11,13 +11,19 @@ from latency.schemas.log import (
 )
 from latency.schemas.failure_mode import (
     FailureModeModel,
+    StatusCodeKnowledgeModel,
 )
 from latency.schemas.log_failure_event import (
     LogFailureEventModel,
     TraceFailureEventModel,
     ErrCodeMetricItem,
     PodAggregatedFailureEventModel,
+    SrcDstAggregatedFailureEventModel,
     TimeAggregatedFailureEventModel,
+)
+from latency.schemas.diagnosis_case import (
+    DiagnosisCaseMatchModel,
+    DiagnosisCaseModel,
 )
 from latency.schemas.task import TaskModel
 
@@ -126,20 +132,22 @@ class GetLogFileResponse(ResponseBase):
     result: GetLogFileMsg = Field(..., description="查询日志文件详情响应结果")
 
 
-class GetLogFileMsg(BaseModel):
-    log_file: Optional[LogFileModel] = Field(default=None, description="日志文件详情")
-
-
-class GetLogFileResponse(ResponseBase):
-    result: GetLogFileMsg = Field(..., description="查询日志文件详情响应结果")
-
-
 class GetFailureModeMsg(BaseModel):
     failure_mode: Optional[FailureModeModel] = Field(default=None, description="故障模式详情")
 
 
 class GetFailureModeResponse(ResponseBase):
     result: GetFailureModeMsg = Field(..., description="查询故障模式详情响应结果")
+
+
+class GetStatusCodeKnowledgeMsg(BaseModel):
+    status_code_info: Optional[StatusCodeKnowledgeModel] = Field(
+        default=None, description="故障码知识详情"
+    )
+
+
+class GetStatusCodeKnowledgeResponse(ResponseBase):
+    result: GetStatusCodeKnowledgeMsg = Field(..., description="查询故障码知识响应结果")
 
 
 class ListSrcDstAggregatedEventMsg(BaseModel):
@@ -163,7 +171,7 @@ class ListTimeAggregatedFailureEventMsg(BaseModel):
     )
 
 
-class ListTimeAggregatedFailureEventResponse(BaseModel):
+class ListTimeAggregatedFailureEventResponse(ResponseBase):
     result: ListTimeAggregatedFailureEventMsg = Field(
         ..., description="查询聚合时间列表相应结果"
     )
@@ -178,6 +186,19 @@ class ListPodAggregatedFailureEventMsg(BaseModel):
 
 class ListPodAggregatedFailureEventResponse(ResponseBase):
     result: ListPodAggregatedFailureEventMsg = Field(
+        ..., description="查询聚合事件列表相应结果"
+    )
+
+
+class ListSrcDstAggregatedFailureEventMsg(BaseModel):
+    total: int = Field(..., description="符合条件的聚合事件总数")
+    events: list[SrcDstAggregatedFailureEventModel] = Field(
+        default_factory=list, description="聚合事件列表"
+    )
+
+
+class ListSrcDstAggregatedFailureEventResponse(ResponseBase):
+    result: ListSrcDstAggregatedFailureEventMsg = Field(
         ..., description="查询聚合事件列表相应结果"
     )
 
@@ -260,7 +281,7 @@ class ListTraceFailureEventResultMsg(BaseModel):
         default_factory=list, description="故障Trace结果列表"
     )
 
-class ListTraceFailureEventResultReponse(ResponseBase):
+class ListTraceFailureEventResultResponse(ResponseBase):
     result: ListTraceFailureEventResultMsg = Field(
         ..., description="查询故障Trace列表响应结果"
     )
@@ -323,6 +344,34 @@ class GetErrCodeMetricsMsg(BaseModel):
 
 class GetErrCodeMetricsResponse(ResponseBase):
     result: GetErrCodeMetricsMsg = Field(..., description="获取故障码指标时间曲线响应结果")
+
+
+class CreateDiagnosisCaseMsg(BaseModel):
+    case_id: Optional[str] = Field(default=None, description="创建的历史诊断案例ID")
+
+
+class CreateDiagnosisCaseResponse(ResponseBase):
+    result: CreateDiagnosisCaseMsg = Field(..., description="创建历史诊断案例响应结果")
+
+
+class GetDiagnosisCaseMsg(BaseModel):
+    case: Optional[DiagnosisCaseModel] = Field(default=None, description="历史诊断案例")
+
+
+class GetDiagnosisCaseResponse(ResponseBase):
+    result: GetDiagnosisCaseMsg = Field(..., description="获取历史诊断案例响应结果")
+
+
+class SearchDiagnosisCasesMsg(BaseModel):
+    total: int = Field(..., description="匹配的历史诊断案例总数")
+    matches: list[DiagnosisCaseMatchModel] = Field(
+        default_factory=list, description="历史诊断案例匹配列表"
+    )
+
+
+class SearchDiagnosisCasesResponse(ResponseBase):
+    result: SearchDiagnosisCasesMsg = Field(..., description="搜索历史诊断案例响应结果")
+
 
 class StopOrRunLogParseMsg(BaseModel):
     success: bool = Field(..., description="操作是否成功")

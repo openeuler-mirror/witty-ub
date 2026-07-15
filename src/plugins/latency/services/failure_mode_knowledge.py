@@ -1,10 +1,11 @@
 import os
 import json
 import logging
-from latency.schemas.failure_mode import FailureModeModel
+from latency.schemas.failure_mode import FailureModeModel, StatusCodeKnowledgeModel
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
 from latency.schemas.response import (
     GetFailureModeMsg,
+    GetStatusCodeKnowledgeMsg,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,31 @@ class FailureModeKnowledge:
         logger.info(f"故障模式数据路径: {data_path}")
         
         failure_modes = []
+
+        status_code_json_path = os.path.join(
+            data_path, "kvcache", "kvcache_conn_fault_code_info.json"
+        )
+        if os.path.exists(status_code_json_path):
+            try:
+                with open(status_code_json_path, "r", encoding="utf-8") as f:
+                    status_code_data = json.load(f)
+
+                status_code_knowledge = []
+                for item in status_code_data:
+                    for status_code, info in item.items():
+                        status_code_knowledge.append(
+                            StatusCodeKnowledgeModel(
+                                status_code=str(status_code),
+                                symptom=info.get("故障现象", ""),
+                                root_cause=info.get("故障原因", ""),
+                            )
+                        )
+                await FailureModeKnowledgeManager.add_status_code_knowledge(
+                    status_code_knowledge
+                )
+                logger.info("成功初始化故障码知识库: 共 %d 条", len(status_code_knowledge))
+            except Exception as e:
+                logger.error("读取故障码知识失败: %s", str(e))
         
         kvcache_json_path = os.path.join(data_path, "kvcache", "kvcache_conn_fault_mode.json")
         if os.path.exists(kvcache_json_path):
@@ -96,3 +122,10 @@ class FailureModeKnowledge:
     async def get_failure_mode_knowledege_by_id(failure_mode_id: str) -> GetFailureModeMsg:
         failure_mode_model = await FailureModeKnowledgeManager.get_failure_mode_by_id(failure_mode_id)
         return GetFailureModeMsg(failure_mode=failure_mode_model)
+
+    @staticmethod
+    async def get_status_code_knowledge(status_code: str) -> GetStatusCodeKnowledgeMsg:
+        status_code_info = await FailureModeKnowledgeManager.get_status_code_knowledge(
+            status_code
+        )
+        return GetStatusCodeKnowledgeMsg(status_code_info=status_code_info)

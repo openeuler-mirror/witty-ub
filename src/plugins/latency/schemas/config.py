@@ -1,5 +1,5 @@
 """系统配置类"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from uuid import uuid4
 from latency.ENUM.general import OnlineStatus, LogLevel
 from latency.ENUM.model import ModelProvider, ModelLabel
@@ -41,25 +41,57 @@ class ModelConfig(BaseModel):
 
 
 class DSLogAnalyzerConfig(BaseModel):
-    model_config = {"populate_by_name": True}
-
     # 多窗口配置（每个指标都会使用所有窗口检测）
-    sliding_window_sizes: list[int] = Field(default=[100, 200, 300, 500], alias="SLIDING_WINDOW_SIZES", description="滑动窗口大小列表")
-    sliding_window_steps: list[int] = Field(default=[20, 30, 40, 50], alias="SLIDING_WINDOW_STEPS", description="滑动窗口步长列表，与窗口大小一一对应")
-    zone_anomaly_density_threshold: float = Field(default=0.5, alias="ZONE_ANOMALY_DENSITY_THRESHOLD", description="区间异常密度阈值，超过此比例则整个区间标记为异常")
+    sliding_window_sizes: list[int] = Field(default=[100, 200, 300, 500], description="滑动窗口大小列表")
+    sliding_window_steps: list[int] = Field(default=[20, 30, 40, 50], description="滑动窗口步长列表，与窗口大小一一对应")
+    zone_anomaly_density_threshold: float = Field(default=0.9999, description="区间异常密度阈值，超过此比例则整个区间标记为异常")
 
     # 各指标阈值配置
-    total_p99_threshold_ms: float = Field(default=2.0, alias="TOTAL_P99_THRESHOLD_MS", description="总时延P99阈值，单位毫秒")
-    c2w_p99_threshold_ms: float = Field(default=1.0, alias="C2W_P99_THRESHOLD_MS", description="C2W时延P99阈值，单位毫秒")
-    w2w_p99_threshold_ms: float = Field(default=1.0, alias="W2W_P99_THRESHOLD_MS", description="W2W时延P99阈值，单位毫秒")
-    urma_link_p99_threshold_ms: float = Field(default=1.0, alias="URMA_LINK_P99_THRESHOLD_MS", description="URMA建链时延P99阈值，单位毫秒")
-    query_meta_p99_threshold_ms: float = Field(default=1.0, alias="QUERY_META_P99_THRESHOLD_MS", description="Worker QueryMeta时延P99阈值，单位毫秒")
+    total_p99_threshold_ms: float = Field(default=2.0, description="总时延P99阈值，单位毫秒")
+    c2w_p99_threshold_ms: float = Field(default=1.0, description="C2W时延P99阈值，单位毫秒")
+    w2w_p99_threshold_ms: float = Field(default=1.0, description="W2W时延P99阈值，单位毫秒")
+    urma_link_p99_threshold_ms: float = Field(default=1.0, description="URMA建链时延P99阈值，单位毫秒")
+    query_meta_p99_threshold_ms: float = Field(default=1.0, description="Worker QueryMeta时延P99阈值，单位毫秒")
 
-    # 日志文件路径配置
-    ds_client_access_log_file: list[str] = Field(default=[], alias="ds-client-access-log-file", description="SDK客户端访问日志文件匹配模式")
-    ds_client_info_log_file: list[str] = Field(default=[], alias="ds-client-info-log-file", description="SDK客户端信息日志文件匹配模式")
-    ds_worker_access_log_file: list[str] = Field(default=[], alias="ds-worker-access-log-file", description="Worker访问日志文件匹配模式")
-    ds_worker_info_log_file: list[str] = Field(default=[], alias="ds-worker-info-log-file", description="Worker信息日志文件匹配模式")
+
+class LogFilenamePatternConfig(BaseModel):
+    ds_client_access_log_file: list[str] = Field(default_factory=list, description="SDK客户端接口日志文件匹配模式")
+    ds_client_info_log_file: list[str] = Field(default_factory=list, description="SDK客户端信息日志文件匹配模式")
+    ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker接口日志文件匹配模式")
+    ds_worker_info_log_file: list[str] = Field(default_factory=list, description="Worker信息日志文件匹配模式")
+    resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
+
+
+class DiagnosisRuntimeConfig(BaseModel):
+    """可在服务运行期间热更新的诊断配置。"""
+
+    log_filename_pattern: LogFilenamePatternConfig
+    log_analyzer_params: DSLogAnalyzerConfig
+
+    @model_validator(mode="after")
+    def validate_runtime_config(self):
+        empty_pattern_types = [
+            key
+            for key, patterns in self.log_filename_pattern.model_dump().items()
+            if not patterns
+        ]
+        if empty_pattern_types:
+            raise ValueError(
+                f"日志文件名 Pattern 不能为空: {', '.join(empty_pattern_types)}"
+            )
+
+        params = self.log_analyzer_params
+        if not params.sliding_window_sizes:
+            raise ValueError("至少需要配置一组滑动窗口")
+        if len(params.sliding_window_sizes) != len(params.sliding_window_steps):
+            raise ValueError("滑动窗口大小与步长数量必须一致")
+        if any(value <= 0 for value in params.sliding_window_sizes):
+            raise ValueError("滑动窗口大小必须大于 0")
+        if any(value <= 0 for value in params.sliding_window_steps):
+            raise ValueError("滑动窗口步长必须大于 0")
+        if not 0 <= params.zone_anomaly_density_threshold <= 1:
+            raise ValueError("区间异常密度阈值必须在 0 到 1 之间")
+        return self
 
 
 class ConfigModel(BaseModel):
@@ -72,8 +104,11 @@ class ConfigModel(BaseModel):
     embedding_model: ModelConfig | None = Field(
         default=None, description="向量化模型配置"
     )
-    ds_log_analyzer: DSLogAnalyzerConfig = Field(
+    log_filename_pattern: LogFilenamePatternConfig = Field(
+        default_factory=LogFilenamePatternConfig,
+        description="日志文件名匹配模式",
+    )
+    log_analyzer_params: DSLogAnalyzerConfig = Field(
         default_factory=DSLogAnalyzerConfig,
-        alias="DS_LOG_ANALYZER",
         description="DS日志分析配置",
     )

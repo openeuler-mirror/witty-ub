@@ -1,6 +1,21 @@
-from latency.schemas.log import AnomalousEventModel
+from latency.schemas.log import AnomalousEventDataclass, AnomalousEventModel
 from latency.schemas.request import ListAnomalousEventRequest
 from latency.database.engine import AsyncSQLiteSingleton
+
+
+def _anomalous_event_to_db_tuple(
+    event: AnomalousEventDataclass | AnomalousEventModel,
+) -> tuple:
+    return (
+        event.id,
+        event.log_id,
+        event.aggregated_event_id,
+        event.start_log_parse_offset,
+        event.end_log_parse_offset,
+        event.anomaly_reason,
+        event.existed_status,
+        event.created_at,
+    )
 
 
 class AnomalousEventManager:
@@ -18,14 +33,14 @@ class AnomalousEventManager:
                 :end_log_parse_offset, :anomaly_reason, :existed_status, :created_at
             )
         """
-        result = await AsyncSQLiteSingleton().execute_modify(
+        success, _ = await AsyncSQLiteSingleton().execute_modify(
             sql_str, event.model_dump(exclude_none=False, by_alias=True)
         )
-        return result
+        return success
 
     @staticmethod
     async def add_anomalous_events(
-        events: list[AnomalousEventModel],
+        events: list[AnomalousEventDataclass] | list[AnomalousEventModel],
         batch_size: int = 50000,
     ) -> list[str]:
         """批量添加异常事件：全局单事务 + SQLite写入优化 + 线程安全修复"""
@@ -38,17 +53,17 @@ class AnomalousEventManager:
             return []
             
         ids_added = [e.id for e in events]
-        params = [e.model_dump(exclude_none=False, by_alias=True) for e in events]
-        total_count = len(params)
+        total_count = len(events)
         db = AsyncSQLiteSingleton()
         
         async with db._async_lock:
             def sync_batch_insert():
-                conn = db._conn
+                db.ensure_initialized()
+                conn = db._write_conn
                 try:
                     conn.execute("PRAGMA journal_mode = WAL;")
                     conn.execute("PRAGMA synchronous = NORMAL;")
-                    conn.execute("PRAGMA cache_size = -7500;")
+                    conn.execute("PRAGMA cache_size = -65536;")
                     conn.execute("PRAGMA temp_store = MEMORY;")
                     conn.execute("PRAGMA foreign_keys = OFF;")
                     
@@ -58,13 +73,14 @@ class AnomalousEventManager:
                         INSERT INTO anomalous_event_table (
                             id, log_id, aggregated_event_id, start_log_parse_offset,
                             end_log_parse_offset, anomaly_reason, existed_status, created_at
-                        ) VALUES (
-                            :id, :log_id, :aggregated_event_id, :start_log_parse_offset,
-                            :end_log_parse_offset, :anomaly_reason, :existed_status, :created_at
-                        )
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     for i in range(0, total_count, batch_size):
-                        batch = params[i:i + batch_size]
+                        end = min(i + batch_size, total_count)
+                        batch = (
+                            _anomalous_event_to_db_tuple(events[index])
+                            for index in range(i, end)
+                        )
                         conn.executemany(sql_str, batch)
                     
                     conn.commit()
@@ -87,8 +103,8 @@ class AnomalousEventManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def update_anomalous_events_existed_status_by_log_id(
@@ -101,8 +117,8 @@ class AnomalousEventManager:
             WHERE log_id = :log_id
         """
         params = {"log_id": log_id, "existed_status": existed_status}
-        result = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return result
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success
 
     @staticmethod
     async def list_anomalous_events_by_log_id(log_id: str) -> list[AnomalousEventModel]:

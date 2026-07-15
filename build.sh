@@ -2,29 +2,252 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+BASE_IMAGE="witty-ub-base:latest"
+APP_IMAGE="witty-ub:latest"
+REGISTRY=""
+PLATFORM="local"
+USE_RPM="false"
+REPO_URL=""
 
-echo "Removing build directory..."
-rm -rf build
+show_usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --multi        Build multi-architecture image (x86_64 + arm64)"
+    echo "  --registry     Specify registry for multi-arch push (required with --multi)"
+    echo "  --platform     Target platform: local, linux/amd64, linux/arm64"
+    echo "  --rpm          Build image using RPM package (instead of source code)"
+    echo "  --repo-url     Specify custom RPM repository URL (used with --rpm)"
+    echo "  -h, --help     Show this help message"
+}
 
-echo "Creating build directory..."
-mkdir build
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --multi)
+            PLATFORM="linux/amd64,linux/arm64"
+            shift
+            ;;
+        --registry)
+            REGISTRY="$2"
+            shift 2
+            ;;
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
+        --rpm)
+            USE_RPM="true"
+            shift
+            ;;
+        --repo-url)
+            REPO_URL="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
 
-echo "Entering build directory and running cmake..."
-cd build
+if [ "$PLATFORM" = "linux/amd64,linux/arm64" ] && [ -z "$REGISTRY" ]; then
+    echo "Error: --registry is required when building multi-architecture images"
+    show_usage
+    exit 1
+fi
 
-cmake .. \
-  -DCMAKE_CXX_STANDARD=17 \
-  -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-  -DCMAKE_CXX_FLAGS="-DHOST_NAME_MAX=255" \
-  -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl@3 \
-  -DOPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@3/include \
-  -DOPENSSL_CRYPTO_LIBRARY=/usr/local/opt/openssl@3/lib/libcrypto.dylib \
-  -DOPENSSL_SSL_LIBRARY=/usr/local/opt/openssl@3/lib/libssl.dylib \
-  -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/lib -llog4cplus"
+if [ "$USE_RPM" = "true" ] && [ -z "$REPO_URL" ]; then
+    echo "Error: --repo-url is required when building with --rpm"
+    echo "       Example: --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<子目录>"
+    show_usage
+    exit 1
+fi
 
-echo "Running make..."
-make -j$(sysctl -n hw.ncpu)
+create_builder() {
+    BUILDKIT_CONFIG="$(dirname "$0")/buildkitd.toml"
+    if [ -f "$BUILDKIT_CONFIG" ]; then
+        BUILDKIT_CONFIG_ARG="--config $BUILDKIT_CONFIG"
+    else
+        BUILDKIT_CONFIG_ARG=""
+    fi
 
+    if docker buildx ls | grep -q witty-ub-builder; then
+        echo "Removing existing builder to apply new config..."
+        docker buildx rm witty-ub-builder
+    fi
+
+    echo "Creating buildx builder..."
+    eval docker buildx create --name witty-ub-builder $BUILDKIT_CONFIG_ARG --use
+    docker buildx inspect --bootstrap
+}
+
+if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
+    create_builder
+elif [ "$PLATFORM" = "local" ]; then
+    echo "Using default builder for local build (can access local images)"
+    docker buildx use default
+else
+    echo "Using default builder for single-platform build (can access local images)"
+    docker buildx use default
+fi
+
+build_base() {
+    echo "============================================"
+    echo "Building base image: $BASE_IMAGE"
+    echo "Platform: $PLATFORM"
+    echo "============================================"
+
+    if [ "$PLATFORM" = "local" ]; then
+        docker build -f Dockerfile.base -t "$BASE_IMAGE" .
+    else
+        target_image="$BASE_IMAGE"
+        if [ -n "$REGISTRY" ]; then
+            REGISTRY_HOST="${REGISTRY%/*}"
+            REPO_NAME="${REGISTRY##*/}"
+            target_image="${REGISTRY_HOST}/${REPO_NAME}-base:latest"
+        fi
+
+        if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
+            docker buildx build \
+                --platform "$PLATFORM" \
+                --push \
+                -f Dockerfile.base \
+                -t "$target_image" .
+        else
+            docker buildx build \
+                --platform "$PLATFORM" \
+                --load \
+                -f Dockerfile.base \
+                -t "$target_image" \
+                -t "$BASE_IMAGE" .
+        fi
+    fi
+}
+
+build_web() {
+    echo ""
+    echo "============================================"
+    echo "Building web frontend locally"
+    echo "============================================"
+
+    if [ ! -d "src/web" ]; then
+        echo "Error: src/web directory not found"
+        exit 1
+    fi
+
+    cd src/web
+
+    if [ ! -d "node_modules" ]; then
+        echo "Installing npm dependencies..."
+        npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
+    fi
+
+    echo "Building frontend..."
+    export HUSKY=0
+    npm run build-only
+
+    if [ ! -d "dist" ]; then
+        echo "Error: Frontend build failed, dist directory not created"
+        exit 1
+    fi
+
+    cd ../..
+}
+
+build_app() {
+    echo ""
+    echo "============================================"
+    echo "Building application image: $APP_IMAGE"
+    echo "Platform: $PLATFORM"
+    echo "============================================"
+
+    build_web
+
+    if [ "$PLATFORM" = "local" ]; then
+        docker build -f Dockerfile -t "$APP_IMAGE" .
+    else
+        target_image="$APP_IMAGE"
+        build_args=""
+        
+        if [ -n "$REGISTRY" ]; then
+            target_image="$REGISTRY:latest"
+            REGISTRY_HOST="${REGISTRY%/*}"
+            REPO_NAME="${REGISTRY##*/}"
+            base_image_reg="${REGISTRY_HOST}/${REPO_NAME}-base:latest"
+            build_args="--build-arg BASE_IMAGE=${base_image_reg}"
+        fi
+
+        if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
+            eval docker buildx build \
+                --platform "$PLATFORM" \
+                --push \
+                $build_args \
+                -f Dockerfile \
+                -t "$target_image" .
+        else
+            docker buildx build \
+                --platform "$PLATFORM" \
+                --load \
+                $build_args \
+                -f Dockerfile \
+                -t "$target_image" .
+        fi
+    fi
+}
+
+build_rpm() {
+    echo ""
+    echo "============================================"
+    echo "Building RPM-based image: $APP_IMAGE"
+    echo "Platform: $PLATFORM"
+    echo "============================================"
+
+    target_image="$APP_IMAGE"
+    if [ -n "$REGISTRY" ]; then
+        target_image="$REGISTRY:latest"
+    fi
+
+    REPO_URL_FULL="${REPO_URL%/}/everything/\$basearch/"
+    build_args="--build-arg REPO_URL=\"$REPO_URL_FULL\""
+
+    if [ "$PLATFORM" = "local" ]; then
+        eval docker build $build_args -f Dockerfile.rpm -t "$target_image" .
+    elif [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
+        eval docker buildx build \
+            $build_args \
+            --platform "$PLATFORM" \
+            --push \
+            -f Dockerfile.rpm \
+            -t "$target_image" .
+    else
+        eval docker buildx build \
+            $build_args \
+            --platform "$PLATFORM" \
+            --load \
+            -f Dockerfile.rpm \
+            -t "$target_image" .
+    fi
+}
+
+if [ "$USE_RPM" = "true" ]; then
+    build_rpm
+else
+    build_base
+    build_app
+fi
+
+echo ""
+echo "============================================"
 echo "Build completed successfully!"
+echo "App image: $APP_IMAGE"
+echo "Platform: $PLATFORM"
+echo "Build method: $(if [ "$USE_RPM" = "true" ]; then echo "RPM"; else echo "Source"; fi)"
+if [ -n "$REGISTRY" ]; then
+    echo "Registry: $REGISTRY"
+fi
+echo "============================================"

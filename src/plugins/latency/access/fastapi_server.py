@@ -34,10 +34,68 @@ from latency.routers import (
     task,
     failure_mode_knowledge,
     log_failure_event_result,
+    diagnosis_case,
+    diagnosis_config,
 )
 from latency.database.engine import AsyncSQLiteSingleton
+from latency.exceptions import BaseBizException, NotFoundBizException, ConflictBizException, BadRequestBizException
+from pydantic import ValidationError
 
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)
+
+
+@app.exception_handler(NotFoundBizException)
+async def not_found_exception_handler(request: fastapi.Request, exc: NotFoundBizException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=404,
+        content={"code": 404, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(ConflictBizException)
+async def conflict_exception_handler(request: fastapi.Request, exc: ConflictBizException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=409,
+        content={"code": 409, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(BadRequestBizException)
+async def bad_request_exception_handler(request: fastapi.Request, exc: BadRequestBizException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=400,
+        content={"code": 400, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: fastapi.Request, exc: RequestValidationError):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": "请求参数校验失败", "result": None, "detail": exc.errors()},
+    )
+
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: fastapi.Request, exc: ValidationError):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": "请求参数校验失败", "result": None, "detail": str(exc)},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(request: fastapi.Request, exc: StarletteHTTPException):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.status_code, "message": exc.detail, "result": None},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +119,8 @@ async def configure():
     app.include_router(task.router)
     app.include_router(failure_mode_knowledge.router)
     app.include_router(log_failure_event_result.router)
+    app.include_router(diagnosis_case.router)
+    app.include_router(diagnosis_config.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
@@ -96,12 +156,31 @@ async def startup_event():
     await mk_dirs()
     await AsyncSQLiteSingleton().init_database()
     await FailureModeKnowledge().init_failure_mode_knowledge()
-    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5)
+    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5, max_instances=3)
     scheduler.start()
+
+
+def _setup_logging():
+    config = Config().get_config()
+    log_level_str = config.service.log_level.value
+    numeric_level = getattr(logging, log_level_str, logging.INFO)
+    
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    
+    logging.getLogger("latency.task.task_handler").setLevel(logging.WARNING)
+    logging.getLogger("latency.database").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    
+    logger.info(f"日志级别已设置为: {log_level_str}")
 
 
 def main():
     try:
+        _setup_logging()
         ssl_enable = Config().get_config().service.ssl_enable
         if ssl_enable:
             uvicorn.run(

@@ -1,21 +1,22 @@
-"""Worker访问日志解析器"""
+"""Worker接口日志解析器"""
 
 from datetime import datetime
 from typing import Optional
 
 from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log_file import WORKER_ACCESS_LOG_PATTERNS
-from latency.schemas.ds_log import LogEntry, EntryType
+from latency.schemas.ds_log import LogEntry
+from latency.ENUM.ds_log import EntryType
 from latency.schemas.request import ParseConfig
 from latency.parse.base_parser import AccessLogParser, WORKER_GET_OPS, logger
 
 
 class WorkerAccessLogParser(AccessLogParser):
-    """Worker访问日志解析器"""
+    """Worker接口日志解析器"""
 
     @property
     def patterns(self) -> list[str]:
-        return WORKER_ACCESS_LOG_PATTERNS
+        return getattr(self, "_runtime_patterns", WORKER_ACCESS_LOG_PATTERNS)
 
     label = "Worker access parse"
     _keywords = ("DS_POSIX_GET",)
@@ -45,19 +46,31 @@ class WorkerAccessLogParser(AccessLogParser):
         self._target_trace_ids: set[str] = set()
 
     def set_scan_scope(self, scan_scope: Optional[dict]) -> None:
+        """使用类级别缓存避免重复创建大集合"""
         if not scan_scope:
             self._scan_scope_enabled = False
             self._target_trace_ids = set()
             return
+        
         self._scan_scope_enabled = bool(scan_scope.get("enabled"))
-        self._target_trace_ids = set(scan_scope.get("trace_ids") or ())
+        
+        # 直接使用传递过来的集合对象（已经是 set），避免重新创建
+        trace_ids = scan_scope.get("trace_ids")
+        if isinstance(trace_ids, set):
+            self._target_trace_ids = trace_ids
+        else:
+            self._target_trace_ids = set(trace_ids or ())
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
         """匹配Worker GET操作日志行"""
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
         if not parsed or parsed["handle"] not in WORKER_GET_OPS:
             return None
-        trace_id = parsed["trace_id"]
+        trace_id = self.resolve_trace_id(
+            parsed["trace_id"],
+            parsed["req_msg"],
+            parsed["resp_msg"],
+        )
         if not trace_id:
             return None
         if self._scan_scope_enabled and trace_id not in self._target_trace_ids:
@@ -86,7 +99,7 @@ class WorkerAccessLogParser(AccessLogParser):
         )
 
     def parse(self, input_dir: str) -> list[LogEntry]:
-        """解析Worker访问日志"""
+        """解析Worker接口日志"""
         self._filtered_by_time = 0
         entries = super().parse(input_dir)
         if self._filtered_by_time > 0:

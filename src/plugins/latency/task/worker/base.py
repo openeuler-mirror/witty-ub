@@ -9,6 +9,11 @@ from latency.schemas.task import TaskReportModel
 
 logger = logging.getLogger(__name__)
 
+PREPROCESS_TASK_TYPES = {
+    TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+    TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
+}
+
 
 class BaseWorker:
     """
@@ -89,13 +94,32 @@ class BaseWorker:
                 "duration_seconds": duration_seconds
             }
         )
+        if worker_name in PREPROCESS_TASK_TYPES:
+            await BaseWorker._cleanup_preprocess_dir_if_all_done(task.op_id)
 
     @staticmethod
-    async def run(task_id: str) -> bool:
+    async def _cleanup_preprocess_dir_if_all_done(op_id: str) -> None:
+        """两个日志 worker 都成功完成后清理共享预处理目录。"""
+        tasks = [
+            await TaskManager.get_current_task_by_op_id(op_id, task_type)
+            for task_type in PREPROCESS_TASK_TYPES
+        ]
+        if not all(tasks):
+            return
+        if not all(task.status == TaskStatusEnum.SUCCESSFUL for task in tasks):
+            return
+
+        from latency.task.log_preprocessor import cleanup_preprocess_dir
+
+        cleanup_preprocess_dir(op_id)
+
+    @staticmethod
+    async def run(task_id: str, log_dir: str | None = None) -> bool:
         """运行任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
+        args = (task_id, log_dir) if log_dir else (task_id,)
         flag = ProcessHandler.add_task(
-            task_id, BaseWorker.find_worker_class(worker_name).run, task_id
+            task_id, BaseWorker.find_worker_class(worker_name).run, *args
         )
         await TaskManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
         return flag

@@ -12,7 +12,8 @@ from latency.schemas.response import (
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
 from latency.task.task_handler import TaskHandler
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.ENUM.task import TaskStatusEnum
+from latency.exceptions import NotFoundBizException, ConflictBizException
 
 logger = logging.getLogger(__name__)
 
@@ -21,98 +22,40 @@ class TaskService:
     """任务服务"""
 
     @staticmethod
-    def _clamp_progress(progress: float | int | None) -> float:
-        if progress is None:
-            return 0.0
-        return min(100.0, max(0.0, float(progress)))
-
-    @staticmethod
-    def _latest_progress(task) -> float:
-        if not task or not task.task_reports:
-            return 0.0
-        return max(TaskService._clamp_progress(report.progress) for report in task.task_reports)
-
-    @staticmethod
-    def _average_task_report_progress(task, companion_task) -> None:
-        if not task or not companion_task:
-            return
-        companion_progress = TaskService._latest_progress(companion_task)
-        for report in task.task_reports:
-            report.progress = (
-                TaskService._clamp_progress(report.progress) + companion_progress
-            ) / 2.0
-
-    @staticmethod
-    async def _apply_combined_task_progress(task) -> None:
-        if not task:
-            return
-        if task.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER:
-            companion_task = await TaskManager.get_current_task_by_op_id(
-                task.op_id,
-                TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-            )
-            if not companion_task:
-                return
-        elif task.task_type == TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER:
-            companion_task = await TaskManager.get_current_task_by_op_id(
-                task.op_id,
-                TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-            )
-            if not companion_task:
-                return
-        else:
-            return
-
-        companion_task.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
-            [companion_task.id]
-        )
-        TaskService._average_task_report_progress(task, companion_task)
-
-    @staticmethod
     async def create_task(req: CreateTaskRequest) -> CreateTaskMsg:
         """创建任务"""
-        try:
-            task_id = await TaskHandler.init_task(
-                task_type=req.task_type,
-                op_id=req.op_id,
-            )
-            return CreateTaskMsg(task_id=task_id)
-        except Exception as e:
-            logger.error(f"创建任务失败: {str(e)}")
-            return CreateTaskMsg(task_id=None)
+        task_id = await TaskHandler.init_task(
+            task_type=req.task_type,
+            op_id=req.op_id,
+        )
+        if not task_id:
+            raise NotFoundBizException(resource="关联操作")
+        return CreateTaskMsg(task_id=task_id)
 
     @staticmethod
     async def stop_task(task_id: str) -> StopTaskMsg:
         """停止任务"""
-        try:
-            task = await TaskManager.get_task_by_task_id(task_id)
-            if not task:
-                return StopTaskMsg(task_id=None)
-            
-            if task.status not in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
-                return StopTaskMsg(task_id=None)
-            
-            await TaskHandler.stop_task(task_id)
-            return StopTaskMsg(task_id=task_id)
-        except Exception as e:
-            logger.error(f"停止任务失败: {str(e)}")
-            return StopTaskMsg(task_id=None)
+        task = await TaskManager.get_task_by_task_id(task_id)
+        if not task:
+            raise NotFoundBizException(resource="任务")
+        
+        if task.status not in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
+            raise ConflictBizException(message=f"任务状态为{task.status}，不可停止")
+        
+        await TaskHandler.stop_task(task_id)
+        return StopTaskMsg(task_id=task_id)
 
     @staticmethod
     async def delete_task(task_id: str) -> DeleteTaskMsg:
         """删除任务"""
-        try:
-            task = await TaskManager.get_task_by_task_id(task_id)
-            if not task:
-                return DeleteTaskMsg(task_id=None)
-            
-            result_id = await TaskHandler.delete_task(task_id)
-            if result_id:
-                return DeleteTaskMsg(task_id=task_id)
-            return DeleteTaskMsg(task_id=None)
-        except Exception as e:
-            logger.error(f"删除任务失败: {str(e)}")
-            return DeleteTaskMsg(task_id=None)
+        task = await TaskManager.get_task_by_task_id(task_id)
+        if not task:
+            raise NotFoundBizException(resource="任务")
+        
+        result_id = await TaskHandler.delete_task(task_id)
+        if result_id:
+            return DeleteTaskMsg(task_id=task_id)
+        raise NotFoundBizException(resource="任务")
 
     @staticmethod
     async def list_tasks(req: ListTasksRequest) -> ListTasksMsg:
@@ -157,7 +100,6 @@ class TaskService:
         
         for task in paginated_tasks:
             task.task_reports = task_report_dict.get(task.id, [])
-            await TaskService._apply_combined_task_progress(task)
             task.task_reports.sort(key=lambda x: x.created_at, reverse=True)
         
         return ListTasksMsg(total=total, tasks=paginated_tasks)
@@ -172,6 +114,5 @@ class TaskService:
         task_reports = await TaskReportManager.list_task_reports_by_task_ids([task_id])
         task_reports.sort(key=lambda x: x.created_at, reverse=True)
         task.task_reports = task_reports
-        await TaskService._apply_combined_task_progress(task)
         
         return GetTaskMsg(task=task)

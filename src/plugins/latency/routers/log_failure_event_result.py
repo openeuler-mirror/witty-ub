@@ -5,13 +5,15 @@ from latency.schemas.request import (
     ListTraceFailureEventResultRequest,
     ListTimeAggregatedFailureEventRequest,
     ListPodAggregatedFailureEventRequest,
+    ListSrcDstAggregatedFailureEventRequest,
     GetErrCodeMetricsRequest
 )
 from latency.schemas.response import (
     ListLogFailureEventResultResponse,
-    ListTraceFailureEventResultReponse,
+    ListTraceFailureEventResultResponse,
     ListTimeAggregatedFailureEventResponse,
     ListPodAggregatedFailureEventResponse,
+    ListSrcDstAggregatedFailureEventResponse,
     GetErrCodeMetricsResponse
 )
 from latency.services.log_failure_event_result import LogFailureEventResultService
@@ -26,12 +28,12 @@ async def list_log_failure_event_results(
     msg = await LogFailureEventResultService.list_log_failure_event_result(req)
     return ListLogFailureEventResultResponse(result=msg)
 
-@router.post("/list_trace_events", response_model=ListTraceFailureEventResultReponse)
+@router.post("/list_trace_events", response_model=ListTraceFailureEventResultResponse)
 async def list_trace_failure_event_results(
     req: Annotated[ListTraceFailureEventResultRequest, Body()],
-) -> ListTraceFailureEventResultReponse:
+) -> ListTraceFailureEventResultResponse:
     msg = await LogFailureEventResultService.list_trace_failure_event_result(req=req)
-    return ListTraceFailureEventResultReponse(result=msg)
+    return ListTraceFailureEventResultResponse(result=msg)
 
 @router.post("/list_time_aggregated_failure_events", response_model=ListTimeAggregatedFailureEventResponse)
 async def list_time_aggregated_failure_event_results(
@@ -46,6 +48,13 @@ async def list_pod_aggregated_failure_event_results(
 ) -> ListPodAggregatedFailureEventResponse:
     msg = await LogFailureEventResultService.list_pod_aggregated_failure_event_result(req=req)
     return ListPodAggregatedFailureEventResponse(result=msg)
+
+@router.post("/list_src_dst_aggregated_failure_events", response_model=ListSrcDstAggregatedFailureEventResponse)
+async def list_src_dst_aggregated_failure_event_results(
+    req: Annotated[ListSrcDstAggregatedFailureEventRequest, Body()],
+) -> ListSrcDstAggregatedFailureEventResponse:
+    msg = await LogFailureEventResultService.list_src_dst_aggregated_failure_event_result(req=req)
+    return ListSrcDstAggregatedFailureEventResponse(result=msg)
 
 @router.post("/metrics/err_code", response_model=GetErrCodeMetricsResponse)
 async def get_err_code_metrics(

@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from pydantic import BaseModel, Field
 class LogFailureEventModel(BaseModel):
@@ -6,7 +7,7 @@ class LogFailureEventModel(BaseModel):
     log_id: str = Field(..., description="知识库对应的日志文件目录ID")
     log_file: str = Field(..., description="日志文件")
     raw_text: str = Field(..., description="原始日志")
-    host_name: str = Field(default="Unknown", description="主机名")
+    host_name: Optional[str] = Field(default=None, description="主机名")
     timestamp: str = Field(..., description="日志时间戳")
     level: str = Field(..., description="日志级别")
     filename: str = Field(..., description="报错文件名")
@@ -24,6 +25,8 @@ class TraceFailureEventModel(BaseModel):
     trace_id: str = Field(..., description="Trace ID")
     log_id: str = Field(..., description="日志路径ID")
     pod_names: list[str] = Field(..., description="容器名列表")
+    src_ip: str = Field(default="", description="起始容器")
+    dst_ip: str = Field(default="", description="目标容器")
     host_names: list[str] = Field(..., description="主机名列表")
     cluster_names: list[str] = Field(..., description="集群列表")
     timestamp: str = Field(..., description="日志最早时间戳")
@@ -37,6 +40,11 @@ class ErrCodeMetricItem(BaseModel):
 
 class PodAggregatedFailureEventModel(BaseModel):
     pod_name: str = Field(..., description="容器名")
+    status_code_cnt: dict = Field(..., description="故障码计数")
+
+class SrcDstAggregatedFailureEventModel(BaseModel):
+    src_ip: str = Field(..., description="源IP地址")
+    dst_ip: str = Field(..., description="目标IP地址")
     status_code_cnt: dict = Field(..., description="故障码计数")
 
 class TimeAggregatedFailureEventModel(BaseModel):

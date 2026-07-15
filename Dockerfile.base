@@ -1,0 +1,61 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+
+# ============================================
+# Base image with all dependencies pre-installed
+# ============================================
+FROM openeuler/openeuler:24.03-lts
+
+LABEL maintainer="witty-ub"
+LABEL description="Witty-UB base image with all dependencies"
+
+# Install build tools and runtime dependencies
+RUN dnf update -y && \
+    dnf install -y \
+    cmake gcc-c++ make \
+    log4cplus-devel cpp-httplib-devel sqlite-devel \
+    jsoncpp-devel tinyxml2-devel openssl-devel \
+    zlib-devel brotli-devel re2-devel \
+    log4cplus sqlite brotli zlib jsoncpp tinyxml2 \
+    openssl-libs re2 nginx python3 python3-pip curl \
+    git wget nodejs npm && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+# Create directories
+RUN mkdir -p /var/witty-ub/data/kvcache \
+    /var/witty-ub/data/urma \
+    /var/witty-ub/config \
+    /var/witty-ub/config/latency \
+    /var/witty-ub/web \
+    /var/witty-ub/latency \
+    /var/witty-ub/latency/file/file_upload \
+    /var/witty-ub/latency/file/file_parse_result \
+    /var/log/witty-ub \
+    /etc/witty-ub/web \
+    /run/witty-ub-web \
+    /var/log/witty-ub-web
+
+# Install Python dependencies for latency plugin
+RUN python3 -m venv /var/witty-ub/latency/.venv && \
+    /var/witty-ub/latency/.venv/bin/pip install \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    fastapi==0.120.1 \
+    uvicorn==0.49.0 \
+    apscheduler==3.10.4 \
+    pydantic==2.12.3 \
+    python-multipart==0.0.20 \
+    aiohttp==3.9.5 \
+    aiofiles==25.1.0 \
+    chardet==4.0.0 \
+    requests==2.32.2 \
+    httpx==0.28.1 \
+    "mcp>=1.28.0,<2.0.0" \
+    urllib3>=2.1.0 \
+    rarfile>=4.0 && \
+    rm -rf /root/.cache/pip
+
+# Install OpenCode (install in base image to avoid QEMU issues in multi-arch builds)
+RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode && \
+    opencode --version

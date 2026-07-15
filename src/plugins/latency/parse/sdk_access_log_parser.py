@@ -1,21 +1,22 @@
-"""SDK访问日志解析器"""
+"""SDK接口日志解析器"""
 import os
 from datetime import datetime
 from typing import Optional
 
 from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log_file import SDK_ACCESS_LOG_PATTERNS
-from latency.schemas.ds_log import LogEntry, EntryType
+from latency.schemas.ds_log import LogEntry
+from latency.ENUM.ds_log import EntryType
 from latency.schemas.request import ParseConfig
 from latency.parse.base_parser import AccessLogParser, SDK_GET_OPS, logger
 
 
 class SdkAccessLogParser(AccessLogParser):
-    """SDK访问日志解析器"""
+    """SDK接口日志解析器"""
 
     @property
     def patterns(self) -> list[str]:
-        return SDK_ACCESS_LOG_PATTERNS
+        return getattr(self, "_runtime_patterns", SDK_ACCESS_LOG_PATTERNS)
 
     label = "SDK access parse"
     _keywords = ("DS_KV_CLIENT_GET", "DS_OBJECT_CLIENT_GET")
@@ -67,7 +68,11 @@ class SdkAccessLogParser(AccessLogParser):
         if self.min_elapsed_us is not None and elapsed < self.min_elapsed_us:
             self._filtered_by_elapsed += 1
             return None
-        trace_id = parsed["trace_id"]
+        trace_id = self.resolve_trace_id(
+            parsed["trace_id"],
+            parsed["req_msg"],
+            parsed["resp_msg"],
+        )
         if not trace_id:
             return None
         ts = parse_timestamp(parsed["timestamp"])
@@ -92,7 +97,7 @@ class SdkAccessLogParser(AccessLogParser):
         )
 
     def parse(self, input_dir: str) -> list[LogEntry]:
-        """解析SDK访问日志"""
+        """解析SDK接口日志"""
         self._filtered_by_time = 0
         self._filtered_by_elapsed = 0
         entries = super().parse(input_dir)
