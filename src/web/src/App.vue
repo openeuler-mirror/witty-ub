@@ -3885,17 +3885,6 @@ const faultDetailTraceEventsPageWindow = computed(() =>
 )
 const selectedFaultDetailErrorLogTotal = computed(() => faultDetailTraceEventsTotal.value)
 
-const getTraceLogTimeValue = (log: TraceLogRow) => parseFilterDate(log.time)?.getTime() ?? 0
-
-const sortTraceLogsByTime = (logs: TraceLogRow[]) =>
-  [...logs].sort(
-    (a, b) =>
-      getTraceLogTimeValue(b) - getTraceLogTimeValue(a) ||
-      a.filename.localeCompare(b.filename, undefined, { numeric: true }) ||
-      a.pidTid.localeCompare(b.pidTid, undefined, { numeric: true }) ||
-      a.message.localeCompare(b.message),
-  )
-
 const getTraceLogDisplayFilename = (record: Record<string, unknown>) =>
   getRecordString(record, ['log_file', 'source_file', 'file_path', 'filename', 'file_name'], '-')
 
@@ -4120,7 +4109,7 @@ const getTraceLogs = (trace?: TraceDetailRow | null) => {
   if (!trace) return []
   const traceId = trace.traceId
   return Object.prototype.hasOwnProperty.call(traceFailureLogsByTrace.value, traceId)
-    ? sortTraceLogsByTime(traceFailureLogsByTrace.value[traceId] ?? [])
+    ? traceFailureLogsByTrace.value[traceId] ?? []
     : []
 }
 
@@ -5040,7 +5029,7 @@ const loadTraceFailureLogs = async (traceId: string, shouldLoadFailureModes = fa
     }
     traceFailureLogsByTrace.value = {
       ...traceFailureLogsByTrace.value,
-      [traceId]: sortTraceLogsByTime(events.map(toTraceLogRow)),
+      [traceId]: events.map(toTraceLogRow),
     }
   } catch (error) {
     traceFailureLogsByTrace.value = {
