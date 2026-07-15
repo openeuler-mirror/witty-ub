@@ -109,7 +109,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
             log_failure_events = []
             trace_failure_events_map: dict[str, dict] = {}
             total_inserted = 0
-            batch_size = 10000
+            batch_size = 100000
             total_log_failure_events = KVCacheLogEventDiagnosisWorker._count_log_failure_events(
                 log_files,
                 trace_id_set,
