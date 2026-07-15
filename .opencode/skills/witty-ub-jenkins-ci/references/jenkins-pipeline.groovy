@@ -603,6 +603,10 @@ PY
                                 "$TEST_CONTAINER:$profile_dir/callstack-diagnosis.repair.raw.txt" \
                                 callstack-diagnosis.repair.raw.txt \
                                 2>/dev/null || true
+                              docker cp \
+                                "$TEST_CONTAINER:$profile_dir/callstack-diagnosis.fallback.json" \
+                                callstack-diagnosis.fallback.json \
+                                2>/dev/null || true
                             }
                             trap copy_diagnosis_debug_artifacts EXIT
 
@@ -662,6 +666,9 @@ PY
                             docker cp \
                               "$TEST_CONTAINER:$profile_dir/callstack-diagnosis.md" \
                               callstack-diagnosis.md
+                            docker cp \
+                              "$TEST_CONTAINER:$profile_dir/callstack-diagnosis.fallback.json" \
+                              callstack-diagnosis.fallback.json 2>/dev/null || true
 
                             test -s callstack-diagnosis.json
                             test -s callstack-diagnosis.validated.json
@@ -860,7 +867,7 @@ PY
                   nginx-error.log 2>/dev/null || true
             '''
             archiveArtifacts(
-                artifacts: 'container-startup.log,latency-server.log,nginx-error.log,functional-test.log,blue-zone-mount-check.txt,blue-zone-parse-report.json,callstack-profile-console.log,callstack-comparison-console.log,callstack-evidence-console.log,callstack-diagnosis-console.log,callstack-profile.prof,callstack-profile.txt,callstack-comparison.json,callstack-comparison.md,callstack-evidence.json,callstack-evidence.md,callstack-diagnosis.json,callstack-diagnosis.validated.json,callstack-diagnosis.md,callstack-diagnosis.raw.txt,callstack-diagnosis.repair.raw.txt,performance-report.json,stability-report.json',
+                artifacts: 'container-startup.log,latency-server.log,nginx-error.log,functional-test.log,blue-zone-mount-check.txt,blue-zone-parse-report.json,callstack-profile-console.log,callstack-comparison-console.log,callstack-evidence-console.log,callstack-diagnosis-console.log,callstack-profile.prof,callstack-profile.txt,callstack-comparison.json,callstack-comparison.md,callstack-evidence.json,callstack-evidence.md,callstack-diagnosis.json,callstack-diagnosis.validated.json,callstack-diagnosis.md,callstack-diagnosis.raw.txt,callstack-diagnosis.repair.raw.txt,callstack-diagnosis.fallback.json,performance-report.json,stability-report.json',
                 allowEmptyArchive: true
             )
             sh 'docker rm -fv "$TEST_CONTAINER" >/dev/null 2>&1 || true'

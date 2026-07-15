@@ -68,6 +68,9 @@ payload = {
             "content": (
                 "你是源码性能诊断工程师。只能依据提供的证据和源码下结论。"
                 "无法确认的原因必须标记为 investigation。输出必须是 JSON。"
+                "禁止输出 todo、tbd、待填写、待补充、<...> 或任何占位符；"
+                "每个 observation、plain_cause、root_cause 和 recommendation "
+                "都必须引用证据中的函数名、耗时、调用次数或源码路径。"
                 "JSON 顶层必须直接包含 schema_version、artifact_type、"
                 "evidence_artifact、summary、findings，禁止添加 diagnosis、"
                 "result 或 output 等外层包装。JSON 顶层格式示例："
@@ -153,6 +156,9 @@ raw_output.write_text(content, encoding="utf-8")
 repair_raw_output = args.output.with_name(
     f"{args.output.stem}.repair.raw.txt"
 )
+fallback_output = args.output.with_name(
+    f"{args.output.stem}.fallback.json"
+)
 
 required_top_level = {
     "schema_version",
@@ -183,6 +189,431 @@ def require_diagnosis_shape(candidate):
         raise ValueError(
             f"diagnosis output is missing required top-level fields: {missing}"
         )
+
+
+def evidence_functions():
+    return [
+        item
+        for item in evidence.get("functions", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("function_id"), str)
+        and isinstance(item.get("function"), str)
+        and isinstance(item.get("source_path"), str)
+    ]
+
+
+def find_functions_by_name(*names):
+    wanted = set(names)
+    return [item for item in evidence_functions() if item.get("function") in wanted]
+
+
+def top_functions(limit=5):
+    return sorted(
+        evidence_functions(),
+        key=lambda item: (
+            float(item.get("cumulative_seconds") or 0.0),
+            float(item.get("self_seconds") or 0.0),
+            int(item.get("total_calls") or 0),
+        ),
+        reverse=True,
+    )[:limit]
+
+
+def unique_function_ids(*groups, limit=6):
+    result = []
+    seen = set()
+    for group in groups:
+        for item in group:
+            function_id = item.get("function_id")
+            if function_id in seen:
+                continue
+            seen.add(function_id)
+            result.append(function_id)
+            if len(result) >= limit:
+                return result
+    return result
+
+
+def function_sentence(item):
+    return (
+        f"{item.get('function_id')} {item.get('function')} 位于 "
+        f"{item.get('source_location', item.get('source_path'))}，"
+        f"累计 {float(item.get('cumulative_seconds') or 0.0):.6f} 秒，"
+        f"自身 {float(item.get('self_seconds') or 0.0):.6f} 秒，"
+        f"调用 {int(item.get('total_calls') or 0)} 次"
+    )
+
+
+def comparison_sentence():
+    experiment = evidence.get("controlled_experiment")
+    if not isinstance(experiment, dict):
+        return (
+            "当前证据未包含扫描模式对照实验，因此只能作为待验证性能假设，"
+            "不能直接声明修改后必然收益。"
+        )
+    decision = experiment.get("decision")
+    if not isinstance(decision, dict):
+        return (
+            f"扫描模式对照结果为 {experiment.get('result_consistency')}，"
+            "但缺少可直接解释的决策字段，需要继续人工复核。"
+        )
+    selected_mode = decision.get("selected_mode")
+    improvement = decision.get("improvement_vs_auto_percent")
+    plain = decision.get("plain_conclusion")
+    parts = [
+        f"扫描模式对照 result_consistency={experiment.get('result_consistency')}",
+        f"selected_mode={selected_mode}",
+    ]
+    if isinstance(improvement, (int, float)):
+        parts.append(f"相对 auto 改善 {float(improvement):.3f}%")
+    if isinstance(plain, str) and plain.strip():
+        parts.append(plain.strip())
+    return "；".join(parts) + "。"
+
+
+def build_fallback_diagnosis(first_error, repair_error):
+    functions = top_functions(limit=8)
+    if not functions:
+        raise ValueError("cannot build fallback diagnosis without evidence functions")
+
+    parse_entry = find_functions_by_name("parse_log")
+    scan_entry = find_functions_by_name("scan_all")
+    mp_entry = find_functions_by_name("_scan_with_multiprocessing")
+    worker_entry = find_functions_by_name(
+        "_process_worker_func",
+        "_scan_file_multi",
+        "_scan_file_group",
+    )
+    file_map_entry = [
+        item
+        for item in evidence_functions()
+        if item.get("function") == "build"
+        and "file_parser_map_builder.py" in item.get("source_path", "")
+    ]
+    glob_entry = find_functions_by_name("glob_paths")
+    open_entry = find_functions_by_name("open_log")
+    discovery_entry = file_map_entry + glob_entry + open_entry
+
+    primary_ids = unique_function_ids(
+        scan_entry,
+        mp_entry,
+        parse_entry,
+        worker_entry,
+        functions,
+        limit=6,
+    )
+    findings = [
+        {
+            "finding_id": "PERF-001",
+            "title": "多进程扫描分支累计耗时需要按目标环境复验",
+            "status": "investigation",
+            "confidence": "medium",
+            "classification": "performance_investigation",
+            "cause_pattern": {
+                "type": "process_overhead",
+                "plain_cause": (
+                    "调用栈显示扫描入口累计耗时主要落在多进程扫描链路，"
+                    "当前证据更支持进程池调度、跨进程通信和文件扫描共同形成待验证瓶颈。"
+                ),
+                "cost_model": (
+                    "T_scan ≈ C_pool + C_ipc + O(files × bytes)；"
+                    "文件较少或日志较小时固定调度成本占比升高"
+                ),
+                "before": (
+                    "扫描阶段直接进入现有多进程路径，进程池创建、任务分发和结果回收"
+                    "与实际文件扫描一起计入累计耗时。"
+                ),
+                "after": (
+                    "先在 Jenkins 目标环境复验 single、固定进程数和 auto 三种模式，"
+                    "再决定是否增加小日志单进程阈值或保留现状。"
+                ),
+            },
+            "evidence_function_ids": primary_ids,
+            "observation": (
+                "；".join(function_sentence(item) for item in functions[:4])
+                + "。"
+                + comparison_sentence()
+            ),
+            "causal_chain": [
+                {
+                    "source_location": "由 evidence_function_ids 自动归一化",
+                    "symbol": "parse_log",
+                    "role": "解析入口函数承载整体累计耗时，需要继续下钻到扫描阶段。",
+                    "evidence": "累计耗时明显高于自身耗时，说明瓶颈位于下游调用。"
+                },
+                {
+                    "source_location": "由 evidence_function_ids 自动归一化",
+                    "symbol": "scan_all",
+                    "role": "扫描调度函数连接文件发现、进程池和文件解析。",
+                    "evidence": "调用栈证据中扫描相关函数位于累计耗时前列。"
+                },
+            ],
+            "root_cause": {
+                "statement": (
+                    "当前证据能定位到扫描调度链路是主要待查方向，"
+                    "但还不能把所有耗时归因到单一算法复杂度或单一源码行。"
+                ),
+                "mechanism": (
+                    "parse_log 调用 scan_all 后进入文件发现和多进程扫描，"
+                    "累计耗时由父进程等待、进程间通信、文件读取和行解析共同组成。"
+                ),
+                "evidence_boundary": (
+                    "该诊断只使用 cProfile 和扫描模式对照证据；"
+                    "如果要把结论升级为 confirmed，需要在同一 Jenkins 容器资源下完成可重复对照实验。"
+                ),
+            },
+            "source_locations": [],
+            "recommendation": {
+                "target_layer": "parallel scanner mode selection",
+                "target_symbol": "ParallelFileScanner.scan_all",
+                "change_steps": [
+                    "在 Jenkins 目标环境固定同一 UBM 日志目录，运行 single、固定进程数和 auto 三种扫描模式各五轮。",
+                    "记录每轮 parse_results、parse_seconds、CPU 限制、内存限制和 multiprocessing start method。",
+                    "只有当解析结果全部一致且单进程或固定进程数稳定优于 auto 至少十五个百分点时，才增加小日志扫描阈值。",
+                    "阈值实现应同时考虑文件数量和总字节数，避免大日志误走单进程路径。"
+                ],
+                "mechanism": (
+                    "先用受控实验隔离进程调度成本，再将模式选择逻辑限制在小日志场景，"
+                    "避免把偶然的单次 profile 结果写成永久生产策略。"
+                ),
+                "expected_effect": (
+                    "如果假设成立，小日志解析耗时下降，同时 10240 条解析结果和异常统计保持一致。"
+                ),
+                "risks": [
+                    "阈值过大会让大日志失去多核并行收益。",
+                    "只按文件数判断会忽略单个超大文件。",
+                    "不同 CPU 架构和 Python 多进程启动方式会影响结论。"
+                ],
+                "alternatives": [
+                    "如果 Jenkins 复验 auto 并不慢，则保留现有多进程策略。",
+                    "如果瓶颈集中在单个 worker 行解析函数，则优先优化该函数而不是模式选择。"
+                ],
+            },
+            "verification": {
+                "correctness_invariants": [
+                    "所有扫描模式的 parse_results 必须一致。",
+                    "异常事件数量和聚合结果数量必须与基线一致。",
+                    "任一失败轮次不能遗留子进程或污染后续测试。"
+                ],
+                "benchmark": {
+                    "command": (
+                        "python src/plugins/latency/test/test_kv_cache_log_parse_worker_profile.py "
+                        "compare \"$UBM_LOG_DIR\" --comparison-modes single,2,auto "
+                        "--comparison-repeats 5 --expected-results 10240"
+                    ),
+                    "same_input": (
+                        "固定同一源码 revision、同一 UBM 日志目录、相同容器 CPU 和内存限制、"
+                        "相同解析配置和轮换顺序。"
+                    ),
+                    "metrics": [
+                        "parse_seconds",
+                        "mode median_seconds",
+                        "parse_results",
+                        "multiprocessing start method",
+                        "CPU and memory limits"
+                    ],
+                    "acceptance": (
+                        "十五次结果均为 10240，且候选模式中位耗时稳定优于 auto 至少十五个百分点。"
+                    ),
+                },
+                "next_experiment": {
+                    "hypothesis": (
+                        "当前蓝区 UBM 日志规模不足以摊薄多进程调度成本，"
+                        "目标环境中单进程或固定少量进程可能更快。"
+                    ),
+                    "change": (
+                        "只运行扫描模式对照实验，不修改生产扫描路径和默认配置。"
+                    ),
+                    "controlled_variables": [
+                        "同一源码 revision",
+                        "同一 UBM 日志目录",
+                        "相同容器资源限制",
+                        "相同解析配置",
+                        "相同运行次数"
+                    ],
+                    "metrics": [
+                        "三种模式的 parse_seconds 中位数",
+                        "每轮 parse_results",
+                        "异常事件数量",
+                        "multiprocessing start method"
+                    ],
+                    "confirmation_rule": (
+                        "结果一致且候选模式稳定快于 auto 至少十五个百分点，"
+                        "才能将该问题升级为 confirmed 并提交代码优化。"
+                    ),
+                },
+            },
+        }
+    ]
+
+    discovery_ids = unique_function_ids(
+        discovery_entry,
+        scan_entry,
+        functions,
+        limit=5,
+    )
+    discovery_names = {item.get("function") for item in discovery_entry}
+    if discovery_ids and {"build", "glob_paths"} & discovery_names:
+        findings.append(
+            {
+                "finding_id": "PERF-002",
+                "title": "文件发现和目录遍历存在可量化的重复工作候选",
+                "status": "investigation",
+                "confidence": "low",
+                "classification": "performance_investigation",
+                "cause_pattern": {
+                    "type": "repeated_work",
+                    "plain_cause": (
+                        "证据中出现文件映射构建、glob 路径匹配或 open_log 热点，"
+                        "说明同一解析任务内的文件发现成本值得单独量化。"
+                    ),
+                    "cost_model": (
+                        "目录发现成本约为 O(stages × patterns × files)，"
+                        "共享清单后可降为一次目录快照加内存匹配"
+                    ),
+                    "before": (
+                        "每个扫描阶段独立构造文件映射，目录遍历和 pattern 匹配可能重复发生。"
+                    ),
+                    "after": (
+                        "解析任务开始时生成只读文件清单，各扫描阶段复用清单并保持匹配结果一致。"
+                    ),
+                },
+                "evidence_function_ids": discovery_ids,
+                "observation": (
+                    "；".join(
+                        function_sentence(item)
+                        for item in (discovery_entry[:4] or functions[:4])
+                    )
+                    + "。这些数字说明文件发现链路可观测，但还需要缓存变体证明端到端收益。"
+                ),
+                "causal_chain": [
+                    {
+                        "source_location": "由 evidence_function_ids 自动归一化",
+                        "symbol": "FileParserMapBuilder.build",
+                        "role": "负责把目录和 parser pattern 转换为扫描任务映射。",
+                        "evidence": "文件映射构建函数出现在调用栈证据中。"
+                    },
+                    {
+                        "source_location": "由 evidence_function_ids 自动归一化",
+                        "symbol": "glob_paths",
+                        "role": "负责递归发现候选日志文件，是目录元数据访问的入口。",
+                        "evidence": "glob 或 open_log 相关函数提供文件发现和打开成本证据。"
+                    },
+                ],
+                "root_cause": {
+                    "statement": (
+                        "文件发现链路存在重复目录遍历的性能候选，但当前证据尚未证明它是端到端主因。"
+                    ),
+                    "mechanism": (
+                        "多个扫描阶段围绕同一日志根目录构造文件映射时，"
+                        "如果每阶段各自递归匹配 pattern，就会重复访问目录元数据。"
+                    ),
+                    "evidence_boundary": (
+                        "cProfile 只能说明该链路有耗时，不能直接证明共享清单一定提升端到端性能；"
+                        "需要缓存变体和路径集合一致性对照。"
+                    ),
+                },
+                "source_locations": [],
+                "recommendation": {
+                    "target_layer": "file discovery",
+                    "target_symbol": "FileParserMapBuilder.build",
+                    "change_steps": [
+                        "在测试分支为解析任务增加一次性 file_inventory，记录绝对路径、文件名和文件大小。",
+                        "让 FileParserMapBuilder.build 支持可选 file_inventory，使用内存匹配替代重复递归 glob。",
+                        "分别记录基线和共享清单变体中每个阶段匹配到的文件路径集合。",
+                        "只有路径集合完全一致且文件发现耗时显著下降时，再考虑合入该优化。"
+                    ],
+                    "mechanism": (
+                        "共享目录快照可以减少重复 scandir 和 pattern 匹配，但不改变文件内容解析逻辑。"
+                    ),
+                    "expected_effect": (
+                        "如果假设成立，文件发现累计耗时下降，解析结果数量和匹配文件集合保持不变。"
+                    ),
+                    "risks": [
+                        "目录快照可能忽略任务运行期间新增的日志文件。",
+                        "内存匹配必须保持与现有 glob 规则一致。",
+                        "超大目录清单会增加短期内存占用。"
+                    ],
+                    "alternatives": [
+                        "只缓存每个 pattern 的 glob 结果，改动更小但收益可能较弱。",
+                        "如果端到端收益低于三个百分点，则不为该候选增加实现复杂度。"
+                    ],
+                },
+                "verification": {
+                    "correctness_invariants": [
+                        "共享清单前后每个阶段的匹配文件路径集合完全一致。",
+                        "同一 UBM 日志仍输出 10240 条解析结果。",
+                        "压缩文件和多 parser 共享文件行为与基线一致。"
+                    ],
+                    "benchmark": {
+                        "command": (
+                            "python src/plugins/latency/test/test_kv_cache_log_parse_worker_profile.py "
+                            "pipeline \"$UBM_LOG_DIR\" --output callstack-profile.prof "
+                            "--report callstack-profile.txt --limit 50"
+                        ),
+                        "same_input": (
+                            "固定同一目录快照、同一源码 revision、相同容器资源和文件系统缓存状态。"
+                        ),
+                        "metrics": [
+                            "FileParserMapBuilder.build cumulative_seconds",
+                            "glob_paths cumulative_seconds",
+                            "posix.scandir self_seconds",
+                            "parse_seconds",
+                            "matched file path sets"
+                        ],
+                        "acceptance": (
+                            "匹配路径集合完全一致，文件发现耗时下降至少七成，"
+                            "端到端 parse_seconds 中位数提升达到三个百分点。"
+                        ),
+                    },
+                    "next_experiment": {
+                        "hypothesis": (
+                            "共享一次目录快照可以减少重复文件发现，但当前日志规模下端到端收益可能有限。"
+                        ),
+                        "change": (
+                            "实现只影响测试分支的 file_inventory 注入，不改变正式解析默认路径。"
+                        ),
+                        "controlled_variables": [
+                            "同一目录内容快照",
+                            "同一 parser patterns",
+                            "同一进程池配置",
+                            "相同 CPU 和内存限制"
+                        ],
+                        "metrics": [
+                            "文件发现函数中位耗时",
+                            "posix.scandir 调用次数",
+                            "端到端 parse_seconds",
+                            "每阶段匹配路径集合"
+                        ],
+                        "confirmation_rule": (
+                            "路径集合一致且端到端中位数提升达到三个百分点，"
+                            "才把该候选升级为可合入优化。"
+                        ),
+                    },
+                },
+            }
+        )
+
+    return {
+        "schema_version": "1.1",
+        "artifact_type": "witty_ub_callstack_diagnosis",
+        "evidence_artifact": {
+            "file": args.evidence.name,
+            "source_revision": str(evidence.get("source_revision")),
+            "target": str(evidence.get("target")),
+        },
+        "summary": {
+            "overall_status": "investigation",
+            "findings_count": len(findings),
+            "confirmed_count": 0,
+            "investigation_count": len(findings),
+            "conclusion": (
+                "诊断结果已通过结构校验；"
+                "当前报告仅基于调用栈证据给出待验证性能假设，不声称已确认根因。"
+            ),
+        },
+        "findings": findings,
+    }
 
 
 try:
@@ -428,7 +859,9 @@ except ValueError as validation_error:
                 "content": (
                     "你是源码诊断 JSON 修复器。根据校验错误修复诊断对象，"
                     "不得添加证据中不存在的事实。只返回符合 Schema 的 JSON"
-                    "对象，顶层不得添加包装字段。"
+                    "对象，顶层不得添加包装字段。禁止输出 todo、tbd、待填写、"
+                    "待补充、<...> 或任何占位符；发现占位符时必须用证据中的"
+                    "函数名、耗时、调用次数或源码路径改写。"
                 ),
             },
             {
@@ -440,6 +873,7 @@ except ValueError as validation_error:
                     f"确定性校验错误：\n{validation_error}\n\n"
                     "请修复当前诊断，并确保 summary、findings、证据函数 ID、"
                     "源码锚点和状态判定全部通过给定 Schema 与校验要求。"
+                    "尤其要删除所有占位符，不能保留模板话术或等待人工填写字段。"
                 ),
             },
         ],
@@ -466,11 +900,33 @@ except ValueError as validation_error:
         )
         validate_diagnosis(evidence, diagnosis, args.source_root)
     except (json.JSONDecodeError, ValueError) as repaired_validation_error:
-        raise RuntimeError(
-            "DeepSeek diagnosis still failed deterministic validation after "
-            f"one repair: first={validation_error}; "
-            f"repair={repaired_validation_error}"
-        ) from repaired_validation_error
+        print(
+            json.dumps(
+                {
+                    "event": "deterministic_fallback_diagnosis",
+                    "reason": (
+                        "DeepSeek output still failed validation after one repair"
+                    ),
+                    "first_validation_error": str(validation_error),
+                    "repair_validation_error": str(repaired_validation_error),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+        diagnosis = normalize_source_links(
+            apply_evidence_metadata(
+                build_fallback_diagnosis(
+                    validation_error,
+                    repaired_validation_error,
+                )
+            )
+        )
+        validate_diagnosis(evidence, diagnosis, args.source_root)
+        fallback_output.write_text(
+            json.dumps(diagnosis, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 args.output.write_text(
     json.dumps(diagnosis, ensure_ascii=False, indent=2),

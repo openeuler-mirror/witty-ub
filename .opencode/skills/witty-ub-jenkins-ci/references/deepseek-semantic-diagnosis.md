@@ -59,6 +59,7 @@ blue-zone parse
 → DeepSeek semantic reasoning
 → deterministic metadata and source-link normalization
 → schema, evidence, anchor, status, and summary validation
+→ deterministic fallback diagnosis when the model still leaves placeholders
 → Markdown rendering and artifact archive
 ```
 
@@ -89,6 +90,7 @@ Do not ask the model to invent a source revision, line number, or anchor.
 | `callstack-evidence.md` | Human-readable evidence without a claimed root cause. |
 | `callstack-diagnosis.raw.txt` | First non-empty DeepSeek response. |
 | `callstack-diagnosis.repair.raw.txt` | Model repair response when repair was needed. |
+| `callstack-diagnosis.fallback.json` | Deterministic investigation-only diagnosis generated when the model response and one repair still fail validation. Empty or absent means the model-authored diagnosis passed. |
 | `callstack-diagnosis.json` | Normalized diagnosis passed to the renderer. |
 | `callstack-diagnosis.validated.json` | Verified evidence IDs, source locations, counts, and status rules. |
 | `callstack-diagnosis.md` | Mentor-facing root-cause and modification report. |
@@ -118,13 +120,17 @@ semantic-stage delivery. Do not use the raw response as the final report.
 | HTTP timeout or DNS failure | Environment/provider | Check outbound HTTPS, DNS, and provider availability. |
 | Empty `content` | Provider output | Let the caller retry up to three times; do not pass an empty response to JSON repair. |
 | Malformed JSON or outer wrapper | Model output contract | Let the caller perform one structure repair and preserve raw output. |
+| Placeholder markers after repair | Model output quality | Keep validation strict, generate deterministic fallback from evidence, and archive `callstack-diagnosis.fallback.json` for audit. |
 | Revision or target mismatch | Fixed metadata | Copy the values from evidence; do not trust the model value. |
 | Empty or invented source location | Diagnostic integrity | Derive it from cited evidence function IDs and verify a unique source anchor. |
 | Unknown evidence function ID | Model evidence error | Reject or repair the finding; do not silently drop the reference. |
 | Confirmed finding without controlled evidence | Unsupported conclusion | Downgrade to `investigation` and require a falsifiable experiment. |
 | Duplicate generic suggestions | Low-quality diagnosis | Merge the path or rewrite mechanism-specific changes. |
 
-Do not lower validation requirements merely to turn an unstable build green.
+Do not lower validation requirements merely to turn an unstable build green. The
+fallback path is intentionally conservative: it only emits `status=investigation`
+findings derived from measured evidence and still must pass the same renderer
+validation.
 
 ## Verified reference run
 
