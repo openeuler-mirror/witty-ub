@@ -8154,8 +8154,8 @@ onBeforeUnmount(() => {
                               class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row"
                             >
                               <div class="aggregate-cell fault-expand-cell"></div>
-                              <div class="aggregate-cell">{{ ipPair.src_ip }}</div>
-                              <div class="aggregate-cell">{{ ipPair.dst_ip }}</div>
+                              <div class="aggregate-cell">{{ ipPair.src_ip || '-' }}</div>
+                              <div class="aggregate-cell">{{ ipPair.dst_ip || '-' }}</div>
                               <div class="aggregate-cell count-cell">
                                 {{ ipPair.log_parse_result_cnt }}
                               </div>
