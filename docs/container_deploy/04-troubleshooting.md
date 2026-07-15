@@ -5,7 +5,7 @@
 
 > 返回 [首页](Home.md)
 
-## 容器无法启动
+## 快速定位问题
 
 ```bash
 # 使用 docker compose
@@ -46,29 +46,32 @@ docker run -it --rm --name witty-ub-debug \
 
 ## 常见问题
 
-### 1.witty-ub 容器无法启动
+### 1. 容器无法启动
 
-**症状**: 容器启动失败，提示镜像不存在
+**症状**: 容器启动失败，提示镜像不存在或启动后立即退出
 
 **解决方案**:
+
 查看当前容器状态:
 
 ```bash
-# 使用docker-compose查看容器状态
 docker compose ps
-# 使用docker查看镜像
 docker images
 ```
 
-可以根据当前镜像大小预计900m左右来锁定镜像，并观察其 tag 和 镜像名称为 none
-为其打上标签，例如 `witty-ub:latest`
+如果镜像名称为 `<none>`，为其打上标签:
+
 ```bash
-# 为镜像打上标签
 docker tag <镜像ID> witty-ub:latest
 ```
-打上标签后，即可启动容器，参考 [启动容器](03-pull-and-run.md)
 
-### 1. 端口冲突
+打上标签后，重新启动容器:
+
+```bash
+docker compose up -d
+```
+
+### 2. 端口冲突
 
 **症状**: 启动失败，提示端口已被占用
 
@@ -83,7 +86,7 @@ ports:
   - "32413:8080"  # 改为其他可用端口
 ```
 
-### 2. 权限问题
+### 3. 权限问题
 
 **症状**: 容器内无法写入数据
 
@@ -97,7 +100,7 @@ docker exec witty-ub ls -la /var/witty-ub
 docker exec witty-ub chmod -R 755 /var/witty-ub
 ```
 
-### 3. Latency Plugin 未启动
+### 4. Latency Plugin 未启动
 
 **症状**: API 返回 502 或连接拒绝
 
@@ -115,7 +118,7 @@ docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
 docker exec witty-ub curl http://localhost:9772/health_check
 ```
 
-#### Latency Plugin 报 `can't start new thread`
+#### 4.1 Latency Plugin 报 `can't start new thread`
 
 **症状**: `latency_server.log` 中出现以下错误，Latency Plugin 随后退出:
 
@@ -124,13 +127,87 @@ RuntimeError: can't start new thread
 ERROR: Application startup failed. Exiting.
 ```
 
-先查看服务日志:
+**根本原因**: 宿主机 Docker、runc 或 libseccomp 版本较旧，默认 seccomp 策略拦截了容器内 glibc 创建线程所使用的 `clone3` 系统调用。
+
+**验证步骤**:
 
 ```bash
-docker exec witty-ub cat /var/log/witty-ub/latency_server.log
+# 检查宿主机 Docker 版本
+docker --version
+
+# 检查容器内线程创建能力
+docker exec witty-ub \
+  /var/witty-ub/latency/.venv/bin/python \
+  -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
+
+# 验证 seccomp 限制
+IMAGE=$(docker inspect witty-ub --format '{{.Config.Image}}')
+docker run --rm \
+  --security-opt seccomp=unconfined \
+  --entrypoint /var/witty-ub/latency/.venv/bin/python \
+  "$IMAGE" \
+  -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
 ```
 
-如果容器的进程数、PID 限制和内存均正常，可以使用以下命令确认 Python 是否能在容器内创建线程:
+如果临时容器输出 `thread ok`，可以确认是 seccomp 兼容问题。
+
+**修复方案**:
+
+**方案一: 添加 `--security-opt seccomp=unconfined` 参数（临时兼容）**
+
+使用 docker run 命令:
+
+```bash
+docker run -d \
+  --name witty-ub \
+  --restart unless-stopped \
+  -p 32412:8080 \
+  -v witty-ub-data:/var/witty-ub/data \
+  -v witty-ub-logs:/var/log/witty-ub \
+  -v /to/path/log:/to/path/log:ro \
+  -e OPENCODE_SERVER_PASSWORD=password \
+  --security-opt seccomp=unconfined \
+  witty-ub:latest
+```
+
+使用 docker compose:
+
+```yaml
+services:
+  witty-ub:
+    security_opt:
+      - seccomp=unconfined
+```
+
+**方案二: 升级 Docker Engine 和 libseccomp（推荐）**
+
+```bash
+yum update -y libseccomp
+```
+
+> **安全提示**: `seccomp=unconfined` 会关闭容器的默认 seccomp 系统调用过滤，仅建议用作问题验证或临时兼容方案。长期建议升级宿主机的 Docker Engine、runc 和 libseccomp。
+
+### 5. Docker 版本偏低导致容器无法创建多进程/多线程
+
+**症状**: 容器启动后运行异常，出现以下情况之一:
+- Latency Plugin 报 `RuntimeError: can't start new thread`
+- 容器内进程创建失败或线程池无法扩展
+- OpenCode 服务无法正常启动
+- 应用日志中出现 `clone3` 系统调用失败相关错误
+
+**根本原因**: 宿主机 Docker、runc 或 libseccomp 版本较旧（通常 Docker < 20.10），默认 seccomp 策略不支持 glibc 新版本中用于创建线程/进程的 `clone3` 系统调用。
+
+#### 5.1 验证步骤
+
+**步骤 1: 检查宿主机 Docker 版本**
+
+```bash
+docker --version
+```
+
+如果版本低于 `20.10`，则可能存在此问题。
+
+**步骤 2: 检查容器内线程创建能力**
 
 ```bash
 docker exec witty-ub \
@@ -138,9 +215,11 @@ docker exec witty-ub \
   -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
 ```
 
-如果该命令同样报 `RuntimeError: can't start new thread`，可能是宿主机的 Docker、runc 或 libseccomp 版本较旧，默认 seccomp 策略拦截了容器内 glibc 创建线程所使用的 `clone3` 系统调用。
+如果输出 `RuntimeError: can't start new thread`，说明线程创建失败。
 
-可以启动临时容器进行验证:
+**步骤 3: 验证 seccomp 限制**
+
+启动临时容器，关闭 seccomp 限制后再次测试:
 
 ```bash
 IMAGE=$(docker inspect witty-ub --format '{{.Config.Image}}')
@@ -152,17 +231,57 @@ docker run --rm \
   -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
 ```
 
-如果临时容器输出 `thread ok`，可以确认是 seccomp 兼容问题。重新创建 witty-ub 容器时，在原有 `docker run` 参数中加入:
+如果临时容器输出 `thread ok`，可以确认是 seccomp 兼容问题。
+
+**步骤 4: 检查 libseccomp 版本**
 
 ```bash
---security-opt seccomp=unconfined
+ldconfig -p | grep libseccomp
+rpm -qa | grep libseccomp  # CentOS/RHEL/openEuler
+dpkg -l | grep libseccomp  # Debian/Ubuntu
 ```
 
-使用 Docker Compose 时，在 witty-ub 服务中加入:
+如果 libseccomp 版本低于 `2.5.0`，可能无法正确处理 `clone3` 系统调用。
+
+#### 5.2 修复方案
+
+**方案一: 添加 `--security-opt seccomp=unconfined` 参数（临时兼容）**
+
+这是最快的临时解决方案，适用于无法立即升级 Docker 的环境。
+
+**使用 docker run 命令**:
+
+```bash
+docker run -d \
+  --name witty-ub \
+  --restart unless-stopped \
+  -p 32412:8080 \
+  -v witty-ub-data:/var/witty-ub/data \
+  -v witty-ub-logs:/var/log/witty-ub \
+  -v /to/path/log:/to/path/log:ro \
+  -e OPENCODE_SERVER_PASSWORD=password \
+  --security-opt seccomp=unconfined \
+  witty-ub:latest
+```
+
+**使用 docker compose**:
+
+修改 `docker-compose.yml`:
 
 ```yaml
 services:
   witty-ub:
+    image: witty-ub:latest
+    container_name: witty-ub
+    restart: unless-stopped
+    ports:
+      - "32412:8080"
+    volumes:
+      - witty-ub-data:/var/witty-ub/data
+      - witty-ub-logs:/var/log/witty-ub
+      - /to/path/log:/to/path/log:ro
+    environment:
+      - OPENCODE_SERVER_PASSWORD=password
     security_opt:
       - seccomp=unconfined
 ```
@@ -175,9 +294,65 @@ docker compose up -d
 docker logs -f witty-ub
 ```
 
-> **安全提示**: `seccomp=unconfined` 会关闭容器的默认 seccomp 系统调用过滤，仅建议用作问题验证或临时兼容方案。长期建议升级宿主机的 Docker Engine、runc 和 libseccomp，并在升级后移除此参数。
+**方案二: 升级 Docker Engine 和 libseccomp（推荐）**
 
-### 4. Nginx 无法访问
+长期解决方案是升级宿主机的 Docker Engine、runc 和 libseccomp 到最新版本。
+
+**在 openEuler/CentOS/RHEL 上**:
+
+```bash
+# 升级 libseccomp
+yum update -y libseccomp
+
+# 升级 Docker（参考官方文档）
+# https://docs.docker.com/engine/install/
+```
+
+**方案三: 使用自定义 seccomp 配置**
+
+如果不想完全关闭 seccomp，可以创建自定义配置文件，允许 `clone3` 系统调用:
+
+```json
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "syscalls": [
+    {
+      "name": "clone3",
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}
+```
+
+保存为 `seccomp.json`，然后启动容器时使用:
+
+```bash
+docker run --security-opt seccomp=./seccomp.json ...
+```
+
+#### 5.3 验证修复结果
+
+修复后，重新进入容器验证线程创建:
+
+```bash
+docker exec witty-ub \
+  /var/witty-ub/latency/.venv/bin/python \
+  -c 'import threading; t=threading.Thread(target=lambda: print("thread ok")); t.start(); t.join()'
+```
+
+如果输出 `thread ok`，说明修复成功。
+
+检查 Latency Plugin 服务状态:
+
+```bash
+docker exec witty-ub curl http://localhost:9772/health_check
+```
+
+预期输出: `{"status": "healthy"}`
+
+> **安全提示**: `seccomp=unconfined` 会关闭容器的默认 seccomp 系统调用过滤，降低了容器的安全隔离性。仅建议用作问题验证或临时兼容方案。长期建议升级宿主机的 Docker Engine、runc 和 libseccomp，并在升级后移除此参数。
+
+### 6. Nginx 无法访问
 
 **症状**: Web UI 无法打开
 
@@ -194,7 +369,7 @@ docker exec witty-ub cat /var/log/witty-ub-web/error.log
 docker exec witty-ub nginx -s reload
 ```
 
-### 5. 磁盘空间不足
+### 7. 磁盘空间不足
 
 **症状**: 容器启动失败或运行异常
 
@@ -214,13 +389,13 @@ docker image prune
 docker volume prune
 ```
 
-### 6. OpenCode 服务异常
+### 8. OpenCode 服务异常
 
 **症状**: AI 诊断功能无法使用，提示 "bad file reference"、"Agent 处理消息时发生错误" 或 OpenCode 服务未启动
 
 **解决方案**:
 
-**问题 1: 配置目录未挂载**
+#### 8.1 配置目录未挂载
 
 ```bash
 # 检查 opencode 配置目录是否存在
@@ -230,7 +405,7 @@ ls ~/.config/opencode/
 # - ~/.config/opencode:/root/.config/opencode
 ```
 
-**问题 2: 环境变量未设置**
+#### 8.2 环境变量未设置
 
 ```bash
 # 进入容器检查环境变量
@@ -245,7 +420,7 @@ docker exec witty-ub env | grep -E "(OPENCODE_CONFIG|WITTY_DIR|WITTY_UB_PLUGINS_
 docker exec witty-ub cat /var/witty-ub/entrypoint.sh | grep -E "(OPENCODE_CONFIG|WITTY_DIR)"
 ```
 
-**问题 3: OpenCode 进程未启动**
+#### 8.3 OpenCode 进程未启动
 
 ```bash
 # 检查 OpenCode 进程是否运行
@@ -258,7 +433,7 @@ docker exec witty-ub cat /var/log/witty-ub/opencode_server.log
 docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=/var/witty-ub/config/opencode.json /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 > /var/log/witty-ub/opencode_server.log 2>&1 &"
 ```
 
-**问题 4: Agent 文件路径错误**
+#### 8.4 Agent 文件路径错误
 
 ```bash
 # 检查 agent 文件是否存在
@@ -271,7 +446,7 @@ docker exec witty-ub cat /var/witty-ub/config/opencode.json | grep -A5 prompt
 # "prompt": "{file:/var/witty-ub/config/agents/witty-ub-diagnostician.md}"
 ```
 
-**问题 5: 配置文件中的路径使用了环境变量引用**
+#### 8.5 配置文件中的路径使用了环境变量引用
 
 当前配置文件使用**绝对路径**，如果仍然使用 `{env:WITTY_DIR}` 格式，可能会导致路径解析失败：
 
@@ -284,7 +459,7 @@ docker exec witty-ub sed -i 's/{env:WITTY_DIR}/\/var\/witty-ub\/config/g' /var/w
 docker exec witty-ub sed -i 's/{env:WITTY_UB_PLUGINS_DIR}/\/var\/witty-ub/g' /var/witty-ub/config/opencode.json
 ```
 
-**问题 6: MCP 服务未启动**
+#### 8.6 MCP 服务未启动
 
 ```bash
 # 检查 MCP 服务进程是否运行
@@ -294,7 +469,7 @@ docker exec witty-ub ps aux | grep mcp_server
 docker exec witty-ub curl http://localhost:9772/health_check
 ```
 
-### 7. 依赖包找不到
+### 9. 依赖包找不到
 
 **症状**: `cpp-httplib-devel` 等包安装失败
 
@@ -374,28 +549,12 @@ docker exec witty-ub cat /var/log/witty-ub-web/error.log
 ### 导出日志
 
 ```bash
-# 导出所有日志到文件
-docker compose logs > witty-ub-logs.txt
-
-# 导出最近 24 小时日志
-docker compose logs --since 24h > witty-ub-logs-recent.txt
-```
-
-### 导出日志
-
-```bash
 # 使用 docker compose
 docker compose logs > witty-ub-logs.txt
 docker compose logs --since 24h > witty-ub-logs-recent.txt
-```
 
-### 使用纯 Docker 命令导出日志（低版本 Docker）
-
-```bash
-# 导出所有日志到文件
+# 使用纯 Docker 命令（低版本 Docker）
 docker logs witty-ub > witty-ub-logs.txt
-
-# 导出最近 24 小时日志
 docker logs --since 24h witty-ub > witty-ub-logs-recent.txt
 
 # 导出容器内日志文件到宿主机
@@ -421,8 +580,6 @@ services:
 
 **使用纯 Docker 命令（低版本 Docker）**:
 
-在启动容器时添加日志选项:
-
 ```bash
 docker run -d \
   --name witty-ub \
@@ -438,8 +595,6 @@ docker run -d \
 ## 生产环境建议
 
 ### 1. 资源限制
-
-在 `docker-compose.yml` 中添加资源限制:
 
 ```yaml
 services:
@@ -489,8 +644,6 @@ healthcheck:
 ```
 
 ### 5. 日志集中管理
-
-使用 Docker 日志驱动对接外部日志系统:
 
 ```yaml
 logging:
