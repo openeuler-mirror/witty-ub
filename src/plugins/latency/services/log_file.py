@@ -36,9 +36,16 @@ logger = logging.getLogger(__name__)
 
 class LogFileService:
     @staticmethod
-    def _select_visible_task(parse_task, diagnosis_task):
+    def _is_task_successful(task) -> bool:
+        return task and task.status in [
+            TaskStatusEnum.SUCCESSFUL,
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE,
+        ]
+
+    @staticmethod
+    def _select_visible_task(parse_task, diagnosis_task, store_task=None):
         if not parse_task:
-            return diagnosis_task
+            return diagnosis_task or store_task
         if not diagnosis_task:
             return parse_task
         if parse_task.status in [
@@ -52,6 +59,16 @@ class LogFileService:
             TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE,
         ]:
             return parse_task
+        if diagnosis_task.status in [
+            TaskStatusEnum.FAILED,
+            TaskStatusEnum.FAILED_PENDING_REMOVE,
+            TaskStatusEnum.CANCELLED,
+        ]:
+            return diagnosis_task
+        if not LogFileService._is_task_successful(diagnosis_task):
+            return diagnosis_task
+        if store_task:
+            return store_task
         return diagnosis_task
 
     @staticmethod
@@ -195,6 +212,11 @@ class LogFileService:
                   op_id=log_file_id,
                   parse_config=req.parse_config
             )
+            await TaskHandler.init_task(
+                task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+                op_id=log_file_id,
+                parse_config=req.parse_config,
+            )
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod
@@ -252,9 +274,14 @@ class LogFileService:
             log_file_model_ids,
             TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
         )
+        store_tasks = await TaskManager.list_current_tasks_by_op_ids(
+            log_file_model_ids,
+            TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+        )
         parse_task_dict = {task.op_id: task for task in parse_tasks}
         diagnosis_task_dict = {task.op_id: task for task in diagnosis_tasks}
-        task_op_ids = set(parse_task_dict) | set(diagnosis_task_dict)
+        store_task_dict = {task.op_id: task for task in store_tasks}
+        task_op_ids = set(parse_task_dict) | set(diagnosis_task_dict) | set(store_task_dict)
         fallback_op_ids = [
             log_file_model_id
             for log_file_model_id in log_file_model_ids
@@ -270,6 +297,7 @@ class LogFileService:
             log_file_model_id: LogFileService._select_visible_task(
                 parse_task_dict.get(log_file_model_id),
                 diagnosis_task_dict.get(log_file_model_id),
+                store_task_dict.get(log_file_model_id),
             )
             or fallback_task_dict.get(log_file_model_id)
             for log_file_model_id in log_file_model_ids
@@ -280,6 +308,7 @@ class LogFileService:
                 list(task_dict.values())
                 + list(parse_task_dict.values())
                 + list(diagnosis_task_dict.values())
+                + list(store_task_dict.values())
             )
             if task
         ]
@@ -295,14 +324,18 @@ class LogFileService:
         for log_file_model in log_file_models:
             parse_task = parse_task_dict.get(log_file_model.id)
             diagnosis_task = diagnosis_task_dict.get(log_file_model.id)
+            store_task = store_task_dict.get(log_file_model.id)
             if parse_task:
                 parse_task.task_reports = task_report_dict.get(parse_task.id, [])
             if diagnosis_task:
                 diagnosis_task.task_reports = task_report_dict.get(diagnosis_task.id, [])
+            if store_task:
+                store_task.task_reports = task_report_dict.get(store_task.id, [])
 
             log_file_model.overall_progress = parallel_overall_progress(
                 parse_task,
                 diagnosis_task,
+                store_task,
             )
             log_file_model.task = task_dict.get(log_file_model.id)
             if log_file_model.task:
@@ -327,7 +360,13 @@ class LogFileService:
             log_file_id,
             TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
         )
-        task_model = LogFileService._select_visible_task(parse_task, diagnosis_task)
+        store_task = await TaskManager.get_current_task_by_op_id(
+            log_file_id,
+            TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+        )
+        task_model = LogFileService._select_visible_task(
+            parse_task, diagnosis_task, store_task
+        )
         if not task_model:
             task_model = await TaskManager.get_current_task_by_op_id(log_file_id)
         if task_model:
@@ -341,13 +380,21 @@ class LogFileService:
                 if diagnosis_task
                 else []
             )
+            store_reports = (
+                await TaskReportManager.list_task_reports_by_task_ids([store_task.id])
+                if store_task
+                else []
+            )
             if parse_task:
                 parse_task.task_reports = parse_reports
             if diagnosis_task:
                 diagnosis_task.task_reports = diagnosis_reports
+            if store_task:
+                store_task.task_reports = store_reports
             log_file_model.overall_progress = parallel_overall_progress(
                 parse_task,
                 diagnosis_task,
+                store_task,
             )
             task_model.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
                 [task_model.id]
