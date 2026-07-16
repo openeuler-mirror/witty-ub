@@ -147,8 +147,9 @@ witty-ub超节点故障智能监控诊断平台是基于故障树驱动的诊断
 
     ![Agent 登录页](./figures/web-ui/Agent登录页.png)
 
-    - 在监控页点击右下角的机器人图标，打开Agent智能体对话框，输入OpenCode Server的用户名和密码
-    - URL默认为空，表示连接到本机部署的OpenCode Server；若要连接到远程部署的OpenCode Server，请在URL中输入远程服务器的IP地址和端口号，IP:Port，点击“登录”按钮即可登录Agent智能体
+    - 在监控页点击右下角的机器人图标，打开Agent智能体对话框
+        - 本地连接：直接点击“连接到本机 OpenCode 服务器”，无需输入用户名和密码
+        - 远程连接：输入OpenCode Server的用户名和密码和远程URL（IP:port），点击“连接远程服务器”按钮进行登录
 
     2. 选择模型页
     

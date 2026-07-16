@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
-import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onUpdated,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
 import diagnosisConfig from '../../../config/diagnosis_config.json'
@@ -616,6 +625,7 @@ const agentChatInput = ref('')
 const agentSessionId = ref('')
 const agentConnectionError = ref('')
 const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('connecting')
+const isAgentLoggingIn = ref(false)
 const agentChatMessages = ref<AgentChatMessage[]>([])
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
 const isAgentConnectionUnavailable = computed(() => agentConnectionState.value !== 'connected')
@@ -904,17 +914,13 @@ const getAgentRequestModelId = (provider: OpenCodeProvider, model: OpenCodeModel
   return model.id.startsWith(providerPrefix) ? model.id.slice(providerPrefix.length) : model.id
 }
 
-const loginAgent = async () => {
-  if (!agentUsername.value.trim() || !agentPassword.value) {
-    agentConnectionError.value = '请完整填写用户名和密码。'
-    return
-  }
+const connectAgent = async (serverAddress: string, authHeader = '') => {
+  if (isAgentLoggingIn.value) return
+  isAgentLoggingIn.value = true
   agentConnectionError.value = ''
   agentConnectionState.value = 'connecting'
-  agentApiBase.value = normalizeAgentServerAddress(agentServerAddress.value)
-  agentAuthHeader.value = `Basic ${btoa(
-    unescape(encodeURIComponent(`${agentUsername.value}:${agentPassword.value}`)),
-  )}`
+  agentApiBase.value = normalizeAgentServerAddress(serverAddress)
+  agentAuthHeader.value = authHeader
   try {
     const health = await requestAgentApi<OpenCodeHealthResult>('/global/health')
     if (!health?.healthy) throw new Error('OpenCode Server 健康检查未通过。')
@@ -924,7 +930,26 @@ const loginAgent = async () => {
   } catch (error) {
     agentConnectionState.value = 'disconnected'
     agentConnectionError.value = error instanceof Error ? error.message : '登录失败。'
+  } finally {
+    isAgentLoggingIn.value = false
   }
+}
+
+const loginLocalAgent = () => connectAgent('http://127.0.0.1:4096')
+
+const loginAgent = async () => {
+  if (!agentUsername.value.trim() || !agentPassword.value) {
+    agentConnectionError.value = '请完整填写用户名和密码。'
+    return
+  }
+  if (!agentServerAddress.value.trim()) {
+    agentConnectionError.value = '请输入远程服务器的 IP:端口号。'
+    return
+  }
+  const authHeader = `Basic ${btoa(
+    unescape(encodeURIComponent(`${agentUsername.value}:${agentPassword.value}`)),
+  )}`
+  await connectAgent(agentServerAddress.value, authHeader)
 }
 
 const chooseAgentModel = async (provider: OpenCodeProvider, model: OpenCodeModel) => {
@@ -1077,7 +1102,9 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       agentConnectionError.value = ''
       return
     }
-    markAgentResponseFailed(extractOpenCodeError(properties?.error ?? properties, 'Agent 处理消息时发生错误。'))
+    markAgentResponseFailed(
+      extractOpenCodeError(properties?.error ?? properties, 'Agent 处理消息时发生错误。'),
+    )
   }
 }
 
@@ -1130,7 +1157,9 @@ const readAgentEventStream = async (
     if (streamSequence !== agentEventStreamSequence || controller.signal.aborted) return
     isAgentEventStreamConnected = false
     agentConnectionError.value =
-      error instanceof Error ? `Agent 事件流连接已断开：${error.message}` : 'Agent 事件流连接已断开。'
+      error instanceof Error
+        ? `Agent 事件流连接已断开：${error.message}`
+        : 'Agent 事件流连接已断开。'
     agentConnectionState.value = 'disconnected'
   }
 }
@@ -1249,10 +1278,7 @@ const sendAgentMessage = async () => {
           agent: agentName,
           model: {
             providerID: selectedAgentProvider.value.id,
-            modelID: getAgentRequestModelId(
-              selectedAgentProvider.value,
-              selectedAgentModel.value,
-            ),
+            modelID: getAgentRequestModelId(selectedAgentProvider.value, selectedAgentModel.value),
           },
           parts: [
             { type: 'text', text: `${contextPrefix}${contextPrefix ? '\n\n' : ''}${question}` },
@@ -2288,16 +2314,11 @@ const latencyTraceTableRef = ref<HTMLDivElement | null>(null)
 const detailLatencyTraceTableRef = ref<HTMLDivElement | null>(null)
 const hoveredLatencyTraceRowKey = ref('')
 
-const syncSplitTableRowHeights = (
-  table: HTMLDivElement | null,
-  scrollRowSelector: string,
-) => {
+const syncSplitTableRowHeights = (table: HTMLDivElement | null, scrollRowSelector: string) => {
   if (!table) return
 
   const scrollRows = table.querySelectorAll<HTMLElement>(scrollRowSelector)
-  const fixedRows = table.querySelectorAll<HTMLElement>(
-    '.aggregate-fixed-left .aggregate-body-row',
-  )
+  const fixedRows = table.querySelectorAll<HTMLElement>('.aggregate-fixed-left .aggregate-body-row')
   const actionRows = table.querySelectorAll<HTMLElement>(
     '.aggregate-fixed-actions .aggregate-body-row',
   )
@@ -2404,9 +2425,12 @@ const syncDetailAbnormalTraceRowHeights = () => {
       setTimeout(() => {
         if (!detailAbnormalTraceTableRef.value) return
 
-        const scrollBody = detailAbnormalTraceTableRef.value.querySelector('.aggregate-latency-body')
+        const scrollBody =
+          detailAbnormalTraceTableRef.value.querySelector('.aggregate-latency-body')
         const fixedLeft = detailAbnormalTraceTableRef.value.querySelector('.aggregate-fixed-left')
-        const fixedActions = detailAbnormalTraceTableRef.value.querySelector('.aggregate-fixed-actions')
+        const fixedActions = detailAbnormalTraceTableRef.value.querySelector(
+          '.aggregate-fixed-actions',
+        )
 
         if (!scrollBody || !fixedLeft || !fixedActions) return
 
@@ -3953,11 +3977,11 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
       traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
       podIp: (() => {
-        const podIps = record['pod_ips'];
+        const podIps = record['pod_ips']
         if (Array.isArray(podIps)) {
-          return podIps.join('<br>');
+          return podIps.join('<br>')
         }
-        return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_id', 'pod_name', 'podId', 'pod']);
+        return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_id', 'pod_name', 'podId', 'pod'])
       })(),
       operation: normalizeTraceOperation(
         getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
@@ -4196,11 +4220,11 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     level,
     filename: logFile,
     podIp: (() => {
-      const podIps = record['pod_ips'];
+      const podIps = record['pod_ips']
       if (Array.isArray(podIps)) {
-        return podIps.join('<br>');
+        return podIps.join('<br>')
       }
-      return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_name', 'pod_id', 'podId', 'pod']);
+      return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_name', 'pod_id', 'podId', 'pod'])
     })(),
     pidTid: pid || tid ? `${pid || '-'}:${tid || '-'}` : getRecordString(record, ['pid_tid'], '-'),
     traceId: getRecordString(record, ['trace_id', 'traceId']),
@@ -4247,7 +4271,7 @@ const getTraceLogs = (trace?: TraceDetailRow | null) => {
   if (!trace) return []
   const traceId = trace.traceId
   return Object.prototype.hasOwnProperty.call(traceFailureLogsByTrace.value, traceId)
-    ? traceFailureLogsByTrace.value[traceId] ?? []
+    ? (traceFailureLogsByTrace.value[traceId] ?? [])
     : []
 }
 
@@ -6551,9 +6575,7 @@ const setFaultAggregatedEventStartTimeSort = (sortDesc: boolean) => {
 
 const handleFaultAggregatedEventStartTimeSort = () => {
   setFaultAggregatedEventStartTimeSort(
-    isFaultAggregatedEventStartTimeSortActive.value
-      ? !faultAggregatedEventSortDesc.value
-      : false,
+    isFaultAggregatedEventStartTimeSortActive.value ? !faultAggregatedEventSortDesc.value : false,
   )
 }
 
@@ -8265,22 +8287,22 @@ onBeforeUnmount(() => {
                                       }"
                                       >▲</span
                                     >
-                                      <span
-                                        class="sort-icon-down"
-                                        :class="{
-                                          'sort-icon-active':
-                                            getTimeWindowIpPairSortOrder('total_cnt') === 'desc',
-                                        }"
-                                        >▼</span
-                                      >
-                                      <span
-                                        v-if="getTimeWindowIpPairSortPriority('total_cnt')"
-                                        class="sort-priority-badge"
-                                      >
-                                        {{ getTimeWindowIpPairSortPriority('total_cnt') }}
-                                      </span>
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          getTimeWindowIpPairSortOrder('total_cnt') === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
+                                    <span
+                                      v-if="getTimeWindowIpPairSortPriority('total_cnt')"
+                                      class="sort-priority-badge"
+                                    >
+                                      {{ getTimeWindowIpPairSortPriority('total_cnt') }}
                                     </span>
                                   </span>
+                                </span>
                               </div>
                               <div
                                 class="aggregate-cell count-cell aggregate-sortable-cell"
@@ -8297,22 +8319,22 @@ onBeforeUnmount(() => {
                                       }"
                                       >▲</span
                                     >
-                                      <span
-                                        class="sort-icon-down"
-                                        :class="{
-                                          'sort-icon-active':
-                                            getTimeWindowIpPairSortOrder('anomaly_cnt') === 'desc',
-                                        }"
-                                        >▼</span
-                                      >
-                                      <span
-                                        v-if="getTimeWindowIpPairSortPriority('anomaly_cnt')"
-                                        class="sort-priority-badge"
-                                      >
-                                        {{ getTimeWindowIpPairSortPriority('anomaly_cnt') }}
-                                      </span>
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          getTimeWindowIpPairSortOrder('anomaly_cnt') === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
+                                    <span
+                                      v-if="getTimeWindowIpPairSortPriority('anomaly_cnt')"
+                                      class="sort-priority-badge"
+                                    >
+                                      {{ getTimeWindowIpPairSortPriority('anomaly_cnt') }}
                                     </span>
                                   </span>
+                                </span>
                               </div>
                               <div
                                 class="aggregate-cell aggregate-sortable-cell"
@@ -8329,22 +8351,22 @@ onBeforeUnmount(() => {
                                       }"
                                       >▲</span
                                     >
-                                      <span
-                                        class="sort-icon-down"
-                                        :class="{
-                                          'sort-icon-active':
-                                            getTimeWindowIpPairSortOrder('total_latency') === 'desc',
-                                        }"
-                                        >▼</span
-                                      >
-                                      <span
-                                        v-if="getTimeWindowIpPairSortPriority('total_latency')"
-                                        class="sort-priority-badge"
-                                      >
-                                        {{ getTimeWindowIpPairSortPriority('total_latency') }}
-                                      </span>
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          getTimeWindowIpPairSortOrder('total_latency') === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
+                                    <span
+                                      v-if="getTimeWindowIpPairSortPriority('total_latency')"
+                                      class="sort-priority-badge"
+                                    >
+                                      {{ getTimeWindowIpPairSortPriority('total_latency') }}
                                     </span>
                                   </span>
+                                </span>
                               </div>
                             </div>
                             <div
@@ -8357,8 +8379,7 @@ onBeforeUnmount(() => {
                                   `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`,
                               }"
                               @mouseenter="
-                                hoveredTimeWindowIpPairKey =
-                                  `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
+                                hoveredTimeWindowIpPairKey = `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
                               "
                               @mouseleave="hoveredTimeWindowIpPairKey = ''"
                             >
@@ -8547,22 +8568,22 @@ onBeforeUnmount(() => {
                                         }"
                                         >▲</span
                                       >
-                                        <span
-                                          class="sort-icon-down"
-                                          :class="{
-                                            'sort-icon-active':
-                                              getTimeWindowIpPairSortOrder(column.key) === 'desc',
-                                          }"
-                                          >▼</span
-                                        >
-                                        <span
-                                          v-if="getTimeWindowIpPairSortPriority(column.key)"
-                                          class="sort-priority-badge"
-                                        >
-                                          {{ getTimeWindowIpPairSortPriority(column.key) }}
-                                        </span>
+                                      <span
+                                        class="sort-icon-down"
+                                        :class="{
+                                          'sort-icon-active':
+                                            getTimeWindowIpPairSortOrder(column.key) === 'desc',
+                                        }"
+                                        >▼</span
+                                      >
+                                      <span
+                                        v-if="getTimeWindowIpPairSortPriority(column.key)"
+                                        class="sort-priority-badge"
+                                      >
+                                        {{ getTimeWindowIpPairSortPriority(column.key) }}
                                       </span>
                                     </span>
+                                  </span>
                                 </div>
                               </div>
                               <div
@@ -8575,8 +8596,7 @@ onBeforeUnmount(() => {
                                     `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`,
                                 }"
                                 @mouseenter="
-                                  hoveredTimeWindowIpPairKey =
-                                    `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
+                                  hoveredTimeWindowIpPairKey = `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
                                 "
                                 @mouseleave="hoveredTimeWindowIpPairKey = ''"
                               >
@@ -8661,8 +8681,7 @@ onBeforeUnmount(() => {
                                   `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`,
                               }"
                               @mouseenter="
-                                hoveredTimeWindowIpPairKey =
-                                  `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
+                                hoveredTimeWindowIpPairKey = `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
                               "
                               @mouseleave="hoveredTimeWindowIpPairKey = ''"
                             >
@@ -9514,8 +9533,12 @@ onBeforeUnmount(() => {
                                 <div class="aggregate-cell fault-expand-cell"></div>
                                 <div class="aggregate-cell fault-aggregate-sub-pod-cell">
                                   <div class="fault-aggregate-ip-columns">
-                                    <div class="fault-aggregate-ip-column">{{ getFaultAggregatedEventPodError(row) || '暂无数据' }}</div>
-                                    <div class="fault-aggregate-ip-column">{{ getFaultAggregatedEventPodError(row) || '暂无数据' }}</div>
+                                    <div class="fault-aggregate-ip-column">
+                                      {{ getFaultAggregatedEventPodError(row) || '暂无数据' }}
+                                    </div>
+                                    <div class="fault-aggregate-ip-column">
+                                      {{ getFaultAggregatedEventPodError(row) || '暂无数据' }}
+                                    </div>
                                   </div>
                                 </div>
                               </template>
@@ -9527,8 +9550,7 @@ onBeforeUnmount(() => {
                                   class="aggregate-cell fault-expand-cell"
                                   :class="{
                                     'shared-row-hover':
-                                      hoveredFaultAggregatedPodRowKey ===
-                                      `${row.id}:${podRow.id}`,
+                                      hoveredFaultAggregatedPodRowKey === `${row.id}:${podRow.id}`,
                                   }"
                                   @mouseenter="
                                     hoveredFaultAggregatedPodRowKey = `${row.id}:${podRow.id}`
@@ -9539,8 +9561,7 @@ onBeforeUnmount(() => {
                                   class="aggregate-cell fault-aggregate-sub-pod-cell"
                                   :class="{
                                     'shared-row-hover':
-                                      hoveredFaultAggregatedPodRowKey ===
-                                      `${row.id}:${podRow.id}`,
+                                      hoveredFaultAggregatedPodRowKey === `${row.id}:${podRow.id}`,
                                   }"
                                   @mouseenter="
                                     hoveredFaultAggregatedPodRowKey = `${row.id}:${podRow.id}`
@@ -9826,8 +9847,7 @@ onBeforeUnmount(() => {
                                 class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
                                 :class="{
                                   'shared-row-hover':
-                                    hoveredFaultAggregatedPodRowKey ===
-                                    `${row.id}:${podRow.id}`,
+                                    hoveredFaultAggregatedPodRowKey === `${row.id}:${podRow.id}`,
                                 }"
                                 :style="faultAggregatedEventCodeGridStyle"
                                 @mouseenter="
@@ -12771,7 +12791,9 @@ onBeforeUnmount(() => {
           class="agent-auth-back"
           type="button"
           aria-label="返回上一级"
-          @click="agentView = agentView === 'chat' || agentView === 'providers' ? 'models' : 'providers'"
+          @click="
+            agentView = agentView === 'chat' || agentView === 'providers' ? 'models' : 'providers'
+          "
         >
           ‹
         </button>
@@ -12795,28 +12817,49 @@ onBeforeUnmount(() => {
         <div class="agent-auth-intro">
           <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
           <h3>连接 OpenCode</h3>
-          <p>请输入 OpenCode Server 的登录信息。</p>
+          <p>选择本地服务器，或使用登录信息连接远程服务器。</p>
         </div>
-        <form class="agent-auth-form" @submit.prevent="loginAgent">
-          <label>
-            <span>用户名</span>
-            <input v-model.trim="agentUsername" autocomplete="username" placeholder="请输入用户名" />
-          </label>
-          <label>
-            <span>密码</span>
-            <input
-              v-model="agentPassword"
-              type="password"
-              autocomplete="current-password"
-              placeholder="请输入密码"
-            />
-          </label>
-          <label>
-            <span>URL（可选）</span>
-            <input v-model.trim="agentServerAddress" placeholder="默认为空，连接到远程服务器时填写 IP:端口号" />
-          </label>
-          <button class="agent-auth-primary" type="submit">连接</button>
-        </form>
+        <div class="agent-auth-connectors">
+          <button
+            class="agent-auth-local"
+            type="button"
+            :disabled="isAgentLoggingIn"
+            @click="loginLocalAgent"
+          >
+            <strong>连接到本机 OpenCode 服务器</strong>
+            <span>127.0.0.1:4096 · 无需用户名和密码</span>
+          </button>
+          <form class="agent-auth-form agent-auth-remote" @submit.prevent="loginAgent">
+            <div class="agent-auth-remote-title">
+              <strong>远程连接</strong>
+              <span>使用远程服务器的登录信息</span>
+            </div>
+            <label>
+              <span>用户名</span>
+              <input
+                v-model.trim="agentUsername"
+                autocomplete="username"
+                placeholder="请输入用户名"
+              />
+            </label>
+            <label>
+              <span>密码</span>
+              <input
+                v-model="agentPassword"
+                type="password"
+                autocomplete="current-password"
+                placeholder="请输入密码"
+              />
+            </label>
+            <label>
+              <span>URL</span>
+              <input v-model.trim="agentServerAddress" placeholder="远程服务器的 IP:端口号" />
+            </label>
+            <button class="agent-auth-primary" type="submit" :disabled="isAgentLoggingIn">
+              连接远程服务器
+            </button>
+          </form>
+        </div>
       </main>
 
       <main v-else-if="agentView === 'models'" class="agent-auth-page agent-selection-page">
@@ -12868,7 +12911,8 @@ onBeforeUnmount(() => {
                 providerApiKey = ''
               "
             >
-              <span>{{ provider.name }}</span><span>›</span>
+              <span>{{ provider.name }}</span
+              ><span>›</span>
             </button>
             <form
               v-if="expandedProviderId === provider.id"
@@ -12881,10 +12925,7 @@ onBeforeUnmount(() => {
                 autocomplete="off"
                 :placeholder="`${provider.name} API key`"
               />
-              <button
-                type="submit"
-                :disabled="!providerApiKey.trim() || isAgentAuthorizing"
-              >
+              <button type="submit" :disabled="!providerApiKey.trim() || isAgentAuthorizing">
                 {{ isAgentAuthorizing ? '认证中' : '确认' }}
               </button>
             </form>
@@ -12975,7 +13016,11 @@ onBeforeUnmount(() => {
         {{ agentConnectionError }}
       </div>
 
-      <form v-if="agentView === 'chat'" class="agent-chat-composer" @submit.prevent="sendAgentMessage">
+      <form
+        v-if="agentView === 'chat'"
+        class="agent-chat-composer"
+        @submit.prevent="sendAgentMessage"
+      >
         <textarea
           v-model="agentChatInput"
           rows="1"
