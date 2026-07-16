@@ -1670,6 +1670,8 @@ const timeWindowChartRange = ref<{ startTime: number; endTime: number } | null>(
 const timeWindowTotal = ref(0)
 const timeWindowPageInput = ref('')
 const expandedTimeWindowIds = ref<Set<number>>(new Set())
+const hoveredTimeWindowRowIndex = ref<number | null>(null)
+const hoveredTimeWindowIpPairKey = ref('')
 const timeWindowSortFields = ref<SortField[]>([])
 const timeWindowStartTimeSortOrder = ref<SortField['order']>('asc')
 const isTimeWindowStartTimeSortActive = computed(() => timeWindowSortFields.value.length === 0)
@@ -2004,6 +2006,9 @@ const faultAggregatedEventTotal = ref(0)
 const isFaultAggregatedEventsLoading = ref(false)
 const faultAggregatedEventsError = ref('')
 const expandedFaultAggregatedEventId = ref('')
+const hoveredFaultAggregatedEventId = ref('')
+const hoveredFaultAggregatedPodRowKey = ref('')
+const hoveredFaultTraceRowKey = ref('')
 const faultTraceRowsMap = reactive<Record<number, FaultTraceTableRow[]>>({
   0: [],
   10: [],
@@ -2279,6 +2284,53 @@ const faultTraceEventsError = computed(
 const abnormalTraceTableRef = ref<HTMLDivElement | null>(null)
 const detailAbnormalTraceTableRef = ref<HTMLDivElement | null>(null)
 const faultTraceTableRef = ref<HTMLDivElement | null>(null)
+const latencyTraceTableRef = ref<HTMLDivElement | null>(null)
+const detailLatencyTraceTableRef = ref<HTMLDivElement | null>(null)
+const hoveredLatencyTraceRowKey = ref('')
+
+const syncSplitTableRowHeights = (
+  table: HTMLDivElement | null,
+  scrollRowSelector: string,
+) => {
+  if (!table) return
+
+  const scrollRows = table.querySelectorAll<HTMLElement>(scrollRowSelector)
+  const fixedRows = table.querySelectorAll<HTMLElement>(
+    '.aggregate-fixed-left .aggregate-body-row',
+  )
+  const actionRows = table.querySelectorAll<HTMLElement>(
+    '.aggregate-fixed-actions .aggregate-body-row',
+  )
+
+  scrollRows.forEach((scrollRow, index) => {
+    const rows = [scrollRow, fixedRows[index], actionRows[index]].filter(
+      (row): row is HTMLElement => Boolean(row),
+    )
+
+    // Clear the previous synchronized value first so content changes can also shrink a row.
+    rows.forEach((row) => row.style.removeProperty('height'))
+    const height = Math.max(...rows.map((row) => row.getBoundingClientRect().height))
+    rows.forEach((row) => (row.style.height = `${height}px`))
+  })
+}
+
+const syncLatencyTraceRowHeights = () => {
+  nextTick(() => {
+    syncSplitTableRowHeights(
+      latencyTraceTableRef.value,
+      '.abnormal-latency-grid.aggregate-body-row',
+    )
+  })
+}
+
+const syncDetailLatencyTraceRowHeights = () => {
+  nextTick(() => {
+    syncSplitTableRowHeights(
+      detailLatencyTraceTableRef.value,
+      '.abnormal-latency-grid.aggregate-body-row',
+    )
+  })
+}
 
 const syncAbnormalTraceRowHeights = () => {
   nextTick(() => {
@@ -2321,28 +2373,10 @@ const syncAbnormalTraceRowHeights = () => {
 
 const syncFaultTraceRowHeights = () => {
   nextTick(() => {
-    if (!faultTraceTableRef.value) return
-
-    const scrollBody = faultTraceTableRef.value.querySelector('.aggregate-latency-body')
-    const fixedLeft = faultTraceTableRef.value.querySelector('.aggregate-fixed-left')
-    const fixedActions = faultTraceTableRef.value.querySelector('.aggregate-fixed-actions')
-
-    if (!scrollBody || !fixedLeft || !fixedActions) return
-
-    const scrollRows = scrollBody.querySelectorAll('.fault-trace-scroll-grid.aggregate-body-row')
-    const fixedRows = fixedLeft.querySelectorAll('.abnormal-left-grid.aggregate-body-row')
-    const actionRows = fixedActions.querySelectorAll('.aggregate-cell.aggregate-body-row')
-
-    scrollRows.forEach((scrollRow, index) => {
-      const scrollHeight = scrollRow.getBoundingClientRect().height
-      const fixedRow = fixedRows[index] as HTMLElement | undefined
-      const actionRow = actionRows[index] as HTMLElement | undefined
-
-      if (fixedRow && actionRow) {
-        fixedRow.style.height = `${scrollHeight}px`
-        actionRow.style.height = `${scrollHeight}px`
-      }
-    })
+    syncSplitTableRowHeights(
+      faultTraceTableRef.value,
+      '.fault-trace-scroll-grid.aggregate-body-row',
+    )
   })
 }
 
@@ -3359,6 +3393,9 @@ const resizeLatencyCharts = () => {
   detailLatencyChartInstance?.resize()
   faultChartInstance?.resize()
   faultDetailChartInstance?.resize()
+  syncLatencyTraceRowHeights()
+  syncDetailLatencyTraceRowHeights()
+  syncFaultTraceRowHeights()
 }
 
 const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: number } | null) => {
@@ -3901,6 +3938,11 @@ const normalizeTimeText = (value: string) => {
   return normalized
 }
 
+const getTraceRowHeight = (podIpHtml: string) => {
+  const lineCount = Math.max(1, podIpHtml.split(/<br\s*\/?\s*>/i).length)
+  return `${Math.max(59, 24 + lineCount * 20)}px`
+}
+
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value.map((result) => {
     const record = result as Record<string, unknown>
@@ -4366,6 +4408,32 @@ const getFilteredAbnormalTraceRows = () => {
   return abnormalTraceRows.value.filter(matchesAbnormalTraceFilters)
 }
 
+watch(
+  () => [
+    activeAggregateTab.value,
+    ...getFilteredAbnormalTraceRows().map((row) => `${row.id}:${row.podIp}`),
+    ...traceListColumnWidths.latencyLeft,
+    ...traceListColumnWidths.latencyData,
+  ],
+  () => {
+    if (activeAggregateTab.value === 'trace') syncLatencyTraceRowHeights()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    selectedAggregatedEvent.value?.id ?? '',
+    ...detailParseResultRows.value.map((row) => `${row.id}:${row.podIp}`),
+    ...traceListColumnWidths.latencyLeft,
+    ...traceListColumnWidths.latencyData,
+  ],
+  () => {
+    if (selectedAggregatedEvent.value) syncDetailLatencyTraceRowHeights()
+  },
+  { immediate: true },
+)
+
 const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceTableRow => {
   const record = result as Record<string, unknown>
   const podNames = getRecordArray(record, ['pod_names', 'podNames'])
@@ -4698,7 +4766,8 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
   try {
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
-      pod_names: getFaultAggregatedEventPodNames(detail.podRow),
+      src_ip: detail.podRow.srcIp,
+      dst_ip: detail.podRow.dstIp,
       is_anomalous: true,
       start_time: detail.eventRow.startTime,
       end_time: detail.eventRow.endTime,
@@ -4801,7 +4870,8 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
       body: JSON.stringify({
         kb_id: selectedAssetId.value,
         err_codes: errCodes,
-        pod_names: getFaultAggregatedEventPodNames(detail.podRow),
+        src_ip: detail.podRow.srcIp,
+        dst_ip: detail.podRow.dstIp,
         start_time: detail.eventRow.startTime,
         end_time: detail.eventRow.endTime,
         max_points: 1000,
@@ -5057,9 +5127,6 @@ const setActiveAggregateTab = (tab: 'event' | 'trace') => {
   if (activeAggregateTab.value === tab) return
   activeAggregateTab.value = tab
   clearFilterApplyMessage()
-  if (tab === 'event') {
-    void loadTimeWindowAggregatedEvents(1)
-  }
 }
 
 const request = async <T,>(path: string, init: RequestInit = {}) => {
@@ -7225,8 +7292,15 @@ const handleFileChange = async (event: Event) => {
 
 const syncAggregateLatencyScroll = (event: Event) => {
   const source = event.currentTarget as HTMLElement | null
-  const panel = source?.closest('.aggregate-latency-scroll')
+  const panel = source?.closest<HTMLElement>('.aggregate-latency-scroll')
   if (!source || !panel) return
+
+  if (panel.closest('.time-window-aggregate-frame')) {
+    panel.style.setProperty('--time-window-latency-offset', `${-source.scrollLeft}px`)
+  }
+  if (panel.closest('.fault-aggregate-event-frame')) {
+    panel.style.setProperty('--fault-aggregate-code-offset', `${-source.scrollLeft}px`)
+  }
 
   panel.querySelectorAll<HTMLElement>('.aggregate-latency-sync').forEach((target) => {
     if (target !== source && target.scrollLeft !== source.scrollLeft) {
@@ -7968,7 +8042,7 @@ onBeforeUnmount(() => {
                     timeWindowAggregatedEvents.length > 0
                   "
                 >
-                  <div class="aggregate-table-frame">
+                  <div class="aggregate-table-frame time-window-aggregate-frame">
                     <div class="aggregate-fixed-left">
                       <div class="aggregate-left-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
@@ -8109,9 +8183,14 @@ onBeforeUnmount(() => {
                           :key="`tw-${twIdx}`"
                         >
                           <div
-                            class="aggregate-left-grid aggregate-body-row"
-                            :class="{ expanded: isTimeWindowExpanded(twIdx) }"
+                            class="aggregate-left-grid aggregate-body-row expandable-aggregate-row"
+                            :class="{
+                              expanded: isTimeWindowExpanded(twIdx),
+                              'shared-row-hover': hoveredTimeWindowRowIndex === twIdx,
+                            }"
                             @click="toggleTimeWindowRow(twIdx)"
+                            @mouseenter="hoveredTimeWindowRowIndex = twIdx"
+                            @mouseleave="hoveredTimeWindowRowIndex = null"
                           >
                             <div class="aggregate-cell fault-expand-cell">
                               <span class="fault-expand-indicator">
@@ -8135,12 +8214,7 @@ onBeforeUnmount(() => {
                               class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-header"
                             >
                               <div class="aggregate-cell fault-expand-cell"></div>
-                              <div
-                                class="aggregate-cell aggregate-sortable-cell"
-                                @click.stop="handleIpPairSort('total_cnt')"
-                              >
-                                <span class="sort-header-content"> 源IP </span>
-                              </div>
+                              <div class="aggregate-cell">源IP</div>
                               <div class="aggregate-cell">目标IP</div>
                               <div
                                 class="aggregate-cell count-cell aggregate-sortable-cell"
@@ -8243,6 +8317,16 @@ onBeforeUnmount(() => {
                               v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
                               :key="`${twIdx}-${ipPair.src_ip}-${ipPair.dst_ip}`"
                               class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row"
+                              :class="{
+                                'shared-row-hover':
+                                  hoveredTimeWindowIpPairKey ===
+                                  `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`,
+                              }"
+                              @mouseenter="
+                                hoveredTimeWindowIpPairKey =
+                                  `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
+                              "
+                              @mouseleave="hoveredTimeWindowIpPairKey = ''"
                             >
                               <div class="aggregate-cell fault-expand-cell"></div>
                               <div class="aggregate-cell">{{ ipPair.src_ip || '-' }}</div>
@@ -8384,7 +8468,16 @@ onBeforeUnmount(() => {
                             v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents"
                             :key="`tw-body-${twIdx}`"
                           >
-                            <div class="aggregate-latency-grid aggregate-body-row">
+                            <div
+                              class="aggregate-latency-grid aggregate-body-row expandable-aggregate-row"
+                              :class="{
+                                expanded: isTimeWindowExpanded(twIdx),
+                                'shared-row-hover': hoveredTimeWindowRowIndex === twIdx,
+                              }"
+                              @click="toggleTimeWindowRow(twIdx)"
+                              @mouseenter="hoveredTimeWindowRowIndex = twIdx"
+                              @mouseleave="hoveredTimeWindowRowIndex = null"
+                            >
                               <div
                                 v-for="column in timeWindowLatencyColumns"
                                 :key="column.key"
@@ -8442,6 +8535,16 @@ onBeforeUnmount(() => {
                                 v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
                                 :key="`${twIdx}-body-${ipPair.src_ip}-${ipPair.dst_ip}`"
                                 class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                                :class="{
+                                  'shared-row-hover':
+                                    hoveredTimeWindowIpPairKey ===
+                                    `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`,
+                                }"
+                                @mouseenter="
+                                  hoveredTimeWindowIpPairKey =
+                                    `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
+                                "
+                                @mouseleave="hoveredTimeWindowIpPairKey = ''"
                               >
                                 <div
                                   v-for="column in timeWindowLatencyColumns"
@@ -8467,7 +8570,7 @@ onBeforeUnmount(() => {
                               </div>
                               <div
                                 v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
-                                class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row"
+                                class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
                               >
                                 <div
                                   v-for="column in timeWindowLatencyColumns"
@@ -8496,7 +8599,16 @@ onBeforeUnmount(() => {
                           v-for="(twEvent, twIdx) in sortedTimeWindowAggregatedEvents"
                           :key="`tw-action-${twIdx}`"
                         >
-                          <div class="aggregate-cell action-cell trace-actions aggregate-body-row">
+                          <div
+                            class="aggregate-cell action-cell trace-actions aggregate-body-row expandable-aggregate-row"
+                            :class="{
+                              expanded: isTimeWindowExpanded(twIdx),
+                              'shared-row-hover': hoveredTimeWindowRowIndex === twIdx,
+                            }"
+                            @click="toggleTimeWindowRow(twIdx)"
+                            @mouseenter="hoveredTimeWindowRowIndex = twIdx"
+                            @mouseleave="hoveredTimeWindowRowIndex = null"
+                          >
                             <span class="metric-action-hint">展开查看IP对</span>
                           </div>
                           <template v-if="isTimeWindowExpanded(twIdx)">
@@ -8509,6 +8621,16 @@ onBeforeUnmount(() => {
                               v-for="ipPair in getPaginatedIpPairs(twEvent, twIdx)"
                               :key="`${twIdx}-action-${ipPair.src_ip}-${ipPair.dst_ip}`"
                               class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
+                              :class="{
+                                'shared-row-hover':
+                                  hoveredTimeWindowIpPairKey ===
+                                  `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`,
+                              }"
+                              @mouseenter="
+                                hoveredTimeWindowIpPairKey =
+                                  `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
+                              "
+                              @mouseleave="hoveredTimeWindowIpPairKey = ''"
                             >
                               <button
                                 class="metric-action-btn detail-action-btn"
@@ -8527,7 +8649,7 @@ onBeforeUnmount(() => {
                             </div>
                             <div
                               v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
-                              class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row"
+                              class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
                             >
                               <span class="metric-action-hint"></span>
                             </div>
@@ -8614,7 +8736,7 @@ onBeforeUnmount(() => {
                     getFilteredAbnormalTraceRows().length === 0,
                 }"
               >
-                <div ref="abnormalTraceTableRef" class="aggregate-table-frame abnormal-trace-frame">
+                <div ref="latencyTraceTableRef" class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
                     <div
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
@@ -8675,7 +8797,16 @@ onBeforeUnmount(() => {
                         v-for="row in getFilteredAbnormalTraceRows()"
                         :key="`${row.id}-fixed`"
                         class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
-                        :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
+                        :class="{
+                          'shared-row-hover':
+                            hoveredLatencyTraceRowKey === `${row.id}:${row.traceId}`,
+                        }"
+                        :style="{
+                          gridTemplateColumns: getLatencyLeftGridColumnWidths(),
+                          height: getTraceRowHeight(row.podIp),
+                        }"
+                        @mouseenter="hoveredLatencyTraceRowKey = `${row.id}:${row.traceId}`"
+                        @mouseleave="hoveredLatencyTraceRowKey = ''"
                       >
                         <div class="aggregate-cell">
                           <span
@@ -8689,7 +8820,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
                         <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                        <div class="aggregate-cell" v-html="row.podIp"></div>
+                        <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
                         <div class="aggregate-cell">{{ row.host }}</div>
@@ -8907,7 +9038,16 @@ onBeforeUnmount(() => {
                           v-for="row in getFilteredAbnormalTraceRows()"
                           :key="`${row.id}-latency`"
                           class="abnormal-latency-grid aggregate-body-row"
-                          :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
+                          :class="{
+                            'shared-row-hover':
+                              hoveredLatencyTraceRowKey === `${row.id}:${row.traceId}`,
+                          }"
+                          :style="{
+                            gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                            height: getTraceRowHeight(row.podIp),
+                          }"
+                          @mouseenter="hoveredLatencyTraceRowKey = `${row.id}:${row.traceId}`"
+                          @mouseleave="hoveredLatencyTraceRowKey = ''"
                         >
                           <div class="aggregate-cell">
                             <span
@@ -9011,6 +9151,13 @@ onBeforeUnmount(() => {
                         v-for="row in getFilteredAbnormalTraceRows()"
                         :key="`${row.id}-action`"
                         class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row"
+                        :class="{
+                          'shared-row-hover':
+                            hoveredLatencyTraceRowKey === `${row.id}:${row.traceId}`,
+                        }"
+                        :style="{ height: getTraceRowHeight(row.podIp) }"
+                        @mouseenter="hoveredLatencyTraceRowKey = `${row.id}:${row.traceId}`"
+                        @mouseleave="hoveredLatencyTraceRowKey = ''"
                       >
                         <button
                           class="metric-action-btn detail-action-btn"
@@ -9234,7 +9381,7 @@ onBeforeUnmount(() => {
                     faultAggregatedEventRows.length > 0
                   "
                 >
-                  <div class="aggregate-table-frame">
+                  <div class="aggregate-table-frame fault-aggregate-event-frame">
                     <div class="aggregate-fixed-left">
                       <div class="fault-aggregate-time-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
@@ -9285,8 +9432,13 @@ onBeforeUnmount(() => {
                         >
                           <div
                             class="fault-aggregate-time-grid aggregate-body-row fault-aggregate-main-row"
-                            :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                            :class="{
+                              expanded: isFaultAggregatedEventExpanded(row),
+                              'shared-row-hover': hoveredFaultAggregatedEventId === row.id,
+                            }"
                             @click="toggleFaultAggregatedEventRow(row)"
+                            @mouseenter="hoveredFaultAggregatedEventId = row.id"
+                            @mouseleave="hoveredFaultAggregatedEventId = ''"
                           >
                             <div class="aggregate-cell fault-expand-cell">
                               <span class="fault-expand-indicator">
@@ -9337,8 +9489,30 @@ onBeforeUnmount(() => {
                                 v-for="podRow in getFaultAggregatedEventPodRows(row)"
                                 :key="`${podRow.id}-srcdst-ip`"
                               >
-                                <div class="aggregate-cell fault-expand-cell"></div>
-                                <div class="aggregate-cell fault-aggregate-sub-pod-cell">
+                                <div
+                                  class="aggregate-cell fault-expand-cell"
+                                  :class="{
+                                    'shared-row-hover':
+                                      hoveredFaultAggregatedPodRowKey ===
+                                      `${row.id}:${podRow.id}`,
+                                  }"
+                                  @mouseenter="
+                                    hoveredFaultAggregatedPodRowKey = `${row.id}:${podRow.id}`
+                                  "
+                                  @mouseleave="hoveredFaultAggregatedPodRowKey = ''"
+                                ></div>
+                                <div
+                                  class="aggregate-cell fault-aggregate-sub-pod-cell"
+                                  :class="{
+                                    'shared-row-hover':
+                                      hoveredFaultAggregatedPodRowKey ===
+                                      `${row.id}:${podRow.id}`,
+                                  }"
+                                  @mouseenter="
+                                    hoveredFaultAggregatedPodRowKey = `${row.id}:${podRow.id}`
+                                  "
+                                  @mouseleave="hoveredFaultAggregatedPodRowKey = ''"
+                                >
                                   <div class="fault-aggregate-ip-columns">
                                     <div class="fault-aggregate-ip-column">{{ podRow.srcIp }}</div>
                                     <div class="fault-aggregate-ip-column">{{ podRow.dstIp }}</div>
@@ -9347,10 +9521,63 @@ onBeforeUnmount(() => {
                               </template>
                               <div
                                 v-if="getFaultAggregatedEventPodTotal(row) > 0"
-                                class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-side"
+                                class="fault-aggregate-sub-pagination fault-aggregate-sub-pagination-side ip-pair-pagination"
                               >
-                                第 {{ getFaultAggregatedEventPodPage(row) }} /
-                                {{ getFaultAggregatedEventPodPageCount(row) }} 页
+                                <button
+                                  class="page-btn"
+                                  type="button"
+                                  :disabled="
+                                    getFaultAggregatedEventPodPage(row) <= 1 ||
+                                    isFaultAggregatedEventPodLoading(row)
+                                  "
+                                  @click.stop="
+                                    goFaultAggregatedEventPodPage(
+                                      row,
+                                      getFaultAggregatedEventPodPage(row) - 1,
+                                    )
+                                  "
+                                >
+                                  &lt;
+                                </button>
+                                <span class="pagination-pages" aria-label="故障聚合事件Pod副表页码">
+                                  <button
+                                    v-for="pageNum in getFaultAggregatedEventPodPageWindow(row)"
+                                    :key="`${row.id}-fixed-pod-page-${pageNum}`"
+                                    class="pagination-page-btn"
+                                    :class="{
+                                      active: pageNum === getFaultAggregatedEventPodPage(row),
+                                      ellipsis: pageNum < 0,
+                                    }"
+                                    type="button"
+                                    :disabled="
+                                      pageNum < 0 ||
+                                      pageNum === getFaultAggregatedEventPodPage(row) ||
+                                      isFaultAggregatedEventPodLoading(row)
+                                    "
+                                    @click.stop="
+                                      pageNum > 0 && goFaultAggregatedEventPodPage(row, pageNum)
+                                    "
+                                  >
+                                    {{ pageNum < 0 ? '…' : pageNum }}
+                                  </button>
+                                </span>
+                                <button
+                                  class="page-btn"
+                                  type="button"
+                                  :disabled="
+                                    getFaultAggregatedEventPodPage(row) >=
+                                      getFaultAggregatedEventPodPageCount(row) ||
+                                    isFaultAggregatedEventPodLoading(row)
+                                  "
+                                  @click.stop="
+                                    goFaultAggregatedEventPodPage(
+                                      row,
+                                      getFaultAggregatedEventPodPage(row) + 1,
+                                    )
+                                  "
+                                >
+                                  &gt;
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -9450,9 +9677,14 @@ onBeforeUnmount(() => {
                           >
                             <div
                               class="fault-code-grid aggregate-body-row fault-aggregate-main-row"
-                              :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                              :class="{
+                                expanded: isFaultAggregatedEventExpanded(row),
+                                'shared-row-hover': hoveredFaultAggregatedEventId === row.id,
+                              }"
                               :style="faultAggregatedEventCodeGridStyle"
                               @click="toggleFaultAggregatedEventRow(row)"
+                              @mouseenter="hoveredFaultAggregatedEventId = row.id"
+                              @mouseleave="hoveredFaultAggregatedEventId = ''"
                             >
                               <template v-if="faultAggregatedEventCodes.length > 0">
                                 <div
@@ -9558,7 +9790,16 @@ onBeforeUnmount(() => {
                                 v-for="podRow in getFaultAggregatedEventPodRows(row)"
                                 :key="`${podRow.id}-fault-codes`"
                                 class="fault-code-grid aggregate-body-row fault-aggregate-sub-code-grid"
+                                :class="{
+                                  'shared-row-hover':
+                                    hoveredFaultAggregatedPodRowKey ===
+                                    `${row.id}:${podRow.id}`,
+                                }"
                                 :style="faultAggregatedEventCodeGridStyle"
+                                @mouseenter="
+                                  hoveredFaultAggregatedPodRowKey = `${row.id}:${podRow.id}`
+                                "
+                                @mouseleave="hoveredFaultAggregatedPodRowKey = ''"
                               >
                                 <div
                                   v-for="code in faultAggregatedEventCodes"
@@ -9571,63 +9812,7 @@ onBeforeUnmount(() => {
                               <div
                                 v-if="getFaultAggregatedEventPodTotal(row) > 0"
                                 class="fault-aggregate-sub-pagination ip-pair-pagination"
-                              >
-                                <button
-                                  class="page-btn"
-                                  type="button"
-                                  :disabled="
-                                    getFaultAggregatedEventPodPage(row) <= 1 ||
-                                    isFaultAggregatedEventPodLoading(row)
-                                  "
-                                  @click.stop="
-                                    goFaultAggregatedEventPodPage(
-                                      row,
-                                      getFaultAggregatedEventPodPage(row) - 1,
-                                    )
-                                  "
-                                >
-                                  &lt;
-                                </button>
-                                <span class="pagination-pages" aria-label="故障聚合事件Pod副表页码">
-                                  <button
-                                    v-for="pageNum in getFaultAggregatedEventPodPageWindow(row)"
-                                    :key="`${row.id}-pod-page-${pageNum}`"
-                                    class="pagination-page-btn"
-                                    :class="{
-                                      active: pageNum === getFaultAggregatedEventPodPage(row),
-                                      ellipsis: pageNum < 0,
-                                    }"
-                                    type="button"
-                                    :disabled="
-                                      pageNum < 0 ||
-                                      pageNum === getFaultAggregatedEventPodPage(row) ||
-                                      isFaultAggregatedEventPodLoading(row)
-                                    "
-                                    @click.stop="
-                                      pageNum > 0 && goFaultAggregatedEventPodPage(row, pageNum)
-                                    "
-                                  >
-                                    {{ pageNum < 0 ? '…' : pageNum }}
-                                  </button>
-                                </span>
-                                <button
-                                  class="page-btn"
-                                  type="button"
-                                  :disabled="
-                                    getFaultAggregatedEventPodPage(row) >=
-                                      getFaultAggregatedEventPodPageCount(row) ||
-                                    isFaultAggregatedEventPodLoading(row)
-                                  "
-                                  @click.stop="
-                                    goFaultAggregatedEventPodPage(
-                                      row,
-                                      getFaultAggregatedEventPodPage(row) + 1,
-                                    )
-                                  "
-                                >
-                                  &gt;
-                                </button>
-                              </div>
+                              ></div>
                             </div>
                           </template>
                         </template>
@@ -9651,8 +9836,13 @@ onBeforeUnmount(() => {
                         >
                           <div
                             class="aggregate-cell action-cell trace-actions aggregate-body-row fault-aggregate-main-row"
-                            :class="{ expanded: isFaultAggregatedEventExpanded(row) }"
+                            :class="{
+                              expanded: isFaultAggregatedEventExpanded(row),
+                              'shared-row-hover': hoveredFaultAggregatedEventId === row.id,
+                            }"
                             @click="toggleFaultAggregatedEventRow(row)"
+                            @mouseenter="hoveredFaultAggregatedEventId = row.id"
+                            @mouseleave="hoveredFaultAggregatedEventId = ''"
                           >
                             <span class="metric-action-hint">展开查看Pod IP</span>
                           </div>
@@ -9678,6 +9868,14 @@ onBeforeUnmount(() => {
                               v-for="podRow in getFaultAggregatedEventPodRows(row)"
                               :key="`${podRow.id}-action`"
                               class="fault-aggregate-sub-action-body"
+                              :class="{
+                                'shared-row-hover':
+                                  hoveredFaultAggregatedPodRowKey === `${row.id}:${podRow.id}`,
+                              }"
+                              @mouseenter="
+                                hoveredFaultAggregatedPodRowKey = `${row.id}:${podRow.id}`
+                              "
+                              @mouseleave="hoveredFaultAggregatedPodRowKey = ''"
                             >
                               <button
                                 class="metric-action-btn detail-action-btn"
@@ -9847,7 +10045,13 @@ onBeforeUnmount(() => {
                         v-for="trace in getFilteredFaultTraceRows()"
                         :key="`${trace.id}-fixed`"
                         class="abnormal-left-grid fault-trace-left-grid aggregate-body-row"
+                        :class="{
+                          'shared-row-hover':
+                            hoveredFaultTraceRowKey === `${trace.id}:${trace.traceId}`,
+                        }"
                         :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
+                        @mouseenter="hoveredFaultTraceRowKey = `${trace.id}:${trace.traceId}`"
+                        @mouseleave="hoveredFaultTraceRowKey = ''"
                       >
                         <div class="aggregate-cell">
                           <span
@@ -9947,7 +10151,13 @@ onBeforeUnmount(() => {
                           v-for="trace in getFilteredFaultTraceRows()"
                           :key="`${trace.id}-scroll`"
                           class="fault-trace-scroll-grid aggregate-body-row"
+                          :class="{
+                            'shared-row-hover':
+                              hoveredFaultTraceRowKey === `${trace.id}:${trace.traceId}`,
+                          }"
                           :style="faultTraceScrollGridStyle"
+                          @mouseenter="hoveredFaultTraceRowKey = `${trace.id}:${trace.traceId}`"
+                          @mouseleave="hoveredFaultTraceRowKey = ''"
                         >
                           <div class="aggregate-cell fault-trace-pod-cell">
                             <span
@@ -10016,6 +10226,12 @@ onBeforeUnmount(() => {
                         v-for="trace in getFilteredFaultTraceRows()"
                         :key="`${trace.id}-action`"
                         class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row"
+                        :class="{
+                          'shared-row-hover':
+                            hoveredFaultTraceRowKey === `${trace.id}:${trace.traceId}`,
+                        }"
+                        @mouseenter="hoveredFaultTraceRowKey = `${trace.id}:${trace.traceId}`"
+                        @mouseleave="hoveredFaultTraceRowKey = ''"
                       >
                         <button
                           class="metric-action-btn detail-action-btn"
@@ -10941,7 +11157,10 @@ onBeforeUnmount(() => {
                   detailParseResultRows.length === 0,
               }"
             >
-              <div ref="detailAbnormalTraceTableRef" class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
+              <div
+                ref="detailLatencyTraceTableRef"
+                class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame"
+              >
                 <div class="aggregate-fixed-left">
                   <div
                     class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
@@ -10966,7 +11185,10 @@ onBeforeUnmount(() => {
                       v-for="row in detailParseResultRows"
                       :key="`${row.id}-fixed`"
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
-                      :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
+                      :style="{
+                        gridTemplateColumns: getLatencyLeftGridColumnWidths(),
+                        height: getTraceRowHeight(row.podIp),
+                      }"
                     >
                       <div class="aggregate-cell">
                         <span
@@ -10980,7 +11202,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="aggregate-cell">{{ row.time }}</div>
                       <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                      <div class="aggregate-cell" v-html="row.podIp"></div>
+                      <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
                       <div class="aggregate-cell">{{ row.operation }}</div>
                       <div class="aggregate-cell">{{ row.clusterName }}</div>
                       <div class="aggregate-cell">{{ row.host }}</div>
@@ -11190,6 +11412,7 @@ onBeforeUnmount(() => {
                         v-for="row in detailParseResultRows"
                         :key="`${row.id}-latency`"
                         class="abnormal-latency-grid aggregate-body-row"
+                        :style="{ height: getTraceRowHeight(row.podIp) }"
                       >
                         <div class="aggregate-cell">
                           <span
@@ -11293,6 +11516,7 @@ onBeforeUnmount(() => {
                       v-for="row in detailParseResultRows"
                       :key="`${row.id}-action`"
                       class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row"
+                      :style="{ height: getTraceRowHeight(row.podIp) }"
                     >
                       <button
                         class="metric-action-btn detail-action-btn"
