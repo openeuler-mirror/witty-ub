@@ -504,6 +504,20 @@ class LogFailureEventManager:
                 sql_str += f" AND status_code IN ({placeholders})"
                 for i, err_code in enumerate(req.err_codes):
                     params[f'err_code_{i}'] = err_code
+
+            if req.src_ip is not None:
+                if req.src_ip == "":
+                    sql_str += " AND (src_ip IS NULL OR src_ip = '')"
+                else:
+                    sql_str += " AND src_ip = :src_ip"
+                    params["src_ip"] = req.src_ip
+
+            if req.dst_ip is not None:
+                if req.dst_ip == "":
+                    sql_str += " AND (dst_ip IS NULL OR dst_ip = '')"
+                else:
+                    sql_str += " AND dst_ip = :dst_ip"
+                    params["dst_ip"] = req.dst_ip
             
             if req.pod_names:
                 pod_conditions = []
@@ -738,7 +752,27 @@ class LogFailureEventManager:
                 sql_str += f" AND log_id IN ({placeholders})"
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
-            
+
+            if req.cluster_name:
+                sql_str += " AND (',' || cluster_names || ',') LIKE :cluster_name"
+                params["cluster_name"] = f"%,{req.cluster_name},%"
+
+            if req.host:
+                sql_str += " AND (',' || host_names || ',') LIKE :host"
+                params["host"] = f"%,{req.host},%"
+
+            if req.pod_ip:
+                sql_str += " AND (',' || pod_names || ',') LIKE :pod_ip"
+                params["pod_ip"] = f"%,{req.pod_ip},%"
+
+            if req.src_ip:
+                sql_str += " AND src_ip = :src_ip"
+                params["src_ip"] = req.src_ip
+
+            if req.dst_ip:
+                sql_str += " AND dst_ip = :dst_ip"
+                params["dst_ip"] = req.dst_ip
+
             if req.start_time:
                 sql_str += " AND timestamp >= :start_time"
                 params['start_time'] = req.start_time
@@ -747,6 +781,8 @@ class LogFailureEventManager:
                 sql_str += " AND timestamp <= :end_time"
                 params['end_time'] = req.end_time
             
+            sql_str += " AND failure_mode IS NOT NULL AND failure_mode != ''"
+            sql_str += " AND status_code IS NOT NULL AND status_code != ''"
             sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
             sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
             
@@ -890,7 +926,7 @@ class LogFailureEventManager:
                 sql_str += f" AND log_id IN ({placeholders})"
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
-            
+
             if req.start_time:
                 sql_str += " AND timestamp >= :start_time"
                 params['start_time'] = req.start_time
@@ -902,6 +938,7 @@ class LogFailureEventManager:
             sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
             sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
             sql_str += " AND pod_names IS NOT NULL AND pod_names != ''"
+            sql_str += " AND failure_mode IS NOT NULL AND failure_mode != ''"
             sql_str += " AND status_code IS NOT NULL AND status_code != ''"
             
             sql_str += " GROUP BY pod_names, status_code"
@@ -1022,6 +1059,26 @@ class LogFailureEventManager:
                 sql_str += f" AND log_id IN ({placeholders})"
                 for i, log_id in enumerate(log_ids):
                     params[f'log_id_{i}'] = log_id
+
+            if req.cluster_name:
+                sql_str += " AND (',' || cluster_names || ',') LIKE :cluster_name"
+                params["cluster_name"] = f"%,{req.cluster_name},%"
+
+            if req.host:
+                sql_str += " AND (',' || host_names || ',') LIKE :host"
+                params["host"] = f"%,{req.host},%"
+
+            if req.pod_ip:
+                sql_str += " AND (',' || pod_names || ',') LIKE :pod_ip"
+                params["pod_ip"] = f"%,{req.pod_ip},%"
+
+            if req.src_ip:
+                sql_str += " AND src_ip = :src_ip"
+                params["src_ip"] = req.src_ip
+
+            if req.dst_ip:
+                sql_str += " AND dst_ip = :dst_ip"
+                params["dst_ip"] = req.dst_ip
             
             if req.start_time:
                 sql_str += " AND timestamp >= :start_time"
@@ -1033,6 +1090,7 @@ class LogFailureEventManager:
             
             sql_str += " AND src_ip IS NOT NULL AND src_ip != ''"
             sql_str += " AND dst_ip IS NOT NULL AND dst_ip != ''"
+            sql_str += " AND failure_mode IS NOT NULL AND failure_mode != ''"
             sql_str += " AND status_code IS NOT NULL AND status_code != ''"
             
             sql_str += " GROUP BY src_ip, dst_ip, status_code"

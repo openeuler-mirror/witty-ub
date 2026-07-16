@@ -4615,14 +4615,12 @@ const filterTagCollections: Record<FilterTagCategory, GlobalFilterListKey> = {
   targetPodIp: 'targetPodIps',
 }
 
-const addUniqueFilterItem = (category: FilterTagCategory, value: string) => {
+const replaceFilterItem = (category: FilterTagCategory, value: string) => {
   const normalized = value.trim()
   if (!normalized) return
 
   const key = filterTagCollections[category]
-  if (!globalFilters[key].includes(normalized)) {
-    globalFilters[key].push(normalized)
-  }
+  globalFilters[key] = [normalized]
   filterApplyMessage.value = ''
 }
 
@@ -4649,7 +4647,7 @@ const addFilterValue = (category: FilterTagCategory) => {
   if (!value) return
 
   if (category === 'cluster' || category === 'host' || category === 'podIp') {
-    addUniqueFilterItem(category, value)
+    replaceFilterItem(category, value)
   } else if (category === 'sourcePodIp' || category === 'targetPodIp') {
     setSingleIpFilterItem(category, value)
   }
@@ -4988,10 +4986,10 @@ const confirmLatencyPodIpFilterDialog = () => {
     addTargetPodIpFilter(row.targetPodIp)
   }
   if (latencyPodIpFilterDialog.addSourcePodIpToPodFilter) {
-    addUniqueFilterItem('podIp', row.sourcePodIp)
+    replaceFilterItem('podIp', row.sourcePodIp)
   }
   if (latencyPodIpFilterDialog.addTargetPodIpToPodFilter) {
-    addUniqueFilterItem('podIp', row.targetPodIp)
+    replaceFilterItem('podIp', row.targetPodIp)
   }
 
   closeLatencyPodIpFilterDialog()
@@ -5007,7 +5005,7 @@ const confirmFaultAggregatedPodIpFilterDialog = () => {
   if (!podRow) return
 
   if (faultAggregatedPodIpFilterDialog.addPodIp) {
-    getFaultAggregatedEventPodNames(podRow).forEach((podIp) => addUniqueFilterItem('podIp', podIp))
+    getFaultAggregatedEventPodNames(podRow).forEach((podIp) => replaceFilterItem('podIp', podIp))
   }
   if (
     faultAggregatedPodIpFilterDialog.addSourcePodIp &&
@@ -5067,7 +5065,7 @@ const confirmTraceFilterDialog = () => {
     setSingleFilterItem('host', trace.host ?? '')
   }
   if (traceFilterDialog.addPodIp && isTraceFilterValueAvailable(trace.podIp)) {
-    addUniqueFilterItem('podIp', trace.podIp)
+    replaceFilterItem('podIp', trace.podIp)
   }
   if (traceFilterDialog.addSourcePodIp && isTraceFilterValueAvailable(trace.podIp)) {
     addSourcePodIpFilter(trace.podIp)
@@ -5085,11 +5083,11 @@ const confirmTraceFilterDialog = () => {
 const snapshotCurrentFilters = (): GlobalFilterState => ({
   startTime: globalFilters.startTime,
   endTime: globalFilters.endTime,
-  clusters: globalFilters.clusters.map(normalizeFilterText).filter(Boolean),
-  hosts: globalFilters.hosts.map(normalizeFilterText).filter(Boolean),
-  podIps: globalFilters.podIps.map(normalizeFilterText).filter(Boolean),
-  sourcePodIps: globalFilters.sourcePodIps.map(normalizeFilterText).filter(Boolean),
-  targetPodIps: globalFilters.targetPodIps.map(normalizeFilterText).filter(Boolean),
+  clusters: globalFilters.clusters.map(normalizeFilterText).filter(Boolean).slice(-1),
+  hosts: globalFilters.hosts.map(normalizeFilterText).filter(Boolean).slice(-1),
+  podIps: globalFilters.podIps.map(normalizeFilterText).filter(Boolean).slice(-1),
+  sourcePodIps: globalFilters.sourcePodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
+  targetPodIps: globalFilters.targetPodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   traceBoards: [],
 })
 
@@ -5282,6 +5280,12 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     if (filters.podIps.length > 0) {
       requestBody.pod_names = filters.podIps
     }
+    if (filters.sourcePodIps.length > 0) {
+      requestBody.src_ip = getLogParseFilterValue(filters.sourcePodIps)
+    }
+    if (filters.targetPodIps.length > 0) {
+      requestBody.dst_ip = getLogParseFilterValue(filters.targetPodIps)
+    }
     if (chartRange) {
       requestBody.start_time = formatTimestamp(chartRange.startTime)
       requestBody.end_time = formatTimestamp(chartRange.endTime)
@@ -5366,6 +5370,12 @@ const loadFaultChart = async () => {
     }
     if (filters.podIps.length > 0) {
       requestBody.pod_names = filters.podIps
+    }
+    if (filters.sourcePodIps.length > 0) {
+      requestBody.src_ip = getLogParseFilterValue(filters.sourcePodIps)
+    }
+    if (filters.targetPodIps.length > 0) {
+      requestBody.dst_ip = getLogParseFilterValue(filters.targetPodIps)
     }
     if (chartRange) {
       requestBody.start_time = formatTimestamp(chartRange.startTime)
@@ -5466,6 +5476,12 @@ const loadLatencyChart = async () => {
     }
     if (filters.endTime) {
       body.end_time = formatDateTime(filters.endTime)
+    }
+    if (filters.clusters.length > 0) {
+      body.cluster_name = getLogParseFilterValue(filters.clusters)
+    }
+    if (filters.podIps.length > 0) {
+      body.pod_ip = getLogParseFilterValue(filters.podIps)
     }
     if (filters.hosts.length > 0) {
       body.host = getLogParseFilterValue(filters.hosts)
@@ -5723,6 +5739,9 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
         page_cnt: aggregateEventPageSize,
         stat_type: statType,
         sort_fields: sortFields.length > 0 ? sortFields : undefined,
+        cluster_name: getLogParseFilterValue(filters.clusters),
+        host: getLogParseFilterValue(filters.hosts),
+        pod_ip: getLogParseFilterValue(filters.podIps),
         src_ip: getLogParseFilterValue(filters.sourcePodIps),
         dst_ip: getLogParseFilterValue(filters.targetPodIps),
         start_time: chartRange ? formatTimestamp(chartRange.startTime) : undefined,
@@ -5810,6 +5829,9 @@ const loadTimeWindowAggregatedEvents = async (
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       sort_by: primarySortField.field,
       sort_order: primarySortField.order,
+      cluster_name: getLogParseFilterValue(filters.clusters),
+      host: getLogParseFilterValue(filters.hosts),
+      pod_ip: getLogParseFilterValue(filters.podIps),
       src_ip: getLogParseFilterValue(filters.sourcePodIps),
       dst_ip: getLogParseFilterValue(filters.targetPodIps),
     }
@@ -6151,6 +6173,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       end_time: chartRange ? formatTimestamp(chartRange.endTime) : formatDateTime(filters.endTime),
       cluster_name: getLogParseFilterValue(filters.clusters),
       host: getLogParseFilterValue(filters.hosts),
+      pod_ip: getLogParseFilterValue(filters.podIps),
       src_ip: getLogParseFilterValue(filters.sourcePodIps),
       dst_ip: getLogParseFilterValue(filters.targetPodIps),
     }
@@ -6283,6 +6306,7 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
   }
 
   try {
+    const filters = appliedFilters.value
     const sortFields = faultAggregatedEventPodSort.getSortFields.value
     const result = await request<ListSrcDstAggregatedFailureEventMsg>(
       '/log_failure_event_result/list_src_dst_aggregated_failure_events',
@@ -6292,6 +6316,11 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
           kb_id: selectedAssetId.value,
           start_time: row.startTime,
           end_time: row.endTime,
+          cluster_name: getLogParseFilterValue(filters.clusters),
+          host: getLogParseFilterValue(filters.hosts),
+          pod_ip: getLogParseFilterValue(filters.podIps),
+          src_ip: getLogParseFilterValue(filters.sourcePodIps),
+          dst_ip: getLogParseFilterValue(filters.targetPodIps),
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
           sort_by: 'all',
           sort_desc: true,
@@ -6422,6 +6451,11 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       interval: selectedFaultAggregateInterval.value,
+      cluster_name: getLogParseFilterValue(filters.clusters),
+      host: getLogParseFilterValue(filters.hosts),
+      pod_ip: getLogParseFilterValue(filters.podIps),
+      src_ip: getLogParseFilterValue(filters.sourcePodIps),
+      dst_ip: getLogParseFilterValue(filters.targetPodIps),
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       sort_by: 'timestamp',
       sort_desc: faultAggregatedEventSortDesc.value,

@@ -193,7 +193,60 @@ class SrcDstAggregatedEventManager:
         req: ListSrcDstAggregatedEventRequest,
     ) -> tuple[int, list[SrcDstAggregatedEventModel]]:
         """分页查询聚合事件"""
-        sql_str = """
+        params = {}
+        cte_sql = ""
+        matched_event_join = ""
+        if req.cluster_name or req.host or req.pod_ip:
+            original_filters = []
+            scope_filters = []
+            if req.cluster_name:
+                original_filters.append("lpr.cluster_name = :cluster_name")
+                params["cluster_name"] = req.cluster_name
+            if req.host:
+                original_filters.append("lpr.host = :host")
+                params["host"] = req.host
+            if req.pod_ip:
+                original_filters.append("""
+                    lpr.id IN (
+                        SELECT pod_map.log_parse_result_id
+                        FROM log_parse_result_pod_ip_table AS pod_map
+                        WHERE pod_map.pod_ip = :pod_ip
+                    )
+                """)
+                params["pod_ip"] = req.pod_ip
+            if req.kb_id:
+                scope_filters.append("matched_lf.kb_id = :kb_id")
+            if req.log_id:
+                scope_filters.append("lpr.log_id = :log_id")
+            scope_sql = ""
+            matched_log_file_join = ""
+            if req.kb_id:
+                matched_log_file_join = (
+                    "INNER JOIN log_file_table AS matched_lf ON matched_lf.id = lpr.log_id"
+                )
+            if scope_filters:
+                scope_sql = " AND " + " AND ".join(scope_filters)
+            cte_sql = """
+                WITH matched_aggregated_events AS MATERIALIZED (
+                    SELECT DISTINCT lpr.aggregated_event_id
+                    FROM log_parse_result_table AS lpr
+                    {}
+                    WHERE lpr.existed_status = 1
+                      AND lpr.aggregated_event_id != ''
+                      AND {}
+                      {}
+                )
+            """.format(
+                matched_log_file_join,
+                " AND ".join(original_filters),
+                scope_sql,
+            )
+            matched_event_join = """
+                INNER JOIN matched_aggregated_events AS matched
+                    ON matched.aggregated_event_id = ae.id
+            """
+
+        sql_str = cte_sql + """
             SELECT ae.id, ae.src_ip, ae.dst_ip, ae.log_id, ae.log_parse_result_cnt,
                 ae.anomaly_log_parse_result_cnt, ae.anomaly_cnt, ae.ave_total_latency,
                 ae.min_total_latency, ae.max_total_latency, ae.p99_total_latency, ae.p95_total_latency,
@@ -207,10 +260,10 @@ class SrcDstAggregatedEventManager:
                 ae.min_w2w_urma_latency, ae.max_w2w_urma_latency, ae.p99_w2w_urma_latency,
                 ae.p95_w2w_urma_latency, ae.existed_status, ae.created_at
             FROM src_dst_aggregated_event_table ae
+            {}
             LEFT JOIN log_file_table lf ON ae.log_id = lf.id
             WHERE ae.existed_status = 1
-        """
-        params = {}
+        """.format(matched_event_join)
         if req.kb_id:
             sql_str += " AND lf.kb_id = :kb_id"
             params["kb_id"] = req.kb_id
@@ -347,6 +400,9 @@ class SrcDstAggregatedEventManager:
             end_time=req.end_time or "",
             src_ip=req.src_ip,
             dst_ip=req.dst_ip,
+            cluster_name=req.cluster_name,
+            host=req.host,
+            pod_ip=req.pod_ip,
         )
 
         if not rows:

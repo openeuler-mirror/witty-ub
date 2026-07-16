@@ -198,6 +198,10 @@ table_ddl_list = {
         CREATE INDEX IF NOT EXISTS idx_tw_kb_src_dst
         ON time_window_aggregated_table(kb_id, src_ip, dst_ip)
     """,
+    "time_window_aggregated_table_idx_log_time_pair": """
+        CREATE INDEX IF NOT EXISTS idx_tw_log_time_pair
+        ON time_window_aggregated_table(log_id, time_bucket, src_ip, dst_ip)
+    """,
     "anomalous_event_table": """
     CREATE TABLE IF NOT EXISTS anomalous_event_table (
         id TEXT PRIMARY KEY,
@@ -263,6 +267,23 @@ table_ddl_list = {
             remote_worker_rpc REAL,
             master_process REAL,
             master_rpc_total REAL
+        )
+    """,
+    "log_parse_result_pod_ip_table": """
+        CREATE TABLE IF NOT EXISTS log_parse_result_pod_ip_table (
+            log_parse_result_id TEXT NOT NULL,
+            pod_ip TEXT NOT NULL,
+            PRIMARY KEY (log_parse_result_id, pod_ip)
+        )
+    """,
+    "log_parse_result_pod_ip_table_idx_value": """
+        CREATE INDEX IF NOT EXISTS idx_lpr_pod_ip_value
+        ON log_parse_result_pod_ip_table(pod_ip, log_parse_result_id)
+    """,
+    "database_migration_table": """
+        CREATE TABLE IF NOT EXISTS database_migration_table (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """,
     "log_failure_event_table": """
@@ -407,11 +428,100 @@ class AsyncSQLiteSingleton:
             self._init_write_connection()
 
         migrate_sql_list = [
+            (
+                "database_migration_table",
+                "CREATE TABLE IF NOT EXISTS database_migration_table (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+            ),
+            (
+                "log_parse_result_pod_ip_table",
+                "CREATE TABLE IF NOT EXISTS log_parse_result_pod_ip_table (log_parse_result_id TEXT NOT NULL, pod_ip TEXT NOT NULL, PRIMARY KEY (log_parse_result_id, pod_ip))",
+            ),
+            (
+                "log_parse_result_pod_ip_table",
+                "CREATE INDEX IF NOT EXISTS idx_lpr_pod_ip_value ON log_parse_result_pod_ip_table(pod_ip, log_parse_result_id)",
+            ),
+            (
+                "log_parse_result_table",
+                "ALTER TABLE log_parse_result_table ADD COLUMN pod_ips TEXT",
+            ),
+            (
+                "log_parse_result_pod_ip_table",
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_lpr_pod_ip_after_insert
+                AFTER INSERT ON log_parse_result_table
+                BEGIN
+                    DELETE FROM log_parse_result_pod_ip_table
+                    WHERE log_parse_result_id = NEW.id;
+                    INSERT OR IGNORE INTO log_parse_result_pod_ip_table
+                        (log_parse_result_id, pod_ip)
+                    SELECT NEW.id, CAST(pod.value AS TEXT)
+                    FROM json_each(
+                        CASE
+                            WHEN json_valid(NEW.pod_ips) THEN NEW.pod_ips
+                            ELSE '[]'
+                        END
+                    ) AS pod
+                    WHERE pod.type = 'text' AND pod.value != '';
+                END
+                """,
+            ),
+            (
+                "log_parse_result_pod_ip_table",
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_lpr_pod_ip_after_update
+                AFTER UPDATE OF pod_ips ON log_parse_result_table
+                BEGIN
+                    DELETE FROM log_parse_result_pod_ip_table
+                    WHERE log_parse_result_id = NEW.id;
+                    INSERT OR IGNORE INTO log_parse_result_pod_ip_table
+                        (log_parse_result_id, pod_ip)
+                    SELECT NEW.id, CAST(pod.value AS TEXT)
+                    FROM json_each(
+                        CASE
+                            WHEN json_valid(NEW.pod_ips) THEN NEW.pod_ips
+                            ELSE '[]'
+                        END
+                    ) AS pod
+                    WHERE pod.type = 'text' AND pod.value != '';
+                END
+                """,
+            ),
+            (
+                "log_parse_result_pod_ip_table",
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_lpr_pod_ip_after_delete
+                AFTER DELETE ON log_parse_result_table
+                BEGIN
+                    DELETE FROM log_parse_result_pod_ip_table
+                    WHERE log_parse_result_id = OLD.id;
+                END
+                """,
+            ),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN cluster_name TEXT"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN host TEXT"),
             ("task_table", "ALTER TABLE task_table ADD COLUMN completed_at TEXT"),
             ("task_table", "ALTER TABLE task_table ADD COLUMN duration_seconds REAL"),
             ("log_parse_result_table", "CREATE INDEX IF NOT EXISTS idx_timestamp ON log_parse_result_table(timestamp)"),
+            (
+                "log_parse_result_table",
+                "CREATE INDEX IF NOT EXISTS idx_lpr_aggregated_event_active ON log_parse_result_table(aggregated_event_id) WHERE existed_status = 1",
+            ),
+            (
+                "log_parse_result_table",
+                "CREATE INDEX IF NOT EXISTS idx_lpr_log_time_pair_active ON log_parse_result_table(log_id, timestamp, src_ip, dst_ip) WHERE existed_status = 1",
+            ),
+            (
+                "log_parse_result_table",
+                "CREATE INDEX IF NOT EXISTS idx_lpr_cluster_active ON log_parse_result_table(cluster_name, aggregated_event_id) WHERE existed_status = 1",
+            ),
+            (
+                "log_parse_result_table",
+                "CREATE INDEX IF NOT EXISTS idx_lpr_host_active ON log_parse_result_table(host, aggregated_event_id) WHERE existed_status = 1",
+            ),
+            (
+                "time_window_aggregated_table",
+                "CREATE INDEX IF NOT EXISTS idx_tw_log_time_pair ON time_window_aggregated_table(log_id, time_bucket, src_ip, dst_ip)",
+            ),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN pod_ips TEXT"),
             (
                 "log_failure_event_table",
@@ -540,6 +650,33 @@ class AsyncSQLiteSingleton:
                         logger.info(f"字段/索引已存在，跳过迁移: {sql}")
                     else:
                         raise
+
+            pod_ip_migration = "backfill_log_parse_result_pod_ip_v1"
+            migration_row = self._write_conn.execute(
+                "SELECT 1 FROM database_migration_table WHERE name = ?",
+                (pod_ip_migration,),
+            ).fetchone()
+            if migration_row is None:
+                self._write_conn.execute(
+                    """
+                    INSERT OR IGNORE INTO log_parse_result_pod_ip_table
+                        (log_parse_result_id, pod_ip)
+                    SELECT lpr.id, CAST(pod.value AS TEXT)
+                    FROM log_parse_result_table AS lpr
+                    JOIN json_each(
+                        CASE
+                            WHEN json_valid(lpr.pod_ips) THEN lpr.pod_ips
+                            ELSE '[]'
+                        END
+                    ) AS pod
+                    WHERE pod.type = 'text' AND pod.value != ''
+                    """
+                )
+                self._write_conn.execute(
+                    "INSERT INTO database_migration_table(name) VALUES (?)",
+                    (pod_ip_migration,),
+                )
+                logger.info("完成历史 Pod IP 关系数据回填")
             self._write_conn.commit()
             
             try:
