@@ -306,12 +306,16 @@ class TimeWindowAggregatedEventManager:
         end_time: str = "",
         src_ip: str | None = None,
         dst_ip: str | None = None,
+        cluster_name: str | None = None,
+        host: str | None = None,
+        pod_ip: str | None = None,
     ) -> list[dict]:
         """获取时间窗口聚合事件"""
         db = AsyncSQLiteSingleton()
 
         conditions = ["existed_status = 1"]
         params = {}
+        cte_sql = ""
 
         if kb_id:
             conditions.append("kb_id = :kb_id")
@@ -324,6 +328,55 @@ class TimeWindowAggregatedEventManager:
         if end_time:
             conditions.append("time_bucket <= :end_time")
             params["end_time"] = end_time
+
+        if cluster_name or host or pod_ip:
+            original_filters = []
+            if cluster_name:
+                original_filters.append("lpr.cluster_name = :cluster_name")
+                params["cluster_name"] = cluster_name
+            if host:
+                original_filters.append("lpr.host = :host")
+                params["host"] = host
+            if pod_ip:
+                original_filters.append("""
+                    lpr.id IN (
+                        SELECT pod_map.log_parse_result_id
+                        FROM log_parse_result_pod_ip_table AS pod_map
+                        WHERE pod_map.pod_ip = :pod_ip
+                    )
+                """)
+                params["pod_ip"] = pod_ip
+            matched_window_scope = []
+            if kb_id:
+                matched_window_scope.append("twa.kb_id = :kb_id")
+            if start_time:
+                matched_window_scope.append("twa.time_bucket >= :start_time")
+            if end_time:
+                matched_window_scope.append("twa.time_bucket <= :end_time")
+            matched_window_scope_sql = ""
+            if matched_window_scope:
+                matched_window_scope_sql = (
+                    " AND " + " AND ".join(matched_window_scope)
+                )
+            cte_sql = """
+                WITH matched_time_windows AS MATERIALIZED (
+                    SELECT DISTINCT twa.id
+                    FROM log_parse_result_table AS lpr
+                    INNER JOIN time_window_aggregated_table AS twa
+                        ON twa.log_id = lpr.log_id
+                       AND twa.time_bucket = substr(lpr.timestamp, 1, 19)
+                       AND COALESCE(twa.src_ip, '') = COALESCE(lpr.src_ip, '')
+                       AND COALESCE(twa.dst_ip, '') = COALESCE(lpr.dst_ip, '')
+                    WHERE lpr.existed_status = 1
+                      AND twa.existed_status = 1
+                      AND {}
+                      {}
+                )
+            """.format(
+                " AND ".join(original_filters),
+                matched_window_scope_sql,
+            )
+            conditions.append("id IN (SELECT id FROM matched_time_windows)")
 
         if src_ip is not None:
             if src_ip == "":
@@ -341,7 +394,7 @@ class TimeWindowAggregatedEventManager:
                 params["dst_ip"] = dst_ip
                 params["dst_ip_like"] = f"{dst_ip}%"
 
-        sql_str = f"""
+        sql_str = cte_sql + f"""
             SELECT id, kb_id, log_id, time_bucket, src_ip, dst_ip,
                    log_parse_result_cnt, anomaly_cnt,
                    ave_total_latency, min_total_latency, max_total_latency,

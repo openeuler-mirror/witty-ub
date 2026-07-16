@@ -2172,6 +2172,15 @@ button {
   background: #fefce8;
 }
 
+.expandable-aggregate-row {
+  cursor: pointer;
+}
+
+.aggregate-body-row.shared-row-hover .aggregate-cell,
+.aggregate-cell.aggregate-body-row.shared-row-hover {
+  background: #fefce8;
+}
+
 .aggregate-cell {
   display: flex;
   min-width: 0;
@@ -2262,6 +2271,12 @@ button {
   color: #fff;
   background: #2563eb;
   font-weight: 700;
+}
+
+.aggregate-cell.multi-line-pod-cell {
+  display: block;
+  line-height: 20px;
+  white-space: nowrap;
 }
 
 .status-code-popover-close {
@@ -2516,6 +2531,17 @@ button {
 .time-window-latency-scroll,
 .fault-code-scroll {
   overflow: visible;
+}
+
+.time-window-aggregate-frame .time-window-latency-scroll .aggregate-latency-body {
+  overflow: clip;
+}
+
+.time-window-aggregate-frame
+  .time-window-latency-scroll
+  .aggregate-latency-body
+  > .aggregate-latency-grid {
+  transform: translateX(var(--time-window-latency-offset, 0));
 }
 
 .aggregate-latency-scroll::-webkit-scrollbar {
@@ -2790,9 +2816,29 @@ button {
   border-bottom: 1px solid #dde3ed;
 }
 
+.time-window-aggregate-frame .fault-aggregate-sub-header {
+  position: sticky;
+  top: var(--aggregate-header-row-height);
+  z-index: 4;
+  box-shadow: 0 1px 0 #dde3ed;
+}
+
 .aggregate-left-grid.fault-aggregate-sub-header .aggregate-cell,
 .aggregate-latency-grid.fault-aggregate-sub-header .aggregate-cell {
+  background: #edf2f9;
   font-weight: 400;
+}
+
+.fault-aggregate-sub-header:hover,
+.fault-aggregate-sub-header:hover .aggregate-cell {
+  background: #edf2f9;
+}
+
+.ip-pair-pagination-row,
+.ip-pair-pagination-row:hover,
+.ip-pair-pagination-row .aggregate-cell,
+.ip-pair-pagination-row:hover .aggregate-cell {
+  background: #fff !important;
 }
 
 .fault-aggregate-time-grid.fault-aggregate-sub-row {
@@ -2992,6 +3038,29 @@ button {
   background: #f8fafc;
 }
 
+.fault-aggregate-time-grid.fault-aggregate-sub-row:hover
+  .fault-aggregate-sub-left
+  .aggregate-cell,
+.fault-aggregate-sub-code-panel:hover .fault-aggregate-sub-code-grid .aggregate-cell {
+  background: #f8fafc;
+}
+
+.fault-aggregate-time-grid.fault-aggregate-sub-row:hover
+  .fault-aggregate-sub-left
+  > .fault-expand-cell:first-child,
+.fault-aggregate-sub-code-panel:hover
+  .fault-aggregate-sub-code-grid.aggregate-table-header
+  .aggregate-cell {
+  background: #edf2f9;
+}
+
+.fault-aggregate-sub-left .aggregate-cell.shared-row-hover,
+.fault-aggregate-sub-left .fault-aggregate-sub-pod-cell.shared-row-hover,
+.fault-aggregate-sub-code-grid.shared-row-hover .aggregate-cell,
+.fault-aggregate-sub-action-body.shared-row-hover {
+  background: #fefce8 !important;
+}
+
 .fault-aggregate-sub-pagination {
   display: flex;
   box-sizing: border-box;
@@ -3032,6 +3101,99 @@ button {
   min-height: 0;
   height: var(--fault-sub-pagination-height);
   padding: 0;
+}
+
+/* 保留动态故障码结构，视觉与时延聚合事件保持一致 */
+.fault-aggregate-event-frame {
+  --fault-sub-head-height: var(--aggregate-body-row-height);
+  --fault-sub-row-height: var(--aggregate-body-row-height);
+  --fault-sub-pagination-height: var(--aggregate-body-row-height);
+}
+
+.fault-aggregate-event-frame .fault-code-scroll .aggregate-latency-body {
+  overflow: clip;
+}
+
+.fault-aggregate-event-frame
+  .fault-code-scroll
+  .aggregate-latency-body
+  > .fault-code-grid,
+.fault-aggregate-event-frame
+  .fault-code-scroll
+  .aggregate-latency-body
+  > .fault-aggregate-sub-code-panel {
+  transform: translateX(var(--fault-aggregate-code-offset, 0));
+}
+
+.fault-aggregate-event-frame
+  .fault-aggregate-sub-left
+  > .fault-expand-cell:first-child,
+.fault-aggregate-event-frame .fault-aggregate-sub-pod-head,
+.fault-aggregate-event-frame .fault-aggregate-sub-code-grid.aggregate-table-header {
+  position: sticky;
+  top: var(--aggregate-header-row-height);
+  z-index: 4;
+  box-shadow: 0 1px 0 #dde3ed;
+}
+
+/* 操作列位于独立的纵向 flex 容器中，不能复用网格表头的 sticky 定位，
+   否则展开副表时会被偏移到第一条数据行。 */
+.fault-aggregate-event-frame .fault-aggregate-sub-action-head {
+  position: relative;
+  top: auto;
+  z-index: 1;
+  flex: 0 0 var(--fault-sub-head-height);
+  box-shadow: 0 1px 0 #dde3ed;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-main-row,
+.fault-aggregate-event-frame .fault-aggregate-main-row .aggregate-cell {
+  background: #f9fafb;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-main-row.shared-row-hover,
+.fault-aggregate-event-frame .fault-aggregate-main-row.shared-row-hover .aggregate-cell {
+  background: #fefce8;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-sub-row,
+.fault-aggregate-event-frame .fault-aggregate-sub-left .aggregate-cell,
+.fault-aggregate-event-frame .fault-aggregate-sub-code-grid .aggregate-cell,
+.fault-aggregate-event-frame .fault-aggregate-sub-action-body {
+  background: #f9fafb;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-sub-pod-head,
+.fault-aggregate-event-frame
+  .fault-aggregate-sub-left
+  > .fault-expand-cell:first-child,
+.fault-aggregate-event-frame .fault-aggregate-sub-code-grid.aggregate-table-header .aggregate-cell,
+.fault-aggregate-event-frame .fault-aggregate-sub-action-head {
+  background: #edf2f9 !important;
+  color: #1e3a5f;
+  font-weight: 400;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-sub-pod-cell {
+  background: #f9fafb !important;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-sub-left .aggregate-cell.shared-row-hover,
+.fault-aggregate-event-frame .fault-aggregate-sub-pod-cell.shared-row-hover,
+.fault-aggregate-event-frame .fault-aggregate-sub-code-grid.shared-row-hover .aggregate-cell,
+.fault-aggregate-event-frame .fault-aggregate-sub-action-body.shared-row-hover {
+  background: #fefce8 !important;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-sub-pagination,
+.fault-aggregate-event-frame .fault-aggregate-sub-pagination:hover {
+  background: #fff;
+}
+
+.fault-aggregate-event-frame .fault-aggregate-sub-action,
+.fault-aggregate-event-frame .fault-aggregate-sub-code-panel,
+.fault-aggregate-event-frame .fault-aggregate-time-grid.fault-aggregate-sub-row {
+  border-bottom: 1px solid #eef2f8;
 }
 
 .aggregate-table-state {

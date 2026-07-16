@@ -132,6 +132,9 @@ class ListLogFilesRequest(BaseModel):
 
 class ListSrcDstAggregatedEventRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的聚合事件")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
+    host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
@@ -167,6 +170,7 @@ class ListLogParseResultRequest(BaseModel):
     trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
     start_time: Optional[str] = Field(default=None, description="日志事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
@@ -289,6 +293,11 @@ class ListTracesByHostRequest(BaseModel):
 
 class ListTimeAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
+    host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
+    src_ip: Optional[str] = Field(default=None, description="源 IP 地址，用于精确过滤")
+    dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，用于精确过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
@@ -343,6 +352,11 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
 
 class ListSrcDstAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
+    host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
+    src_ip: Optional[str] = Field(default=None, description="源 IP 地址，用于精确过滤")
+    dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，用于精确过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
@@ -369,6 +383,8 @@ class ListSrcDstAggregatedFailureEventRequest(BaseModel):
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名或 IP 地址，可选")
     src_ip: Optional[str] = Field(default=None, description="源 IP 地址，可选")
     dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，可选")
@@ -398,6 +414,8 @@ class GetLatencyMetricsRequest(BaseModel):
 class GetErrCodeMetricsRequest(BaseModel):
     """获取故障码指标时间曲线请求"""
     kb_id: str = Field(..., description="日志知识库ID")
+    src_ip: Optional[str] = Field(default=None, description="源 IP 地址，用于精确过滤")
+    dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，用于精确过滤")
     err_codes: Optional[list[str]] = Field(
         default_factory=list, description="故障码"
     )
@@ -469,6 +487,9 @@ class CreateTaskRequest(BaseModel):
 class ListTimeWindowAggregatedEventRequest(BaseModel):
     """时间窗口聚合事件查询请求"""
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
+    host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
+    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
