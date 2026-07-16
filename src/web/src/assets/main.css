@@ -3157,7 +3157,6 @@ button {
   width: max-content;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
-  height: auto;
 }
 
 .abnormal-left-grid.fault-trace-left-grid.aggregate-body-row {
@@ -3335,6 +3334,7 @@ button {
   min-width: 975px;
   min-height: var(--aggregate-body-row-height);
   border-bottom: 1px solid #eef2f8;
+  height: auto;
 }
 
 .abnormal-latency-grid .aggregate-cell {

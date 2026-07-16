@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, reactive, ref, watch } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
 import diagnosisConfig from '../../../config/diagnosis_config.json'
@@ -2276,7 +2276,48 @@ const faultTraceEventsError = computed(
   () => faultTraceEventsErrorMap[selectedFaultScale.value] ?? '',
 )
 
+const abnormalTraceTableRef = ref<HTMLDivElement | null>(null)
+const detailAbnormalTraceTableRef = ref<HTMLDivElement | null>(null)
 const faultTraceTableRef = ref<HTMLDivElement | null>(null)
+
+const syncAbnormalTraceRowHeights = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (!abnormalTraceTableRef.value) return
+
+        const scrollBody = abnormalTraceTableRef.value.querySelector('.aggregate-latency-body')
+        const fixedLeft = abnormalTraceTableRef.value.querySelector('.aggregate-fixed-left')
+        const fixedActions = abnormalTraceTableRef.value.querySelector('.aggregate-fixed-actions')
+
+        if (!scrollBody || !fixedLeft || !fixedActions) return
+
+        const scrollRows = scrollBody.querySelectorAll('.abnormal-latency-grid.aggregate-body-row')
+        const fixedRows = fixedLeft.querySelectorAll('.abnormal-left-grid.aggregate-body-row')
+        const actionRows = fixedActions.querySelectorAll('.aggregate-cell.aggregate-body-row')
+
+        const count = Math.max(scrollRows.length, fixedRows.length, actionRows.length)
+        for (let index = 0; index < count; index++) {
+          const scrollRow = scrollRows[index] as HTMLElement | undefined
+          const fixedRow = fixedRows[index] as HTMLElement | undefined
+          const actionRow = actionRows[index] as HTMLElement | undefined
+
+          const heights: number[] = []
+          if (scrollRow) heights.push(scrollRow.getBoundingClientRect().height)
+          if (fixedRow) heights.push(fixedRow.getBoundingClientRect().height)
+          if (actionRow) heights.push(actionRow.getBoundingClientRect().height)
+
+          if (heights.length > 0) {
+            const maxHeight = Math.max(...heights, 59)
+            if (scrollRow) scrollRow.style.height = `${maxHeight}px`
+            if (fixedRow) fixedRow.style.height = `${maxHeight}px`
+            if (actionRow) actionRow.style.height = `${maxHeight}px`
+          }
+        }
+      }, 50)
+    })
+  })
+}
 
 const syncFaultTraceRowHeights = () => {
   nextTick(() => {
@@ -2314,6 +2355,53 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  abnormalTraceRows,
+  () => {
+    syncAbnormalTraceRowHeights()
+  },
+  { immediate: true },
+)
+
+const syncDetailAbnormalTraceRowHeights = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (!detailAbnormalTraceTableRef.value) return
+
+        const scrollBody = detailAbnormalTraceTableRef.value.querySelector('.aggregate-latency-body')
+        const fixedLeft = detailAbnormalTraceTableRef.value.querySelector('.aggregate-fixed-left')
+        const fixedActions = detailAbnormalTraceTableRef.value.querySelector('.aggregate-fixed-actions')
+
+        if (!scrollBody || !fixedLeft || !fixedActions) return
+
+        const scrollRows = scrollBody.querySelectorAll('.abnormal-latency-grid.aggregate-body-row')
+        const fixedRows = fixedLeft.querySelectorAll('.abnormal-left-grid.aggregate-body-row')
+        const actionRows = fixedActions.querySelectorAll('.aggregate-cell.aggregate-body-row')
+
+        const count = Math.max(scrollRows.length, fixedRows.length, actionRows.length)
+        for (let index = 0; index < count; index++) {
+          const scrollRow = scrollRows[index] as HTMLElement | undefined
+          const fixedRow = fixedRows[index] as HTMLElement | undefined
+          const actionRow = actionRows[index] as HTMLElement | undefined
+
+          const heights: number[] = []
+          if (scrollRow) heights.push(scrollRow.getBoundingClientRect().height)
+          if (fixedRow) heights.push(fixedRow.getBoundingClientRect().height)
+          if (actionRow) heights.push(actionRow.getBoundingClientRect().height)
+
+          if (heights.length > 0) {
+            const maxHeight = Math.max(...heights, 59)
+            if (scrollRow) scrollRow.style.height = `${maxHeight}px`
+            if (fixedRow) fixedRow.style.height = `${maxHeight}px`
+            if (actionRow) actionRow.style.height = `${maxHeight}px`
+          }
+        }
+      }, 50)
+    })
+  })
+}
 
 type GlobalFilterState = {
   startTime: string
@@ -3866,6 +3954,14 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       raw: result,
     }
   }),
+)
+
+watch(
+  detailParseResultRows,
+  () => {
+    syncDetailAbnormalTraceRowHeights()
+  },
+  { immediate: true },
 )
 
 const detailParseResultsPageCount = computed(() =>
@@ -6034,6 +6130,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
   } finally {
     isAbnormalTracesLoadingMap[scale] = false
     abnormalTraceSort.releaseSortLock()
+    syncAbnormalTraceRowHeights()
   }
 }
 
@@ -7222,6 +7319,11 @@ onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
   document.addEventListener('click', handleStatusCodePopoverOutsideClick)
+})
+
+onUpdated(() => {
+  syncAbnormalTraceRowHeights()
+  syncDetailAbnormalTraceRowHeights()
 })
 
 onBeforeUnmount(() => {
@@ -8512,7 +8614,7 @@ onBeforeUnmount(() => {
                     getFilteredAbnormalTraceRows().length === 0,
                 }"
               >
-                <div class="aggregate-table-frame abnormal-trace-frame">
+                <div ref="abnormalTraceTableRef" class="aggregate-table-frame abnormal-trace-frame">
                   <div class="aggregate-fixed-left">
                     <div
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
@@ -10839,7 +10941,7 @@ onBeforeUnmount(() => {
                   detailParseResultRows.length === 0,
               }"
             >
-              <div class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
+              <div ref="detailAbnormalTraceTableRef" class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame">
                 <div class="aggregate-fixed-left">
                   <div
                     class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
