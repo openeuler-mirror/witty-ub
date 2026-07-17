@@ -165,7 +165,6 @@ docker run -d \
   -v witty-ub-data:/var/witty-ub/data \
   -v witty-ub-logs:/var/log/witty-ub \
   -v /to/path/log:/to/path/log:ro \
-  -e OPENCODE_SERVER_PASSWORD=password \
   --security-opt seccomp=unconfined \
   witty-ub:latest
 ```
@@ -259,7 +258,6 @@ docker run -d \
   -v witty-ub-data:/var/witty-ub/data \
   -v witty-ub-logs:/var/log/witty-ub \
   -v /to/path/log:/to/path/log:ro \
-  -e OPENCODE_SERVER_PASSWORD=password \
   --security-opt seccomp=unconfined \
   witty-ub:latest
 ```
@@ -280,8 +278,6 @@ services:
       - witty-ub-data:/var/witty-ub/data
       - witty-ub-logs:/var/log/witty-ub
       - /to/path/log:/to/path/log:ro
-    environment:
-      - OPENCODE_SERVER_PASSWORD=password
     security_opt:
       - seccomp=unconfined
 ```

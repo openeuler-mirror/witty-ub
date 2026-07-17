@@ -8,6 +8,7 @@ REGISTRY=""
 PLATFORM="local"
 USE_RPM="false"
 REPO_URL=""
+VERSION="latest"
 
 show_usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -18,6 +19,7 @@ show_usage() {
     echo "  --platform     Target platform: local, linux/amd64, linux/arm64"
     echo "  --rpm          Build image using RPM package (instead of source code)"
     echo "  --repo-url     Specify custom RPM repository URL (used with --rpm)"
+    echo "  --version      Specify image tag version (default: latest)"
     echo "  -h, --help     Show this help message"
 }
 
@@ -41,6 +43,10 @@ while [ $# -gt 0 ]; do
             ;;
         --repo-url)
             REPO_URL="$2"
+            shift 2
+            ;;
+        --version)
+            VERSION="$2"
             shift 2
             ;;
         -h|--help)
@@ -109,7 +115,7 @@ build_base() {
         if [ -n "$REGISTRY" ]; then
             REGISTRY_HOST="${REGISTRY%/*}"
             REPO_NAME="${REGISTRY##*/}"
-            target_image="${REGISTRY_HOST}/${REPO_NAME}-base:latest"
+            target_image="${REGISTRY_HOST}/${REPO_NAME}-base:${VERSION}"
         fi
 
         if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
@@ -175,10 +181,10 @@ build_app() {
         build_args=""
         
         if [ -n "$REGISTRY" ]; then
-            target_image="$REGISTRY:latest"
+            target_image="$REGISTRY:${VERSION}"
             REGISTRY_HOST="${REGISTRY%/*}"
             REPO_NAME="${REGISTRY##*/}"
-            base_image_reg="${REGISTRY_HOST}/${REPO_NAME}-base:latest"
+            base_image_reg="${REGISTRY_HOST}/${REPO_NAME}-base:${VERSION}"
             build_args="--build-arg BASE_IMAGE=${base_image_reg}"
         fi
 
@@ -209,7 +215,7 @@ build_rpm() {
 
     target_image="$APP_IMAGE"
     if [ -n "$REGISTRY" ]; then
-        target_image="$REGISTRY:latest"
+        target_image="$REGISTRY:${VERSION}"
     fi
 
     REPO_URL_FULL="${REPO_URL%/}/everything/\$basearch/"
@@ -246,6 +252,7 @@ echo "============================================"
 echo "Build completed successfully!"
 echo "App image: $APP_IMAGE"
 echo "Platform: $PLATFORM"
+echo "Version: $VERSION"
 echo "Build method: $(if [ "$USE_RPM" = "true" ]; then echo "RPM"; else echo "Source"; fi)"
 if [ -n "$REGISTRY" ]; then
     echo "Registry: $REGISTRY"

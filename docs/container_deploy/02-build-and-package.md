@@ -28,8 +28,8 @@ cd witty-ub
 # 本地构建（自动识别当前架构）
 bash build.sh
 
-# 完整构建（包含 base 镜像）
-bash build.sh
+# 指定版本标签构建
+bash build.sh --version v1.0.0
 
 # 仅构建应用镜像（依赖已存在时）
 docker build -f Dockerfile -t witty-ub:latest .
@@ -49,6 +49,9 @@ bash build.sh --rpm --platform linux/arm64 --repo-url http://121.36.84.172/daily
 
 # 双架构构建并推送到仓库（使用 RPM 包）
 bash build.sh --rpm --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<子目录>
+
+# 指定版本标签构建（使用 RPM 包）
+bash build.sh --rpm --version v1.0.0 --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<子目录>
 ```
 
 **RPM 构建方式说明**：
@@ -205,22 +208,28 @@ bash build.sh --platform linux/amd64
 
 **标签是如何自动处理的**：
 
-`build.sh` 会自动根据 `--registry` 参数拼接镜像标签：
+`build.sh` 会自动根据 `--registry` 和 `--version` 参数拼接镜像标签。默认使用 `latest` 标签，可通过 `--version` 指定自定义版本。
 
-| 镜像类型 | 本地构建标签 | 推送仓库后标签 |
-|----------|-------------|---------------|
-| base 镜像 | `witty-ub-base:latest` | `hub-harbor.oepkgs.net/neocopilot/witty-ub-base:latest` |
-| app 镜像 | `witty-ub:latest` | `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest` |
+| 镜像类型 | 本地构建标签 | 推送仓库后标签（默认） | 推送仓库后标签（指定版本） |
+|----------|-------------|----------------------|--------------------------|
+| base 镜像 | `witty-ub-base:latest` | `hub-harbor.oepkgs.net/neocopilot/witty-ub-base:latest` | `hub-harbor.oepkgs.net/neocopilot/witty-ub-base:v1.0.0` |
+| app 镜像 | `witty-ub:latest` | `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest` | `hub-harbor.oepkgs.net/neocopilot/witty-ub:v1.0.0` |
 
 ```bash
-# 构建双架构镜像并推送到仓库（标签自动处理）
+# 构建双架构镜像并推送到仓库（默认 latest 标签）
 bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub
+
+# 构建双架构镜像并推送到仓库（指定版本标签）
+bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub --version v1.0.0
 
 # 在 x86_64 机器上拉取（自动获取 x86_64 架构镜像）
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 
 # 在 arm64 机器上拉取（自动获取 arm64 架构镜像）
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
+
+# 拉取指定版本
+docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:v1.0.0
 ```
 
 **如果没有镜像仓库**：可以分别构建单架构镜像并通过 tar 包分发（见下文"推送不同架构的镜像"）
@@ -234,6 +243,7 @@ docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 | `--platform <platform>` | 指定目标平台: `local`, `linux/amd64`, `linux/arm64` |
 | `--rpm` | 使用 RPM 包构建（替代源码编译），必须配合 `--repo-url` 使用 |
 | `--repo-url <url>` | 指定 RPM 仓库地址（使用 `--rpm` 时必需），只需输入到子目录级别 |
+| `--version <tag>` | 指定镜像标签版本（默认: `latest`） |
 | `-h, --help` | 显示帮助信息 |
 
 ### 使用注意事项

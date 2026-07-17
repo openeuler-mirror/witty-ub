@@ -66,8 +66,6 @@ witty-ub    latest    abc123def456    5 minutes ago    1.81GB
 | `-p 32412:8080` | 端口映射（宿主机:容器） |
 | `-v /host/path:/container/path` | 挂载宿主机目录 |
 | `--restart always` | 自动重启 |
-| `-e OPENCODE_SERVER_USERNAME=username` | OpenCode 服务器用户名 |
-| `-e OPENCODE_SERVER_PASSWORD=password` | OpenCode 服务器密码(必须) |
 
 **说明：**
 - `/host/path:/container/path:ro` 表示只读挂载，容器只能读取日志文件，不能写入，在容器中输入'/container/path/'等价于访问'/host/path/'目录。
@@ -103,8 +101,6 @@ services:
     environment:
       - PYTHONPATH=/var/witty-ub
       - LOG_LEVEL=info
-      - OPENCODE_SERVER_USERNAME=username
-      - OPENCODE_SERVER_PASSWORD=password
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -170,8 +166,6 @@ docker run -d \
   -v ~/.config/opencode:/root/.config/opencode \
   -e PYTHONPATH=/var/witty-ub \
   -e LOG_LEVEL=info \
-  -e OPENCODE_SERVER_USERNAME=username \
-  -e OPENCODE_SERVER_PASSWORD=password \
   --health-cmd="curl -f http://localhost:9772/health_check" \
   --health-interval=30s \
   --health-timeout=10s \
@@ -249,8 +243,6 @@ environment:
   - OPENCODE_CONFIG=/var/witty-ub/config/opencode.json
   - WITTY_DIR=/var/witty-ub
   - WITTY_UB_PLUGINS_DIR=/var/witty-ub/src/plugins
-  - OPENCODE_SERVER_USERNAME=username
-  - OPENCODE_SERVER_PASSWORD=password
 ```
 
 **环境变量说明**：

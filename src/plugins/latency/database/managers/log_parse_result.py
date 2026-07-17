@@ -640,12 +640,21 @@ class LogParseResultManager:
             else:
                 sql_str += " AND lpr.dst_ip LIKE :dst_ip"
                 params["dst_ip"] = f"%{req.dst_ip}%"
+        if req.pod_ip:
+            sql_str += """
+                AND lpr.id IN (
+                    SELECT pod_map.log_parse_result_id
+                    FROM log_parse_result_pod_ip_table AS pod_map
+                    WHERE pod_map.pod_ip = :pod_ip
+                )
+            """
+            params["pod_ip"] = req.pod_ip
         if req.host:
-            sql_str += " AND lpr.host LIKE :host"
-            params["host"] = f"%{req.host}%"
+            sql_str += " AND lpr.host = :host"
+            params["host"] = req.host
         if req.cluster_name:
-            sql_str += " AND lpr.cluster_name LIKE :cluster_name"
-            params["cluster_name"] = f"%{req.cluster_name}%"
+            sql_str += " AND lpr.cluster_name = :cluster_name"
+            params["cluster_name"] = req.cluster_name
         if req.is_anomalous is not None:
             sql_str += " AND lpr.is_anomalous = :is_anomalous"
             params["is_anomalous"] = req.is_anomalous
@@ -832,13 +841,59 @@ class LogParseResultManager:
         """获取延迟指标时间曲线数据（从预聚合表查询）"""
         where_clauses = ["existed_status = 1"]
         params = {}
+        cte_sql = ""
 
         if req.kb_id:
             where_clauses.append("kb_id = :kb_id")
             params["kb_id"] = req.kb_id
-        if req.host:
-            where_clauses.append("(src_ip LIKE :host_pattern OR dst_ip LIKE :host_pattern)")
-            params["host_pattern"] = f"%{req.host}%"
+        if req.cluster_name or req.host or req.pod_ip:
+            original_filters = []
+            if req.cluster_name:
+                original_filters.append("lpr.cluster_name = :cluster_name")
+                params["cluster_name"] = req.cluster_name
+            if req.host:
+                original_filters.append("lpr.host = :host")
+                params["host"] = req.host
+            if req.pod_ip:
+                original_filters.append("""
+                    lpr.id IN (
+                        SELECT pod_map.log_parse_result_id
+                        FROM log_parse_result_pod_ip_table AS pod_map
+                        WHERE pod_map.pod_ip = :pod_ip
+                    )
+                """)
+                params["pod_ip"] = req.pod_ip
+            matched_window_scope = []
+            if req.kb_id:
+                matched_window_scope.append("twa.kb_id = :kb_id")
+            if req.start_time:
+                matched_window_scope.append("twa.time_bucket >= :start_time")
+            if req.end_time:
+                matched_window_scope.append("twa.time_bucket <= :end_time")
+            matched_window_scope_sql = ""
+            if matched_window_scope:
+                matched_window_scope_sql = (
+                    " AND " + " AND ".join(matched_window_scope)
+                )
+            cte_sql = """
+                WITH matched_time_windows AS MATERIALIZED (
+                    SELECT DISTINCT twa.id
+                    FROM log_parse_result_table AS lpr
+                    INNER JOIN time_window_aggregated_table AS twa
+                        ON twa.log_id = lpr.log_id
+                       AND twa.time_bucket = substr(lpr.timestamp, 1, 19)
+                       AND COALESCE(twa.src_ip, '') = COALESCE(lpr.src_ip, '')
+                       AND COALESCE(twa.dst_ip, '') = COALESCE(lpr.dst_ip, '')
+                    WHERE lpr.existed_status = 1
+                      AND twa.existed_status = 1
+                      AND {}
+                      {}
+                )
+            """.format(
+                " AND ".join(original_filters),
+                matched_window_scope_sql,
+            )
+            where_clauses.append("id IN (SELECT id FROM matched_time_windows)")
         if req.src_ip is not None:
             if req.src_ip == "":
                 where_clauses.append("(src_ip IS NULL OR src_ip = '')")
@@ -860,7 +915,7 @@ class LogParseResultManager:
 
         where_sql = " AND ".join(where_clauses)
 
-        count_sql = f"""
+        count_sql = cte_sql + f"""
             SELECT COUNT(*) as cnt 
             FROM time_window_aggregated_table
             WHERE {where_sql}
@@ -881,7 +936,7 @@ class LogParseResultManager:
         }
         sample_prefix = sample_field_map.get(req.sample_mode, "p99_")
 
-        sql_str = f"""
+        sql_str = cte_sql + f"""
             SELECT 
                 time_bucket as time,
                 {sample_prefix}total_latency as total_latency,
