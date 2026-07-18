@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from latency.schemas.failure_mode import FailureModeModel, StatusCodeKnowledgeModel
-from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
+from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgePGManager
 from latency.schemas.response import (
     GetFailureModeMsg,
     GetStatusCodeKnowledgeMsg,
@@ -41,7 +41,7 @@ class FailureModeKnowledge:
                                 root_cause=info.get("故障原因", ""),
                             )
                         )
-                await FailureModeKnowledgeManager.add_status_code_knowledge(
+                await FailureModeKnowledgePGManager.add_status_code_knowledge(
                     status_code_knowledge
                 )
                 logger.info("成功初始化故障码知识库: 共 %d 条", len(status_code_knowledge))
@@ -114,18 +114,18 @@ class FailureModeKnowledge:
                 logger.error(f"读取故障模式树关系失败: {str(e)}")
         
         if failure_modes:
-            await FailureModeKnowledgeManager.add_failure_mode_knowledge(failure_modes)
+            await FailureModeKnowledgePGManager.add_failure_mode_knowledge(failure_modes)
             logger.info(f"成功初始化故障模式知识库: 共 {len(failure_modes)} 条")
         return failure_modes
 
     @staticmethod
     async def get_failure_mode_knowledege_by_id(failure_mode_id: str) -> GetFailureModeMsg:
-        failure_mode_model = await FailureModeKnowledgeManager.get_failure_mode_by_id(failure_mode_id)
+        failure_mode_model = await FailureModeKnowledgePGManager.get_failure_mode_by_id(failure_mode_id)
         return GetFailureModeMsg(failure_mode=failure_mode_model)
 
     @staticmethod
     async def get_status_code_knowledge(status_code: str) -> GetStatusCodeKnowledgeMsg:
-        status_code_info = await FailureModeKnowledgeManager.get_status_code_knowledge(
+        status_code_info = await FailureModeKnowledgePGManager.get_status_code_knowledge(
             status_code
         )
         return GetStatusCodeKnowledgeMsg(status_code_info=status_code_info)

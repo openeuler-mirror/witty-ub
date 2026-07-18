@@ -1,10 +1,17 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""配置文件处理模块"""
+"""配置文件处理模块。
 
-import json
+诊断配置文件统一使用 TOML 格式。
+"""
+
 import os
 import threading
 from copy import deepcopy
+
+try:
+    import tomllib  # Python >= 3.11
+except ImportError:  # pragma: no cover
+    import tomli as tomllib  # Python 3.10
 from latency.schemas.config import ConfigModel, DiagnosisRuntimeConfig
 
 
@@ -24,15 +31,18 @@ class Config:
         return cls._instance
 
     def __init__(self) -> None:
-        """首次构造时从统一配置文件读取默认配置，之后不再重复读取。"""
+        """首次构造时从统一 TOML 配置文件读取默认配置，之后不再重复读取。"""
         if self.__class__._initialized:
             return
         with self.__class__._lock:
             if self.__class__._initialized:
                 return
-            config_file = os.getenv("CONFIG") or "/var/witty-ub/config/diagnosis_config.json"
+            config_file = os.getenv("CONFIG")
+            if not config_file:
+                config_file = "/var/witty-ub/config/diagnosis_config.toml"
+
             if not os.path.exists(config_file):
-                # Fallback to the repository config in development environments.
+                # 开发环境回退到仓库默认配置
                 latency_dir = os.path.dirname(os.path.dirname(__file__))
                 config_file = os.path.abspath(
                     os.path.join(
@@ -41,11 +51,17 @@ class Config:
                         "..",
                         "..",
                         "config",
-                        "diagnosis_config.json",
+                        "diagnosis_config.toml",
                     )
                 )
+
+            if not os.path.exists(config_file):
+                raise FileNotFoundError(f"配置文件不存在: {config_file}")
+
             with open(config_file, "r", encoding="utf-8") as file:
-                self._config = ConfigModel.model_validate(json.load(file))
+                raw_data = tomllib.loads(file.read())
+
+            self._config = ConfigModel.model_validate(raw_data)
             self._default_diagnosis_config = DiagnosisRuntimeConfig(
                 log_filename_pattern=deepcopy(self._config.log_filename_pattern),
                 log_analyzer_params=deepcopy(self._config.log_analyzer_params),

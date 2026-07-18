@@ -7188,7 +7188,29 @@ const getLatestLogFileTaskReport = (file: LogFileModel) => {
   )
 }
 
+const nonProgressReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
+const isProgressReport = (report: TaskReportModel) => {
+  const message = report.message?.trim() ?? ''
+  return !nonProgressReportPrefixes.some((prefix) => message.startsWith(prefix))
+}
+
+const getLatestProgressReport = (file: LogFileModel) => {
+  const reports = getLogFileTaskReports(file).filter(isProgressReport)
+  if (reports.length === 0) return null
+  return (
+    [...reports].sort((first, second) => getTaskReportTime(second) - getTaskReportTime(first))[0] ??
+    null
+  )
+}
+
 const getLogFileProgress = (file: LogFileModel) => {
+  const latestReport = getLatestProgressReport(file)
+  if (latestReport) {
+    const progress = Number(latestReport.progress)
+    if (Number.isFinite(progress)) {
+      return clampProgress(progress)
+    }
+  }
   const progress = Number(file.overall_progress)
   return Number.isFinite(progress) ? clampProgress(progress) : 0
 }
@@ -7196,9 +7218,12 @@ const getLogFileProgress = (file: LogFileModel) => {
 const getLogFileProgressText = (file: LogFileModel) => `${Math.round(getLogFileProgress(file))}%`
 
 const getLogFileProgressMessage = (file: LogFileModel) => {
-  const latestReport = getLatestLogFileTaskReport(file)
-  const message = latestReport?.message?.trim()
-  if (message) return message
+  const latestProgress = getLatestProgressReport(file)
+  const progressMessage = latestProgress?.message?.trim()
+  if (progressMessage) return progressMessage
+  const latestMilestone = getLatestLogFileTaskReport(file)
+  const milestoneMessage = latestMilestone?.message?.trim()
+  if (milestoneMessage) return milestoneMessage
   return statusLabel(getLogFileTaskStatus(file))
 }
 

@@ -46,7 +46,7 @@ class LogFileModel(BaseModel):
         default=0.0,
         ge=0.0,
         le=100.0,
-        description="日志解析和诊断两个并行任务的平均进度",
+        description="日志解析、故障定界和 trace 上下文落库三个任务的综合平均进度",
     )
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"
@@ -748,3 +748,61 @@ def generate_uuids_hex(count: int) -> list[str]:
         offset = i * 16
         ids.append(random_bytes[offset : offset + 16].hex())
     return ids
+
+
+# 兼容 PG COPY 与旧构建器的类型别名
+LogParseResultStorage = (
+    LogParseResultDataclass
+    | C2WLogParseResultDataclass
+    | SparseLogParseResultDataclass
+)
+
+
+@dataclass(slots=True)
+class TimeWindowAggregatedEventDataclass:
+    """时序聚合计算和批量存库使用的轻量对象。"""
+
+    id: str = ""
+    kb_id: str = ""
+    log_id: str = ""
+    time_bucket: str = ""
+    src_ip: str = ""
+    dst_ip: str = ""
+    log_parse_result_cnt: int = 0
+    anomaly_cnt: int = 0
+    ave_total_latency: float | None = None
+    min_total_latency: float | None = None
+    max_total_latency: float | None = None
+    p99_total_latency: float | None = None
+    p95_total_latency: float | None = None
+    ave_query_meta_latency: float | None = None
+    min_query_meta_latency: float | None = None
+    max_query_meta_latency: float | None = None
+    p99_query_meta_latency: float | None = None
+    p95_query_meta_latency: float | None = None
+    ave_urma_total_latency: float | None = None
+    min_urma_total_latency: float | None = None
+    max_urma_total_latency: float | None = None
+    p99_urma_total_latency: float | None = None
+    p95_urma_total_latency: float | None = None
+    ave_urma_link_latency: float | None = None
+    min_urma_link_latency: float | None = None
+    max_urma_link_latency: float | None = None
+    p99_urma_link_latency: float | None = None
+    p95_urma_link_latency: float | None = None
+    ave_c2w_urma_latency: float | None = None
+    min_c2w_urma_latency: float | None = None
+    max_c2w_urma_latency: float | None = None
+    p99_c2w_urma_latency: float | None = None
+    p95_c2w_urma_latency: float | None = None
+    ave_w2w_urma_latency: float | None = None
+    min_w2w_urma_latency: float | None = None
+    max_w2w_urma_latency: float | None = None
+    p99_w2w_urma_latency: float | None = None
+    p95_w2w_urma_latency: float | None = None
+    existed_status: bool = True
+    created_at: str = dataclass_field(
+        default_factory=lambda: datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )[:-3]
+    )

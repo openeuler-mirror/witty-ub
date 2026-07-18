@@ -1,153 +1,163 @@
-from datetime import datetime
-from latency.schemas.request import ListLogKnowledgeRequest
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL-specific manager for log_knowledge."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from sqlalchemy import desc, func, insert, select, text
+
+from latency.database.engine import PGManager
+from latency.database.models import LogKnowledge
+from latency.database.utils import format_timestamp, parse_timestamp
 from latency.schemas.log import LogKnowledgeModel
-from latency.database.engine import AsyncSQLiteSingleton
+from latency.schemas.request import ListLogKnowledgeRequest
 
 
-class LogKnowledgeManager:
-    """日志知识库管理器"""
+logger = logging.getLogger(__name__)
+
+
+class LogKnowledgePGManager:
+    @staticmethod
+    def _model_to_mapping(log_kb: LogKnowledgeModel) -> dict[str, Any]:
+        return {
+            "id": log_kb.id,
+            "name": log_kb.name,
+            "description": log_kb.description,
+            "image_bytes": log_kb.image_bytes,
+            "total_count": log_kb.task_cnt,
+            "anomalous_count": log_kb.anomaly_cnt,
+            "failure_count": 0,
+            "existed_status": log_kb.existed_status,
+            "created_at": parse_timestamp(log_kb.created_at),
+            "updated_at": parse_timestamp(log_kb.updated_at),
+        }
 
     @staticmethod
     async def add_log_kb(log_kb_model: LogKnowledgeModel) -> str:
-        """添加日志知识库，返回知识库ID"""
-        sql_str = """
-            INSERT INTO log_knowledge_table (id, image_bytes, name, description, task_cnt, log_file_cnt, anomaly_cnt, existed_status, created_at, updated_at)
-            VALUES (:id, :image_bytes, :name, :description, :task_cnt, :log_file_cnt, :anomaly_cnt, :existed_status, :created_at, :updated_at)
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, log_kb_model.model_dump(exclude_none=True)
-        )
-        return log_kb_model.id if success else ""
+        async with PGManager.session() as session:
+            await session.execute(
+                insert(LogKnowledge), [LogKnowledgePGManager._model_to_mapping(log_kb_model)]
+            )
+        return log_kb_model.id
 
     @staticmethod
     async def add_log_kbs(log_kbs: list[LogKnowledgeModel]) -> list[str]:
-        """批量添加日志知识库"""
-        ids_added = []
-        batch_size = 1024
-        for i in range(0, len(log_kbs), batch_size):
-            batch = log_kbs[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO log_knowledge_table (
-                        id, image_bytes, name, description, task_cnt, log_file_cnt,
-                        anomaly_cnt, existed_status, created_at, updated_at
-                    ) VALUES (
-                        :id, :image_bytes, :name, :description, :task_cnt, :log_file_cnt,
-                        :anomaly_cnt, :existed_status, :created_at, :updated_at
-                    )
-                """
-                params = [
-                    log_kb.model_dump(exclude_none=False, by_alias=True)
-                    for log_kb in batch
-                ]
-                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([log_kb.id for log_kb in batch])
-            except Exception as e:
-                print(f"批量添加日志知识库失败，错误信息: {str(e)}")
-        return ids_added
+        if not log_kbs:
+            return []
+        mappings = [LogKnowledgePGManager._model_to_mapping(kb) for kb in log_kbs]
+        async with PGManager.session() as session:
+            await session.execute(insert(LogKnowledge), mappings)
+        return [kb.id for kb in log_kbs]
 
     @staticmethod
     async def delete_log_kb_by_kb_id(kb_id: str) -> bool:
-        """根据知识库ID删除日志知识库"""
-        sql_str = """
-            DELETE FROM log_knowledge_table
-            WHERE id = :kb_id
-        """
-        params = {"kb_id": kb_id}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM log_knowledge WHERE id = :id"),
+                {"id": kb_id},
+            )
+        return True
 
     @staticmethod
     async def update_log_kb(log_kb_id: str, log_kb_info_dict: dict) -> int:
-        """根据知识库ID更新日志知识库信息，返回影响行数"""
-        if log_kb_info_dict:
-            set_clause = ", ".join([f"{key} = :{key}" for key in log_kb_info_dict.keys()])
-            sql_str = f"""
-                UPDATE log_knowledge_table
-                SET {set_clause}, updated_at = :updated_at
-                WHERE id = :kb_id
-            """
-            params = {
-                **log_kb_info_dict,
-                "kb_id": log_kb_id,
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-            }
-        else:
-            sql_str = """
-                UPDATE log_knowledge_table
-                SET updated_at = :updated_at
-                WHERE id = :kb_id
-            """
-            params = {
-                "kb_id": log_kb_id,
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-            }
-        _, rowcount = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return rowcount
+        allowed = {k: v for k, v in log_kb_info_dict.items() if hasattr(LogKnowledge, k)}
+        dropped = {k: v for k, v in log_kb_info_dict.items() if not hasattr(LogKnowledge, k)}
+        if dropped:
+            logger.warning("log_knowledge update dropped unknown keys: %s", list(dropped.keys()))
+        if not allowed:
+            return 0
+        set_clauses = ", ".join(f"{k} = :{k}" for k in allowed)
+        params = {"id": log_kb_id, **allowed}
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(f"UPDATE log_knowledge SET {set_clauses}, updated_at = NOW() WHERE id = :id"),
+                params,
+            )
+        return result.rowcount or 0
 
     @staticmethod
     async def count_log_kbs(req: ListLogKnowledgeRequest) -> int:
-        sql_str = """
-            SELECT COUNT(*) as cnt FROM log_knowledge_table WHERE existed_status = 1
-        """
-        params = {}
+        stmt = select(func.count()).where(LogKnowledge.existed_status.is_(True))
         if req.name:
-            sql_str += " AND name LIKE :name"
-            params["name"] = f"%{req.name}%"
+            stmt = stmt.where(LogKnowledge.name.ilike(f"%{req.name}%"))
         if req.description:
-            sql_str += " AND description LIKE :description"
-            params["description"] = f"%{req.description}%"
+            stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
         if req.created_at_start:
-            sql_str += " AND created_at >= :created_at_start"
-            params["created_at_start"] = req.created_at_start
+            stmt = stmt.where(LogKnowledge.created_at >= req.created_at_start)
         if req.created_at_end:
-            sql_str += " AND created_at <= :created_at_end"
-            params["created_at_end"] = req.created_at_end
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        return rows[0]["cnt"] if rows else 0
+            stmt = stmt.where(LogKnowledge.created_at <= req.created_at_end)
+        async with PGManager.session() as session:
+            return (await session.execute(stmt)).scalar() or 0
 
     @staticmethod
     async def list_log_kbs(req: ListLogKnowledgeRequest) -> list[LogKnowledgeModel]:
-        """根据查询条件分页查询日志知识库列表"""
-        sql_str = """
-            SELECT id, name, description, task_cnt, log_file_cnt, anomaly_cnt, existed_status, created_at, updated_at
-            FROM log_knowledge_table
-            WHERE existed_status = 1
-        """
-        params = {}
+        stmt = select(
+            LogKnowledge.id,
+            LogKnowledge.name,
+            LogKnowledge.description,
+            LogKnowledge.total_count,
+            LogKnowledge.anomalous_count,
+            LogKnowledge.existed_status,
+            LogKnowledge.created_at,
+            LogKnowledge.updated_at,
+        ).where(LogKnowledge.existed_status.is_(True))
         if req.name:
-            sql_str += " AND name LIKE :name"
-            params["name"] = f"%{req.name}%"
+            stmt = stmt.where(LogKnowledge.name.ilike(f"%{req.name}%"))
         if req.description:
-            sql_str += " AND description LIKE :description"
-            params["description"] = f"%{req.description}%"
+            stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
         if req.created_at_start:
-            sql_str += " AND created_at >= :created_at_start"
-            params["created_at_start"] = req.created_at_start
+            stmt = stmt.where(LogKnowledge.created_at >= req.created_at_start)
         if req.created_at_end:
-            sql_str += " AND created_at <= :created_at_end"
-            params["created_at_end"] = req.created_at_end
-        sort_order = "DESC" if req.created_sorted_desc else "ASC"
-        sql_str += f" ORDER BY created_at {sort_order}"
-        offset = (req.page_num - 1) * req.page_cnt
-        sql_str += " LIMIT :limit OFFSET :offset"
-        params["limit"] = req.page_cnt
-        params["offset"] = offset
+            stmt = stmt.where(LogKnowledge.created_at <= req.created_at_end)
 
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        log_kbs = [LogKnowledgeModel.model_validate(row) for row in rows]
-        return log_kbs
+        if req.created_sorted_desc:
+            stmt = stmt.order_by(desc(LogKnowledge.created_at))
+        else:
+            stmt = stmt.order_by(LogKnowledge.created_at)
+
+        offset = (req.page_num - 1) * req.page_cnt
+        stmt = stmt.offset(offset).limit(req.page_cnt)
+
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.mappings().all()
+        return [
+            LogKnowledgeModel.model_validate(
+                {
+                    **dict(r),
+                    "task_cnt": r["total_count"],
+                    "log_file_cnt": 0,
+                    "anomaly_cnt": r["anomalous_count"],
+                    "created_at": format_timestamp(r["created_at"]),
+                    "updated_at": format_timestamp(r["updated_at"]),
+                }
+            )
+            for r in rows
+        ]
 
     @staticmethod
     async def get_log_kb_by_kb_id(kb_id: str) -> LogKnowledgeModel | None:
-        """根据知识库ID查询日志知识库信息"""
-        sql_str = """
-            SELECT id, image_bytes, name, description, task_cnt, log_file_cnt, anomaly_cnt, existed_status, created_at, updated_at
-            FROM log_knowledge_table
-            WHERE id = :kb_id AND existed_status = 1
-        """
-        params = {"kb_id": kb_id}
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        if rows:
-            return LogKnowledgeModel.model_validate(rows[0])
-        return None
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(LogKnowledge).where(
+                    LogKnowledge.id == kb_id, LogKnowledge.existed_status.is_(True)
+                )
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return LogKnowledgeModel.model_validate(
+            {
+                "id": row.id,
+                "name": row.name,
+                "description": row.description,
+                "image_bytes": row.image_bytes,
+                "task_cnt": row.total_count,
+                "log_file_cnt": 0,
+                "anomaly_cnt": row.anomalous_count,
+                "existed_status": row.existed_status,
+                "created_at": format_timestamp(row.created_at),
+                "updated_at": format_timestamp(row.updated_at),
+            }
+        )

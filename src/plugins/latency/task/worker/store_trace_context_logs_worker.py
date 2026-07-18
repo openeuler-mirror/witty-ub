@@ -7,16 +7,26 @@ import shutil
 
 from latency.task.worker.base import BaseWorker
 from latency.config.config import Config
+<<<<<<< HEAD
 from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
+=======
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_parse_result import LogParseResultPGManager
+from latency.database.managers.task import TaskPGManager
+>>>>>>> ee54a6a (sqlite切换pg)
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import KVCacheLogEventDiagnosisWorker
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.database.managers.log_failure_event import LogFailureEventManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.task import TaskModel
+<<<<<<< HEAD
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
 from latency.task.log_preprocessor import cleanup_preprocess_dir
+=======
+from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgePGManager
+>>>>>>> ee54a6a (sqlite切换pg)
 
 
 logger = logging.getLogger(__name__)
@@ -94,7 +104,15 @@ class StoreTraceContextLogsWorker(BaseWorker):
         return trace_id_set, trace_failure_id
 
     @staticmethod
-    async def _store_trace_context_logs(output_log_path: str, log_id: str, trace_id_set: set, trace_failure_id: dict[str, list[str]]):
+    async def _store_trace_context_logs(
+        output_log_path: str,
+        log_id: str,
+        trace_id_set: set,
+        trace_failure_id: dict[str, list[str]],
+        task_id: str | None = None,
+        progress_base: float = 0.0,
+        progress_end: float = 100.0,
+    ):
         # 将output_log_path下，除了failure_trace.log以外的所有日志读到log_failure_event_table数据库中
         # 除了failure_trace.log以外，output_log_path目录下的日志都是以下模板："timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | message"，  
         # 对应LogFailureEventModel数据结构中的相应字段。除了这些字段以外，log_id对应函数参数输入，log_file对应日志文件名，raw_text对应原始日志。
@@ -108,11 +126,11 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 logger.info("failure_trace.log 中没有可落库的 trace_id")
                 return
 
-            log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_id)
+            log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_id)
             config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config(
                 log_file_model.kb_id if log_file_model else None
             )
-            failure_mode_cache = await FailureModeKnowledgeManager.get_all_failure_modes()
+            failure_mode_cache = await FailureModeKnowledgePGManager.get_all_failure_modes()
             worker_access_patterns = config.get("ds_worker_access_log_file", [])
             client_access_patterns = config.get("ds_client_access_log_file", [])
                
@@ -134,6 +152,22 @@ class StoreTraceContextLogsWorker(BaseWorker):
             )
             
             print(f"开始日志落库，共{len(trace_id_set)}条故障trace，{total_log_failure_events}条日志事件")
+            t_store_start = time.perf_counter()
+
+            def _report_progress(inserted: int) -> None:
+                if not task_id or total_log_failure_events <= 0:
+                    return
+                progress = progress_base + (progress_end - progress_base) * (
+                    inserted / total_log_failure_events
+                )
+                asyncio.create_task(
+                    BaseWorker.report(
+                        task_id,
+                        f"Trace context logs stored {inserted}/{total_log_failure_events}",
+                        min(progress, progress_end),
+                    )
+                )
+
             for log_file_name, log_file_path in log_files:
                 try:
                     is_access_log = False  
@@ -191,7 +225,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                 
                                 failure_mode = trace_failure_id.get(raw_line, []) if trace_failure_id else None
                                 log_failure_event = {
-                                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, raw_line)),
+                                    "id": str(uuid.uuid4()),
                                     "log_id": log_id,
                                     "log_file": log_file_name,
                                     "raw_text": raw_line,
@@ -216,13 +250,14 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                 log_failure_events.append(log_failure_event)
                                 
                                 if len(log_failure_events) >= batch_size:
-                                    await LogFailureEventManager.add_log_failure_event_raw(log_failure_events)
+                                    await LogFailureEventPGManager.add_log_failure_event_raw(log_failure_events)
                                     total_inserted += len(log_failure_events)
                                     progress_msg = (
                                         f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
                                     )
                                     logger.info(progress_msg)
                                     print(progress_msg)
+                                    _report_progress(total_inserted)
                                     log_failure_events = []
                             
                             except Exception as e:
@@ -234,22 +269,37 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     continue
             
             if log_failure_events:
-                await LogFailureEventManager.add_log_failure_event_raw(log_failure_events)
+                await LogFailureEventPGManager.add_log_failure_event_raw(log_failure_events)
                 total_inserted += len(log_failure_events)
                 progress_msg = (
                     f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
                 )
                 logger.info(progress_msg)
                 print(progress_msg)
+                _report_progress(total_inserted)
 
             trace_failure_events = list(trace_failure_events_map.values())
             if trace_failure_events:
                 trace_store_start = time.perf_counter()
-                await LogFailureEventManager.add_trace_failure_event_raw(trace_failure_events)
+                await LogFailureEventPGManager.add_trace_failure_event_raw(trace_failure_events)
                 logger.info(
                     "成功插入 %s 条trace故障事件，耗时 %.3fs",
                     len(trace_failure_events),
                     time.perf_counter() - trace_store_start,
+                )
+
+            logger.info(
+                "Trace context logs store done: %s log_failure_events, %s trace_failure_events, total %.3fs",
+                total_inserted,
+                len(trace_failure_events),
+                time.perf_counter() - t_store_start,
+            )
+
+            if task_id:
+                await BaseWorker.report(
+                    task_id,
+                    f"Trace context logs stored {total_inserted}/{total_log_failure_events}",
+                    progress_end,
                 )
 
             return
@@ -261,7 +311,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
 
     @staticmethod
     async def init(op_id: str) -> str | None:
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(op_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(op_id)
         if not log_file_model:
             return None
 
@@ -272,13 +322,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
             task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
             status=TaskStatusEnum.PENDING,
         )
-        await TaskManager.add_task(task)
+        await TaskPGManager.add_task(task)
         await BaseWorker.report(task.id, "Task initialized", 0.0)
         return task.id
 
     @staticmethod
     async def reinit(task_id: str) -> bool:
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
         if task.retry_times > Config().get_config().task.task_retry_times:
@@ -305,7 +355,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         progress: float,
     ) -> bool:
         while True:
-            task = await TaskManager.get_current_task_by_op_id(op_id, task_type)
+            task = await TaskPGManager.get_current_task_by_op_id(op_id, task_type)
             if not task:
                 await BaseWorker.report(
                     monitor_task_id,
@@ -349,20 +399,20 @@ class StoreTraceContextLogsWorker(BaseWorker):
         output_log_path = None
         log_file_id = None
         try:
-            task = await TaskManager.get_task_by_task_id(task_id)
+            task = await TaskPGManager.get_task_by_task_id(task_id)
             if not task:
                 logger.error("Task %s not found", task_id)
                 return False
 
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
             await BaseWorker.report(task.id, "Task running", 5.0)
 
-            log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             if not log_file:
                 logger.error("LogFile %s not found", task.op_id)
-                await TaskManager.update_task(
+                await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 cleanup_temp_dirs(None, task.op_id)
@@ -381,7 +431,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 20.0,
             )
             if not diagnosis_done:
-                await TaskManager.update_task(
+                await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 cleanup_temp_dirs(output_log_path, log_file_id)
@@ -395,9 +445,12 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 log_id=log_id,
                 trace_id_set=trace_id_set,
                 trace_failure_id=trace_failure_id,
+                task_id=task.id,
+                progress_base=20.0,
+                progress_end=45.0,
             )
-            await LogFileManager.update_log_file(
-                task.op_id, {"trace_failure_event_cnt": len(trace_id_set)}
+            await LogFilePGManager.update_log_file(
+                task.op_id, {"failure_count": len(trace_id_set)}
             )
             await BaseWorker.report(
                 task.id,
@@ -413,13 +466,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 65.0,
             )
             if not parse_done:
-                await TaskManager.update_task(
+                await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
-            latency_anomalous_trace_id_set = await LogParseResultManager.list_anomalous_trace_ids_by_log_id(
+            latency_anomalous_trace_id_set = await LogParseResultPGManager.list_anomalous_trace_ids_by_log_id(
                 log_id
             )
             trace_id_set = latency_anomalous_trace_id_set - trace_id_set
@@ -432,6 +485,9 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 log_id=log_id,
                 trace_id_set=trace_id_set,
                 trace_failure_id=None,
+                task_id=task.id,
+                progress_base=65.0,
+                progress_end=90.0,
             )
             await BaseWorker.report(
                 task.id,
@@ -439,6 +495,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 90.0,
             )
 
+<<<<<<< HEAD
             if log_file.kb_id:
                 await LogKnowledgeManager.update_log_kb(
                     log_file.kb_id, {}
@@ -447,26 +504,33 @@ class StoreTraceContextLogsWorker(BaseWorker):
             cleanup_temp_dirs(output_log_path, log_file_id)
 
             await TaskManager.update_task(
+=======
+            await BaseWorker.report(task.id, "Task completed successfully", 100.0)
+            await TaskPGManager.update_task(
+>>>>>>> ee54a6a (sqlite切换pg)
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
-            await BaseWorker.report(task.id, "Task completed successfully", 100.0)
             return True
         except Exception as e:
             logger.exception("Task %s failed: %s", task_id, e)
+<<<<<<< HEAD
             if output_log_path or log_file_id:
                 cleanup_temp_dirs(output_log_path, log_file_id)
             await TaskManager.update_task(
+=======
+            await TaskPGManager.update_task(
+>>>>>>> ee54a6a (sqlite切换pg)
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
 
     @staticmethod
     async def stop(task_id: str) -> str | None:
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return None
         if task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.CANCELLED.value}
             )
             return task_id

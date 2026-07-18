@@ -16,7 +16,25 @@ class ServiceConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
+    backend: str = Field(default="postgresql", description="数据库后端: sqlite 或 postgresql")
     db_path: str = Field(default="latency.db", description="SQLite数据库文件路径")
+    pg_host: str = Field(default="127.0.0.1", description="PostgreSQL 主机地址")
+    pg_port: int = Field(default=15432, description="PostgreSQL 端口")
+    pg_database: str = Field(default="latency_test", description="PostgreSQL 数据库名")
+    pg_user: str = Field(default="postgres", description="PostgreSQL 用户名")
+    pg_password: str = Field(default="postgres", description="PostgreSQL 密码")
+    pg_pool_size: int = Field(default=10, description="PostgreSQL 连接池大小")
+    pg_max_overflow: int = Field(default=20, description="PostgreSQL 连接池最大溢出连接数")
+
+    def pg_dsn_url(self) -> str:
+        """根据 host/port/database/user/password 构建 PostgreSQL DSN。"""
+        from urllib.parse import quote_plus
+
+        password = quote_plus(self.pg_password)
+        return (
+            f"postgresql+asyncpg://{self.pg_user}:{password}"
+            f"@{self.pg_host}:{self.pg_port}/{self.pg_database}"
+        )
 
 
 class TaskConfig(BaseModel):

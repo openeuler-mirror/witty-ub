@@ -4,6 +4,7 @@ import aiofiles
 import aiohttp
 import logging
 from fastapi import UploadFile
+<<<<<<< HEAD
 from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
@@ -13,6 +14,12 @@ from latency.database.managers.anomalous_event_chain import AnomalousEventChainM
 from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventManager
 from latency.database.managers.time_window_aggregated_event import TimeWindowAggregatedEventManager
 from latency.database.managers.log_failure_event import LogFailureEventManager
+=======
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_parse_result import LogParseResultPGManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.task_report import TaskReportPGManager
+>>>>>>> ee54a6a (sqlite切换pg)
 from latency.schemas.log import LogFileModel
 from latency.ENUM.general import FilePath
 from latency.ENUM.general import SourceType
@@ -204,7 +211,7 @@ class LogFileService:
                             f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
                         )
             log_file_models.append(log_file_model)
-        log_file_ids = await LogFileManager.add_log_files(log_file_models)
+        log_file_ids = await LogFilePGManager.add_log_files(log_file_models)
         
         for log_file_id in log_file_ids:
             await TaskHandler.init_task(
@@ -226,9 +233,10 @@ class LogFileService:
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             raise NotFoundBizException(resource="日志文件")
+<<<<<<< HEAD
         
         try:
             await LogFileManager.update_log_file(log_file_id, {"existed_status": False})
@@ -249,16 +257,20 @@ class LogFileService:
             logging.error(f"删除日志文件 {log_file_id} 失败: {e}", exc_info=True)
             raise
         
+=======
+        await LogFilePGManager.update_log_file(log_file_id, {"existed_status": False})
+        await LogParseResultPGManager.delete_log_parse_results_by_log_id(log_file_id)
+>>>>>>> ee54a6a (sqlite切换pg)
         return DeleteLogFilesMsg(log_file_ids=[log_file_id])
 
     @staticmethod
     async def update_log_file(
         log_file_id: str, req: UpdateLogFileRequest
     ) -> UpdateLogFileMsg:
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             raise NotFoundBizException(resource="日志文件")
-        rowcount = await LogFileManager.update_log_file(
+        rowcount = await LogFilePGManager.update_log_file(
             log_file_id, req.model_dump(exclude_none=True)
         )
         if rowcount > 0:
@@ -269,7 +281,7 @@ class LogFileService:
     async def run_or_stop_log_parse_by_log_file_id(
         log_file_id: str, run: bool
     ) -> RunOrStopLogParseMsg:
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             return RunOrStopLogParseMsg(task_id=None)
         if run:
@@ -278,7 +290,7 @@ class LogFileService:
                 op_id=log_file_id,
             )
             return RunOrStopLogParseMsg(task_id=task_id)
-        task = await TaskManager.get_current_task_by_op_id(log_file_id)
+        task = await TaskPGManager.get_current_task_by_op_id(log_file_id)
         if task and task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
             await TaskHandler.stop_task(task.id)
             return RunOrStopLogParseMsg(task_id=task.id)
@@ -287,17 +299,17 @@ class LogFileService:
 
     @staticmethod
     async def list_log_files(kb_id: str, req: ListLogFilesRequest) -> ListLogFilesMsg:
-        total, log_file_models = await LogFileManager.list_log_files(kb_id, req)
+        total, log_file_models = await LogFilePGManager.list_log_files(kb_id, req)
         log_file_model_ids = [log_file_model.id for log_file_model in log_file_models]
-        parse_tasks = await TaskManager.list_current_tasks_by_op_ids(
+        parse_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
             log_file_model_ids,
             TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
         )
-        diagnosis_tasks = await TaskManager.list_current_tasks_by_op_ids(
+        diagnosis_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
             log_file_model_ids,
             TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
         )
-        store_tasks = await TaskManager.list_current_tasks_by_op_ids(
+        store_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
             log_file_model_ids,
             TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
         )
@@ -314,7 +326,7 @@ class LogFileService:
         if fallback_op_ids:
             fallback_task_dict = {
                 task.op_id: task
-                for task in await TaskManager.list_current_tasks_by_op_ids(fallback_op_ids)
+                for task in await TaskPGManager.list_current_tasks_by_op_ids(fallback_op_ids)
             }
         task_dict = {
             log_file_model_id: LogFileService._select_visible_task(
@@ -325,65 +337,72 @@ class LogFileService:
             or fallback_task_dict.get(log_file_model_id)
             for log_file_model_id in log_file_model_ids
         }
-        tasks = [
-            task
+        # 收集所有三个类型任务的ID，一次性查询reports
+        all_type_task_ids = [
+            task.id
             for task in (
-                list(task_dict.values())
-                + list(parse_task_dict.values())
+                list(parse_task_dict.values())
                 + list(diagnosis_task_dict.values())
                 + list(store_task_dict.values())
             )
             if task
         ]
-        tasks = list({task.id: task for task in tasks}.values())
-        task_reports = await TaskReportManager.list_task_reports_by_task_ids(
-            [task.id for task in tasks]
-        )
-        task_report_dict = {}
-        for task_report in task_reports:
-            if task_report.task_id not in task_report_dict:
-                task_report_dict[task_report.task_id] = []
-            task_report_dict[task_report.task_id].append(task_report)
+        all_type_task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(all_type_task_ids)
+        # 按 task_id 分组
+        type_task_report_dict = {}
+        for task_report in all_type_task_reports:
+            if task_report.task_id not in type_task_report_dict:
+                type_task_report_dict[task_report.task_id] = []
+            type_task_report_dict[task_report.task_id].append(task_report)
+        # 收集可见任务的ID，查询可见任务的reports
+        visible_task_ids = [task.id for task in task_dict.values() if task]
+        visible_task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(visible_task_ids)
+        visible_task_report_dict = {}
+        for task_report in visible_task_reports:
+            if task_report.task_id not in visible_task_report_dict:
+                visible_task_report_dict[task_report.task_id] = []
+            visible_task_report_dict[task_report.task_id].append(task_report)
         for log_file_model in log_file_models:
             parse_task = parse_task_dict.get(log_file_model.id)
             diagnosis_task = diagnosis_task_dict.get(log_file_model.id)
             store_task = store_task_dict.get(log_file_model.id)
+            # 和get_log_file_by_log_file_id完全一致：分别挂载三个任务的reports
             if parse_task:
-                parse_task.task_reports = task_report_dict.get(parse_task.id, [])
+                parse_task.task_reports = type_task_report_dict.get(parse_task.id, [])
             if diagnosis_task:
-                diagnosis_task.task_reports = task_report_dict.get(diagnosis_task.id, [])
+                diagnosis_task.task_reports = type_task_report_dict.get(diagnosis_task.id, [])
             if store_task:
-                store_task.task_reports = task_report_dict.get(store_task.id, [])
+                store_task.task_reports = type_task_report_dict.get(store_task.id, [])
 
             log_file_model.overall_progress = parallel_overall_progress(
                 parse_task,
                 diagnosis_task,
                 store_task,
             )
-            log_file_model.task = task_dict.get(log_file_model.id)
-            if log_file_model.task:
-                log_file_model.task.task_reports = task_report_dict.get(
-                    log_file_model.task.id, []
-                )
-                log_file_model.task.task_reports.sort(
+            # 和get_log_file_by_log_file_id完全一致：单独查询可见任务的reports并排序
+            visible_task = task_dict.get(log_file_model.id)
+            log_file_model.task = visible_task
+            if visible_task:
+                visible_task.task_reports = visible_task_report_dict.get(visible_task.id, [])
+                visible_task.task_reports.sort(
                     key=lambda x: x.created_at, reverse=True
                 )
         return ListLogFilesMsg(total=total, log_files=log_file_models)
 
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> GetLogFileMsg:
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             raise NotFoundBizException(resource="日志文件")
-        parse_task = await TaskManager.get_current_task_by_op_id(
+        parse_task = await TaskPGManager.get_current_task_by_op_id(
             log_file_id,
             TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
         )
-        diagnosis_task = await TaskManager.get_current_task_by_op_id(
+        diagnosis_task = await TaskPGManager.get_current_task_by_op_id(
             log_file_id,
             TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
         )
-        store_task = await TaskManager.get_current_task_by_op_id(
+        store_task = await TaskPGManager.get_current_task_by_op_id(
             log_file_id,
             TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
         )
@@ -391,20 +410,20 @@ class LogFileService:
             parse_task, diagnosis_task, store_task
         )
         if not task_model:
-            task_model = await TaskManager.get_current_task_by_op_id(log_file_id)
+            task_model = await TaskPGManager.get_current_task_by_op_id(log_file_id)
         if task_model:
             parse_reports = (
-                await TaskReportManager.list_task_reports_by_task_ids([parse_task.id])
+                await TaskReportPGManager.list_task_reports_by_task_ids([parse_task.id])
                 if parse_task
                 else []
             )
             diagnosis_reports = (
-                await TaskReportManager.list_task_reports_by_task_ids([diagnosis_task.id])
+                await TaskReportPGManager.list_task_reports_by_task_ids([diagnosis_task.id])
                 if diagnosis_task
                 else []
             )
             store_reports = (
-                await TaskReportManager.list_task_reports_by_task_ids([store_task.id])
+                await TaskReportPGManager.list_task_reports_by_task_ids([store_task.id])
                 if store_task
                 else []
             )
@@ -419,7 +438,7 @@ class LogFileService:
                 diagnosis_task,
                 store_task,
             )
-            task_model.task_reports = await TaskReportManager.list_task_reports_by_task_ids(
+            task_model.task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(
                 [task_model.id]
             )
         log_file_model.task = task_model

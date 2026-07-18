@@ -1,126 +1,180 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL-specific manager for log_file."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from sqlalchemy import desc, func, insert, select, text
+
+from latency.database.engine import PGManager
+from latency.database.models import LogFile
+from latency.database.utils import format_timestamp, parse_timestamp
 from latency.schemas.log import LogFileModel
 from latency.schemas.request import ListLogFilesRequest
-from latency.database.engine import AsyncSQLiteSingleton
 
 
-class LogFileManager:
+logger = logging.getLogger(__name__)
+
+
+class LogFilePGManager:
+    @staticmethod
+    def _model_to_mapping(log_file: LogFileModel) -> dict[str, Any]:
+        return {
+            "id": log_file.id,
+            "kb_id": log_file.kb_id,
+            "name": log_file.name,
+            "parse_status": log_file.parse_status.value if log_file.parse_status else None,
+            "file_path": log_file.file_path,
+            "size": log_file.file_size,
+            "total_count": 0,
+            "anomalous_count": 0,
+            "failure_count": 0,
+            "existed_status": log_file.existed_status,
+            "created_at": parse_timestamp(log_file.created_at),
+            "updated_at": parse_timestamp(log_file.created_at),
+        }
+
     @staticmethod
     async def add_log_file(log_file: LogFileModel) -> bool:
-        """添加日志文件"""
-        sql_str = """
-            INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at)
-            VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :trace_failure_event_cnt, :existed_status, :created_at)
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, log_file.model_dump(exclude_none=False, by_alias=True)
-        )
-        return success
+        async with PGManager.session() as session:
+            await session.execute(insert(LogFile), [LogFilePGManager._model_to_mapping(log_file)])
+        return True
 
     @staticmethod
     async def add_log_files(log_files: list[LogFileModel]) -> list[str]:
-        """批量添加日志文件"""
-        ids_added = []
-        batch_size = 1024
-        for i in range(0, len(log_files), batch_size):
-            batch = log_files[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO log_file_table (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at)
-                    VALUES (:id, :kb_id, :name, :parse_status, :file_path, :file_size, :anomaly_cnt, :trace_failure_event_cnt, :existed_status, :created_at)
-                """
-                params = [
-                    log_file.model_dump(exclude_none=False, by_alias=True)
-                    for log_file in batch
-                ]
-                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([log_file.id for log_file in batch])
-            except Exception as e:
-                print(f"批量添加日志文件失败，错误信息: {str(e)}")
-        return ids_added
+        if not log_files:
+            return []
+        mappings = [LogFilePGManager._model_to_mapping(lf) for lf in log_files]
+        async with PGManager.session() as session:
+            await session.execute(insert(LogFile), mappings)
+        return [lf.id for lf in log_files]
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> bool:
-        """根据日志文件ID删除日志文件"""
-        sql_str = """
-            DELETE FROM log_file_table
-            WHERE id = :log_file_id
-        """
-        params = {"log_file_id": log_file_id}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM log_file WHERE id = :id"),
+                {"id": log_file_id},
+            )
+        return True
 
     @staticmethod
     async def update_log_file(log_file_id: str, log_file_info_dict: dict) -> int:
-        """根据日志文件ID更新日志文件信息，返回影响行数"""
-        set_clauses = []
-        for key in log_file_info_dict.keys():
-            set_clauses.append(f"{key} = :{key}")
-        set_clause_str = ", ".join(set_clauses)
-        sql_str = f"""
-            UPDATE log_file_table
-            SET {set_clause_str}
-            WHERE id = :log_file_id
-        """
-        params = {"log_file_id": log_file_id, **log_file_info_dict}
-        _, rowcount = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return rowcount
+        allowed = {
+            k: v for k, v in log_file_info_dict.items() if hasattr(LogFile, k)
+        }
+        dropped = {k: v for k, v in log_file_info_dict.items() if not hasattr(LogFile, k)}
+        if dropped:
+            logger.warning("log_file update dropped unknown keys: %s", list(dropped.keys()))
+        if not allowed:
+            return 0
+        set_clauses = ", ".join(f"{k} = :{k}" for k in allowed)
+        params = {"id": log_file_id, **allowed}
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(f"UPDATE log_file SET {set_clauses}, updated_at = NOW() WHERE id = :id"),
+                params,
+            )
+        return result.rowcount or 0
 
     @staticmethod
     async def list_log_files(
         kb_id: str, req: ListLogFilesRequest
     ) -> tuple[int, list[LogFileModel]]:
-        """根据知识ID分页查询日志文件列表"""
-        sql_str = """
-            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at
-            FROM log_file_table
-            WHERE kb_id = :kb_id AND existed_status = 1
-        """
-        params = {"kb_id": kb_id}
+        stmt = select(LogFile).where(LogFile.kb_id == kb_id, LogFile.existed_status.is_(True))
         if req.name:
-            sql_str += " AND name LIKE :name"
-            params["name"] = f"%{req.name}%"
+            stmt = stmt.where(LogFile.name.ilike(f"%{req.name}%"))
         if req.parse_status:
-            sql_str += " AND parse_status = :parse_status"
-            params["parse_status"] = req.parse_status.value
+            stmt = stmt.where(LogFile.parse_status == req.parse_status.value)
         if req.created_at_start:
-            sql_str += " AND created_at >= :created_at_start"
-            params["created_at_start"] = req.created_at_start
+            stmt = stmt.where(LogFile.created_at >= req.created_at_start)
         if req.created_at_end:
-            sql_str += " AND created_at <= :created_at_end"
-            params["created_at_end"] = req.created_at_end
-        total_rows = await AsyncSQLiteSingleton().execute_query(
-            f"SELECT COUNT(*) as cnt FROM ({sql_str})", params
-        )
-        total_count = total_rows[0]["cnt"] if total_rows else 0
+            stmt = stmt.where(LogFile.created_at <= req.created_at_end)
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        async with PGManager.session() as session:
+            total = (await session.execute(count_stmt)).scalar() or 0
+
         if req.created_sorted_desc:
-            sql_str += " ORDER BY created_at DESC"
+            stmt = stmt.order_by(desc(LogFile.created_at))
         else:
-            sql_str += " ORDER BY created_at ASC"
+            stmt = stmt.order_by(LogFile.created_at)
+
         offset = (req.page_num - 1) * req.page_cnt
-        sql_str += " LIMIT :limit OFFSET :offset"
-        params["limit"] = req.page_cnt
-        params["offset"] = offset
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
+        stmt = stmt.offset(offset).limit(req.page_cnt)
+
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
         log_files = []
         for row in rows:
-            if row.get("trace_failure_event_cnt") is None:
-                row["trace_failure_event_cnt"] = 0
-            log_files.append(LogFileModel(**row))
-        return total_count, log_files
+            data = {
+                "id": row.id,
+                "kb_id": row.kb_id,
+                "name": row.name,
+                "parse_status": row.parse_status,
+                "file_path": row.file_path,
+                "file_size": row.size,
+                "anomaly_cnt": row.anomalous_count,
+                "trace_failure_event_cnt": row.failure_count or 0,
+                "existed_status": row.existed_status,
+                "created_at": format_timestamp(row.created_at),
+            }
+            log_files.append(LogFileModel(**data))
+        return total, log_files
 
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> LogFileModel | None:
-        """根据日志文件ID获取日志文件信息"""
-        sql_str = """
-            SELECT id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, trace_failure_event_cnt, existed_status, created_at
-            FROM log_file_table
-            WHERE id = :log_file_id
-        """
-        params = {"log_file_id": log_file_id}
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        if rows:
-            data = rows[0]
-            if data.get("trace_failure_event_cnt") is None:
-                data["trace_failure_event_cnt"] = 0
-            return LogFileModel(**data)
-        return None
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(LogFile).where(LogFile.id == log_file_id)
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        data = {
+            "id": row.id,
+            "kb_id": row.kb_id,
+            "name": row.name,
+            "parse_status": row.parse_status,
+            "file_path": row.file_path,
+            "file_size": row.size,
+            "anomaly_cnt": row.anomalous_count,
+            "trace_failure_event_cnt": row.failure_count or 0,
+            "existed_status": row.existed_status,
+            "created_at": format_timestamp(row.created_at),
+        }
+        return LogFileModel(**data)
+
+    @staticmethod
+    async def list_log_file_ids(
+        kb_id: str | None = None, log_id: str | None = None
+    ) -> list[str]:
+        stmt = select(LogFile.id).where(LogFile.existed_status.is_(True))
+        if kb_id:
+            stmt = stmt.where(LogFile.kb_id == kb_id)
+        if log_id:
+            stmt = stmt.where(LogFile.id == log_id)
+        stmt = stmt.order_by(LogFile.created_at.desc())
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            return [r for r in result.scalars().all()]
+
+    @staticmethod
+    async def list_log_file_paths(
+        kb_id: str | None = None, log_id: str | None = None
+    ) -> list[tuple[str, str]]:
+        stmt = select(LogFile.id, LogFile.file_path).where(
+            LogFile.existed_status.is_(True)
+        )
+        if kb_id:
+            stmt = stmt.where(LogFile.kb_id == kb_id)
+        if log_id:
+            stmt = stmt.where(LogFile.id == log_id)
+        stmt = stmt.order_by(LogFile.created_at.desc())
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.mappings().all()
+        return [(r["id"], r["file_path"]) for r in rows]

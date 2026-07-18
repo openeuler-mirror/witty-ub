@@ -13,5 +13,5 @@ class FailureModeModel(BaseModel):
     symptom: str = Field(..., description="故障表现")
     root_cause: str = Field(..., description="故障根因")
     solution: str = Field(..., description="解决方法")
-    failure_domain: str = Field(..., desciption="故障域")
+    failure_domain: str = Field(..., description="故障域")
     children_failure_mode_ids: str = Field(..., description="子故障")
