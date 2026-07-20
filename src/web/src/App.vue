@@ -3514,6 +3514,11 @@ const renderLatencyEchart = () => {
         latencyChartCenterTime.value = bucket.time
         selectedFaultScale.value = selectedLatencyScale.value
         faultChartCenterTime.value = bucket.time
+        // Sync time range to filter panel
+        const scaleSeconds = selectedLatencyScale.value || 10
+        const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
+        globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllLatencyData(latencyChartRange.value)
       }
     }
@@ -3559,6 +3564,11 @@ const renderFaultEchart = () => {
         faultChartCenterTime.value = bucket.time
         selectedLatencyScale.value = selectedFaultScale.value
         latencyChartCenterTime.value = bucket.time
+        // Sync time range to filter panel
+        const scaleSeconds = selectedFaultScale.value || 10
+        const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
+        globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllFaultData()
       }
     }
@@ -5615,6 +5625,13 @@ const formatDateTime = (value: string) => {
   return `${value.replace('T', ' ')}:00`
 }
 
+
+
+const timestampToDatetimeLocal = (ts: number) => {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 const formatTimestamp = (ts: number) => {
   const d = new Date(ts)
   const pad = (n: number) => String(n).padStart(2, '0')
