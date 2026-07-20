@@ -281,7 +281,7 @@ def test_aggregate_hot_path_returns_dataclass_with_all_statistics() -> None:
     assert len(time_window_aggregates) == 1
     aggregate = aggregates[0]
     assert isinstance(aggregate, SrcDstAggregatedEventDataclass)
-    assert id_map[("10.0.0.1", "10.0.0.2")] == aggregate.id
+    assert id_map[("10.0.0.1", "10.0.0.2", "GET")] == aggregate.id
     assert aggregate.ave_total_latency == 3.0
     assert aggregate.min_total_latency == 1.0
     assert aggregate.max_total_latency == 5.0
@@ -337,16 +337,16 @@ def test_internal_dataclasses_convert_directly_to_database_tuples() -> None:
         "created-at",
     )
     aggregate_tuple = _aggregated_event_to_db_tuple(aggregate)
-    assert len(aggregate_tuple) == 39
+    assert len(aggregate_tuple) == 55
     assert aggregate_tuple[:8] == (
         "aggregate-id",
         "10.0.0.1",
         "10.0.0.2",
         "log-id",
+        "",
         0,
         0,
         0,
-        3.0,
     )
 
 
@@ -378,5 +378,5 @@ def test_dataclass_batch_managers_use_positional_sql(monkeypatch) -> None:
         SrcDstAggregatedEventManager.add_aggregated_events([aggregate])
     )
     assert aggregate_ids == ["aggregate-id"]
-    assert aggregate_db._conn.insert_sql.count("?") == 39
+    assert aggregate_db._conn.insert_sql.count("?") == 55
     assert aggregate_db._conn.params == [_aggregated_event_to_db_tuple(aggregate)]

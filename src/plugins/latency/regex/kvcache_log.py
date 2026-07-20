@@ -20,6 +20,11 @@ URMA_RE = re.compile(
     re.IGNORECASE,
 )
 
+# SET 请求的 Master 端 CreateMetaReq 日志，提取 src/dst 端点（不含端口）
+CREATE_META_REQ_RE = re.compile(
+    r"Processing CreateMetaReq,.*?src=([^:]+):\d+,\s*dst=([^:]+):\d+",
+)
+
 URMA_LINK_RE = re.compile(
     r"(?:WorkerWorkerExchangeUrmaConnectInfo finish|Worker-worker transport connection exchange success),\s*?"
     r"elapsed ms:\s*([\d.]+)"

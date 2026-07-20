@@ -58,7 +58,8 @@ async def get_latency_metrics(
 
     支持指标：total_latency, urma_total_latency, worker_query_meta_latency,
     sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
-    remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
+    remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total,
+    create_latency, publish_latency, worker_total_latency
 
     采样模式说明：
     - none: 不采样，返回全部数据

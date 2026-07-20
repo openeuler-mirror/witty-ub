@@ -357,6 +357,9 @@ class ParseResultBuilder:
                     None,  # remote_worker_rpc
                     None,  # master_process
                     None,  # master_rpc_total
+                    None,  # create_latency
+                    None,  # publish_latency
+                    None,  # worker_total_latency
                     timestamp,
                     shared_created_at,
                 )
@@ -390,7 +393,7 @@ class ParseResultBuilder:
         | SparseLogParseResultDataclass
     ]:
         correlated = self.correlated
-        if not correlated.sdk_worker_map:
+        if not correlated.sdk_worker_map and not correlated.sdk_set_worker_map:
             return self._build_unmatched_sdk_raw()
 
         results: list[
@@ -401,6 +404,7 @@ class ParseResultBuilder:
         shared_created_at = self._format_timestamp(datetime.now()) or ""
 
         sdk_worker_get = correlated.sdk_worker_map.get
+        sdk_set_worker_get = correlated.sdk_set_worker_map.get
         worker_idx_get = correlated.worker_idx_map.get
         sdk_urma_map = correlated.sdk_urma_map
         sdk_urma_get = sdk_urma_map.get
@@ -499,6 +503,19 @@ class ParseResultBuilder:
                 c2w_latency = None
             w_idx = worker_idx_get(i) if worker is not None else None
 
+            # SET 关联处理：1条SDK SET → (worker_create, worker_publish)
+            set_workers = sdk_set_worker_get(i)
+            create_latency = None
+            publish_latency = None
+            worker_total_latency = None
+            if set_workers is not None:
+                worker_create, worker_publish = set_workers
+                wc_elapsed = worker_create[T_ELAPSED_US] if isinstance(worker_create, tuple) else worker_create.elapsed_us
+                wp_elapsed = worker_publish[T_ELAPSED_US] if isinstance(worker_publish, tuple) else worker_publish.elapsed_us
+                create_latency = round(wc_elapsed / 1000, 3)
+                publish_latency = round(wp_elapsed / 1000, 3)
+                worker_total_latency = round(create_latency + publish_latency, 3)
+
             if has_legacy_sdk_urma_map:
                 sdk_urma_values = sdk_urma_get(i)
                 if not sdk_urma_values and has_sdk_urma_index:
@@ -519,11 +536,44 @@ class ParseResultBuilder:
                     else first_sdk_urma.elapsed_us
                 )
                 c2w_urma_latency = round(sdk_urma_elapsed_us / 1000, 3)
+                if isinstance(first_sdk_urma, tuple):
+                    sdk_urma_src = first_sdk_urma[T_SRC_ADDR]
+                    sdk_urma_dst = first_sdk_urma[T_DST_ADDR]
+                else:
+                    sdk_urma_src = first_sdk_urma.src_addr
+                    sdk_urma_dst = first_sdk_urma.dst_addr
             else:
                 c2w_urma_latency = None
-            if w_idx is None:
-                urma_empty_reason = None
-            else:
+                sdk_urma_src = None
+                sdk_urma_dst = None
+            # 初始化所有 Worker 端变量为 None（SET 请求时 w_idx 为 None，不会进入 else 分支）
+            query_meta_latency = None
+            urma_link_latency = None
+            w2w_urma_latency = None
+            sdk_process = None
+            sdk_rpc = None
+            local_worker_cost = None
+            local_worker_lock = None
+            remote_worker_cost = None
+            remote_worker_rpc = None
+            master_process = None
+            master_rpc_total = None
+            urma_latency = None
+            urma_inflight_count = None
+            src_ip = sdk_urma_src
+            dst_ip = sdk_urma_dst
+            urma_empty_reason = None
+
+            # SET 请求：统一使用 SDK → Worker 的 pod_ip 作为端点对。
+            # GET 请求的 src/dst 是 URMA 传输层端点，SET 请求没有 URMA 传输层，
+            # 其数据路径是 SDK → Worker（CREATE + PUBLISH），Worker → Master 是内部细节。
+            # 直接用 pod_ip 保证所有 SET 请求端点语义一致，聚合结果才有意义。
+            if set_workers is not None and not src_ip and not dst_ip:
+                worker_create = set_workers[0]
+                src_ip = sdk[T_POD_IP]
+                dst_ip = worker_create[T_POD_IP] if isinstance(worker_create, tuple) else worker_create.pod_ip
+
+            if w_idx is not None:
                 query_meta_latency = first_elapsed_ms(worker_query_meta_get(w_idx))
                 urma_link_latency = first_elapsed_ms(worker_link_get(w_idx))
                 w2w_urma_latency = first_elapsed_ms(worker_worker_urma_get(w_idx))
@@ -593,7 +643,7 @@ class ParseResultBuilder:
             # 获取该 worker 关联的所有 pod_ip
             w_pod_ips = self.correlated.worker_pod_ips_map.get(w_idx) if w_idx is not None else None
             
-            if w_idx is None:
+            if w_idx is None and set_workers is None:
                 results[i] = sparse_result_type(
                     total_latency,
                     is_anomalous,
@@ -614,7 +664,8 @@ class ParseResultBuilder:
                     shared_created_at,
                 )
             elif (
-                src_ip is None
+                set_workers is None
+                and src_ip is None
                 and dst_ip is None
                 and urma_inflight_count is None
                 and urma_link_latency is None
@@ -687,6 +738,9 @@ class ParseResultBuilder:
                     remote_worker_rpc,
                     master_process,
                     master_rpc_total,
+                    create_latency,
+                    publish_latency,
+                    worker_total_latency,
                     timestamp,
                     shared_created_at,
                 )

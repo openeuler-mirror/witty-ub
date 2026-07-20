@@ -1560,6 +1560,36 @@ button {
   letter-spacing: 0;
 }
 
+.operation-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f5f6f8;
+}
+
+.operation-toggle-btn {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  color: #667085;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.operation-toggle-btn:hover {
+  color: #1e3c72;
+  background: #e8ecf1;
+}
+
+.operation-toggle-btn.active {
+  background: #1e3c72;
+  color: #fff;
+}
+
 .monitor-sub {
   margin: 8px 0 0;
   border-left: 4px solid var(--primary);

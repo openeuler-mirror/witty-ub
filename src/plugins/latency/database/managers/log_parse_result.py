@@ -59,6 +59,9 @@ def _log_parse_result_to_db_tuple(result: LogParseResultStorage) -> tuple:
         result.remote_worker_rpc,
         result.master_process,
         result.master_rpc_total,
+        result.create_latency,
+        result.publish_latency,
+        result.worker_total_latency,
     )
 
 
@@ -85,6 +88,9 @@ def _can_use_sparse_insert(result: LogParseResultStorage) -> bool:
         and result.remote_worker_rpc is None
         and result.master_process is None
         and result.master_rpc_total is None
+        and result.create_latency is None
+        and result.publish_latency is None
+        and result.worker_total_latency is None
     )
 
 
@@ -112,6 +118,9 @@ def _can_use_c2w_insert(result: LogParseResultStorage) -> bool:
         and result.remote_worker_rpc is None
         and result.master_process is None
         and result.master_rpc_total is None
+        and result.create_latency is None
+        and result.publish_latency is None
+        and result.worker_total_latency is None
     )
 
 
@@ -214,7 +223,8 @@ class LogParseResultManager:
                 offset, is_anomalous, content, anomaly_reason, anomaly_score,
                 remark, existed_status, created_at,
                 sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
-                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
+                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total,
+                create_latency, publish_latency, worker_total_latency
             ) VALUES (
                 :id, :log_id, :aggregated_event_id, :anomalous_event_id, :trace_id,
                 :timestamp, :src_ip, :dst_ip, :pod_ips, :cluster_name, :host,
@@ -224,7 +234,8 @@ class LogParseResultManager:
                 :offset, :is_anomalous, :content, :anomaly_reason, :anomaly_score,
                 :remark, :existed_status, :created_at,
                 :sdk_process, :sdk_rpc, :local_worker_cost, :local_worker_lock,
-                :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total
+                :remote_worker_cost, :remote_worker_rpc, :master_process, :master_rpc_total,
+                :create_latency, :publish_latency, :worker_total_latency
             )
         """
         data = result.model_dump(exclude_none=False, by_alias=True)
@@ -312,10 +323,11 @@ class LogParseResultManager:
                             offset, is_anomalous, content, anomaly_reason, anomaly_score,
                             remark, existed_status, created_at,
                             sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
-                            remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
+                            remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total,
+                            create_latency, publish_latency, worker_total_latency
                         ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
                     sparse_sql_str = """
@@ -605,7 +617,8 @@ class LogParseResultManager:
                 lpr.offset, lpr.is_anomalous, lpr.content, lpr.anomaly_reason, lpr.anomaly_score,
                 lpr.remark, lpr.existed_status, lpr.created_at,
                 lpr.sdk_process, lpr.sdk_rpc, lpr.local_worker_cost, lpr.local_worker_lock,
-                lpr.remote_worker_cost, lpr.remote_worker_rpc, lpr.master_process, lpr.master_rpc_total
+                lpr.remote_worker_cost, lpr.remote_worker_rpc, lpr.master_process, lpr.master_rpc_total,
+                lpr.create_latency, lpr.publish_latency, lpr.worker_total_latency
             FROM log_parse_result_table lpr
             LEFT JOIN log_file_table lf ON lpr.log_id = lf.id
             WHERE lpr.existed_status = 1
@@ -658,6 +671,13 @@ class LogParseResultManager:
         if req.is_anomalous is not None:
             sql_str += " AND lpr.is_anomalous = :is_anomalous"
             params["is_anomalous"] = req.is_anomalous
+        if req.operation:
+            op = req.operation.upper()
+            if op == "GET":
+                sql_str += " AND (lpr.operation LIKE :operation OR lpr.operation IS NULL)"
+            else:
+                sql_str += " AND lpr.operation LIKE :operation"
+            params["operation"] = f"%{op}%"
         if req.created_at_start:
             sql_str += " AND lpr.created_at >= :created_at_start"
             params["created_at_start"] = req.created_at_start
@@ -688,6 +708,9 @@ class LogParseResultManager:
             "worker_query_meta_latency": "lpr.worker_query_meta_latency",
             "c2w_urma_latency": "lpr.c2w_urma_latency",
             "w2w_urma_latency": "lpr.w2w_urma_latency",
+            "create_latency": "lpr.create_latency",
+            "publish_latency": "lpr.publish_latency",
+            "worker_total_latency": "lpr.worker_total_latency",
             "created_at": "lpr.created_at",
         }
         
@@ -736,7 +759,8 @@ class LogParseResultManager:
                 offset, is_anomalous, content, anomaly_reason, anomaly_score,
                 remark, existed_status, created_at,
                 sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
-                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total
+                remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total,
+                create_latency, publish_latency, worker_total_latency
             FROM log_parse_result_table
             WHERE id = :result_id
         """
@@ -798,8 +822,12 @@ class LogParseResultManager:
             sql_str += " AND lpr.timestamp <= :end_time"
             params["end_time"] = req.end_time
         if req.operation:
-            sql_str += " AND lpr.operation LIKE :operation"
-            params["operation"] = f"%{req.operation}%"
+            op = req.operation.upper()
+            if op == "GET":
+                sql_str += " AND (lpr.operation LIKE :operation OR lpr.operation IS NULL)"
+            else:
+                sql_str += " AND lpr.operation LIKE :operation"
+            params["operation"] = f"%{op}%"
         if req.is_anomalous is not None:
             logger.info(f"Adding is_anomalous filter: {req.is_anomalous}")
             sql_str += " AND lpr.is_anomalous = :is_anomalous"
@@ -912,6 +940,14 @@ class LogParseResultManager:
         if req.end_time:
             where_clauses.append("time_bucket <= :end_time")
             params["end_time"] = req.end_time
+        if req.operation:
+            op = req.operation.upper()
+            if op == "GET":
+                # 兼容旧数据：operation 为 NULL 的历史数据视为 GET 请求
+                where_clauses.append("(operation LIKE :operation OR operation IS NULL)")
+            else:
+                where_clauses.append("operation LIKE :operation")
+            params["operation"] = f"%{op}%"
 
         where_sql = " AND ".join(where_clauses)
 
@@ -949,7 +985,10 @@ class LogParseResultManager:
                 {sample_prefix}remote_worker_cost as remote_worker_cost,
                 {sample_prefix}remote_worker_rpc as remote_worker_rpc,
                 {sample_prefix}master_process as master_process,
-                {sample_prefix}master_rpc_total as master_rpc_total
+                {sample_prefix}master_rpc_total as master_rpc_total,
+                {sample_prefix}create_latency as create_latency,
+                {sample_prefix}publish_latency as publish_latency,
+                {sample_prefix}worker_total_latency as worker_total_latency
             FROM time_window_aggregated_table
             WHERE {where_sql}
             ORDER BY time_bucket ASC

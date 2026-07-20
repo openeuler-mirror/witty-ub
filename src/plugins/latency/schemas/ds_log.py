@@ -43,6 +43,7 @@ class CorrelationResult:
     """关联结果的轻量容器；所有索引均按引用传递，不做 Pydantic 复制。"""
 
     sdk_worker_map: dict = field(default_factory=dict)
+    sdk_set_worker_map: dict = field(default_factory=dict)  # SDK SET → (worker_create, worker_publish)
     sdk_urma_map: dict = field(default_factory=dict)
     worker_urma_map: dict = field(default_factory=dict)
     worker_worker_urma_map: dict = field(default_factory=dict)

@@ -14,6 +14,7 @@ def _aggregated_event_to_db_tuple(
         event.src_ip,
         event.dst_ip,
         event.log_id,
+        event.operation,
         event.log_parse_result_cnt,
         event.anomaly_log_parse_result_cnt,
         event.anomaly_cnt,
@@ -47,6 +48,21 @@ def _aggregated_event_to_db_tuple(
         event.max_w2w_urma_latency,
         event.p99_w2w_urma_latency,
         event.p95_w2w_urma_latency,
+        event.ave_create_latency,
+        event.min_create_latency,
+        event.max_create_latency,
+        event.p99_create_latency,
+        event.p95_create_latency,
+        event.ave_publish_latency,
+        event.min_publish_latency,
+        event.max_publish_latency,
+        event.p99_publish_latency,
+        event.p95_publish_latency,
+        event.ave_worker_total_latency,
+        event.min_worker_total_latency,
+        event.max_worker_total_latency,
+        event.p99_worker_total_latency,
+        event.p95_worker_total_latency,
         event.existed_status,
         event.created_at,
     )
@@ -60,7 +76,7 @@ class SrcDstAggregatedEventManager:
         """添加聚合事件"""
         sql_str = """
             INSERT INTO src_dst_aggregated_event_table (
-                id, src_ip, dst_ip, log_id, log_parse_result_cnt,
+                id, src_ip, dst_ip, log_id, operation, log_parse_result_cnt,
                 anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
                 min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
                 ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
@@ -71,9 +87,14 @@ class SrcDstAggregatedEventManager:
                 ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
                 p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
                 min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                p95_w2w_urma_latency, existed_status, created_at
+                p95_w2w_urma_latency, ave_create_latency, min_create_latency,
+                max_create_latency, p99_create_latency, p95_create_latency,
+                ave_publish_latency, min_publish_latency, max_publish_latency,
+                p99_publish_latency, p95_publish_latency, ave_worker_total_latency,
+                min_worker_total_latency, max_worker_total_latency, p99_worker_total_latency,
+                p95_worker_total_latency, existed_status, created_at
             ) VALUES (
-                :id, :src_ip, :dst_ip, :log_id, :log_parse_result_cnt,
+                :id, :src_ip, :dst_ip, :log_id, :operation, :log_parse_result_cnt,
                 :anomaly_log_parse_result_cnt, :anomaly_cnt, :ave_total_latency,
                 :min_total_latency, :max_total_latency, :p99_total_latency, :p95_total_latency,
                 :ave_query_meta_latency, :min_query_meta_latency, :max_query_meta_latency,
@@ -84,7 +105,12 @@ class SrcDstAggregatedEventManager:
                 :ave_c2w_urma_latency, :min_c2w_urma_latency, :max_c2w_urma_latency,
                 :p99_c2w_urma_latency, :p95_c2w_urma_latency, :ave_w2w_urma_latency,
                 :min_w2w_urma_latency, :max_w2w_urma_latency, :p99_w2w_urma_latency,
-                :p95_w2w_urma_latency, :existed_status, :created_at
+                :p95_w2w_urma_latency, :ave_create_latency, :min_create_latency,
+                :max_create_latency, :p99_create_latency, :p95_create_latency,
+                :ave_publish_latency, :min_publish_latency, :max_publish_latency,
+                :p99_publish_latency, :p95_publish_latency, :ave_worker_total_latency,
+                :min_worker_total_latency, :max_worker_total_latency, :p99_worker_total_latency,
+                :p95_worker_total_latency, :existed_status, :created_at
             )
         """
         success, _ = await AsyncSQLiteSingleton().execute_modify(
@@ -126,7 +152,7 @@ class SrcDstAggregatedEventManager:
                     
                     sql_str = """
                         INSERT INTO src_dst_aggregated_event_table (
-                            id, src_ip, dst_ip, log_id, log_parse_result_cnt,
+                            id, src_ip, dst_ip, log_id, operation, log_parse_result_cnt,
                             anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
                             min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
                             ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
@@ -137,10 +163,16 @@ class SrcDstAggregatedEventManager:
                             ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
                             p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
                             min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                            p95_w2w_urma_latency, existed_status, created_at
+                            p95_w2w_urma_latency, ave_create_latency, min_create_latency,
+                            max_create_latency, p99_create_latency, p95_create_latency,
+                            ave_publish_latency, min_publish_latency, max_publish_latency,
+                            p99_publish_latency, p95_publish_latency, ave_worker_total_latency,
+                            min_worker_total_latency, max_worker_total_latency, p99_worker_total_latency,
+                            p95_worker_total_latency, existed_status, created_at
                         ) VALUES (
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
                     for i in range(0, total_count, batch_size):
@@ -247,7 +279,7 @@ class SrcDstAggregatedEventManager:
             """
 
         sql_str = cte_sql + """
-            SELECT ae.id, ae.src_ip, ae.dst_ip, ae.log_id, ae.log_parse_result_cnt,
+            SELECT ae.id, ae.src_ip, ae.dst_ip, ae.log_id, ae.operation, ae.log_parse_result_cnt,
                 ae.anomaly_log_parse_result_cnt, ae.anomaly_cnt, ae.ave_total_latency,
                 ae.min_total_latency, ae.max_total_latency, ae.p99_total_latency, ae.p95_total_latency,
                 ae.ave_query_meta_latency, ae.min_query_meta_latency, ae.max_query_meta_latency,
@@ -258,7 +290,12 @@ class SrcDstAggregatedEventManager:
                 ae.ave_c2w_urma_latency, ae.min_c2w_urma_latency, ae.max_c2w_urma_latency,
                 ae.p99_c2w_urma_latency, ae.p95_c2w_urma_latency, ae.ave_w2w_urma_latency,
                 ae.min_w2w_urma_latency, ae.max_w2w_urma_latency, ae.p99_w2w_urma_latency,
-                ae.p95_w2w_urma_latency, ae.existed_status, ae.created_at
+                ae.p95_w2w_urma_latency, ae.ave_create_latency, ae.min_create_latency,
+                ae.max_create_latency, ae.p99_create_latency, ae.p95_create_latency,
+                ae.ave_publish_latency, ae.min_publish_latency, ae.max_publish_latency,
+                ae.p99_publish_latency, ae.p95_publish_latency, ae.ave_worker_total_latency,
+                ae.min_worker_total_latency, ae.max_worker_total_latency, ae.p99_worker_total_latency,
+                ae.p95_worker_total_latency, ae.existed_status, ae.created_at
             FROM src_dst_aggregated_event_table ae
             {}
             LEFT JOIN log_file_table lf ON ae.log_id = lf.id
@@ -282,6 +319,14 @@ class SrcDstAggregatedEventManager:
         if req.end_time:
             sql_str += " AND ae.created_at <= :end_time"
             params["end_time"] = req.end_time
+        if req.operation:
+            op = req.operation.upper()
+            if op == "GET":
+                # 兼容旧数据：operation 为空的历史数据视为 GET 请求
+                sql_str += " AND (ae.operation = :operation OR ae.operation = '')"
+            else:
+                sql_str += " AND ae.operation = :operation"
+            params["operation"] = op
 
         count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
         count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
@@ -296,8 +341,12 @@ class SrcDstAggregatedEventManager:
             "urma_link_latency": f"ae.{stat_type}_urma_link_latency",
             "c2w_urma_latency": f"ae.{stat_type}_c2w_urma_latency",
             "w2w_urma_latency": f"ae.{stat_type}_w2w_urma_latency",
+            "create_latency": f"ae.{stat_type}_create_latency",
+            "publish_latency": f"ae.{stat_type}_publish_latency",
+            "worker_total_latency": f"ae.{stat_type}_worker_total_latency",
             "src_ip": "ae.src_ip",
             "dst_ip": "ae.dst_ip",
+            "operation": "ae.operation",
             "anomaly_log_parse_result_cnt": "ae.anomaly_log_parse_result_cnt",
             "created_at": "ae.created_at",
         }
@@ -332,7 +381,7 @@ class SrcDstAggregatedEventManager:
     ) -> SrcDstAggregatedEventModel | None:
         """根据ID获取聚合事件"""
         sql_str = """
-            SELECT id, src_ip, dst_ip, log_id, log_parse_result_cnt,
+            SELECT id, src_ip, dst_ip, log_id, operation, log_parse_result_cnt,
                 anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
                 min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
                 ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
@@ -343,7 +392,12 @@ class SrcDstAggregatedEventManager:
                 ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
                 p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
                 min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                p95_w2w_urma_latency, existed_status, created_at
+                p95_w2w_urma_latency, ave_create_latency, min_create_latency,
+                max_create_latency, p99_create_latency, p95_create_latency,
+                ave_publish_latency, min_publish_latency, max_publish_latency,
+                p99_publish_latency, p95_publish_latency, ave_worker_total_latency,
+                min_worker_total_latency, max_worker_total_latency, p99_worker_total_latency,
+                p95_worker_total_latency, existed_status, created_at
             FROM src_dst_aggregated_event_table
             WHERE id = :event_id
         """
@@ -403,6 +457,7 @@ class SrcDstAggregatedEventManager:
             cluster_name=req.cluster_name,
             host=req.host,
             pod_ip=req.pod_ip,
+            operation=req.operation or None,
         )
 
         if not rows:
@@ -440,6 +495,15 @@ class SrcDstAggregatedEventManager:
             "ave_w2w_urma_latencies": [],
             "p99_w2w_urma_latencies": [],
             "p95_w2w_urma_latencies": [],
+            "ave_create_latencies": [],
+            "p99_create_latencies": [],
+            "p95_create_latencies": [],
+            "ave_publish_latencies": [],
+            "p99_publish_latencies": [],
+            "p95_publish_latencies": [],
+            "ave_worker_total_latencies": [],
+            "p99_worker_total_latencies": [],
+            "p95_worker_total_latencies": [],
         })
 
         ip_pair_keys: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -509,6 +573,25 @@ class SrcDstAggregatedEventManager:
             if row["p95_w2w_urma_latency"] is not None:
                 bucket["p95_w2w_urma_latencies"].append(row["p95_w2w_urma_latency"])
 
+            if row["ave_create_latency"] is not None:
+                bucket["ave_create_latencies"].append(row["ave_create_latency"])
+            if row["p99_create_latency"] is not None:
+                bucket["p99_create_latencies"].append(row["p99_create_latency"])
+            if row["p95_create_latency"] is not None:
+                bucket["p95_create_latencies"].append(row["p95_create_latency"])
+            if row["ave_publish_latency"] is not None:
+                bucket["ave_publish_latencies"].append(row["ave_publish_latency"])
+            if row["p99_publish_latency"] is not None:
+                bucket["p99_publish_latencies"].append(row["p99_publish_latency"])
+            if row["p95_publish_latency"] is not None:
+                bucket["p95_publish_latencies"].append(row["p95_publish_latency"])
+            if row["ave_worker_total_latency"] is not None:
+                bucket["ave_worker_total_latencies"].append(row["ave_worker_total_latency"])
+            if row["p99_worker_total_latency"] is not None:
+                bucket["p99_worker_total_latencies"].append(row["p99_worker_total_latency"])
+            if row["p95_worker_total_latency"] is not None:
+                bucket["p95_worker_total_latencies"].append(row["p95_worker_total_latency"])
+
             ip_pair_key = (strip_port(row["src_ip"] or ""), strip_port(row["dst_ip"] or ""))
             ip_pair_keys[ip_pair_key].append({
                 "row": row,
@@ -553,6 +636,21 @@ class SrcDstAggregatedEventManager:
                 "max_w2w_urma_latencies": [],
                 "p99_w2w_urma_latencies": [],
                 "p95_w2w_urma_latencies": [],
+                "ave_create_latencies": [],
+                "min_create_latencies": [],
+                "max_create_latencies": [],
+                "p99_create_latencies": [],
+                "p95_create_latencies": [],
+                "ave_publish_latencies": [],
+                "min_publish_latencies": [],
+                "max_publish_latencies": [],
+                "p99_publish_latencies": [],
+                "p95_publish_latencies": [],
+                "ave_worker_total_latencies": [],
+                "min_worker_total_latencies": [],
+                "max_worker_total_latencies": [],
+                "p99_worker_total_latencies": [],
+                "p95_worker_total_latencies": [],
             })
 
             for entry in entries:
@@ -631,6 +729,37 @@ class SrcDstAggregatedEventManager:
                 if row["p95_w2w_urma_latency"] is not None:
                     g["p95_w2w_urma_latencies"].append(row["p95_w2w_urma_latency"])
 
+                if row["ave_create_latency"] is not None:
+                    g["ave_create_latencies"].append(row["ave_create_latency"])
+                if row["min_create_latency"] is not None:
+                    g["min_create_latencies"].append(row["min_create_latency"])
+                if row["max_create_latency"] is not None:
+                    g["max_create_latencies"].append(row["max_create_latency"])
+                if row["p99_create_latency"] is not None:
+                    g["p99_create_latencies"].append(row["p99_create_latency"])
+                if row["p95_create_latency"] is not None:
+                    g["p95_create_latencies"].append(row["p95_create_latency"])
+                if row["ave_publish_latency"] is not None:
+                    g["ave_publish_latencies"].append(row["ave_publish_latency"])
+                if row["min_publish_latency"] is not None:
+                    g["min_publish_latencies"].append(row["min_publish_latency"])
+                if row["max_publish_latency"] is not None:
+                    g["max_publish_latencies"].append(row["max_publish_latency"])
+                if row["p99_publish_latency"] is not None:
+                    g["p99_publish_latencies"].append(row["p99_publish_latency"])
+                if row["p95_publish_latency"] is not None:
+                    g["p95_publish_latencies"].append(row["p95_publish_latency"])
+                if row["ave_worker_total_latency"] is not None:
+                    g["ave_worker_total_latencies"].append(row["ave_worker_total_latency"])
+                if row["min_worker_total_latency"] is not None:
+                    g["min_worker_total_latencies"].append(row["min_worker_total_latency"])
+                if row["max_worker_total_latency"] is not None:
+                    g["max_worker_total_latencies"].append(row["max_worker_total_latency"])
+                if row["p99_worker_total_latency"] is not None:
+                    g["p99_worker_total_latencies"].append(row["p99_worker_total_latency"])
+                if row["p95_worker_total_latency"] is not None:
+                    g["p95_worker_total_latencies"].append(row["p95_worker_total_latency"])
+
             for bucket_key, g in ip_pair_group.items():
                 aves = g["ave_total_latencies"]
                 mins = g["min_total_latencies"]
@@ -706,6 +835,39 @@ class SrcDstAggregatedEventManager:
                 ip_pair["p99_w2w_urma_latency"] = calc_percentile(p99s_w2w[:], 99) if p99s_w2w else None
                 ip_pair["p95_w2w_urma_latency"] = calc_percentile(p95s_w2w[:], 95) if p95s_w2w else None
 
+                aves_cl = g["ave_create_latencies"]
+                mins_cl = g["min_create_latencies"]
+                maxs_cl = g["max_create_latencies"]
+                p99s_cl = g["p99_create_latencies"]
+                p95s_cl = g["p95_create_latencies"]
+                ip_pair["ave_create_latency"] = sum(aves_cl) / len(aves_cl) if aves_cl else None
+                ip_pair["min_create_latency"] = min(mins_cl) if mins_cl else None
+                ip_pair["max_create_latency"] = max(maxs_cl) if maxs_cl else None
+                ip_pair["p99_create_latency"] = calc_percentile(p99s_cl[:], 99) if p99s_cl else None
+                ip_pair["p95_create_latency"] = calc_percentile(p95s_cl[:], 95) if p95s_cl else None
+
+                aves_pl = g["ave_publish_latencies"]
+                mins_pl = g["min_publish_latencies"]
+                maxs_pl = g["max_publish_latencies"]
+                p99s_pl = g["p99_publish_latencies"]
+                p95s_pl = g["p95_publish_latencies"]
+                ip_pair["ave_publish_latency"] = sum(aves_pl) / len(aves_pl) if aves_pl else None
+                ip_pair["min_publish_latency"] = min(mins_pl) if mins_pl else None
+                ip_pair["max_publish_latency"] = max(maxs_pl) if maxs_pl else None
+                ip_pair["p99_publish_latency"] = calc_percentile(p99s_pl[:], 99) if p99s_pl else None
+                ip_pair["p95_publish_latency"] = calc_percentile(p95s_pl[:], 95) if p95s_pl else None
+
+                aves_wtl = g["ave_worker_total_latencies"]
+                mins_wtl = g["min_worker_total_latencies"]
+                maxs_wtl = g["max_worker_total_latencies"]
+                p99s_wtl = g["p99_worker_total_latencies"]
+                p95s_wtl = g["p95_worker_total_latencies"]
+                ip_pair["ave_worker_total_latency"] = sum(aves_wtl) / len(aves_wtl) if aves_wtl else None
+                ip_pair["min_worker_total_latency"] = min(mins_wtl) if mins_wtl else None
+                ip_pair["max_worker_total_latency"] = max(maxs_wtl) if maxs_wtl else None
+                ip_pair["p99_worker_total_latency"] = calc_percentile(p99s_wtl[:], 99) if p99s_wtl else None
+                ip_pair["p95_worker_total_latency"] = calc_percentile(p95s_wtl[:], 95) if p95s_wtl else None
+
                 time_buckets[bucket_key]["ip_pairs"].append(ip_pair)
 
         for tb in time_buckets:
@@ -742,6 +904,18 @@ class SrcDstAggregatedEventManager:
             p99s_w2w = bucket["p99_w2w_urma_latencies"]
             p95s_w2w = bucket["p95_w2w_urma_latencies"]
 
+            aves_cl = bucket["ave_create_latencies"]
+            p99s_cl = bucket["p99_create_latencies"]
+            p95s_cl = bucket["p95_create_latencies"]
+
+            aves_pl = bucket["ave_publish_latencies"]
+            p99s_pl = bucket["p99_publish_latencies"]
+            p95s_pl = bucket["p95_publish_latencies"]
+
+            aves_wtl = bucket["ave_worker_total_latencies"]
+            p99s_wtl = bucket["p99_worker_total_latencies"]
+            p95s_wtl = bucket["p95_worker_total_latencies"]
+
             events.append({
                 "start_time": bucket["start_time"],
                 "end_time": bucket["end_time"],
@@ -767,6 +941,15 @@ class SrcDstAggregatedEventManager:
                 "ave_w2w_urma_latency": sum(aves_w2w) / len(aves_w2w) if aves_w2w else None,
                 "p99_w2w_urma_latency": calc_percentile(p99s_w2w[:], 99) if p99s_w2w else None,
                 "p95_w2w_urma_latency": calc_percentile(p95s_w2w[:], 95) if p95s_w2w else None,
+                "ave_create_latency": sum(aves_cl) / len(aves_cl) if aves_cl else None,
+                "p99_create_latency": calc_percentile(p99s_cl[:], 99) if p99s_cl else None,
+                "p95_create_latency": calc_percentile(p95s_cl[:], 95) if p95s_cl else None,
+                "ave_publish_latency": sum(aves_pl) / len(aves_pl) if aves_pl else None,
+                "p99_publish_latency": calc_percentile(p99s_pl[:], 99) if p99s_pl else None,
+                "p95_publish_latency": calc_percentile(p95s_pl[:], 95) if p95s_pl else None,
+                "ave_worker_total_latency": sum(aves_wtl) / len(aves_wtl) if aves_wtl else None,
+                "p99_worker_total_latency": calc_percentile(p99s_wtl[:], 99) if p99s_wtl else None,
+                "p95_worker_total_latency": calc_percentile(p95s_wtl[:], 95) if p95s_wtl else None,
                 "ip_pairs": bucket["ip_pairs"],
             })
 

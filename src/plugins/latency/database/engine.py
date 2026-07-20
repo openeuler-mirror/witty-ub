@@ -109,6 +109,7 @@ table_ddl_list = {
             src_ip TEXT,
             dst_ip TEXT,
             log_id TEXT,
+            operation TEXT DEFAULT '',
             log_parse_result_cnt INTEGER,
             anomaly_log_parse_result_cnt INTEGER,
             anomaly_cnt INTEGER,
@@ -142,6 +143,24 @@ table_ddl_list = {
             max_w2w_urma_latency REAL,
             p99_w2w_urma_latency REAL,
             p95_w2w_urma_latency REAL,
+            ave_create_latency REAL,
+            min_create_latency REAL,
+            max_create_latency REAL,
+            p99_create_latency REAL,
+            p95_create_latency REAL,
+            p9999_create_latency REAL,
+            ave_publish_latency REAL,
+            min_publish_latency REAL,
+            max_publish_latency REAL,
+            p99_publish_latency REAL,
+            p95_publish_latency REAL,
+            p9999_publish_latency REAL,
+            ave_worker_total_latency REAL,
+            min_worker_total_latency REAL,
+            max_worker_total_latency REAL,
+            p99_worker_total_latency REAL,
+            p95_worker_total_latency REAL,
+            p9999_worker_total_latency REAL,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
@@ -154,6 +173,7 @@ table_ddl_list = {
             time_bucket TEXT,
             src_ip TEXT,
             dst_ip TEXT,
+            operation TEXT DEFAULT '',
             log_parse_result_cnt INTEGER,
             anomaly_cnt INTEGER,
             ave_total_latency REAL,
@@ -186,6 +206,24 @@ table_ddl_list = {
             max_w2w_urma_latency REAL,
             p99_w2w_urma_latency REAL,
             p95_w2w_urma_latency REAL,
+            ave_create_latency REAL,
+            min_create_latency REAL,
+            max_create_latency REAL,
+            p99_create_latency REAL,
+            p95_create_latency REAL,
+            p9999_create_latency REAL,
+            ave_publish_latency REAL,
+            min_publish_latency REAL,
+            max_publish_latency REAL,
+            p99_publish_latency REAL,
+            p95_publish_latency REAL,
+            p9999_publish_latency REAL,
+            ave_worker_total_latency REAL,
+            min_worker_total_latency REAL,
+            max_worker_total_latency REAL,
+            p99_worker_total_latency REAL,
+            p95_worker_total_latency REAL,
+            p9999_worker_total_latency REAL,
             existed_status BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
@@ -266,7 +304,10 @@ table_ddl_list = {
             remote_worker_cost REAL,
             remote_worker_rpc REAL,
             master_process REAL,
-            master_rpc_total REAL
+            master_rpc_total REAL,
+            create_latency REAL,
+            publish_latency REAL,
+            worker_total_latency REAL
         )
     """,
     "log_parse_result_pod_ip_table": """
@@ -539,7 +580,7 @@ class AsyncSQLiteSingleton:
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN remote_worker_rpc REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_process REAL"),
             ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN master_rpc_total REAL"),
-            ("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN src_ip TEXT"),
+("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN src_ip TEXT"),
             ("trace_failure_event_table", "ALTER TABLE trace_failure_event_table ADD COLUMN dst_ip TEXT"),
             ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_total_latency REAL"),
             ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_query_meta_latency REAL"),
@@ -595,6 +636,45 @@ class AsyncSQLiteSingleton:
             ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_master_rpc_total REAL"),
             ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_master_rpc_total REAL"),
             ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_master_rpc_total REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN operation TEXT"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN create_latency REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN publish_latency REAL"),
+            ("log_parse_result_table", "ALTER TABLE log_parse_result_table ADD COLUMN worker_total_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN ave_create_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN min_create_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN max_create_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN p99_create_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN p95_create_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN ave_publish_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN min_publish_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN max_publish_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN p99_publish_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN p95_publish_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN ave_worker_total_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN min_worker_total_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN max_worker_total_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN p99_worker_total_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN p95_worker_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_create_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_create_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_create_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_create_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_create_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_create_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_publish_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_publish_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_publish_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_publish_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_publish_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_publish_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN ave_worker_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN min_worker_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN max_worker_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p99_worker_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p95_worker_total_latency REAL"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN p9999_worker_total_latency REAL"),
+            ("src_dst_aggregated_event_table", "ALTER TABLE src_dst_aggregated_event_table ADD COLUMN operation TEXT DEFAULT ''"),
+            ("time_window_aggregated_table", "ALTER TABLE time_window_aggregated_table ADD COLUMN operation TEXT DEFAULT ''"),
             (
                 "diagnosis_case_table",
                 """
@@ -791,9 +871,18 @@ class AsyncSQLiteSingleton:
             results = [dict(row) for row in cursor.fetchall()]
             logger.debug(f"执行查询成功，返回 {len(results)} 条记录")
             return results
+        except sqlite3.OperationalError as e:
+            err_msg = str(e).lower()
+            if "no such column" in err_msg:
+                logger.error(
+                    f"查询失败——数据库缺少列，请重启后端以触发 ALTER TABLE 迁移。"
+                    f" 错误: {e}"
+                    f" (SQL 前 200 字符: {sql[:200]})"
+                )
+            raise
         except sqlite3.Error as e:
-            logger.error(f"执行查询失败: {e} (SQL: {sql}, params: {params})")
-            return []
+            logger.error(f"执行查询失败: {e} (SQL: {sql[:200]}, params: {params})")
+            raise
 
     def _sync_execute_modify(self, sql: str, params: Any = ()) -> tuple[bool, int]:
         """

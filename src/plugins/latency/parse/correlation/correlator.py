@@ -19,6 +19,7 @@ T_ELAPSED_US = TupleField.ELAPSED_US
 T_TRACE_ID = TupleField.TRACE_ID
 T_ENTRY_TYPE = TupleField.ENTRY_TYPE
 T_POD_IP = TupleField.POD_IP
+T_OPERATION = TupleField.OPERATION
 
 
 def _group_by(entries, key_fn, filter_fn=None) -> dict:
@@ -267,6 +268,55 @@ class SdkWorkerCorrelator(BaseCorrelator):
             if not candidates:
                 continue
             results[i] = candidates[0]
+        return results
+
+
+class SdkSetWorkerCorrelator(BaseCorrelator):
+    """SDK SET 请求关联器：1条SDK SET → 2条Worker (CREATE + PUBLISH)"""
+
+    def __init__(self, index_manager: IndexManager, sdk_entries: list):
+        super().__init__(index_manager)
+        self.sdk_entries = sdk_entries
+        self._is_tuple = sdk_entries and isinstance(sdk_entries[0], tuple)
+        self._worker_is_tuple = index_manager._worker_is_tuple
+
+    def correlate(self) -> dict[int, tuple]:
+        """返回 dict[sdk_idx, (worker_create, worker_publish)]"""
+        results: dict[int, tuple] = {}
+        worker_by_trace_get = self.index_manager.worker_by_trace.get
+
+        for i, sdk in enumerate(self.sdk_entries):
+            if self._is_tuple:
+                operation = sdk[T_OPERATION]
+                if operation != "DS_KV_CLIENT_SET":
+                    continue
+                trace_id = sdk[T_TRACE_ID]
+            else:
+                if sdk.operation != "DS_KV_CLIENT_SET":
+                    continue
+                trace_id = sdk.trace_id
+
+            candidates = worker_by_trace_get(trace_id)
+            if not candidates:
+                continue
+
+            worker_create = None
+            worker_publish = None
+            for w in candidates:
+                if self._worker_is_tuple:
+                    etype = w[T_ENTRY_TYPE]
+                else:
+                    etype = w.entry_type
+                if etype == "WORKER_CREATE" or etype == EntryType.WORKER_CREATE:
+                    if worker_create is None:
+                        worker_create = w
+                elif etype == "WORKER_PUBLISH" or etype == EntryType.WORKER_PUBLISH:
+                    if worker_publish is None:
+                        worker_publish = w
+
+            if worker_create is not None and worker_publish is not None:
+                results[i] = (worker_create, worker_publish)
+
         return results
 
 
@@ -560,6 +610,10 @@ class LogCorrelator:
             "sdk_worker",
             lambda: SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate(),
         )
+        sdk_set_worker_map = self._timed_stage(
+            "sdk_set_worker",
+            lambda: SdkSetWorkerCorrelator(im, self.sdk_entries).correlate(),
+        )
         worker_idx_map = self._timed_stage(
             "worker_idx",
             lambda: WorkerIdxCorrelator(im).correlate(sdk_worker_map),
@@ -646,6 +700,7 @@ class LogCorrelator:
 
         return CorrelationResult(
             sdk_worker_map=sdk_worker_map,
+            sdk_set_worker_map=sdk_set_worker_map,
             sdk_urma_index=im.urma_by_trace,
             worker_urma_map=worker_urma_map,
             worker_worker_urma_map=worker_worker_urma_map,

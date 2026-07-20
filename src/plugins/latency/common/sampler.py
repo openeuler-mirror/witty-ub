@@ -24,6 +24,9 @@ _METRIC_KEYS = [
     "remote_worker_rpc",
     "master_process",
     "master_rpc_total",
+    "create_latency",
+    "publish_latency",
+    "worker_total_latency",
 ]
 
 
