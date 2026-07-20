@@ -2557,6 +2557,8 @@ type AssetState = {
   faultChartCenterTime: number | null
   selectedLatencyScale: number
   selectedFaultScale: number
+  logSourceInput: string
+  uploadLogError: string
 }
 
 const createEmptyAssetState = (): AssetState => ({
@@ -2566,6 +2568,8 @@ const createEmptyAssetState = (): AssetState => ({
   faultChartCenterTime: null,
   selectedLatencyScale: 60,
   selectedFaultScale: 60,
+  logSourceInput: '',
+  uploadLogError: '',
 })
 
 const assetStates = ref<Record<string, AssetState>>({})
@@ -6871,6 +6875,10 @@ const jumpAssetPage = () => {
   goAssetPage(nextPage)
 }
 
+const handleAssetClick = (assetId: string) => {
+  void loadAssetDetail(assetId)
+}
+
 const loadAssetDetail = async (assetId: string) => {
   // Save current asset state before switching
   if (selectedAssetId.value) {
@@ -6881,6 +6889,8 @@ const loadAssetDetail = async (assetId: string) => {
       faultChartCenterTime: faultChartCenterTime.value,
       selectedLatencyScale: selectedLatencyScale.value,
       selectedFaultScale: selectedFaultScale.value,
+      logSourceInput: logSourceInput.value,
+      uploadLogError: uploadLogError.value,
     }
   }
   
@@ -6896,15 +6906,8 @@ const loadAssetDetail = async (assetId: string) => {
   faultChartCenterTime.value = savedState.faultChartCenterTime
   selectedLatencyScale.value = savedState.selectedLatencyScale
   selectedFaultScale.value = savedState.selectedFaultScale
-  
-  // Trigger data loading for the restored state
-  void loadLatencyChart()
-  void loadAbnormalTraces(1)
-  void loadLatencyDetail(1)
-  void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
-  void loadFaultChart()
-  void loadFaultTraceEvents(1)
-  void loadFaultAggregatedEvents(1)
+  logSourceInput.value = savedState.logSourceInput
+  uploadLogError.value = savedState.uploadLogError
   
   selectedAsset.value = null
   selectedTrace.value = null
@@ -7834,9 +7837,9 @@ onBeforeUnmount(() => {
             :class="{ selected: selectedAssetId === asset.id }"
             role="button"
             tabindex="0"
-            @click="loadAssetDetail(asset.id)"
-            @keydown.enter="loadAssetDetail(asset.id)"
-            @keydown.space.prevent="loadAssetDetail(asset.id)"
+            @click="handleAssetClick(asset.id)"
+            @keydown.enter="handleAssetClick(asset.id)"
+            @keydown.space.prevent="handleAssetClick(asset.id)"
           >
             <span class="asset-item-main">
               <strong>{{ asset.name }}</strong>
