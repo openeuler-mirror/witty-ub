@@ -1,4 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+import asyncio
+import concurrent.futures
 from typing import Optional
 import logging
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -8,6 +10,8 @@ from latency.database.managers.log_file import LogFileManager
 from latency.task.log_preprocessor import default_preprocess_dir, preprocess_log_dir
 
 logger = logging.getLogger(__name__)
+
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
 class TaskHandler:
@@ -49,7 +53,8 @@ class TaskHandler:
             return None
 
         output_dir = default_preprocess_dir(log_file.id)
-        result = preprocess_log_dir(log_file.file_path, output_dir)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(_executor, preprocess_log_dir, log_file.file_path, output_dir)
         logger.info(
             "日志预处理完成: task=%s log_file=%s source=%s output=%s extracted=%d copied=%d split=%d reused=%s",
             task.id,
