@@ -2550,6 +2550,32 @@ type GlobalFilterState = {
   traceBoards: string[]
 }
 
+type AssetState = {
+  filters: GlobalFilterState
+  appliedFilters: GlobalFilterState
+  latencyChartCenterTime: number | null
+  faultChartCenterTime: number | null
+  selectedLatencyScale: number
+  selectedFaultScale: number
+  logSourceInput: string
+  uploadLogError: string
+}
+
+const createEmptyAssetState = (): AssetState => ({
+  filters: createEmptyFilters(),
+  appliedFilters: createEmptyFilters(),
+  latencyChartCenterTime: null,
+  faultChartCenterTime: null,
+  selectedLatencyScale: 60,
+  selectedFaultScale: 60,
+  logSourceInput: '',
+  uploadLogError: '',
+})
+
+const assetStates = ref<Record<string, AssetState>>({})
+
+
+
 const createEmptyFilters = (): GlobalFilterState => ({
   startTime: '',
   endTime: '',
@@ -3492,6 +3518,11 @@ const renderLatencyEchart = () => {
         latencyChartCenterTime.value = bucket.time
         selectedFaultScale.value = selectedLatencyScale.value
         faultChartCenterTime.value = bucket.time
+        // Sync time range to filter panel
+        const scaleSeconds = selectedLatencyScale.value || 10
+        const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
+        globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllLatencyData(latencyChartRange.value)
       }
     }
@@ -3537,6 +3568,11 @@ const renderFaultEchart = () => {
         faultChartCenterTime.value = bucket.time
         selectedLatencyScale.value = selectedFaultScale.value
         latencyChartCenterTime.value = bucket.time
+        // Sync time range to filter panel
+        const scaleSeconds = selectedFaultScale.value || 10
+        const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
+        globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllFaultData()
       }
     }
@@ -5593,6 +5629,13 @@ const formatDateTime = (value: string) => {
   return `${value.replace('T', ' ')}:00`
 }
 
+
+
+const timestampToDatetimeLocal = (ts: number) => {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 const formatTimestamp = (ts: number) => {
   const d = new Date(ts)
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -6832,9 +6875,40 @@ const jumpAssetPage = () => {
   goAssetPage(nextPage)
 }
 
+const handleAssetClick = (assetId: string) => {
+  void loadAssetDetail(assetId)
+}
+
 const loadAssetDetail = async (assetId: string) => {
+  // Save current asset state before switching
+  if (selectedAssetId.value) {
+    assetStates.value[selectedAssetId.value] = {
+      filters: { ...globalFilters },
+      appliedFilters: { ...appliedFilters.value },
+      latencyChartCenterTime: latencyChartCenterTime.value,
+      faultChartCenterTime: faultChartCenterTime.value,
+      selectedLatencyScale: selectedLatencyScale.value,
+      selectedFaultScale: selectedFaultScale.value,
+      logSourceInput: logSourceInput.value,
+      uploadLogError: uploadLogError.value,
+    }
+  }
+  
+  // Switch to new asset
   activePage.value = 'asset'
   selectedAssetId.value = assetId
+  
+  // Restore or initialize asset state
+  const savedState = assetStates.value[assetId] || createEmptyAssetState()
+  Object.assign(globalFilters, savedState.filters)
+  appliedFilters.value = savedState.appliedFilters
+  latencyChartCenterTime.value = savedState.latencyChartCenterTime
+  faultChartCenterTime.value = savedState.faultChartCenterTime
+  selectedLatencyScale.value = savedState.selectedLatencyScale
+  selectedFaultScale.value = savedState.selectedFaultScale
+  logSourceInput.value = savedState.logSourceInput
+  uploadLogError.value = savedState.uploadLogError
+  
   selectedAsset.value = null
   selectedTrace.value = null
   selectedFaultTrace.value = null
@@ -7763,9 +7837,9 @@ onBeforeUnmount(() => {
             :class="{ selected: selectedAssetId === asset.id }"
             role="button"
             tabindex="0"
-            @click="loadAssetDetail(asset.id)"
-            @keydown.enter="loadAssetDetail(asset.id)"
-            @keydown.space.prevent="loadAssetDetail(asset.id)"
+            @click="handleAssetClick(asset.id)"
+            @keydown.enter="handleAssetClick(asset.id)"
+            @keydown.space.prevent="handleAssetClick(asset.id)"
           >
             <span class="asset-item-main">
               <strong>{{ asset.name }}</strong>
