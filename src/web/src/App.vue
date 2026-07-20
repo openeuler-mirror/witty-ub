@@ -2550,6 +2550,28 @@ type GlobalFilterState = {
   traceBoards: string[]
 }
 
+type AssetState = {
+  filters: GlobalFilterState
+  appliedFilters: GlobalFilterState
+  latencyChartCenterTime: number | null
+  faultChartCenterTime: number | null
+  selectedLatencyScale: number
+  selectedFaultScale: number
+}
+
+const createEmptyAssetState = (): AssetState => ({
+  filters: createEmptyFilters(),
+  appliedFilters: createEmptyFilters(),
+  latencyChartCenterTime: null,
+  faultChartCenterTime: null,
+  selectedLatencyScale: 60,
+  selectedFaultScale: 60,
+})
+
+const assetStates = ref<Record<string, AssetState>>({})
+
+
+
 const createEmptyFilters = (): GlobalFilterState => ({
   startTime: '',
   endTime: '',
@@ -6833,8 +6855,40 @@ const jumpAssetPage = () => {
 }
 
 const loadAssetDetail = async (assetId: string) => {
+  // Save current asset state before switching
+  if (selectedAssetId.value) {
+    assetStates.value[selectedAssetId.value] = {
+      filters: { ...globalFilters },
+      appliedFilters: { ...appliedFilters.value },
+      latencyChartCenterTime: latencyChartCenterTime.value,
+      faultChartCenterTime: faultChartCenterTime.value,
+      selectedLatencyScale: selectedLatencyScale.value,
+      selectedFaultScale: selectedFaultScale.value,
+    }
+  }
+  
+  // Switch to new asset
   activePage.value = 'asset'
   selectedAssetId.value = assetId
+  
+  // Restore or initialize asset state
+  const savedState = assetStates.value[assetId] || createEmptyAssetState()
+  Object.assign(globalFilters, savedState.filters)
+  appliedFilters.value = savedState.appliedFilters
+  latencyChartCenterTime.value = savedState.latencyChartCenterTime
+  faultChartCenterTime.value = savedState.faultChartCenterTime
+  selectedLatencyScale.value = savedState.selectedLatencyScale
+  selectedFaultScale.value = savedState.selectedFaultScale
+  
+  // Trigger data loading for the restored state
+  void loadLatencyChart()
+  void loadAbnormalTraces(1)
+  void loadLatencyDetail(1)
+  void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
+  void loadFaultChart()
+  void loadFaultTraceEvents(1)
+  void loadFaultAggregatedEvents(1)
+  
   selectedAsset.value = null
   selectedTrace.value = null
   selectedFaultTrace.value = null
