@@ -7,6 +7,7 @@ import time
 from latency.task.worker.base import BaseWorker
 from latency.config.config import Config
 from latency.database.managers.log_file import LogFileManager
+from latency.database.managers.log_knowledge import LogKnowledgeManager
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import KVCacheLogEventDiagnosisWorker
@@ -416,6 +417,11 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 f"Trace context logs stored after parse: {len(latency_anomalous_trace_id_set)}",
                 90.0,
             )
+
+            if log_file.kb_id:
+                await LogKnowledgeManager.update_log_kb(
+                    log_file.kb_id, {}
+                )
 
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}

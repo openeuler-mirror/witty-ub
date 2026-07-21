@@ -60,17 +60,28 @@ class LogKnowledgeManager:
     @staticmethod
     async def update_log_kb(log_kb_id: str, log_kb_info_dict: dict) -> int:
         """根据知识库ID更新日志知识库信息，返回影响行数"""
-        set_clause = ", ".join([f"{key} = :{key}" for key in log_kb_info_dict.keys()])
-        sql_str = f"""
-            UPDATE log_knowledge_table
-            SET {set_clause}, updated_at = :updated_at
-            WHERE id = :kb_id
-        """
-        params = {
-            **log_kb_info_dict,
-            "kb_id": log_kb_id,
-            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-        }
+        if log_kb_info_dict:
+            set_clause = ", ".join([f"{key} = :{key}" for key in log_kb_info_dict.keys()])
+            sql_str = f"""
+                UPDATE log_knowledge_table
+                SET {set_clause}, updated_at = :updated_at
+                WHERE id = :kb_id
+            """
+            params = {
+                **log_kb_info_dict,
+                "kb_id": log_kb_id,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            }
+        else:
+            sql_str = """
+                UPDATE log_knowledge_table
+                SET updated_at = :updated_at
+                WHERE id = :kb_id
+            """
+            params = {
+                "kb_id": log_kb_id,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+            }
         _, rowcount = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
         return rowcount
 
