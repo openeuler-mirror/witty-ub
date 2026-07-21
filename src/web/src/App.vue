@@ -3636,12 +3636,16 @@ const loadAllFaultData = async () => {
 const resetLatencyChartRange = () => {
   latencyChartCenterTime.value = null
   faultChartCenterTime.value = null
+  globalFilters.startTime = ''
+  globalFilters.endTime = ''
   void loadAllLatencyData(null)
 }
 
 const resetFaultChartRange = () => {
   faultChartCenterTime.value = null
   latencyChartCenterTime.value = null
+  globalFilters.startTime = ''
+  globalFilters.endTime = ''
   void loadAllFaultData()
 }
 
