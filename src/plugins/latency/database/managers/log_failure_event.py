@@ -130,6 +130,26 @@ class LogFailureEventManager:
         return success
     
     @staticmethod
+    async def delete_log_failure_events_by_log_id(log_id: str) -> bool:
+        """删除指定日志文件下所有的上下文日志"""
+        sql_str = """
+            DELETE FROM log_failure_event_table
+            WHERE log_id = :log_id
+        """
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, {"log_id": log_id})
+        return success
+    
+    @staticmethod
+    async def delete_trace_failure_events_by_log_id(log_id: str) -> bool:
+        """删除指定日志文件下所有的trace故障事件"""
+        sql_str = """
+            DELETE FROM trace_failure_event_table
+            WHERE log_id = :log_id
+        """
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, {"log_id": log_id})
+        return success
+    
+    @staticmethod
     async def add_trace_failure_event(results: list[TraceFailureEventModel]) -> list[str]:
         # 添加向数据库中加入trace_failure_event的逻辑，pod_names,host_names,cluster_names转化为TEXT时，多个元素用","分割，返回添加的trace_id列表
         ids_added = []
