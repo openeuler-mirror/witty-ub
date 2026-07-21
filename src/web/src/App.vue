@@ -7447,6 +7447,33 @@ const refreshLogFile = async (fileId: string) => {
   }
 }
 
+const deletingFileIds = reactive(new Set<string>())
+
+const deleteLogFile = async (logFileId: string) => {
+  if (!confirm('确定要删除这个日志文件吗？删除后将无法恢复。')) {
+    return
+  }
+
+  deletingFileIds.add(logFileId)
+  try {
+    await request<{ log_file_ids: string[] }>(`/log_file/${logFileId}`, {
+      method: 'DELETE',
+    })
+
+    // 直接从列表中移除被删除的文件，避免重新加载整个列表
+    const index = logFiles.value.findIndex((f) => f.id === logFileId)
+    if (index !== -1) {
+      logFiles.value.splice(index, 1)
+      logFilesTotal.value = Math.max(0, logFilesTotal.value - 1)
+    }
+  } catch (error) {
+    console.error('删除日志文件失败:', error)
+    alert('删除失败，请稍后重试')
+  } finally {
+    deletingFileIds.delete(logFileId)
+  }
+}
+
 const submitLogSource = async () => {
   const input = logSourceInput.value.trim()
   if (!input) return
@@ -10690,6 +10717,18 @@ onBeforeUnmount(() => {
                     <path d="M5 3v3.5h3.5" />
                     <path d="M5 16a7 7 0 0 0 12.25 3.25L19 17.5" />
                     <path d="M19 21v-3.5h-3.5" />
+                  </svg>
+                </button>
+                <button
+                  class="log-file-delete-btn"
+                  type="button"
+                  aria-label="删除"
+                  title="删除"
+                  :disabled="deletingFileIds.has(file.id)"
+                  @click="deleteLogFile(file.id)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M10 11v6M14 11v6M15 7V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3" />
                   </svg>
                 </button>
               </div>

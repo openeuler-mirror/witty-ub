@@ -6402,6 +6402,45 @@ button {
   cursor: not-allowed;
 }
 
+.log-file-delete-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 999px;
+  background: #fee2e2;
+  border: none;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  aspect-ratio: 1;
+  padding: 0;
+  color: #dc2626;
+  transition: background 0.2s;
+  margin-left: 8px;
+}
+
+.log-file-delete-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.log-file-delete-btn:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.log-file-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @media (max-width: 760px) {
   body {
     overflow: auto;

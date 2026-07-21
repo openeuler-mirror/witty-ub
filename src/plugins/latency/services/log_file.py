@@ -8,6 +8,11 @@ from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_parse_result import LogParseResultManager
 from latency.database.managers.task import TaskManager
 from latency.database.managers.task_report import TaskReportManager
+from latency.database.managers.anomalous_event import AnomalousEventManager
+from latency.database.managers.anomalous_event_chain import AnomalousEventChainManager
+from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventManager
+from latency.database.managers.time_window_aggregated_event import TimeWindowAggregatedEventManager
+from latency.database.managers.log_failure_event import LogFailureEventManager
 from latency.schemas.log import LogFileModel
 from latency.ENUM.general import FilePath
 from latency.ENUM.general import SourceType
@@ -224,8 +229,26 @@ class LogFileService:
         log_file_model = await LogFileManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             raise NotFoundBizException(resource="日志文件")
-        await LogFileManager.update_log_file(log_file_id, {"existed_status": False})
-        await LogParseResultManager.delete_log_parse_results_by_log_id(log_file_id)
+        
+        try:
+            await LogFileManager.update_log_file(log_file_id, {"existed_status": False})
+            await LogParseResultManager.delete_log_parse_results_by_log_id(log_file_id)
+            await AnomalousEventManager.delete_anomalous_events_by_log_id(log_file_id)
+            await AnomalousEventChainManager.delete_event_chains_by_log_id(log_file_id)
+            await SrcDstAggregatedEventManager.delete_aggregated_events_by_log_id(log_file_id)
+            await TimeWindowAggregatedEventManager.delete_by_log_id(log_file_id)
+            await LogFailureEventManager.delete_log_failure_events_by_log_id(log_file_id)
+            await LogFailureEventManager.delete_trace_failure_events_by_log_id(log_file_id)
+            
+            tasks = await TaskManager.list_current_tasks_by_op_ids([log_file_id])
+            if tasks:
+                task_ids = [task.id for task in tasks]
+                await TaskReportManager.delete_task_reports_by_task_ids(task_ids)
+                await TaskManager.delete_tasks_by_op_id(log_file_id)
+        except Exception as e:
+            logging.error(f"删除日志文件 {log_file_id} 失败: {e}", exc_info=True)
+            raise
+        
         return DeleteLogFilesMsg(log_file_ids=[log_file_id])
 
     @staticmethod

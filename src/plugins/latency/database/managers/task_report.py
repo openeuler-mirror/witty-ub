@@ -72,3 +72,16 @@ class TaskReportManager:
         """
         results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(task_ids))
         return [TaskReportModel(**result) for result in results]
+
+    @staticmethod
+    async def delete_task_reports_by_task_ids(task_ids: list[str]) -> bool:
+        """根据任务ID列表删除任务报告"""
+        if not task_ids:
+            return True
+        placeholders = ", ".join(["?"] * len(task_ids))
+        sql_str = f"""
+            DELETE FROM task_report_table
+            WHERE task_id IN ({placeholders})
+        """
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, tuple(task_ids))
+        return success
