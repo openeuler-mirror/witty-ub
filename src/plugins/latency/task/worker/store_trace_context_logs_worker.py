@@ -3,6 +3,7 @@ import os
 import logging
 import uuid
 import time
+import shutil
 
 from latency.task.worker.base import BaseWorker
 from latency.config.config import Config
@@ -15,6 +16,7 @@ from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.database.managers.log_failure_event import LogFailureEventManager
 from latency.schemas.task import TaskModel
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
+from latency.task.log_preprocessor import cleanup_preprocess_dir
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,19 @@ FAILED_STATUSES = {
     TaskStatusEnum.CANCELLED,
 }
 MONITOR_INTERVAL_SECONDS = 5
+
+
+def cleanup_temp_dirs(output_log_path: str, log_file_id: str) -> None:
+    """清理临时文件夹，包括诊断输出和预处理的日志"""
+    if output_log_path and os.path.exists(output_log_path):
+        try:
+            shutil.rmtree(output_log_path)
+            logger.info("清理诊断输出目录: %s", output_log_path)
+        except OSError as e:
+            logger.error("清理诊断输出目录 %s 失败: %s", output_log_path, e)
+    
+    if log_file_id:
+        cleanup_preprocess_dir(log_file_id)
 
 
 class StoreTraceContextLogsWorker(BaseWorker):
@@ -331,6 +346,8 @@ class StoreTraceContextLogsWorker(BaseWorker):
 
     @staticmethod
     async def run(task_id: str, log_dir: str | None = None) -> bool:
+        output_log_path = None
+        log_file_id = None
         try:
             task = await TaskManager.get_task_by_task_id(task_id)
             if not task:
@@ -348,9 +365,11 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 await TaskManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
+                cleanup_temp_dirs(None, task.op_id)
                 return False
 
             log_id = log_file.id
+            log_file_id = log_file.id
             random_str = log_file.id[:8]
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
 
@@ -365,6 +384,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 await TaskManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
+                cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
             trace_id_set, trace_failure_id = await StoreTraceContextLogsWorker._generate_trace_id_set_diagnosis(
@@ -396,6 +416,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 await TaskManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
+                cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
             latency_anomalous_trace_id_set = await LogParseResultManager.list_anomalous_trace_ids_by_log_id(
@@ -423,6 +444,8 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     log_file.kb_id, {}
                 )
 
+            cleanup_temp_dirs(output_log_path, log_file_id)
+
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
@@ -430,6 +453,8 @@ class StoreTraceContextLogsWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception("Task %s failed: %s", task_id, e)
+            if output_log_path or log_file_id:
+                cleanup_temp_dirs(output_log_path, log_file_id)
             await TaskManager.update_task(
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
