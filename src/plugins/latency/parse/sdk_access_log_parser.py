@@ -8,7 +8,7 @@ from latency.regex.kvcache_log_file import SDK_ACCESS_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.request import ParseConfig
-from latency.parse.base_parser import AccessLogParser, SDK_GET_OPS, logger
+from latency.parse.base_parser import AccessLogParser, SDK_GET_OPS, SDK_SET_OPS, logger
 
 
 class SdkAccessLogParser(AccessLogParser):
@@ -19,7 +19,7 @@ class SdkAccessLogParser(AccessLogParser):
         return getattr(self, "_runtime_patterns", SDK_ACCESS_LOG_PATTERNS)
 
     label = "SDK access parse"
-    _keywords = ("DS_KV_CLIENT_GET", "DS_OBJECT_CLIENT_GET")
+    _keywords = ("DS_KV_CLIENT_GET", "DS_OBJECT_CLIENT_GET", "DS_KV_CLIENT_SET")
 
     def __init__(
         self,
@@ -57,9 +57,9 @@ class SdkAccessLogParser(AccessLogParser):
         return os.path.basename(os.path.dirname(path)).replace("SDK_", "")
 
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:
-        """匹配SDK GET操作日志行"""
+        """匹配SDK GET/SET操作日志行"""
         parsed = getattr(self, '_pre_parsed', None) or self.parse_access_line(line)
-        if not parsed or parsed["handle"] not in SDK_GET_OPS:
+        if not parsed or (parsed["handle"] not in SDK_GET_OPS and parsed["handle"] not in SDK_SET_OPS):
             return None
         try:
             elapsed = int(parsed["elapsed"])
@@ -82,6 +82,11 @@ class SdkAccessLogParser(AccessLogParser):
                 return None
         # 优先使用日志行中的pod_name，为空时回退到路径提取的pod_ip
         entry_pod_ip = parsed["pod_name"] if parsed["pod_name"] else pod_ip
+        # 根据操作类型设置 entry_type
+        if parsed["handle"] in SDK_SET_OPS:
+            entry_type = EntryType.SDK_SET
+        else:
+            entry_type = EntryType.SDK_GET
         return LogEntry(
             timestamp=ts,
             operation=parsed["handle"],
@@ -92,7 +97,7 @@ class SdkAccessLogParser(AccessLogParser):
             pod_ip=entry_pod_ip,
             status_code=self.parse_status_code(parsed["status_code"]),
             resp_msg=parsed["resp_msg"],
-            entry_type=EntryType.SDK_GET,
+            entry_type=entry_type,
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 

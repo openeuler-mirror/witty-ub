@@ -153,6 +153,18 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
+    )
+    start_time: Optional[str] = Field(
+        default=None,
+        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
 
 
 class ListAnomalousEventChainRequest(BaseModel):
@@ -186,6 +198,10 @@ class ListLogParseResultRequest(BaseModel):
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤，GET表示仅GET请求，SET表示仅SET请求，None表示不区分",
     )
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
@@ -500,6 +516,7 @@ class ListTimeWindowAggregatedEventRequest(BaseModel):
     )
     src_ip: Optional[str] = Field(default=None, description="源IP过滤")
     dst_ip: Optional[str] = Field(default=None, description="目标IP过滤")
+    operation: Optional[str] = Field(default=None, description="操作类型过滤：GET / SET")
     interval: str = Field(
         default="minute",
         description="时间窗口间隔，可选hour, minute, second"

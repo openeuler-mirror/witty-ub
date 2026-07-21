@@ -1560,6 +1560,36 @@ button {
   letter-spacing: 0;
 }
 
+.operation-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f5f6f8;
+}
+
+.operation-toggle-btn {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  color: #667085;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.operation-toggle-btn:hover {
+  color: #1e3c72;
+  background: #e8ecf1;
+}
+
+.operation-toggle-btn.active {
+  background: #1e3c72;
+  color: #fff;
+}
+
 .monitor-sub {
   margin: 8px 0 0;
   border-left: 4px solid var(--primary);
@@ -6368,6 +6398,45 @@ button {
 }
 
 .log-file-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.log-file-delete-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 999px;
+  background: #fee2e2;
+  border: none;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  aspect-ratio: 1;
+  padding: 0;
+  color: #dc2626;
+  transition: background 0.2s;
+  margin-left: 8px;
+}
+
+.log-file-delete-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.log-file-delete-btn:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.log-file-delete-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

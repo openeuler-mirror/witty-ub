@@ -62,6 +62,7 @@ class SrcDstAggregatedEventModel(BaseModel):
     src_ip: str = Field(..., description="源IP地址")
     dst_ip: str = Field(..., description="目的IP地址")
     log_id: str = Field(..., description="关联的日志ID")
+    operation: str = Field(default="", description="操作类型：GET / SET")
     log_parse_result_cnt: int = Field(default=0, description="日志解析结果数量")
     anomaly_log_parse_result_cnt: int = Field(default=0, description="异常日志解析结果数量")
     anomaly_cnt: int = Field(default=0, description="异常数量")
@@ -155,6 +156,21 @@ class SrcDstAggregatedEventModel(BaseModel):
     p95_w2w_urma_latency: float | None = Field(
         default=None, description="W2W URMA延迟的95百分位，单位毫秒"
     )
+    ave_create_latency: float | None = Field(default=None, description="平均CREATE阶段延迟，单位毫秒")
+    min_create_latency: float | None = Field(default=None, description="最小CREATE阶段延迟，单位毫秒")
+    max_create_latency: float | None = Field(default=None, description="最大CREATE阶段延迟，单位毫秒")
+    p99_create_latency: float | None = Field(default=None, description="CREATE阶段延迟的99百分位，单位毫秒")
+    p95_create_latency: float | None = Field(default=None, description="CREATE阶段延迟的95百分位，单位毫秒")
+    ave_publish_latency: float | None = Field(default=None, description="平均PUBLISH阶段延迟，单位毫秒")
+    min_publish_latency: float | None = Field(default=None, description="最小PUBLISH阶段延迟，单位毫秒")
+    max_publish_latency: float | None = Field(default=None, description="最大PUBLISH阶段延迟，单位毫秒")
+    p99_publish_latency: float | None = Field(default=None, description="PUBLISH阶段延迟的99百分位，单位毫秒")
+    p95_publish_latency: float | None = Field(default=None, description="PUBLISH阶段延迟的95百分位，单位毫秒")
+    ave_worker_total_latency: float | None = Field(default=None, description="平均Worker端总延迟，单位毫秒")
+    min_worker_total_latency: float | None = Field(default=None, description="最小Worker端总延迟，单位毫秒")
+    max_worker_total_latency: float | None = Field(default=None, description="最大Worker端总延迟，单位毫秒")
+    p99_worker_total_latency: float | None = Field(default=None, description="Worker端总延迟的99百分位，单位毫秒")
+    p95_worker_total_latency: float | None = Field(default=None, description="Worker端总延迟的95百分位，单位毫秒")
     existed_status: bool = Field(
         True, description="知识是否存在的状态，默认为True表示存在"
     )
@@ -172,6 +188,7 @@ class SrcDstAggregatedEventDataclass:
     src_ip: str
     dst_ip: str
     log_id: str
+    operation: str = ""
     log_parse_result_cnt: int = 0
     anomaly_log_parse_result_cnt: int = 0
     anomaly_cnt: int = 0
@@ -205,6 +222,21 @@ class SrcDstAggregatedEventDataclass:
     max_w2w_urma_latency: float | None = None
     p99_w2w_urma_latency: float | None = None
     p95_w2w_urma_latency: float | None = None
+    ave_create_latency: float | None = None
+    min_create_latency: float | None = None
+    max_create_latency: float | None = None
+    p99_create_latency: float | None = None
+    p95_create_latency: float | None = None
+    ave_publish_latency: float | None = None
+    min_publish_latency: float | None = None
+    max_publish_latency: float | None = None
+    p99_publish_latency: float | None = None
+    p95_publish_latency: float | None = None
+    ave_worker_total_latency: float | None = None
+    min_worker_total_latency: float | None = None
+    max_worker_total_latency: float | None = None
+    p99_worker_total_latency: float | None = None
+    p95_worker_total_latency: float | None = None
     existed_status: bool = True
     created_at: str = dataclass_field(
         default_factory=lambda: datetime.now().strftime(
@@ -250,6 +282,21 @@ class TimeWindowAggregatedIpPair(BaseModel):
     max_w2w_urma_latency: float | None = Field(default=None, description="最大W2W URMA延迟，单位毫秒")
     p99_w2w_urma_latency: float | None = Field(default=None, description="W2W URMA延迟P99，单位毫秒")
     p95_w2w_urma_latency: float | None = Field(default=None, description="W2W URMA延迟P95，单位毫秒")
+    ave_create_latency: float | None = Field(default=None, description="平均CREATE阶段延迟，单位毫秒")
+    min_create_latency: float | None = Field(default=None, description="最小CREATE阶段延迟，单位毫秒")
+    max_create_latency: float | None = Field(default=None, description="最大CREATE阶段延迟，单位毫秒")
+    p99_create_latency: float | None = Field(default=None, description="CREATE阶段延迟P99，单位毫秒")
+    p95_create_latency: float | None = Field(default=None, description="CREATE阶段延迟P95，单位毫秒")
+    ave_publish_latency: float | None = Field(default=None, description="平均PUBLISH阶段延迟，单位毫秒")
+    min_publish_latency: float | None = Field(default=None, description="最小PUBLISH阶段延迟，单位毫秒")
+    max_publish_latency: float | None = Field(default=None, description="最大PUBLISH阶段延迟，单位毫秒")
+    p99_publish_latency: float | None = Field(default=None, description="PUBLISH阶段延迟P99，单位毫秒")
+    p95_publish_latency: float | None = Field(default=None, description="PUBLISH阶段延迟P95，单位毫秒")
+    ave_worker_total_latency: float | None = Field(default=None, description="平均Worker端总延迟，单位毫秒")
+    min_worker_total_latency: float | None = Field(default=None, description="最小Worker端总延迟，单位毫秒")
+    max_worker_total_latency: float | None = Field(default=None, description="最大Worker端总延迟，单位毫秒")
+    p99_worker_total_latency: float | None = Field(default=None, description="Worker端总延迟P99，单位毫秒")
+    p95_worker_total_latency: float | None = Field(default=None, description="Worker端总延迟P95，单位毫秒")
 
 
 class TimeWindowAggregatedEventModel(BaseModel):
@@ -278,6 +325,15 @@ class TimeWindowAggregatedEventModel(BaseModel):
     ave_w2w_urma_latency: float | None = Field(default=None, description="平均W2W URMA延迟，单位毫秒")
     p99_w2w_urma_latency: float | None = Field(default=None, description="W2W URMA延迟P99，单位毫秒")
     p95_w2w_urma_latency: float | None = Field(default=None, description="W2W URMA延迟P95，单位毫秒")
+    ave_create_latency: float | None = Field(default=None, description="平均CREATE阶段延迟，单位毫秒")
+    p99_create_latency: float | None = Field(default=None, description="CREATE阶段延迟P99，单位毫秒")
+    p95_create_latency: float | None = Field(default=None, description="CREATE阶段延迟P95，单位毫秒")
+    ave_publish_latency: float | None = Field(default=None, description="平均PUBLISH阶段延迟，单位毫秒")
+    p99_publish_latency: float | None = Field(default=None, description="PUBLISH阶段延迟P99，单位毫秒")
+    p95_publish_latency: float | None = Field(default=None, description="PUBLISH阶段延迟P95，单位毫秒")
+    ave_worker_total_latency: float | None = Field(default=None, description="平均Worker端总延迟，单位毫秒")
+    p99_worker_total_latency: float | None = Field(default=None, description="Worker端总延迟P99，单位毫秒")
+    p95_worker_total_latency: float | None = Field(default=None, description="Worker端总延迟P95，单位毫秒")
     ip_pairs: list[TimeWindowAggregatedIpPair] = Field(
         default_factory=list, description="该时间窗口内的IP对聚合列表"
     )
@@ -418,6 +474,15 @@ class LogParseResultModel(BaseModel):
     master_rpc_total: Optional[float] = Field(
         default=None, description="Master RPC总延迟，单位微秒"
     )
+    create_latency: Optional[float] = Field(
+        default=None, description="SET CREATE阶段延迟，单位毫秒"
+    )
+    publish_latency: Optional[float] = Field(
+        default=None, description="SET PUBLISH阶段延迟，单位毫秒"
+    )
+    worker_total_latency: Optional[float] = Field(
+        default=None, description="SET Worker端总延迟，单位毫秒"
+    )
     timestamp: Optional[str] = Field(default=None, description="事件时间戳")
     created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
@@ -439,6 +504,9 @@ class LatencyMetricItem(BaseModel):
     remote_worker_rpc: Optional[float] = Field(default=None, description="远程Worker RPC延迟，单位毫秒")
     master_process: Optional[float] = Field(default=None, description="Master处理延迟，单位毫秒")
     master_rpc_total: Optional[float] = Field(default=None, description="Master RPC总延迟，单位微秒")
+    create_latency: Optional[float] = Field(default=None, description="SET CREATE阶段延迟，单位毫秒")
+    publish_latency: Optional[float] = Field(default=None, description="SET PUBLISH阶段延迟，单位毫秒")
+    worker_total_latency: Optional[float] = Field(default=None, description="SET Worker端总延迟，单位毫秒")
 
 
 class LogParseResultBatch(list):
@@ -501,6 +569,9 @@ class LogParseResultDataclass:
     remote_worker_rpc: Optional[float] = None
     master_process: Optional[float] = None
     master_rpc_total: Optional[float] = None
+    create_latency: Optional[float] = None
+    publish_latency: Optional[float] = None
+    worker_total_latency: Optional[float] = None
     timestamp: Optional[str] = None
     created_at: str = ""
 
@@ -546,6 +617,9 @@ class LogParseResultDataclass:
             remote_worker_rpc=self.remote_worker_rpc,
             master_process=self.master_process,
             master_rpc_total=self.master_rpc_total,
+            create_latency=self.create_latency,
+            publish_latency=self.publish_latency,
+            worker_total_latency=self.worker_total_latency,
             timestamp=self.timestamp,
             created_at=self.created_at,
         )
@@ -598,6 +672,9 @@ class C2WLogParseResultDataclass:
     remote_worker_rpc: ClassVar[None] = None
     master_process: ClassVar[None] = None
     master_rpc_total: ClassVar[None] = None
+    create_latency: ClassVar[None] = None
+    publish_latency: ClassVar[None] = None
+    worker_total_latency: ClassVar[None] = None
 
     def to_pydantic(self) -> "LogParseResultModel":
         return LogParseResultDataclass.to_pydantic(self)  # type: ignore[arg-type]
@@ -649,6 +726,9 @@ class SparseLogParseResultDataclass:
     remote_worker_rpc: ClassVar[None] = None
     master_process: ClassVar[None] = None
     master_rpc_total: ClassVar[None] = None
+    create_latency: ClassVar[None] = None
+    publish_latency: ClassVar[None] = None
+    worker_total_latency: ClassVar[None] = None
 
     def to_pydantic(self) -> "LogParseResultModel":
         return LogParseResultDataclass.to_pydantic(self)  # type: ignore[arg-type]

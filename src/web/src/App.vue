@@ -276,6 +276,21 @@ type TimeWindowAggregatedIpPair = {
   max_w2w_urma_latency: number | null
   p99_w2w_urma_latency: number | null
   p95_w2w_urma_latency: number | null
+  ave_create_latency: number | null
+  min_create_latency: number | null
+  max_create_latency: number | null
+  p99_create_latency: number | null
+  p95_create_latency: number | null
+  ave_publish_latency: number | null
+  min_publish_latency: number | null
+  max_publish_latency: number | null
+  p99_publish_latency: number | null
+  p95_publish_latency: number | null
+  ave_worker_total_latency: number | null
+  min_worker_total_latency: number | null
+  max_worker_total_latency: number | null
+  p99_worker_total_latency: number | null
+  p95_worker_total_latency: number | null
 }
 
 type TimeWindowAggregatedEvent = {
@@ -303,6 +318,15 @@ type TimeWindowAggregatedEvent = {
   ave_w2w_urma_latency: number | null
   p99_w2w_urma_latency: number | null
   p95_w2w_urma_latency: number | null
+  ave_create_latency: number | null
+  p99_create_latency: number | null
+  p95_create_latency: number | null
+  ave_publish_latency: number | null
+  p99_publish_latency: number | null
+  p95_publish_latency: number | null
+  ave_worker_total_latency: number | null
+  p99_worker_total_latency: number | null
+  p95_worker_total_latency: number | null
   ip_pairs: TimeWindowAggregatedIpPair[]
 }
 
@@ -511,6 +535,9 @@ type ParseResultTableRow = {
   remoteWorkerRpc: number | null
   masterProcess: number | null
   masterRpcTotal: number | null
+  createLatency: number | null
+  publishLatency: number | null
+  workerTotalLatency: number | null
   raw: LogParseResultModel
 }
 
@@ -540,6 +567,9 @@ type AbnormalTraceRow = {
   remoteWorkerRpc: number | null
   masterProcess: number | null
   masterRpcTotal: number | null
+  createLatency: number | null
+  publishLatency: number | null
+  workerTotalLatency: number | null
   raw: LogParseResultModel
 }
 
@@ -550,7 +580,7 @@ type LatencyChartRange = {
   label: string
 }
 
-type LatencyPercentileValue = 'p99' | 'p9999'
+type LatencyPercentileValue = 'p99' | 'p9999' | 'pmax' | 'ave'
 
 type ApiResponse<T> = {
   code?: number
@@ -1431,6 +1461,8 @@ const loadingAnomalyLogFileIds = ref<Set<string>>(new Set())
 const latencyMetricsByPercentile = reactive<Record<LatencyPercentileValue, LatencyMetricItem[]>>({
   p99: [],
   p9999: [],
+  pmax: [],
+  ave: [],
 })
 const isLatencyChartLoading = ref(false)
 const latencyChartError = ref('')
@@ -1441,6 +1473,7 @@ const aggregateEventPage = ref(1)
 const aggregateEventTotal = ref(0)
 const selectedLatencyPercentile = ref<LatencyPercentileValue>('p99')
 const selectedLatencyStat = ref<'total' | 'p99' | 'p95' | 'ave' | 'min' | 'max'>('p99')
+const selectedOperation = ref<'get' | 'set'>('get')
 
 const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
   logFilenamePattern: {
@@ -1849,8 +1882,25 @@ const getLatencyLeftGridColumnWidths = () =>
 const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
-const getLatencyDataGridColumnWidths = () =>
-  traceListColumnWidths.latencyData.map((w) => `${w}px`).join(' ')
+const getLatencyDataGridColumnWidths = () => {
+  const cols = getLatencyDataColumns.value
+  return cols.map((_, i) => `${traceListColumnWidths.latencyData[i] || 160}px`).join(' ')
+}
+
+const getLatencyDataTotalWidth = () => {
+  const cols = getLatencyDataColumns.value
+  return cols.reduce((sum, _, i) => sum + (traceListColumnWidths.latencyData[i] || 160), 0)
+}
+
+const getTimeWindowGridColumnWidths = () => {
+  const cols = getLatencyDataColumns.value.slice(1)
+  return cols.map((_, i) => `${traceListColumnWidths.latencyData[i + 1] || 160}px`).join(' ')
+}
+
+const getTimeWindowTotalWidth = () => {
+  const cols = getLatencyDataColumns.value.slice(1)
+  return cols.reduce((sum, _, i) => sum + (traceListColumnWidths.latencyData[i + 1] || 160), 0)
+}
 
 const getFaultDataGridColumnWidths = () =>
   traceListColumnWidths.faultData.map((w) => `${w}px`).join(' ')
@@ -2311,7 +2361,6 @@ const abnormalTraceTableRef = ref<HTMLDivElement | null>(null)
 const detailAbnormalTraceTableRef = ref<HTMLDivElement | null>(null)
 const faultTraceTableRef = ref<HTMLDivElement | null>(null)
 const latencyTraceTableRef = ref<HTMLDivElement | null>(null)
-const detailLatencyTraceTableRef = ref<HTMLDivElement | null>(null)
 const hoveredLatencyTraceRowKey = ref('')
 
 const syncSplitTableRowHeights = (table: HTMLDivElement | null, scrollRowSelector: string) => {
@@ -2347,7 +2396,7 @@ const syncLatencyTraceRowHeights = () => {
 const syncDetailLatencyTraceRowHeights = () => {
   nextTick(() => {
     syncSplitTableRowHeights(
-      detailLatencyTraceTableRef.value,
+      detailAbnormalTraceTableRef.value,
       '.abnormal-latency-grid.aggregate-body-row',
     )
   })
@@ -2461,6 +2510,35 @@ const syncDetailAbnormalTraceRowHeights = () => {
   })
 }
 
+onUpdated(() => {
+  if (activeAggregateTab.value === 'trace') {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!latencyTraceTableRef.value) return
+        const scrollBody = latencyTraceTableRef.value.querySelector('.aggregate-latency-body')
+        const fixedLeft = latencyTraceTableRef.value.querySelector('.aggregate-fixed-left')
+        if (!scrollBody || !fixedLeft) return
+        const scrollRows = scrollBody.querySelectorAll('.abnormal-latency-grid.aggregate-body-row')
+        const fixedRows = fixedLeft.querySelectorAll('.abnormal-left-grid.aggregate-body-row')
+        if (scrollRows.length === 0 || fixedRows.length === 0) return
+        scrollRows.forEach((scrollRow, index) => {
+          const scrollHeight = scrollRow.getBoundingClientRect().height
+          const fixedRow = fixedRows[index] as HTMLElement | undefined
+          if (!fixedRow) return
+          const fixedHeight = fixedRow.getBoundingClientRect().height
+          const maxHeight = Math.max(scrollHeight, fixedHeight)
+          if (scrollHeight < maxHeight) {
+            ;(scrollRow as HTMLElement).style.height = `${maxHeight}px`
+          }
+          if (fixedHeight < maxHeight) {
+            fixedRow.style.height = `${maxHeight}px`
+          }
+        })
+      })
+    })
+  }
+})
+
 type GlobalFilterState = {
   startTime: string
   endTime: string
@@ -2471,6 +2549,32 @@ type GlobalFilterState = {
   targetPodIps: string[]
   traceBoards: string[]
 }
+
+type AssetState = {
+  filters: GlobalFilterState
+  appliedFilters: GlobalFilterState
+  latencyChartCenterTime: number | null
+  faultChartCenterTime: number | null
+  selectedLatencyScale: number
+  selectedFaultScale: number
+  logSourceInput: string
+  uploadLogError: string
+}
+
+const createEmptyAssetState = (): AssetState => ({
+  filters: createEmptyFilters(),
+  appliedFilters: createEmptyFilters(),
+  latencyChartCenterTime: null,
+  faultChartCenterTime: null,
+  selectedLatencyScale: 60,
+  selectedFaultScale: 60,
+  logSourceInput: '',
+  uploadLogError: '',
+})
+
+const assetStates = ref<Record<string, AssetState>>({})
+
+
 
 const createEmptyFilters = (): GlobalFilterState => ({
   startTime: '',
@@ -2602,7 +2706,13 @@ const isAbnormalMonitorPage = computed(() => activePage.value === 'abnormal')
 const isLatencyEventListFilterMode = computed(
   () => isAbnormalMonitorPage.value && activeAggregateTab.value === 'event',
 )
-const latencySeriesConfig = [
+const shouldShowTraceListFilters = computed(
+  () => activePage.value === 'asset' || isAbnormalMonitorPage.value,
+)
+const shouldShowFaultCodeFilter = computed(
+  () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
+)
+const getLatencySeriesConfig = [
   {
     key: 'total_latency',
     label: '总时延',
@@ -2660,7 +2770,34 @@ const latencySeriesConfig = [
   },
 ] as const
 
-type LatencyMetricKey = (typeof latencySeriesConfig)[number]['key']
+const setLatencySeriesConfig = [
+  {
+    key: 'total_latency',
+    label: '总时延',
+    color: '#5470c6',
+  },
+  {
+    key: 'create_latency',
+    label: 'CREATE阶段时延',
+    color: '#91cc75',
+  },
+  {
+    key: 'publish_latency',
+    label: 'PUBLISH阶段时延',
+    color: '#fac858',
+  },
+  {
+    key: 'worker_total_latency',
+    label: 'Worker端总时延',
+    color: '#ee6666',
+  },
+] as const
+
+const latencySeriesConfig = computed(() =>
+  selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
+)
+
+type LatencyMetricKey = (typeof getLatencySeriesConfig)[number]['key']
 
 const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
   'total_latency',
@@ -2684,22 +2821,26 @@ const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
 const isLatencySeriesVisible = (key: LatencyMetricKey) => visibleLatencyKeys.value.has(key)
 
 const selectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set(latencySeriesConfig.map((s) => s.key))
+  visibleLatencyKeys.value = new Set(latencySeriesConfig.value.map((s) => s.key))
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig[0].key])
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0].key])
 }
 
 const latencyPercentileOptions = [
   { value: 'p99', label: 'P99', abnormalThreshold: 2 },
   { value: 'p9999', label: 'P9999', abnormalThreshold: 5 },
+  { value: 'pmax', label: 'Pmax', abnormalThreshold: 5 },
+  { value: 'ave', label: '均值', abnormalThreshold: 5 },
 ] as const
 
-const latencySampleModeMap = {
+const latencySampleModeMap: Record<LatencyPercentileValue, string> = {
   p99: 'p99',
   p9999: 'p9999',
-} as const
+  pmax: 'max',
+  ave: 'avg',
+}
 
 const latencyMetrics = computed(() => latencyMetricsByPercentile[selectedLatencyPercentile.value])
 
@@ -2744,11 +2885,48 @@ const aggregatedLatencyColumns = [
   { key: 'urma_link_latency', label: 'URMA建链时延 (ms)', threshold: 150 },
   { key: 'c2w_urma_latency', label: 'C2W URMA时延 (ms)', threshold: 100 },
   { key: 'w2w_urma_latency', label: 'W2W URMA时延 (ms)', threshold: 100 },
+  { key: 'create_latency', label: 'CREATE阶段时延 (ms)', threshold: 100 },
+  { key: 'publish_latency', label: 'PUBLISH阶段时延 (ms)', threshold: 100 },
+  { key: 'worker_total_latency', label: 'Worker端总时延 (ms)', threshold: 100 },
 ] as const
 
-const timeWindowLatencyColumns = aggregatedLatencyColumns.slice(
-  1,
-) as readonly (typeof aggregatedLatencyColumns)[number][]
+const timeWindowLatencyColumns = computed(() =>
+  getLatencyDataColumns.value.slice(1),
+)
+
+const getLatencyDataColumns = computed(() => {
+  const isSet = selectedOperation.value === 'set'
+  return aggregatedLatencyColumns.filter((col) => {
+    if (col.key === 'total_latency') return true
+    if (isSet) {
+      return ['create_latency', 'publish_latency', 'worker_total_latency'].includes(col.key)
+    }
+    return ['query_meta_latency', 'urma_total_latency', 'urma_link_latency', 'c2w_urma_latency', 'w2w_urma_latency'].includes(col.key)
+  })
+})
+
+const LATENCY_KEY_TO_ROW_FIELD: Record<string, string> = {
+  total_latency: 'totalLatency',
+  query_meta_latency: 'queryMetaLatency',
+  urma_total_latency: 'urmaTotalLatency',
+  urma_link_latency: 'urmaLinkLatency',
+  c2w_urma_latency: 'c2wUrmaLatency',
+  w2w_urma_latency: 'w2wUrmaLatency',
+  create_latency: 'createLatency',
+  publish_latency: 'publishLatency',
+  worker_total_latency: 'workerTotalLatency',
+}
+
+const getLatencyRowValue = (row: Record<string, unknown>, key: string): number | null => {
+  const field = LATENCY_KEY_TO_ROW_FIELD[key]
+  return field ? (row[field] as number | null) ?? null : null
+}
+
+const DETAIL_SORT_KEY_MAP: Record<string, string> = {
+  query_meta_latency: 'worker_query_meta_latency',
+}
+
+const getDetailSortKey = (colKey: string): string => DETAIL_SORT_KEY_MAP[colKey] || colKey
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
 
@@ -2842,7 +3020,7 @@ const maxBucketMetricValue = (values: number[]) => {
 }
 
 const createEmptyLatencyMetricBuckets = (): Record<LatencyMetricKey, number[]> =>
-  latencySeriesConfig.reduce(
+  latencySeriesConfig.value.reduce(
     (acc, series) => {
       acc[series.key] = []
       return acc
@@ -2893,6 +3071,9 @@ const anomalyListLatencyThresholds = {
   urma_link_latency: 1,
   c2w_urma_latency: 1,
   w2w_urma_latency: 1,
+  create_latency: 1,
+  publish_latency: 1,
+  worker_total_latency: 1,
 } satisfies Record<AggregatedLatencyKey, number>
 
 const isBackendLatencyAnomalyRow = (row: { raw: LogParseResultModel }) =>
@@ -2995,7 +3176,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     const bucketStart = Math.floor(date.getTime() / bucketMs) * bucketMs
     const bucket = buckets.get(bucketStart) ?? createEmptyLatencyMetricBuckets()
 
-    latencySeriesConfig.forEach((series) => {
+    latencySeriesConfig.value.forEach((series) => {
       let value = result[series.key]
       if (typeof value === 'number' && Number.isFinite(value)) {
         if (series.key === 'master_rpc_total') {
@@ -3012,7 +3193,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
     const groupedValues = buckets.get(time) ?? createEmptyLatencyMetricBuckets()
 
-    const values = latencySeriesConfig.reduce(
+    const values = latencySeriesConfig.value.reduce(
       (acc, series) => {
         acc[series.key] = maxBucketMetricValue(groupedValues[series.key])
         return acc
@@ -3037,7 +3218,7 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
       const date = parseMetricDate(metric)
       if (!date) return null
 
-      const values = latencySeriesConfig.reduce(
+      const values = latencySeriesConfig.value.reduce(
         (acc, series) => {
           let value = metric[series.key]
           if (typeof value === 'number' && Number.isFinite(value)) {
@@ -3091,7 +3272,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
   const labels = buckets.map((bucket) => bucket.label)
   const markAreaData = getLatencyMarkAreas(buckets)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
-  const visibleSeries = latencySeriesConfig.filter((s) => isLatencySeriesVisible(s.key))
+  const visibleSeries = latencySeriesConfig.value.filter((s) => isLatencySeriesVisible(s.key))
 
   return {
     color: visibleSeries.map((series) => series.color),
@@ -3238,7 +3419,7 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
         fontSize: 12,
       },
     },
-    series: latencySeriesConfig
+    series: latencySeriesConfig.value
       .filter((s) => isLatencySeriesVisible(s.key))
       .map((series, index) => ({
         name: series.label,
@@ -3337,6 +3518,11 @@ const renderLatencyEchart = () => {
         latencyChartCenterTime.value = bucket.time
         selectedFaultScale.value = selectedLatencyScale.value
         faultChartCenterTime.value = bucket.time
+        // Sync time range to filter panel
+        const scaleSeconds = selectedLatencyScale.value || 10
+        const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
+        globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllLatencyData(latencyChartRange.value)
       }
     }
@@ -3382,6 +3568,11 @@ const renderFaultEchart = () => {
         faultChartCenterTime.value = bucket.time
         selectedLatencyScale.value = selectedFaultScale.value
         latencyChartCenterTime.value = bucket.time
+        // Sync time range to filter panel
+        const scaleSeconds = selectedFaultScale.value || 10
+        const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
+        globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllFaultData()
       }
     }
@@ -3445,12 +3636,16 @@ const loadAllFaultData = async () => {
 const resetLatencyChartRange = () => {
   latencyChartCenterTime.value = null
   faultChartCenterTime.value = null
+  globalFilters.startTime = ''
+  globalFilters.endTime = ''
   void loadAllLatencyData(null)
 }
 
 const resetFaultChartRange = () => {
   faultChartCenterTime.value = null
   latencyChartCenterTime.value = null
+  globalFilters.startTime = ''
+  globalFilters.endTime = ''
   void loadAllFaultData()
 }
 
@@ -3885,6 +4080,9 @@ const latencyMetricRecordKeys: Record<AggregatedLatencyKey, string[]> = {
   urma_link_latency: ['urma_link_latency'],
   c2w_urma_latency: ['c2w_urma_latency'],
   w2w_urma_latency: ['w2w_urma_latency'],
+  create_latency: ['create_latency'],
+  publish_latency: ['publish_latency'],
+  worker_total_latency: ['worker_total_latency'],
 }
 
 const getLogFailureReason = (record: Record<string, unknown>) => {
@@ -4017,6 +4215,9 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
       masterProcess: getRecordNullableNumber(record, ['master_process']),
       masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
+      createLatency: getRecordNullableNumber(record, ['create_latency']),
+      publishLatency: getRecordNullableNumber(record, ['publish_latency']),
+      workerTotalLatency: getRecordNullableNumber(record, ['worker_total_latency']),
       raw: result,
     }
   }),
@@ -5432,6 +5633,13 @@ const formatDateTime = (value: string) => {
   return `${value.replace('T', ' ')}:00`
 }
 
+
+
+const timestampToDatetimeLocal = (ts: number) => {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 const formatTimestamp = (ts: number) => {
   const d = new Date(ts)
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -5493,6 +5701,7 @@ const loadLatencyChart = async () => {
       sample_mode: latencySampleModeMap[percentile],
       sort_by: 'timestamp',
       sort_order: 'asc',
+      operation: selectedOperation.value.toUpperCase(),
     }
 
     if (filters.startTime) {
@@ -5536,6 +5745,19 @@ const loadLatencyChart = async () => {
     isLatencyChartLoading.value = false
   }
 }
+
+watch(selectedOperation, () => {
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>(['total_latency'])
+  loadLatencyChart()
+  loadLatencyDetail()
+  loadTimeWindowAggregatedEvents()
+  loadAbnormalTraces(1)
+  if (selectedAggregatedEvent.value) {
+    selectedAggregatedEvent.value.operation = selectedOperation.value.toUpperCase()
+    detailParseResultsPage.value = 1
+    void loadDetailParseResults(selectedAggregatedEvent.value, 1)
+  }
+})
 
 const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
   if (!selectedAssetId.value) {
@@ -5619,6 +5841,7 @@ const loadDetailParseResults = async (
       page_num: pageNum,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       is_anomalous: true,
+      operation: row.operation || undefined,
     }
     if (detailParseResultTraceIdQuery.value) {
       requestBody.trace_id = detailParseResultTraceIdQuery.value
@@ -5770,6 +5993,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
         dst_ip: getLogParseFilterValue(filters.targetPodIps),
         start_time: chartRange ? formatTimestamp(chartRange.startTime) : undefined,
         end_time: chartRange ? formatTimestamp(chartRange.endTime) : undefined,
+        operation: selectedOperation.value.toUpperCase(),
       }),
       signal: aggregateEventSort.getAbortSignal(),
     })
@@ -5858,6 +6082,7 @@ const loadTimeWindowAggregatedEvents = async (
       pod_ip: getLogParseFilterValue(filters.podIps),
       src_ip: getLogParseFilterValue(filters.sourcePodIps),
       dst_ip: getLogParseFilterValue(filters.targetPodIps),
+      operation: selectedOperation.value.toUpperCase(),
     }
     if (currentChartRange) {
       requestBody.start_time = formatTimestamp(currentChartRange.startTime)
@@ -6104,6 +6329,9 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     remoteWorkerRpc: getRecordNullableNumber(record, ['remote_worker_rpc']),
     masterProcess: getRecordNullableNumber(record, ['master_process']),
     masterRpcTotal: getRecordNullableNumber(record, ['master_rpc_total']),
+    createLatency: getRecordNullableNumber(record, ['create_latency']),
+    publishLatency: getRecordNullableNumber(record, ['publish_latency']),
+    workerTotalLatency: getRecordNullableNumber(record, ['worker_total_latency']),
     raw: result,
   }
 }
@@ -6191,6 +6419,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
       page_num: pageNum,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       is_anomalous: true,
+      operation: selectedOperation.value.toUpperCase(),
       start_time: chartRange
         ? formatTimestamp(chartRange.startTime)
         : formatDateTime(filters.startTime),
@@ -6650,9 +6879,40 @@ const jumpAssetPage = () => {
   goAssetPage(nextPage)
 }
 
+const handleAssetClick = (assetId: string) => {
+  void loadAssetDetail(assetId)
+}
+
 const loadAssetDetail = async (assetId: string) => {
+  // Save current asset state before switching
+  if (selectedAssetId.value) {
+    assetStates.value[selectedAssetId.value] = {
+      filters: { ...globalFilters },
+      appliedFilters: { ...appliedFilters.value },
+      latencyChartCenterTime: latencyChartCenterTime.value,
+      faultChartCenterTime: faultChartCenterTime.value,
+      selectedLatencyScale: selectedLatencyScale.value,
+      selectedFaultScale: selectedFaultScale.value,
+      logSourceInput: logSourceInput.value,
+      uploadLogError: uploadLogError.value,
+    }
+  }
+  
+  // Switch to new asset
   activePage.value = 'asset'
   selectedAssetId.value = assetId
+  
+  // Restore or initialize asset state
+  const savedState = assetStates.value[assetId] || createEmptyAssetState()
+  Object.assign(globalFilters, savedState.filters)
+  appliedFilters.value = savedState.appliedFilters
+  latencyChartCenterTime.value = savedState.latencyChartCenterTime
+  faultChartCenterTime.value = savedState.faultChartCenterTime
+  selectedLatencyScale.value = savedState.selectedLatencyScale
+  selectedFaultScale.value = savedState.selectedFaultScale
+  logSourceInput.value = savedState.logSourceInput
+  uploadLogError.value = savedState.uploadLogError
+  
   selectedAsset.value = null
   selectedTrace.value = null
   selectedFaultTrace.value = null
@@ -7187,6 +7447,33 @@ const refreshLogFile = async (fileId: string) => {
   }
 }
 
+const deletingFileIds = reactive(new Set<string>())
+
+const deleteLogFile = async (logFileId: string) => {
+  if (!confirm('确定要删除这个日志文件吗？删除后将无法恢复。')) {
+    return
+  }
+
+  deletingFileIds.add(logFileId)
+  try {
+    await request<{ log_file_ids: string[] }>(`/log_file/${logFileId}`, {
+      method: 'DELETE',
+    })
+
+    // 直接从列表中移除被删除的文件，避免重新加载整个列表
+    const index = logFiles.value.findIndex((f) => f.id === logFileId)
+    if (index !== -1) {
+      logFiles.value.splice(index, 1)
+      logFilesTotal.value = Math.max(0, logFilesTotal.value - 1)
+    }
+  } catch (error) {
+    console.error('删除日志文件失败:', error)
+    alert('删除失败，请稍后重试')
+  } finally {
+    deletingFileIds.delete(logFileId)
+  }
+}
+
 const submitLogSource = async () => {
   const input = logSourceInput.value.trim()
   if (!input) return
@@ -7581,9 +7868,9 @@ onBeforeUnmount(() => {
             :class="{ selected: selectedAssetId === asset.id }"
             role="button"
             tabindex="0"
-            @click="loadAssetDetail(asset.id)"
-            @keydown.enter="loadAssetDetail(asset.id)"
-            @keydown.space.prevent="loadAssetDetail(asset.id)"
+            @click="handleAssetClick(asset.id)"
+            @keydown.enter="handleAssetClick(asset.id)"
+            @keydown.space.prevent="handleAssetClick(asset.id)"
           >
             <span class="asset-item-main">
               <strong>{{ asset.name }}</strong>
@@ -7931,6 +8218,24 @@ onBeforeUnmount(() => {
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>时延故障监控</h1>
+              <div class="operation-toggle">
+                <button
+                  type="button"
+                  class="operation-toggle-btn"
+                  :class="{ active: selectedOperation === 'get' }"
+                  @click="selectedOperation = 'get'"
+                >
+                  GET
+                </button>
+                <button
+                  type="button"
+                  class="operation-toggle-btn"
+                  :class="{ active: selectedOperation === 'set' }"
+                  @click="selectedOperation = 'set'"
+                >
+                  SET
+                </button>
+              </div>
             </div>
             <p class="monitor-sub">支持 11 项时延指标曲线，可交互选择展示</p>
           </header>
@@ -8465,7 +8770,8 @@ onBeforeUnmount(() => {
                       }"
                     >
                       <div class="aggregate-latency-head aggregate-latency-sync">
-                        <div class="aggregate-latency-grid aggregate-table-header">
+                        <div class="aggregate-latency-grid aggregate-table-header"
+                          :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }">
                           <div
                             v-for="column in timeWindowLatencyColumns"
                             :key="column.key"
@@ -8506,7 +8812,10 @@ onBeforeUnmount(() => {
                         class="aggregate-latency-scrollbar aggregate-latency-sync"
                         @scroll="syncAggregateLatencyScroll"
                       >
-                        <div class="aggregate-latency-scrollbar-spacer"></div>
+                        <div
+                          class="aggregate-latency-scrollbar-spacer"
+                          :style="{ minWidth: getTimeWindowTotalWidth() + 'px' }"
+                        ></div>
                       </div>
                       <div
                         class="aggregate-latency-body aggregate-latency-sync"
@@ -8532,6 +8841,7 @@ onBeforeUnmount(() => {
                               @click="toggleTimeWindowRow(twIdx)"
                               @mouseenter="hoveredTimeWindowRowIndex = twIdx"
                               @mouseleave="hoveredTimeWindowRowIndex = null"
+                              :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
                             >
                               <div
                                 v-for="column in timeWindowLatencyColumns"
@@ -8550,6 +8860,7 @@ onBeforeUnmount(() => {
                             <template v-if="isTimeWindowExpanded(twIdx)">
                               <div
                                 class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-header"
+                                :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
                               >
                                 <div
                                   v-for="column in timeWindowLatencyColumns"
@@ -8599,6 +8910,7 @@ onBeforeUnmount(() => {
                                   hoveredTimeWindowIpPairKey = `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
                                 "
                                 @mouseleave="hoveredTimeWindowIpPairKey = ''"
+                                :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
                               >
                                 <div
                                   v-for="column in timeWindowLatencyColumns"
@@ -8625,6 +8937,7 @@ onBeforeUnmount(() => {
                               <div
                                 v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
                                 class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
+                                :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
                               >
                                 <div
                                   v-for="column in timeWindowLatencyColumns"
@@ -8893,7 +9206,7 @@ onBeforeUnmount(() => {
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div
                         class="abnormal-latency-grid aggregate-table-header"
-                        :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
+                        :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths(), minWidth: getLatencyDataTotalWidth() + 'px' }"
                       >
                         <div
                           class="aggregate-cell aggregate-sortable-cell column-resizable"
@@ -8926,17 +9239,19 @@ onBeforeUnmount(() => {
                           ></div>
                         </div>
                         <div
+                          v-for="(col, index) in getLatencyDataColumns.slice(1)"
+                          :key="col.key"
                           class="aggregate-cell aggregate-sortable-cell column-resizable"
-                          @click="abnormalTraceSort.handleHeaderClick('query_meta_latency')"
+                          @click="abnormalTraceSort.handleHeaderClick(col.key)"
                         >
                           <span class="sort-header-content">
-                            查询元数据时延
+                            {{ col.label.replace(' (ms)', '') }}
                             <span class="sort-icons">
                               <span
                                 class="sort-icon-up"
                                 :class="{
                                   'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('query_meta_latency') === 'asc',
+                                    abnormalTraceSort.getSortOrder(col.key) === 'asc',
                                 }"
                                 >▲</span
                               >
@@ -8944,7 +9259,7 @@ onBeforeUnmount(() => {
                                 class="sort-icon-down"
                                 :class="{
                                   'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('query_meta_latency') === 'desc',
+                                    abnormalTraceSort.getSortOrder(col.key) === 'desc',
                                 }"
                                 >▼</span
                               >
@@ -8952,121 +9267,8 @@ onBeforeUnmount(() => {
                           </span>
                           <div
                             class="column-resize-handle"
-                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 1)"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', index + 1)"
                           ></div>
-                        </div>
-                        <div
-                          class="aggregate-cell aggregate-sortable-cell column-resizable"
-                          @click="abnormalTraceSort.handleHeaderClick('urma_total_latency')"
-                        >
-                          <span class="sort-header-content">
-                            URMA总时延
-                            <span class="sort-icons">
-                              <span
-                                class="sort-icon-up"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('urma_total_latency') === 'asc',
-                                }"
-                                >▲</span
-                              >
-                              <span
-                                class="sort-icon-down"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('urma_total_latency') === 'desc',
-                                }"
-                                >▼</span
-                              >
-                            </span>
-                          </span>
-                          <div
-                            class="column-resize-handle"
-                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 2)"
-                          ></div>
-                        </div>
-                        <div
-                          class="aggregate-cell aggregate-sortable-cell column-resizable"
-                          @click="abnormalTraceSort.handleHeaderClick('urma_link_latency')"
-                        >
-                          <span class="sort-header-content">
-                            URMA建链时延
-                            <span class="sort-icons">
-                              <span
-                                class="sort-icon-up"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('urma_link_latency') === 'asc',
-                                }"
-                                >▲</span
-                              >
-                              <span
-                                class="sort-icon-down"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('urma_link_latency') === 'desc',
-                                }"
-                                >▼</span
-                              >
-                            </span>
-                          </span>
-                          <div
-                            class="column-resize-handle"
-                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 3)"
-                          ></div>
-                        </div>
-                        <div
-                          class="aggregate-cell aggregate-sortable-cell column-resizable"
-                          @click="abnormalTraceSort.handleHeaderClick('c2w_urma_latency')"
-                        >
-                          <span class="sort-header-content">
-                            C2W URMA时延
-                            <span class="sort-icons">
-                              <span
-                                class="sort-icon-up"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'asc',
-                                }"
-                                >▲</span
-                              >
-                              <span
-                                class="sort-icon-down"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('c2w_urma_latency') === 'desc',
-                                }"
-                                >▼</span
-                              >
-                            </span>
-                          </span>
-                          <div
-                            class="column-resize-handle"
-                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 4)"
-                          ></div>
-                        </div>
-                        <div class="aggregate-cell aggregate-sortable-cell">
-                          <span class="sort-header-content">
-                            W2W URMA时延
-                            <span class="sort-icons">
-                              <span
-                                class="sort-icon-up"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'asc',
-                                }"
-                                >▲</span
-                              >
-                              <span
-                                class="sort-icon-down"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder('w2w_urma_latency') === 'desc',
-                                }"
-                                >▼</span
-                              >
-                            </span>
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -9074,7 +9276,10 @@ onBeforeUnmount(() => {
                       class="aggregate-latency-scrollbar aggregate-latency-sync"
                       @scroll="syncAggregateLatencyScroll"
                     >
-                      <div class="aggregate-latency-scrollbar-spacer"></div>
+                      <div
+                        class="aggregate-latency-scrollbar-spacer"
+                        :style="{ minWidth: getLatencyDataTotalWidth() + 'px' }"
+                      ></div>
                     </div>
                     <div
                       class="aggregate-latency-body aggregate-latency-sync"
@@ -9116,76 +9321,24 @@ onBeforeUnmount(() => {
                               {{ formatNullableMetricValue(row.totalLatency) }}
                             </span>
                           </div>
-                          <div class="aggregate-cell">
-                            <span
-                              class="metric-value"
-                              :class="{
-                                abnormal: isAnomalyListLatencyMetricAbnormal(
-                                  row,
-                                  'query_meta_latency',
-                                  row.queryMetaLatency,
-                                ),
-                              }"
-                            >
-                              {{ formatNullableMetricValue(row.queryMetaLatency) }}
-                            </span>
-                          </div>
-                          <div class="aggregate-cell">
-                            <span
-                              class="metric-value"
-                              :class="{
-                                abnormal: isAnomalyListLatencyMetricAbnormal(
-                                  row,
-                                  'urma_total_latency',
-                                  row.urmaTotalLatency,
-                                ),
-                              }"
-                            >
-                              {{ formatNullableMetricValue(row.urmaTotalLatency) }}
-                            </span>
-                          </div>
-                          <div class="aggregate-cell">
-                            <span
-                              class="metric-value"
-                              :class="{
-                                abnormal: isAnomalyListLatencyMetricAbnormal(
-                                  row,
-                                  'urma_link_latency',
-                                  row.urmaLinkLatency,
-                                ),
-                              }"
-                            >
-                              {{ formatNullableMetricValue(row.urmaLinkLatency) }}
-                            </span>
-                          </div>
-                          <div class="aggregate-cell">
-                            <span
-                              class="metric-value"
-                              :class="{
-                                abnormal: isAnomalyListLatencyMetricAbnormal(
-                                  row,
-                                  'c2w_urma_latency',
-                                  row.c2wUrmaLatency,
-                                ),
-                              }"
-                            >
-                              {{ formatNullableMetricValue(row.c2wUrmaLatency) }}
-                            </span>
-                          </div>
-                          <div class="aggregate-cell">
-                            <span
-                              class="metric-value"
-                              :class="{
-                                abnormal: isAnomalyListLatencyMetricAbnormal(
-                                  row,
-                                  'w2w_urma_latency',
-                                  row.w2wUrmaLatency,
-                                ),
-                              }"
-                            >
-                              {{ formatNullableMetricValue(row.w2wUrmaLatency) }}
-                            </span>
-                          </div>
+                          <div
+                          v-for="col in getLatencyDataColumns.slice(1)"
+                          :key="col.key"
+                          class="aggregate-cell"
+                        >
+                          <span
+                            class="metric-value"
+                            :class="{
+                              abnormal: isAnomalyListLatencyMetricAbnormal(
+                                row,
+                                col.key,
+                                getLatencyRowValue(row as any, col.key),
+                              ),
+                            }"
+                          >
+                            {{ formatNullableMetricValue(getLatencyRowValue(row as any, col.key)) }}
+                          </span>
+                        </div>
                         </div>
                       </template>
                     </div>
@@ -10566,6 +10719,18 @@ onBeforeUnmount(() => {
                     <path d="M19 21v-3.5h-3.5" />
                   </svg>
                 </button>
+                <button
+                  class="log-file-delete-btn"
+                  type="button"
+                  aria-label="删除"
+                  title="删除"
+                  :disabled="deletingFileIds.has(file.id)"
+                  @click="deleteLogFile(file.id)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M10 11v6M14 11v6M15 7V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3" />
+                  </svg>
+                </button>
               </div>
             </div>
             <div v-if="logFilesTotal > 0" class="aggregate-pagination log-file-pagination">
@@ -11212,7 +11377,7 @@ onBeforeUnmount(() => {
               }"
             >
               <div
-                ref="detailLatencyTraceTableRef"
+                ref="detailAbnormalTraceTableRef"
                 class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame"
               >
                 <div class="aggregate-fixed-left">
@@ -11276,7 +11441,7 @@ onBeforeUnmount(() => {
                   <div class="aggregate-latency-head aggregate-latency-sync">
                     <div
                       class="abnormal-latency-grid aggregate-table-header"
-                      :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths() }"
+                      :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths(), minWidth: getLatencyDataTotalWidth() + 'px' }"
                     >
                       <div
                         class="aggregate-cell aggregate-sortable-cell"
@@ -11305,20 +11470,20 @@ onBeforeUnmount(() => {
                         </span>
                       </div>
                       <div
+                        v-for="col in getLatencyDataColumns.slice(1)"
+                        :key="col.key"
                         class="aggregate-cell aggregate-sortable-cell"
-                        @click="
-                          detailParseResultSort.handleHeaderClick('worker_query_meta_latency')
-                        "
+                        @click="detailParseResultSort.handleHeaderClick(getDetailSortKey(col.key))"
                       >
                         <span class="sort-header-content">
-                          查询元数据时延 (ms)
+                          {{ col.label }}
                           <span class="sort-icons">
                             <span
                               class="sort-icon-up"
                               :class="{
                                 'sort-icon-active':
                                   detailParseResultSort.getSortOrder(
-                                    'worker_query_meta_latency',
+                                    getDetailSortKey(col.key),
                                   ) === 'asc',
                               }"
                               >▲</span
@@ -11328,115 +11493,8 @@ onBeforeUnmount(() => {
                               :class="{
                                 'sort-icon-active':
                                   detailParseResultSort.getSortOrder(
-                                    'worker_query_meta_latency',
+                                    getDetailSortKey(col.key),
                                   ) === 'desc',
-                              }"
-                              >▼</span
-                            >
-                          </span>
-                        </span>
-                      </div>
-                      <div
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="detailParseResultSort.handleHeaderClick('urma_total_latency')"
-                      >
-                        <span class="sort-header-content">
-                          URMA总时延 (ms)
-                          <span class="sort-icons">
-                            <span
-                              class="sort-icon-up"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('urma_total_latency') ===
-                                  'asc',
-                              }"
-                              >▲</span
-                            >
-                            <span
-                              class="sort-icon-down"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('urma_total_latency') ===
-                                  'desc',
-                              }"
-                              >▼</span
-                            >
-                          </span>
-                        </span>
-                      </div>
-                      <div
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="detailParseResultSort.handleHeaderClick('urma_link_latency')"
-                      >
-                        <span class="sort-header-content">
-                          URMA建链时延 (ms)
-                          <span class="sort-icons">
-                            <span
-                              class="sort-icon-up"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('urma_link_latency') === 'asc',
-                              }"
-                              >▲</span
-                            >
-                            <span
-                              class="sort-icon-down"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('urma_link_latency') ===
-                                  'desc',
-                              }"
-                              >▼</span
-                            >
-                          </span>
-                        </span>
-                      </div>
-                      <div
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="detailParseResultSort.handleHeaderClick('c2w_urma_latency')"
-                      >
-                        <span class="sort-header-content">
-                          C2W URMA时延 (ms)
-                          <span class="sort-icons">
-                            <span
-                              class="sort-icon-up"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('c2w_urma_latency') === 'asc',
-                              }"
-                              >▲</span
-                            >
-                            <span
-                              class="sort-icon-down"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('c2w_urma_latency') === 'desc',
-                              }"
-                              >▼</span
-                            >
-                          </span>
-                        </span>
-                      </div>
-                      <div
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="detailParseResultSort.handleHeaderClick('w2w_urma_latency')"
-                      >
-                        <span class="sort-header-content">
-                          W2W URMA时延 (ms)
-                          <span class="sort-icons">
-                            <span
-                              class="sort-icon-up"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('w2w_urma_latency') === 'asc',
-                              }"
-                              >▲</span
-                            >
-                            <span
-                              class="sort-icon-down"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder('w2w_urma_latency') === 'desc',
                               }"
                               >▼</span
                             >
@@ -11449,7 +11507,10 @@ onBeforeUnmount(() => {
                     class="aggregate-latency-scrollbar aggregate-latency-sync"
                     @scroll="syncAggregateLatencyScroll"
                   >
-                    <div class="aggregate-latency-scrollbar-spacer"></div>
+                    <div
+                      class="aggregate-latency-scrollbar-spacer"
+                      :style="{ minWidth: getLatencyDataTotalWidth() + 'px' }"
+                    ></div>
                   </div>
                   <div
                     class="aggregate-latency-body aggregate-latency-sync"
@@ -11482,74 +11543,22 @@ onBeforeUnmount(() => {
                             {{ formatNullableMetricValue(row.totalLatency) }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">
+                        <div
+                          v-for="col in getLatencyDataColumns.slice(1)"
+                          :key="col.key"
+                          class="aggregate-cell"
+                        >
                           <span
                             class="metric-value"
                             :class="{
                               abnormal: isAnomalyListLatencyMetricAbnormal(
                                 row,
-                                'query_meta_latency',
-                                row.queryMetaLatency,
+                                col.key,
+                                getLatencyRowValue(row as any, col.key),
                               ),
                             }"
                           >
-                            {{ formatNullableMetricValue(row.queryMetaLatency) }}
-                          </span>
-                        </div>
-                        <div class="aggregate-cell">
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isAnomalyListLatencyMetricAbnormal(
-                                row,
-                                'urma_total_latency',
-                                row.urmaTotalLatency,
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(row.urmaTotalLatency) }}
-                          </span>
-                        </div>
-                        <div class="aggregate-cell">
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isAnomalyListLatencyMetricAbnormal(
-                                row,
-                                'urma_link_latency',
-                                row.urmaLinkLatency,
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(row.urmaLinkLatency) }}
-                          </span>
-                        </div>
-                        <div class="aggregate-cell">
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isAnomalyListLatencyMetricAbnormal(
-                                row,
-                                'c2w_urma_latency',
-                                row.c2wUrmaLatency,
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(row.c2wUrmaLatency) }}
-                          </span>
-                        </div>
-                        <div class="aggregate-cell">
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isAnomalyListLatencyMetricAbnormal(
-                                row,
-                                'w2w_urma_latency',
-                                row.w2wUrmaLatency,
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(row.w2wUrmaLatency) }}
+                            {{ formatNullableMetricValue(getLatencyRowValue(row as any, col.key)) }}
                           </span>
                         </div>
                       </div>

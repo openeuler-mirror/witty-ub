@@ -245,3 +245,14 @@ class TaskManager:
         if results:
             return TaskModel(**results[0])
         return None
+
+    @staticmethod
+    async def delete_tasks_by_op_id(op_id: str) -> bool:
+        """根据操作ID删除所有相关任务"""
+        sql_str = """
+            DELETE FROM task_table
+            WHERE op_id = :op_id
+        """
+        params = {"op_id": op_id}
+        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
+        return success

@@ -12,6 +12,7 @@ class TimeWindowAggregatedEventDataclass:
     time_bucket: str = ""
     src_ip: str = ""
     dst_ip: str = ""
+    operation: str = ""
     log_parse_result_cnt: int = 0
     anomaly_cnt: int = 0
     ave_total_latency: float | None = None
@@ -98,6 +99,24 @@ class TimeWindowAggregatedEventDataclass:
     p99_master_rpc_total: float | None = None
     p95_master_rpc_total: float | None = None
     p9999_master_rpc_total: float | None = None
+    ave_create_latency: float | None = None
+    min_create_latency: float | None = None
+    max_create_latency: float | None = None
+    p99_create_latency: float | None = None
+    p95_create_latency: float | None = None
+    p9999_create_latency: float | None = None
+    ave_publish_latency: float | None = None
+    min_publish_latency: float | None = None
+    max_publish_latency: float | None = None
+    p99_publish_latency: float | None = None
+    p95_publish_latency: float | None = None
+    p9999_publish_latency: float | None = None
+    ave_worker_total_latency: float | None = None
+    min_worker_total_latency: float | None = None
+    max_worker_total_latency: float | None = None
+    p99_worker_total_latency: float | None = None
+    p95_worker_total_latency: float | None = None
+    p9999_worker_total_latency: float | None = None
     existed_status: bool = True
     created_at: str = field(
         default_factory=lambda: datetime.now().strftime(
@@ -114,6 +133,7 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
         event.time_bucket,
         event.src_ip,
         event.dst_ip,
+        event.operation,
         event.log_parse_result_cnt,
         event.anomaly_cnt,
         event.ave_total_latency,
@@ -200,6 +220,24 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
         event.p99_master_rpc_total,
         event.p95_master_rpc_total,
         event.p9999_master_rpc_total,
+        event.ave_create_latency,
+        event.min_create_latency,
+        event.max_create_latency,
+        event.p99_create_latency,
+        event.p95_create_latency,
+        event.p9999_create_latency,
+        event.ave_publish_latency,
+        event.min_publish_latency,
+        event.max_publish_latency,
+        event.p99_publish_latency,
+        event.p95_publish_latency,
+        event.p9999_publish_latency,
+        event.ave_worker_total_latency,
+        event.min_worker_total_latency,
+        event.max_worker_total_latency,
+        event.p99_worker_total_latency,
+        event.p95_worker_total_latency,
+        event.p9999_worker_total_latency,
         event.existed_status,
         event.created_at,
     )
@@ -241,7 +279,7 @@ class TimeWindowAggregatedEventManager:
 
                     sql_str = """
                         INSERT INTO time_window_aggregated_table (
-                            id, kb_id, log_id, time_bucket, src_ip, dst_ip,
+                            id, kb_id, log_id, time_bucket, src_ip, dst_ip, operation,
                             log_parse_result_cnt, anomaly_cnt,
                             ave_total_latency, min_total_latency, max_total_latency,
                             p99_total_latency, p95_total_latency, p9999_total_latency,
@@ -271,13 +309,20 @@ class TimeWindowAggregatedEventManager:
                             p99_master_process, p95_master_process, p9999_master_process,
                             ave_master_rpc_total, min_master_rpc_total, max_master_rpc_total,
                             p99_master_rpc_total, p95_master_rpc_total, p9999_master_rpc_total,
+                            ave_create_latency, min_create_latency, max_create_latency,
+                            p99_create_latency, p95_create_latency, p9999_create_latency,
+                            ave_publish_latency, min_publish_latency, max_publish_latency,
+                            p99_publish_latency, p95_publish_latency, p9999_publish_latency,
+                            ave_worker_total_latency, min_worker_total_latency, max_worker_total_latency,
+                            p99_worker_total_latency, p95_worker_total_latency, p9999_worker_total_latency,
                             existed_status, created_at
                         ) VALUES (
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                     """
                     for i in range(0, total_count, batch_size):
@@ -309,6 +354,7 @@ class TimeWindowAggregatedEventManager:
         cluster_name: str | None = None,
         host: str | None = None,
         pod_ip: str | None = None,
+        operation: str | None = None,
     ) -> list[dict]:
         """获取时间窗口聚合事件"""
         db = AsyncSQLiteSingleton()
@@ -394,8 +440,16 @@ class TimeWindowAggregatedEventManager:
                 params["dst_ip"] = dst_ip
                 params["dst_ip_like"] = f"{dst_ip}%"
 
+        if operation:
+            op = operation.upper()
+            if op == "GET":
+                conditions.append("(operation = :operation OR operation = '')")
+            else:
+                conditions.append("operation = :operation")
+            params["operation"] = op
+
         sql_str = cte_sql + f"""
-            SELECT id, kb_id, log_id, time_bucket, src_ip, dst_ip,
+            SELECT id, kb_id, log_id, time_bucket, src_ip, dst_ip, operation,
                    log_parse_result_cnt, anomaly_cnt,
                    ave_total_latency, min_total_latency, max_total_latency,
                    p99_total_latency, p95_total_latency,
@@ -408,7 +462,13 @@ class TimeWindowAggregatedEventManager:
                    ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
                    p99_c2w_urma_latency, p95_c2w_urma_latency,
                    ave_w2w_urma_latency, min_w2w_urma_latency, max_w2w_urma_latency,
-                   p99_w2w_urma_latency, p95_w2w_urma_latency
+                   p99_w2w_urma_latency, p95_w2w_urma_latency,
+                   ave_create_latency, min_create_latency, max_create_latency,
+                   p99_create_latency, p95_create_latency, p9999_create_latency,
+                   ave_publish_latency, min_publish_latency, max_publish_latency,
+                   p99_publish_latency, p95_publish_latency, p9999_publish_latency,
+                   ave_worker_total_latency, min_worker_total_latency, max_worker_total_latency,
+                   p99_worker_total_latency, p95_worker_total_latency, p9999_worker_total_latency
             FROM time_window_aggregated_table
             WHERE {' AND '.join(conditions)}
             ORDER BY time_bucket ASC, src_ip ASC, dst_ip ASC
