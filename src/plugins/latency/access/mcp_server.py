@@ -46,6 +46,24 @@ def _without_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
+def _sort_fields(
+    sort_fields: list[dict[str, str]] | None,
+) -> list[dict[str, str]] | None:
+    """Validate the common multi-column sort shape accepted by the APIs."""
+    if sort_fields is None:
+        return None
+    validated: list[dict[str, str]] = []
+    for item in sort_fields:
+        field = item.get("field", "").strip()
+        order = item.get("order", "desc").lower()
+        if not field:
+            raise ValueError("each sort field must have a non-empty field")
+        if order not in {"asc", "desc"}:
+            raise ValueError("sort field order must be asc or desc")
+        validated.append({"field": field, "order": order})
+    return validated
+
+
 # API: POST /log_kb/list
 @mcp.tool(
     annotations=READ_ONLY_TOOL,
@@ -127,11 +145,13 @@ async def get_parse_task(task_id: str) -> dict[str, Any]:
     annotations=READ_ONLY_TOOL,
     description=(
         "List source/destination IP latency aggregates. Use this to find IP pairs "
-        "with high latency or anomalous requests before drilling into log records."
+        "with high latency or anomalous requests before drilling into log records. "
+        "Supports GET/SET, log-event time, topology and multi-column sort filters."
     )
 )
 async def list_latency_events(
     kb_id: str,
+    log_id: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
     cluster_name: str | None = None,
@@ -139,12 +159,15 @@ async def list_latency_events(
     pod_ip: str | None = None,
     src_ip: str | None = None,
     dst_ip: str | None = None,
+    operation: Literal["GET", "SET"] | None = None,
     stat_type: Literal["p99", "p95", "ave", "min", "max"] = "p99",
+    sort_fields: list[dict[str, str]] | None = None,
     page_num: int = 1,
     page_cnt: int = 20,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kb_id": kb_id,
+        "log_id": log_id,
         "start_time": start_time,
         "end_time": end_time,
         "cluster_name": cluster_name,
@@ -152,8 +175,10 @@ async def list_latency_events(
         "pod_ip": pod_ip,
         "src_ip": src_ip,
         "dst_ip": dst_ip,
+        "operation": operation,
         "stat_type": stat_type,
-        "sort_fields": [{"field": "total_latency", "order": "desc"}],
+        "sort_fields": _sort_fields(sort_fields)
+        or [{"field": "total_latency", "order": "desc"}],
         **_page(page_num, page_cnt),
     }
     return await _client().post(
@@ -179,10 +204,12 @@ async def list_latency_time_windows(
     pod_ip: str | None = None,
     src_ip: str | None = None,
     dst_ip: str | None = None,
+    operation: Literal["GET", "SET"] | None = None,
     interval: Literal["second", "minute", "hour"] = "minute",
     stat_type: Literal["p99", "p95", "ave", "min", "max"] = "p99",
     sort_by: Literal["start_time", "total_latency"] = "start_time",
     sort_order: Literal["asc", "desc"] = "asc",
+    sort_fields: list[dict[str, str]] | None = None,
     page_num: int = 1,
     page_cnt: int = 20,
 ) -> dict[str, Any]:
@@ -195,10 +222,12 @@ async def list_latency_time_windows(
         "pod_ip": pod_ip,
         "src_ip": src_ip,
         "dst_ip": dst_ip,
+        "operation": operation,
         "interval": interval,
         "stat_type": stat_type,
         "sort_by": sort_by,
         "sort_order": sort_order,
+        "sort_fields": _sort_fields(sort_fields),
         **_page(page_num, page_cnt),
     }
     return await _client().post(
@@ -227,39 +256,51 @@ async def get_log_parse_options(kb_id: str | None = None) -> dict[str, Any]:
     annotations=READ_ONLY_TOOL,
     description=(
         "List parsed log or trace records for a latency investigation. Filter by an "
-        "aggregate event, trace, host or IP pair. Results contain the detailed "
-        "latency components and anomaly markers used as diagnosis evidence."
+        "aggregate event, one or more traces, operation, host or IP pair. Results "
+        "contain the detailed latency components and anomaly markers used as "
+        "diagnosis evidence. Defaults prioritize anomalous records but can be "
+        "overridden for comparison with normal samples."
     )
 )
 async def list_log_parse_results(
     kb_id: str,
+    log_id: str | None = None,
     aggregated_event_id: str | None = None,
     trace_id: str | None = None,
+    trace_ids: list[str] | None = None,
+    cluster_name: str | None = None,
     host: str | None = None,
     pod_ip: str | None = None,
     src_ip: str | None = None,
     dst_ip: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
+    created_at_start: str | None = None,
+    created_at_end: str | None = None,
+    operation: Literal["GET", "SET"] | None = None,
     is_anomalous: bool | None = True,
-    exclude_normal: bool = True,
+    sort_fields: list[dict[str, str]] | None = None,
     page_num: int = 1,
     page_cnt: int = 20,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kb_id": kb_id,
+        "log_id": log_id,
         "aggregated_event_id": aggregated_event_id,
         "trace_id": trace_id,
+        "trace_ids": trace_ids,
+        "cluster_name": cluster_name,
         "host": host,
         "pod_ip": pod_ip,
         "src_ip": src_ip,
         "dst_ip": dst_ip,
         "start_time": start_time,
         "end_time": end_time,
+        "created_at_start": created_at_start,
+        "created_at_end": created_at_end,
+        "operation": operation,
         "is_anomalous": is_anomalous,
-        "exclude_normal": exclude_normal,
-        "sort_by": "error_priority",
-        "sort_order": "desc",
+        "sort_fields": _sort_fields(sort_fields),
         **_page(page_num, page_cnt),
     }
     return await _client().post(
@@ -289,8 +330,8 @@ async def get_latency_metrics(
     sample_mode: Literal["none", "max", "avg", "min", "p99", "p95", "p9999"] = "p99",
     max_points: int = 1000,
 ) -> dict[str, Any]:
-    if not 1 <= max_points <= 5000:
-        raise ValueError("max_points must be between 1 and 5000")
+    if max_points != -1 and not 1 <= max_points <= 5000:
+        raise ValueError("max_points must be -1 or between 1 and 5000")
     payload = _without_none(
         {
             "kb_id": kb_id,
@@ -329,6 +370,8 @@ async def list_failure_time_windows(
     src_ip: str | None = None,
     dst_ip: str | None = None,
     interval: Literal["second", "minute", "hour"] = "minute",
+    sort_desc: bool = False,
+    sort_fields: list[dict[str, str]] | None = None,
     page_num: int = 1,
     page_cnt: int = 20,
 ) -> dict[str, Any]:
@@ -343,7 +386,8 @@ async def list_failure_time_windows(
         "dst_ip": dst_ip,
         "interval": interval,
         "sort_by": "timestamp",
-        "sort_desc": False,
+        "sort_desc": sort_desc,
+        "sort_fields": _sort_fields(sort_fields),
         **_page(page_num, page_cnt),
     }
     return await _client().post(
@@ -366,6 +410,7 @@ async def list_failure_pod_aggregates(
     end_time: str | None = None,
     sort_by: str = "all",
     sort_order: Literal["asc", "desc"] = "desc",
+    sort_fields: list[dict[str, str]] | None = None,
     page_num: int = 1,
     page_cnt: int = 20,
 ) -> dict[str, Any]:
@@ -375,10 +420,55 @@ async def list_failure_pod_aggregates(
         "end_time": end_time,
         "sort_by": sort_by,
         "sort_desc": sort_order == "desc",
+        "sort_fields": _sort_fields(sort_fields),
         **_page(page_num, page_cnt),
     }
     return await _client().post(
         "/log_failure_event_result/list_pod_aggregated_failure_events",
+        json=_without_none(payload),
+    )
+
+
+# API: POST /log_failure_event_result/list_src_dst_aggregated_failure_events
+@mcp.tool(
+    annotations=READ_ONLY_TOOL,
+    description=(
+        "Aggregate connectivity fault codes by source/destination IP pair. Use "
+        "this after locating a failure window to identify the affected path before "
+        "drilling into traces."
+    )
+)
+async def list_failure_src_dst_aggregates(
+    kb_id: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    cluster_name: str | None = None,
+    host: str | None = None,
+    pod_ip: str | None = None,
+    src_ip: str | None = None,
+    dst_ip: str | None = None,
+    sort_by: str = "all",
+    sort_order: Literal["asc", "desc"] = "desc",
+    sort_fields: list[dict[str, str]] | None = None,
+    page_num: int = 1,
+    page_cnt: int = 20,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kb_id": kb_id,
+        "start_time": start_time,
+        "end_time": end_time,
+        "cluster_name": cluster_name,
+        "host": host,
+        "pod_ip": pod_ip,
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
+        "sort_by": sort_by,
+        "sort_desc": sort_order == "desc",
+        "sort_fields": _sort_fields(sort_fields),
+        **_page(page_num, page_cnt),
+    }
+    return await _client().post(
+        "/log_failure_event_result/list_src_dst_aggregated_failure_events",
         json=_without_none(payload),
     )
 
@@ -431,16 +521,19 @@ async def get_error_code_metrics(
     annotations=READ_ONLY_TOOL,
     description=(
         "List connectivity fault traces filtered by knowledge base, fault code, "
-        "cluster, host, pod or time. Use returned trace IDs and failure-mode IDs to "
-        "retrieve raw logs and knowledge evidence."
+        "cluster, host, pod, IP pair, trace ID or time. Use returned trace IDs and "
+        "failure-mode IDs to retrieve raw logs and knowledge evidence."
     )
 )
 async def list_failure_traces(
     kb_id: str,
+    trace_ids: list[str] | None = None,
     status_codes: list[str] | None = None,
     cluster_names: list[str] | None = None,
     host_names: list[str] | None = None,
     pod_names: list[str] | None = None,
+    src_ip: str | None = None,
+    dst_ip: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
     is_anomalous: bool | None = True,
@@ -449,10 +542,13 @@ async def list_failure_traces(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kb_id": kb_id,
+        "trace_ids": trace_ids,
         "status_codes": status_codes or [],
         "cluster_names": cluster_names or [],
         "host_names": host_names or [],
         "pod_names": pod_names or [],
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
         "start_time": start_time,
         "end_time": end_time,
         "is_anomalous": is_anomalous,

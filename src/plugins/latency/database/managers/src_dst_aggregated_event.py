@@ -228,7 +228,13 @@ class SrcDstAggregatedEventManager:
         params = {}
         cte_sql = ""
         matched_event_join = ""
-        if req.cluster_name or req.host or req.pod_ip:
+        if (
+            req.cluster_name
+            or req.host
+            or req.pod_ip
+            or req.start_time
+            or req.end_time
+        ):
             original_filters = []
             scope_filters = []
             if req.cluster_name:
@@ -246,6 +252,12 @@ class SrcDstAggregatedEventManager:
                     )
                 """)
                 params["pod_ip"] = req.pod_ip
+            if req.start_time:
+                original_filters.append("lpr.timestamp >= :start_time")
+                params["start_time"] = req.start_time
+            if req.end_time:
+                original_filters.append("lpr.timestamp <= :end_time")
+                params["end_time"] = req.end_time
             if req.kb_id:
                 scope_filters.append("matched_lf.kb_id = :kb_id")
             if req.log_id:
@@ -313,12 +325,6 @@ class SrcDstAggregatedEventManager:
         if req.dst_ip:
             sql_str += " AND ae.dst_ip LIKE :dst_ip"
             params["dst_ip"] = f"%{req.dst_ip}%"
-        if req.start_time:
-            sql_str += " AND ae.created_at >= :start_time"
-            params["start_time"] = req.start_time
-        if req.end_time:
-            sql_str += " AND ae.created_at <= :end_time"
-            params["end_time"] = req.end_time
         if req.operation:
             op = req.operation.upper()
             if op == "GET":
