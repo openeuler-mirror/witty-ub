@@ -157,14 +157,6 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
         default=None,
         description="操作类型过滤：GET / SET",
     )
-    start_time: Optional[str] = Field(
-        default=None,
-        description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
-    )
-    end_time: Optional[str] = Field(
-        default=None,
-        description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
-    )
 
 
 class ListAnomalousEventChainRequest(BaseModel):
@@ -206,22 +198,6 @@ class ListLogParseResultRequest(BaseModel):
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"total_latency\", \"order\": \"desc\"}, {\"field\": \"timestamp\", \"order\": \"asc\"}]"
-    )
-    sort_by: str = Field(
-        default="created_at",
-        description="排序字段，支持created_at、timestamp、total_latency、error_priority。error_priority表示失败日志优先，其次严重超时日志按总时延降序",
-    )
-    sort_order: str = Field(
-        default="desc",
-        description="排序方向，desc表示降序，asc表示升序；error_priority模式下仅用于普通日志的兜底时间排序",
-    )
-    severe_timeout_threshold_ms: float = Field(
-        default=150.0,
-        description="严重超时阈值，单位毫秒；仅sort_by=error_priority时用于区分超时日志和普通日志",
-    )
-    exclude_normal: bool = Field(
-        default=False,
-        description="是否排除正常日志，仅返回失败日志或严重超时日志",
     )
     page_cnt: int = Field(default=10, ge=1, description="每页的日志解析结果数量，默认为10")
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
