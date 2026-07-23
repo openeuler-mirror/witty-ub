@@ -946,7 +946,6 @@ class KVCacheLogParseWorker(BaseWorker):
             ("urma_link_latency", "urma_link_latency"),
             ("c2w_urma_latency", "c2w_urma_latency"),
             ("w2w_urma_latency", "w2w_urma_latency"),
-<<<<<<< HEAD
             ("create_latency", "create_latency"),
             ("publish_latency", "publish_latency"),
             ("worker_total_latency", "worker_total_latency"),
@@ -958,8 +957,6 @@ class KVCacheLogParseWorker(BaseWorker):
             ("remote_worker_rpc", "remote_worker_rpc"),
             ("master_process", "master_process"),
             ("master_rpc_total", "master_rpc_total"),
-=======
->>>>>>> ee54a6a (sqlite切换pg)
         ]
 
         groups: dict[tuple[str, str, str], GroupStats] = defaultdict(

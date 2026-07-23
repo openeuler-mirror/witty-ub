@@ -7,26 +7,14 @@ import shutil
 
 from latency.task.worker.base import BaseWorker
 from latency.config.config import Config
-<<<<<<< HEAD
-from latency.database.managers.log_file import LogFileManager
-from latency.database.managers.log_knowledge import LogKnowledgeManager
-from latency.database.managers.log_parse_result import LogParseResultManager
-from latency.database.managers.task import TaskManager
-=======
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
->>>>>>> ee54a6a (sqlite切换pg)
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import KVCacheLogEventDiagnosisWorker
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.task import TaskModel
-<<<<<<< HEAD
-from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgeManager
-from latency.task.log_preprocessor import cleanup_preprocess_dir
-=======
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgePGManager
->>>>>>> ee54a6a (sqlite切换pg)
 
 
 logger = logging.getLogger(__name__)
@@ -495,31 +483,14 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 90.0,
             )
 
-<<<<<<< HEAD
-            if log_file.kb_id:
-                await LogKnowledgeManager.update_log_kb(
-                    log_file.kb_id, {}
-                )
-
-            cleanup_temp_dirs(output_log_path, log_file_id)
-
-            await TaskManager.update_task(
-=======
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)
             await TaskPGManager.update_task(
->>>>>>> ee54a6a (sqlite切换pg)
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
             return True
         except Exception as e:
             logger.exception("Task %s failed: %s", task_id, e)
-<<<<<<< HEAD
-            if output_log_path or log_file_id:
-                cleanup_temp_dirs(output_log_path, log_file_id)
-            await TaskManager.update_task(
-=======
             await TaskPGManager.update_task(
->>>>>>> ee54a6a (sqlite切换pg)
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
