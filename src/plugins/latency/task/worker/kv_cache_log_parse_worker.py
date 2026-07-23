@@ -949,14 +949,6 @@ class KVCacheLogParseWorker(BaseWorker):
             ("create_latency", "create_latency"),
             ("publish_latency", "publish_latency"),
             ("worker_total_latency", "worker_total_latency"),
-            ("sdk_process", "sdk_process"),
-            ("sdk_rpc", "sdk_rpc"),
-            ("local_worker_cost", "local_worker_cost"),
-            ("local_worker_lock", "local_worker_lock"),
-            ("remote_worker_cost", "remote_worker_cost"),
-            ("remote_worker_rpc", "remote_worker_rpc"),
-            ("master_process", "master_process"),
-            ("master_rpc_total", "master_rpc_total"),
         ]
 
         groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
@@ -966,6 +958,7 @@ class KVCacheLogParseWorker(BaseWorker):
         )
 
         time_window_groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
+
             lambda: GroupStats(
                 latency_values={prefix: [] for prefix, _ in time_window_latency_fields}
             )
@@ -991,7 +984,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 if not g.first_log_id:
                     g.first_log_id = r.log_id or ""
             
-            key2 = (time_bucket, src, dst, op_key)
+            key2 = (time_bucket, src, dst)
             g2 = time_window_groups[key2]
             g2.count += 1
             if r.is_anomalous:
@@ -1053,7 +1046,7 @@ class KVCacheLogParseWorker(BaseWorker):
         del groups
         
         time_window_results: list[TimeWindowAggregatedEventDataclass] = []
-        for (time_bucket, src, dst, op_key), g in time_window_groups.items():
+        for (time_bucket, src, dst), g in time_window_groups.items():
             agg: dict[str, float | None] = {}
             for prefix, _ in time_window_latency_fields:
                 values = g.latency_values[prefix]
@@ -1081,7 +1074,6 @@ class KVCacheLogParseWorker(BaseWorker):
                 time_bucket=time_bucket,
                 src_ip=src,
                 dst_ip=dst,
-                operation=op_key,
                 log_parse_result_cnt=g.count,
                 anomaly_cnt=g.anomaly_count,
                 **agg,

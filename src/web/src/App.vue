@@ -12,7 +12,7 @@ import {
 } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
-import diagnosisConfig from '../../../config/diagnosis_config.json'
+import diagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
   id: string

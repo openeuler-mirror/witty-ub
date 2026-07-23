@@ -15,6 +15,7 @@ from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.task import TaskModel
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgePGManager
+from latency.task.log_preprocessor import cleanup_preprocess_dir
 
 
 logger = logging.getLogger(__name__)

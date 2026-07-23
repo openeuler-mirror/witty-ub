@@ -168,6 +168,8 @@ class SrcDstAggregatedEventPGManager:
             filters.append(LogParseResult.host == req.host)
         if req.pod_ip:
             filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
+        if req.operation:
+            filters.append(LogParseResult.operation.ilike(f"%{req.operation}%"))
 
         return (
             select(

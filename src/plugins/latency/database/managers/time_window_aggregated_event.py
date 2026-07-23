@@ -31,130 +31,12 @@ _LATENCY_FIELDS = [
     ("urma_link_latency", LogParseResult.urma_link_latency),
     ("c2w_urma_latency", LogParseResult.c2w_urma_latency),
     ("w2w_urma_latency", LogParseResult.w2w_urma_latency),
+    ("create_latency", LogParseResult.create_latency),
+    ("publish_latency", LogParseResult.publish_latency),
+    ("worker_total_latency", LogParseResult.worker_total_latency),
 ]
 
 
-<<<<<<< HEAD
-@dataclass(slots=True)
-class TimeWindowAggregatedEventDataclass:
-    id: str = ""
-    kb_id: str = ""
-    log_id: str = ""
-    time_bucket: str = ""
-    src_ip: str = ""
-    dst_ip: str = ""
-    operation: str = ""
-    log_parse_result_cnt: int = 0
-    anomaly_cnt: int = 0
-    ave_total_latency: float | None = None
-    min_total_latency: float | None = None
-    max_total_latency: float | None = None
-    p99_total_latency: float | None = None
-    p95_total_latency: float | None = None
-    p9999_total_latency: float | None = None
-    ave_query_meta_latency: float | None = None
-    min_query_meta_latency: float | None = None
-    max_query_meta_latency: float | None = None
-    p99_query_meta_latency: float | None = None
-    p95_query_meta_latency: float | None = None
-    p9999_query_meta_latency: float | None = None
-    ave_urma_total_latency: float | None = None
-    min_urma_total_latency: float | None = None
-    max_urma_total_latency: float | None = None
-    p99_urma_total_latency: float | None = None
-    p95_urma_total_latency: float | None = None
-    p9999_urma_total_latency: float | None = None
-    ave_urma_link_latency: float | None = None
-    min_urma_link_latency: float | None = None
-    max_urma_link_latency: float | None = None
-    p99_urma_link_latency: float | None = None
-    p95_urma_link_latency: float | None = None
-    p9999_urma_link_latency: float | None = None
-    ave_c2w_urma_latency: float | None = None
-    min_c2w_urma_latency: float | None = None
-    max_c2w_urma_latency: float | None = None
-    p99_c2w_urma_latency: float | None = None
-    p95_c2w_urma_latency: float | None = None
-    p9999_c2w_urma_latency: float | None = None
-    ave_w2w_urma_latency: float | None = None
-    min_w2w_urma_latency: float | None = None
-    max_w2w_urma_latency: float | None = None
-    p99_w2w_urma_latency: float | None = None
-    p95_w2w_urma_latency: float | None = None
-    p9999_w2w_urma_latency: float | None = None
-    ave_sdk_process: float | None = None
-    min_sdk_process: float | None = None
-    max_sdk_process: float | None = None
-    p99_sdk_process: float | None = None
-    p95_sdk_process: float | None = None
-    p9999_sdk_process: float | None = None
-    ave_sdk_rpc: float | None = None
-    min_sdk_rpc: float | None = None
-    max_sdk_rpc: float | None = None
-    p99_sdk_rpc: float | None = None
-    p95_sdk_rpc: float | None = None
-    p9999_sdk_rpc: float | None = None
-    ave_local_worker_cost: float | None = None
-    min_local_worker_cost: float | None = None
-    max_local_worker_cost: float | None = None
-    p99_local_worker_cost: float | None = None
-    p95_local_worker_cost: float | None = None
-    p9999_local_worker_cost: float | None = None
-    ave_local_worker_lock: float | None = None
-    min_local_worker_lock: float | None = None
-    max_local_worker_lock: float | None = None
-    p99_local_worker_lock: float | None = None
-    p95_local_worker_lock: float | None = None
-    p9999_local_worker_lock: float | None = None
-    ave_remote_worker_cost: float | None = None
-    min_remote_worker_cost: float | None = None
-    max_remote_worker_cost: float | None = None
-    p99_remote_worker_cost: float | None = None
-    p95_remote_worker_cost: float | None = None
-    p9999_remote_worker_cost: float | None = None
-    ave_remote_worker_rpc: float | None = None
-    min_remote_worker_rpc: float | None = None
-    max_remote_worker_rpc: float | None = None
-    p99_remote_worker_rpc: float | None = None
-    p95_remote_worker_rpc: float | None = None
-    p9999_remote_worker_rpc: float | None = None
-    ave_master_process: float | None = None
-    min_master_process: float | None = None
-    max_master_process: float | None = None
-    p99_master_process: float | None = None
-    p95_master_process: float | None = None
-    p9999_master_process: float | None = None
-    ave_master_rpc_total: float | None = None
-    min_master_rpc_total: float | None = None
-    max_master_rpc_total: float | None = None
-    p99_master_rpc_total: float | None = None
-    p95_master_rpc_total: float | None = None
-    p9999_master_rpc_total: float | None = None
-    ave_create_latency: float | None = None
-    min_create_latency: float | None = None
-    max_create_latency: float | None = None
-    p99_create_latency: float | None = None
-    p95_create_latency: float | None = None
-    p9999_create_latency: float | None = None
-    ave_publish_latency: float | None = None
-    min_publish_latency: float | None = None
-    max_publish_latency: float | None = None
-    p99_publish_latency: float | None = None
-    p95_publish_latency: float | None = None
-    p9999_publish_latency: float | None = None
-    ave_worker_total_latency: float | None = None
-    min_worker_total_latency: float | None = None
-    max_worker_total_latency: float | None = None
-    p99_worker_total_latency: float | None = None
-    p95_worker_total_latency: float | None = None
-    p9999_worker_total_latency: float | None = None
-    existed_status: bool = True
-    created_at: str = field(
-        default_factory=lambda: datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S.%f"
-        )[:-3]
-    )
-=======
 class TimeWindowAggregatedEventPGManager:
     _TIME_WINDOW_COPY_COLUMNS = [
         "id",
@@ -168,130 +50,11 @@ class TimeWindowAggregatedEventPGManager:
         "existed_status",
         "created_at",
     ]
->>>>>>> ee54a6a (sqlite切换pg)
 
     # Use COPY for large batches; INSERT is fine for smaller ones.
     _COPY_THRESHOLD = 1_000
     _COPY_BATCH_SIZE = 50_000
 
-<<<<<<< HEAD
-def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) -> tuple:
-    return (
-        event.id,
-        event.kb_id,
-        event.log_id,
-        event.time_bucket,
-        event.src_ip,
-        event.dst_ip,
-        event.operation,
-        event.log_parse_result_cnt,
-        event.anomaly_cnt,
-        event.ave_total_latency,
-        event.min_total_latency,
-        event.max_total_latency,
-        event.p99_total_latency,
-        event.p95_total_latency,
-        event.p9999_total_latency,
-        event.ave_query_meta_latency,
-        event.min_query_meta_latency,
-        event.max_query_meta_latency,
-        event.p99_query_meta_latency,
-        event.p95_query_meta_latency,
-        event.p9999_query_meta_latency,
-        event.ave_urma_total_latency,
-        event.min_urma_total_latency,
-        event.max_urma_total_latency,
-        event.p99_urma_total_latency,
-        event.p95_urma_total_latency,
-        event.p9999_urma_total_latency,
-        event.ave_urma_link_latency,
-        event.min_urma_link_latency,
-        event.max_urma_link_latency,
-        event.p99_urma_link_latency,
-        event.p95_urma_link_latency,
-        event.p9999_urma_link_latency,
-        event.ave_c2w_urma_latency,
-        event.min_c2w_urma_latency,
-        event.max_c2w_urma_latency,
-        event.p99_c2w_urma_latency,
-        event.p95_c2w_urma_latency,
-        event.p9999_c2w_urma_latency,
-        event.ave_w2w_urma_latency,
-        event.min_w2w_urma_latency,
-        event.max_w2w_urma_latency,
-        event.p99_w2w_urma_latency,
-        event.p95_w2w_urma_latency,
-        event.p9999_w2w_urma_latency,
-        event.ave_sdk_process,
-        event.min_sdk_process,
-        event.max_sdk_process,
-        event.p99_sdk_process,
-        event.p95_sdk_process,
-        event.p9999_sdk_process,
-        event.ave_sdk_rpc,
-        event.min_sdk_rpc,
-        event.max_sdk_rpc,
-        event.p99_sdk_rpc,
-        event.p95_sdk_rpc,
-        event.p9999_sdk_rpc,
-        event.ave_local_worker_cost,
-        event.min_local_worker_cost,
-        event.max_local_worker_cost,
-        event.p99_local_worker_cost,
-        event.p95_local_worker_cost,
-        event.p9999_local_worker_cost,
-        event.ave_local_worker_lock,
-        event.min_local_worker_lock,
-        event.max_local_worker_lock,
-        event.p99_local_worker_lock,
-        event.p95_local_worker_lock,
-        event.p9999_local_worker_lock,
-        event.ave_remote_worker_cost,
-        event.min_remote_worker_cost,
-        event.max_remote_worker_cost,
-        event.p99_remote_worker_cost,
-        event.p95_remote_worker_cost,
-        event.p9999_remote_worker_cost,
-        event.ave_remote_worker_rpc,
-        event.min_remote_worker_rpc,
-        event.max_remote_worker_rpc,
-        event.p99_remote_worker_rpc,
-        event.p95_remote_worker_rpc,
-        event.p9999_remote_worker_rpc,
-        event.ave_master_process,
-        event.min_master_process,
-        event.max_master_process,
-        event.p99_master_process,
-        event.p95_master_process,
-        event.p9999_master_process,
-        event.ave_master_rpc_total,
-        event.min_master_rpc_total,
-        event.max_master_rpc_total,
-        event.p99_master_rpc_total,
-        event.p95_master_rpc_total,
-        event.p9999_master_rpc_total,
-        event.ave_create_latency,
-        event.min_create_latency,
-        event.max_create_latency,
-        event.p99_create_latency,
-        event.p95_create_latency,
-        event.p9999_create_latency,
-        event.ave_publish_latency,
-        event.min_publish_latency,
-        event.max_publish_latency,
-        event.p99_publish_latency,
-        event.p95_publish_latency,
-        event.p9999_publish_latency,
-        event.ave_worker_total_latency,
-        event.min_worker_total_latency,
-        event.max_worker_total_latency,
-        event.p99_worker_total_latency,
-        event.p95_worker_total_latency,
-        event.p9999_worker_total_latency,
-        event.existed_status,
-        event.created_at,
-    )
-=======
     @staticmethod
     def _event_to_mapping(
         event: TimeWindowAggregatedEventDataclass,
@@ -307,7 +70,6 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
             "anomaly_cnt": event.anomaly_cnt,
             "existed_status": event.existed_status,
         }
->>>>>>> ee54a6a (sqlite切换pg)
 
     @staticmethod
     def _event_to_copy_tuple(
@@ -365,63 +127,6 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
     ) -> list[str]:
         """Bulk insert time-window events using asyncpg COPY.
 
-<<<<<<< HEAD
-                    sql_str = """
-                        INSERT INTO time_window_aggregated_table (
-                            id, kb_id, log_id, time_bucket, src_ip, dst_ip, operation,
-                            log_parse_result_cnt, anomaly_cnt,
-                            ave_total_latency, min_total_latency, max_total_latency,
-                            p99_total_latency, p95_total_latency, p9999_total_latency,
-                            ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
-                            p99_query_meta_latency, p95_query_meta_latency, p9999_query_meta_latency,
-                            ave_urma_total_latency, min_urma_total_latency, max_urma_total_latency,
-                            p99_urma_total_latency, p95_urma_total_latency, p9999_urma_total_latency,
-                            ave_urma_link_latency, min_urma_link_latency, max_urma_link_latency,
-                            p99_urma_link_latency, p95_urma_link_latency, p9999_urma_link_latency,
-                            ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
-                            p99_c2w_urma_latency, p95_c2w_urma_latency, p9999_c2w_urma_latency,
-                            ave_w2w_urma_latency, min_w2w_urma_latency, max_w2w_urma_latency,
-                            p99_w2w_urma_latency, p95_w2w_urma_latency, p9999_w2w_urma_latency,
-                            ave_sdk_process, min_sdk_process, max_sdk_process,
-                            p99_sdk_process, p95_sdk_process, p9999_sdk_process,
-                            ave_sdk_rpc, min_sdk_rpc, max_sdk_rpc,
-                            p99_sdk_rpc, p95_sdk_rpc, p9999_sdk_rpc,
-                            ave_local_worker_cost, min_local_worker_cost, max_local_worker_cost,
-                            p99_local_worker_cost, p95_local_worker_cost, p9999_local_worker_cost,
-                            ave_local_worker_lock, min_local_worker_lock, max_local_worker_lock,
-                            p99_local_worker_lock, p95_local_worker_lock, p9999_local_worker_lock,
-                            ave_remote_worker_cost, min_remote_worker_cost, max_remote_worker_cost,
-                            p99_remote_worker_cost, p95_remote_worker_cost, p9999_remote_worker_cost,
-                            ave_remote_worker_rpc, min_remote_worker_rpc, max_remote_worker_rpc,
-                            p99_remote_worker_rpc, p95_remote_worker_rpc, p9999_remote_worker_rpc,
-                            ave_master_process, min_master_process, max_master_process,
-                            p99_master_process, p95_master_process, p9999_master_process,
-                            ave_master_rpc_total, min_master_rpc_total, max_master_rpc_total,
-                            p99_master_rpc_total, p95_master_rpc_total, p9999_master_rpc_total,
-                            ave_create_latency, min_create_latency, max_create_latency,
-                            p99_create_latency, p95_create_latency, p9999_create_latency,
-                            ave_publish_latency, min_publish_latency, max_publish_latency,
-                            p99_publish_latency, p95_publish_latency, p9999_publish_latency,
-                            ave_worker_total_latency, min_worker_total_latency, max_worker_total_latency,
-                            p99_worker_total_latency, p95_worker_total_latency, p9999_worker_total_latency,
-                            existed_status, created_at
-                        ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        )
-                    """
-                    for i in range(0, total_count, batch_size):
-                        end = min(i + batch_size, total_count)
-                        batch = (
-                            _time_window_event_to_db_tuple(events[index])
-                            for index in range(i, end)
-                        )
-                        conn.executemany(sql_str, batch)
-=======
         COPY is significantly faster than a large multi-row INSERT and avoids
         the per-statement parameter limit when workers produce tens of
         thousands of events.
@@ -448,7 +153,6 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
             time.perf_counter() - t_start,
         )
         return [e.id for e in events]
->>>>>>> ee54a6a (sqlite切换pg)
 
     @staticmethod
     async def delete_by_log_id(log_id: str) -> bool:
@@ -503,26 +207,12 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
         cluster_name: str | None = None,
         host: str | None = None,
         pod_ip: str | None = None,
-<<<<<<< HEAD
         operation: str | None = None,
-    ) -> list[dict]:
-        """获取时间窗口聚合事件"""
-        db = AsyncSQLiteSingleton()
-
-        conditions = ["existed_status = 1"]
-        params = {}
-        cte_sql = ""
-
-        if kb_id:
-            conditions.append("kb_id = :kb_id")
-            params["kb_id"] = kb_id
-=======
     ) -> list[dict[str, Any]]:
         """Real-time time-window aggregation from raw log_parse_result."""
         time_bucket = func.date_trunc("second", LogParseResult.timestamp).label(
             "time_bucket"
         )
->>>>>>> ee54a6a (sqlite切换pg)
 
         filters = [
             LogParseResult.log_id == log_id,
@@ -542,46 +232,12 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
             filters.append(LogParseResult.host == host)
         if pod_ip:
             filters.append(LogParseResult.pod_ips.contains([pod_ip]))
+        if operation:
+            filters.append(LogParseResult.operation.ilike(f"%{operation}%"))
         if kb_id:
             kb_subq = select(LogFile.id).where(LogFile.kb_id == kb_id).subquery()
             filters.append(LogParseResult.log_id.in_(select(kb_subq.c.id)))
 
-<<<<<<< HEAD
-        if operation:
-            op = operation.upper()
-            if op == "GET":
-                conditions.append("(operation = :operation OR operation = '')")
-            else:
-                conditions.append("operation = :operation")
-            params["operation"] = op
-
-        sql_str = cte_sql + f"""
-            SELECT id, kb_id, log_id, time_bucket, src_ip, dst_ip, operation,
-                   log_parse_result_cnt, anomaly_cnt,
-                   ave_total_latency, min_total_latency, max_total_latency,
-                   p99_total_latency, p95_total_latency,
-                   ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
-                   p99_query_meta_latency, p95_query_meta_latency,
-                   ave_urma_total_latency, min_urma_total_latency, max_urma_total_latency,
-                   p99_urma_total_latency, p95_urma_total_latency,
-                   ave_urma_link_latency, min_urma_link_latency, max_urma_link_latency,
-                   p99_urma_link_latency, p95_urma_link_latency,
-                   ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
-                   p99_c2w_urma_latency, p95_c2w_urma_latency,
-                   ave_w2w_urma_latency, min_w2w_urma_latency, max_w2w_urma_latency,
-                   p99_w2w_urma_latency, p95_w2w_urma_latency,
-                   ave_create_latency, min_create_latency, max_create_latency,
-                   p99_create_latency, p95_create_latency, p9999_create_latency,
-                   ave_publish_latency, min_publish_latency, max_publish_latency,
-                   p99_publish_latency, p95_publish_latency, p9999_publish_latency,
-                   ave_worker_total_latency, min_worker_total_latency, max_worker_total_latency,
-                   p99_worker_total_latency, p95_worker_total_latency, p9999_worker_total_latency
-            FROM time_window_aggregated_table
-            WHERE {' AND '.join(conditions)}
-            ORDER BY time_bucket ASC, src_ip ASC, dst_ip ASC
-            LIMIT 50000
-        """
-=======
         stats_columns = []
         for name, col in _LATENCY_FIELDS:
             stats_columns.append(func.avg(col).label(f"ave_{name}"))
@@ -593,7 +249,6 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
             stats_columns.append(
                 func.percentile_cont(0.99).within_group(col.asc()).label(f"p99_{name}")
             )
->>>>>>> ee54a6a (sqlite切换pg)
 
         stmt = (
             select(
@@ -672,6 +327,8 @@ def _time_window_event_to_db_tuple(event: TimeWindowAggregatedEventDataclass) ->
             filters.append(LogParseResult.host == req.host)
         if req.pod_ip:
             filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
+        if req.operation:
+            filters.append(LogParseResult.operation.ilike(f"%{req.operation}%"))
 
         if req.kb_id:
             kb_subq = select(LogFile.id).where(LogFile.kb_id == req.kb_id).subquery()

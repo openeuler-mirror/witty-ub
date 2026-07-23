@@ -354,6 +354,8 @@ class LogParseResultPGManager:
             stmt = stmt.where(LogParseResult.created_at >= parse_timestamp(req.created_at_start))
         if req.created_at_end:
             stmt = stmt.where(LogParseResult.created_at <= parse_timestamp(req.created_at_end))
+        if req.operation:
+            stmt = stmt.where(LogParseResult.operation.ilike(f"%{req.operation}%"))
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         async with PGManager.session() as session:

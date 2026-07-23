@@ -147,6 +147,9 @@ class LogParseResult(Base):
     remote_worker_rpc: Mapped[Optional[float]] = mapped_column(Float)
     master_process: Mapped[Optional[float]] = mapped_column(Float)
     master_rpc_total: Mapped[Optional[float]] = mapped_column(Float)
+    create_latency: Mapped[Optional[float]] = mapped_column(Float)
+    publish_latency: Mapped[Optional[float]] = mapped_column(Float)
+    worker_total_latency: Mapped[Optional[float]] = mapped_column(Float)
 
 
 # ============================================================
