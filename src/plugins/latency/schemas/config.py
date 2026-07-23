@@ -26,6 +26,37 @@ class DatabaseConfig(BaseModel):
     pg_pool_size: int = Field(default=10, description="PostgreSQL 连接池大小")
     pg_max_overflow: int = Field(default=20, description="PostgreSQL 连接池最大溢出连接数")
 
+    @model_validator(mode="after")
+    def override_from_env(self):
+        """支持通过环境变量覆盖单字段，便于容器部署时注入配置。
+
+        环境变量名与字段名一致（全大写），例如：
+            PG_HOST=postgres  ->  self.pg_host = "postgres"
+            PG_PORT=5432      ->  self.pg_port = 5432
+        """
+        import os
+
+        field_env_map = {
+            "BACKEND": "backend",
+            "DB_PATH": "db_path",
+            "PG_HOST": "pg_host",
+            "PG_PORT": "pg_port",
+            "PG_DATABASE": "pg_database",
+            "PG_USER": "pg_user",
+            "PG_PASSWORD": "pg_password",
+            "PG_POOL_SIZE": "pg_pool_size",
+            "PG_MAX_OVERFLOW": "pg_max_overflow",
+        }
+        for env_name, field_name in field_env_map.items():
+            val = os.getenv(env_name)
+            if val is not None and val != "":
+                field_type = self.__class__.model_fields[field_name].annotation
+                try:
+                    setattr(self, field_name, field_type(val))
+                except (TypeError, ValueError):
+                    pass
+        return self
+
     def pg_dsn_url(self) -> str:
         """根据 host/port/database/user/password 构建 PostgreSQL DSN。"""
         from urllib.parse import quote_plus

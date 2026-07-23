@@ -14,3 +14,12 @@ query_meta_p99_threshold_ms = 1.0
 sliding_window_sizes = [100, 200, 300, 500]
 sliding_window_steps = [20, 30, 40, 50]
 zone_anomaly_density_threshold = 0.5
+
+[db]
+pg_host = "127.0.0.1"
+pg_port = 15432
+pg_database = "witty-ub"
+pg_user = "witty-ub"
+pg_password = "witty-ub"
+pg_pool_size = 10
+pg_max_overflow = 20
