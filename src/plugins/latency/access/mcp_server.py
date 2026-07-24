@@ -9,11 +9,6 @@ from typing import Any, Mapping
 from mcp import types
 from mcp.server.fastmcp import FastMCP
 
-from latency.access.mcp_contract import (
-    get_mcp_tool_description,
-    verify_mcp_input_policy_operations,
-    verify_mcp_tool_description_operations,
-)
 from latency.access.openapi_adapter import OpenApiAdapter
 
 
@@ -62,8 +57,6 @@ async def _get_adapter() -> OpenApiAdapter:
     if _adapter is None:
         loaded = OpenApiAdapter()
         await loaded.load()
-        verify_mcp_input_policy_operations(set(loaded.operations))
-        verify_mcp_tool_description_operations(set(loaded.operations))
         if "read_file" in loaded.operations:
             raise RuntimeError(
                 "Backend operationId conflicts with local MCP tool: read_file"
@@ -77,10 +70,7 @@ async def _list_dynamic_tools() -> list[types.Tool]:
     tools = [
         types.Tool(
             name=operation.operation_id,
-            description=get_mcp_tool_description(
-                operation.operation_id,
-                operation.description,
-            ),
+            description=operation.description,
             inputSchema=adapter.build_input_schema(operation.operation_id),
             annotations=READ_ONLY_TOOL,
         )

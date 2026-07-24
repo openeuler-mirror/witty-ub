@@ -20,6 +20,11 @@ router = APIRouter(prefix="/aggregated_event", tags=["aggregated_event"])
     "/list",
     response_model=ListSrcDstAggregatedEventResponse,
     operation_id="list_latency_events",
+    description=(
+        "List source/destination IP latency aggregates. Use this to find IP pairs "
+        "with high latency or anomalous requests before drilling into traces. "
+        "Supports operation, log-event time, topology and multi-column filters."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_aggregated_events(
@@ -33,6 +38,10 @@ async def list_aggregated_events(
     "/{event_id}",
     response_model=GetSrcDstAggregatedEventResponse,
     operation_id="get_latency_event",
+    description=(
+        "Get one source/destination latency aggregate by ID. Use it to inspect the "
+        "selected path and aggregate latency components before trace drill-down."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_aggregated_event_by_id(
@@ -46,6 +55,11 @@ async def get_aggregated_event_by_id(
     "/list_time_window",
     response_model=ListTimeWindowAggregatedEventResponse,
     operation_id="list_latency_events_by_time_windows",
+    description=(
+        "List latency aggregates grouped into time windows. Use this to identify "
+        "when latency increased and compare source/destination IP pairs within the "
+        "same interval."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_time_window_aggregated_events(

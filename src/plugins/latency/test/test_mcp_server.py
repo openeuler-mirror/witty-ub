@@ -5,7 +5,6 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from latency.access import mcp_server
-from latency.access.mcp_contract import McpContractError
 
 
 class FakeAdapter:
@@ -58,7 +57,7 @@ def test_mcp_lists_openapi_derived_and_local_tools(monkeypatch):
     tools = asyncio.run(inspect_tools())
 
     assert set(tools) == {"get_log_file", "list_log_files", "read_file"}
-    assert "parse status" in tools["get_log_file"].description
+    assert tools["get_log_file"].description == "Get one log file."
     assert tools["get_log_file"].inputSchema["required"] == ["log_file_id"]
     assert tools["get_log_file"].annotations.readOnlyHint is True
     assert tools["read_file"].inputSchema["additionalProperties"] is False
@@ -128,18 +127,3 @@ def test_read_file_returns_bounded_text_file(tmp_path):
 def test_read_file_rejects_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         asyncio.run(mcp_server.read_file(str(tmp_path / "missing.log")))
-
-
-def test_mcp_rejects_agent_policy_for_missing_operation(monkeypatch):
-    fake = FakeAdapter()
-    fake.operations = {}
-
-    async def fake_load():
-        return fake
-
-    monkeypatch.setattr(mcp_server, "_adapter", None)
-    monkeypatch.setattr(mcp_server, "OpenApiAdapter", lambda: fake)
-    monkeypatch.setattr(fake, "load", fake_load, raising=False)
-
-    with pytest.raises(McpContractError, match="unavailable operations"):
-        asyncio.run(mcp_server._get_adapter())

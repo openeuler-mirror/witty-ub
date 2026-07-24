@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
 import os
 from typing import Any, Literal, Mapping
@@ -12,13 +11,6 @@ from urllib.parse import quote
 import httpx
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
-
-from latency.access.mcp_contract import (
-    COMMON_DEFINITION_OVERRIDES,
-    PAGINATION_PROPERTY_OVERRIDES,
-    get_mcp_input_policy,
-)
-
 
 ParameterLocation = Literal["path", "query"]
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
@@ -186,7 +178,6 @@ class OpenApiAdapter:
             input_schema["required"] = list(dict.fromkeys(required))
         if definitions:
             input_schema["$defs"] = definitions
-        self._apply_mcp_input_policy(operation_id, input_schema)
         return input_schema
 
     async def invoke(
@@ -201,12 +192,6 @@ class OpenApiAdapter:
             for name, value in arguments.items()
             if value is not None
         }
-        policy = get_mcp_input_policy(operation_id)
-        for name, value in policy.defaults.items():
-            if name not in remaining or (
-                name in policy.default_if_empty and not remaining[name]
-            ):
-                remaining[name] = deepcopy(value)
         self._validate_value(
             remaining,
             self.build_input_schema(operation_id),
@@ -267,66 +252,6 @@ class OpenApiAdapter:
             query=query,
             body=body,
         )
-
-    def _apply_mcp_input_policy(
-        self,
-        operation_id: str,
-        input_schema: dict[str, Any],
-    ) -> None:
-        properties = input_schema["properties"]
-        policy = get_mcp_input_policy(operation_id)
-
-        for name, override in PAGINATION_PROPERTY_OVERRIDES.items():
-            if name in properties:
-                self._deep_merge(properties[name], override)
-
-        for name, override in policy.property_overrides.items():
-            if name not in properties:
-                raise OpenApiLoadError(
-                    f"MCP input policy references an unavailable property "
-                    f"{name}: {operation_id}"
-                )
-            self._deep_merge(properties[name], override)
-
-        for name, value in policy.defaults.items():
-            if name not in properties:
-                raise OpenApiLoadError(
-                    f"MCP input policy references an unavailable default "
-                    f"{name}: {operation_id}"
-                )
-            properties[name]["default"] = deepcopy(value)
-
-        required = list(input_schema.get("required", []))
-        for name in sorted(policy.required):
-            if name not in properties:
-                raise OpenApiLoadError(
-                    f"MCP input policy requires an unavailable property "
-                    f"{name}: {operation_id}"
-                )
-            if name not in required:
-                required.append(name)
-        if required:
-            input_schema["required"] = required
-
-        definitions = input_schema.get("$defs", {})
-        for name, override in COMMON_DEFINITION_OVERRIDES.items():
-            if name in definitions:
-                self._deep_merge(definitions[name], override)
-
-    @classmethod
-    def _deep_merge(
-        cls,
-        target: dict[str, Any],
-        override: Mapping[str, Any],
-    ) -> None:
-        for key, value in override.items():
-            if (
-                isinstance(value, Mapping)
-                and isinstance(target.get(key), dict)
-            ):
-                cls._deep_merge(target[key], value)
-            else:
-                target[key] = deepcopy(value)
 
     async def _fetch_schema(self) -> dict[str, Any]:
         try:

@@ -22,8 +22,53 @@ permission:
 - 指标经过采样时明确说明采样模式，不把采样点描述成完整原始数据。
 - 工具或后端报错时如实报告，不能用猜测补齐缺失数据。
 - 不输出无关的大段原始日志；只引用支持结论的字段。
+- 标准流程是推荐调查路径，不是工具白名单。对于流程中未明确提到的只读工具，
+  如果它与当前问题直接相关且对补充证据、验证假设或排除候选根因有必要，也可以
+  使用；调用时仍须遵守对应输入规则、限定最小必要查询范围，并说明结果如何支持
+  当前调查。
 - 用户明确要求查询某个 trace、某类 trace 或 trace 是否存在时，trace 查询优先于
   聚合分析。直接在知识库范围查询，不先用聚合事件限定 IP 对或候选 trace。
+
+## 工具输入规则
+
+以下是诊断 Agent 必须遵守的调用规则。即使工具的 OpenAPI schema 将某个参数标记为
+可选，也要按这里的要求显式传参；不要依赖后端默认值替代这里规定的诊断默认值。
+
+- 所有包含 `page_num` 的调用必须使用大于等于 1 的值；所有包含 `page_cnt` 的调用
+  必须使用 1 到 100 的值。
+- 所有 `sort_fields` 元素的 `field` 必须是非空字符串，`order` 只能是 `asc` 或
+  `desc`。
+- `list_latency_events`
+  - `kb_id` 必填。
+  - `operation` 只能是 `GET` 或 `SET`。
+  - `stat_type` 只能是 `p99`、`p95`、`ave`、`min` 或 `max`，未指定时显式传
+    `p99`。
+  - 未指定 `sort_fields` 或其值为空时，显式传
+    `[{"field": "total_latency", "order": "desc"}]`。
+- `list_latency_events_by_time_windows`
+  - `kb_id` 必填。
+  - `operation` 只能是 `GET` 或 `SET`；`interval` 只能是 `second`、`minute`
+    或 `hour`。
+  - `stat_type` 只能是 `p99`、`p95`、`ave`、`min` 或 `max`，未指定时显式传
+    `p99`。
+  - `sort_by` 只能是 `start_time` 或 `total_latency`；`sort_order` 只能是
+    `asc` 或 `desc`。
+- `list_latency_traces`
+  - `kb_id` 必填，`operation` 只能是 `GET` 或 `SET`。
+  - 未指定 `is_anomalous` 时显式传 `true`。
+- `get_latency_metrics`
+  - `kb_id` 必填，`operation` 只能是 `GET` 或 `SET`。
+  - `max_points` 只能是 `-1`，或者 1 到 5000 的整数。
+- `list_connectivity_events_by_time_windows`
+  - `kb_id` 必填，`interval` 只能是 `second`、`minute` 或 `hour`。
+- `list_connectivity_events_by_pods` 和 `list_connectivity_events` 的 `kb_id`
+  必填。
+- `list_connectivity_traces` 未指定 `is_anomalous` 时显式传 `true`。
+- `get_connectivity_metrics` 的 `max_points` 必须是 1 到 5000 的整数。
+- `list_connectivity_trace_logs` 的 `trace_ids` 必填，且必须包含 1 到 100 个
+  trace ID。
+- `list_diagnosis_cases` 的 `fault_type` 只能是 `latency`、`connectivity`、
+  `mixed` 或 `unknown`。
 
 ## 标准流程
 
