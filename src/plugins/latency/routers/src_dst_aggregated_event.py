@@ -16,7 +16,12 @@ from latency.services.src_dst_aggregated_event import SrcDstAggregatedEventServi
 router = APIRouter(prefix="/aggregated_event", tags=["aggregated_event"])
 
 
-@router.post("/list", response_model=ListSrcDstAggregatedEventResponse)
+@router.post(
+    "/list",
+    response_model=ListSrcDstAggregatedEventResponse,
+    operation_id="list_latency_events",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def list_aggregated_events(
     req: Annotated[ListSrcDstAggregatedEventRequest, Body()],
 ) -> ListSrcDstAggregatedEventResponse:
@@ -24,7 +29,12 @@ async def list_aggregated_events(
     return ListSrcDstAggregatedEventResponse(result=msg)
 
 
-@router.get("/{event_id}", response_model=GetSrcDstAggregatedEventResponse)
+@router.get(
+    "/{event_id}",
+    response_model=GetSrcDstAggregatedEventResponse,
+    operation_id="get_latency_event",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_aggregated_event_by_id(
     event_id: Annotated[str, Path()],
 ) -> GetSrcDstAggregatedEventResponse:
@@ -32,7 +42,12 @@ async def get_aggregated_event_by_id(
     return GetSrcDstAggregatedEventResponse(result=msg)
 
 
-@router.post("/list_time_window", response_model=ListTimeWindowAggregatedEventResponse)
+@router.post(
+    "/list_time_window",
+    response_model=ListTimeWindowAggregatedEventResponse,
+    operation_id="list_latency_events_by_time_windows",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def list_time_window_aggregated_events(
     req: Annotated[ListTimeWindowAggregatedEventRequest, Body()],
 ) -> ListTimeWindowAggregatedEventResponse:

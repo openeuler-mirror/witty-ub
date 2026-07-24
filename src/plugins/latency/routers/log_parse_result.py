@@ -15,14 +15,24 @@ from latency.services.log_parse_result import LogParseResultService
 router = APIRouter(prefix="/log_parse_result", tags=["log_parse_result"])
 
 
-@router.post("/list", response_model=ListLogParseResultsResponse)
+@router.post(
+    "/list",
+    response_model=ListLogParseResultsResponse,
+    operation_id="list_latency_traces",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def list_log_parse_results(
     req: Annotated[ListLogParseResultRequest, Body()],
 ) -> ListLogParseResultsResponse:
     msg = await LogParseResultService.list_log_parse_results(req)
     return ListLogParseResultsResponse(result=msg)
 
-@router.get("/options", response_model=GetLogParseOptionsResponse)
+@router.get(
+    "/options",
+    response_model=GetLogParseOptionsResponse,
+    operation_id="list_clusters_hosts",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_log_parse_options(
     kb_id: Annotated[Optional[str], Query(description="知识库ID，用于过滤")] = None,
 ) -> GetLogParseOptionsResponse:
@@ -33,7 +43,12 @@ async def get_log_parse_options(
     msg = await LogParseResultService.get_log_parse_options(kb_id)
     return GetLogParseOptionsResponse(result=msg)
 
-@router.get("/{result_id}", response_model=GetLogParseResultResponse)
+@router.get(
+    "/{result_id}",
+    response_model=GetLogParseResultResponse,
+    operation_id="get_latency_trace",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_log_parse_result_by_id(
     result_id: Annotated[str, Path()],
 ) -> GetLogParseResultResponse:
@@ -50,7 +65,12 @@ async def list_traces_by_host(
     return ListTracesByHostResponse(result=msg)
 
 
-@router.post("/metrics/latency", response_model=GetLatencyMetricsResponse)
+@router.post(
+    "/metrics/latency",
+    response_model=GetLatencyMetricsResponse,
+    operation_id="get_latency_metrics",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_latency_metrics(
     req: Annotated[GetLatencyMetricsRequest, Body()],
 ) -> GetLatencyMetricsResponse:
@@ -72,6 +92,3 @@ async def get_latency_metrics(
     """
     msg = await LogParseResultService.get_latency_metrics(req)
     return GetLatencyMetricsResponse(result=msg)
-
-
-

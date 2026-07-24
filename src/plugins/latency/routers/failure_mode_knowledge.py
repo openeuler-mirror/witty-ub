@@ -34,6 +34,8 @@ router = APIRouter(prefix="/failure_mode", tags=["failure_mode"])
 @router.get(
     "/status_code/{status_code}",
     response_model=GetStatusCodeKnowledgeResponse,
+    operation_id="get_status_code_knowledge",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_status_code_knowledge(
     status_code: Annotated[str, Path()],
@@ -44,7 +46,12 @@ async def get_status_code_knowledge(
     return GetStatusCodeKnowledgeResponse(result=msg)
 
 
-@router.get("/{failure_mode_id}", response_model=GetFailureModeResponse)
+@router.get(
+    "/{failure_mode_id}",
+    response_model=GetFailureModeResponse,
+    operation_id="get_failure_mode",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_failure_mode_by_id(
     failure_mode_id: Annotated[str, Path()],
 ) -> GetFailureModeResponse:

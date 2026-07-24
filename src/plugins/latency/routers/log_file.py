@@ -121,7 +121,12 @@ async def run_or_stop_log_file_by_log_file_id(
     return RunOrStopLogParseResponse(result=update_log_file_msg)
 
 
-@router.post("/list/{kb_id}", response_model=ListLogFilesResponse)
+@router.post(
+    "/list/{kb_id}",
+    response_model=ListLogFilesResponse,
+    operation_id="list_log_files",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def list_log_files(
     kb_id: Annotated[str, Path()],
     req: Annotated[ListLogFilesRequest, Body()],
@@ -130,7 +135,12 @@ async def list_log_files(
     return ListLogFilesResponse(result=list_log_files_msg)
 
 
-@router.get("/{log_file_id}", response_model=GetLogFileResponse)
+@router.get(
+    "/{log_file_id}",
+    response_model=GetLogFileResponse,
+    operation_id="get_log_file",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_log_file_by_log_file_id(
     log_file_id: Annotated[str, Path()],
 ) -> GetLogFileResponse:
