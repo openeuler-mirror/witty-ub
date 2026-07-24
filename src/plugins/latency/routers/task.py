@@ -39,7 +39,12 @@ async def delete_task(
     return DeleteTaskResponse(result=msg)
 
 
-@router.post("/list", response_model=ListTasksResponse)
+@router.post(
+    "/list",
+    response_model=ListTasksResponse,
+    operation_id="list_parse_tasks",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def list_tasks(
     req: Annotated[ListTasksRequest, Body()],
 ) -> ListTasksResponse:
@@ -47,7 +52,12 @@ async def list_tasks(
     return ListTasksResponse(result=msg)
 
 
-@router.get("/{task_id}", response_model=GetTaskResponse)
+@router.get(
+    "/{task_id}",
+    response_model=GetTaskResponse,
+    operation_id="get_parse_task",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_task_by_id(
     task_id: Annotated[str, Path()],
 ) -> GetTaskResponse:

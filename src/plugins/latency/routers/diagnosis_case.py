@@ -22,7 +22,12 @@ async def create_diagnosis_case(
     return CreateDiagnosisCaseResponse(result=msg)
 
 
-@router.get("/{case_id}", response_model=GetDiagnosisCaseResponse)
+@router.get(
+    "/{case_id}",
+    response_model=GetDiagnosisCaseResponse,
+    operation_id="get_diagnosis_case",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_diagnosis_case(
     case_id: Annotated[str, Path()],
 ) -> GetDiagnosisCaseResponse:
@@ -30,7 +35,12 @@ async def get_diagnosis_case(
     return GetDiagnosisCaseResponse(result=msg)
 
 
-@router.post("/search", response_model=SearchDiagnosisCasesResponse)
+@router.post(
+    "/search",
+    response_model=SearchDiagnosisCasesResponse,
+    operation_id="list_diagnosis_cases",
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def search_diagnosis_cases(
     req: Annotated[SearchDiagnosisCasesRequest, Body()],
 ) -> SearchDiagnosisCasesResponse:
