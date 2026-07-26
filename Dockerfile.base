@@ -52,7 +52,9 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     httpx==0.28.1 \
     "mcp>=1.28.0,<2.0.0" \
     urllib3>=2.1.0 \
-    rarfile>=4.0 && \
+    rarfile>=4.0 \
+    sqlalchemy==2.0.51 \
+    asyncpg==0.31.0 && \
     rm -rf /root/.cache/pip
 
 # Install OpenCode (install in base image to avoid QEMU issues in multi-arch builds)

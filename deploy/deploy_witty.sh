@@ -83,6 +83,21 @@ check_docker() {
     fi
 }
 
+# 额外目录挂载（从 pg.conf 读取 WITTY_EXTRA_MOUNTS）
+# 格式: "host_path:container_path[:ro|rw] host_path2:container_path2[:ro|rw]"
+EXTRA_MOUNT_ARGS=()
+if [ -n "${WITTY_EXTRA_MOUNTS:-}" ]; then
+    for mount in ${WITTY_EXTRA_MOUNTS}; do
+        host_path=$(echo "$mount" | cut -d: -f1)
+        if [ ! -d "$host_path" ] && [ ! -f "$host_path" ]; then
+            log_warn "挂载源路径不存在: ${host_path}，跳过该挂载"
+            continue
+        fi
+        EXTRA_MOUNT_ARGS+=("-v" "${mount}")
+        log_info "额外挂载: ${mount}"
+    done
+fi
+
 # ============================================================
 # witty-ub 镜像候选列表（按优先级从高到低）
 # ============================================================
@@ -215,10 +230,61 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${WITTY_CONTAINER_NAME}"; then
     log_ok "Existing container removed"
 fi
 
-# 3.5 确定 PG 连接配置（容器内视角）
-# 如果 PG 容器在同一个网络里，用容器名连接
-PG_IN_CONTAINER_HOST="${PG_HOST_IN_CONTAINER:-postgres}"
-PG_IN_CONTAINER_PORT="${PG_PORT_IN_CONTAINER:-5432}"
+# 3.5 自动检测 PG 连接配置（容器内视角）
+# 优先级：用户显式配置 > 自动检测（PG 容器 > 宿主机 RPM PG > 默认值）
+detect_pg_config() {
+    # 如果用户在 pg.conf 中显式配置了（非空且不是默认 postgres），直接使用
+    if [ -n "${PG_HOST_IN_CONTAINER:-}" ] && [ "${PG_HOST_IN_CONTAINER}" != "postgres" ]; then
+        log_info "使用 pg.conf 中配置的 PG 连接: ${PG_HOST_IN_CONTAINER}:${PG_PORT_IN_CONTAINER:-5432}"
+        PG_IN_CONTAINER_HOST="${PG_HOST_IN_CONTAINER}"
+        PG_IN_CONTAINER_PORT="${PG_PORT_IN_CONTAINER:-5432}"
+        return 0
+    fi
+    # 用户显式配置了端口但没改 host（不常见，但兼容）
+    if [ -n "${PG_PORT_IN_CONTAINER:-}" ] && [ "${PG_PORT_IN_CONTAINER}" != "5432" ]; then
+        PG_IN_CONTAINER_PORT="${PG_PORT_IN_CONTAINER}"
+    fi
+
+    # 检测 1：PG 容器是否在同一网络中运行
+    PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${PG_CONTAINER}"; then
+        # 检查是否在同一网络
+        PG_NET=$(docker inspect "${PG_CONTAINER}" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || true)
+        if echo " ${PG_NET} " | grep -q " ${WITTY_NETWORK} "; then
+            log_info "检测到 PostgreSQL 容器（${PG_CONTAINER}）在同一网络，使用容器名连接"
+            PG_IN_CONTAINER_HOST="${PG_CONTAINER}"
+            PG_IN_CONTAINER_PORT="${PG_PORT_IN_CONTAINER:-5432}"
+            return 0
+        fi
+    fi
+
+    # 检测 2：宿主机是否有 RPM 方式运行的 PostgreSQL
+    if command -v systemctl &> /dev/null; then
+        PG_RPM_SERVICE=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -o 'postgresql[^ ]*' | head -1 || true)
+        if [ -n "$PG_RPM_SERVICE" ]; then
+            # 找到宿主机监听端口
+            HOST_PG_PORT=$(ss -tlnp 2>/dev/null | grep 'postgres' | head -1 | awk '{print $4}' | rev | cut -d: -f1 | rev)
+            if [ -z "$HOST_PG_PORT" ]; then
+                HOST_PG_PORT="${PG_PORT:-15432}"
+            fi
+            # 找到 Docker 网络的网关 IP（容器访问宿主机用）
+            DOCKER_GATEWAY=$(docker network inspect "${WITTY_NETWORK}" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
+            if [ -n "$DOCKER_GATEWAY" ]; then
+                log_info "检测到宿主机 RPM PostgreSQL（${PG_RPM_SERVICE}，端口 ${HOST_PG_PORT}），使用 Docker 网关 ${DOCKER_GATEWAY} 连接"
+                PG_IN_CONTAINER_HOST="${DOCKER_GATEWAY}"
+                PG_IN_CONTAINER_PORT="${HOST_PG_PORT}"
+                return 0
+            fi
+        fi
+    fi
+
+    # 兜底：用默认值
+    log_warn "未检测到可用的 PostgreSQL，使用默认配置 postgres:5432（请确保 PG 容器在同一网络运行）"
+    PG_IN_CONTAINER_HOST="postgres"
+    PG_IN_CONTAINER_PORT="5432"
+}
+
+detect_pg_config
 
 # 3.6 启动容器
 log_info "Starting container ${WITTY_CONTAINER_NAME} ..."
@@ -232,6 +298,7 @@ docker run -d \
     -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
     -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
     -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
+    "${EXTRA_MOUNT_ARGS[@]}" \
     -e PYTHONPATH=/var/witty-ub \
     -e LOG_LEVEL="${WITTY_LOG_LEVEL}" \
     -e PG_HOST="${PG_IN_CONTAINER_HOST}" \
@@ -296,6 +363,12 @@ echo "  API Docs:   http://localhost:${WITTY_HOST_PORT}/docs"
 echo "  OpenCode:   http://localhost:${WITTY_HOST_PORT}/opencode/"
 echo "  Network:    ${WITTY_NETWORK}"
 echo "  PG Host:    ${PG_IN_CONTAINER_HOST}:${PG_IN_CONTAINER_PORT} (container)"
+if [ ${#EXTRA_MOUNT_ARGS[@]} -gt 0 ]; then
+    echo "  Extra mounts:"
+    for ((i=1; i<${#EXTRA_MOUNT_ARGS[@]}; i+=2)); do
+        echo "    - ${EXTRA_MOUNT_ARGS[$i]}"
+    done
+fi
 echo ""
 echo "Useful commands:"
 echo "  docker ps                                    # 查看运行中的容器"

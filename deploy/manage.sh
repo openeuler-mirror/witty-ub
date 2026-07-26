@@ -126,15 +126,90 @@ do_install_witty() {
     sep
     check_docker || return 1
 
-    # 检测 PG 容器是否存在并在同一网络
-    if ! container_exists "$PG_CONTAINER"; then
-        log_warn "未检测到 PostgreSQL 容器（${PG_CONTAINER}）"
+    # ---------- 交互式配置 ----------
+    echo ""
+    echo "┌─────────────────────────────────────────────────────┐"
+    echo "│           witty-ub 部署参数配置                       │"
+    echo "│           直接回车使用 [ ] 中的默认值                  │"
+    echo "└─────────────────────────────────────────────────────┘"
+    echo ""
+
+    default_port="${WITTY_HOST_PORT:-32412}"
+    read -p "  [1] 宿主机端口          [${default_port}]: " input_port
+    WITTY_HOST_PORT="${input_port:-${default_port}}"
+
+    default_mounts="${WITTY_EXTRA_MOUNTS:-}"
+    echo ""
+    echo "  [2] 额外目录挂载（容器访问宿主机日志/数据文件）"
+    echo "      格式: 宿主机路径:容器内路径[:ro|rw]  多个用空格分隔"
+    echo "      ro=只读(推荐)  rw=读写  留空=跳过"
+    if [ -n "${default_mounts}" ]; then
+        read -p "                         [${default_mounts}]: " input_mounts
+    else
+        read -p "                         [留空跳过]: " input_mounts
+    fi
+    WITTY_EXTRA_MOUNTS="${input_mounts:-${default_mounts}}"
+
+    default_image="${WITTY_IMAGE:-}"
+    echo ""
+    if [ -n "${default_image}" ]; then
+        read -p "  [3] 指定镜像            [${default_image}]: " input_image
+    else
+        read -p "  [3] 指定镜像            [留空自动选择]: " input_image
+    fi
+    WITTY_IMAGE="${input_image:-${default_image}}"
+
+    # ---------- 配置汇总 ----------
+    echo ""
+    echo "┌─────────────────────────────────────────────────────┐"
+    echo "│                    配置汇总                            │"
+    echo "├─────────────────────────────────────────────────────┤"
+    printf "│  %-22s %-30s │\n" "宿主机端口" "${WITTY_HOST_PORT}"
+    printf "│  %-22s %-30s │\n" "镜像" "${WITTY_IMAGE:-自动选择}"
+    if [ -n "${WITTY_EXTRA_MOUNTS}" ]; then
+        first=1
+        for m in ${WITTY_EXTRA_MOUNTS}; do
+            if [ "$first" -eq 1 ]; then
+                printf "│  %-22s %-30s │\n" "额外挂载" "${m}"
+                first=0
+            else
+                printf "│  %-22s %-30s │\n" "" "${m}"
+            fi
+        done
+    else
+        printf "│  %-22s %-30s │\n" "额外挂载" "无"
+    fi
+    echo "└─────────────────────────────────────────────────────┘"
+    echo ""
+
+    # ---------- 检测 PostgreSQL ----------
+    PG_DETECTED="unknown"
+    PG_DETAIL=""
+    if container_running "$PG_CONTAINER"; then
+        PG_DETECTED="container"
+        PG_DETAIL="Docker 容器（${PG_CONTAINER}）"
+        log_ok "检测到 PostgreSQL: ${PG_DETAIL}"
+    fi
+    if [ "$PG_DETECTED" = "unknown" ] && command -v systemctl &> /dev/null; then
+        PG_RPM=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -o 'postgresql[^ ]*' | head -1 || true)
+        if [ -n "$PG_RPM" ]; then
+            PG_DETECTED="rpm"
+            PG_PORT_DETECTED=$(ss -tlnp 2>/dev/null | grep 'postgres' | head -1 | awk '{print $4}' | rev | cut -d: -f1 | rev)
+            PG_DETAIL="宿主机服务（${PG_RPM}，端口 ${PG_PORT_DETECTED:-${PG_PORT:-15432}}）"
+            log_ok "检测到 PostgreSQL: ${PG_DETAIL}"
+        fi
+    fi
+
+    if [ "$PG_DETECTED" = "unknown" ]; then
+        log_warn "未检测到正在运行的 PostgreSQL"
         log_warn "witty-ub 启动后可能无法连接数据库"
         if ! confirm "是否继续？"; then
             return 0
         fi
     fi
 
+    # ---------- 导出环境变量并调用部署脚本 ----------
+    export WITTY_HOST_PORT WITTY_EXTRA_MOUNTS WITTY_IMAGE
     bash "${DEPLOY_DIR}/deploy_witty.sh"
 }
 
