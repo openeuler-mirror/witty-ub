@@ -3,7 +3,7 @@ import os
 import uuid
 
 from latency.common.ds_log_io import open_log
-from latency.database.managers.log_failure_event import LogFailureEventManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.parse import LogParser
 from latency.schemas.log_failure_event import LogFailureEventModel
 
@@ -86,7 +86,7 @@ async def collect_trace_context_logs(
 ) -> int:
     trace_ids = {trace_id.strip() for trace_id in trace_ids if trace_id and trace_id.strip()}
     if clear_existing:
-        await LogFailureEventManager.delete_unclassified_log_events_by_log_id(log_id)
+        await LogFailureEventPGManager.delete_unclassified_log_events_by_log_id(log_id)
 
     if not trace_ids or not log_dir or not os.path.isdir(log_dir):
         return 0
@@ -121,7 +121,7 @@ async def collect_trace_context_logs(
 
                         batch.append(event)
                         if len(batch) >= TRACE_CONTEXT_BATCH_SIZE:
-                            await LogFailureEventManager.add_log_failure_event_if_not_exist(batch)
+                            await LogFailureEventPGManager.add_log_failure_event_if_not_exist(batch)
                             total += len(batch)
                             batch.clear()
             except EOFError as e:
@@ -134,7 +134,7 @@ async def collect_trace_context_logs(
                 logger.warning("Error collecting trace context from %s: %s", path, e)
 
     if batch:
-        await LogFailureEventManager.add_log_failure_event(batch)
+        await LogFailureEventPGManager.add_log_failure_event(batch)
         total += len(batch)
 
     logger.info("Stored %s raw trace context log rows", total)

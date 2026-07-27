@@ -1,8 +1,8 @@
 import logging
 
 from latency.common.trace_context import collect_trace_context_logs
-from latency.database.engine import AsyncSQLiteSingleton
-from latency.database.managers.log_failure_event import LogFailureEventManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.log_file import LogFilePGManager
 from latency.schemas.request import (
     ListLogFailureEventResultRequest,
     ListTraceFailureEventResultRequest,
@@ -46,11 +46,11 @@ class LogFailureEventResultService:
 
     @staticmethod
     async def list_log_failure_event_result(req: ListLogFailureEventResultRequest) -> ListLogFailureEventResultMsg:
-        total, results = await LogFailureEventManager.list_log_failure_events(req)
+        total, results = await LogFailureEventPGManager.list_log_failure_events(req)
         if total == 0:
             backfilled = await LogFailureEventResultService._backfill_trace_context_logs(req)
             if backfilled:
-                total, results = await LogFailureEventManager.list_log_failure_events(req)
+                total, results = await LogFailureEventPGManager.list_log_failure_events(req)
         for result in results:
             result.host_name = LogFailureEventResultService._normalize_unknown_host_name(
                 result.host_name
@@ -63,34 +63,15 @@ class LogFailureEventResultService:
         if not trace_ids or (not req.kb_id and not req.log_id):
             return 0
 
-        where_clauses = ["existed_status = 1"]
-        params: dict[str, str] = {}
-        if req.kb_id and req.log_id:
-            where_clauses.append("(kb_id = :kb_id OR id = :log_id)")
-            params["kb_id"] = req.kb_id
-            params["log_id"] = req.log_id
-        elif req.kb_id:
-            where_clauses.append("kb_id = :kb_id")
-            params["kb_id"] = req.kb_id
-        elif req.log_id:
-            where_clauses.append("id = :log_id")
-            params["log_id"] = req.log_id
-
-        rows = await AsyncSQLiteSingleton().execute_query(
-            f"""
-            SELECT id, file_path
-            FROM log_file_table
-            WHERE {' AND '.join(where_clauses)}
-            ORDER BY created_at DESC
-            """,
-            params,
+        rows = await LogFilePGManager.list_log_file_paths(
+            kb_id=req.kb_id, log_id=req.log_id
         )
 
         total = 0
-        for row in rows:
+        for log_id, file_path in rows:
             inserted = await collect_trace_context_logs(
-                log_id=row["id"],
-                log_dir=row["file_path"],
+                log_id=log_id,
+                log_dir=file_path,
                 trace_ids=trace_ids,
                 clear_existing=False,
             )
@@ -102,7 +83,7 @@ class LogFailureEventResultService:
     
     @staticmethod
     async def list_trace_failure_event_result(req: ListTraceFailureEventResultRequest) -> ListTraceFailureEventResultMsg:
-        total, results = await LogFailureEventManager.list_trace_failure_events(req)
+        total, results = await LogFailureEventPGManager.list_trace_failure_events(req)
         for result in results:
             result.host_names = LogFailureEventResultService._normalize_unknown_host_names(
                 result.host_names
@@ -111,26 +92,26 @@ class LogFailureEventResultService:
     
     @staticmethod
     async def list_time_aggregated_failure_event_result(req: ListTimeAggregatedFailureEventRequest) -> ListTimeAggregatedFailureEventMsg:
-        total, err_codes, results = await LogFailureEventManager.list_time_aggregated_failure_events(req)
+        total, err_codes, results = await LogFailureEventPGManager.list_time_aggregated_failure_events(req)
         events = [TimeAggregatedFailureEventModel(**r) for r in results]
         return ListTimeAggregatedFailureEventMsg(total=total, err_codes=err_codes, events=events)
 
     @staticmethod
     async def list_pod_aggregated_failure_event_result(req: ListPodAggregatedFailureEventRequest) -> ListPodAggregatedFailureEventMsg:
-        total, results = await LogFailureEventManager.list_pod_aggregated_failure_events(req)
+        total, results = await LogFailureEventPGManager.list_pod_aggregated_failure_events(req)
         events = [PodAggregatedFailureEventModel(**r) for r in results]
         return ListPodAggregatedFailureEventMsg(total=total, events=events)
 
     @staticmethod
     async def list_src_dst_aggregated_failure_event_result(req: ListSrcDstAggregatedFailureEventRequest) -> ListSrcDstAggregatedFailureEventMsg:
-        total, results = await LogFailureEventManager.list_src_dst_aggregated_failure_events(req)
+        total, results = await LogFailureEventPGManager.list_src_dst_aggregated_failure_events(req)
         events = [SrcDstAggregatedFailureEventModel(**r) for r in results]
         return ListSrcDstAggregatedFailureEventMsg(total=total, events=events)
 
     @staticmethod
     async def get_err_code_metrics(req: GetErrCodeMetricsRequest) -> GetErrCodeMetricsMsg:
         """获取故障码指标时间曲线数据"""
-        total, metrics = await LogFailureEventManager.get_err_code_metrics(req)
+        total, metrics = await LogFailureEventPGManager.get_err_code_metrics(req)
         return GetErrCodeMetricsMsg(
             total=total,
             metrics=metrics,

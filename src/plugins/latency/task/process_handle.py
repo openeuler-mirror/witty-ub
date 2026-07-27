@@ -4,6 +4,7 @@ import uuid
 import asyncio
 import logging
 from latency.config.config import Config
+from latency.database.engine import PGManager
 
 logger = logging.getLogger(__name__)
 multiprocessing = multiprocessing.get_context("spawn")
@@ -40,6 +41,15 @@ class ProcessHandler:
     @staticmethod
     def subprocess_target(target, *args, **kwargs):
         ProcessHandler._setup_child_process_logging()
+
+        config = Config().get_config()
+        if config.db.backend == "postgresql":
+            PGManager.initialize(
+                config.db.pg_dsn_url(),
+                pool_size=config.db.pg_pool_size,
+                max_overflow=config.db.pg_max_overflow,
+            )
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:

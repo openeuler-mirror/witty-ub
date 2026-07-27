@@ -14,6 +14,7 @@ from latency.database.managers.log_parse_result import (
     _log_parse_result_to_minimal_db_tuple,
     _log_parse_result_to_sparse_db_tuple,
 )
+from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.parse.base_parser import AccessLogParser
 from latency.parse.correlation.result_builder import ParseResultBuilder
 from latency.parse.correlation.correlator import LogCorrelator
@@ -1216,7 +1217,7 @@ def test_urma_correlation_uses_trace_id_only() -> None:
 def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
     assert [field.name for field in fields(LogParseResultDataclass)] == [
         "total_latency", "is_anomalous", "id", "log_id",
-        "aggregated_event_id", "anomalous_event_id", "pod_ip", "src_ip",
+        "aggregated_event_id", "anomalous_event_id", "pod_ips", "src_ip",
         "dst_ip", "cluster_name", "host", "anomaly_reason", "anomaly_score",
         "content", "data_size", "existed_status", "offset", "operation",
         "remark", "trace_id", "urma_inflight_count", "urma_link_latency",
@@ -1228,14 +1229,14 @@ def test_result_dataclass_field_order_is_locked_for_fast_constructor() -> None:
     ]
     assert [field.name for field in fields(C2WLogParseResultDataclass)] == [
         "total_latency", "is_anomalous", "id", "log_id",
-        "aggregated_event_id", "anomalous_event_id", "pod_ip",
+        "aggregated_event_id", "anomalous_event_id", "pod_ips",
         "cluster_name", "anomaly_reason", "data_size", "existed_status",
         "operation", "remark", "trace_id", "c2w_latency",
         "timestamp", "created_at",
     ]
     assert [field.name for field in fields(SparseLogParseResultDataclass)] == [
         "total_latency", "is_anomalous", "id", "log_id",
-        "aggregated_event_id", "anomalous_event_id", "pod_ip",
+        "aggregated_event_id", "anomalous_event_id", "pod_ips",
         "cluster_name", "anomaly_reason", "data_size", "existed_status",
         "operation", "remark", "trace_id", "c2w_urma_latency",
         "timestamp", "created_at",
@@ -1246,7 +1247,7 @@ def test_database_tuple_matches_insert_column_order() -> None:
     result = LogParseResultDataclass(
         total_latency=12.3, is_anomalous=True, id="id", log_id="log",
         aggregated_event_id="aggregate", anomalous_event_id="anomaly", trace_id="trace",
-        timestamp="timestamp", src_ip="src", dst_ip="dst", pod_ip="pod",
+        timestamp="timestamp", src_ip="src", dst_ip="dst", pod_ips=["pod"],
         cluster_name="cluster", host="host", c2w_latency=1.0,
         worker_query_meta_latency=2.0, urma_total_latency=3.0, urma_link_latency=4.0,
         urma_inflight_count=5, c2w_urma_latency=6.0, w2w_urma_latency=7.0,
@@ -1258,7 +1259,7 @@ def test_database_tuple_matches_insert_column_order() -> None:
     )
     assert _log_parse_result_to_db_tuple(result) == (
         "id", "log", "aggregate", "anomaly", "trace", "timestamp", "src", "dst",
-        "pod", "cluster", "host", 12.3, 1.0, 2.0, 3.0, 4.0, 5, 6.0, 7.0,
+        "[\"pod\"]", "cluster", "host", 12.3, 1.0, 2.0, 3.0, 4.0, 5, 6.0, 7.0,
         "operation", "data-size", 8, True, "content", "reason", 0.9, "remark",
         True, "created-at", 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     )
@@ -1272,7 +1273,7 @@ def test_c2w_database_tuple_only_omits_null_fields() -> None:
         log_id="log",
         trace_id="trace",
         timestamp="timestamp",
-        pod_ip="pod",
+        pod_ips=["pod"],
         cluster_name="cluster",
         c2w_latency=1.5,
         operation="operation",
@@ -1283,7 +1284,7 @@ def test_c2w_database_tuple_only_omits_null_fields() -> None:
 
     assert _can_use_c2w_insert(c2w)
     assert _log_parse_result_to_c2w_db_tuple(c2w) == (
-        "id", "log", "", "", "trace", "timestamp", "pod", "cluster",
+        "id", "log", "", "", "trace", "timestamp", "[\"pod\"]", "cluster",
         12.3, 1.5, "operation", "data-size", False, None, "OK", True,
         "created-at",
     )
@@ -1294,7 +1295,7 @@ def test_c2w_database_tuple_only_omits_null_fields() -> None:
         log_id="log",
         trace_id="trace",
         timestamp="timestamp",
-        pod_ip="pod",
+        pod_ips=["pod"],
         cluster_name="cluster",
         c2w_latency=1.5,
         operation="operation",
@@ -1317,7 +1318,7 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
         log_id="log",
         trace_id="trace",
         timestamp="timestamp",
-        pod_ip="pod",
+        pod_ips=["pod"],
         cluster_name="cluster",
         c2w_urma_latency=6.0,
         operation="operation",
@@ -1329,7 +1330,7 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
     assert _can_use_sparse_insert(sparse)
     assert not _can_use_minimal_insert(sparse)
     assert _log_parse_result_to_sparse_db_tuple(sparse) == (
-        "id", "log", "", "", "trace", "timestamp", "pod", "cluster",
+        "id", "log", "", "", "trace", "timestamp", "[\"pod\"]", "cluster",
         12.3, 6.0, "operation", "data-size", False, None, "OK", True,
         "created-at",
     )
@@ -1340,7 +1341,7 @@ def test_sparse_database_tuple_only_omits_null_fields() -> None:
         log_id="log",
         trace_id="trace",
         timestamp="timestamp",
-        pod_ip="pod",
+        pod_ips=["pod"],
         cluster_name="cluster",
         c2w_urma_latency=6.0,
         operation="operation",
@@ -1407,6 +1408,10 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
         def __init__(self):
             self._async_lock = FakeAsyncLock()
             self._conn = FakeConnection()
+            self._write_conn = self._conn
+
+        def ensure_initialized(self):
+            pass
 
     database = FakeDatabase()
     monkeypatch.setattr(log_parse_result_manager_module, "AsyncSQLiteSingleton", lambda: database)
@@ -1432,7 +1437,7 @@ def test_batch_manager_uses_positional_tuples(monkeypatch) -> None:
 
 
 def test_store_result_passes_dataclasses_directly(monkeypatch) -> None:
-    result = LogParseResultDataclass(total_latency=1.0, is_anomalous=False)
+    result = LogParseResultDataclass(total_latency=1.0, is_anomalous=True)
     captured = []
 
     async def fake_add_log_parse_results(results):
@@ -1440,7 +1445,7 @@ def test_store_result_passes_dataclasses_directly(monkeypatch) -> None:
         return True
 
     monkeypatch.setattr(
-        LogParseResultManager,
+        LogParseResultPGManager,
         "add_log_parse_results",
         staticmethod(fake_add_log_parse_results),
     )

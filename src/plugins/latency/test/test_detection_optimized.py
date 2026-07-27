@@ -7,16 +7,6 @@ from latency.common.stats import (
     percentile_from_sorted,
     stats,
 )
-from latency.database.managers import anomalous_event as anomalous_event_module
-from latency.database.managers import (
-    src_dst_aggregated_event as aggregated_event_module,
-)
-from latency.database.managers.anomalous_event import _anomalous_event_to_db_tuple
-from latency.database.managers.anomalous_event import AnomalousEventManager
-from latency.database.managers.src_dst_aggregated_event import (
-    SrcDstAggregatedEventManager,
-    _aggregated_event_to_db_tuple,
-)
 from latency.detect.detectors import SlidingWindowP99Detector
 from latency.detect.engine import DetectionEngine
 from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
@@ -42,39 +32,6 @@ class CountingResult:
         return object.__getattribute__(self, name)
 
 
-class FakeAsyncLock:
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, traceback):
-        return False
-
-
-class FakeConnection:
-    def __init__(self) -> None:
-        self.insert_sql = ""
-        self.params = []
-
-    def execute(self, sql):
-        return None
-
-    def executemany(self, sql, params):
-        self.insert_sql = sql
-        self.params.extend(params)
-
-    def commit(self):
-        return None
-
-    def rollback(self):
-        return None
-
-
-class FakeDatabase:
-    def __init__(self) -> None:
-        self._async_lock = FakeAsyncLock()
-        self._conn = FakeConnection()
-
-
 def test_percentiles_reuse_one_sorted_sequence() -> None:
     values = [5.0, 1.0, 9.0, 3.0, 7.0]
     sorted_values = sorted(values)
@@ -87,6 +44,7 @@ def test_percentiles_reuse_one_sorted_sequence() -> None:
         "max": 9.0,
         "p95": percentile(values, 95),
         "p99": percentile(values, 99),
+        "p9999": percentile(values, 99.99),
     }
 def test_windows_for_same_metric_share_field_extraction() -> None:
     configs = [
@@ -308,75 +266,3 @@ def test_all_sparse_results_skip_endpoint_aggregation() -> None:
     assert all(result.aggregated_event_id == "" for result in results)
 
 
-def test_internal_dataclasses_convert_directly_to_database_tuples() -> None:
-    anomaly = AnomalousEventDataclass(
-        id="anomaly-id",
-        log_id="log-id",
-        start_log_parse_offset=1,
-        end_log_parse_offset=2,
-        anomaly_reason="slow",
-        created_at="created-at",
-    )
-    aggregate = SrcDstAggregatedEventDataclass(
-        id="aggregate-id",
-        src_ip="10.0.0.1",
-        dst_ip="10.0.0.2",
-        log_id="log-id",
-        ave_total_latency=3.0,
-        created_at="created-at",
-    )
-
-    assert _anomalous_event_to_db_tuple(anomaly) == (
-        "anomaly-id",
-        "log-id",
-        "",
-        1,
-        2,
-        "slow",
-        True,
-        "created-at",
-    )
-    aggregate_tuple = _aggregated_event_to_db_tuple(aggregate)
-    assert len(aggregate_tuple) == 55
-    assert aggregate_tuple[:8] == (
-        "aggregate-id",
-        "10.0.0.1",
-        "10.0.0.2",
-        "log-id",
-        "",
-        0,
-        0,
-        0,
-    )
-
-
-def test_dataclass_batch_managers_use_positional_sql(monkeypatch) -> None:
-    anomaly = AnomalousEventDataclass(id="anomaly-id", log_id="log-id")
-    aggregate = SrcDstAggregatedEventDataclass(
-        id="aggregate-id",
-        src_ip="10.0.0.1",
-        dst_ip="10.0.0.2",
-        log_id="log-id",
-    )
-
-    anomaly_db = FakeDatabase()
-    monkeypatch.setattr(
-        anomalous_event_module, "AsyncSQLiteSingleton", lambda: anomaly_db
-    )
-    anomaly_ids = asyncio.run(
-        AnomalousEventManager.add_anomalous_events([anomaly])
-    )
-    assert anomaly_ids == ["anomaly-id"]
-    assert anomaly_db._conn.insert_sql.count("?") == 8
-    assert anomaly_db._conn.params == [_anomalous_event_to_db_tuple(anomaly)]
-
-    aggregate_db = FakeDatabase()
-    monkeypatch.setattr(
-        aggregated_event_module, "AsyncSQLiteSingleton", lambda: aggregate_db
-    )
-    aggregate_ids = asyncio.run(
-        SrcDstAggregatedEventManager.add_aggregated_events([aggregate])
-    )
-    assert aggregate_ids == ["aggregate-id"]
-    assert aggregate_db._conn.insert_sql.count("?") == 55
-    assert aggregate_db._conn.params == [_aggregated_event_to_db_tuple(aggregate)]

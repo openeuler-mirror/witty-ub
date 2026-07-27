@@ -1,4 +1,4 @@
-from latency.database.managers.diagnosis_case import DiagnosisCaseManager
+from latency.database.managers.diagnosis_case import DiagnosisCasePGManager as DiagnosisCaseManager
 from latency.schemas.diagnosis_case import DiagnosisCaseModel
 from latency.schemas.request import SearchDiagnosisCasesRequest
 

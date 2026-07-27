@@ -33,7 +33,7 @@ COPY data/view-vis /var/witty-ub/data/view-vis/
 COPY data/failure_mode_tree.json /var/witty-ub/data/
 COPY data/kvcache/kvcache_conn_fault_mode.json /var/witty-ub/data/kvcache/
 COPY data/urma/urma_failure_mode.json /var/witty-ub/data/urma/
-COPY config/diagnosis_config.json /var/witty-ub/config/
+COPY config/diagnosis_config.toml /var/witty-ub/config/
 COPY config/opencode.json /var/witty-ub/config/
 COPY config/agents/witty-ub-diagnostician.md /var/witty-ub/config/agents/
 
@@ -51,7 +51,6 @@ COPY src/plugins/latency/config /var/witty-ub/latency/config/
 COPY src/plugins/latency/database /var/witty-ub/latency/database/
 COPY src/plugins/latency/detect /var/witty-ub/latency/detect/
 COPY src/plugins/latency/exceptions /var/witty-ub/latency/exceptions/
-COPY src/plugins/latency/models /var/witty-ub/latency/models/
 COPY src/plugins/latency/parse /var/witty-ub/latency/parse/
 COPY src/plugins/latency/regex /var/witty-ub/latency/regex/
 COPY src/plugins/latency/routers /var/witty-ub/latency/routers/

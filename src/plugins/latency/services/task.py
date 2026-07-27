@@ -9,8 +9,8 @@ from latency.schemas.response import (
     ListTasksMsg,
     GetTaskMsg,
 )
-from latency.database.managers.task import TaskManager
-from latency.database.managers.task_report import TaskReportManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.task_report import TaskReportPGManager
 from latency.task.task_handler import TaskHandler
 from latency.ENUM.task import TaskStatusEnum
 from latency.exceptions import NotFoundBizException, ConflictBizException
@@ -35,7 +35,7 @@ class TaskService:
     @staticmethod
     async def stop_task(task_id: str) -> StopTaskMsg:
         """停止任务"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             raise NotFoundBizException(resource="任务")
         
@@ -48,7 +48,7 @@ class TaskService:
     @staticmethod
     async def delete_task(task_id: str) -> DeleteTaskMsg:
         """删除任务"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             raise NotFoundBizException(resource="任务")
         
@@ -60,7 +60,7 @@ class TaskService:
     @staticmethod
     async def list_tasks(req: ListTasksRequest) -> ListTasksMsg:
         """查询任务列表"""
-        all_tasks = await TaskManager.list_all_tasks()
+        all_tasks = await TaskPGManager.list_all_tasks()
         
         filtered_tasks = []
         for task in all_tasks:
@@ -91,7 +91,7 @@ class TaskService:
         paginated_tasks = filtered_tasks[start_idx:end_idx]
         
         task_ids = [task.id for task in paginated_tasks]
-        task_reports = await TaskReportManager.list_task_reports_by_task_ids(task_ids)
+        task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(task_ids)
         task_report_dict = {}
         for task_report in task_reports:
             if task_report.task_id not in task_report_dict:
@@ -107,11 +107,11 @@ class TaskService:
     @staticmethod
     async def get_task_by_id(task_id: str) -> GetTaskMsg:
         """查询任务详情"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task or not task.existed_status:
             return GetTaskMsg(task=None)
         
-        task_reports = await TaskReportManager.list_task_reports_by_task_ids([task_id])
+        task_reports = await TaskReportPGManager.list_task_reports_by_task_ids([task_id])
         task_reports.sort(key=lambda x: x.created_at, reverse=True)
         task.task_reports = task_reports
         

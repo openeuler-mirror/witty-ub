@@ -1,10 +1,10 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler
-from latency.database.managers.task import TaskManager
-from latency.database.managers.task_report import TaskReportManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.task_report import TaskReportPGManager
 from latency.schemas.task import TaskReportModel
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class BaseWorker:
     @staticmethod
     async def get_worker_name(task_id: str) -> TaskTypeEnum:
         """获取worker_name"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if task is None:
             err = f"获取任务失败, 任务ID: {task_id}"
             logging.error("[BaseWorker] %s", err)
@@ -42,7 +42,7 @@ class BaseWorker:
     async def init(worker_name: TaskTypeEnum, op_id: str) -> str:
         """初始化任务"""
         task_id = await BaseWorker.find_worker_class(worker_name).init(op_id)
-        await TaskManager.update_task(task_id, {"status": TaskStatusEnum.PENDING.value})
+        await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.PENDING.value})
         return task_id
 
     @staticmethod
@@ -50,10 +50,10 @@ class BaseWorker:
         """重新初始化任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
         flag = await BaseWorker.find_worker_class(worker_name).reinit(task_id)
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         ProcessHandler.remove_task(task_id)
         if flag:
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id,
                 {
                     "status": TaskStatusEnum.PENDING.value,
@@ -62,14 +62,14 @@ class BaseWorker:
             )
             return True
         else:
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             duration_seconds = (completed_at - task.created_at).total_seconds()
             
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, 
                 {
                     "status": TaskStatusEnum.FAILED.value,
-                    "completed_at": completed_at.isoformat(),
+                    "completed_at": completed_at,
                     "duration_seconds": duration_seconds
                 }
             )
@@ -82,15 +82,15 @@ class BaseWorker:
         ProcessHandler.remove_task(task_id)
         await BaseWorker.find_worker_class(worker_name).deinit(task_id)
         
-        task = await TaskManager.get_task_by_task_id(task_id)
-        completed_at = datetime.utcnow()
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        completed_at = datetime.now(timezone.utc)
         duration_seconds = (completed_at - task.created_at).total_seconds()
         
-        await TaskManager.update_task(
+        await TaskPGManager.update_task(
             task_id, 
             {
                 "status": TaskStatusEnum.SUCCESSFUL.value,
-                "completed_at": completed_at.isoformat(),
+                "completed_at": completed_at,
                 "duration_seconds": duration_seconds
             }
         )
@@ -101,7 +101,7 @@ class BaseWorker:
     async def _cleanup_preprocess_dir_if_all_done(op_id: str) -> None:
         """两个日志 worker 都成功完成后清理共享预处理目录。"""
         tasks = [
-            await TaskManager.get_current_task_by_op_id(op_id, task_type)
+            await TaskPGManager.get_current_task_by_op_id(op_id, task_type)
             for task_type in PREPROCESS_TASK_TYPES
         ]
         if not all(tasks):
@@ -121,14 +121,14 @@ class BaseWorker:
         flag = ProcessHandler.add_task(
             task_id, BaseWorker.find_worker_class(worker_name).run, *args
         )
-        await TaskManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
+        await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
         return flag
 
     @staticmethod
     async def stop(task_id: str) -> bool:
         """停止任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if task.status == TaskStatusEnum.RUNNING:
             ProcessHandler.remove_task(task_id)
         elif task.status == TaskStatusEnum.PENDING:
@@ -143,14 +143,14 @@ class BaseWorker:
             task.status == TaskStatusEnum.PENDING
             or task.status == TaskStatusEnum.RUNNING
         ):
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             duration_seconds = (completed_at - task.created_at).total_seconds()
             
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, 
                 {
                     "status": TaskStatusEnum.CANCELLED.value,
-                    "completed_at": completed_at.isoformat(),
+                    "completed_at": completed_at,
                     "duration_seconds": duration_seconds
                 }
             )
@@ -161,7 +161,7 @@ class BaseWorker:
         """删除任务"""
         worker_name = await BaseWorker.get_worker_name(task_id)
         task_id = await BaseWorker.find_worker_class(worker_name).delete(task_id)
-        await TaskManager.delete_task_by_task_id(task_id)
+        await TaskPGManager.delete_task_by_task_id(task_id)
         return task_id is not None
 
     @staticmethod
@@ -172,5 +172,5 @@ class BaseWorker:
         task_report = TaskReportModel(
             task_id=task_id, message=message, progress=progress
         )
-        flag = await TaskReportManager.add_task_report(task_report)
+        flag = await TaskReportPGManager.add_task_report(task_report)
         return flag

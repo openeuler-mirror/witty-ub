@@ -1,12 +1,29 @@
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
 
 import { defineConfig, type PluginOption } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
+import { parse as parseToml } from 'smol-toml'
+
+function tomlPlugin(): PluginOption {
+  return {
+    name: 'vite-plugin-toml',
+    transform(_code, id) {
+      if (!id.endsWith('.toml')) return
+      const raw = readFileSync(id, 'utf-8')
+      const data = parseToml(raw)
+      return {
+        code: `export default ${JSON.stringify(data)};`,
+        map: null,
+      }
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const plugins: PluginOption[] = [vue()]
+  const plugins: PluginOption[] = [vue(), tomlPlugin()]
   
   // Only include vueDevTools in development mode
   if (mode === 'development') {

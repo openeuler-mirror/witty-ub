@@ -101,6 +101,12 @@ services:
     environment:
       - PYTHONPATH=/var/witty-ub
       - LOG_LEVEL=info
+      # --- PostgreSQL 连接配置（PG 为 Docker 容器时）---
+      - PG_HOST_IN_CONTAINER=postgres
+      - PG_PORT_IN_CONTAINER=5432
+      - PG_DATABASE=latency_diag
+      - PG_USER=witty_ub
+      - PG_PASSWORD=witty_ub
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -187,6 +193,121 @@ docker run -d \
 
 ---
 
+## PostgreSQL 连接配置
+
+witty-ub 依赖 PostgreSQL 存储故障诊断数据。PostgreSQL 有两种部署方式，请根据实际情况选择。
+
+### 场景一：PostgreSQL 也以 Docker 容器方式运行（推荐）
+
+将 PostgreSQL 与 witty-ub 放在同一个 Docker 网络中，使用容器名进行连接。
+
+**docker-compose.yml 配置示例**：
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=witty_ub
+      - POSTGRES_PASSWORD=witty_ub
+      - POSTGRES_DB=latency_diag
+    volumes:
+      - pg15-data:/var/lib/postgresql/data
+    networks:
+      - witty-ub-network
+
+  witty-ub:
+    image: witty-ub:latest
+    # ... 其他配置同上 ...
+    environment:
+      - PG_HOST_IN_CONTAINER=postgres
+      - PG_PORT_IN_CONTAINER=5432
+      - PG_DATABASE=latency_diag
+      - PG_USER=witty_ub
+      - PG_PASSWORD=witty_ub
+    networks:
+      - witty-ub-network
+
+volumes:
+  pg15-data:
+  witty-ub-data:
+  # ... 其他卷同上 ...
+
+networks:
+  witty-ub-network:
+```
+
+**连接参数**：
+- `PG_HOST_IN_CONTAINER=postgres`（容器名）
+- `PG_PORT_IN_CONTAINER=5432`（容器内端口）
+
+---
+
+### 场景二：PostgreSQL 以 RPM 方式运行在宿主机
+
+PostgreSQL 直接安装在宿主机上，witty-ub 容器需要通过 Docker 网络网关访问宿主机。
+
+**连接参数**：
+- `PG_HOST_IN_CONTAINER=<Docker 网络网关 IP>`
+- `PG_PORT_IN_CONTAINER=<宿主机 PG 监听端口>`
+
+**如何获取 Docker 网关 IP**：
+
+```bash
+docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Gateway}}'
+```
+
+典型输出为 `172.18.0.1`。
+
+**如何获取宿主机 PG 端口**：
+
+```bash
+ss -tlnp | grep postgres
+```
+
+典型输出为 `15432`（RPM 部署默认端口）。
+
+**完整示例**：
+
+```bash
+# 假设网关 IP 为 172.18.0.1，PG 端口为 15432
+docker run -d \
+  --name witty-ub \
+  -p 32412:8080 \
+  -e PG_HOST_IN_CONTAINER=172.18.0.1 \
+  -e PG_PORT_IN_CONTAINER=15432 \
+  -e PG_DATABASE=latency_diag \
+  -e PG_USER=witty_ub \
+  -e PG_PASSWORD=witty_ub \
+  --network witty-ub-network \
+  witty-ub:latest
+```
+
+---
+
+### 使用部署脚本（自动检测）
+
+使用 `deploy/manage.sh` 或 `deploy/deploy_witty.sh` 部署时，脚本会**自动检测** PostgreSQL 的部署方式并配置连接参数，无需手动填写：
+
+- 检测到同网络有 PG 容器 → 自动使用 `postgres:5432`
+- 检测到宿主机有 RPM PG 服务 → 自动获取网关 IP 和监听端口
+- 如需覆盖自动检测，可在 `deploy/pg.conf` 中手动设置 `PG_HOST_IN_CONTAINER`
+
+```bash
+# 交互式部署（推荐）
+bash deploy/manage.sh
+# 选择 3) 仅安装 witty-ub
+
+# 或一键部署
+bash deploy/deploy_witty.sh
+```
+
+---
+
 ## 启动Web UI
 
 **访问 Web UI**:
@@ -254,6 +375,13 @@ environment:
 | `OPENCODE_CONFIG` | `/var/witty-ub/config/opencode.json` | OpenCode 配置文件路径 |
 | `WITTY_DIR` | `/var/witty-ub` | OpenCode Agent 配置文件所在目录 |
 | `WITTY_UB_PLUGINS_DIR` | `/var/witty-ub/src/plugins` | Latency 插件目录 |
+| `PG_HOST` | `127.0.0.1` | PostgreSQL 主机地址（宿主机视角） |
+| `PG_PORT` | `15432` | PostgreSQL 端口（宿主机视角） |
+| `PG_HOST_IN_CONTAINER` | 自动检测 | PostgreSQL 主机地址（容器内视角，详见下方 PG 配置章节） |
+| `PG_PORT_IN_CONTAINER` | 自动检测 | PostgreSQL 端口（容器内视角） |
+| `PG_DATABASE` | `latency_diag` | PostgreSQL 数据库名 |
+| `PG_USER` | `witty_ub` | PostgreSQL 用户名 |
+| `PG_PASSWORD` | `witty_ub` | PostgreSQL 密码 |
 
 **注意**：容器启动脚本 `entrypoint.sh` 使用 `${VAR:-default}` 语法，允许通过环境变量覆盖默认值。如果未设置环境变量，将使用默认值。
 
@@ -272,7 +400,7 @@ volumes:
 
 ### 统一配置
 
-配置文件位于: `/var/witty-ub/config/diagnosis_config.json`
+配置文件位于: `/var/witty-ub/config/diagnosis_config.toml`
 
 ```json
 {
@@ -591,5 +719,5 @@ docker rmi <image-id>
 
 ## 下一步
 
-- 继续阅读: [4. 故障排查](04-troubleshooting.md)
+- 继续阅读: [5. 故障排查](05-troubleshooting.md)
 - 返回 [首页](Home.md)
