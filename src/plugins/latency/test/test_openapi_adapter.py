@@ -166,7 +166,7 @@ def test_build_input_schema_merges_path_query_and_body():
     assert input_schema == {
         "type": "object",
         "properties": {
-            "page_num": {"type": "integer", "minimum": 1},
+            "page_num": {"type": "integer"},
             "kb_id": {"type": "string"},
             "verbose": {"type": "boolean"},
         },
@@ -463,7 +463,7 @@ def test_invoke_converts_business_errors():
         asyncio.run(adapter.invoke("list_log_files", {}))
 
 
-def test_invoke_applies_agent_defaults_without_changing_backend_schema():
+def test_invoke_uses_openapi_schema_without_agent_overrides():
     requests = []
     schema = _schema(
         operations={
@@ -531,17 +531,11 @@ def test_invoke_applies_agent_defaults_without_changing_backend_schema():
     asyncio.run(adapter.load())
 
     input_schema = adapter.build_input_schema("list_latency_events")
-    assert input_schema["properties"]["stat_type"]["default"] == "p99"
+    assert input_schema["properties"]["stat_type"]["default"] == "ave"
     backend_properties = schema["paths"]["/aggregated_event/list"]["post"][
         "requestBody"
     ]["content"]["application/json"]["schema"]["properties"]
     assert backend_properties["stat_type"]["default"] == "ave"
 
     asyncio.run(adapter.invoke("list_latency_events", {"kb_id": "kb-1"}))
-    assert requests[-1].content == (
-        b'{"kb_id":"kb-1","stat_type":"p99","sort_fields":'
-        b'[{"field":"total_latency","order":"desc"}]}'
-    )
-
-    with pytest.raises(OpenApiInvocationError, match="Invalid arguments"):
-        asyncio.run(adapter.invoke("list_latency_events", {}))
+    assert requests[-1].content == b'{"kb_id":"kb-1"}'

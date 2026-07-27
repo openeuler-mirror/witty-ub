@@ -26,6 +26,10 @@ async def create_diagnosis_case(
     "/{case_id}",
     response_model=GetDiagnosisCaseResponse,
     operation_id="get_diagnosis_case",
+    description=(
+        "Get one historical diagnosis case by ID. Inspect its symptom, root cause, "
+        "recommendation, fingerprint and evidence references after case search."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_diagnosis_case(
@@ -39,6 +43,11 @@ async def get_diagnosis_case(
     "/search",
     response_model=SearchDiagnosisCasesResponse,
     operation_id="list_diagnosis_cases",
+    description=(
+        "Search historical diagnosis cases using current signals such as status "
+        "codes, failure modes, IPs, hosts, pods, clusters, latency components and "
+        "log phrases. A match is a hypothesis to verify, not proof."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def search_diagnosis_cases(

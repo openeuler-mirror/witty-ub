@@ -6,12 +6,6 @@ from fastapi import FastAPI
 import httpx
 from jsonschema import Draft202012Validator
 
-from latency.access.mcp_contract import (
-    MCP_INPUT_POLICIES,
-    MCP_TOOL_DESCRIPTIONS,
-    verify_mcp_input_policy_operations,
-    verify_mcp_tool_description_operations,
-)
 from latency.access.openapi_adapter import OpenApiAdapter
 from latency.routers import (
     diagnosis_case,
@@ -136,46 +130,39 @@ def test_all_exposed_operations_produce_valid_mcp_input_schemas() -> None:
     asyncio.run(adapter.load())
 
     assert set(adapter.operations) == set(EXPECTED_MCP_OPERATIONS)
-    verify_mcp_input_policy_operations(set(adapter.operations))
-    verify_mcp_tool_description_operations(set(adapter.operations))
-    assert set(MCP_INPUT_POLICIES) <= set(adapter.operations)
-    assert set(MCP_TOOL_DESCRIPTIONS) == set(adapter.operations)
+    for operation in adapter.operations.values():
+        openapi_operation = schema["paths"][operation.path][
+            operation.method.lower()
+        ]
+        assert openapi_operation["description"]
+        assert operation.description == openapi_operation["description"]
     input_schemas = {
         operation_id: adapter.build_input_schema(operation_id)
         for operation_id in adapter.operations
     }
     for input_schema in input_schemas.values():
         Draft202012Validator.check_schema(input_schema)
-        properties = input_schema["properties"]
-        if "page_cnt" in properties:
-            assert properties["page_cnt"]["minimum"] == 1
-            assert properties["page_cnt"]["maximum"] == 100
-        if "page_num" in properties:
-            assert properties["page_num"]["minimum"] == 1
 
     latency_events = input_schemas["list_latency_events"]
-    assert "kb_id" in latency_events["required"]
-    assert latency_events["properties"]["stat_type"]["default"] == "p99"
-    assert latency_events["properties"]["sort_fields"]["default"] == [
-        {"field": "total_latency", "order": "desc"}
-    ]
+    assert "kb_id" not in latency_events.get("required", [])
+    assert latency_events["properties"]["stat_type"]["default"] == "ave"
+    assert latency_events["properties"]["sort_fields"].get("default") is None
 
     latency_traces = input_schemas["list_latency_traces"]
-    assert "kb_id" in latency_traces["required"]
-    assert latency_traces["properties"]["is_anomalous"]["default"] is True
+    assert "kb_id" not in latency_traces.get("required", [])
+    assert latency_traces["properties"]["is_anomalous"].get("default") is None
 
     connectivity_traces = input_schemas["list_connectivity_traces"]
     assert (
-        connectivity_traces["properties"]["is_anomalous"]["default"] is True
+        connectivity_traces["properties"]["is_anomalous"].get("default") is None
     )
 
     trace_logs = input_schemas["list_connectivity_trace_logs"]
-    assert "trace_ids" in trace_logs["required"]
-    assert trace_logs["properties"]["trace_ids"]["minItems"] == 1
-    assert trace_logs["properties"]["trace_ids"]["maxItems"] == 100
+    assert "trace_ids" not in trace_logs.get("required", [])
+    assert trace_logs["properties"]["trace_ids"].get("default") is None
 
 
-def test_agent_rules_do_not_change_shared_backend_request_models() -> None:
+def test_documented_agent_rules_do_not_change_backend_request_models() -> None:
     latency_events = ListSrcDstAggregatedEventRequest(page_cnt=1000)
     latency_traces = ListLogParseResultRequest(page_cnt=1000)
     connectivity_traces = ListTraceFailureEventResultRequest(

@@ -19,6 +19,11 @@ router = APIRouter(prefix="/log_parse_result", tags=["log_parse_result"])
     "/list",
     response_model=ListLogParseResultsResponse,
     operation_id="list_latency_traces",
+    description=(
+        "List parsed latency traces. Filter by aggregate event, trace ID, operation, "
+        "host, pod or IP pair. Results contain detailed latency components and "
+        "anomaly markers used as diagnosis evidence."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_parse_results(
@@ -31,6 +36,10 @@ async def list_log_parse_results(
     "/options",
     response_model=GetLogParseOptionsResponse,
     operation_id="list_clusters_hosts",
+    description=(
+        "List cluster and host filter values that actually exist in parsed logs. "
+        "Use this before filtering by cluster or host instead of guessing names."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_parse_options(
@@ -47,6 +56,10 @@ async def get_log_parse_options(
     "/{result_id}",
     response_model=GetLogParseResultResponse,
     operation_id="get_latency_trace",
+    description=(
+        "Get one parsed latency trace by result ID, including detailed latency "
+        "components, topology fields, trace ID and anomaly markers."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_parse_result_by_id(
@@ -69,6 +82,11 @@ async def list_traces_by_host(
     "/metrics/latency",
     response_model=GetLatencyMetricsResponse,
     operation_id="get_latency_metrics",
+    description=(
+        "Get latency metric time series for a knowledge base, host or IP pair. Use "
+        "P99 for fault spikes and AVG for general trends. Respect the returned "
+        "sampling metadata and do not describe sampled points as full raw data."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_latency_metrics(

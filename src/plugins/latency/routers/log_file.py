@@ -125,6 +125,11 @@ async def run_or_stop_log_file_by_log_file_id(
     "/list/{kb_id}",
     response_model=ListLogFilesResponse,
     operation_id="list_log_files",
+    description=(
+        "List log files in a knowledge base. Use this to discover log IDs, parse "
+        "status, task IDs and fault counts. A non-successful parse status means "
+        "downstream results may be incomplete."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_files(
@@ -139,6 +144,10 @@ async def list_log_files(
     "/{log_file_id}",
     response_model=GetLogFileResponse,
     operation_id="get_log_file",
+    description=(
+        "Get one log file by ID, including its knowledge base, source, parse "
+        "status, task information and fault statistics."
+    ),
     openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_file_by_log_file_id(
