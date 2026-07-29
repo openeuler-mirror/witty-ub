@@ -7204,6 +7204,10 @@ const getLatestProgressReport = (file: LogFileModel) => {
 }
 
 const getLogFileProgress = (file: LogFileModel) => {
+  const overallProgress = Number(file.overall_progress)
+  if (Number.isFinite(overallProgress)) {
+    return clampProgress(overallProgress)
+  }
   const latestReport = getLatestProgressReport(file)
   if (latestReport) {
     const progress = Number(latestReport.progress)
@@ -7211,8 +7215,7 @@ const getLogFileProgress = (file: LogFileModel) => {
       return clampProgress(progress)
     }
   }
-  const progress = Number(file.overall_progress)
-  return Number.isFinite(progress) ? clampProgress(progress) : 0
+  return 0
 }
 
 const getLogFileProgressText = (file: LogFileModel) => `${Math.round(getLogFileProgress(file))}%`

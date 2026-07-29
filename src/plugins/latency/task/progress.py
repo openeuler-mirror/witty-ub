@@ -41,6 +41,9 @@ def _task_progress(task, *, include_preprocess: bool = True) -> float:
     # 注意：前缀必须与各 worker 中 BaseWorker.report() 实际发出的消息前缀对齐
     expected_prefixes = {
         TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER: {
+            # 对应: "Log parsing: scanning done" (10%)
+            # 对应: "Log parsing: correlating done" (15%)
+            "Log parsing",
             # 对应: "Log parse completed" (20%)
             "Log parse",
             # 对应: "Anomaly detection done" (30%)
@@ -69,6 +72,12 @@ def _task_progress(task, *, include_preprocess: bool = True) -> float:
             "Trace故障",
         },
         TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER: {
+            # 对应: "Waiting for diagnosis task, current status: ..." (5%→20%)
+            # 对应: "Waiting for parse task, current status: ..." (45%→65%)
+            "Waiting for",
+            # 对应: "diagnosis task completed" 等
+            "diagnosis task",
+            "parse task",
             # 对应: "Trace context logs stored {inserted}/{total}" 等
             "Trace context logs stored",
             "Trace上下文落库",
