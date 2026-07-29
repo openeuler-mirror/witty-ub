@@ -67,3 +67,18 @@ class TaskReportPGManager:
             )
             rows = result.mappings().all()
         return [TaskReportModel(**dict(r)) for r in rows]
+
+    @staticmethod
+    async def delete_task_reports_by_task_ids(task_ids: list[str]) -> bool:
+        """软删除任务报告（设置 existed_status=False）"""
+        if not task_ids:
+            return True
+        async with PGManager.session() as session:
+            await session.execute(
+                text(
+                    "UPDATE task_report SET existed_status = FALSE "
+                    "WHERE task_id = ANY(:task_ids)"
+                ),
+                {"task_ids": task_ids},
+            )
+        return True

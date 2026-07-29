@@ -426,6 +426,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                cleanup_temp_dirs(output_log_path, log_file_id)
+                return False
+
             trace_id_set, trace_failure_id = await StoreTraceContextLogsWorker._generate_trace_id_set_diagnosis(
                 output_log_path=output_log_path,
             )
@@ -458,6 +465,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
+                cleanup_temp_dirs(output_log_path, log_file_id)
+                return False
+
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 

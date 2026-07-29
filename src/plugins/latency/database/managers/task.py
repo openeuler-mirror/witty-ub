@@ -186,11 +186,9 @@ class TaskPGManager:
     ) -> list[TaskModel]:
         if not op_ids:
             return []
-        # PARTITION BY 需要包含 task_type（如果指定了），否则会漏掉某些任务
-        # 因为如果 STORE 任务比 PARSE 任务新，PARSE 任务的 rn 就不是 1
-        partition_by = [Task.op_id]
-        if task_type:
-            partition_by.append(Task.task_type)
+        # 按 (op_id, task_type) 分区，确保每个 op_id 的每种任务类型都返回最新的任务
+        # 这样可以获取一个 log_file_id 对应的所有任务（PARSE、DIAGNOSIS、STORE）
+        partition_by = [Task.op_id, Task.task_type]
         subq = (
             select(
                 Task,

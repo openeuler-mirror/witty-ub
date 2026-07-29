@@ -31,17 +31,29 @@ def default_preprocess_dir(log_file_id: str) -> str:
     return os.path.join(witty_dir, f"log_preprocessed_{log_file_id}")
 
 
-def cleanup_preprocess_dir(log_file_id: str) -> bool:
+def cleanup_preprocess_dir(log_file_id: str) -> str | None:
+    import time
     preprocess_dir = default_preprocess_dir(log_file_id)
     if not os.path.isdir(preprocess_dir):
-        return False
-    try:
-        shutil.rmtree(preprocess_dir)
-        logger.info("删除日志预处理目录: %s", preprocess_dir)
-        return True
-    except OSError as exc:
-        logger.error("删除日志预处理目录 %s 失败: %s", preprocess_dir, exc)
-        return False
+        logger.info("日志预处理目录不存在: %s", preprocess_dir)
+        return None
+    
+    # 重试机制：最多尝试3次，每次间隔2秒
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            shutil.rmtree(preprocess_dir)
+            logger.info("删除日志预处理目录: %s", preprocess_dir)
+            return preprocess_dir
+        except OSError as exc:
+            if attempt < max_retries - 1:
+                logger.warning("删除日志预处理目录 %s 失败(尝试 %d/%d): %s, 2秒后重试", 
+                              preprocess_dir, attempt + 1, max_retries, exc)
+                time.sleep(2)
+            else:
+                logger.error("删除日志预处理目录 %s 失败(已重试%d次): %s", 
+                            preprocess_dir, max_retries, exc)
+                return None
 
 
 def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult:

@@ -355,6 +355,26 @@ class LogFailureEventPGManager:
         return True
 
     @staticmethod
+    async def delete_log_failure_events_by_log_id(log_id: str) -> bool:
+        """删除指定日志文件的所有故障事件"""
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM log_failure_event WHERE log_id = :log_id"),
+                {"log_id": log_id},
+            )
+        return True
+
+    @staticmethod
+    async def delete_trace_failure_events_by_log_id(log_id: str) -> bool:
+        """删除指定日志文件的所有trace故障事件"""
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM trace_failure_event WHERE log_id = :log_id"),
+                {"log_id": log_id},
+            )
+        return True
+
+    @staticmethod
     async def add_trace_failure_event(
         results: list[TraceFailureEventModel],
     ) -> list[str]:

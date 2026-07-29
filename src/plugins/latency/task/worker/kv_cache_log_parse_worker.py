@@ -1138,6 +1138,12 @@ class KVCacheLogParseWorker(BaseWorker):
                 )
                 return False
 
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
+
             await BaseWorker.report(task.id, "Log parse completed", 20.0)
             await BaseWorker.report(
                 task.id,
@@ -1166,6 +1172,12 @@ class KVCacheLogParseWorker(BaseWorker):
                 f"[perf][detect.summary] results={len(list_log_parse_results)}, events={len(anomalous_events)}, time={t_detect:.3f}s",
                 t_detect,
             )
+            
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
             
             # 再生成聚合事件（此时 anomalous_event_id 已填充）
             t_agg_start = time.perf_counter()
@@ -1200,6 +1212,12 @@ class KVCacheLogParseWorker(BaseWorker):
                 f"[perf][fault.summary] events={len(anomalous_events)}, chains={len(anomalous_event_chains or [])}",
                 0.0,
             )
+
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
 
             t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
@@ -1279,6 +1297,8 @@ class KVCacheLogParseWorker(BaseWorker):
     async def stop(task_id: str) -> str | None:
         """停止任务"""
         task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return None
         if task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
             await LogParseResultPGManager.update_log_parse_results_existed_status_by_log_id(
                 task.op_id, existed_status=0

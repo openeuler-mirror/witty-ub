@@ -440,6 +440,13 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             )
             if not result:
                 return False
+            
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
+            
             print("故障定界工具运行完成")
             # output_log_path = os.path.join(witty_dir, "log_" + random_str)
             # trace_failure_event_cnt = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)

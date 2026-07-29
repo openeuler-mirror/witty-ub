@@ -109,6 +109,7 @@ class ProcessHandler:
             warning = f"获取锁失败，可能是进程池已满或其他原因。请稍后再试。"
             logger.warning(f"[ProcessHandler] %s", warning)
             return
+        logger.info(f"[ProcessHandler] 当前任务字典中的任务: {list(ProcessHandler.tasks.keys())}")
         if task_id in ProcessHandler.tasks.keys():
             process = ProcessHandler.tasks[task_id]
             del ProcessHandler.tasks[task_id]
@@ -116,14 +117,21 @@ class ProcessHandler:
                 if process.is_alive():
                     pid = process.pid
                     process.kill()
-                    info = f"任务 {task_id} ({pid}) 被杀死。"
-                    logger.info(f"[ProcessHandler] %s", info)
+                    process.join(timeout=10)
+                    if process.is_alive():
+                        warning = f"任务 {task_id} (PID: {pid}) 在10秒后仍未终止"
+                        logger.warning(f"[ProcessHandler] %s", warning)
+                    else:
+                        info = f"任务 {task_id} (PID: {pid}) 已被杀死并确认终止。"
+                        logger.info(f"[ProcessHandler] %s", info)
+                else:
+                    logger.info(f"[ProcessHandler] 任务 {task_id} 进程已结束")
             except Exception as e:
                 warning = f"杀死进程 {task_id} 失败: {e}"
                 logger.warning(f"[ProcessHandler] %s", warning)
-            info = f"任务ID {task_id} 被删除。"
+            info = f"任务ID {task_id} 从字典中删除。"
             logger.info(f"[ProcessHandler] %s", info)
         else:
-            waring = f"任务ID {task_id} 不存在，无法删除。"
+            waring = f"任务ID {task_id} 不在字典中，无法删除。"
             logger.warning(f"[ProcessHandler] %s", waring)
         ProcessHandler.lock.release()
