@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler
 from latency.database.managers.task import TaskPGManager
@@ -62,7 +62,7 @@ class BaseWorker:
             )
             return True
         else:
-            completed_at = datetime.now(timezone.utc)
+            completed_at = datetime.now()
             duration_seconds = (completed_at - task.created_at).total_seconds()
             
             await TaskPGManager.update_task(
@@ -83,7 +83,7 @@ class BaseWorker:
         await BaseWorker.find_worker_class(worker_name).deinit(task_id)
         
         task = await TaskPGManager.get_task_by_task_id(task_id)
-        completed_at = datetime.now(timezone.utc)
+        completed_at = datetime.now()
         duration_seconds = (completed_at - task.created_at).total_seconds()
         
         await TaskPGManager.update_task(
@@ -143,7 +143,7 @@ class BaseWorker:
             task.status == TaskStatusEnum.PENDING
             or task.status == TaskStatusEnum.RUNNING
         ):
-            completed_at = datetime.now(timezone.utc)
+            completed_at = datetime.now()
             duration_seconds = (completed_at - task.created_at).total_seconds()
             
             await TaskPGManager.update_task(

@@ -53,6 +53,12 @@ def glob_paths(patterns: list[str]) -> list[str]:
 
 
 def parse_timestamp(ts: str) -> datetime:
+    """Parse log timestamp string to naive datetime.
+
+    Timestamps are interpreted in the database session timezone, which
+    matches the timezone of the machine where the logs were generated.
+    This ensures consistent behavior across UTC and Asia/Shanghai deployments.
+    """
     try:
         return datetime(
             int(ts[0:4]), int(ts[5:7]), int(ts[8:10]),

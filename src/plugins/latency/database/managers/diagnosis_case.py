@@ -2,7 +2,7 @@
 """PostgreSQL manager for diagnosis_case and diagnosis_case_signal."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, text
@@ -20,7 +20,7 @@ from latency.schemas.request import SearchDiagnosisCasesRequest
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now()
 
 
 def _normalize_signal_value(value: Any) -> str:
