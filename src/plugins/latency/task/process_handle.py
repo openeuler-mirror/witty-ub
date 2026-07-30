@@ -66,6 +66,17 @@ class ProcessHandler:
             loop.close()
 
     @staticmethod
+    def _cleanup_dead_processes():
+        """清理已结束的进程"""
+        dead_tasks = [
+            tid for tid, proc in ProcessHandler.tasks.items() 
+            if not proc.is_alive()
+        ]
+        for tid in dead_tasks:
+            del ProcessHandler.tasks[tid]
+            logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
+
+    @staticmethod
     def add_task(task_id: str, target, *args, **kwargs):
         """添加任务到进程池"""
         acquired = ProcessHandler.lock.acquire(timeout=ProcessHandler.time_out)
@@ -74,6 +85,9 @@ class ProcessHandler:
             logger.warning(f"[ProcessHandler] %s", warning)
             return False
 
+        if len(ProcessHandler.tasks) >= ProcessHandler.max_processes:
+            ProcessHandler._cleanup_dead_processes()
+            
         if len(ProcessHandler.tasks) >= ProcessHandler.max_processes:
             warning = f"任务数量已达上限({ProcessHandler.max_processes})，请稍后再试。"
             logging.warning(f"[ProcessHandler] %s", warning)
@@ -89,6 +103,7 @@ class ProcessHandler:
                 )
                 ProcessHandler.tasks[task_id] = process
                 process.start()
+                logger.debug(f"[ProcessHandler] 任务 {task_id} 已添加到进程池，PID: {process.pid}")
                 ProcessHandler.lock.release()
                 return True
             except Exception as e:
@@ -97,10 +112,9 @@ class ProcessHandler:
                 ProcessHandler.lock.release()
                 return False
         else:
-            info = f"任务ID {task_id} 已存在，无法添加。"
-            logger.info(f"[ProcessHandler] %s", info)
+            logger.debug(f"[ProcessHandler] 任务 {task_id} 已在进程池中，跳过添加")
             ProcessHandler.lock.release()
-            return False
+            return True
 
     @staticmethod
     def remove_task(task_id: str):
@@ -109,8 +123,8 @@ class ProcessHandler:
             warning = f"获取锁失败，可能是进程池已满或其他原因。请稍后再试。"
             logger.warning(f"[ProcessHandler] %s", warning)
             return
-        logger.info(f"[ProcessHandler] 当前任务字典中的任务: {list(ProcessHandler.tasks.keys())}")
-        if task_id in ProcessHandler.tasks.keys():
+        
+        if task_id in ProcessHandler.tasks:
             process = ProcessHandler.tasks[task_id]
             del ProcessHandler.tasks[task_id]
             try:
@@ -122,16 +136,12 @@ class ProcessHandler:
                         warning = f"任务 {task_id} (PID: {pid}) 在10秒后仍未终止"
                         logger.warning(f"[ProcessHandler] %s", warning)
                     else:
-                        info = f"任务 {task_id} (PID: {pid}) 已被杀死并确认终止。"
-                        logger.info(f"[ProcessHandler] %s", info)
+                        logger.info(f"[ProcessHandler] 任务 {task_id} (PID: {pid}) 已被杀死并确认终止")
                 else:
-                    logger.info(f"[ProcessHandler] 任务 {task_id} 进程已结束")
+                    logger.debug(f"[ProcessHandler] 任务 {task_id} 进程已自然结束")
             except Exception as e:
-                warning = f"杀死进程 {task_id} 失败: {e}"
-                logger.warning(f"[ProcessHandler] %s", warning)
-            info = f"任务ID {task_id} 从字典中删除。"
-            logger.info(f"[ProcessHandler] %s", info)
+                logger.warning(f"[ProcessHandler] 清理进程 {task_id} 失败: {e}")
+            logger.debug(f"[ProcessHandler] 任务 {task_id} 已从进程池移除")
         else:
-            waring = f"任务ID {task_id} 不在字典中，无法删除。"
-            logger.warning(f"[ProcessHandler] %s", waring)
+            logger.debug(f"[ProcessHandler] 任务 {task_id} 不在进程池中，可能已结束或未启动")
         ProcessHandler.lock.release()

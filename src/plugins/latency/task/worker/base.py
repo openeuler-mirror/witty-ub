@@ -67,7 +67,9 @@ class BaseWorker:
             return True
         else:
             completed_at = datetime.now()
-            duration_seconds = (completed_at - task.created_at).total_seconds()
+            duration_seconds = 0.0
+            if task.created_at:
+                duration_seconds = (completed_at - task.created_at).total_seconds()
             
             await TaskPGManager.update_task(
                 task_id, 
@@ -90,8 +92,11 @@ class BaseWorker:
         worker_name = task.task_type
         ProcessHandler.remove_task(task_id)
         await BaseWorker.find_worker_class(worker_name).deinit(task_id)
-        completed_at = datetime.now(timezone.utc)
-        duration_seconds = (completed_at - task.created_at).total_seconds()
+        
+        completed_at = datetime.now()
+        duration_seconds = 0.0
+        if task.created_at:
+            duration_seconds = (completed_at - task.created_at).total_seconds()
         
         await TaskPGManager.update_task(
             task_id, 
@@ -133,7 +138,10 @@ class BaseWorker:
         flag = ProcessHandler.add_task(
             task_id, BaseWorker.find_worker_class(worker_name).run, *args
         )
-        await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
+        if flag:
+            await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
+        else:
+            logger.error(f"[BaseWorker] 任务 {task_id} 添加到进程池失败")
         return flag
 
     @staticmethod
@@ -170,8 +178,10 @@ class BaseWorker:
             logger.error(f"[BaseWorker] worker.stop 异常: {e}")
         
         if should_update_status:
-            completed_at = datetime.now(timezone.utc)
-            duration_seconds = (completed_at - task.created_at).total_seconds()
+            completed_at = datetime.now()
+            duration_seconds = 0.0
+            if task.created_at:
+                duration_seconds = (completed_at - task.created_at).total_seconds()
             
             await TaskPGManager.update_task(
                 task_id, 

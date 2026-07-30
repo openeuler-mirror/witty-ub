@@ -15,7 +15,6 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.anomalous_event import AnomalousEventPGManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
 from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventPGManager
-from latency.database.managers.time_window_aggregated_event import TimeWindowAggregatedEventPGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.log import LogFileModel
 from latency.ENUM.general import FilePath
@@ -260,7 +259,6 @@ class LogFileService:
         await AnomalousEventPGManager.delete_anomalous_events_by_log_id(log_file_id)
         await AnomalousEventChainPGManager.delete_event_chains_by_log_id(log_file_id)
         await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_file_id)
-        await TimeWindowAggregatedEventPGManager.delete_by_log_id(log_file_id)
         await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_file_id)
         await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_file_id)
         
