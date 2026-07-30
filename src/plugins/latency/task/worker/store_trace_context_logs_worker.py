@@ -508,6 +508,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                         {"kb_id": log_file.kb_id}
                     )
 
+            cleanup_temp_dirs(output_log_path, log_file_id)
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
