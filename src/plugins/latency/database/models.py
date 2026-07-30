@@ -2,10 +2,9 @@
 """PostgreSQL ORM models for latency plugin.
 
 Design choices:
-- Aggregate tables (src_dst_aggregated_event, time_window_aggregated) keep only
-  dimensions and counts.  All percentile/min/max/ave values are computed on the
-  fly from log_parse_result via PostgreSQL ordered-set aggregates / window
-  functions.
+- SrcDstAggregatedEvent table keeps only dimensions and counts.  All
+  percentile/min/max/ave values are computed on the fly from log_parse_result
+  via PostgreSQL ordered-set aggregates / window functions.
 - pod_ips is stored as TEXT[] with a GIN index; the legacy trigger-maintained
   junction table is removed.
 - IP columns use PostgreSQL INET type.
@@ -155,30 +154,6 @@ class LogParseResult(Base):
 # ============================================================
 # 3. 聚合表（仅保留维度 + 计数）
 # ============================================================
-class TimeWindowAggregated(Base):
-    """时序聚合表，仅保留维度 + 计数，统计量从 log_parse_result 实时计算。"""
-
-    __tablename__ = "time_window_aggregated"
-    __table_args__ = (
-        {"postgresql_partition_by": "RANGE (time_bucket)"},
-    )
-
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    time_bucket: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), primary_key=True
-    )
-    kb_id: Mapped[str] = mapped_column(String)
-    log_id: Mapped[str] = mapped_column(String)
-    src_ip: Mapped[Optional[Any]] = mapped_column(INET)
-    dst_ip: Mapped[Optional[Any]] = mapped_column(INET)
-    log_parse_result_cnt: Mapped[Optional[int]] = mapped_column(Integer)
-    anomaly_cnt: Mapped[Optional[int]] = mapped_column(Integer)
-    existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
-    )
-
-
 class SrcDstAggregatedEvent(Base):
     """源目的聚合表，仅保留维度 + 计数，统计量从 log_parse_result 实时计算。"""
 
