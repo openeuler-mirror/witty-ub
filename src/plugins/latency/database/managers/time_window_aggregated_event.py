@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 import math
@@ -85,7 +85,7 @@ class TimeWindowAggregatedEventPGManager:
             event.log_parse_result_cnt,
             event.anomaly_cnt,
             event.existed_status,
-            parse_timestamp(event.created_at) or datetime.now(timezone.utc),
+            parse_timestamp(event.created_at) or datetime.now(),
         )
 
     @staticmethod

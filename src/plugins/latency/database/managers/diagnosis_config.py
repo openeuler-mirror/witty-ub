@@ -2,7 +2,7 @@
 """PostgreSQL-specific manager for diagnosis_config."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -36,7 +36,7 @@ class DiagnosisConfigPGManager:
     async def upsert(
         kb_id: str, config: DiagnosisRuntimeConfig
     ) -> DiagnosisRuntimeConfig:
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         mapping = {
             "kb_id": kb_id,
             "config_json": config.model_dump(mode="json"),

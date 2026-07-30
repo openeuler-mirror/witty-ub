@@ -548,11 +548,17 @@ class KVCacheLogParseWorker(BaseWorker):
         )
         t_sort = time.perf_counter() - t_sort_start
 
+        if task_id:
+            await BaseWorker.report(task_id, "Log parsing: scanning done", 10.0)
+
         logger.info("=== Stage 2/3: Correlating entries ===")
         t_corr_start = time.perf_counter()
         correlator = LogCorrelator(parsed)
         correlated = correlator.correlate()
         t_corr = time.perf_counter() - t_corr_start
+
+        if task_id:
+            await BaseWorker.report(task_id, "Log parsing: correlating done", 15.0)
         logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
                      f"Worker→URMA: {len(correlated.worker_urma_map):,}")
         correlate_index_seconds = correlator.index_build_seconds

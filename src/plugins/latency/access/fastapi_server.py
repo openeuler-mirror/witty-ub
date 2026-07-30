@@ -160,6 +160,7 @@ async def startup_event():
         pool_size=config.db.pg_pool_size,
         max_overflow=config.db.pg_max_overflow,
     )
+    await PGManager.init_timezone()
     await init_postgresql_database()
     logger.info("PostgreSQL backend initialized")
 

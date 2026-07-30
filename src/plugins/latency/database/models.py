@@ -9,13 +9,13 @@ Design choices:
 - pod_ips is stored as TEXT[] with a GIN index; the legacy trigger-maintained
   junction table is removed.
 - IP columns use PostgreSQL INET type.
-- Timestamps use TIMESTAMPTZ.
+- Timestamps use TIMESTAMP (naive, no timezone conversion).
 - JSON columns use JSONB.
 """
 from __future__ import annotations
 
 import ipaddress
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import (
@@ -55,10 +55,10 @@ class LogKnowledge(Base):
     trace_failure_event_cnt: Mapped[int] = mapped_column(Integer, default=0)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
     )
 
 
@@ -68,10 +68,10 @@ class DiagnosisConfig(Base):
     kb_id: Mapped[str] = mapped_column(String, primary_key=True)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
     )
 
 
@@ -89,10 +89,10 @@ class LogFile(Base):
     failure_count: Mapped[int] = mapped_column(Integer, default=0)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
     )
 
 
@@ -113,7 +113,7 @@ class LogParseResult(Base):
     aggregated_event_id: Mapped[str] = mapped_column(String, default="")
     anomalous_event_id: Mapped[str] = mapped_column(String, default="")
     trace_id: Mapped[Optional[str]] = mapped_column(String)
-    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     src_ip: Mapped[Optional[ipaddress.IPv4Address | ipaddress.IPv6Address]] = mapped_column(INET)
     dst_ip: Mapped[Optional[ipaddress.IPv4Address | ipaddress.IPv6Address]] = mapped_column(INET)
     pod_ips: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
@@ -137,7 +137,7 @@ class LogParseResult(Base):
     remark: Mapped[Optional[str]] = mapped_column(Text)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     sdk_process: Mapped[Optional[float]] = mapped_column(Float)
     sdk_rpc: Mapped[Optional[float]] = mapped_column(Float)
@@ -165,7 +165,7 @@ class TimeWindowAggregated(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     time_bucket: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), primary_key=True
+        DateTime(timezone=False), primary_key=True
     )
     kb_id: Mapped[str] = mapped_column(String)
     log_id: Mapped[str] = mapped_column(String)
@@ -175,7 +175,7 @@ class TimeWindowAggregated(Base):
     anomaly_cnt: Mapped[Optional[int]] = mapped_column(Integer)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
 
 
@@ -193,7 +193,7 @@ class SrcDstAggregatedEvent(Base):
     anomaly_cnt: Mapped[Optional[int]] = mapped_column(Integer)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
 
 
@@ -211,7 +211,7 @@ class AnomalousEvent(Base):
     anomaly_reason: Mapped[Optional[str]] = mapped_column(Text)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
 
 
@@ -227,7 +227,7 @@ class AnomalousEventChain(Base):
     offset: Mapped[Optional[int]] = mapped_column(BigInteger)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
 
 
@@ -251,16 +251,16 @@ class DiagnosisCase(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=0)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
     )
 
 
@@ -288,9 +288,9 @@ class Task(Base):
     status: Mapped[Optional[str]] = mapped_column(String)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
 
 
@@ -305,7 +305,7 @@ class TaskReport(Base):
     message: Mapped[Optional[str]] = mapped_column(Text)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=False), default=lambda: datetime.now()
     )
 
 
@@ -320,7 +320,7 @@ class LogFailureEvent(Base):
     log_file: Mapped[Optional[str]] = mapped_column(String)
     raw_text: Mapped[Optional[str]] = mapped_column(Text)
     host_name: Mapped[str] = mapped_column(String, default="Unknown")
-    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     level: Mapped[Optional[str]] = mapped_column(String)
     filename: Mapped[Optional[str]] = mapped_column(String)
     pod_name: Mapped[Optional[str]] = mapped_column(String)
@@ -344,7 +344,7 @@ class TraceFailureEvent(Base):
     dst_ip: Mapped[Optional[Any]] = mapped_column(INET)
     host_names: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
     cluster_names: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
-    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     status_code: Mapped[Optional[str]] = mapped_column(String)
     failure_mode: Mapped[Optional[str]] = mapped_column(String)
 

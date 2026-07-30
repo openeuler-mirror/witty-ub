@@ -180,7 +180,13 @@ class LatencyMetricsSampler:
             return []
 
     @staticmethod
-    def _parse_timestamp_to_ms(timestamp_str: str) -> Optional[int]:
+    def _parse_timestamp_to_ms(timestamp_value) -> Optional[int]:
+        if isinstance(timestamp_value, datetime):
+            if timestamp_value.tzinfo is not None:
+                timestamp_value = timestamp_value.replace(tzinfo=None)
+            return int(timestamp_value.timestamp() * 1000)
+
+        timestamp_str = timestamp_value
         try:
             return int(float(timestamp_str))
         except (ValueError, TypeError):

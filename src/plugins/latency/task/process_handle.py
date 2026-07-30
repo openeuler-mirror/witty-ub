@@ -20,6 +20,9 @@ class ProcessHandler:
 
     @staticmethod
     async def _run_target_after_init(target, *args, **kwargs):
+        config = Config().get_config()
+        if config.db.backend == "postgresql":
+            await PGManager.init_timezone()
         return await target(*args, **kwargs)
 
     @staticmethod

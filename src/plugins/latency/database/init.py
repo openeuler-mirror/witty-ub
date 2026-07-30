@@ -2,7 +2,7 @@
 """PostgreSQL database initialization helpers."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
@@ -11,11 +11,11 @@ from latency.database.models import Base
 
 
 def _month_iter(start: datetime, end: datetime):
-    """Yield the first day of every month from start to end (inclusive), UTC."""
+    """Yield the first day of every month from start to end (inclusive)."""
     y, m = start.year, start.month
     end_y, end_m = end.year, end.month
     while (y, m) <= (end_y, end_m):
-        yield datetime(y, m, 1, tzinfo=timezone.utc)
+        yield datetime(y, m, 1)
         m += 1
         if m == 13:
             m = 1
@@ -25,14 +25,12 @@ def _month_iter(start: datetime, end: datetime):
 async def _create_time_window_partition(conn, part_start: datetime) -> None:
     """Create a single monthly partition if it does not already exist."""
     if part_start.month == 12:
-        part_end = datetime(part_start.year + 1, 1, 1, tzinfo=timezone.utc)
+        part_end = datetime(part_start.year + 1, 1, 1)
     else:
-        part_end = datetime(
-            part_start.year, part_start.month + 1, 1, tzinfo=timezone.utc
-        )
+        part_end = datetime(part_start.year, part_start.month + 1, 1)
     part_name = f"time_window_aggregated_{part_start:%Y%m}"
-    from_bound = part_start.strftime("%Y-%m-%d %H:%M:%S+00")
-    to_bound = part_end.strftime("%Y-%m-%d %H:%M:%S+00")
+    from_bound = part_start.strftime("%Y-%m-%d %H:%M:%S")
+    to_bound = part_end.strftime("%Y-%m-%d %H:%M:%S")
     await conn.execute(
         text(
             f"CREATE TABLE IF NOT EXISTS {part_name} "
@@ -40,6 +38,27 @@ async def _create_time_window_partition(conn, part_start: datetime) -> None:
             f"FOR VALUES FROM ('{from_bound}') TO ('{to_bound}')"
         )
     )
+
+
+async def migrate_timestamptz_to_timestamp() -> None:
+    """Convert all TIMESTAMPTZ columns to TIMESTAMP (no timezone).
+
+    This keeps timestamp values exactly as they were written, without any
+    timezone conversion.  Safe to run multiple times (idempotent).
+    """
+    async with PGManager.engine().begin() as conn:
+        rows = await conn.execute(text(
+            "SELECT table_name, column_name "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND data_type = 'timestamp with time zone'"
+        ))
+        for table_name, column_name in rows:
+            await conn.execute(text(
+                f"ALTER TABLE {table_name} "
+                f"ALTER COLUMN {column_name} "
+                f"TYPE timestamp without time zone"
+            ))
 
 
 async def create_log_parse_result_partitions() -> None:
@@ -63,17 +82,15 @@ async def create_time_window_partitions(
     Partitions are created for ``months`` months starting one year before
     ``start`` so historical log data is covered immediately after startup.
     """
-    part_start = (start.replace(tzinfo=timezone.utc) - timedelta(days=365)).replace(
+    part_start = (start - timedelta(days=365)).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
     part_end = part_start
     for _ in range(months):
         if part_end.month == 12:
-            part_end = datetime(part_end.year + 1, 1, 1, tzinfo=timezone.utc)
+            part_end = datetime(part_end.year + 1, 1, 1)
         else:
-            part_end = datetime(
-                part_end.year, part_end.month + 1, 1, tzinfo=timezone.utc
-            )
+            part_end = datetime(part_end.year, part_end.month + 1, 1)
 
     async with PGManager.engine().begin() as conn:
         for month_start in _month_iter(part_start, part_end):
@@ -90,10 +107,8 @@ async def ensure_time_window_partitions(
     ``no partition of relation found for row`` errors when logs contain
     timestamps outside the initial partition window.
     """
-    start = start.replace(tzinfo=timezone.utc)
-    end = end.replace(tzinfo=timezone.utc)
-    month_start = datetime(start.year, start.month, 1, tzinfo=timezone.utc)
-    month_end = datetime(end.year, end.month, 1, tzinfo=timezone.utc)
+    month_start = datetime(start.year, start.month, 1)
+    month_end = datetime(end.year, end.month, 1)
 
     async with PGManager.engine().begin() as conn:
         for month in _month_iter(month_start, month_end):
@@ -130,6 +145,7 @@ async def init_postgresql_database() -> None:
     async with PGManager.engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    await migrate_timestamptz_to_timestamp()
     await create_log_parse_result_partitions()
-    await create_time_window_partitions(datetime.now(timezone.utc))
+    await create_time_window_partitions(datetime.now())
     await create_manual_indexes()

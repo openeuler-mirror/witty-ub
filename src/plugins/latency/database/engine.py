@@ -59,6 +59,15 @@ class PGManager:
         )
 
     @classmethod
+    async def init_timezone(cls) -> None:
+        """No-op kept for backward compatibility.
+
+        All timestamps are now stored as naive TIMESTAMP (no timezone),
+        so no timezone initialization is needed.
+        """
+        pass
+
+    @classmethod
     async def close(cls) -> None:
         if cls._engine is not None:
             await cls._engine.dispose()
