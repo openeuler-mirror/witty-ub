@@ -322,6 +322,7 @@ class TraceFailureEvent(Base):
     timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     status_code: Mapped[Optional[str]] = mapped_column(String)
     failure_mode: Mapped[Optional[str]] = mapped_column(String)
+    operation: Mapped[Optional[str]] = mapped_column(String)
 
 
 class FailureModeKnowledge(Base):

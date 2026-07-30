@@ -197,6 +197,27 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 dst_ip = dst_match.group(1)
         
         return src_ip, dst_ip
+    
+    @staticmethod
+    def _extract_operation(raw_text: str) -> str:
+        parts = raw_text.split('|')
+        if len(parts) < 9:
+            return ""
+        
+        handle = parts[8].strip()
+        from latency.parse.base_parser import SDK_GET_OPS, SDK_SET_OPS, WORKER_GET_OPS, WORKER_SET_OPS
+        from latency.ENUM.ds_log import OpType
+        
+        try:
+            op_type = OpType(handle)
+            if op_type in SDK_GET_OPS or op_type in WORKER_GET_OPS:
+                return "GET"
+            elif op_type in SDK_SET_OPS or op_type in WORKER_SET_OPS:
+                return "SET"
+        except ValueError:
+            pass
+        
+        return ""
 
     @staticmethod
     def _merge_trace_failure_event(
@@ -208,6 +229,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         raw_text = log_failure_event.get("raw_text", "")
         src_ip, dst_ip = KVCacheLogEventDiagnosisWorker._extract_src_dst_ip(raw_text)
+        operation = KVCacheLogEventDiagnosisWorker._extract_operation(raw_text)
 
         if trace_id not in trace_failure_events_map:
             failure_mode = log_failure_event["failure_mode"]
@@ -230,6 +252,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 "timestamp": log_failure_event["timestamp"],
                 "status_code": log_failure_event["status_code"] if log_failure_event["status_code"] else "",
                 "failure_mode": leaf_mode,
+                "operation": operation,
             }
             return
 
@@ -264,6 +287,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             trace_failure_event["src_ip"] = src_ip
         if dst_ip:
             trace_failure_event["dst_ip"] = dst_ip
+        
+        if operation and not trace_failure_event.get("operation"):
+            trace_failure_event["operation"] = operation
 
         if not failure_mode:
             return
