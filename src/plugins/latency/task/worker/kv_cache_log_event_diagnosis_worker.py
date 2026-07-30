@@ -15,6 +15,7 @@ from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.schemas.task import TaskModel
@@ -456,10 +457,17 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             #     task.op_id, {"trace_failure_event_cnt": trace_failure_event_cnt}
             # )
             await BaseWorker.report(task.id, "故障定界完成，等待Trace上下文落库任务处理", 80.0)
-            # 以下是自带内容
             await LogFilePGManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
+            if log_file.kb_id:
+                from sqlalchemy import text
+                from latency.database.engine import PGManager
+                async with PGManager.session() as session:
+                    await session.execute(
+                        text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :kb_id"),
+                        {"kb_id": log_file.kb_id}
+                    )
             await BaseWorker.report(task.id, "任务成功", 100.0)
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
