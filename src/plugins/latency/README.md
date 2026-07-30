@@ -264,9 +264,6 @@ c2w_p99_threshold_ms = 2.0
 w2w_p99_threshold_ms = 1.5
 urma_link_p99_threshold_ms = 4.0
 query_meta_p99_threshold_ms = 1.0
-sliding_window_sizes = [100, 200, 300, 500]
-sliding_window_steps = [20, 30, 40, 50]
-zone_anomaly_density_threshold = 0.5
 ```
 
 #### 日志路径映射 `[log_filename_pattern]`
@@ -285,16 +282,15 @@ Worker 解析日志时，会根据上传日志所在的目录，按以下 key �
 
 #### 异常检测参数 `[log_analyzer_params]`
 
+异常检测采用**直接阈值判断**：单条日志的某个指标超过对应阈值即标记为异常。
+
 | key | 说明 |
 |-----|------|
-| `total_p99_threshold_ms` | 总时延 P99 阈值（毫秒） |
-| `c2w_p99_threshold_ms` | Client-to-Worker 时延 P99 阈值 |
-| `w2w_p99_threshold_ms` | Worker-to-Worker 时延 P99 阈值 |
-| `urma_link_p99_threshold_ms` | URMA 建链时延 P99 阈值 |
-| `query_meta_p99_threshold_ms` | Worker QueryMeta 时延 P99 阈值 |
-| `sliding_window_sizes` | 滑动窗口大小列表 |
-| `sliding_window_steps` | 与窗口大小一一对应的步长列表 |
-| `zone_anomaly_density_threshold` | 区间异常密度阈值（0~1） |
+| `total_p99_threshold_ms` | 总时延阈值（毫秒） |
+| `c2w_p99_threshold_ms` | Client-to-Worker 时延阈值 |
+| `w2w_p99_threshold_ms` | Worker-to-Worker 时延阈值 |
+| `urma_link_p99_threshold_ms` | URMA 建链时延阈值 |
+| `query_meta_p99_threshold_ms` | Worker QueryMeta 时延阈值 |
 
 ### 6. 启动服务
 

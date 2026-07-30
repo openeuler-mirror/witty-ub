@@ -1,14 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from latency.ENUM.detect import DetectionMode
-
-
-@dataclass(slots=True)
-class WindowConfig:
-    """窗口配置"""
-    window_size: int = 500
-    window_step: int = 50
-    density_threshold: float = 0.9999
 
 
 @dataclass(slots=True)
@@ -16,8 +8,7 @@ class MetricConfig:
     """单个指标的检测配置"""
     field_name: str
     threshold_ms: float
-    window_config: WindowConfig = field(default_factory=WindowConfig)
-    mode: DetectionMode = DetectionMode.SLIDING_WINDOW_P99
+    mode: DetectionMode = DetectionMode.THRESHOLD_DIRECT
     enabled: bool = True
 
 

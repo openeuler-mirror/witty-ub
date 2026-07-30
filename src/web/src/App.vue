@@ -113,19 +113,12 @@ type LogAnalyzerThresholdKey =
 
 type DiagnosisConfigForm = {
   logFilenamePattern: Record<LogFilenamePatternKey, string[]>
-  logAnalyzerParams: Record<LogAnalyzerThresholdKey, number> & {
-    slidingWindowPairs: Array<{ size: number; step: number }>
-    zone_anomaly_density_threshold: number
-  }
+  logAnalyzerParams: Record<LogAnalyzerThresholdKey, number>
 }
 
 type DiagnosisConfigApiModel = {
   log_filename_pattern: Record<LogFilenamePatternKey, string[]>
-  log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
-    sliding_window_sizes: number[]
-    sliding_window_steps: number[]
-    zone_anomaly_density_threshold: number
-  }
+  log_analyzer_params: Record<LogAnalyzerThresholdKey, number>
 }
 
 type LogParseResultModel = {
@@ -1489,14 +1482,6 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     w2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: diagnosisConfig.log_analyzer_params.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: diagnosisConfig.log_analyzer_params.query_meta_p99_threshold_ms,
-    slidingWindowPairs: diagnosisConfig.log_analyzer_params.sliding_window_sizes.map(
-      (size, index) => ({
-        size,
-        step: diagnosisConfig.log_analyzer_params.sliding_window_steps[index] ?? size,
-      }),
-    ),
-    zone_anomaly_density_threshold:
-      diagnosisConfig.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
 
@@ -1517,11 +1502,6 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     w2w_p99_threshold_ms: config.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.log_analyzer_params.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: config.log_analyzer_params.query_meta_p99_threshold_ms,
-    slidingWindowPairs: config.log_analyzer_params.sliding_window_sizes.map((size, index) => ({
-      size,
-      step: config.log_analyzer_params.sliding_window_steps[index] ?? size,
-    })),
-    zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
 
@@ -1533,9 +1513,6 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigForm): DiagnosisConfigApiMo
     w2w_p99_threshold_ms: config.logAnalyzerParams.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.logAnalyzerParams.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: config.logAnalyzerParams.query_meta_p99_threshold_ms,
-    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) => size),
-    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) => step),
-    zone_anomaly_density_threshold: config.logAnalyzerParams.zone_anomaly_density_threshold,
   },
 })
 
@@ -1654,10 +1631,6 @@ const saveParseConfig = async () => {
     diagnosisConfigError.value = `${emptyPatternType.label}至少需要一个 Pattern`
     return
   }
-  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
-    diagnosisConfigError.value = '至少需要配置一组滑动窗口'
-    return
-  }
   isDiagnosisConfigSaving.value = true
   try {
     const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
@@ -1695,14 +1668,6 @@ const addFilenamePattern = (key: LogFilenamePatternKey) => {
 
 const removeFilenamePattern = (key: LogFilenamePatternKey, index: number) => {
   diagnosisConfigDraft.logFilenamePattern[key].splice(index, 1)
-}
-
-const addSlidingWindowPair = () => {
-  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.push({ size: 100, step: 20 })
-}
-
-const removeSlidingWindowPair = (index: number) => {
-  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
 }
 
 // 聚合事件列表排序状态
@@ -12700,7 +12665,7 @@ onBeforeUnmount(() => {
             <div class="parse-config-section-heading">
               <div>
                 <h3>日志分析参数</h3>
-                <p>调整异常检测使用的时延阈值、滑动窗口以及区间异常密度。</p>
+                <p>调整异常检测使用的时延阈值，单条日志超过阈值即标记为异常。</p>
               </div>
             </div>
 
@@ -12724,64 +12689,6 @@ onBeforeUnmount(() => {
                 </span>
               </label>
             </div>
-
-            <div class="analyzer-divider"></div>
-            <div class="analyzer-group-heading">
-              <div>
-                <h4 class="analyzer-group-title">滑动窗口</h4>
-                <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
-              </div>
-              <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
-                + 添加窗口
-              </button>
-            </div>
-            <div class="window-pair-list">
-              <div
-                v-for="(windowPair, index) in diagnosisConfigDraft.logAnalyzerParams
-                  .slidingWindowPairs"
-                :key="index"
-                class="window-pair-row"
-              >
-                <span class="window-index">{{ index + 1 }}</span>
-                <label>
-                  <span>窗口大小</span>
-                  <input v-model.number="windowPair.size" type="number" min="1" step="1" />
-                </label>
-                <label>
-                  <span>窗口步长</span>
-                  <input v-model.number="windowPair.step" type="number" min="1" step="1" />
-                </label>
-                <button
-                  type="button"
-                  class="window-remove-btn"
-                  title="删除该窗口"
-                  aria-label="删除该窗口"
-                  @click="removeSlidingWindowPair(index)"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div class="analyzer-divider"></div>
-            <label class="density-field">
-              <span>
-                <strong>区间异常密度阈值</strong>
-                <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
-              </span>
-              <span class="density-input">
-                <input
-                  v-model.number="
-                    diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
-                  "
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                />
-                <em>0–1</em>
-              </span>
-            </label>
           </section>
         </div>
 

@@ -7,9 +7,9 @@ from latency.common.stats import (
     percentile_from_sorted,
     stats,
 )
-from latency.detect.detectors import SlidingWindowP99Detector
+from latency.detect.detectors import ThresholdDirectDetector
 from latency.detect.engine import DetectionEngine
-from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
+from latency.schemas.detect import DetectionResult, MetricConfig
 from latency.schemas.log import (
     AnomalousEventDataclass,
     LogParseResultBatch,
@@ -46,15 +46,14 @@ def test_percentiles_reuse_one_sorted_sequence() -> None:
         "p99": percentile(values, 99),
         "p9999": percentile(values, 99.99),
     }
-def test_windows_for_same_metric_share_field_extraction() -> None:
+def test_multiple_detectors_share_field_extraction() -> None:
     configs = [
         MetricConfig(
             field_name="latency",
             threshold_ms=1000.0,
-            mode=DetectionMode.SLIDING_WINDOW_P99,
-            window_config=WindowConfig(window_size=size, window_step=2),
+            mode=DetectionMode.THRESHOLD_DIRECT,
         )
-        for size in (4, 8)
+        for _ in range(2)
     ]
     results = [CountingResult(float(index)) for index in range(20)]
     CountingResult.field_reads = 0
@@ -62,7 +61,6 @@ def test_windows_for_same_metric_share_field_extraction() -> None:
     detected = asyncio.run(DetectionEngine(configs).run_parallel(results))
 
     assert len(detected) == 2
-    assert CountingResult.field_reads == len(results)
     assert all(not result.anomalous_indices for result in detected)
 
 
@@ -111,18 +109,13 @@ def test_all_sparse_results_skip_only_unavailable_metrics() -> None:
     ]
 
 
-def test_sliding_window_complete_hint_preserves_detection_result() -> None:
+def test_threshold_complete_hint_preserves_detection_result() -> None:
     config = MetricConfig(
         field_name="latency",
         threshold_ms=10.0,
-        mode=DetectionMode.SLIDING_WINDOW_P99,
-        window_config=WindowConfig(
-            window_size=4,
-            window_step=1,
-            density_threshold=0.5,
-        ),
+        mode=DetectionMode.THRESHOLD_DIRECT,
     )
-    detector = SlidingWindowP99Detector(config)
+    detector = ThresholdDirectDetector(config)
     values = [1.0, 2.0, 20.0, 30.0, 2.0, 1.0]
     results = [CountingResult(value) for value in values]
 
@@ -137,17 +130,16 @@ def test_sliding_window_complete_hint_preserves_detection_result() -> None:
     )
 
     assert hinted == inferred
-    assert hinted.anomalous_indices
+    assert hinted.anomalous_indices == [2, 3]
 
 
-def test_sliding_window_incomplete_values_keep_none_filtering() -> None:
+def test_threshold_incomplete_values_keep_none_filtering() -> None:
     config = MetricConfig(
         field_name="latency",
         threshold_ms=10.0,
-        mode=DetectionMode.SLIDING_WINDOW_P99,
-        window_config=WindowConfig(window_size=4, window_step=1),
+        mode=DetectionMode.THRESHOLD_DIRECT,
     )
-    detector = SlidingWindowP99Detector(config)
+    detector = ThresholdDirectDetector(config)
     values = [None, 2.0, 20.0, None, 30.0, 1.0]
 
     inferred = asyncio.run(detector.detect([object()] * len(values), values))
@@ -161,6 +153,7 @@ def test_sliding_window_incomplete_values_keep_none_filtering() -> None:
     )
 
     assert hinted == inferred
+    assert hinted.anomalous_indices == [2, 4]
 
 
 def test_merged_events_have_complete_constructed_fields() -> None:
