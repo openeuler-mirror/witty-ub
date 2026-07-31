@@ -1,25 +1,22 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""PostgreSQL-specific manager for time_window_aggregated.
+"""PostgreSQL-specific manager for time-window aggregation.
 
-The table only stores dimensions + counts; all statistics are computed on the
-fly from log_parse_result via ordered-set aggregates.
+All statistics are computed on the fly from log_parse_result via ordered-set
+aggregates.  No intermediate table is written.
 """
 from __future__ import annotations
 
 import logging
-import time
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-import math
-from sqlalchemy import Integer, func, insert, select, text
+from sqlalchemy import Integer, func, select
 
 from latency.database.engine import PGManager
-from latency.database.init import ensure_time_window_partitions
-from latency.database.models import LogFile, LogParseResult, TimeWindowAggregated
+from latency.database.models import LogFile, LogParseResult
 from latency.database.utils import format_ip, parse_ip, parse_timestamp
-from latency.schemas.log import TimeWindowAggregatedEventDataclass
 from latency.schemas.request import ListTimeWindowAggregatedEventRequest
 
 logger = logging.getLogger(__name__)
@@ -38,146 +35,6 @@ _LATENCY_FIELDS = [
 
 
 class TimeWindowAggregatedEventPGManager:
-    _TIME_WINDOW_COPY_COLUMNS = [
-        "id",
-        "time_bucket",
-        "kb_id",
-        "log_id",
-        "src_ip",
-        "dst_ip",
-        "log_parse_result_cnt",
-        "anomaly_cnt",
-        "existed_status",
-        "created_at",
-    ]
-
-    # Use COPY for large batches; INSERT is fine for smaller ones.
-    _COPY_THRESHOLD = 1_000
-    _COPY_BATCH_SIZE = 50_000
-
-    @staticmethod
-    def _event_to_mapping(
-        event: TimeWindowAggregatedEventDataclass,
-    ) -> dict[str, Any]:
-        return {
-            "id": event.id,
-            "kb_id": event.kb_id,
-            "log_id": event.log_id,
-            "time_bucket": parse_timestamp(event.time_bucket),
-            "src_ip": parse_ip(event.src_ip),
-            "dst_ip": parse_ip(event.dst_ip),
-            "log_parse_result_cnt": event.log_parse_result_cnt,
-            "anomaly_cnt": event.anomaly_cnt,
-            "existed_status": event.existed_status,
-        }
-
-    @staticmethod
-    def _event_to_copy_tuple(
-        event: TimeWindowAggregatedEventDataclass,
-    ) -> tuple[Any, ...]:
-        return (
-            event.id,
-            parse_timestamp(event.time_bucket),
-            event.kb_id,
-            event.log_id,
-            parse_ip(event.src_ip),
-            parse_ip(event.dst_ip),
-            event.log_parse_result_cnt,
-            event.anomaly_cnt,
-            event.existed_status,
-            parse_timestamp(event.created_at) or datetime.now(),
-        )
-
-    @staticmethod
-    async def add_events(
-        events: list[TimeWindowAggregatedEventDataclass],
-    ) -> list[str]:
-        if not events:
-            return []
-
-        # Determine the full time range covered by this batch and create any
-        # missing monthly partitions up front.
-        time_buckets = [
-            parse_timestamp(e.time_bucket)
-            for e in events
-            if parse_timestamp(e.time_bucket) is not None
-        ]
-        if time_buckets:
-            await ensure_time_window_partitions(min(time_buckets), max(time_buckets))
-
-        total_count = len(events)
-        if total_count >= TimeWindowAggregatedEventPGManager._COPY_THRESHOLD:
-            return await TimeWindowAggregatedEventPGManager._add_events_copy(events)
-        return await TimeWindowAggregatedEventPGManager._add_events_insert(events)
-
-    @staticmethod
-    async def _add_events_insert(
-        events: list[TimeWindowAggregatedEventDataclass],
-    ) -> list[str]:
-        mappings = [
-            TimeWindowAggregatedEventPGManager._event_to_mapping(e) for e in events
-        ]
-        async with PGManager.connection() as conn:
-            await conn.execute(insert(TimeWindowAggregated), mappings)
-        return [e.id for e in events]
-
-    @staticmethod
-    async def _add_events_copy(
-        events: list[TimeWindowAggregatedEventDataclass],
-    ) -> list[str]:
-        """Bulk insert time-window events using asyncpg COPY.
-
-        COPY is significantly faster than a large multi-row INSERT and avoids
-        the per-statement parameter limit when workers produce tens of
-        thousands of events.
-        """
-        t_start = time.perf_counter()
-        records = [
-            TimeWindowAggregatedEventPGManager._event_to_copy_tuple(e)
-            for e in events
-        ]
-        async with PGManager.connection() as conn:
-            raw_conn = await conn.get_raw_connection()
-            asyncpg_conn = raw_conn.driver_connection
-            columns = TimeWindowAggregatedEventPGManager._TIME_WINDOW_COPY_COLUMNS
-            for i in range(0, len(records), TimeWindowAggregatedEventPGManager._COPY_BATCH_SIZE):
-                batch = records[i : i + TimeWindowAggregatedEventPGManager._COPY_BATCH_SIZE]
-                await asyncpg_conn.copy_records_to_table(
-                    "time_window_aggregated",
-                    records=batch,
-                    columns=columns,
-                )
-        logger.info(
-            "[Store][PG] COPY %s time_window_aggregated rows done in %.3fs",
-            len(events),
-            time.perf_counter() - t_start,
-        )
-        return [e.id for e in events]
-
-    @staticmethod
-    async def delete_by_log_id(log_id: str) -> bool:
-        async with PGManager.connection() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE time_window_aggregated SET existed_status = FALSE "
-                    "WHERE log_id = :log_id"
-                ),
-                {"log_id": log_id},
-            )
-        return True
-
-    @staticmethod
-    async def delete_by_kb_id(kb_id: str) -> bool:
-        async with PGManager.connection() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE time_window_aggregated SET existed_status = FALSE "
-                    "WHERE kb_id = :kb_id"
-                ),
-                {"kb_id": kb_id},
-            )
-        return True
-
     @staticmethod
     def _calc_percentile(sorted_vals: list[float], pct: float) -> float | None:
         if not sorted_vals:

@@ -11,15 +11,15 @@
         MetricConfig(
             field_name="total_latency",
             threshold_ms=4.0,
-            mode=DetectionMode.SLIDING_WINDOW_P99
+            mode=DetectionMode.THRESHOLD_DIRECT
         )
     ]
     detector = AnomalyDetector(configs)
     events = await detector.detect(results)
 
 3. 添加新检测器（解耦扩展）：
-    @register_detector(DetectionMode.SLIDING_WINDOW_P95)
-    class SlidingWindowP95Detector(DetectorBase):
+    @register_detector(DetectionMode.THRESHOLD_DIRECT)
+    class ThresholdDirectDetector(DetectorBase):
         async def detect(self, results):
             # 实现检测逻辑
             pass
@@ -28,14 +28,12 @@
 from latency.detect.engine import AnomalyDetector, DetectionEngine
 from latency.detect.detectors import (
     DetectorBase,
-    SlidingWindowP99Detector,
     ThresholdDirectDetector,
     register_detector,
     get_detector,
     DETECTOR_TYPES,
 )
 from latency.schemas.detect import (
-    WindowConfig,
     MetricConfig,
     DetectionResult,
 )
@@ -43,11 +41,9 @@ from latency.ENUM.detect import DetectionMode
 
 __all__ = [
     "DetectionMode",
-    "WindowConfig",
     "MetricConfig",
     "DetectionResult",
     "DetectorBase",
-    "SlidingWindowP99Detector",
     "ThresholdDirectDetector",
     "DetectionEngine",
     "AnomalyDetector",

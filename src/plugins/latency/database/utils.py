@@ -139,6 +139,9 @@ def result_to_pg_tuple(result: Any) -> tuple[Any, ...]:
         result.remote_worker_rpc,
         result.master_process,
         result.master_rpc_total,
+        result.create_latency,
+        result.publish_latency,
+        result.worker_total_latency,
     )
 
 
@@ -180,4 +183,7 @@ COPY_COLUMNS = [
     "remote_worker_rpc",
     "master_process",
     "master_rpc_total",
+    "create_latency",
+    "publish_latency",
+    "worker_total_latency",
 ]

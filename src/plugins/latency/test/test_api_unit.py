@@ -311,9 +311,7 @@ class TestDiagnosisConfig:
                     "resource_log_file": ["*.log"]
                 },
                 "log_analyzer_params": {
-                    "sliding_window_sizes": [100, 200],
-                    "sliding_window_steps": [20, 30],
-                    "zone_anomaly_density_threshold": 0.5
+                    "total_p99_threshold_ms": 2.0
                 }
             },
             timeout=10

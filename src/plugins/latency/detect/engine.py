@@ -5,7 +5,7 @@ from operator import attrgetter
 from typing import List
 
 from latency.config.config import Config
-from latency.schemas.detect import DetectionResult, MetricConfig, WindowConfig
+from latency.schemas.detect import DetectionResult, MetricConfig
 from latency.schemas.log import (
     AnomalousEventDataclass,
     LogParseResultModel,
@@ -31,14 +31,9 @@ class DetectionEngine:
                 logger.warning(f"Failed to create detector for mode {cfg.mode}: {e}")
 
     async def run_parallel(self, results: List[LogParseResultModel]) -> List[DetectionResult]:
-        """按指标执行检测，同一指标的多个窗口共享一次字段提取。"""
+        """按指标执行检测，每个指标使用直接阈值判断。"""
         if not self.detectors:
             return []
-
-        detectors_by_field: dict[str, list[DetectorBase]] = {}
-        for detector in self.detectors:
-            field_name = detector.config.field_name
-            detectors_by_field.setdefault(field_name, []).append(detector)
 
         sparse_hint = getattr(results, "all_sparse", None)
         all_sparse = (
@@ -53,38 +48,35 @@ class DetectionEngine:
         sparse_slots = SparseLogParseResultDataclass.__slots__
 
         detection_results: List[DetectionResult] = []
-        for field_name, detectors in detectors_by_field.items():
+        for detector in self.detectors:
+            field_name = detector.config.field_name
+            threshold_ms = detector.config.threshold_ms
+
             if all_sparse and field_name not in sparse_slots:
-                detection_results.extend(
+                detection_results.append(
                     DetectionResult(
                         metric_name=field_name,
                         anomalous_indices=[],
                         reasons={},
                     )
-                    for _ in detectors
                 )
                 continue
-            values = list(map(attrgetter(field_name), results))
-            thresholds = {detector.config.threshold_ms for detector in detectors}
-            values_complete = None not in values
-            exceeded_by_threshold = {
-                threshold: [
-                    idx
-                    for idx, value in enumerate(values)
-                    if value is not None and value > threshold
-                ]
-                for threshold in thresholds
-            }
 
-            for detector in detectors:
-                detection_results.append(
-                    await detector.detect(
-                        results,
-                        values,
-                        values_complete,
-                        exceeded_by_threshold[detector.config.threshold_ms],
-                    )
+            values = list(map(attrgetter(field_name), results))
+            exceeded_indices = [
+                idx
+                for idx, value in enumerate(values)
+                if value is not None and value > threshold_ms
+            ]
+
+            detection_results.append(
+                await detector.detect(
+                    results,
+                    values,
+                    None not in values,
+                    exceeded_indices,
                 )
+            )
         return detection_results
 
     def merge_results(
@@ -140,56 +132,28 @@ class AnomalyDetector:
     def from_config(
         cls, analyzer_config: DSLogAnalyzerConfig | None = None
     ) -> "AnomalyDetector":
-        """从配置文件创建检测器"""
+        """从配置文件创建检测器（全部使用直接阈值判断）"""
 
         cfg = analyzer_config or Config().get_config().log_analyzer_params
 
-        # 获取窗口配置（多窗口模式）
-        window_sizes = cfg.sliding_window_sizes
-        window_steps = cfg.sliding_window_steps
-
-        # 确保窗口大小和步长数量匹配
-        if len(window_steps) < len(window_sizes):
-            window_steps = window_steps + [window_steps[-1]] * (len(window_sizes) - len(window_steps))
-
-        # 指标配置映射（固定指标列表）
+        # 指标配置映射（固定指标列表，全部使用直接阈值检测）
         metrics_config = [
-            {"field_name": "total_latency", "threshold_attr": "total_p99_threshold_ms", "mode": DetectionMode.SLIDING_WINDOW_P99},
-            {"field_name": "c2w_latency", "threshold_attr": "c2w_p99_threshold_ms", "mode": DetectionMode.SLIDING_WINDOW_P99},
-            {"field_name": "w2w_urma_latency", "threshold_attr": "w2w_p99_threshold_ms", "mode": DetectionMode.SLIDING_WINDOW_P99},
-            {"field_name": "urma_link_latency", "threshold_attr": "urma_link_p99_threshold_ms", "mode": DetectionMode.SLIDING_WINDOW_P99},
-            {"field_name": "worker_query_meta_latency", "threshold_attr": "query_meta_p99_threshold_ms", "mode": DetectionMode.THRESHOLD_DIRECT},
+            {"field_name": "total_latency", "threshold_attr": "total_p99_threshold_ms"},
+            {"field_name": "c2w_latency", "threshold_attr": "c2w_p99_threshold_ms"},
+            {"field_name": "w2w_urma_latency", "threshold_attr": "w2w_p99_threshold_ms"},
+            {"field_name": "urma_link_latency", "threshold_attr": "urma_link_p99_threshold_ms"},
+            {"field_name": "worker_query_meta_latency", "threshold_attr": "query_meta_p99_threshold_ms"},
         ]
 
-        # 构建各指标的配置（每个指标 × 每个窗口大小）
-        metric_configs = []
-
-        for metric in metrics_config:
-            field_name = metric["field_name"]
-            threshold_ms = getattr(cfg, metric["threshold_attr"])
-            mode = metric["mode"]
-
-            # 直接阈值检测不需要窗口配置
-            if mode == DetectionMode.THRESHOLD_DIRECT:
-                metric_configs.append(MetricConfig(
-                    field_name=field_name,
-                    threshold_ms=threshold_ms,
-                    mode=mode
-                ))
-                continue
-
-            # 滑动窗口检测：为每个窗口大小创建一个检测器
-            for win_size, win_step in zip(window_sizes, window_steps):
-                metric_configs.append(MetricConfig(
-                    field_name=field_name,
-                    threshold_ms=threshold_ms,
-                    window_config=WindowConfig(
-                        window_size=win_size,
-                        window_step=win_step,
-                        density_threshold=cfg.zone_anomaly_density_threshold
-                    ),
-                    mode=mode
-                ))
+        # 每个指标创建一个直接阈值检测器
+        metric_configs = [
+            MetricConfig(
+                field_name=metric["field_name"],
+                threshold_ms=getattr(cfg, metric["threshold_attr"]),
+                mode=DetectionMode.THRESHOLD_DIRECT,
+            )
+            for metric in metrics_config
+        ]
 
         return cls(metric_configs)
 

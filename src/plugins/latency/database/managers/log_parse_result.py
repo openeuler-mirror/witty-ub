@@ -573,7 +573,11 @@ class LogParseResultPGManager:
     async def get_latency_metrics(
         req: GetLatencyMetricsRequest,
     ) -> tuple[int, list[dict[str, Any]]]:
-        """从 log_parse_result 实时计算延迟指标时间曲线。"""
+        """从 log_parse_result 实时计算延迟指标时间曲线。
+
+        按 (time_bucket, src_ip, dst_ip) 分组，与 master 分支
+        time_window_aggregated_table 的维度保持一致。
+        """
         time_bucket = func.date_trunc("second", LogParseResult.timestamp).label("time")
 
         pct_map = {
@@ -599,8 +603,15 @@ class LogParseResultPGManager:
             "remote_worker_rpc",
             "master_process",
             "master_rpc_total",
+            "create_latency",
+            "publish_latency",
+            "worker_total_latency",
         ]
-        select_exprs = [time_bucket]
+        select_exprs = [
+            time_bucket,
+            LogParseResult.src_ip,
+            LogParseResult.dst_ip,
+        ]
         for name in metric_cols:
             select_exprs.append(agg_fn(getattr(LogParseResult, name)).label(name))
 
@@ -637,12 +648,23 @@ class LogParseResultPGManager:
         if req.operation:
             stmt = stmt.where(LogParseResult.operation.ilike(f"%{req.operation}%"))
 
-        stmt = stmt.group_by(time_bucket).order_by(time_bucket)
+        stmt = stmt.group_by(
+            time_bucket,
+            LogParseResult.src_ip,
+            LogParseResult.dst_ip,
+        ).order_by(time_bucket)
 
         async with PGManager.session() as session:
             result = await session.execute(stmt)
             rows = result.mappings().all()
-        return len(rows), [dict(r) for r in rows]
+
+        formatted = []
+        for r in rows:
+            d = dict(r)
+            d["src_ip"] = format_ip(d.get("src_ip"))
+            d["dst_ip"] = format_ip(d.get("dst_ip"))
+            formatted.append(d)
+        return len(formatted), formatted
 
     @staticmethod
     async def get_cluster_list(kb_id: str | None = None) -> list[str]:
