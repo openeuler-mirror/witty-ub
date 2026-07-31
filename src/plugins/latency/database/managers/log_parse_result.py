@@ -295,12 +295,10 @@ class LogParseResultPGManager:
 
     @staticmethod
     async def delete_log_parse_results_by_log_id(log_id: str) -> bool:
-        """Soft delete all log_parse_result rows for a log_id."""
+        """Hard delete all log_parse_result rows for a log_id."""
         async with PGManager.session() as session:
             await session.execute(
-                text(
-                    "UPDATE log_parse_result SET existed_status = FALSE WHERE log_id = :log_id"
-                ),
+                text("DELETE FROM log_parse_result WHERE log_id = :log_id"),
                 {"log_id": log_id},
             )
         return True

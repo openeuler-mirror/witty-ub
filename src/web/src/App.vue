@@ -332,6 +332,7 @@ type LatencyDetailRow = {
   event: AggregatedEventModel
   startTime?: string
   endTime?: string
+  operation?: string
 }
 
 type TraceDetailRow = {
@@ -366,6 +367,7 @@ type FaultTraceTableRow = TraceDetailRow & {
   clusterNames: string[]
   failureModeId?: string
   failureMode?: FailureModeKnowledgeModel | null
+  operation?: string
 }
 
 type TraceFilterTarget = {
@@ -490,6 +492,7 @@ type TraceFailureEventResultModel = {
   timestamp?: string
   status_code?: string
   failure_mode?: string
+  operation?: string
   [key: string]: unknown
 }
 
@@ -1723,8 +1726,8 @@ const traceListColumnWidths = reactive<ColumnWidthMap>({
 })
 
 const faultTraceScrollColumns = reactive({
-  widths: [150, 100, 110, 80, 200, 100],
-  labels: ['Pod IP', '集群', '主机', '故障码', '故障名称', '故障域'],
+  widths: [150, 100, 110, 80, 80, 200, 100],
+  labels: ['Pod IP', '集群', '主机', '故障码', '操作类型', '故障名称', '故障域'],
 })
 
 const handleFaultTraceScrollColumnResizeStart = (e: MouseEvent, columnIndex: number) => {
@@ -3945,6 +3948,7 @@ const latencyDetailRows = computed<LatencyDetailRow[]>(() => {
       traceCount: event.log_parse_result_cnt ?? 0,
       anomalyTraceCount: event.anomaly_log_parse_result_cnt ?? 0,
       event,
+      operation: event.operation || undefined,
     })
   })
 
@@ -4661,6 +4665,7 @@ const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceT
     faultDomain: failureMode?.failure_domain || '-',
     failureModeId,
     failureMode,
+    operation: getRecordString(record, ['operation'], ''),
   }
 }
 
@@ -10312,17 +10317,24 @@ onBeforeUnmount(() => {
                           ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
-                          故障名称
+                          操作类型
                           <div
                             class="column-resize-handle"
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 4)"
                           ></div>
                         </div>
                         <div class="aggregate-cell column-resizable">
-                          故障域
+                          故障名称
                           <div
                             class="column-resize-handle"
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 5)"
+                          ></div>
+                        </div>
+                        <div class="aggregate-cell column-resizable">
+                          故障域
+                          <div
+                            class="column-resize-handle"
+                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 6)"
                           ></div>
                         </div>
                       </div>
@@ -10396,6 +10408,7 @@ onBeforeUnmount(() => {
                             </span>
                             <span v-else class="fault-code-pill">-</span>
                           </div>
+                          <div class="aggregate-cell">{{ trace.operation || '-' }}</div>
                           <div class="aggregate-cell">
                             <button
                               v-if="trace.failureMode"
@@ -11830,6 +11843,7 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell">集群</div>
                       <div class="aggregate-cell">主机IP</div>
                       <div class="aggregate-cell">故障码</div>
+                      <div class="aggregate-cell">操作类型</div>
                       <div class="aggregate-cell">故障名称</div>
                       <div class="aggregate-cell">故障域</div>
                     </div>
@@ -11888,6 +11902,7 @@ onBeforeUnmount(() => {
                           </span>
                           <span v-else class="fault-code-pill">-</span>
                         </div>
+                        <div class="aggregate-cell">{{ trace.operation || '-' }}</div>
                         <div class="aggregate-cell">
                           <button
                             v-if="trace.failureMode"

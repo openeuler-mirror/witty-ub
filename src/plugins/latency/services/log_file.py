@@ -3,11 +3,19 @@ import os
 import aiofiles
 import aiohttp
 import logging
+import shutil
 from fastapi import UploadFile
+from sqlalchemy import select
+from latency.database.engine import PGManager
+from latency.database.models import Task
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
+from latency.database.managers.anomalous_event import AnomalousEventPGManager
+from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
+from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventPGManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.log import LogFileModel
 from latency.ENUM.general import FilePath
 from latency.ENUM.general import SourceType
@@ -28,10 +36,13 @@ from latency.schemas.response import (
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
 from latency.task.progress import parallel_overall_progress
+from latency.task.worker.base import BaseWorker
+from latency.task.log_preprocessor import cleanup_preprocess_dir, WITTY_DIR_DEFAULT
 from latency.common.zip_handler import ZipHandler
 from latency.exceptions import NotFoundBizException, BadRequestBizException
 
 logger = logging.getLogger(__name__)
+witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
 
 
 class LogFileService:
@@ -221,11 +232,62 @@ class LogFileService:
 
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
+        logger.warning(f"==================== 开始删除日志文件: {log_file_id} ====================")
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             raise NotFoundBizException(resource="日志文件")
-        await LogFilePGManager.update_log_file(log_file_id, {"existed_status": False})
+        
+        # 直接查询该日志文件的所有任务（不分状态），参考删除资产库的实现
+        stmt = select(Task).where(Task.op_id == log_file_id)
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            tasks = result.scalars().all()
+        
+        logger.warning(f"找到 {len(tasks)} 个任务与日志文件 {log_file_id} 相关")
+        for task in tasks:
+            logger.warning(f"任务 {task.id} 状态: {task.status} 类型: {task.task_type}")
+            if task.status in [TaskStatusEnum.PENDING.value, TaskStatusEnum.RUNNING.value]:
+                logger.warning(f"正在停止任务 {task.id}")
+                await BaseWorker.stop(task.id)
+                logger.warning(f"已停止任务 {task.id}")
+        
+        # 删除日志文件（硬删除）
+        await LogFilePGManager.delete_log_file_by_log_file_id(log_file_id)
+        
+        # 删除所有相关数据
         await LogParseResultPGManager.delete_log_parse_results_by_log_id(log_file_id)
+        await AnomalousEventPGManager.delete_anomalous_events_by_log_id(log_file_id)
+        await AnomalousEventChainPGManager.delete_event_chains_by_log_id(log_file_id)
+        await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_file_id)
+        await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_file_id)
+        await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_file_id)
+        
+        # 删除任务报告和任务
+        task_ids = [t.id for t in tasks]
+        if task_ids:
+            await TaskReportPGManager.delete_task_reports_by_task_ids(task_ids)
+            await TaskPGManager.delete_tasks_by_task_ids(task_ids)
+        
+        # 等待进程完全释放资源
+        import asyncio
+        await asyncio.sleep(2)
+        
+        # 清理临时文件
+        preprocess_dir = cleanup_preprocess_dir(log_file_id)
+        if preprocess_dir:
+            logger.warning(f"已清理日志文件预处理目录: {preprocess_dir}")
+        else:
+            logger.warning(f"日志文件预处理目录不存在或清理失败: {log_file_id}")
+        
+        diagnosis_output_dir = os.path.join(witty_dir, "log_" + log_file_id[:8])
+        if os.path.exists(diagnosis_output_dir):
+            try:
+                shutil.rmtree(diagnosis_output_dir)
+                logger.warning(f"已清理诊断输出目录: {diagnosis_output_dir}")
+            except OSError as e:
+                logger.error("清理诊断输出目录 %s 失败: %s", diagnosis_output_dir, e)
+        
+        logger.warning(f"==================== 完成删除日志文件: {log_file_id} ====================")
         return DeleteLogFilesMsg(log_file_ids=[log_file_id])
 
     @staticmethod

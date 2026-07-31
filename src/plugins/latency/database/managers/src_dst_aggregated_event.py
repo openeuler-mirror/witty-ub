@@ -362,13 +362,10 @@ class SrcDstAggregatedEventPGManager:
 
     @staticmethod
     async def delete_aggregated_events_by_log_id(log_id: str) -> bool:
-        """Soft delete all src/dst aggregates for a log_id."""
+        """Hard delete all src/dst aggregates for a log_id."""
         async with PGManager.connection() as conn:
             await conn.execute(
-                text(
-                    "UPDATE src_dst_aggregated_event "
-                    "SET existed_status = FALSE WHERE log_id = :log_id"
-                ),
+                text("DELETE FROM src_dst_aggregated_event WHERE log_id = :log_id"),
                 {"log_id": log_id},
             )
         return True

@@ -75,6 +75,7 @@ class LogFailureEventPGManager:
         "timestamp",
         "status_code",
         "failure_mode",
+        "operation",
     ]
 
     # ------------------------------------------------------------------
@@ -355,6 +356,26 @@ class LogFailureEventPGManager:
         return True
 
     @staticmethod
+    async def delete_log_failure_events_by_log_id(log_id: str) -> bool:
+        """删除指定日志文件的所有故障事件"""
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM log_failure_event WHERE log_id = :log_id"),
+                {"log_id": log_id},
+            )
+        return True
+
+    @staticmethod
+    async def delete_trace_failure_events_by_log_id(log_id: str) -> bool:
+        """删除指定日志文件的所有trace故障事件"""
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM trace_failure_event WHERE log_id = :log_id"),
+                {"log_id": log_id},
+            )
+        return True
+
+    @staticmethod
     async def add_trace_failure_event(
         results: list[TraceFailureEventModel],
     ) -> list[str]:
@@ -380,6 +401,7 @@ class LogFailureEventPGManager:
                         timestamp=parse_timestamp(event.timestamp),
                         status_code=event.status_code or "",
                         failure_mode=event.failure_mode or "",
+                        operation=event.operation or "",
                     )
                 )
             async with PGManager.session() as session:
@@ -401,6 +423,7 @@ class LogFailureEventPGManager:
         param.setdefault("dst_ip", None)
         param.setdefault("status_code", "")
         param.setdefault("failure_mode", "")
+        param.setdefault("operation", "")
         return (
             param["id"],
             param["log_id"],
@@ -413,6 +436,7 @@ class LogFailureEventPGManager:
             parse_timestamp(param.get("timestamp")),
             param["status_code"],
             param["failure_mode"],
+            param["operation"],
         )
 
     @staticmethod
@@ -438,6 +462,7 @@ class LogFailureEventPGManager:
             param.setdefault("dst_ip", None)
             param.setdefault("status_code", "")
             param.setdefault("failure_mode", "")
+            param.setdefault("operation", "")
             objs.append(
                 TraceFailureEvent(
                     id=param["id"],
@@ -451,6 +476,7 @@ class LogFailureEventPGManager:
                     timestamp=parse_timestamp(param.get("timestamp")),
                     status_code=param["status_code"],
                     failure_mode=param["failure_mode"],
+                    operation=param["operation"],
                 )
             )
         async with PGManager.session() as session:
@@ -593,6 +619,7 @@ class LogFailureEventPGManager:
                         timestamp=format_timestamp(row.timestamp) or "",
                         status_code=row.status_code or "",
                         failure_mode=row.failure_mode or "",
+                        operation=row.operation or "",
                     )
                 )
             return total, events

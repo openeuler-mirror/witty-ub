@@ -8,6 +8,7 @@ import shutil
 from latency.task.worker.base import BaseWorker
 from latency.config.config import Config
 from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import KVCacheLogEventDiagnosisWorker
@@ -426,6 +427,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                cleanup_temp_dirs(output_log_path, log_file_id)
+                return False
+
             trace_id_set, trace_failure_id = await StoreTraceContextLogsWorker._generate_trace_id_set_diagnosis(
                 output_log_path=output_log_path,
             )
@@ -461,6 +469,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                cleanup_temp_dirs(output_log_path, log_file_id)
+                return False
+
             latency_anomalous_trace_id_set = await LogParseResultPGManager.list_anomalous_trace_ids_by_log_id(
                 log_id
             )
@@ -484,6 +499,16 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 90.0,
             )
 
+            if log_file.kb_id:
+                from sqlalchemy import text
+                from latency.database.engine import PGManager
+                async with PGManager.session() as session:
+                    await session.execute(
+                        text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :kb_id"),
+                        {"kb_id": log_file.kb_id}
+                    )
+
+            cleanup_temp_dirs(output_log_path, log_file_id)
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}

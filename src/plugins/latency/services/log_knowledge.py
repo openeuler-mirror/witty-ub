@@ -1,3 +1,6 @@
+import logging
+import os
+import shutil
 from latency.schemas.request import (
     CreateLogKnowledgeRequest,
     UpdateLogKnowledgeRequest,
@@ -14,9 +17,14 @@ from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.common.convertor import Convertor
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
+from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.task.worker.base import BaseWorker
+from latency.task.log_preprocessor import cleanup_preprocess_dir, WITTY_DIR_DEFAULT
 from latency.exceptions import NotFoundBizException
+
+logger = logging.getLogger(__name__)
+witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
 
 
 class LogKnowledgeService:
@@ -33,11 +41,26 @@ class LogKnowledgeService:
         rowcount = await LogKnowledgePGManager.update_log_kb(kb_id, {"existed_status": False})
         if rowcount == 0:
             raise NotFoundBizException(resource="知识库")
+        
         tasks = await TaskPGManager.list_tasks_by_kb_id(
             kb_id, [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]
         )
         for task in tasks:
             await BaseWorker.stop(task.id)
+        
+        log_file_ids = await LogFilePGManager.list_log_file_ids(kb_id=kb_id)
+        for log_file_id in log_file_ids:
+            cleanup_preprocess_dir(log_file_id)
+            logger.info("已清理日志文件预处理目录: %s", log_file_id)
+            
+            diagnosis_output_dir = os.path.join(witty_dir, "log_" + log_file_id[:8])
+            if os.path.exists(diagnosis_output_dir):
+                try:
+                    shutil.rmtree(diagnosis_output_dir)
+                    logger.info("已清理诊断输出目录: %s", diagnosis_output_dir)
+                except OSError as e:
+                    logger.error("清理诊断输出目录 %s 失败: %s", diagnosis_output_dir, e)
+        
         await DiagnosisConfigPGManager.delete(kb_id)
         return DeleteLogKnowledgeMsg(kb_id=kb_id)
 

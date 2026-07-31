@@ -129,9 +129,13 @@ class AnomalousEventChainPGManager:
 
     @staticmethod
     async def delete_event_chains_by_log_id(log_id: str) -> bool:
-        return await AnomalousEventChainPGManager.update_event_chains_existed_status_by_log_id(
-            log_id, 0
-        )
+        """Hard delete all event chains for a log_id."""
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM anomalous_event_chain WHERE log_id = :log_id"),
+                {"log_id": log_id},
+            )
+        return True
 
     @staticmethod
     async def list_event_chains(

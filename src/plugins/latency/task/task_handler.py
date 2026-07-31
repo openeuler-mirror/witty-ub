@@ -107,8 +107,7 @@ class TaskHandler:
             try:
                 await BaseWorker.deinit(task.id)
             except Exception as e:
-                err = f"[TaskQueueService] 处理成功任务失败 {e}"
-                logger.error(err)
+                logger.exception(f"[TaskQueueService] 处理成功任务失败，task_id={task.id}, error={e}")
 
     @staticmethod
     async def handle_failed_tasks():
