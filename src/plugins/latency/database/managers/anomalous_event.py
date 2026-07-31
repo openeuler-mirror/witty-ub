@@ -117,9 +117,10 @@ class AnomalousEventPGManager:
 
     @staticmethod
     async def delete_anomalous_events_by_log_id(log_id: str) -> bool:
+        """Hard delete all anomalous_event rows for a log_id."""
         async with PGManager.session() as session:
             await session.execute(
-                text("UPDATE anomalous_event SET existed_status = false WHERE log_id = :log_id"),
+                text("DELETE FROM anomalous_event WHERE log_id = :log_id"),
                 {"log_id": log_id},
             )
         return True

@@ -251,8 +251,8 @@ class LogFileService:
                 await BaseWorker.stop(task.id)
                 logger.warning(f"已停止任务 {task.id}")
         
-        # 软删除日志文件
-        await LogFilePGManager.update_log_file(log_file_id, {"existed_status": False})
+        # 删除日志文件（硬删除）
+        await LogFilePGManager.delete_log_file_by_log_file_id(log_file_id)
         
         # 删除所有相关数据
         await LogParseResultPGManager.delete_log_parse_results_by_log_id(log_file_id)

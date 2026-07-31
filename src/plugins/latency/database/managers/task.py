@@ -223,3 +223,13 @@ class TaskPGManager:
         if row is None:
             return None
         return TaskPGManager._row_to_model(row)
+    
+    @staticmethod
+    async def list_tasks_by_op_id(op_id: str) -> list[TaskModel]:
+        """查询指定op_id的所有任务"""
+        stmt = select(Task).where(Task.op_id == op_id)
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
+        return TaskPGManager._row_to_model(row)

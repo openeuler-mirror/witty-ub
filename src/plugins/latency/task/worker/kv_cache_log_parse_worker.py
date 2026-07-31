@@ -49,6 +49,7 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventPGManager,
 )
@@ -1324,4 +1325,24 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def delete(task_id: str) -> str:
         """删除任务"""
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return ""
+        
+        log_id = task.op_id
+        
+        all_tasks = await TaskPGManager.list_tasks_by_op_id(log_id)
+        same_type_tasks = [t for t in all_tasks if t.task_type == task.task_type]
+        
+        if len(same_type_tasks) == 1:
+            logger.info(f"[KVCacheLogParseWorker] 删除任务 {task_id} 时清理 log_id={log_id} 的所有数据")
+            await LogParseResultPGManager.delete_log_parse_results_by_log_id(log_id)
+            await AnomalousEventPGManager.delete_anomalous_events_by_log_id(log_id)
+            await AnomalousEventChainPGManager.delete_event_chains_by_log_id(log_id)
+            await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_id)
+            await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_id)
+            await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_id)
+        else:
+            logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
+        
         return task_id
