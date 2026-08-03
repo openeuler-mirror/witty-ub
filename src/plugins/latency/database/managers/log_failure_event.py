@@ -587,6 +587,9 @@ class LogFailureEventPGManager:
                     TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
                 )
 
+            if req.operation:
+                stmt = stmt.where(TraceFailureEvent.operation == req.operation)
+
             count_stmt = select(func.count()).select_from(stmt.subquery())
             async with PGManager.session() as session:
                 total = (await session.execute(count_stmt)).scalar() or 0
@@ -729,7 +732,8 @@ class LogFailureEventPGManager:
                     TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
                 )
 
-            stmt = stmt.order_by(TraceFailureEvent.timestamp.asc())
+            if req.operation:
+                stmt = stmt.where(TraceFailureEvent.operation == req.operation)
 
             async with PGManager.session() as session:
                 result = await session.execute(stmt)
@@ -910,6 +914,9 @@ class LogFailureEventPGManager:
                 stmt = stmt.where(
                     TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
                 )
+
+            if req.operation:
+                stmt = stmt.where(TraceFailureEvent.operation == req.operation)
 
             stmt = stmt.group_by(time_bucket, TraceFailureEvent.status_code)
 
@@ -1196,6 +1203,9 @@ class LogFailureEventPGManager:
                 stmt = stmt.where(
                     TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
                 )
+
+            if req.operation:
+                stmt = stmt.where(TraceFailureEvent.operation == req.operation)
 
             stmt = stmt.group_by(
                 src_ip_str, dst_ip_str, TraceFailureEvent.status_code

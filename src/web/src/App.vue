@@ -2002,6 +2002,7 @@ const selectedAggregatedEvent = ref<LatencyDetailRow | null>(null)
 const activeAggregateTab = ref<'event' | 'trace'>('event')
 const activeFaultMonitorTab = ref<'event' | 'trace'>('event')
 const selectedFaultAggregateInterval = ref<FaultAggregateInterval>('minute')
+const selectedFaultOperation = ref<'get' | 'set'>('get')
 const abnormalTraceRowsMap = reactive<Record<number, AbnormalTraceRow[]>>({
   0: [],
   10: [],
@@ -4964,6 +4965,7 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
       is_anomalous: true,
       start_time: detail.eventRow.startTime,
       end_time: detail.eventRow.endTime,
+      operation: selectedFaultOperation.value.toUpperCase(),
       page_cnt: faultDetailTraceEventsPageSize,
       page_num: pageNum,
     }
@@ -5067,6 +5069,7 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
         dst_ip: detail.podRow.dstIp,
         start_time: detail.eventRow.startTime,
         end_time: detail.eventRow.endTime,
+        operation: selectedFaultOperation.value.toUpperCase(),
         max_points: 1000,
       }),
     })
@@ -5456,6 +5459,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       is_anomalous: true,
+      operation: selectedFaultOperation.value.toUpperCase(),
       page_cnt: faultTraceEventsPageSize,
       page_num: pageNum,
     }
@@ -5576,6 +5580,7 @@ const loadFaultChart = async () => {
       requestBody.start_time = formatTimestamp(chartRange.startTime)
       requestBody.end_time = formatTimestamp(chartRange.endTime)
     }
+    requestBody.operation = selectedFaultOperation.value.toUpperCase()
 
     const result = await request<{
       total: number
@@ -5727,6 +5732,12 @@ watch(selectedOperation, () => {
     detailParseResultsPage.value = 1
     void loadDetailParseResults(selectedAggregatedEvent.value, 1)
   }
+})
+
+watch(selectedFaultOperation, () => {
+  loadFaultChart()
+  loadFaultAggregatedEvents(1)
+  loadFaultTraceEvents(1)
 })
 
 const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
@@ -6544,6 +6555,7 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
           pod_ip: getLogParseFilterValue(filters.podIps),
           src_ip: getLogParseFilterValue(filters.sourcePodIps),
           dst_ip: getLogParseFilterValue(filters.targetPodIps),
+          operation: selectedFaultOperation.value.toUpperCase(),
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
           sort_by: 'all',
           sort_desc: true,
@@ -6679,6 +6691,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       pod_ip: getLogParseFilterValue(filters.podIps),
       src_ip: getLogParseFilterValue(filters.sourcePodIps),
       dst_ip: getLogParseFilterValue(filters.targetPodIps),
+      operation: selectedFaultOperation.value.toUpperCase(),
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       sort_by: 'timestamp',
       sort_desc: faultAggregatedEventSortDesc.value,
@@ -9464,6 +9477,24 @@ onBeforeUnmount(() => {
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>通断故障监控</h1>
+              <div class="operation-toggle">
+                <button
+                  type="button"
+                  class="operation-toggle-btn"
+                  :class="{ active: selectedFaultOperation === 'get' }"
+                  @click="selectedFaultOperation = 'get'"
+                >
+                  GET
+                </button>
+                <button
+                  type="button"
+                  class="operation-toggle-btn"
+                  :class="{ active: selectedFaultOperation === 'set' }"
+                  @click="selectedFaultOperation = 'set'"
+                >
+                  SET
+                </button>
+              </div>
             </div>
             <p class="monitor-sub">故障码 / 故障名称 / 故障域</p>
           </header>

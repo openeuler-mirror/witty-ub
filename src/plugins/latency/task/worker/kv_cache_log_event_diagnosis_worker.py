@@ -196,6 +196,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             if dst_match:
                 dst_ip = dst_match.group(1)
         
+        if not src_ip or not dst_ip:
+            return "", ""
+        
         return src_ip, dst_ip
     
     @staticmethod
