@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from latency.schemas.log import YUANRONG_METRIC_FIELDS
+
 
 def set_db_timezone(tz) -> None:
     """No-op kept for backward compatibility.
@@ -142,6 +144,7 @@ def result_to_pg_tuple(result: Any) -> tuple[Any, ...]:
         result.create_latency,
         result.publish_latency,
         result.worker_total_latency,
+        *(getattr(result, name, None) for name in YUANRONG_METRIC_FIELDS),
     )
 
 
@@ -186,4 +189,5 @@ COPY_COLUMNS = [
     "create_latency",
     "publish_latency",
     "worker_total_latency",
+    *YUANRONG_METRIC_FIELDS,
 ]

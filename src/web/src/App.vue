@@ -157,6 +157,9 @@ type LogParseResultModel = {
   remote_worker_rpc?: number | null
   master_process?: number | null
   master_rpc_total?: number | null
+  create_latency?: number | null
+  publish_latency?: number | null
+  worker_total_latency?: number | null
   [key: string]: unknown
 }
 
@@ -1462,6 +1465,11 @@ const latencyMetricsByPercentile = reactive<Record<LatencyPercentileValue, Laten
 })
 const isLatencyChartLoading = ref(false)
 const latencyChartError = ref('')
+const topSlowRequestLimit = 1000
+const topSlowRequests = ref<LogParseResultModel[]>([])
+const topSlowRequestsTotal = ref(0)
+const isTopSlowChartLoading = ref(false)
+const topSlowChartError = ref('')
 const aggregatedEvents = ref<AggregatedEventModel[]>([])
 const isLatencyDetailLoading = ref(false)
 const latencyDetailError = ref('')
@@ -2205,6 +2213,7 @@ const faultDetailTraceEventsPageInput = ref('')
 const faultDetailTraceIdInput = ref('')
 const faultDetailTraceIdQuery = ref('')
 const latencyChartRef = ref<HTMLDivElement | null>(null)
+const topSlowChartRef = ref<HTMLDivElement | null>(null)
 const detailLatencyChartRef = ref<HTMLDivElement | null>(null)
 const faultChartRef = ref<HTMLDivElement | null>(null)
 const faultDetailChartRef = ref<HTMLDivElement | null>(null)
@@ -2681,62 +2690,36 @@ const shouldShowFaultCodeFilter = computed(
   () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
 )
 const getLatencySeriesConfig = [
-  {
-    key: 'total_latency',
-    label: '总时延',
-    color: '#5470c6',
-  },
-  {
-    key: 'worker_query_meta_latency',
-    label: '查询元数据时延',
-    color: '#91cc75',
-  },
-  {
-    key: 'urma_total_latency',
-    label: 'URMA总时延',
-    color: '#fac858',
-  },
-  {
-    key: 'sdk_process',
-    label: 'SDK处理时延',
-    color: '#ee6666',
-  },
-  {
-    key: 'sdk_rpc',
-    label: 'SDK RPC时延',
-    color: '#73c0de',
-  },
-  {
-    key: 'local_worker_cost',
-    label: '本地Worker处理时延',
-    color: '#3ba272',
-  },
-  {
-    key: 'local_worker_lock',
-    label: '本地Worker锁时延',
-    color: '#fc8452',
-  },
-  {
-    key: 'remote_worker_cost',
-    label: '远程Worker处理时延',
-    color: '#9a60b4',
-  },
-  {
-    key: 'remote_worker_rpc',
-    label: '远程Worker RPC时延',
-    color: '#ea7ccc',
-  },
-  {
-    key: 'master_process',
-    label: 'Master处理时延',
-    color: '#48b8d0',
-  },
-  {
-    key: 'master_rpc_total',
-    label: 'Master RPC总时延',
-    color: '#7b9ce1',
-  },
-] as const
+  ['total_latency_us', '总时延', '#d32f2f'],
+  ['sdk_processing_us', 'SDK处理', '#5470c6'],
+  ['master_processing_us', 'Master处理', '#91cc75'],
+  ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
+  ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
+  ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
+  ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
+  ['sdk_rpc_network_us', 'SDK RPC网络', '#fc8452'],
+  ['sdk_rpc_framework_us', 'SDK RPC框架', '#9a60b4'],
+  ['sdk_rpc_total_us', 'SDK RPC总时延', '#ea7ccc'],
+  ['master_rpc_network_us', 'Master RPC网络', '#ff9f7f'],
+  ['master_rpc_framework_us', 'Master RPC框架', '#ffdb5c'],
+  ['master_rpc_total_us', 'Master RPC总时延', '#c23531'],
+  ['remote_worker_rpc_network_us', 'Remote Worker RPC网络', '#2f4554'],
+  ['remote_worker_rpc_framework_us', 'Remote Worker RPC框架', '#61a0a8'],
+  ['remote_worker_rpc_total_us', 'Remote Worker RPC总时延', '#bda29a'],
+  ['urma_processing_us', 'URMA+UDMA+交换机+OS处理', '#6e7074'],
+  ['urma_inflight_max', 'URMA并发数', '#749f83'],
+  ['remote_worker_processing_us', 'Remote Worker处理', '#ca8622'],
+  ['client_master_rpc_network_us', 'Client Master RPC网络', '#bda29a'],
+  ['client_master_rpc_framework_us', 'Client Master RPC框架', '#6e7074'],
+  ['client_master_rpc_total_us', 'Client Master RPC总时延', '#546570'],
+  ['client_remote_rpc_network_us', 'Client Remote RPC网络', '#c4ccd3'],
+  ['client_remote_rpc_framework_us', 'Client Remote RPC框架', '#f05b72'],
+  ['client_remote_rpc_total_us', 'Client Remote RPC总时延', '#d53a35'],
+].map(([key, label, color]) => ({ key, label, color })) as Array<{
+  key: string
+  label: string
+  color: string
+}>
 
 const setLatencySeriesConfig = [
   {
@@ -2761,16 +2744,14 @@ const setLatencySeriesConfig = [
   },
 ] as const
 
-const latencySeriesConfig = computed(() =>
-  selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
-)
+const latencySeriesConfig = computed(() => getLatencySeriesConfig)
 
 type LatencyMetricKey = (typeof getLatencySeriesConfig)[number]['key']
 
 const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
-  'total_latency',
-  'worker_query_meta_latency',
-  'urma_total_latency',
+  'total_latency_us',
+  'sdk_processing_us',
+  'urma_processing_us',
 ])
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
 
@@ -2793,14 +2774,14 @@ const selectAllLatencySeries = () => {
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0].key])
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0]!.key])
 }
 
 const latencyPercentileOptions = [
-  { value: 'p99', label: 'P99', abnormalThreshold: 2 },
-  { value: 'p9999', label: 'P9999', abnormalThreshold: 5 },
-  { value: 'pmax', label: 'Pmax', abnormalThreshold: 5 },
-  { value: 'ave', label: '均值', abnormalThreshold: 5 },
+  { value: 'p99', label: 'P99', abnormalThreshold: 2000 },
+  { value: 'p9999', label: 'P99.99', abnormalThreshold: 5000 },
+  { value: 'pmax', label: 'Pmax', abnormalThreshold: 5000 },
+  { value: 'ave', label: '均值', abnormalThreshold: 5000 },
 ] as const
 
 const latencySampleModeMap: Record<LatencyPercentileValue, string> = {
@@ -2820,13 +2801,13 @@ const selectedLatencyPercentileConfig = computed(
 
 const latencyAnomalyHint = computed(
   () =>
-    `🔴 红色区域 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
+    `🔴 红色区域 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}µs`,
 )
 
-const detailLatencyAbnormalThreshold = 2
+const detailLatencyAbnormalThreshold = 2000
 
 const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
-  const totalLatency = values.total_latency
+  const totalLatency = values.total_latency_us
   return (
     typeof totalLatency === 'number' &&
     Number.isFinite(totalLatency) &&
@@ -2835,7 +2816,7 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
 }
 
 const isDetailLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
-  const totalLatency = values.total_latency
+  const totalLatency = values.total_latency_us
   return (
     typeof totalLatency === 'number' &&
     Number.isFinite(totalLatency) &&
@@ -3026,6 +3007,87 @@ const formatTraceDelayColumnValue = (value: number | null | undefined, column: T
     ? `${formatMetricValue(value)} ${column.unit}`
     : '未解析'
 
+type TopSlowSegmentKey = string
+
+type TopSlowSegmentConfig = {
+  key: TopSlowSegmentKey
+  label: string
+  color: string
+  unit?: 'latency' | 'count'
+}
+
+type TopSlowChartRow = {
+  id: string
+  traceId: string
+  timestamp: number
+  timestampLabel: string
+  operation: string
+  totalLatency: number
+  otherLatency: number
+  segments: Record<TopSlowSegmentKey, number>
+}
+
+const getTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
+  { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
+  { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
+  { key: 'worker_access_latency_us', label: 'Worker Access时延', color: '#fac858' },
+  { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
+  { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
+  { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
+  { key: 'sdk_rpc_framework_us', label: 'SDK RPC框架', color: '#9a60b4' },
+  { key: 'master_rpc_network_us', label: 'Master RPC网络', color: '#ff9f7f' },
+  { key: 'master_rpc_framework_us', label: 'Master RPC框架', color: '#ffdb5c' },
+  { key: 'remote_worker_rpc_network_us', label: 'Remote Worker RPC网络', color: '#2f4554' },
+  { key: 'remote_worker_rpc_framework_us', label: 'Remote Worker RPC框架', color: '#61a0a8' },
+  { key: 'urma_processing_us', label: 'URMA+UDMA+交换机+OS处理', color: '#6e7074' },
+  { key: 'urma_inflight_max', label: 'URMA并发数', color: '#749f83', unit: 'count' },
+  { key: 'remote_worker_processing_us', label: 'Remote Worker处理', color: '#ca8622' },
+  { key: 'client_master_rpc_network_us', label: 'Client Master RPC网络', color: '#bda29a' },
+  { key: 'client_master_rpc_framework_us', label: 'Client Master RPC框架', color: '#6e7074' },
+  { key: 'client_remote_rpc_network_us', label: 'Client Remote RPC网络', color: '#c4ccd3' },
+  { key: 'client_remote_rpc_framework_us', label: 'Client Remote RPC框架', color: '#f05b72' },
+]
+
+const setTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
+  { key: 'create_latency', label: 'CREATE阶段', color: '#91cc75' },
+  { key: 'publish_latency', label: 'PUBLISH阶段', color: '#fac858' },
+]
+
+const topSlowSegmentConfig = computed(() => getTopSlowSegmentConfig)
+
+const finiteLatencyValue = (value: unknown, scale = 1) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value * scale : 0
+
+const topSlowChartRows = computed<TopSlowChartRow[]>(() =>
+  topSlowRequests.value
+    .map((request) => {
+      const date = parseMetricDate(request)
+      const totalLatency = finiteLatencyValue(request.total_latency_us)
+      if (!date || totalLatency <= 0) return null
+
+      const segments = {} as Record<TopSlowSegmentKey, number>
+      let displayedLatency = 0
+      topSlowSegmentConfig.value.forEach((segment) => {
+        const value = finiteLatencyValue(request[segment.key])
+        segments[segment.key] = value
+        if (segment.unit !== 'count') displayedLatency += value
+      })
+
+      return {
+        id: request.id,
+        traceId: request.trace_id || '-',
+        timestamp: date.getTime(),
+        timestampLabel: formatFullTimeLabel(date),
+        operation: request.operation || selectedOperation.value.toUpperCase(),
+        totalLatency,
+        otherLatency: Math.max(totalLatency - displayedLatency, 0),
+        segments,
+      }
+    })
+    .filter((row): row is TopSlowChartRow => row !== null)
+    .sort((first, second) => first.timestamp - second.timestamp),
+)
+
 const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | null) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
   const column = aggregatedLatencyColumns.find((item) => item.key === metric)
@@ -3145,12 +3207,9 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     const bucket = buckets.get(bucketStart) ?? createEmptyLatencyMetricBuckets()
 
     latencySeriesConfig.value.forEach((series) => {
-      let value = result[series.key]
+      const value = result[series.key]
       if (typeof value === 'number' && Number.isFinite(value)) {
-        if (series.key === 'master_rpc_total') {
-          value = value / 1000
-        }
-        bucket[series.key].push(value)
+        bucket[series.key]!.push(value)
       }
     })
 
@@ -3163,7 +3222,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 
     const values = latencySeriesConfig.value.reduce(
       (acc, series) => {
-        acc[series.key] = maxBucketMetricValue(groupedValues[series.key])
+        acc[series.key] = maxBucketMetricValue(groupedValues[series.key] ?? [])
         return acc
       },
       {} as Record<LatencyMetricKey, number | null>,
@@ -3188,11 +3247,8 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 
       const values = latencySeriesConfig.value.reduce(
         (acc, series) => {
-          let value = metric[series.key]
+          const value = metric[series.key]
           if (typeof value === 'number' && Number.isFinite(value)) {
-            if (series.key === 'master_rpc_total') {
-              value = value / 1000
-            }
             acc[series.key] = value
           } else {
             acc[series.key] = null
@@ -3214,6 +3270,7 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 )
 
 let latencyChartInstance: ECharts | null = null
+let topSlowChartInstance: ECharts | null = null
 let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
 let faultDetailChartInstance: ECharts | null = null
@@ -3248,7 +3305,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
       trigger: 'axis',
       appendToBody: true,
       valueFormatter: (value) =>
-        typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
+        typeof value === 'number' ? `${formatMetricValue(value)} µs` : String(value ?? '-'),
     },
     legend: {
       data: visibleSeries.map((series) => series.label),
@@ -3306,7 +3363,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
     },
     yAxis: {
       type: 'value',
-      name: '延迟(ms)',
+      name: '时延 (µs)',
       min: 0,
       splitLine: {
         lineStyle: {
@@ -3416,6 +3473,124 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
   }
 }
 
+const escapeChartHtml = (value: string) =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+
+const formatTopSlowLatency = (value: number) =>
+  value >= 1000 ? `${(value / 1000).toFixed(2)} ms` : `${value.toFixed(0)} μs`
+
+const formatTopSlowMetric = (seriesName: string | undefined, value: number) => {
+  const segment = topSlowSegmentConfig.value.find((item) => item.label === seriesName)
+  return segment?.unit === 'count' ? `${value.toFixed(0)} 个` : formatTopSlowLatency(value)
+}
+
+const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
+  const labels = rows.map((row) => row.timestampLabel)
+  const initialEnd = Math.min(100, (50 / rows.length) * 100)
+  const hasOtherLatency = rows.some((row) => row.otherLatency > 0)
+  const barSeries = topSlowSegmentConfig.value.map((segment) => ({
+    name: segment.label,
+    type: 'bar' as const,
+    stack: 'latency-components',
+    barMaxWidth: 22,
+    emphasis: { focus: 'series' as const },
+    itemStyle: { color: segment.color },
+    data: rows.map((row) => row.segments[segment.key]),
+  }))
+
+  if (hasOtherLatency) {
+    barSeries.push({
+      name: '其他',
+      type: 'bar' as const,
+      stack: 'latency-components',
+      barMaxWidth: 22,
+      emphasis: { focus: 'series' as const },
+      itemStyle: { color: '#94a3b8' },
+      data: rows.map((row) => row.otherLatency),
+    })
+  }
+
+  return {
+    animation: rows.length <= 300,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      appendToBody: true,
+      formatter: (params: unknown) => {
+        const items = Array.isArray(params) ? params : []
+        const first = items[0] as { dataIndex?: number } | undefined
+        const dataIndex = first?.dataIndex
+        const row = typeof dataIndex === 'number' ? rows[dataIndex] : undefined
+        if (!row) return ''
+
+        const details = items
+          .map((item) => item as { seriesName?: string; value?: unknown; color?: string })
+          .filter(
+            (item) =>
+              item.seriesName !== '总时延' &&
+              typeof item.value === 'number' &&
+              Number.isFinite(item.value) &&
+              item.value > 0,
+          )
+          .map(
+            (item) =>
+              `<div class="top-slow-tooltip-row"><span><i style="background:${item.color || '#94a3b8'}"></i>${escapeChartHtml(item.seriesName || '-')}</span><strong>${formatTopSlowMetric(item.seriesName, item.value as number)}</strong></div>`,
+          )
+          .join('')
+
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency)}</div>${details}</div>`
+      },
+    },
+    legend: {
+      type: 'scroll',
+      top: 0,
+      left: 8,
+      right: 8,
+      data: [
+        ...topSlowSegmentConfig.value.map((segment) => segment.label),
+        ...(hasOtherLatency ? ['其他'] : []),
+        '总时延',
+      ],
+      textStyle: { color: '#334155', fontSize: 12 },
+    },
+    grid: { top: 58, right: 24, bottom: 92, left: 62, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: { color: '#cbd5e1', fontSize: 10, fontWeight: 400, rotate: 42, interval: 0 },
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+    },
+    yAxis: {
+      type: 'value',
+      name: '时延 (μs)',
+      min: 0,
+      axisLabel: { color: '#64748b', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#e2e8f0' } },
+    },
+    dataZoom: [
+      { type: 'inside', start: 0, end: initialEnd, zoomOnMouseWheel: true, moveOnMouseMove: true },
+      { type: 'slider', start: 0, end: initialEnd, bottom: 48, height: 20 },
+    ],
+    series: [
+      ...barSeries,
+      {
+        name: '总时延',
+        type: 'line',
+        symbol: 'none',
+        lineStyle: { color: '#dc2626', width: 2 },
+        itemStyle: { color: '#dc2626' },
+        z: 10,
+        data: rows.map((row) => row.totalLatency),
+      },
+    ],
+  }
+}
+
 const createFaultEchartsOption = (
   buckets: FaultChartBucket[],
   codes = faultCodes.value,
@@ -3498,6 +3673,22 @@ const renderLatencyEchart = () => {
   latencyChartInstance.resize()
 }
 
+const renderTopSlowEchart = () => {
+  if (!isAbnormalMonitorPage.value || isTopSlowChartLoading.value || topSlowChartError.value) {
+    return
+  }
+  const element = topSlowChartRef.value
+  if (!element || topSlowChartRows.value.length === 0) return
+
+  if (topSlowChartInstance && topSlowChartInstance.getDom() !== element) {
+    topSlowChartInstance.dispose()
+    topSlowChartInstance = null
+  }
+  topSlowChartInstance ??= echarts.init(element)
+  topSlowChartInstance.setOption(createTopSlowEchartsOption(topSlowChartRows.value), true)
+  topSlowChartInstance.resize()
+}
+
 const renderDetailLatencyEchart = () => {
   if (isDetailLatencyChartLoading.value || detailLatencyChartError.value) return
   const element = detailLatencyChartRef.value
@@ -3573,6 +3764,7 @@ const renderFaultDetailEchart = () => {
 
 const resizeLatencyCharts = () => {
   latencyChartInstance?.resize()
+  topSlowChartInstance?.resize()
   detailLatencyChartInstance?.resize()
   faultChartInstance?.resize()
   faultDetailChartInstance?.resize()
@@ -3582,7 +3774,7 @@ const resizeLatencyCharts = () => {
 }
 
 const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: number } | null) => {
-  await loadLatencyChart()
+  await Promise.all([loadLatencyChart(), loadTopSlowChart()])
 
   await Promise.all([loadLatencyDetail(1), loadAbnormalTraces(1)])
 
@@ -3596,7 +3788,12 @@ const loadAllFaultData = async () => {
 
   await Promise.all([loadFaultTraceEvents(1), loadFaultAggregatedEvents(1)])
 
-  await Promise.all([loadLatencyChart(), loadAbnormalTraces(1), loadLatencyDetail(1)])
+  await Promise.all([
+    loadLatencyChart(),
+    loadTopSlowChart(),
+    loadAbnormalTraces(1),
+    loadLatencyDetail(1),
+  ])
 
   await loadTimeWindowAggregatedEvents(1, null)
 }
@@ -5309,6 +5506,7 @@ const applyGlobalFilters = () => {
   latencyChartCenterTime.value = null
   faultChartCenterTime.value = null
   void loadLatencyChart()
+  void loadTopSlowChart()
   void loadTimeWindowAggregatedEvents(timeWindowPage.value, null)
   void loadAbnormalTraces(abnormalTracesPage.value)
   void loadFaultChart()
@@ -5716,9 +5914,68 @@ const loadLatencyChart = async () => {
   }
 }
 
+const loadTopSlowChart = async () => {
+  if (!selectedAssetId.value) {
+    topSlowRequests.value = []
+    topSlowRequestsTotal.value = 0
+    topSlowChartError.value = ''
+    isTopSlowChartLoading.value = false
+    return
+  }
+
+  isTopSlowChartLoading.value = true
+  topSlowChartError.value = ''
+
+  try {
+    const filters = appliedFilters.value
+    const range = latencyChartRange.value
+    const body: Record<string, unknown> = {
+      kb_id: selectedAssetId.value,
+      page_num: 1,
+      page_cnt: topSlowRequestLimit,
+      sort_fields: [
+        { field: 'total_latency', order: 'desc' },
+        { field: 'timestamp', order: 'asc' },
+      ],
+      operation: selectedOperation.value.toUpperCase(),
+      cluster_name: getLogParseFilterValue(filters.clusters),
+      host: getLogParseFilterValue(filters.hosts),
+      pod_ip: getLogParseFilterValue(filters.podIps),
+      src_ip: getLogParseFilterValue(filters.sourcePodIps),
+      dst_ip: getLogParseFilterValue(filters.targetPodIps),
+    }
+
+    if (range) {
+      body.start_time = formatTimestamp(range.startTime)
+      body.end_time = formatTimestamp(range.endTime)
+    } else {
+      if (filters.startTime) body.start_time = formatDateTime(filters.startTime)
+      if (filters.endTime) body.end_time = formatDateTime(filters.endTime)
+    }
+
+    const result = await request<{
+      total: number
+      log_parse_results: LogParseResultModel[]
+    }>('/log_parse_result/list', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+
+    topSlowRequestsTotal.value = result.total ?? 0
+    topSlowRequests.value = result.log_parse_results ?? []
+  } catch (error) {
+    topSlowRequests.value = []
+    topSlowRequestsTotal.value = 0
+    topSlowChartError.value = error instanceof Error ? error.message : '加载最慢请求失败'
+  } finally {
+    isTopSlowChartLoading.value = false
+  }
+}
+
 watch(selectedOperation, () => {
   visibleLatencyKeys.value = new Set<LatencyMetricKey>(['total_latency'])
   loadLatencyChart()
+  loadTopSlowChart()
   loadLatencyDetail()
   loadTimeWindowAggregatedEvents()
   loadAbnormalTraces(1)
@@ -7522,6 +7779,9 @@ const loadLatencyPage = async () => {
   if (!isLatencyChartLoading.value) {
     requests.push(loadLatencyChart())
   }
+  if (!isTopSlowChartLoading.value) {
+    requests.push(loadTopSlowChart())
+  }
   if (!isLatencyDetailLoading.value) {
     requests.push(loadLatencyDetail())
   }
@@ -7659,6 +7919,14 @@ watch(
 )
 
 watch(
+  [topSlowChartRows, isTopSlowChartLoading, topSlowChartError, activePage],
+  () => {
+    void nextTick(renderTopSlowEchart)
+  },
+  { deep: true },
+)
+
+watch(
   [
     detailLatencyChartBuckets,
     isDetailLatencyChartLoading,
@@ -7705,6 +7973,7 @@ watch([selectedAssetId, activePage], () => {
 watch(selectedLatencyScale, () => {
   if (latencyChartCenterTime.value !== null) {
     void loadLatencyChart()
+    void loadTopSlowChart()
     void loadAbnormalTraces(1)
     void loadLatencyDetail(1)
     void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
@@ -7747,6 +8016,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeLatencyCharts)
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
   latencyChartInstance?.dispose()
+  topSlowChartInstance?.dispose()
   detailLatencyChartInstance?.dispose()
   faultChartInstance?.dispose()
   faultDetailChartInstance?.dispose()
@@ -8235,7 +8505,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <p class="monitor-sub">支持 11 项时延指标曲线，可交互选择展示</p>
+            <p class="monitor-sub">完整复刻 yuanrong_tool 的 24 项指标与总时延曲线，可交互选择展示</p>
           </header>
 
           <div class="monitor-grid">
@@ -8327,6 +8597,40 @@ onBeforeUnmount(() => {
                   class="echarts-latency-chart"
                   role="img"
                   aria-label="关键时延指标趋势"
+                ></div>
+              </div>
+            </article>
+
+            <article class="monitor-card top-slow-chart-card">
+              <div class="monitor-card-title top-slow-chart-title">
+                <span>🐢 Top {{ topSlowRequestLimit }} 最慢请求时序分解</span>
+                <span class="top-slow-chart-summary">
+                  当前展示 {{ topSlowChartRows.length }} 条 / 符合条件
+                  {{ topSlowRequestsTotal }} 条
+                </span>
+              </div>
+              <p class="top-slow-chart-description">
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。
+              </p>
+              <div class="top-slow-chart-panel">
+                <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
+                  正在加载最慢请求...
+                </div>
+                <div
+                  v-else-if="topSlowChartError"
+                  class="chart-state chart-error top-slow-chart-state"
+                >
+                  {{ topSlowChartError }}
+                </div>
+                <div v-else-if="topSlowChartRows.length === 0" class="chart-state top-slow-chart-state">
+                  暂无符合条件的请求
+                </div>
+                <div
+                  v-else
+                  ref="topSlowChartRef"
+                  class="echarts-top-slow-chart"
+                  role="img"
+                  :aria-label="`Top ${topSlowRequestLimit} 最慢请求时序分解`"
                 ></div>
               </div>
             </article>

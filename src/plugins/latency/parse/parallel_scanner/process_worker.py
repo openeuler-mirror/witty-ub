@@ -128,6 +128,7 @@ def _rebuild_parsers(
         LinkLogParser,
         QueryMetaLogParser,
         WorkerInfoParser,
+        ClientInfoParser,
     )
 
     parse_config = ParseConfig(**parse_config_dict) if parse_config_dict else None
@@ -140,6 +141,7 @@ def _rebuild_parsers(
         "LinkLogParser": LinkLogParser,
         "QueryMetaLogParser": QueryMetaLogParser,
         "WorkerInfoParser": WorkerInfoParser,
+        "ClientInfoParser": ClientInfoParser,
     }
 
     parsers = []

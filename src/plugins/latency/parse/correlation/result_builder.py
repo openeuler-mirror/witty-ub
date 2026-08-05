@@ -31,6 +31,7 @@ T_SRC_ADDR = TupleField.SRC_ADDR
 T_DST_ADDR = TupleField.DST_ADDR
 T_INFLIGHT_COUNT = TupleField.INFLIGHT_COUNT
 T_LOG_ID = TupleField.LOG_ID
+T_OPERATION = TupleField.OPERATION
 
 
 class ParseResultBuilder:
@@ -48,6 +49,162 @@ class ParseResultBuilder:
         self.log_dir = log_dir
         self.log_file_id = log_file_id  # 数据库中的日志文件ID
         self.anomalous_count = 0
+        self._worker_indices_by_trace: dict[str, list[int]] = {}
+        for index, entry in enumerate(worker_entries):
+            trace_id = entry[T_TRACE_ID] if isinstance(entry, tuple) else entry.trace_id
+            if trace_id:
+                self._worker_indices_by_trace.setdefault(trace_id, []).append(index)
+
+    @staticmethod
+    def _entry_value(entry, field: TupleField, attr: str):
+        return entry[field] if isinstance(entry, tuple) else getattr(entry, attr)
+
+    @staticmethod
+    def _rpc_detail(entry) -> dict[str, int | None]:
+        if entry is None:
+            return {}
+        raw = entry[T_RESP_MSG] if isinstance(entry, tuple) else entry.resp_msg
+        fields: dict[str, int | None] = {}
+        for part in (raw or "").split(","):
+            key, sep, value = part.strip().partition("=")
+            if sep and value.strip().isdigit():
+                fields[key.strip()] = int(value.strip())
+        return fields
+
+    @classmethod
+    def _rpc_metrics(cls, entry) -> dict[str, float | None]:
+        detail = cls._rpc_detail(entry)
+        e2e = detail.get("e2e_us")
+        server_exec = detail.get("server_exec_us")
+        network = detail.get("network_residual_us")
+        total = max(0, e2e - server_exec) if e2e is not None and server_exec is not None else None
+        framework = max(0, total - network) if total is not None and network is not None else None
+        return {
+            "total_us": float(total) if total is not None else None,
+            "network_us": float(network) if network is not None else None,
+            "framework_us": float(framework) if framework is not None else None,
+            "server_exec_us": float(server_exec) if server_exec is not None else None,
+            "e2e_us": float(e2e) if e2e is not None else None,
+        }
+
+    def _build_yuanrong_metrics(self, sdk_index: int, sdk, worker_index: int | None) -> dict[str, Any]:
+        """逐项复刻 yuanrong_tool.build_seg 与 analyzer 的派生口径。"""
+        trace_id = self._entry_value(sdk, T_TRACE_ID, "trace_id")
+        operation = (self._entry_value(sdk, T_OPERATION, "operation") or "").upper()
+        total = float(self._entry_value(sdk, T_ELAPSED_US, "elapsed_us") or 0)
+        worker_indices = self._worker_indices_by_trace.get(trace_id, [])
+        worker_access = [self.worker_entries[index] for index in worker_indices]
+        worker_sum = sum(float(self._entry_value(e, T_ELAPSED_US, "elapsed_us") or 0) for e in worker_access)
+        worker_max = max(
+            (float(self._entry_value(e, T_ELAPSED_US, "elapsed_us") or 0) for e in worker_access),
+            default=None,
+        )
+
+        client_rpc_entries = self.correlated.sdk_client_rpc_map.get(sdk_index, [])
+        client_rpcs = [self._rpc_metrics(entry) for entry in client_rpc_entries]
+        is_client_direct = len(client_rpcs) >= 2
+
+        if worker_index is None and worker_indices:
+            worker_index = worker_indices[0]
+        worker_rpc_entries = self.correlated.worker_master_rpc_map.get(worker_index, []) if worker_index is not None else []
+        master_entry = worker_rpc_entries[0] if worker_rpc_entries else None
+        remote_entry = worker_rpc_entries[1] if len(worker_rpc_entries) > 1 else None
+        if master_entry is not None and remote_entry is None and "SET" not in operation:
+            has_meta = bool(
+                worker_index is not None
+                and self.correlated.worker_query_meta_map.get(worker_index)
+            )
+            if not has_meta:
+                remote_entry, master_entry = master_entry, None
+
+        master_rpc = self._rpc_metrics(master_entry)
+        remote_rpc = self._rpc_metrics(remote_entry)
+        empty_rpc = {"total_us": None, "network_us": None, "framework_us": None, "server_exec_us": None, "e2e_us": None}
+
+        urma_entries = self.correlated.sdk_urma_index.get(trace_id, []) if "GET" in operation else []
+        urma_processing_raw = max(
+            (float(self._entry_value(e, T_ELAPSED_US, "elapsed_us") or 0) for e in urma_entries),
+            default=None,
+        )
+        # yuanrong_tool 先取毫秒最大值，再执行 int(ms * 1000)。
+        urma_processing = int(urma_processing_raw) if urma_processing_raw is not None else None
+        urma_inflight = max(
+            (self._entry_value(e, T_INFLIGHT_COUNT, "inflight_count") for e in urma_entries
+             if self._entry_value(e, T_INFLIGHT_COUNT, "inflight_count") is not None),
+            default=None,
+        )
+
+        sdk_rpc_e2e = sum(float(rpc.get("e2e_us") or 0) for rpc in client_rpcs)
+        sdk_processing = None
+        if client_rpcs and sdk_rpc_e2e > 0:
+            sdk_processing = max(0.0, total - sdk_rpc_e2e)
+        elif worker_access:
+            sdk_processing = max(0.0, total - worker_sum)
+
+        if is_client_direct:
+            client_master = client_rpcs[0]
+            client_remote = client_rpcs[1]
+            remote_processing = client_remote.get("server_exec_us")
+            remote_internal = (
+                max(0.0, remote_processing - urma_processing)
+                if remote_processing is not None and urma_processing is not None
+                else None
+            )
+            sdk_rpc = master_rpc = remote_rpc = empty_rpc
+            master_processing = client_master.get("server_exec_us")
+            local_internal = None
+            mode = "remote"
+        else:
+            sdk_rpc = client_rpcs[0] if client_rpcs else empty_rpc
+            client_master = client_remote = empty_rpc
+            master_processing = master_rpc.get("server_exec_us")
+            remote_processing = remote_rpc.get("server_exec_us")
+            remote_internal = (
+                max(0.0, remote_processing - urma_processing)
+                if remote_processing is not None and urma_processing is not None
+                else None
+            )
+            local_internal = worker_sum if worker_access else None
+            if local_internal is not None:
+                if master_rpc.get("e2e_us") is not None:
+                    local_internal = max(0.0, local_internal - float(master_rpc["e2e_us"]))
+                if remote_rpc.get("e2e_us") is not None:
+                    local_internal = max(0.0, local_internal - float(remote_rpc["e2e_us"]))
+            mode = "local" if sdk_rpc.get("total_us") else "unknown"
+
+        local_active = (
+            local_internal
+            if mode == "local" and (master_rpc.get("total_us") or remote_rpc.get("total_us"))
+            else None
+        )
+        return {
+            "total_latency_us": total,
+            "request_mode": mode,
+            "sdk_processing_us": sdk_processing,
+            "master_processing_us": master_processing,
+            "worker_access_latency_us": worker_max,
+            "remote_worker_internal_us": remote_internal,
+            "local_worker_internal_us": local_internal,
+            "local_worker_internal_active_us": local_active,
+            "sdk_rpc_network_us": sdk_rpc.get("network_us"),
+            "sdk_rpc_framework_us": sdk_rpc.get("framework_us"),
+            "sdk_rpc_total_us": sdk_rpc.get("total_us"),
+            "master_rpc_network_us": master_rpc.get("network_us"),
+            "master_rpc_framework_us": master_rpc.get("framework_us"),
+            "master_rpc_total_us": master_rpc.get("total_us"),
+            "remote_worker_rpc_network_us": remote_rpc.get("network_us"),
+            "remote_worker_rpc_framework_us": remote_rpc.get("framework_us"),
+            "remote_worker_rpc_total_us": remote_rpc.get("total_us"),
+            "urma_processing_us": urma_processing,
+            "urma_inflight_max": urma_inflight,
+            "remote_worker_processing_us": remote_processing,
+            "client_master_rpc_network_us": client_master.get("network_us"),
+            "client_master_rpc_framework_us": client_master.get("framework_us"),
+            "client_master_rpc_total_us": client_master.get("total_us"),
+            "client_remote_rpc_network_us": client_remote.get("network_us"),
+            "client_remote_rpc_framework_us": client_remote.get("framework_us"),
+            "client_remote_rpc_total_us": client_remote.get("total_us"),
+        }
 
     def build(
         self,
@@ -393,8 +550,8 @@ class ParseResultBuilder:
         | SparseLogParseResultDataclass
     ]:
         correlated = self.correlated
-        if not correlated.sdk_worker_map and not correlated.sdk_set_worker_map:
-            return self._build_unmatched_sdk_raw()
+        # 即使没有 Worker Access，也必须继续构建：Client Direct 模式的两段
+        # ZMQ RPC 本身即可形成完整的 yuanrong_tool 指标。
 
         results: list[
             LogParseResultDataclass
@@ -502,6 +659,7 @@ class ParseResultBuilder:
             else:
                 c2w_latency = None
             w_idx = worker_idx_get(i) if worker is not None else None
+            exact_metrics = self._build_yuanrong_metrics(i, sdk, w_idx)
 
             # SET 关联处理：1条SDK SET → (worker_create, worker_publish)
             set_workers = sdk_set_worker_get(i)
@@ -593,6 +751,23 @@ class ParseResultBuilder:
                 dst_ip = urma_info["dst_ip"]
                 urma_empty_reason = urma_info["urma_empty_reason"]
 
+            # 旧字段仅作为 API 兼容别名，数值统一从 yuanrong_tool 口径生成。
+            def exact_ms(name: str) -> Optional[float]:
+                value = exact_metrics.get(name)
+                return round(float(value) / 1000, 3) if value is not None else None
+
+            sdk_process = exact_ms("sdk_processing_us")
+            sdk_rpc = exact_ms("sdk_rpc_total_us")
+            local_worker_cost = exact_ms("local_worker_internal_us")
+            local_worker_lock = None
+            remote_worker_cost = exact_ms("remote_worker_internal_us")
+            remote_worker_rpc = exact_ms("remote_worker_rpc_total_us")
+            master_process = exact_ms("master_processing_us")
+            master_rpc_total = exact_ms("master_rpc_total_us")
+            query_meta_latency = master_process
+            urma_latency = exact_ms("urma_processing_us")
+            urma_inflight_count = exact_metrics.get("urma_inflight_max")
+
             remark = ""
             if not sdk_success:
                 remark = merge_remark(
@@ -643,7 +818,7 @@ class ParseResultBuilder:
             # 获取该 worker 关联的所有 pod_ip
             w_pod_ips = self.correlated.worker_pod_ips_map.get(w_idx) if w_idx is not None else None
             
-            if w_idx is None and set_workers is None:
+            if False and w_idx is None and set_workers is None:
                 results[i] = sparse_result_type(
                     total_latency,
                     is_anomalous,
@@ -663,7 +838,7 @@ class ParseResultBuilder:
                     timestamp,
                     shared_created_at,
                 )
-            elif (
+            elif False and (
                 set_workers is None
                 and src_ip is None
                 and dst_ip is None
@@ -702,7 +877,7 @@ class ParseResultBuilder:
                     shared_created_at,
                 )
             else:
-                results[i] = result_type(
+                result = result_type(
                     total_latency,
                     is_anomalous,
                     "",  # id
@@ -744,6 +919,9 @@ class ParseResultBuilder:
                     timestamp,
                     shared_created_at,
                 )
+                for metric_name, metric_value in exact_metrics.items():
+                    setattr(result, metric_name, metric_value)
+                results[i] = result
         return results
 
     def _build_from_worker(self) -> list[LogParseResultDataclass]:

@@ -58,6 +58,7 @@ class CorrelationResult:
     worker_remote_worker_rpc_map: dict = field(default_factory=dict)
     worker_master_process_map: dict = field(default_factory=dict)
     worker_master_rpc_map: dict = field(default_factory=dict)
+    sdk_client_rpc_map: dict = field(default_factory=dict)
     worker_idx_map: dict = field(default_factory=dict)
     urma_empty_reasons: dict = field(default_factory=dict)
     # (pod_ip, trace_id) → list[URMA]。构建结果时直接查此索引，避免为
