@@ -455,6 +455,7 @@ class LogCorrelator:
         self.link_entries: list = parsed.get("Worker link parse", [])
         self.query_meta_entries: list = parsed.get("Worker query meta parse", [])
         self.timed_entries: list = self._collect_timed_entries(parsed)
+        self.client_rpc_entries: list = parsed.get("Client rpc parse", [])
         
         self._worker_is_tuple = self.worker_entries and isinstance(self.worker_entries[0], tuple)
         self._urma_is_tuple = self.urma_entries and isinstance(self.urma_entries[0], tuple)
@@ -606,6 +607,21 @@ class LogCorrelator:
     def correlate(self) -> CorrelationResult:
         im = self.index_manager
 
+        client_rpc_by_trace: dict[str, list] = defaultdict(list)
+        for entry in self.client_rpc_entries:
+            trace_id = entry[T_TRACE_ID] if isinstance(entry, tuple) else entry.trace_id
+            if trace_id:
+                client_rpc_by_trace[trace_id].append(entry)
+        sdk_client_rpc_map = {}
+        for sdk_idx, sdk in enumerate(self.sdk_entries):
+            trace_id = sdk[T_TRACE_ID] if isinstance(sdk, tuple) else sdk.trace_id
+            values = client_rpc_by_trace.get(trace_id)
+            if values:
+                sdk_client_rpc_map[sdk_idx] = sorted(
+                    values,
+                    key=lambda item: item[0] if isinstance(item, tuple) else item.timestamp,
+                )
+
         sdk_worker_map = self._timed_stage(
             "sdk_worker",
             lambda: SdkWorkerCorrelator(im, self.sdk_entries, self.time_window_ms).correlate(),
@@ -718,4 +734,5 @@ class LogCorrelator:
             worker_idx_map=worker_idx_map,
             urma_empty_reasons=urma_empty_reasons,
             worker_pod_ips_map=worker_pod_ips_map,
+            sdk_client_rpc_map=sdk_client_rpc_map,
         )

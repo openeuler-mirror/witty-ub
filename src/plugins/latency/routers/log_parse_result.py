@@ -94,10 +94,10 @@ async def get_latency_metrics(
 ) -> GetLatencyMetricsResponse:
     """获取延迟指标时间曲线数据
 
-    支持指标：total_latency, urma_total_latency, worker_query_meta_latency,
-    sdk_process, sdk_rpc, local_worker_cost, local_worker_lock,
-    remote_worker_cost, remote_worker_rpc, master_process, master_rpc_total,
-    create_latency, publish_latency, worker_total_latency
+    指标计算完全采用 yuanrong_tool 口径：总时延及 24 项请求分段指标，
+    包括 SDK/Master/Worker 处理、Worker Access、URMA、三类本地 RPC
+    网络与框架拆分、两类 Client Direct RPC 网络与框架拆分，以及 URMA 并发数。
+    所有新指标统一使用微秒（URMA 并发数除外）。
 
     采样模式说明：
     - none: 不采样，返回全部数据

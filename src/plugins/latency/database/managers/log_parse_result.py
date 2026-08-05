@@ -21,7 +21,7 @@ from latency.database.utils import (
     parse_timestamp,
     result_to_pg_tuple,
 )
-from latency.schemas.log import LogParseResultModel, LogParseResultStorage
+from latency.schemas.log import LogParseResultModel, LogParseResultStorage, YUANRONG_METRIC_FIELDS
 from latency.schemas.request import (
     GetLatencyMetricsRequest,
     ListLogParseResultRequest,
@@ -46,6 +46,7 @@ _AGGREGATABLE_FIELDS = [
     "remote_worker_rpc",
     "master_process",
     "master_rpc_total",
+    *(name for name in YUANRONG_METRIC_FIELDS if name != "request_mode"),
 ]
 
 
@@ -267,7 +268,11 @@ class LogParseResultPGManager:
         }
         agg_fn = pct_map.get(sample_mode, pct_map["p99"])
         col = getattr(LogParseResult, metric)
-        time_bucket = func.date_trunc("second", LogParseResult.timestamp).label("time")
+        time_bucket = func.date_bin(
+            text("INTERVAL '10 seconds'"),
+            LogParseResult.timestamp,
+            text("TIMESTAMP '1970-01-01'"),
+        ).label("time")
 
         stmt = (
             select(
@@ -432,7 +437,11 @@ class LogParseResultPGManager:
                 "remote_worker_rpc": row.remote_worker_rpc,
                 "master_process": row.master_process,
                 "master_rpc_total": row.master_rpc_total,
+                "create_latency": row.create_latency,
+                "publish_latency": row.publish_latency,
+                "worker_total_latency": row.worker_total_latency,
             }
+            data.update({name: getattr(row, name) for name in YUANRONG_METRIC_FIELDS})
             results.append(LogParseResultModel(**data))
         return total, results
 
@@ -488,7 +497,11 @@ class LogParseResultPGManager:
             "remote_worker_rpc": row.remote_worker_rpc,
             "master_process": row.master_process,
             "master_rpc_total": row.master_rpc_total,
+            "create_latency": row.create_latency,
+            "publish_latency": row.publish_latency,
+            "worker_total_latency": row.worker_total_latency,
         }
+        data.update({name: getattr(row, name) for name in YUANRONG_METRIC_FIELDS})
         return LogParseResultModel(**data)
 
     @staticmethod
@@ -604,14 +617,12 @@ class LogParseResultPGManager:
             "create_latency",
             "publish_latency",
             "worker_total_latency",
+            *(name for name in YUANRONG_METRIC_FIELDS if name != "request_mode"),
         ]
-        select_exprs = [
-            time_bucket,
-            LogParseResult.src_ip,
-            LogParseResult.dst_ip,
-        ]
+        select_exprs = [time_bucket]
         for name in metric_cols:
-            select_exprs.append(agg_fn(getattr(LogParseResult, name)).label(name))
+            column = getattr(LogParseResult, name)
+            select_exprs.append(agg_fn(column).filter(column > 0).label(name))
 
         stmt = select(*select_exprs).where(LogParseResult.existed_status.is_(True))
 
@@ -646,11 +657,7 @@ class LogParseResultPGManager:
         if req.operation:
             stmt = stmt.where(LogParseResult.operation.ilike(f"%{req.operation}%"))
 
-        stmt = stmt.group_by(
-            time_bucket,
-            LogParseResult.src_ip,
-            LogParseResult.dst_ip,
-        ).order_by(time_bucket)
+        stmt = stmt.group_by(time_bucket).order_by(time_bucket)
 
         async with PGManager.session() as session:
             result = await session.execute(stmt)
@@ -659,8 +666,6 @@ class LogParseResultPGManager:
         formatted = []
         for r in rows:
             d = dict(r)
-            d["src_ip"] = format_ip(d.get("src_ip"))
-            d["dst_ip"] = format_ip(d.get("dst_ip"))
             formatted.append(d)
         return len(formatted), formatted
 

@@ -424,17 +424,14 @@ class KVCacheLogParseWorker(BaseWorker):
         else:
             diagnosis_config = Config().get_diagnosis_config()
 
-        sdk_parsers = [SdkAccessLogParser(parse_config)]
+        from latency.parse import ClientInfoParser
+
+        sdk_parsers = [SdkAccessLogParser(parse_config), ClientInfoParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
         info_parsers = [WorkerInfoParser(parse_config)]
         filename_config = diagnosis_config.log_filename_pattern
-        sdk_patterns = [
-            *filename_config.ds_client_access_log_file,
-            *filename_config.ds_client_info_log_file,
-        ]
-        
-        for parser in sdk_parsers:
-            parser._runtime_patterns = sdk_patterns
+        sdk_parsers[0]._runtime_patterns = filename_config.ds_client_access_log_file
+        sdk_parsers[1]._runtime_patterns = filename_config.ds_client_info_log_file
         for parser in worker_access_parsers:
             parser._runtime_patterns = filename_config.ds_worker_access_log_file
         for parser in info_parsers:
