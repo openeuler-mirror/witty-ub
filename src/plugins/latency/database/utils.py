@@ -63,7 +63,20 @@ def parse_ip(value: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address
     try:
         return ipaddress.ip_address(value)
     except ValueError:
-        return None
+        pass
+    # Handle IPv4:port format (single colon, e.g. "192.168.1.1:8080")
+    if value.count(":") == 1:
+        try:
+            return ipaddress.ip_address(value.rsplit(":", 1)[0])
+        except ValueError:
+            pass
+    # Handle [IPv6]:port format
+    if value.startswith("[") and "]" in value:
+        try:
+            return ipaddress.ip_address(value[1 : value.index("]")])
+        except ValueError:
+            pass
+    return None
 
 
 def parse_pod_ips(value: str | list[str] | None) -> list[str] | None:

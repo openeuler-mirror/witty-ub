@@ -320,6 +320,7 @@ class ParseResultBuilder:
             return dict(urma_latency=urma_latency, urma_inflight_count=urma_inflight_count,
                         src_ip=src_ip, dst_ip=dst_ip, urma_empty_reason=urma_empty_reason)
 
+        # Fallback 1: 从 URMA 列表获取 IP 对
         urma_list = self.correlated.worker_urma_map.get(w_idx, [])
         if urma_list:
             first_urma = urma_list[0]
@@ -333,19 +334,28 @@ class ParseResultBuilder:
                 urma_inflight_count = first_urma.inflight_count
                 src_ip = first_urma.src_addr
                 dst_ip = first_urma.dst_addr
-        elif self.correlated.worker_remote_pull_map.get(w_idx):
+
+        # Fallback 2: 从 Remote Pull 列表获取 IP 对（无论成败都检查）
+        if src_ip is None or dst_ip is None:
             remote_pulls = self.correlated.worker_remote_pull_map.get(w_idx)
-            first_pull = remote_pulls[0]
-            src_ip = first_pull[T_SRC_ADDR] if isinstance(first_pull, tuple) else first_pull.src_addr
-            dst_ip = first_pull[T_DST_ADDR] if isinstance(first_pull, tuple) else first_pull.dst_addr
-        elif sdk_success and worker_success:
+            if remote_pulls:
+                first_pull = remote_pulls[0]
+                pull_src = first_pull[T_SRC_ADDR] if isinstance(first_pull, tuple) else first_pull.src_addr
+                pull_dst = first_pull[T_DST_ADDR] if isinstance(first_pull, tuple) else first_pull.dst_addr
+                if pull_src and pull_dst:
+                    src_ip, dst_ip = pull_src, pull_dst
+
+        # Fallback 3: 从 remote_worker_rpc_map / remote_worker_cost_map 获取 IP 对（无论成败都检查）
+        if src_ip is None or dst_ip is None:
             endpoint = (
                 self._first_endpoint(self.correlated.worker_remote_worker_rpc_map.get(w_idx))
                 or self._first_endpoint(self.correlated.worker_remote_worker_cost_map.get(w_idx))
             )
             if endpoint:
                 src_ip, dst_ip = endpoint
-        else:
+
+        # Fallback 4: 从 resp_msg 正则提取（所有来源都失败后的最后兜底）
+        if src_ip is None or dst_ip is None:
             if isinstance(self.worker_entries[w_idx], tuple):
                 msg = self.worker_entries[w_idx][T_RESP_MSG]
             else:
@@ -354,11 +364,11 @@ class ParseResultBuilder:
                 m = REMOTE_ENDPOINT_RE.search(msg)
                 if m:
                     src_ip, dst_ip = (value.strip() for value in m.groups())
-            
-            if src_ip is None:
-                urma_empty_reason = self.correlated.urma_empty_reasons.get(
-                    w_idx, "URMA fields empty: no matching URMA entry"
-                )
+
+        if src_ip is None or dst_ip is None:
+            urma_empty_reason = self.correlated.urma_empty_reasons.get(
+                w_idx, "URMA fields empty: no matching URMA entry"
+            )
 
         return dict(urma_latency=urma_latency, urma_inflight_count=urma_inflight_count,
                     src_ip=src_ip, dst_ip=dst_ip, urma_empty_reason=urma_empty_reason)
@@ -747,8 +757,11 @@ class ParseResultBuilder:
                 urma_info = self._resolve_urma_info(w_idx, sdk_success, worker_success)
                 urma_latency = urma_info["urma_latency"]
                 urma_inflight_count = urma_info["urma_inflight_count"]
-                src_ip = urma_info["src_ip"]
-                dst_ip = urma_info["dst_ip"]
+                # Worker 端取到就用 Worker 端的，取不到就保留 SDK URMA 已有的值
+                worker_src = urma_info["src_ip"]
+                worker_dst = urma_info["dst_ip"]
+                if worker_src and worker_dst:
+                    src_ip, dst_ip = worker_src, worker_dst
                 urma_empty_reason = urma_info["urma_empty_reason"]
 
             # 旧字段仅作为 API 兼容别名，数值统一从 yuanrong_tool 口径生成。

@@ -239,6 +239,10 @@ class ListTraceFailureEventResultRequest(BaseModel):
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
+    )
     sort_desc: Optional[bool] = Field(
         default=True,
         description="排序方向，True表示降序，False表示升序，默认为True",
@@ -302,6 +306,10 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
         default="minute",
         description="聚合事件事件间隔，可选second, minute, hour"
     )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
+    )
     sort_by: str = Field(
         default="timestamp",
         description="聚合事件时间排序依据，可选timestamp"
@@ -326,6 +334,10 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
     end_time: Optional[str] = Field(
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
     )
     sort_by: str = Field(
         default="all",
@@ -356,6 +368,10 @@ class ListSrcDstAggregatedFailureEventRequest(BaseModel):
     end_time: Optional[str] = Field(
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
     )
     sort_by: str = Field(
         default="all",
@@ -427,6 +443,10 @@ class GetErrCodeMetricsRequest(BaseModel):
     end_time: Optional[str] = Field(
         default=None,
         description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
+    )
+    operation: Optional[str] = Field(
+        default=None,
+        description="操作类型过滤：GET / SET",
     )
     max_points: int = Field(
         default=1000,

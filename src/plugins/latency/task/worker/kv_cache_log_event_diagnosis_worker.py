@@ -190,14 +190,17 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             src_match = re.search(r'srcAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
             if src_match:
                 src_ip = src_match.group(1)
-        
+
         if not dst_ip:
             dst_match = re.search(r'targetAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
             if dst_match:
                 dst_ip = dst_match.group(1)
-        
+
+        if not src_ip or not dst_ip:
+            return "", ""
+
         return src_ip, dst_ip
-    
+
     @staticmethod
     def _extract_operation(raw_text: str) -> str:
         parts = raw_text.split('|')
