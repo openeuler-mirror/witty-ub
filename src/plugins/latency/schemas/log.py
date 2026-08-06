@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass, field as dataclass_field
 from itertools import repeat
 from typing import ClassVar, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from latency.schemas.task import TaskModel
 from latency.ENUM.task import TaskStatusEnum
@@ -260,6 +260,8 @@ class SrcDstAggregatedEventDataclass:
 
 class TimeWindowAggregatedIpPair(BaseModel):
     """时间窗口内的IP对聚合统计"""
+    model_config = ConfigDict(extra="allow")
+
     src_ip: str = Field(..., description="源IP地址")
     dst_ip: str = Field(..., description="目的IP地址")
     log_parse_result_cnt: int = Field(default=0, description="结果数")
@@ -314,6 +316,8 @@ class TimeWindowAggregatedIpPair(BaseModel):
 
 class TimeWindowAggregatedEventModel(BaseModel):
     """时间窗口聚合事件"""
+    model_config = ConfigDict(extra="allow")
+
     start_time: str = Field(..., description="时间窗口开始时间")
     end_time: str = Field(..., description="时间窗口结束时间")
     total_cnt: int = Field(default=0, description="该时间段内结果总数")

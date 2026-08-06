@@ -17,6 +17,7 @@ from sqlalchemy import Integer, func, select
 from latency.database.engine import PGManager
 from latency.database.models import LogFile, LogParseResult
 from latency.database.utils import format_ip, parse_ip, parse_timestamp
+from latency.schemas.log import YUANRONG_METRIC_FIELDS
 from latency.schemas.request import ListTimeWindowAggregatedEventRequest
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,12 @@ _LATENCY_FIELDS = [
     ("create_latency", LogParseResult.create_latency),
     ("publish_latency", LogParseResult.publish_latency),
     ("worker_total_latency", LogParseResult.worker_total_latency),
+]
+
+_YUANRONG_BREAKDOWN_FIELDS = [
+    (name, getattr(LogParseResult, name))
+    for name in YUANRONG_METRIC_FIELDS
+    if name != "request_mode"
 ]
 
 
@@ -106,6 +113,8 @@ class TimeWindowAggregatedEventPGManager:
             stats_columns.append(
                 func.percentile_cont(0.99).within_group(col.asc()).label(f"p99_{name}")
             )
+        for name, col in _YUANRONG_BREAKDOWN_FIELDS:
+            stats_columns.append(func.avg(col).label(f"ave_{name}"))
 
         stmt = (
             select(
@@ -203,6 +212,8 @@ class TimeWindowAggregatedEventPGManager:
             stats_columns.append(
                 func.percentile_cont(0.99).within_group(col.asc()).label(f"p99_{name}")
             )
+        for name, col in _YUANRONG_BREAKDOWN_FIELDS:
+            stats_columns.append(func.avg(col).label(f"ave_{name}"))
 
         stmt = (
             select(
@@ -267,6 +278,8 @@ class TimeWindowAggregatedEventPGManager:
             for name, _ in _LATENCY_FIELDS:
                 for st in ("ave", "min", "max", "p99", "p95"):
                     ip_pair[f"{st}_{name}"] = getattr(row, f"{st}_{name}")
+            for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
+                ip_pair[f"ave_{name}"] = getattr(row, f"ave_{name}")
             bucket["ip_pairs"].append(ip_pair)
 
         # Recompute bucket-level stats from ip_pair stats.
@@ -296,6 +309,20 @@ class TimeWindowAggregatedEventPGManager:
                                 sorted(vals), pct
                             )
                         )
+            for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
+                weighted_values = [
+                    (p[f"ave_{name}"], p["log_parse_result_cnt"])
+                    for p in bucket["ip_pairs"]
+                    if p[f"ave_{name}"] is not None
+                    and p["log_parse_result_cnt"] > 0
+                ]
+                total_weight = sum(weight for _, weight in weighted_values)
+                bucket[f"ave_{name}"] = (
+                    sum(value * weight for value, weight in weighted_values)
+                    / total_weight
+                    if total_weight
+                    else None
+                )
 
         events = [buckets[k] for k in sorted(buckets.keys())]
 

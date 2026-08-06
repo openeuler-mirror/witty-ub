@@ -1374,6 +1374,7 @@ const selectedAssetId = ref<string | null>(null)
 const assetPage = ref(1)
 const assetTotal = ref(0)
 const activePage = ref<'asset' | 'abnormal'>('asset')
+const isAssetSidebarCollapsed = ref(false)
 const isListLoading = ref(false)
 const isDetailLoading = ref(false)
 const isSaving = ref(false)
@@ -1862,7 +1863,7 @@ const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
 const getLatencyDataGridColumnWidths = () => {
-  return `${traceListColumnWidths.latencyData[0] || 110}px ${traceListColumnWidths.latencyData[1] || 480}px`
+  return `${traceListColumnWidths.latencyData[0] || 110}px minmax(${traceListColumnWidths.latencyData[1] || 480}px, 1fr)`
 }
 
 const getLatencyDataTotalWidth = () => {
@@ -1872,7 +1873,7 @@ const getLatencyDataTotalWidth = () => {
 }
 
 const getTimeWindowGridColumnWidths = () => {
-  return `${traceListColumnWidths.latencyData[1] || 480}px`
+  return `minmax(${traceListColumnWidths.latencyData[1] || 480}px, 1fr)`
 }
 
 const getTimeWindowTotalWidth = () => {
@@ -2721,6 +2722,24 @@ const getLatencySeriesConfig = [
   color: string
 }>
 
+const latencyBreakdownSeriesConfig = getLatencySeriesConfig
+  .filter(
+    (series) =>
+      ![
+        'total_latency_us',
+        'local_worker_internal_active_us',
+        'sdk_rpc_total_us',
+        'master_rpc_total_us',
+        'remote_worker_rpc_total_us',
+        'client_master_rpc_total_us',
+        'client_remote_rpc_total_us',
+      ].includes(series.key),
+  )
+  .map((series) => ({
+    ...series,
+    unit: series.key === 'urma_inflight_max' ? ('count' as const) : ('us' as const),
+  }))
+
 const setLatencySeriesConfig = [
   {
     key: 'total_latency',
@@ -2883,48 +2902,90 @@ type LatencyBreakdownSegment = {
   value: number | null
   width: number
   abnormal: boolean
+  unit: 'ms' | 'us' | 'count'
 }
-
-const LATENCY_BREAKDOWN_COLORS = ['#5470c6', '#fac858', '#ee6666', '#73c0de', '#3ba272'] as const
 
 const getLatencyBreakdownShortLabel = (label: string) =>
   label.replace(' (ms)', '').replace('阶段时延', '').replace('时延', '')
 
+type LatencyBreakdownConfig = {
+  key: string
+  label: string
+  color: string
+  unit: 'ms' | 'us' | 'count'
+}
+
+const legacyLatencyBreakdownConfig = computed<LatencyBreakdownConfig[]>(() =>
+  getLatencyDataColumns.value.slice(1).map((column, index) => ({
+    key: column.key,
+    label: column.label.replace(' (ms)', ''),
+    color: ['#5470c6', '#fac858', '#ee6666', '#73c0de', '#3ba272'][index]!,
+    unit: 'ms',
+  })),
+)
+
+const getNullableFiniteNumber = (record: Record<string, unknown>, key: string) => {
+  const value = record[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 const buildLatencyBreakdownSegments = (
   totalLatency: number | null,
   getValue: (key: string) => number | null,
+  configs: LatencyBreakdownConfig[] = latencyBreakdownSeriesConfig,
 ): LatencyBreakdownSegment[] => {
-  const stageColumns = getLatencyDataColumns.value.slice(1)
-  const values = stageColumns.map((column) => getValue(column.key))
-  const fallbackMax = Math.max(
+  const values = configs.map((config) => getValue(config.key))
+  const parsedStageTotal = values.reduce<number>(
+    (sum, value) =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? sum + value : sum,
     0,
-    ...values.filter((value): value is number => typeof value === 'number' && value > 0),
   )
-  const scale = typeof totalLatency === 'number' && totalLatency > 0 ? totalLatency : fallbackMax
+  const scale =
+    parsedStageTotal > 0
+      ? parsedStageTotal
+      : typeof totalLatency === 'number' && totalLatency > 0
+        ? totalLatency
+        : 0
 
-  return stageColumns.map((column, index) => {
+  return configs.map((config, index) => {
     const value = values[index] ?? null
     const width =
       typeof value === 'number' && value > 0 && scale > 0 ? Math.min(100, (value / scale) * 100) : 0
     return {
-      key: column.key,
-      label: column.label.replace(' (ms)', ''),
-      shortLabel: getLatencyBreakdownShortLabel(column.label),
-      color: LATENCY_BREAKDOWN_COLORS[index % LATENCY_BREAKDOWN_COLORS.length]!,
+      key: config.key,
+      label: config.label,
+      shortLabel: getLatencyBreakdownShortLabel(config.label),
+      color: config.color,
       value,
       width,
-      abnormal: isLatencyMetricAbnormal(column.key, value),
+      abnormal:
+        config.unit === 'ms' &&
+        isLatencyMetricAbnormal(config.key as AggregatedLatencyKey, value),
+      unit: config.unit,
     }
   })
 }
 
-const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) =>
-  buildLatencyBreakdownSegments(getLatencyRowValue(row, 'total_latency'), (key) =>
-    getLatencyRowValue(row, key),
+const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) => {
+  const raw =
+    row.raw && typeof row.raw === 'object' ? (row.raw as Record<string, unknown>) : row
+  const yuanrongSegments = buildLatencyBreakdownSegments(
+    getNullableFiniteNumber(raw, 'total_latency_us'),
+    (key) => getNullableFiniteNumber(raw, key),
   )
+  if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
+  return buildLatencyBreakdownSegments(
+    getLatencyRowValue(row, 'total_latency'),
+    (key) => getLatencyRowValue(row, key),
+    legacyLatencyBreakdownConfig.value,
+  )
+}
+
+const getLatencyBreakdownUnit = (segment: LatencyBreakdownSegment) =>
+  segment.unit === 'count' ? '个' : segment.unit === 'us' ? 'µs' : 'ms'
 
 const getLatencyBreakdownTooltip = (segment: LatencyBreakdownSegment) =>
-  `${segment.label}: ${formatNullableMetricValue(segment.value)} ms`
+  `${segment.label}: ${formatNullableMetricValue(segment.value)} ${getLatencyBreakdownUnit(segment)}`
 
 const LatencyBreakdownBar = defineComponent({
   name: 'LatencyBreakdownBar',
@@ -2976,7 +3037,7 @@ const LatencyBreakdownBar = defineComponent({
                 },
                 [
                   h('i', { style: { backgroundColor: segment.color } }),
-                  `${segment.shortLabel} ${formatNullableMetricValue(segment.value)}`,
+                  `${segment.shortLabel} ${formatNullableMetricValue(segment.value)}${getLatencyBreakdownUnit(segment)}`,
                 ],
               ),
             ),
@@ -3403,11 +3464,39 @@ const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   return ranges
 }
 
-const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOption => {
+const estimateLatencyLegendRows = (
+  series: Array<{ label: string }>,
+  availableWidth: number,
+) => {
+  let rows = 1
+  let currentWidth = 0
+  series.forEach(({ label }) => {
+    const textWidth = Array.from(label).reduce(
+      (width, character) => width + (/^[\u0000-\u00ff]$/.test(character) ? 7 : 12),
+      0,
+    )
+    const itemWidth = textWidth + 52
+    if (currentWidth > 0 && currentWidth + itemWidth > availableWidth) {
+      rows += 1
+      currentWidth = itemWidth
+    } else {
+      currentWidth += itemWidth
+    }
+  })
+  return rows
+}
+
+const createLatencyEchartsOption = (
+  buckets: LatencyChartBucket[],
+  chartWidth = 1600,
+): EChartsOption => {
   const labels = buckets.map((bucket) => bucket.label)
   const markAreaData = getLatencyMarkAreas(buckets)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
   const visibleSeries = latencySeriesConfig.value.filter((s) => isLatencySeriesVisible(s.key))
+  const legendWidth = Math.max(320, chartWidth - 88)
+  const legendRows = estimateLatencyLegendRows(visibleSeries, legendWidth)
+  const gridTop = 38 + legendRows * 25
 
   return {
     color: visibleSeries.map((series) => series.color),
@@ -3418,29 +3507,28 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
         typeof value === 'number' ? `${formatMetricValue(value)} µs` : String(value ?? '-'),
     },
     legend: {
-      type: 'scroll',
       data: visibleSeries.map((series) => series.label),
-      top: 0,
-      left: 8,
-      right: 8,
-      itemGap: 18,
-      itemWidth: 18,
-      itemHeight: 10,
-      pageButtonGap: 8,
-      pageIconColor: '#2563eb',
-      pageIconInactiveColor: '#cbd5e1',
-      pageTextStyle: {
-        color: '#64748b',
-        fontSize: 11,
-      },
+      top: 6,
+      left: 'center',
+      width: legendWidth,
+      itemGap: 14,
+      itemWidth: 24,
+      itemHeight: 8,
+      padding: [7, 12],
+      backgroundColor: 'rgba(248, 250, 252, 0.94)',
+      borderColor: '#e2e8f0',
+      borderWidth: 1,
+      borderRadius: 9,
       textStyle: {
         color: '#334155',
-        fontSize: 12,
-        fontWeight: 400,
+        fontSize: 11,
+        fontWeight: 500,
+        lineHeight: 20,
       },
+      inactiveColor: '#cbd5e1',
     },
     grid: {
-      top: 58,
+      top: gridTop,
       right: 68,
       bottom: 15,
       left: 54,
@@ -3504,10 +3592,19 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
       type: 'line',
       smooth: true,
       symbol: 'circle',
-      symbolSize: 6,
+      symbolSize: index === 0 ? 7 : visibleSeries.length > 12 ? 4 : 6,
       lineStyle: {
-        width: 2,
+        width: index === 0 ? 3 : visibleSeries.length > 12 ? 1.5 : 2,
+        opacity: index === 0 ? 1 : visibleSeries.length > 12 ? 0.76 : 0.9,
       },
+      emphasis: {
+        focus: 'series',
+        lineStyle: {
+          width: 3,
+          opacity: 1,
+        },
+      },
+      z: index === 0 ? 10 : 2,
       data: buckets.map((bucket) => bucket.values[series.key]),
       ...(index === 0
         ? {
@@ -3526,12 +3623,15 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
   }
 }
 
-const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): EChartsOption => {
+const createDetailLatencyEchartsOption = (
+  points: LatencyChartBucket[],
+  chartWidth = 1200,
+): EChartsOption => {
   const labels = points.map((point) => point.label)
   const markAreaData = getLatencyMarkAreas(points)
 
   return {
-    ...createLatencyEchartsOption(points),
+    ...createLatencyEchartsOption(points, chartWidth),
     xAxis: {
       type: 'category',
       data: labels,
@@ -3771,7 +3871,10 @@ const renderLatencyEchart = () => {
     latencyChartInstance = null
   }
   latencyChartInstance ??= echarts.init(element)
-  latencyChartInstance.setOption(createLatencyEchartsOption(latencyChartBuckets.value), true)
+  latencyChartInstance.setOption(
+    createLatencyEchartsOption(latencyChartBuckets.value, element.clientWidth),
+    true,
+  )
   latencyChartInstance.off('click')
   latencyChartInstance.on('click', (params: unknown) => {
     const event = params as { componentType?: string; dataIndex?: number }
@@ -3821,7 +3924,7 @@ const renderDetailLatencyEchart = () => {
   }
   detailLatencyChartInstance ??= echarts.init(element)
   detailLatencyChartInstance.setOption(
-    createDetailLatencyEchartsOption(detailLatencyChartBuckets.value),
+    createDetailLatencyEchartsOption(detailLatencyChartBuckets.value, element.clientWidth),
     true,
   )
   detailLatencyChartInstance.off('click')
@@ -6658,16 +6761,34 @@ const getTimeWindowSummaryValue = (twEvent: TimeWindowAggregatedEvent, metric: s
   return typeof val === 'number' ? val : null
 }
 
-const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) =>
-  buildLatencyBreakdownSegments(getTimeWindowSummaryValue(twEvent, 'total_latency'), (key) =>
-    getTimeWindowSummaryValue(twEvent, key),
-  )
+const getAveragedYuanrongMetric = (record: object, key: string) =>
+  getNullableFiniteNumber(record as Record<string, unknown>, `ave_${key}`)
 
-const getTimeWindowIpPairBreakdownSegments = (ipPair: TimeWindowAggregatedIpPair) =>
-  buildLatencyBreakdownSegments(
+const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
+  const yuanrongSegments = buildLatencyBreakdownSegments(
+    getAveragedYuanrongMetric(twEvent, 'total_latency_us'),
+    (key) => getAveragedYuanrongMetric(twEvent, key),
+  )
+  if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
+  return buildLatencyBreakdownSegments(
+    getTimeWindowSummaryValue(twEvent, 'total_latency'),
+    (key) => getTimeWindowSummaryValue(twEvent, key),
+    legacyLatencyBreakdownConfig.value,
+  )
+}
+
+const getTimeWindowIpPairBreakdownSegments = (ipPair: TimeWindowAggregatedIpPair) => {
+  const yuanrongSegments = buildLatencyBreakdownSegments(
+    getAveragedYuanrongMetric(ipPair, 'total_latency_us'),
+    (key) => getAveragedYuanrongMetric(ipPair, key),
+  )
+  if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
+  return buildLatencyBreakdownSegments(
     getTimeWindowAggregatedLatencyValue(ipPair, 'total_latency'),
     (key) => getTimeWindowAggregatedLatencyValue(ipPair, key),
+    legacyLatencyBreakdownConfig.value,
   )
+}
 
 const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
   const record = result as Record<string, unknown>
@@ -8246,7 +8367,19 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <aside class="asset-sidebar">
+    <aside class="asset-sidebar" :class="{ collapsed: isAssetSidebarCollapsed }">
+      <button
+        class="asset-sidebar-toggle"
+        type="button"
+        :title="isAssetSidebarCollapsed ? '展开资产管理' : '收起资产管理'"
+        :aria-label="isAssetSidebarCollapsed ? '展开资产管理' : '收起资产管理'"
+        :aria-expanded="!isAssetSidebarCollapsed"
+        @click="isAssetSidebarCollapsed = !isAssetSidebarCollapsed"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path :d="isAssetSidebarCollapsed ? 'M7 4l6 6-6 6' : 'M13 4l-6 6 6 6'" />
+        </svg>
+      </button>
       <section class="nav-section">
         <div class="nav-title-row">
           <span class="nav-title">资产管理</span>
@@ -9232,8 +9365,8 @@ onBeforeUnmount(() => {
                           }"
                         >
                           <div class="aggregate-cell latency-breakdown-header">
-                            <span>各阶段时延分解 (ms)</span>
-                            <small>柱长按总时延占比显示，悬停查看明细</small>
+                            <span>各阶段时延分解</span>
+                            <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
                           </div>
                         </div>
                       </div>
@@ -9290,7 +9423,7 @@ onBeforeUnmount(() => {
                                 }"
                               >
                                 <div class="aggregate-cell latency-breakdown-header compact">
-                                  <span>IP 对阶段时延分解 (ms)</span>
+                                  <span>IP 对阶段时延分解（µs）</span>
                                 </div>
                               </div>
                               <div
@@ -9624,8 +9757,8 @@ onBeforeUnmount(() => {
                           ></div>
                         </div>
                         <div class="aggregate-cell latency-breakdown-header column-resizable">
-                          <span>各阶段时延分解 (ms)</span>
-                          <small>柱长按总时延占比显示，悬停查看明细</small>
+                          <span>各阶段时延分解</span>
+                          <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
                           <div
                             class="column-resize-handle"
                             @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 1)"
@@ -11854,8 +11987,8 @@ onBeforeUnmount(() => {
                         </span>
                       </div>
                       <div class="aggregate-cell latency-breakdown-header">
-                        <span>各阶段时延分解 (ms)</span>
-                        <small>柱长按总时延占比显示，悬停查看明细</small>
+                        <span>各阶段时延分解</span>
+                        <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
                       </div>
                     </div>
                   </div>
