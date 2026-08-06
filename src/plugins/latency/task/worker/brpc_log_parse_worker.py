@@ -1,0 +1,212 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""BRPC 日志解析 Worker。
+
+解析 ubsocket_profiling_xxx.txt 格式的 BRPC profiling 日志文件，
+将 21 个接口函数的时序统计信息存入 PostgreSQL。
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Optional
+
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.parse.brpc_profiling_parser import BrpcProfilingParser
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.task_report import TaskReportPGManager
+from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
+from latency.schemas.task import TaskModel
+from latency.task.worker.base import BaseWorker
+
+logger = logging.getLogger(__name__)
+
+
+class BrpcLogParseWorker(BaseWorker):
+    """BRPC profiling 日志解析 Worker"""
+
+    name = TaskTypeEnum.BRPC_LOG_PARSE_WORKER
+
+    @staticmethod
+    async def init(op_id: str) -> str | None:
+        """初始化任务"""
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(op_id)
+        if not log_file_model:
+            return None
+        kb_id = log_file_model.kb_id
+        log_kb_model = await LogKnowledgePGManager.get_log_kb_by_kb_id(kb_id)
+        if not log_kb_model:
+            return None
+
+        task = TaskModel(
+            kb_id=log_kb_model.id,
+            op_id=op_id,
+            task_name=f"Parse BRPC log file: {log_file_model.name}",
+            task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+            status=TaskStatusEnum.PENDING,
+        )
+        await TaskPGManager.add_task(task)
+        await LogFilePGManager.update_log_file(
+            log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
+        )
+        await BaseWorker.report(task.id, "BRPC task initialized", 0.0)
+        return task.id
+
+    @staticmethod
+    async def reinit(task_id: str) -> bool:
+        """重新初始化任务"""
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return False
+        await BrpcProfilingResultPGManager.delete_by_log_id(task.op_id)
+        await LogFilePGManager.update_log_file(
+            task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
+        )
+        await BaseWorker.report(task.id, "BRPC task reinitialized", 0.0)
+        return True
+
+    @staticmethod
+    async def deinit(task_id: str) -> str:
+        """析构任务"""
+        from latency.task.log_preprocessor import cleanup_preprocess_dir
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if task:
+            cleanup_preprocess_dir(task.op_id)
+        return task_id
+
+    @staticmethod
+    async def parse_log(log_id: str = "", log_dir: str = "") -> int:
+        """解析 BRPC profiling 日志文件。
+
+        Args:
+            log_id: 日志文件 ID
+            log_dir: 日志目录路径
+
+        Returns:
+            解析出的记录数
+        """
+        if log_id:
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(log_id)
+            if not log_file:
+                raise ValueError(f"Log file with id {log_id} not found")
+            if not log_dir:
+                log_dir = log_file.file_path
+
+        if not log_dir:
+            raise ValueError("Either log_id or log_dir must be provided")
+
+        # 查找 profiling 文件
+        import os
+        import glob as glob_module
+
+        profiling_files: list[str] = []
+        if os.path.isfile(log_dir):
+            if "ubsocket_profiling" in os.path.basename(log_dir).lower():
+                profiling_files = [log_dir]
+        elif os.path.isdir(log_dir):
+            for root, _, files in os.walk(log_dir):
+                for f in files:
+                    if "ubsocket_profiling" in f.lower() and f.endswith(".txt"):
+                        profiling_files.append(os.path.join(root, f))
+
+        if not profiling_files:
+            logger.warning(f"未找到 BRPC profiling 文件: {log_dir}")
+            return 0
+
+        logger.info(f"找到 {len(profiling_files)} 个 BRPC profiling 文件")
+
+        parser = BrpcProfilingParser()
+        all_records = []
+        for file_path in profiling_files:
+            logger.info(f"解析 BRPC profiling 文件: {file_path}")
+            records = parser.parse_file(file_path)
+            all_records.extend(records)
+
+        if all_records and log_id:
+            await BrpcProfilingResultPGManager.add_profiling_results(log_id, all_records)
+
+        return len(all_records)
+
+    @staticmethod
+    async def run(task_id: str, log_dir: str | None = None) -> bool:
+        """运行任务"""
+        try:
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task:
+                logger.error(f"Task {task_id} not found")
+                return False
+
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.RUNNING.value}
+            )
+            await BaseWorker.report(task.id, "BRPC task running", 5.0)
+
+            t_run_start = time.perf_counter()
+            record_count = await BrpcLogParseWorker.parse_log(
+                task.op_id,
+                log_dir=log_dir or "",
+            )
+            t_parse = time.perf_counter() - t_run_start
+
+            if record_count == 0:
+                await BaseWorker.report(task.id, "解析失败：未找到 BRPC profiling 日志", 100.0)
+                await TaskPGManager.update_task(
+                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                await LogFilePGManager.update_log_file(
+                    task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
+                )
+                return False
+
+            await BaseWorker.report(
+                task.id,
+                f"BRPC parse completed: {record_count} records in {t_parse:.1f}s",
+                90.0,
+            )
+
+            await LogFilePGManager.update_log_file(
+                task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
+            )
+            await BaseWorker.report(task.id, "BRPC task completed successfully", 100.0)
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+            )
+
+            logger.info(
+                f"BRPC task {task_id} completed: {record_count} records, "
+                f"parse time: {t_parse:.1f}s"
+            )
+            return True
+        except Exception as e:
+            logger.exception(f"BRPC task {task_id} failed: {e}")
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            )
+            return False
+
+    @staticmethod
+    async def stop(task_id: str) -> str | None:
+        """停止任务"""
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return None
+        if task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
+            await BrpcProfilingResultPGManager.delete_by_log_id(task.op_id)
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.CANCELLED.value}
+            )
+            return task_id
+        return None
+
+    @staticmethod
+    async def delete(task_id: str) -> str:
+        """删除任务"""
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return ""
+
+        log_id = task.op_id
+        await BrpcProfilingResultPGManager.delete_by_log_id(log_id)
+        return task_id

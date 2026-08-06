@@ -87,6 +87,7 @@ class LogFile(Base):
     total_count: Mapped[int] = mapped_column(Integer, default=0)
     anomalous_count: Mapped[int] = mapped_column(Integer, default=0)
     failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    log_type: Mapped[Optional[str]] = mapped_column(String, default="kv-cache")
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=lambda: datetime.now()
@@ -410,7 +411,36 @@ class DiagnosisCaseSignal(Base):
 
 
 # ============================================================
-# 5. 任务表
+# 5. BRPC Profiling 结果表
+# ============================================================
+class BrpcProfilingResult(Base):
+    """BRPC profiling 日志解析结果表，每个 timestamp 间隔下的每个接口函数一行。"""
+
+    __tablename__ = "brpc_profiling_result"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    log_id: Mapped[str] = mapped_column(String, index=True)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    interface_name: Mapped[str] = mapped_column(String)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    avg_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    max_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    min_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    p50_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p90_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p95_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p99_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p999_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: datetime.now()
+    )
+
+
+# ============================================================
+# 6. 任务表
 # ============================================================
 class Task(Base):
     __tablename__ = "task"
@@ -446,7 +476,7 @@ class TaskReport(Base):
 
 
 # ============================================================
-# 6. 失败事件表
+# 7. 失败事件表
 # ============================================================
 class LogFailureEvent(Base):
     __tablename__ = "log_failure_event"

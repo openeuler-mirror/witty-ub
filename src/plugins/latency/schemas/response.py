@@ -442,3 +442,15 @@ class ListTimeWindowAggregatedEventResponse(ResponseBase):
     result: ListTimeWindowAggregatedEventMsg = Field(
         ..., description="查询时间窗口聚合事件列表响应结果"
     )
+
+
+# ============================================================
+# BRPC Profiling
+# ============================================================
+class BrpcProfilingDataMsg(BaseModel):
+    interface_names: list[str] = Field(default_factory=list, description="所有接口名列表")
+    rows: list[dict] = Field(default_factory=list, description="时序数据行")
+
+
+class BrpcProfilingDataResponse(ResponseBase):
+    result: BrpcProfilingDataMsg = Field(..., description="BRPC profiling 数据")
