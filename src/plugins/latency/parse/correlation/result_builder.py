@@ -142,8 +142,8 @@ class ParseResultBuilder:
             sdk_processing = max(0.0, total - worker_sum)
 
         if is_client_direct:
-            client_master = client_rpcs[0]
-            client_remote = client_rpcs[1]
+            client_master = client_rpcs[0] if isinstance(client_rpcs[0], dict) else empty_rpc
+            client_remote = client_rpcs[1] if len(client_rpcs) > 1 and isinstance(client_rpcs[1], dict) else empty_rpc
             remote_processing = client_remote.get("server_exec_us")
             remote_internal = (
                 max(0.0, remote_processing - urma_processing)
@@ -155,7 +155,7 @@ class ParseResultBuilder:
             local_internal = None
             mode = "remote"
         else:
-            sdk_rpc = client_rpcs[0] if client_rpcs else empty_rpc
+            sdk_rpc = client_rpcs[0] if client_rpcs and isinstance(client_rpcs[0], dict) else empty_rpc
             client_master = client_remote = empty_rpc
             master_processing = master_rpc.get("server_exec_us")
             remote_processing = remote_rpc.get("server_exec_us")
@@ -166,10 +166,18 @@ class ParseResultBuilder:
             )
             local_internal = worker_sum if worker_access else None
             if local_internal is not None:
-                if master_rpc.get("e2e_us") is not None:
-                    local_internal = max(0.0, local_internal - float(master_rpc["e2e_us"]))
-                if remote_rpc.get("e2e_us") is not None:
-                    local_internal = max(0.0, local_internal - float(remote_rpc["e2e_us"]))
+                e2e_master = master_rpc.get("e2e_us")
+                if e2e_master is not None:
+                    try:
+                        local_internal = max(0.0, local_internal - float(e2e_master))
+                    except (TypeError, ValueError):
+                        pass
+                e2e_remote = remote_rpc.get("e2e_us")
+                if e2e_remote is not None:
+                    try:
+                        local_internal = max(0.0, local_internal - float(e2e_remote))
+                    except (TypeError, ValueError):
+                        pass
             mode = "local" if sdk_rpc.get("total_us") else "unknown"
 
         local_active = (
