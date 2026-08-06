@@ -1,6 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
 from latency.ENUM.sampling import SampleMode
+from latency.schemas.log import YUANRONG_METRIC_FIELDS
 from datetime import datetime
 from typing import Tuple, List, Dict, Any, Optional
 import json
@@ -27,6 +28,7 @@ _METRIC_KEYS = [
     "create_latency",
     "publish_latency",
     "worker_total_latency",
+    *(name for name in YUANRONG_METRIC_FIELDS if name != "request_mode"),
 ]
 
 

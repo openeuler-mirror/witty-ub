@@ -666,6 +666,8 @@ class LogParseResultPGManager:
         formatted = []
         for r in rows:
             d = dict(r)
+            if "time" in d and d["time"] is not None:
+                d["time"] = format_timestamp(d["time"])
             formatted.append(d)
         return len(formatted), formatted
 
