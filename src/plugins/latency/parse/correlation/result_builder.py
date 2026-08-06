@@ -142,8 +142,8 @@ class ParseResultBuilder:
             sdk_processing = max(0.0, total - worker_sum)
 
         if is_client_direct:
-            client_master = client_rpcs[0]
-            client_remote = client_rpcs[1]
+            client_master = client_rpcs[0] if isinstance(client_rpcs[0], dict) else empty_rpc
+            client_remote = client_rpcs[1] if len(client_rpcs) > 1 and isinstance(client_rpcs[1], dict) else empty_rpc
             remote_processing = client_remote.get("server_exec_us")
             remote_internal = (
                 max(0.0, remote_processing - urma_processing)
@@ -155,7 +155,7 @@ class ParseResultBuilder:
             local_internal = None
             mode = "remote"
         else:
-            sdk_rpc = client_rpcs[0] if client_rpcs else empty_rpc
+            sdk_rpc = client_rpcs[0] if client_rpcs and isinstance(client_rpcs[0], dict) else empty_rpc
             client_master = client_remote = empty_rpc
             master_processing = master_rpc.get("server_exec_us")
             remote_processing = remote_rpc.get("server_exec_us")
@@ -166,10 +166,18 @@ class ParseResultBuilder:
             )
             local_internal = worker_sum if worker_access else None
             if local_internal is not None:
-                if master_rpc.get("e2e_us") is not None:
-                    local_internal = max(0.0, local_internal - float(master_rpc["e2e_us"]))
-                if remote_rpc.get("e2e_us") is not None:
-                    local_internal = max(0.0, local_internal - float(remote_rpc["e2e_us"]))
+                e2e_master = master_rpc.get("e2e_us")
+                if e2e_master is not None:
+                    try:
+                        local_internal = max(0.0, local_internal - float(e2e_master))
+                    except (TypeError, ValueError):
+                        pass
+                e2e_remote = remote_rpc.get("e2e_us")
+                if e2e_remote is not None:
+                    try:
+                        local_internal = max(0.0, local_internal - float(e2e_remote))
+                    except (TypeError, ValueError):
+                        pass
             mode = "local" if sdk_rpc.get("total_us") else "unknown"
 
         local_active = (
@@ -970,6 +978,18 @@ class ParseResultBuilder:
             w_pod_ips = self.correlated.worker_pod_ips_map.get(i)
             all_pod_ips = self._collect_pod_ips(None, w_pod_ip, w_pod_ips)
 
+            total_latency_val = self._format_latency(w_elapsed_us / 1000)
+            
+            sdk_process_val = self._first_elapsed_us(self.correlated.worker_sdk_process_map, i)
+            master_process_val = self._first_elapsed_us(self.correlated.worker_master_process_map, i)
+            urma_latency_val = urma_info["urma_latency"]
+            
+            total_latency_us_val = int(w_elapsed_us) if w_elapsed_us else None
+            sdk_processing_us_val = int(sdk_process_val * 1000) if sdk_process_val else None
+            master_processing_us_val = int(master_process_val * 1000) if master_process_val else None
+            urma_processing_us_val = int(urma_latency_val * 1000) if urma_latency_val else None
+            urma_inflight_max_val = urma_info["urma_inflight_count"]
+            
             # 使用 LogParseResultDataclass 替代 LogParseResultModel.model_construct
             results.append(LogParseResultDataclass(
                 log_id=log_id,
@@ -980,24 +1000,29 @@ class ParseResultBuilder:
                 pod_ips=all_pod_ips,
                 cluster_name=w_cluster_name,
                 host=None,
-                total_latency=self._format_latency(w_elapsed_us / 1000),
+                total_latency=total_latency_val,
                 worker_query_meta_latency=self._first_elapsed_us(self.correlated.worker_query_meta_map, i),
-                urma_total_latency=urma_info["urma_latency"],
+                urma_total_latency=urma_latency_val,
                 urma_link_latency=self._first_elapsed_us(self.correlated.worker_link_map, i),
                 urma_inflight_count=urma_info["urma_inflight_count"],
                 w2w_urma_latency=self._first_elapsed_us(self.correlated.worker_worker_urma_map, i),
-                sdk_process=self._first_elapsed_us(self.correlated.worker_sdk_process_map, i),
+                sdk_process=sdk_process_val,
                 sdk_rpc=self._first_elapsed_us(self.correlated.worker_sdk_rpc_map, i),
                 local_worker_cost=self._first_elapsed_us(self.correlated.worker_local_worker_cost_map, i),
                 local_worker_lock=self._first_elapsed_us(self.correlated.worker_local_worker_lock_map, i),
                 remote_worker_cost=self._first_elapsed_us(self.correlated.worker_remote_worker_cost_map, i),
                 remote_worker_rpc=self._first_elapsed_us(self.correlated.worker_remote_worker_rpc_map, i),
-                master_process=self._first_elapsed_us(self.correlated.worker_master_process_map, i),
+                master_process=master_process_val,
                 master_rpc_total=self._first_elapsed_us_raw(self.correlated.worker_master_rpc_map, i),
                 operation="DS_POSIX_GET",
                 is_anomalous=is_anomalous,
                 anomaly_reason=remark if is_anomalous else None,
                 remark=remark or "OK",
                 created_at=shared_created_at,
+                total_latency_us=total_latency_us_val,
+                sdk_processing_us=sdk_processing_us_val,
+                master_processing_us=master_processing_us_val,
+                urma_processing_us=urma_processing_us_val,
+                urma_inflight_max=urma_inflight_max_val,
             ))
         return results
