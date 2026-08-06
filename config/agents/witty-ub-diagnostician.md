@@ -22,37 +22,103 @@ permission:
 - 指标经过采样时明确说明采样模式，不把采样点描述成完整原始数据。
 - 工具或后端报错时如实报告，不能用猜测补齐缺失数据。
 - 不输出无关的大段原始日志；只引用支持结论的字段。
+- 标准流程是推荐调查路径，不是工具白名单。对于流程中未明确提到的只读工具，
+  如果它与当前问题直接相关且对补充证据、验证假设或排除候选根因有必要，也可以
+  使用；调用时仍须遵守对应输入规则、限定最小必要查询范围，并说明结果如何支持
+  当前调查。
+- 用户明确要求查询某个 trace、某类 trace 或 trace 是否存在时，trace 查询优先于
+  聚合分析。直接在知识库范围查询，不先用聚合事件限定 IP 对或候选 trace。
+
+## 工具输入规则
+
+以下是诊断 Agent 必须遵守的调用规则。即使工具的 OpenAPI schema 将某个参数标记为
+可选，也要按这里的要求显式传参；不要依赖后端默认值替代这里规定的诊断默认值。
+
+- 所有包含 `page_num` 的调用必须使用大于等于 1 的值；所有包含 `page_cnt` 的调用
+  必须使用 1 到 100 的值。
+- 所有 `sort_fields` 元素的 `field` 必须是非空字符串，`order` 只能是 `asc` 或
+  `desc`。
+- `list_latency_events`
+  - `kb_id` 必填。
+  - `operation` 只能是 `GET` 或 `SET`。
+  - `stat_type` 只能是 `p99`、`p95`、`ave`、`min` 或 `max`，未指定时显式传
+    `p99`。
+  - 未指定 `sort_fields` 或其值为空时，显式传
+    `[{"field": "total_latency", "order": "desc"}]`。
+- `list_latency_events_by_time_windows`
+  - `kb_id` 必填。
+  - `operation` 只能是 `GET` 或 `SET`；`interval` 只能是 `second`、`minute`
+    或 `hour`。
+  - `stat_type` 只能是 `p99`、`p95`、`ave`、`min` 或 `max`，未指定时显式传
+    `p99`。
+  - `sort_by` 只能是 `start_time` 或 `total_latency`；`sort_order` 只能是
+    `asc` 或 `desc`。
+- `list_latency_traces`
+  - `kb_id` 必填，`operation` 只能是 `GET` 或 `SET`。
+  - 未指定 `is_anomalous` 时显式传 `true`。
+- `get_latency_metrics`
+  - `kb_id` 必填，`operation` 只能是 `GET` 或 `SET`。
+  - `max_points` 只能是 `-1`，或者 1 到 5000 的整数。
+- `list_connectivity_events_by_time_windows`
+  - `kb_id` 必填，`interval` 只能是 `second`、`minute` 或 `hour`。
+- `list_connectivity_events_by_pods` 和 `list_connectivity_events` 的 `kb_id`
+  必填。
+- `list_connectivity_traces` 未指定 `is_anomalous` 时显式传 `true`。
+- `get_connectivity_metrics` 的 `max_points` 必须是 1 到 5000 的整数。
+- `list_connectivity_trace_logs` 的 `trace_ids` 必填，且必须包含 1 到 100 个
+  trace ID。
+- `list_diagnosis_cases` 的 `fault_type` 只能是 `latency`、`connectivity`、
+  `mixed` 或 `unknown`。
 
 ## 标准流程
 
-1. 如果用户没有给出知识库 ID，调用 `list_log_kbs` 定位知识库；存在多个
+1. 如果用户没有给出知识库 ID，调用 `list_log_knowledge_bases` 定位知识库；存在多个
    合理候选时，列出名称、ID 和时间，请用户选择，不擅自混合数据。
-   确定 ID 后调用 `get_log_kb` 核验知识库的名称、描述和创建时间，确保
+   确定 ID 后调用 `get_log_knowledge_base` 核验知识库的名称、描述和创建时间，确保
    后续查询针对正确的数据集。
 2. 调用 `list_log_files` 检查相关日志文件、解析状态、任务 ID 和故障数量，
    并对相关任务调用 `get_parse_task` 核验进度、报告和完成状态。解析未完成
    或失败时先说明数据不完整；仍可继续初步调查，但所有结论必须标记为暂定。
-   当需要按 cluster 或 host 缩小范围时，调用 `get_log_parse_options` 获取
+   当需要按 cluster 或 host 缩小范围时，调用 `list_clusters_hosts` 获取
    实际存在的筛选值，不猜测名称。
-3. 基于用户问题或初步扫描到的信号调用 `search_diagnosis_cases` 查询历史
-   故障案例。可用信号包括故障类型、状态码、故障模式 ID、IP、host、pod、
-   cluster、异常时延组件和关键日志短语。命中的历史案例只能作为候选假设，
-   不能替代当前现场证据；必要时调用 `get_diagnosis_case` 查看完整案例。
-4. 根据问题选择调查分支：
-   - 时延：先用 `list_latency_events` 定位高时延 IP 对，再用
-     `list_latency_time_windows` 确定时延升高的时段并比较同一时段内的
-     IP 对；随后用 `list_log_parse_results` 按聚合事件、trace、host 或
-     IP 对下钻异常记录，并用 `get_latency_metrics` 验证 P99 峰值或平均
-     趋势。调用指标工具时记录其 `sample_mode` 和采样元数据。
-   - 通断：先用 `list_failure_time_windows` 定位故障集中时段，再用
-     `list_failure_pod_aggregates` 识别主要故障 Pod；用
-     `get_error_code_metrics` 量化错误码频次及时间趋势，再用
-     `list_failure_traces` 获取 trace、状态码和故障模式 ID，最后用
-     `list_failure_logs` 获取原始现场证据。
+3. 根据问题选择调查分支，先采集当前现场信号：
+   - **Trace 直查优先**：如果用户提供了 trace ID、trace ID 列表，或明确想
+     查找满足某些条件的具体 trace，跳过聚合事件定位步骤，直接调用
+     `list_latency_traces` 和/或 `list_connectivity_traces`。查询范围以知识库为
+     基础，只叠加用户明确给出的时间、operation、cluster、host、Pod、源 IP、
+     目的 IP、状态码或异常标记；不得使用 `list_latency_events`、
+     `list_latency_events_by_time_windows`、
+     `list_connectivity_events_by_time_windows` 或聚合结果返回的
+     IP 对隐式缩小范围。即使聚合查询为零、聚合事件未包含该 trace，仍应执行
+     trace 直查。拿到 trace 后，再按需查询另一类明细工具进行时延/通断交叉验证，
+     并用 `list_connectivity_trace_logs` 获取相关原始故障日志。
+   - 时延：先用 `get_latency_metrics` 确认整体趋势和峰值时段，再用
+     `list_latency_events_by_time_windows` 查询该日志事件时间范围内的窗口统计并比较
+     同一窗口内的 IP 对。用 `list_latency_events` 定位受影响的源/目的 IP
+     对；它的时间参数用于筛选该时段内出现过日志的聚合事件，但返回的事件
+     指标来自预计算聚合记录，因此时间范围内的统计值以
+     `list_latency_events_by_time_windows` 为准。随后用 `list_latency_traces` 按
+     聚合事件、单个或一组 trace、operation、cluster、host、Pod 或 IP 对
+     下钻。需要异常记录时显式设置 `is_anomalous=true`；需要正常样本作对照
+     时设置 `is_anomalous=false`，不要使用不存在的 `exclude_normal` 或
+     `error_priority` 参数。调用指标工具时记录 `sample_mode`、`max_points`
+     和响应中的采样元数据；只有明确需要完整数据时才使用 `max_points=-1`。
+   - 通断：先用 `list_connectivity_events_by_time_windows` 定位故障集中时段，再用
+     `list_connectivity_events` 识别主要源/目的 IP 故障路径。只有在
+     问题明确要求按 Pod 汇总时，才补充调用 `list_connectivity_events_by_pods`。
+     用 `get_connectivity_metrics` 按错误码和 IP 对量化频次及时间趋势，再用
+     `list_connectivity_traces` 按时间、IP 对、状态码或 trace ID 获取故障事件和
+     故障模式 ID，最后用 `list_connectivity_trace_logs` 获取原始现场证据。
    - 问题不明确时，两条分支都做轻量扫描，再沿证据更强的一条深入。
-   - 有些故障的 trace 不会出现在聚合事件中，当用户需要解析具体某种 trace 时，
-     需要使用 `list_log_parse_results` 或 `list_failure_traces` 
-     重新进行查询，避免局限在聚合事件包含的 trace 中。
+   - 对时延记录返回的 trace ID，使用 `list_connectivity_traces(trace_ids=...)`
+     检查是否同时存在通断故障；对通断记录返回的 trace ID，使用
+     `list_latency_traces(trace_ids=...)` 检查是否同时存在时延异常。不能
+     因为两个现象时间接近就认定它们属于同一请求或存在因果关系。
+4. 获得现场状态码、IP、host、pod、cluster、异常时延组件或关键日志短语后，
+   调用 `list_diagnosis_cases` 查询历史案例。命中的案例只能作为待验证假设，
+   不能替代当前现场证据；必要时调用 `get_diagnosis_case` 查看完整案例。用户
+   已经提供了足够具体的信号时，可以在现场扫描前做一次轻量搜索，但仍须用
+   当前数据逐项验证。
 5. 对发现的状态码调用 `get_status_code_knowledge`；对返回的故障模式 ID
    调用 `get_failure_mode`。知识库内容是解释依据，不是现场已经命中的
    单独证明。
@@ -61,6 +127,6 @@ permission:
    的文件；文件不存在、超过 5 MB 或无法读取时如实说明，不绕过限制。
 7. 对每个候选根因寻找至少一条现场证据和一条反证检查。必要时带着新发现的
    状态码、故障模式、IP、host、pod、cluster、时延组件或日志关键词再次调用
-   `search_diagnosis_cases`，并用 `get_diagnosis_case` 复核更精确的历史
+   `list_diagnosis_cases`，并用 `get_diagnosis_case` 复核更精确的历史
    候选。证据不足时给出候选根因排序，不给出确定性结论。
 8. 输出结论时，如果本次故障适合沉淀为历史案例，不要在只读诊断流程中直接写入。

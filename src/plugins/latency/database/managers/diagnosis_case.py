@@ -1,8 +1,16 @@
-import json
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL manager for diagnosis_case and diagnosis_case_signal."""
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
-from latency.database.engine import AsyncSQLiteSingleton
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert
+
+from latency.database.engine import PGManager
+from latency.database.models import DiagnosisCase, DiagnosisCaseSignal
+from latency.database.utils import format_timestamp, parse_timestamp
 from latency.schemas.diagnosis_case import (
     DiagnosisCaseMatchModel,
     DiagnosisCaseModel,
@@ -11,21 +19,8 @@ from latency.schemas.diagnosis_case import (
 from latency.schemas.request import SearchDiagnosisCasesRequest
 
 
-def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-
-def _json_dumps(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
-
-
-def _json_loads(value: str | None, default: Any) -> Any:
-    if not value:
-        return default
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return default
+def _now() -> datetime:
+    return datetime.now()
 
 
 def _normalize_signal_value(value: Any) -> str:
@@ -44,8 +39,8 @@ def _iter_values(value: Any) -> list[Any]:
     return [value]
 
 
-class DiagnosisCaseManager:
-    """历史诊断案例管理器。"""
+class DiagnosisCasePGManager:
+    """PostgreSQL-backed diagnosis case manager."""
 
     SIGNAL_FIELD_MAP = {
         "src_ips": "src_ip",
@@ -60,29 +55,60 @@ class DiagnosisCaseManager:
     }
 
     @staticmethod
-    def _case_to_row(case: DiagnosisCaseModel) -> dict[str, Any]:
-        row = case.model_dump()
-        for key in (
-            "failure_mode_ids",
-            "status_codes",
-            "fingerprint_json",
-            "evidence_refs_json",
-            "counter_evidence_json",
-            "source_log_ids",
-        ):
-            row[key] = _json_dumps(row[key])
-        return row
+    def _case_to_orm(case: DiagnosisCaseModel) -> DiagnosisCase:
+        data = case.model_dump()
+        now = _now()
+        first_seen = parse_timestamp(data.get("first_seen_at")) or now
+        last_seen = parse_timestamp(data.get("last_seen_at")) or now
+        created = parse_timestamp(data.get("created_at")) or now
+        updated = parse_timestamp(data.get("updated_at")) or now
+        return DiagnosisCase(
+            id=data["id"],
+            kb_id=data.get("kb_id") or "",
+            fault_type=data.get("fault_type") or "unknown",
+            title=data.get("title"),
+            symptom_summary=data.get("symptom_summary") or "",
+            root_cause=data.get("root_cause") or "",
+            recommendation=data.get("recommendation") or "",
+            confidence=float(data.get("confidence") or 0.0),
+            failure_mode_ids=data.get("failure_mode_ids") or [],
+            status_codes=data.get("status_codes") or [],
+            fingerprint_json=data.get("fingerprint_json") or {},
+            evidence_refs_json=data.get("evidence_refs_json") or [],
+            counter_evidence_json=data.get("counter_evidence_json") or [],
+            source_log_ids=data.get("source_log_ids") or [],
+            hit_count=int(data.get("hit_count") or 0),
+            existed_status=bool(data.get("existed_status", True)),
+            first_seen_at=first_seen,
+            last_seen_at=last_seen,
+            created_at=created,
+            updated_at=updated,
+        )
 
     @staticmethod
-    def _row_to_case(row: dict[str, Any]) -> DiagnosisCaseModel:
-        payload = dict(row)
-        payload["failure_mode_ids"] = _json_loads(row.get("failure_mode_ids"), [])
-        payload["status_codes"] = _json_loads(row.get("status_codes"), [])
-        payload["fingerprint_json"] = _json_loads(row.get("fingerprint_json"), {})
-        payload["evidence_refs_json"] = _json_loads(row.get("evidence_refs_json"), [])
-        payload["counter_evidence_json"] = _json_loads(row.get("counter_evidence_json"), [])
-        payload["source_log_ids"] = _json_loads(row.get("source_log_ids"), [])
-        return DiagnosisCaseModel.model_validate(payload)
+    def _orm_to_case(row: DiagnosisCase) -> DiagnosisCaseModel:
+        return DiagnosisCaseModel(
+            id=row.id,
+            kb_id=row.kb_id or None,
+            fault_type=row.fault_type or "unknown",
+            title=row.title,
+            symptom_summary=row.symptom_summary or "",
+            root_cause=row.root_cause or "",
+            recommendation=row.recommendation or "",
+            confidence=row.confidence or 0.0,
+            failure_mode_ids=row.failure_mode_ids or [],
+            status_codes=row.status_codes or [],
+            fingerprint_json=row.fingerprint_json or {},
+            evidence_refs_json=row.evidence_refs_json or [],
+            counter_evidence_json=row.counter_evidence_json or [],
+            source_log_ids=row.source_log_ids or [],
+            hit_count=row.hit_count or 0,
+            existed_status=row.existed_status,
+            first_seen_at=format_timestamp(row.first_seen_at) or "",
+            last_seen_at=format_timestamp(row.last_seen_at) or "",
+            created_at=format_timestamp(row.created_at) or "",
+            updated_at=format_timestamp(row.updated_at) or "",
+        )
 
     @staticmethod
     def _signals_for_case(case: DiagnosisCaseModel) -> list[DiagnosisCaseSignalModel]:
@@ -110,7 +136,7 @@ class DiagnosisCaseManager:
             add("source_log_id", log_id, 0.5)
 
         fingerprint = case.fingerprint_json or {}
-        for field, signal_type in DiagnosisCaseManager.SIGNAL_FIELD_MAP.items():
+        for field, signal_type in DiagnosisCasePGManager.SIGNAL_FIELD_MAP.items():
             for value in _iter_values(fingerprint.get(field)):
                 add(signal_type, value, 1.5 if signal_type != "log_keyword" else 1.0)
 
@@ -148,96 +174,132 @@ class DiagnosisCaseManager:
 
     @staticmethod
     async def add_case(case: DiagnosisCaseModel) -> str:
-        sql_str = """
-            INSERT OR REPLACE INTO diagnosis_case_table (
-                id, kb_id, fault_type, title, symptom_summary, root_cause,
-                recommendation, confidence, failure_mode_ids, status_codes,
-                fingerprint_json, evidence_refs_json, counter_evidence_json,
-                source_log_ids, hit_count, existed_status, first_seen_at,
-                last_seen_at, created_at, updated_at
-            ) VALUES (
-                :id, :kb_id, :fault_type, :title, :symptom_summary, :root_cause,
-                :recommendation, :confidence, :failure_mode_ids, :status_codes,
-                :fingerprint_json, :evidence_refs_json, :counter_evidence_json,
-                :source_log_ids, :hit_count, :existed_status, :first_seen_at,
-                :last_seen_at, :created_at, :updated_at
+        orm = DiagnosisCasePGManager._case_to_orm(case)
+        values = {
+            "id": orm.id,
+            "kb_id": orm.kb_id,
+            "fault_type": orm.fault_type,
+            "title": orm.title,
+            "symptom_summary": orm.symptom_summary,
+            "root_cause": orm.root_cause,
+            "recommendation": orm.recommendation,
+            "confidence": orm.confidence,
+            "failure_mode_ids": orm.failure_mode_ids,
+            "status_codes": orm.status_codes,
+            "fingerprint_json": orm.fingerprint_json,
+            "evidence_refs_json": orm.evidence_refs_json,
+            "counter_evidence_json": orm.counter_evidence_json,
+            "source_log_ids": orm.source_log_ids,
+            "hit_count": orm.hit_count,
+            "existed_status": orm.existed_status,
+            "first_seen_at": orm.first_seen_at,
+            "last_seen_at": orm.last_seen_at,
+            "created_at": orm.created_at,
+            "updated_at": orm.updated_at,
+        }
+        async with PGManager.session() as session:
+            stmt = (
+                insert(DiagnosisCase)
+                .values(values)
+                .on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={
+                        "kb_id": values["kb_id"],
+                        "fault_type": values["fault_type"],
+                        "title": values["title"],
+                        "symptom_summary": values["symptom_summary"],
+                        "root_cause": values["root_cause"],
+                        "recommendation": values["recommendation"],
+                        "confidence": values["confidence"],
+                        "failure_mode_ids": values["failure_mode_ids"],
+                        "status_codes": values["status_codes"],
+                        "fingerprint_json": values["fingerprint_json"],
+                        "evidence_refs_json": values["evidence_refs_json"],
+                        "counter_evidence_json": values["counter_evidence_json"],
+                        "source_log_ids": values["source_log_ids"],
+                        "hit_count": values["hit_count"],
+                        "existed_status": values["existed_status"],
+                        "first_seen_at": values["first_seen_at"],
+                        "last_seen_at": values["last_seen_at"],
+                        "updated_at": values["updated_at"],
+                    },
+                )
             )
-        """
-        saved_success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, DiagnosisCaseManager._case_to_row(case)
-        )
-        if not saved_success:
-            return ""
+            await session.execute(stmt)
 
-        _, _ = await AsyncSQLiteSingleton().execute_modify(
-            "DELETE FROM diagnosis_case_signal_table WHERE case_id = :case_id",
-            {"case_id": case.id},
-        )
-        signals = DiagnosisCaseManager._signals_for_case(case)
-        if signals:
-            _, _ = await AsyncSQLiteSingleton().execute_modify(
-                """
-                INSERT OR REPLACE INTO diagnosis_case_signal_table
-                (case_id, signal_type, signal_value, weight)
-                VALUES (:case_id, :signal_type, :signal_value, :weight)
-                """,
-                [signal.model_dump() for signal in signals],
+            await session.execute(
+                text(
+                    "DELETE FROM diagnosis_case_signal WHERE case_id = :case_id"
+                ),
+                {"case_id": case.id},
             )
+            signals = DiagnosisCasePGManager._signals_for_case(case)
+            if signals:
+                signal_values = [
+                    {
+                        "case_id": s.case_id,
+                        "signal_type": s.signal_type,
+                        "signal_value": s.signal_value,
+                        "weight": s.weight,
+                    }
+                    for s in signals
+                ]
+                await session.execute(
+                    insert(DiagnosisCaseSignal).values(signal_values)
+                )
         return case.id
 
     @staticmethod
     async def get_case(case_id: str) -> DiagnosisCaseModel | None:
-        rows = await AsyncSQLiteSingleton().execute_query(
-            """
-            SELECT *
-            FROM diagnosis_case_table
-            WHERE id = :case_id AND existed_status = 1
-            """,
-            {"case_id": case_id},
-        )
-        if not rows:
+        async with PGManager.session() as session:
+            row = await session.get(DiagnosisCase, case_id)
+        if row is None or not row.existed_status:
             return None
-        return DiagnosisCaseManager._row_to_case(rows[0])
+        return DiagnosisCasePGManager._orm_to_case(row)
 
     @staticmethod
     async def mark_case_hit(case_id: str) -> bool:
         now = _now()
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            """
-            UPDATE diagnosis_case_table
-            SET hit_count = hit_count + 1, last_seen_at = :now, updated_at = :now
-            WHERE id = :case_id AND existed_status = 1
-            """,
-            {"case_id": case_id, "now": now},
-        )
-        return success
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE diagnosis_case SET hit_count = hit_count + 1, "
+                    "last_seen_at = :now, updated_at = :now "
+                    "WHERE id = :case_id AND existed_status = TRUE"
+                ),
+                {"case_id": case_id, "now": now},
+            )
+        return (result.rowcount or 0) > 0
 
     @staticmethod
-    async def search_cases(req: SearchDiagnosisCasesRequest) -> tuple[int, list[DiagnosisCaseMatchModel]]:
-        sql_str = """
-            SELECT *
-            FROM diagnosis_case_table
-            WHERE existed_status = 1
-        """
-        params: dict[str, Any] = {}
+    async def search_cases(
+        req: SearchDiagnosisCasesRequest,
+    ) -> tuple[int, list[DiagnosisCaseMatchModel]]:
+        stmt = select(DiagnosisCase).where(DiagnosisCase.existed_status.is_(True))
         if req.kb_id:
-            sql_str += " AND (kb_id = :kb_id OR kb_id IS NULL OR kb_id = '')"
-            params["kb_id"] = req.kb_id
+            stmt = stmt.where(
+                (DiagnosisCase.kb_id == req.kb_id)
+                | (DiagnosisCase.kb_id.is_(None))
+                | (DiagnosisCase.kb_id == "")
+            )
         if req.fault_type:
-            sql_str += " AND fault_type IN (:fault_type, 'mixed', 'unknown')"
-            params["fault_type"] = req.fault_type
+            stmt = stmt.where(
+                DiagnosisCase.fault_type.in_([req.fault_type, "mixed", "unknown"])
+            )
         if req.min_confidence is not None:
-            sql_str += " AND confidence >= :min_confidence"
-            params["min_confidence"] = req.min_confidence
-        sql_str += " ORDER BY updated_at DESC"
+            stmt = stmt.where(DiagnosisCase.confidence >= req.min_confidence)
+        stmt = stmt.order_by(DiagnosisCase.updated_at.desc())
 
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        cases = [DiagnosisCaseManager._row_to_case(row) for row in rows]
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
+        cases = [DiagnosisCasePGManager._orm_to_case(row) for row in rows]
         case_by_id = {case.id: case for case in cases}
         if not case_by_id:
             return 0, []
 
-        query_signals = DiagnosisCaseManager._signals_for_search(req)
+        query_signals = DiagnosisCasePGManager._signals_for_search(req)
         if not query_signals:
             total = len(cases)
             offset = (req.page_num - 1) * req.page_cnt
@@ -247,28 +309,30 @@ class DiagnosisCaseManager:
                 for case in page
             ]
 
-        placeholders = ",".join(f":case_id_{idx}" for idx in range(len(case_by_id)))
-        signal_rows = await AsyncSQLiteSingleton().execute_query(
-            f"""
-            SELECT case_id, signal_type, signal_value, weight
-            FROM diagnosis_case_signal_table
-            WHERE case_id IN ({placeholders})
-            """,
-            {f"case_id_{idx}": case_id for idx, case_id in enumerate(case_by_id)},
-        )
+        async with PGManager.session() as session:
+            signal_stmt = select(DiagnosisCaseSignal).where(
+                DiagnosisCaseSignal.case_id.in_(list(case_by_id.keys()))
+            )
+            signal_result = await session.execute(signal_stmt)
+            signal_rows = signal_result.scalars().all()
 
         scores: dict[str, float] = {}
         matched: dict[str, list[DiagnosisCaseSignalModel]] = {}
         for row in signal_rows:
-            key = (row["signal_type"], row["signal_value"])
+            key = (row.signal_type, row.signal_value)
             query_weight = query_signals.get(key)
             if query_weight is None:
                 continue
-            signal = DiagnosisCaseSignalModel.model_validate(row)
-            scores[row["case_id"]] = scores.get(row["case_id"], 0.0) + min(
-                float(row["weight"]), query_weight
+            signal = DiagnosisCaseSignalModel(
+                case_id=row.case_id,
+                signal_type=row.signal_type,
+                signal_value=row.signal_value,
+                weight=row.weight,
             )
-            matched.setdefault(row["case_id"], []).append(signal)
+            scores[row.case_id] = scores.get(row.case_id, 0.0) + min(
+                float(row.weight), query_weight
+            )
+            matched.setdefault(row.case_id, []).append(signal)
 
         matches = [
             DiagnosisCaseMatchModel(

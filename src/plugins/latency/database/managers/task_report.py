@@ -1,87 +1,84 @@
-from latency.ENUM.task import TaskStatusEnum
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL-specific manager for task_report."""
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import desc, select, text
+from sqlalchemy.dialects.postgresql import insert
+
+from latency.database.engine import PGManager
+from latency.database.models import TaskReport
+from latency.database.utils import parse_timestamp
 from latency.schemas.task import TaskReportModel
-from latency.database.engine import AsyncSQLiteSingleton
 
 
-class TaskReportManager:
-    """任务报告管理类"""
+class TaskReportPGManager:
+    @staticmethod
+    def _report_to_mapping(report: TaskReportModel) -> dict[str, Any]:
+        return {
+            "task_id": report.task_id,
+            "progress": report.progress,
+            "message": report.message,
+            "existed_status": report.existed_status,
+            "created_at": parse_timestamp(report.created_at),
+        }
 
     @staticmethod
     async def add_task_report(task_report: TaskReportModel) -> bool:
-        """创建新任务"""
-        sql_str = """
-            INSERT INTO task_report_table (task_id, progress, message, existed_status, created_at)
-            VALUES (:task_id, :progress, :message, :existed_status, :created_at)
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, task_report.model_dump(exclude_none=False, by_alias=True)
-        )
-        return success
+        async with PGManager.session() as session:
+            await session.execute(insert(TaskReport), [TaskReportPGManager._report_to_mapping(task_report)])
+        return True
 
     @staticmethod
     async def add_task_reports(task_reports: list[TaskReportModel]) -> list[str]:
-        """批量添加任务报告"""
-        ids_added = []
-        batch_size = 1024
-        for i in range(0, len(task_reports), batch_size):
-            batch = task_reports[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO task_report_table (
-                        task_id, progress, message, existed_status, created_at
-                    ) VALUES (
-                        :task_id, :progress, :message, :existed_status, :created_at
-                    )
-                """
-                params = [
-                    tr.model_dump(exclude_none=False, by_alias=True) for tr in batch
-                ]
-                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([tr.task_id for tr in batch])
-            except Exception as e:
-                print(f"批量添加任务报告失败，错误信息: {str(e)}")
-        return ids_added
+        if not task_reports:
+            return []
+        mappings = [TaskReportPGManager._report_to_mapping(r) for r in task_reports]
+        async with PGManager.session() as session:
+            await session.execute(insert(TaskReport), mappings)
+        return [r.task_id for r in task_reports]
 
     @staticmethod
     async def update_task_reports_existed_status_by_task_id(
         task_id: str, existed_status: int
     ) -> bool:
-        """根据任务ID更新任务报告的存在状态"""
-        sql_str = """
-            UPDATE task_report_table
-            SET existed_status = :existed_status
-            WHERE task_id = :task_id
-        """
-        params = {"task_id": task_id, "existed_status": existed_status}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        async with PGManager.session() as session:
+            await session.execute(
+                text(
+                    "UPDATE task_report SET existed_status = :existed_status "
+                    "WHERE task_id = :task_id"
+                ),
+                {"task_id": task_id, "existed_status": bool(existed_status)},
+            )
+        return True
 
     @staticmethod
     async def list_task_reports_by_task_ids(
         task_ids: list[str],
     ) -> list[TaskReportModel]:
-        """根据任务ID列表获取任务报告列表"""
         if not task_ids:
             return []
-        placeholders = ", ".join(["?"] * len(task_ids))
-        sql_str = f"""
-            SELECT task_id, progress, message, created_at
-            FROM task_report_table
-            WHERE task_id IN ({placeholders})
-            ORDER BY created_at DESC
-        """
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(task_ids))
-        return [TaskReportModel(**result) for result in results]
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(TaskReport.task_id, TaskReport.progress, TaskReport.message, TaskReport.existed_status, TaskReport.created_at)
+                .where(TaskReport.task_id.in_(task_ids))
+                .order_by(desc(TaskReport.created_at))
+            )
+            rows = result.mappings().all()
+        return [TaskReportModel(**dict(r)) for r in rows]
 
     @staticmethod
     async def delete_task_reports_by_task_ids(task_ids: list[str]) -> bool:
-        """根据任务ID列表删除任务报告"""
+        """软删除任务报告（设置 existed_status=False）"""
         if not task_ids:
             return True
-        placeholders = ", ".join(["?"] * len(task_ids))
-        sql_str = f"""
-            DELETE FROM task_report_table
-            WHERE task_id IN ({placeholders})
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, tuple(task_ids))
-        return success
+        async with PGManager.session() as session:
+            await session.execute(
+                text(
+                    "UPDATE task_report SET existed_status = FALSE "
+                    "WHERE task_id = ANY(:task_ids)"
+                ),
+                {"task_ids": task_ids},
+            )
+        return True

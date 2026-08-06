@@ -1920,6 +1920,94 @@ button {
   height: 360px;
 }
 
+.top-slow-chart-title {
+  justify-content: space-between;
+}
+
+.top-slow-chart-summary {
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.top-slow-chart-description {
+  margin: -6px 0 12px;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.top-slow-chart-panel,
+.echarts-top-slow-chart {
+  width: 100%;
+  height: 560px;
+}
+
+.top-slow-chart-state {
+  height: 560px;
+}
+
+.top-slow-tooltip {
+  min-width: 280px;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.top-slow-tooltip > strong,
+.top-slow-tooltip > small {
+  display: block;
+}
+
+.top-slow-tooltip > strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.top-slow-tooltip > small {
+  margin-top: 3px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.top-slow-tooltip-total {
+  margin: 9px 0 6px;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.top-slow-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 3px;
+}
+
+.top-slow-tooltip-row span {
+  display: inline-flex;
+  align-items: center;
+  color: #334155;
+  font-weight: 650;
+}
+
+.top-slow-tooltip-row strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.top-slow-tooltip-row i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
 .chart-state {
   display: grid;
   height: 360px;

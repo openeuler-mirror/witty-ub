@@ -1,258 +1,235 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL-specific manager for task."""
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import desc, func, insert, select, text
+
+from latency.database.engine import PGManager
+from latency.database.models import Task
+from latency.database.utils import parse_timestamp
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.task import TaskModel
-from latency.database.engine import AsyncSQLiteSingleton
 
 
-class TaskManager:
-    """任务管理类"""
+class TaskPGManager:
+    @staticmethod
+    def _model_to_mapping(task: TaskModel) -> dict[str, Any]:
+        return {
+            "id": task.id,
+            "kb_id": task.kb_id,
+            "op_id": task.op_id,
+            "retry_times": task.retry_times,
+            "task_name": task.task_name,
+            "task_type": task.task_type.value,
+            "status": task.status.value,
+            "existed_status": task.existed_status,
+            "created_at": parse_timestamp(task.created_at),
+            "completed_at": parse_timestamp(task.completed_at),
+            "duration_seconds": task.duration_seconds,
+        }
 
     @staticmethod
     async def add_task(task: TaskModel) -> bool:
-        """创建新任务"""
-        sql_str = """
-            INSERT INTO task_table (id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds)
-            VALUES (:id, :kb_id, :op_id, :retry_times, :task_name, :task_type, :status, :existed_status, :created_at, :completed_at, :duration_seconds)
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, task.model_dump(exclude_none=False, by_alias=True)
-        )
-        return success
+        async with PGManager.session() as session:
+            await session.execute(insert(Task), [TaskPGManager._model_to_mapping(task)])
+        return True
 
     @staticmethod
     async def add_tasks(tasks: list[TaskModel]) -> list[str]:
-        """批量添加任务"""
-        ids_added = []
-        batch_size = 1024
-        for i in range(0, len(tasks), batch_size):
-            batch = tasks[i : i + batch_size]
-            try:
-                sql_str = """
-                    INSERT INTO task_table (id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds)
-                    VALUES (:id, :kb_id, :op_id, :retry_times, :task_name, :task_type, :status, :existed_status, :created_at, :completed_at, :duration_seconds)
-                """
-                params = [
-                    task.model_dump(exclude_none=False, by_alias=True) for task in batch
-                ]
-                success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-                ids_added.extend([task.id for task in batch])
-            except Exception as e:
-                print(f"批量添加任务失败，错误信息: {str(e)}")
-        return ids_added
+        if not tasks:
+            return []
+        mappings = [TaskPGManager._model_to_mapping(t) for t in tasks]
+        async with PGManager.session() as session:
+            await session.execute(insert(Task), mappings)
+        return [t.id for t in tasks]
 
     @staticmethod
     async def delete_task_by_task_id(task_id: str) -> bool:
-        """根据任务ID删除任务"""
-        sql_str = """
-            DELETE FROM task_table
-            WHERE id = :task_id
-        """
-        params = {"task_id": task_id}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        async with PGManager.session() as session:
+            await session.execute(text("DELETE FROM task WHERE id = :id"), {"id": task_id})
+        return True
 
     @staticmethod
     async def delete_tasks_by_task_ids(task_ids: list[str]) -> bool:
-        """根据任务ID列表删除多个任务"""
         if not task_ids:
             return False
-        placeholders = ", ".join(["?"] * len(task_ids))
-        sql_str = f"""
-            DELETE FROM task_table
-            WHERE id IN ({placeholders})
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, tuple(task_ids))
-        return success
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM task WHERE id = ANY(:ids)"),
+                {"ids": task_ids},
+            )
+        return True
 
     @staticmethod
     async def delete_tasks_by_status(status: str) -> bool:
-        """根据任务状态删除任务"""
-        sql_str = """
-            DELETE FROM task_table
-            WHERE status = :status
-        """
-        params = {"status": status}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        async with PGManager.session() as session:
+            await session.execute(
+                text("DELETE FROM task WHERE status = :status"),
+                {"status": status},
+            )
+        return True
 
     @staticmethod
     async def update_task(task_id: str, task_info_dict: dict) -> bool:
-        """根据任务ID更新任务信息"""
-        set_clauses = []
-        params = {"task_id": task_id}
-        for key, value in task_info_dict.items():
-            set_clauses.append(f"{key} = :{key}")
-            params[key] = value
-        set_clause_str = ", ".join(set_clauses)
-
-        sql_str = f"""
-            UPDATE task_table
-            SET {set_clause_str}
-            WHERE id = :task_id
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        allowed = {k: v for k, v in task_info_dict.items() if hasattr(Task, k)}
+        if not allowed:
+            return True
+        set_clauses = ", ".join(f"{k} = :{k}" for k in allowed)
+        params = {"id": task_id, **allowed}
+        async with PGManager.session() as session:
+            await session.execute(
+                text(f"UPDATE task SET {set_clauses} WHERE id = :id"),
+                params,
+            )
+        return True
 
     @staticmethod
-    async def update_running_tasks_to_pending_tasks():
-        """将所有正在运行的任务状态更新为待执行（用于服务重启后恢复任务状态）"""
-        sql_str = """
-            UPDATE task_table
-            SET status = :pending_status
-            WHERE status = :running_status
-        """
-        params = {
-            "pending_status": TaskStatusEnum.PENDING.value,
-            "running_status": TaskStatusEnum.RUNNING.value,
-        }
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+    async def update_running_tasks_to_pending_tasks() -> bool:
+        async with PGManager.session() as session:
+            await session.execute(
+                text(
+                    "UPDATE task SET status = :pending_status "
+                    "WHERE status = :running_status"
+                ),
+                {
+                    "pending_status": TaskStatusEnum.PENDING.value,
+                    "running_status": TaskStatusEnum.RUNNING.value,
+                },
+            )
+        return True
+
+    @staticmethod
+    def _row_to_model(row: Task) -> TaskModel:
+        return TaskModel(
+            id=row.id,
+            kb_id=row.kb_id or "",
+            op_id=row.op_id or "",
+            retry_times=row.retry_times or 0,
+            task_name=row.task_name or "",
+            task_type=TaskTypeEnum(row.task_type),
+            status=TaskStatusEnum(row.status),
+            existed_status=row.existed_status if row.existed_status is not None else True,
+            created_at=row.created_at,
+            completed_at=row.completed_at,
+            duration_seconds=row.duration_seconds,
+        )
 
     @staticmethod
     async def list_tasks_by_task_ids(task_ids: list[str]) -> list[TaskModel]:
-        """根据任务ID列表获取多个任务信息"""
         if not task_ids:
             return []
-        placeholders = ", ".join(["?"] * len(task_ids))
-        sql_str = f"""
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            WHERE id IN ({placeholders})
-        """
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(task_ids))
-        return [TaskModel(**result) for result in results]
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(Task).where(Task.id.in_(task_ids))
+            )
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
 
     @staticmethod
     async def list_all_tasks() -> list[TaskModel]:
-        """获取所有任务"""
-        sql_str = """
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            ORDER BY created_at DESC
-        """
-        results = await AsyncSQLiteSingleton().execute_query(sql_str)
-        return [TaskModel(**result) for result in results]
+        async with PGManager.session() as session:
+            result = await session.execute(select(Task).order_by(desc(Task.created_at)))
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
 
     @staticmethod
     async def get_task_by_task_id(task_id: str) -> TaskModel | None:
-        """根据任务ID获取任务信息"""
-        sql_str = """
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            WHERE id = :task_id
-        """
-        params = {"task_id": task_id}
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        if results:
-            return TaskModel(**results[0])
-        return None
+        async with PGManager.session() as session:
+            result = await session.execute(select(Task).where(Task.id == task_id))
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return TaskPGManager._row_to_model(row)
 
     @staticmethod
     async def list_tasks_by_kb_id(
         kb_id: str, status: list[TaskStatusEnum] | None = None
     ) -> list[TaskModel]:
-        """根据知识库ID获取任务列表"""
-        sql_str = """
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            WHERE kb_id = :kb_id
-        """
-        params = {"kb_id": kb_id}
+        stmt = select(Task).where(Task.kb_id == kb_id)
         if status:
-            placeholders = ", ".join([f":status_{i}" for i in range(len(status))])
-            sql_str += f" AND status IN ({placeholders})"
-            for i, s in enumerate(status):
-                params[f"status_{i}"] = s.value
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        return [TaskModel(**result) for result in results]
+            stmt = stmt.where(Task.status.in_([s.value for s in status]))
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
 
     @staticmethod
     async def list_tasks_by_status(status: list[TaskStatusEnum]) -> list[TaskModel]:
-        """根据任务状态获取任务列表"""
         if not status:
             return []
-        placeholders = ", ".join(["?"] * len(status))
-        sql_str = f"""
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            WHERE status IN ({placeholders})
-        """
-        tmp_tuple = tuple(s.value for s in status)
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, tmp_tuple)
-        return [TaskModel(**result) for result in results]
+        stmt = select(Task).where(Task.status.in_([s.value for s in status]))
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
 
     @staticmethod
     async def get_oldest_tasks_by_status(
         status: TaskStatusEnum, limit: int = 10
     ) -> list[TaskModel]:
-        """根据任务状态获取最旧的任务列表（按创建时间升序排序）"""
-        sql_str = """
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            WHERE status = :status
-            ORDER BY created_at ASC
-            LIMIT :limit
-        """
-        params = {"status": status.value, "limit": limit}
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        return [TaskModel(**result) for result in results]
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(Task)
+                .where(Task.status == status.value)
+                .order_by(Task.created_at)
+                .limit(limit)
+            )
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
 
     @staticmethod
     async def list_current_tasks_by_op_ids(
         op_ids: list[str],
         task_type: TaskTypeEnum | None = None,
     ) -> list[TaskModel]:
-        """根据操作ID列表获取每个操作ID对应的最新的任务信息"""
         if not op_ids:
             return []
-        placeholders = ", ".join(["?"] * len(op_ids))
-        params = list(op_ids)
-        task_type_filter = ""
+        # 按 (op_id, task_type) 分区，确保每个 op_id 的每种任务类型都返回最新的任务
+        # 这样可以获取一个 log_file_id 对应的所有任务（PARSE、DIAGNOSIS、STORE）
+        partition_by = [Task.op_id, Task.task_type]
+        subq = (
+            select(
+                Task,
+                func.row_number()
+                .over(partition_by=partition_by, order_by=desc(Task.created_at))
+                .label("rn"),
+            )
+            .where(Task.op_id.in_(op_ids))
+        )
         if task_type:
-            task_type_filter = " AND task_type = ?"
-            params.append(task_type.value)
-        sql_str = f"""
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY op_id ORDER BY created_at DESC) as rn
-                FROM task_table
-                WHERE op_id IN ({placeholders}){task_type_filter}
-            ) sub
-            WHERE rn = 1
-        """
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, tuple(params))
-        return [TaskModel(**result) for result in results]
+            subq = subq.where(Task.task_type == task_type.value)
+        subq = subq.subquery()
+        # 通过 JOIN 连接 Task 表和子查询，避免笛卡尔积
+        stmt = select(Task).join(subq, Task.id == subq.c.id).where(subq.c.rn == 1)
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
 
     @staticmethod
     async def get_current_task_by_op_id(
         op_id: str,
         task_type: TaskTypeEnum | None = None,
     ) -> TaskModel | None:
-        """根据操作ID获取最新的任务信息（适用于一个操作可能对应多个任务的场景，获取最新的任务）"""
-        sql_str = """
-            SELECT id, kb_id, op_id, retry_times, task_name, task_type, status, existed_status, created_at, completed_at, duration_seconds
-            FROM task_table
-            WHERE op_id = :op_id
-        """
-        params = {"op_id": op_id}
+        stmt = select(Task).where(Task.op_id == op_id)
         if task_type:
-            sql_str += " AND task_type = :task_type"
-            params["task_type"] = task_type.value
-        sql_str += """
-            ORDER BY created_at DESC
-            LIMIT 1
-        """
-        results = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        if results:
-            return TaskModel(**results[0])
-        return None
-
+            stmt = stmt.where(Task.task_type == task_type.value)
+        stmt = stmt.order_by(desc(Task.created_at)).limit(1)
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return TaskPGManager._row_to_model(row)
+    
     @staticmethod
-    async def delete_tasks_by_op_id(op_id: str) -> bool:
-        """根据操作ID删除所有相关任务"""
-        sql_str = """
-            DELETE FROM task_table
-            WHERE op_id = :op_id
-        """
-        params = {"op_id": op_id}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+    async def list_tasks_by_op_id(op_id: str) -> list[TaskModel]:
+        """查询指定op_id的所有任务"""
+        stmt = select(Task).where(Task.op_id == op_id)
+        async with PGManager.session() as session:
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+        return [TaskPGManager._row_to_model(r) for r in rows]
+        return TaskPGManager._row_to_model(row)

@@ -43,6 +43,7 @@ def _load_patterns():
             sdk_access_patterns or _DEFAULT_SDK_ACCESS_LOG_PATTERNS,
             worker_access_patterns or _DEFAULT_WORKER_ACCESS_LOG_PATTERNS,
             worker_info_patterns or _DEFAULT_WORKER_INFO_LOG_PATTERNS,
+            filename_config.ds_client_info_log_file.copy(),
         )
     except Exception:
         # 配置加载失败时使用默认值
@@ -50,6 +51,7 @@ def _load_patterns():
             _DEFAULT_SDK_ACCESS_LOG_PATTERNS,
             _DEFAULT_WORKER_ACCESS_LOG_PATTERNS,
             _DEFAULT_WORKER_INFO_LOG_PATTERNS,
+            ["SDK_*/ds_client*.INFO.log", "SDK_*/*_runtime.log", "SDK_*/*_split_runtime.log"],
         )
 
 
@@ -62,6 +64,7 @@ def reload_patterns():
     global REMOTE_PULL_LOG_PATTERNS
     global LINK_LOG_PATTERNS
     global QUERY_META_LOG_PATTERNS
+    global CLIENT_INFO_LOG_PATTERNS
 
     loaded = _load_patterns()
     # 原地更新，确保通过 from ... import 获取到列表的解析器也能看到新值。
@@ -78,6 +81,7 @@ def reload_patterns():
     REMOTE_PULL_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
     LINK_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
     QUERY_META_LOG_PATTERNS = WORKER_INFO_LOG_PATTERNS
+    CLIENT_INFO_LOG_PATTERNS = loaded[3]
 
 
 reload_patterns()

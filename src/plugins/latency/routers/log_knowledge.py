@@ -60,7 +60,16 @@ async def update_log_kb(
     return UpdateLogKnowledgeResponse(result=update_log_kb_msg)
 
 
-@router.get("/{kb_id}", response_model=GetLogKnowledgeResponse)
+@router.get(
+    "/{kb_id}",
+    response_model=GetLogKnowledgeResponse,
+    operation_id="get_log_knowledge_base",
+    description=(
+        "Get one log knowledge base by ID. Use it to verify the selected data set "
+        "before investigating its logs."
+    ),
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def get_log_kb_by_kb_id(
     kb_id: Annotated[str, Path()],
 ) -> GetLogKnowledgeResponse:
@@ -68,7 +77,17 @@ async def get_log_kb_by_kb_id(
     return GetLogKnowledgeResponse(result=get_log_kb_msg)
 
 
-@router.post("/list", response_model=ListLogKnowledgeResponse)
+@router.post(
+    "/list",
+    response_model=ListLogKnowledgeResponse,
+    operation_id="list_log_knowledge_bases",
+    description=(
+        "List log knowledge bases. Use this first to discover available knowledge "
+        "base IDs. Returns metadata including ID, name, description and creation "
+        "time. Results are paginated."
+    ),
+    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
+)
 async def list_log_kbs(
     req: Annotated[ListLogKnowledgeRequest, Body()],
 ) -> ListLogKnowledgeResponse:

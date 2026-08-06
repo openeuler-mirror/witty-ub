@@ -39,6 +39,7 @@ class EntryType(StrEnum):
     REMOTE_WORKER_RPC = "REMOTE_WORKER_RPC"
     MASTER_PROCESS = "MASTER_PROCESS"
     MASTER_RPC = "MASTER_RPC"
+    CLIENT_RPC = "CLIENT_RPC"
 
 
 class TupleField(IntEnum):

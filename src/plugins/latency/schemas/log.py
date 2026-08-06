@@ -7,6 +7,19 @@ from datetime import datetime
 from latency.schemas.task import TaskModel
 from latency.ENUM.task import TaskStatusEnum
 
+YUANRONG_METRIC_FIELDS = (
+    "total_latency_us", "request_mode", "sdk_processing_us", "master_processing_us",
+    "worker_access_latency_us", "remote_worker_internal_us", "local_worker_internal_us",
+    "local_worker_internal_active_us", "sdk_rpc_network_us", "sdk_rpc_framework_us",
+    "sdk_rpc_total_us", "master_rpc_network_us", "master_rpc_framework_us",
+    "master_rpc_total_us", "remote_worker_rpc_network_us", "remote_worker_rpc_framework_us",
+    "remote_worker_rpc_total_us", "urma_processing_us", "urma_inflight_max",
+    "remote_worker_processing_us", "client_master_rpc_network_us",
+    "client_master_rpc_framework_us", "client_master_rpc_total_us",
+    "client_remote_rpc_network_us", "client_remote_rpc_framework_us",
+    "client_remote_rpc_total_us",
+)
+
 
 class LogKnowledgeModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="知识ID")
@@ -46,7 +59,7 @@ class LogFileModel(BaseModel):
         default=0.0,
         ge=0.0,
         le=100.0,
-        description="日志解析和诊断两个并行任务的平均进度",
+        description="日志解析、故障定界和 trace 上下文落库三个任务的综合平均进度",
     )
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"
@@ -483,6 +496,32 @@ class LogParseResultModel(BaseModel):
     worker_total_latency: Optional[float] = Field(
         default=None, description="SET Worker端总延迟，单位毫秒"
     )
+    total_latency_us: Optional[float] = None
+    request_mode: Optional[str] = None
+    sdk_processing_us: Optional[float] = None
+    master_processing_us: Optional[float] = None
+    worker_access_latency_us: Optional[float] = None
+    remote_worker_internal_us: Optional[float] = None
+    local_worker_internal_us: Optional[float] = None
+    local_worker_internal_active_us: Optional[float] = None
+    sdk_rpc_network_us: Optional[float] = None
+    sdk_rpc_framework_us: Optional[float] = None
+    sdk_rpc_total_us: Optional[float] = None
+    master_rpc_network_us: Optional[float] = None
+    master_rpc_framework_us: Optional[float] = None
+    master_rpc_total_us: Optional[float] = None
+    remote_worker_rpc_network_us: Optional[float] = None
+    remote_worker_rpc_framework_us: Optional[float] = None
+    remote_worker_rpc_total_us: Optional[float] = None
+    urma_processing_us: Optional[float] = None
+    urma_inflight_max: Optional[int] = None
+    remote_worker_processing_us: Optional[float] = None
+    client_master_rpc_network_us: Optional[float] = None
+    client_master_rpc_framework_us: Optional[float] = None
+    client_master_rpc_total_us: Optional[float] = None
+    client_remote_rpc_network_us: Optional[float] = None
+    client_remote_rpc_framework_us: Optional[float] = None
+    client_remote_rpc_total_us: Optional[float] = None
     timestamp: Optional[str] = Field(default=None, description="事件时间戳")
     created_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
@@ -507,6 +546,31 @@ class LatencyMetricItem(BaseModel):
     create_latency: Optional[float] = Field(default=None, description="SET CREATE阶段延迟，单位毫秒")
     publish_latency: Optional[float] = Field(default=None, description="SET PUBLISH阶段延迟，单位毫秒")
     worker_total_latency: Optional[float] = Field(default=None, description="SET Worker端总延迟，单位毫秒")
+    total_latency_us: Optional[float] = None
+    sdk_processing_us: Optional[float] = None
+    master_processing_us: Optional[float] = None
+    worker_access_latency_us: Optional[float] = None
+    remote_worker_internal_us: Optional[float] = None
+    local_worker_internal_us: Optional[float] = None
+    local_worker_internal_active_us: Optional[float] = None
+    sdk_rpc_network_us: Optional[float] = None
+    sdk_rpc_framework_us: Optional[float] = None
+    sdk_rpc_total_us: Optional[float] = None
+    master_rpc_network_us: Optional[float] = None
+    master_rpc_framework_us: Optional[float] = None
+    master_rpc_total_us: Optional[float] = None
+    remote_worker_rpc_network_us: Optional[float] = None
+    remote_worker_rpc_framework_us: Optional[float] = None
+    remote_worker_rpc_total_us: Optional[float] = None
+    urma_processing_us: Optional[float] = None
+    urma_inflight_max: Optional[float] = None
+    remote_worker_processing_us: Optional[float] = None
+    client_master_rpc_network_us: Optional[float] = None
+    client_master_rpc_framework_us: Optional[float] = None
+    client_master_rpc_total_us: Optional[float] = None
+    client_remote_rpc_network_us: Optional[float] = None
+    client_remote_rpc_framework_us: Optional[float] = None
+    client_remote_rpc_total_us: Optional[float] = None
 
 
 class LogParseResultBatch(list):
@@ -574,6 +638,32 @@ class LogParseResultDataclass:
     worker_total_latency: Optional[float] = None
     timestamp: Optional[str] = None
     created_at: str = ""
+    total_latency_us: Optional[float] = None
+    request_mode: Optional[str] = None
+    sdk_processing_us: Optional[float] = None
+    master_processing_us: Optional[float] = None
+    worker_access_latency_us: Optional[float] = None
+    remote_worker_internal_us: Optional[float] = None
+    local_worker_internal_us: Optional[float] = None
+    local_worker_internal_active_us: Optional[float] = None
+    sdk_rpc_network_us: Optional[float] = None
+    sdk_rpc_framework_us: Optional[float] = None
+    sdk_rpc_total_us: Optional[float] = None
+    master_rpc_network_us: Optional[float] = None
+    master_rpc_framework_us: Optional[float] = None
+    master_rpc_total_us: Optional[float] = None
+    remote_worker_rpc_network_us: Optional[float] = None
+    remote_worker_rpc_framework_us: Optional[float] = None
+    remote_worker_rpc_total_us: Optional[float] = None
+    urma_processing_us: Optional[float] = None
+    urma_inflight_max: Optional[int] = None
+    remote_worker_processing_us: Optional[float] = None
+    client_master_rpc_network_us: Optional[float] = None
+    client_master_rpc_framework_us: Optional[float] = None
+    client_master_rpc_total_us: Optional[float] = None
+    client_remote_rpc_network_us: Optional[float] = None
+    client_remote_rpc_framework_us: Optional[float] = None
+    client_remote_rpc_total_us: Optional[float] = None
 
     def to_pydantic(self) -> "LogParseResultModel":
         """转换为 Pydantic model（用于存库）
@@ -622,6 +712,7 @@ class LogParseResultDataclass:
             worker_total_latency=self.worker_total_latency,
             timestamp=self.timestamp,
             created_at=self.created_at,
+            **{name: getattr(self, name) for name in YUANRONG_METRIC_FIELDS},
         )
 
 
@@ -748,3 +839,11 @@ def generate_uuids_hex(count: int) -> list[str]:
         offset = i * 16
         ids.append(random_bytes[offset : offset + 16].hex())
     return ids
+
+
+# 兼容 PG COPY 与旧构建器的类型别名
+LogParseResultStorage = (
+    LogParseResultDataclass
+    | C2WLogParseResultDataclass
+    | SparseLogParseResultDataclass
+)

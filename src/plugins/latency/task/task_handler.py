@@ -5,8 +5,8 @@ from typing import Optional
 import logging
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.worker.base import BaseWorker
-from latency.database.managers.task import TaskManager
-from latency.database.managers.log_file import LogFileManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.log_file import LogFilePGManager
 from latency.task.log_preprocessor import default_preprocess_dir, preprocess_log_dir
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class TaskHandler:
     @staticmethod
     async def init_task_queue():
         """初始化任务队列"""
-        await TaskManager.update_running_tasks_to_pending_tasks()
+        await TaskPGManager.update_running_tasks_to_pending_tasks()
 
     @staticmethod
     async def init_task(task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None) -> str:
@@ -48,7 +48,7 @@ class TaskHandler:
 
     @staticmethod
     async def _preprocess_log_source(task) -> str | None:
-        log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+        log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
         if not log_file:
             return None
 
@@ -67,7 +67,7 @@ class TaskHandler:
             result.reused,
         )
         message = "复用已完成的日志预处理目录" if result.reused else "日志预处理完成"
-        await BaseWorker.report(task.id, message, 10.0)
+        await BaseWorker.report(task.id, message, 5.0)
         return result.output_dir
 
     @staticmethod
@@ -100,20 +100,19 @@ class TaskHandler:
     @staticmethod
     async def handle_successed_tasks():
         handle_successed_task_limit = 128
-        tasks = await TaskManager.get_oldest_tasks_by_status(
+        tasks = await TaskPGManager.get_oldest_tasks_by_status(
             TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, handle_successed_task_limit
         )
         for task in tasks:
             try:
                 await BaseWorker.deinit(task.id)
             except Exception as e:
-                err = f"[TaskQueueService] 处理成功任务失败 {e}"
-                logger.error(err)
+                logger.exception(f"[TaskQueueService] 处理成功任务失败，task_id={task.id}, error={e}")
 
     @staticmethod
     async def handle_failed_tasks():
         handle_failed_task_limit = 128
-        tasks = await TaskManager.get_oldest_tasks_by_status(
+        tasks = await TaskPGManager.get_oldest_tasks_by_status(
             TaskStatusEnum.FAILED_PENDING_REMOVE, handle_failed_task_limit
         )
         pending_task_ids = []
@@ -135,7 +134,7 @@ class TaskHandler:
     async def handle_pending_tasks():
         handle_pending_task_limit = 128
         single_batch_limit = 10
-        pending_tasks = await TaskManager.get_oldest_tasks_by_status(
+        pending_tasks = await TaskPGManager.get_oldest_tasks_by_status(
             TaskStatusEnum.PENDING, handle_pending_task_limit
         )
         running_task_ids = []

@@ -1,65 +1,72 @@
-import json
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL-specific manager for diagnosis_config."""
+from __future__ import annotations
+
 from datetime import datetime
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+
 from latency.config.config import Config
-from latency.database.engine import AsyncSQLiteSingleton
+from latency.database.engine import PGManager
+from latency.database.models import DiagnosisConfig
 from latency.schemas.config import DiagnosisRuntimeConfig
 
 
-class DiagnosisConfigManager:
-    """按资产库持久化诊断配置。"""
-
+class DiagnosisConfigPGManager:
     @staticmethod
     def get_default_config() -> DiagnosisRuntimeConfig:
         return Config().get_default_diagnosis_config()
 
     @staticmethod
     async def get_or_create(kb_id: str) -> DiagnosisRuntimeConfig:
-        rows = await AsyncSQLiteSingleton().execute_query(
-            "SELECT config_json FROM diagnosis_config_table WHERE kb_id = :kb_id",
-            {"kb_id": kb_id},
-        )
-        if rows:
-            return DiagnosisRuntimeConfig.model_validate_json(rows[0]["config_json"])
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(DiagnosisConfig.config_json).where(DiagnosisConfig.kb_id == kb_id)
+            )
+            row = result.scalar_one_or_none()
+        if row:
+            return DiagnosisRuntimeConfig.model_validate(row)
 
-        config = DiagnosisConfigManager.get_default_config()
-        await DiagnosisConfigManager.upsert(kb_id, config)
+        config = DiagnosisConfigPGManager.get_default_config()
+        await DiagnosisConfigPGManager.upsert(kb_id, config)
         return config
 
     @staticmethod
     async def upsert(
         kb_id: str, config: DiagnosisRuntimeConfig
     ) -> DiagnosisRuntimeConfig:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            """
-            INSERT INTO diagnosis_config_table (kb_id, config_json, created_at, updated_at)
-            VALUES (:kb_id, :config_json, :created_at, :updated_at)
-            ON CONFLICT(kb_id) DO UPDATE SET
-                config_json = excluded.config_json,
-                updated_at = excluded.updated_at
-            """,
-            {
-                "kb_id": kb_id,
-                "config_json": json.dumps(
-                    config.model_dump(mode="json"), ensure_ascii=False
-                ),
-                "created_at": now,
-                "updated_at": now,
-            },
-        )
+        now = datetime.now()
+        mapping = {
+            "kb_id": kb_id,
+            "config_json": config.model_dump(mode="json"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        async with PGManager.session() as session:
+            await session.execute(
+                insert(DiagnosisConfig)
+                .values(mapping)
+                .on_conflict_do_update(
+                    index_elements=[DiagnosisConfig.kb_id],
+                    set_={
+                        "config_json": mapping["config_json"],
+                        "updated_at": mapping["updated_at"],
+                    },
+                )
+            )
         return config.model_copy(deep=True)
 
     @staticmethod
     async def reset(kb_id: str) -> DiagnosisRuntimeConfig:
-        return await DiagnosisConfigManager.upsert(
-            kb_id, DiagnosisConfigManager.get_default_config()
+        return await DiagnosisConfigPGManager.upsert(
+            kb_id, DiagnosisConfigPGManager.get_default_config()
         )
 
     @staticmethod
     async def delete(kb_id: str) -> bool:
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            "DELETE FROM diagnosis_config_table WHERE kb_id = :kb_id",
-            {"kb_id": kb_id},
-        )
-        return success
+        async with PGManager.session() as session:
+            result = await session.execute(
+                DiagnosisConfig.__table__.delete().where(DiagnosisConfig.kb_id == kb_id)
+            )
+        return (result.rowcount or 0) > 0

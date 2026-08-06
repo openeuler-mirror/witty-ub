@@ -14,7 +14,7 @@ from latency.regex.kvcache_log import (
     REMOTE_ENDPOINT_RE,
     MASTER_PROCESS_RE, MASTER_RPC_RE,
 )
-from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS
+from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS, CLIENT_INFO_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.log import LogFileModel
@@ -35,6 +35,7 @@ REMOTE_WORKER_COST_LABEL = "Worker remote worker cost parse"
 REMOTE_WORKER_RPC_LABEL = "Worker remote worker rpc parse"
 MASTER_PROCESS_LABEL = "Worker master process parse"
 MASTER_RPC_LABEL = "Worker master rpc parse"
+CLIENT_RPC_LABEL = "Client rpc parse"
 
 TIMED_LABELS = (
     SDK_PROCESS_LABEL,
@@ -141,6 +142,7 @@ class WorkerInfoParser(LogParser):
             REMOTE_WORKER_RPC_LABEL: [],
             MASTER_PROCESS_LABEL: [],
             MASTER_RPC_LABEL: [],
+            CLIENT_RPC_LABEL: [],
         }
         try:
             pod_ip = self.extract_pod_ip(path)
@@ -429,7 +431,6 @@ class WorkerInfoParser(LogParser):
                 trace_source=line,
             )
         return None
-
     def _parse_label(
         self,
         label: str,
@@ -799,3 +800,32 @@ class WorkerInfoParser(LogParser):
             "cluster_name": parts[6].strip() if plen > 6 else "",
             "msg": "|".join(parts[7:]).strip() if plen > 7 else "",
         }
+
+
+class ClientInfoParser(WorkerInfoParser):
+    """解析 SDK 客户端 INFO 中的完整 ZMQ RPC 分解字段。"""
+
+    label = "Client info parse"
+    _keywords = ("[ZMQ_RPC_FRAMEWORK_SLOW]",)
+
+    @property
+    def patterns(self) -> list[str]:
+        return getattr(self, "_runtime_patterns", CLIENT_INFO_LOG_PATTERNS)
+
+    def _parse_first_match(self, line: str, parsed: dict, ts, pod_ip: str):
+        if "[ZMQ_RPC_FRAMEWORK_SLOW]" not in line:
+            return None
+        return self._parse_label(
+            CLIENT_RPC_LABEL,
+            self._parse_client_rpc,
+            parsed,
+            ts,
+            pod_ip,
+            allow_trace_fallback=True,
+            trace_source=line,
+        )
+
+    def _parse_client_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+        return self._parse_timed_entry(
+            parsed, ts, pod_ip, MASTER_RPC_RE, EntryType.CLIENT_RPC, multiplier=1
+        )

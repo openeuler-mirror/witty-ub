@@ -6,8 +6,6 @@ warnings.filterwarnings(
     "ignore", message="pkg.resources is deprecated", category=UserWarning
 )
 
-from typing import Annotated
-from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +15,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import uvicorn
 import fastapi
 import os
-import shutil
 import logging
 from latency.ENUM.general import FilePath
 from latency.config.config import Config
@@ -37,7 +34,9 @@ from latency.routers import (
     diagnosis_case,
     diagnosis_config,
 )
-from latency.database.engine import AsyncSQLiteSingleton
+
+from latency.database.engine import PGManager
+from latency.database.init import init_postgresql_database
 from latency.exceptions import BaseBizException, NotFoundBizException, ConflictBizException, BadRequestBizException
 from pydantic import ValidationError
 
@@ -154,9 +153,19 @@ async def mk_dirs():
 async def startup_event():
     await configure()
     await mk_dirs()
-    await AsyncSQLiteSingleton().init_database()
+
+    config = Config().get_config()
+    PGManager.initialize(
+        config.db.pg_dsn_url(),
+        pool_size=config.db.pg_pool_size,
+        max_overflow=config.db.pg_max_overflow,
+    )
+    await PGManager.init_timezone()
+    await init_postgresql_database()
+    logger.info("PostgreSQL backend initialized")
+
     await FailureModeKnowledge().init_failure_mode_knowledge()
-    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5, max_instances=3)
+    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5, max_instances=6)
     scheduler.start()
 
 

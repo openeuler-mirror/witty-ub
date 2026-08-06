@@ -1,987 +1,385 @@
-from latency.schemas.log import (
-    SrcDstAggregatedEventDataclass,
-    SrcDstAggregatedEventModel,
-)
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
+"""PostgreSQL-specific manager for src_dst_aggregated_event.
+
+The table stores dimensions + counts; all statistics are computed on the fly
+from log_parse_result via ordered-set aggregates.  The aggregate ``id`` column
+is preserved so ``get_aggregated_event_by_id`` returns the same object that the
+worker wrote.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any
+
+from sqlalchemy import Integer, case, func, select, text
+from sqlalchemy.dialects.postgresql import insert
+
+from latency.config.config import Config
+from latency.database.engine import PGManager
+from latency.database.models import LogFile, LogParseResult, SrcDstAggregatedEvent
+from latency.database.utils import format_ip, format_timestamp, parse_ip, parse_timestamp
+from latency.schemas.log import SrcDstAggregatedEventDataclass
 from latency.schemas.request import ListSrcDstAggregatedEventRequest
-from latency.database.engine import AsyncSQLiteSingleton
+
+logger = logging.getLogger(__name__)
 
 
-def _aggregated_event_to_db_tuple(
-    event: SrcDstAggregatedEventDataclass | SrcDstAggregatedEventModel,
-) -> tuple:
-    return (
-        event.id,
-        event.src_ip,
-        event.dst_ip,
-        event.log_id,
-        event.operation,
-        event.log_parse_result_cnt,
-        event.anomaly_log_parse_result_cnt,
-        event.anomaly_cnt,
-        event.ave_total_latency,
-        event.min_total_latency,
-        event.max_total_latency,
-        event.p99_total_latency,
-        event.p95_total_latency,
-        event.ave_query_meta_latency,
-        event.min_query_meta_latency,
-        event.max_query_meta_latency,
-        event.p99_query_meta_latency,
-        event.p95_query_meta_latency,
-        event.ave_urma_total_latency,
-        event.min_urma_total_latency,
-        event.max_urma_total_latency,
-        event.p99_urma_total_latency,
-        event.p95_urma_total_latency,
-        event.ave_urma_link_latency,
-        event.min_urma_link_latency,
-        event.max_urma_link_latency,
-        event.p99_urma_link_latency,
-        event.p95_urma_link_latency,
-        event.ave_c2w_urma_latency,
-        event.min_c2w_urma_latency,
-        event.max_c2w_urma_latency,
-        event.p99_c2w_urma_latency,
-        event.p95_c2w_urma_latency,
-        event.ave_w2w_urma_latency,
-        event.min_w2w_urma_latency,
-        event.max_w2w_urma_latency,
-        event.p99_w2w_urma_latency,
-        event.p95_w2w_urma_latency,
-        event.ave_create_latency,
-        event.min_create_latency,
-        event.max_create_latency,
-        event.p99_create_latency,
-        event.p95_create_latency,
-        event.ave_publish_latency,
-        event.min_publish_latency,
-        event.max_publish_latency,
-        event.p99_publish_latency,
-        event.p95_publish_latency,
-        event.ave_worker_total_latency,
-        event.min_worker_total_latency,
-        event.max_worker_total_latency,
-        event.p99_worker_total_latency,
-        event.p95_worker_total_latency,
-        event.existed_status,
-        event.created_at,
-    )
+class SrcDstAggregatedEventPGManager:
+    _COPY_THRESHOLD = 1_000
+    _COPY_BATCH_SIZE = 50_000
 
-
-class SrcDstAggregatedEventManager:
-    """聚合事件管理器"""
+    _COPY_COLUMNS = [
+        "id",
+        "src_ip",
+        "dst_ip",
+        "log_id",
+        "log_parse_result_cnt",
+        "anomaly_log_parse_result_cnt",
+        "anomaly_cnt",
+        "existed_status",
+        "created_at",
+    ]
 
     @staticmethod
-    async def add_aggregated_event(event: SrcDstAggregatedEventModel) -> bool:
-        """添加聚合事件"""
-        sql_str = """
-            INSERT INTO src_dst_aggregated_event_table (
-                id, src_ip, dst_ip, log_id, operation, log_parse_result_cnt,
-                anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
-                min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
-                ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
-                p99_query_meta_latency, p95_query_meta_latency, ave_urma_total_latency,
-                min_urma_total_latency, max_urma_total_latency, p99_urma_total_latency,
-                p95_urma_total_latency, ave_urma_link_latency, min_urma_link_latency,
-                max_urma_link_latency, p99_urma_link_latency, p95_urma_link_latency,
-                ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
-                p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
-                min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                p95_w2w_urma_latency, ave_create_latency, min_create_latency,
-                max_create_latency, p99_create_latency, p95_create_latency,
-                ave_publish_latency, min_publish_latency, max_publish_latency,
-                p99_publish_latency, p95_publish_latency, ave_worker_total_latency,
-                min_worker_total_latency, max_worker_total_latency, p99_worker_total_latency,
-                p95_worker_total_latency, existed_status, created_at
-            ) VALUES (
-                :id, :src_ip, :dst_ip, :log_id, :operation, :log_parse_result_cnt,
-                :anomaly_log_parse_result_cnt, :anomaly_cnt, :ave_total_latency,
-                :min_total_latency, :max_total_latency, :p99_total_latency, :p95_total_latency,
-                :ave_query_meta_latency, :min_query_meta_latency, :max_query_meta_latency,
-                :p99_query_meta_latency, :p95_query_meta_latency, :ave_urma_total_latency,
-                :min_urma_total_latency, :max_urma_total_latency, :p99_urma_total_latency,
-                :p95_urma_total_latency, :ave_urma_link_latency, :min_urma_link_latency,
-                :max_urma_link_latency, :p99_urma_link_latency, :p95_urma_link_latency,
-                :ave_c2w_urma_latency, :min_c2w_urma_latency, :max_c2w_urma_latency,
-                :p99_c2w_urma_latency, :p95_c2w_urma_latency, :ave_w2w_urma_latency,
-                :min_w2w_urma_latency, :max_w2w_urma_latency, :p99_w2w_urma_latency,
-                :p95_w2w_urma_latency, :ave_create_latency, :min_create_latency,
-                :max_create_latency, :p99_create_latency, :p95_create_latency,
-                :ave_publish_latency, :min_publish_latency, :max_publish_latency,
-                :p99_publish_latency, :p95_publish_latency, :ave_worker_total_latency,
-                :min_worker_total_latency, :max_worker_total_latency, :p99_worker_total_latency,
-                :p95_worker_total_latency, :existed_status, :created_at
-            )
-        """
-        success, _ = await AsyncSQLiteSingleton().execute_modify(
-            sql_str, event.model_dump(exclude_none=False, by_alias=True)
+    def _format_row(row: dict[str, Any]) -> dict[str, Any]:
+        row["src_ip"] = format_ip(row.get("src_ip")) or ""
+        row["dst_ip"] = format_ip(row.get("dst_ip")) or ""
+        return row
+
+    @staticmethod
+    def _event_to_mapping(event: SrcDstAggregatedEventDataclass) -> dict[str, Any]:
+        return {
+            "id": event.id,
+            "src_ip": parse_ip(event.src_ip),
+            "dst_ip": parse_ip(event.dst_ip),
+            "log_id": event.log_id,
+            "log_parse_result_cnt": event.log_parse_result_cnt,
+            "anomaly_log_parse_result_cnt": event.anomaly_log_parse_result_cnt,
+            "anomaly_cnt": event.anomaly_cnt,
+            "existed_status": event.existed_status,
+        }
+
+    @staticmethod
+    def _event_to_copy_tuple(event: SrcDstAggregatedEventDataclass) -> tuple[Any, ...]:
+        return (
+            event.id,
+            parse_ip(event.src_ip),
+            parse_ip(event.dst_ip),
+            event.log_id,
+            event.log_parse_result_cnt,
+            event.anomaly_log_parse_result_cnt,
+            event.anomaly_cnt,
+            event.existed_status,
+            parse_timestamp(event.created_at),
         )
-        return success
 
     @staticmethod
     async def add_aggregated_events(
-        events: list[SrcDstAggregatedEventDataclass]
-        | list[SrcDstAggregatedEventModel],
-        batch_size: int = 50000,
-    ) -> list[str]:
-        """批量添加聚合事件：全局单事务 + SQLite写入优化 + 线程安全修复"""
-        import asyncio
-        import logging
-        
-        logger = logging.getLogger(__name__)
-        
+        events: list[SrcDstAggregatedEventDataclass],
+    ) -> None:
         if not events:
-            return []
-            
-        ids_added = [event.id for event in events]
-        total_count = len(events)
-        db = AsyncSQLiteSingleton()
-        
-        async with db._async_lock:
-            def sync_batch_insert():
-                db.ensure_initialized()
-                conn = db._write_conn
-                try:
-                    conn.execute("PRAGMA journal_mode = WAL;")
-                    conn.execute("PRAGMA synchronous = NORMAL;")
-                    conn.execute("PRAGMA cache_size = -65536;")
-                    conn.execute("PRAGMA temp_store = MEMORY;")
-                    conn.execute("PRAGMA foreign_keys = OFF;")
-                    
-                    conn.execute("BEGIN TRANSACTION;")
-                    
-                    sql_str = """
-                        INSERT INTO src_dst_aggregated_event_table (
-                            id, src_ip, dst_ip, log_id, operation, log_parse_result_cnt,
-                            anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
-                            min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
-                            ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
-                            p99_query_meta_latency, p95_query_meta_latency, ave_urma_total_latency,
-                            min_urma_total_latency, max_urma_total_latency, p99_urma_total_latency,
-                            p95_urma_total_latency, ave_urma_link_latency, min_urma_link_latency,
-                            max_urma_link_latency, p99_urma_link_latency, p95_urma_link_latency,
-                            ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
-                            p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
-                            min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                            p95_w2w_urma_latency, ave_create_latency, min_create_latency,
-                            max_create_latency, p99_create_latency, p95_create_latency,
-                            ave_publish_latency, min_publish_latency, max_publish_latency,
-                            p99_publish_latency, p95_publish_latency, ave_worker_total_latency,
-                            min_worker_total_latency, max_worker_total_latency, p99_worker_total_latency,
-                            p95_worker_total_latency, existed_status, created_at
-                        ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        )
-                    """
-                    for i in range(0, total_count, batch_size):
-                        end = min(i + batch_size, total_count)
-                        batch = (
-                            _aggregated_event_to_db_tuple(events[index])
-                            for index in range(i, end)
-                        )
-                        conn.executemany(sql_str, batch)
-                    
-                    conn.commit()
-                    logger.info(f"[Store] 单事务插入成功，共 {total_count:,} 条记录")
-                    return True
-                except Exception as e:
-                    conn.rollback()
-                    logger.error(f"[Store] 插入失败，事务回滚: {str(e)}")
-                    return False
-            
-            success = await asyncio.to_thread(sync_batch_insert)
-            return ids_added if success else []
+            return
+        if len(events) >= SrcDstAggregatedEventPGManager._COPY_THRESHOLD:
+            await SrcDstAggregatedEventPGManager._add_aggregated_events_copy(events)
+            return
+        mappings = [
+            SrcDstAggregatedEventPGManager._event_to_mapping(e) for e in events
+        ]
+        async with PGManager.connection() as conn:
+            await conn.execute(insert(SrcDstAggregatedEvent), mappings)
+
+    @staticmethod
+    async def _add_aggregated_events_copy(
+        events: list[SrcDstAggregatedEventDataclass],
+    ) -> None:
+        t_start = time.perf_counter()
+        records = [SrcDstAggregatedEventPGManager._event_to_copy_tuple(e) for e in events]
+        async with PGManager.connection() as conn:
+            raw_conn = await conn.get_raw_connection()
+            asyncpg_conn = raw_conn.driver_connection
+            for i in range(0, len(records), SrcDstAggregatedEventPGManager._COPY_BATCH_SIZE):
+                batch = records[i : i + SrcDstAggregatedEventPGManager._COPY_BATCH_SIZE]
+                await asyncpg_conn.copy_records_to_table(
+                    "src_dst_aggregated_event",
+                    records=batch,
+                    columns=SrcDstAggregatedEventPGManager._COPY_COLUMNS,
+                )
+        logger.info(
+            "[Store][PG] COPY %s src_dst_aggregated_event rows done in %.3fs",
+            len(events),
+            time.perf_counter() - t_start,
+        )
+
+    @staticmethod
+    def _stat_expr(col, stat_type: str):
+        if stat_type == "p95":
+            return func.percentile_cont(0.95).within_group(col.asc())
+        if stat_type == "p99":
+            return func.percentile_cont(0.99).within_group(col.asc())
+        if stat_type == "ave":
+            return func.avg(col)
+        return getattr(func, stat_type)(col)
+
+    @staticmethod
+    def _stats_columns(field_map: dict[str, Any]) -> list[Any]:
+        valid_stat_types = {"ave", "min", "max", "p95", "p99"}
+        cols = []
+        for name, col in field_map.items():
+            for st in valid_stat_types:
+                cols.append(
+                    SrcDstAggregatedEventPGManager._stat_expr(col, st).label(
+                        f"{st}_{name}"
+                    )
+                )
+        return cols
+
+    @staticmethod
+    def _build_stats_subquery(
+        req: ListSrcDstAggregatedEventRequest,
+    ) -> Any:
+        field_map = {
+            "total_latency": LogParseResult.total_latency,
+            "query_meta_latency": LogParseResult.worker_query_meta_latency,
+            "urma_total_latency": LogParseResult.urma_total_latency,
+            "urma_link_latency": LogParseResult.urma_link_latency,
+            "c2w_urma_latency": LogParseResult.c2w_urma_latency,
+            "w2w_urma_latency": LogParseResult.w2w_urma_latency,
+        }
+
+        filters = [LogParseResult.existed_status.is_(True)]
+        if req.log_id:
+            filters.append(LogParseResult.log_id == req.log_id)
+        if req.start_time:
+            filters.append(LogParseResult.timestamp >= parse_timestamp(req.start_time))
+        if req.end_time:
+            filters.append(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+        if req.src_ip:
+            filters.append(
+                func.host(LogParseResult.src_ip).like(f"%{req.src_ip}%")
+            )
+        if req.dst_ip:
+            filters.append(
+                func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%")
+            )
+        if req.cluster_name:
+            filters.append(LogParseResult.cluster_name == req.cluster_name)
+        if req.host:
+            filters.append(LogParseResult.host == req.host)
+        if req.pod_ip:
+            filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
+        if req.operation:
+            filters.append(LogParseResult.operation.ilike(f"%{req.operation}%"))
+
+        return (
+            select(
+                LogParseResult.log_id,
+                LogParseResult.src_ip,
+                LogParseResult.dst_ip,
+                func.count().label("log_parse_result_cnt"),
+                func.sum(
+                    case((LogParseResult.anomalous_event_id != "", 1), else_=0)
+                ).label("anomaly_log_parse_result_cnt"),
+                func.sum(func.cast(LogParseResult.is_anomalous, Integer)).label(
+                    "anomaly_cnt"
+                ),
+                *SrcDstAggregatedEventPGManager._stats_columns(field_map),
+            )
+            .where(*filters)
+            .group_by(
+                LogParseResult.log_id, LogParseResult.src_ip, LogParseResult.dst_ip
+            )
+            .subquery()
+        )
+
+    @staticmethod
+    async def list_aggregated_events(
+        req: ListSrcDstAggregatedEventRequest,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        """Return src/dst aggregates with real-time statistics.
+
+        Mirrors the SQLite ``SrcDstAggregatedEventManager.list_aggregated_events``
+        interface so the service layer can swap backends transparently.  The row
+        ``id`` comes from the stored ``src_dst_aggregated_event`` row so the
+        result is consistent with ``get_aggregated_event_by_id``.
+        """
+        valid_stat_types = {"ave", "min", "max", "p95", "p99"}
+        stat = req.stat_type if req.stat_type in valid_stat_types else "ave"
+
+        subq = SrcDstAggregatedEventPGManager._build_stats_subquery(req)
+
+        selected_agg_cols = [
+            SrcDstAggregatedEvent.id,
+            SrcDstAggregatedEvent.src_ip,
+            SrcDstAggregatedEvent.dst_ip,
+            SrcDstAggregatedEvent.log_id,
+            SrcDstAggregatedEvent.existed_status,
+            SrcDstAggregatedEvent.created_at,
+        ]
+        stmt = (
+            select(*selected_agg_cols, *subq.columns)
+            .select_from(SrcDstAggregatedEvent)
+            .join(
+                subq,
+                (
+                    SrcDstAggregatedEvent.log_id == subq.c.log_id
+                )
+                & (SrcDstAggregatedEvent.src_ip == subq.c.src_ip)
+                & (SrcDstAggregatedEvent.dst_ip == subq.c.dst_ip),
+            )
+            .where(SrcDstAggregatedEvent.existed_status.is_(True))
+        )
+
+        if req.log_id:
+            stmt = stmt.where(SrcDstAggregatedEvent.log_id == req.log_id)
+        if req.src_ip:
+            stmt = stmt.where(
+                func.host(SrcDstAggregatedEvent.src_ip).like(f"%{req.src_ip}%")
+            )
+        if req.dst_ip:
+            stmt = stmt.where(
+                func.host(SrcDstAggregatedEvent.dst_ip).like(f"%{req.dst_ip}%")
+            )
+
+        if req.kb_id:
+            stmt = stmt.join(LogFile, SrcDstAggregatedEvent.log_id == LogFile.id).where(
+                LogFile.kb_id == req.kb_id
+            )
+
+        sort_field_mapping = {
+            "total_latency": subq.c[f"{stat}_total_latency"],
+            "query_meta_latency": subq.c[f"{stat}_query_meta_latency"],
+            "urma_total_latency": subq.c[f"{stat}_urma_total_latency"],
+            "urma_link_latency": subq.c[f"{stat}_urma_link_latency"],
+            "c2w_urma_latency": subq.c[f"{stat}_c2w_urma_latency"],
+            "w2w_urma_latency": subq.c[f"{stat}_w2w_urma_latency"],
+            "src_ip": SrcDstAggregatedEvent.src_ip,
+            "dst_ip": SrcDstAggregatedEvent.dst_ip,
+            "log_parse_result_cnt": subq.c.log_parse_result_cnt,
+            "anomaly_log_parse_result_cnt": subq.c.anomaly_log_parse_result_cnt,
+            "anomaly_cnt": subq.c.anomaly_cnt,
+            "created_at": SrcDstAggregatedEvent.created_at,
+        }
+
+        order_clauses = []
+        if req.sort_fields:
+            for sf in req.sort_fields:
+                col = sort_field_mapping.get(sf.field)
+                if col is not None:
+                    order_clauses.append(col.desc() if sf.order == "desc" else col.asc())
+        if not order_clauses:
+            order_clauses.append(sort_field_mapping["total_latency"].desc())
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        data_stmt = (
+            stmt.order_by(*order_clauses)
+            .limit(req.page_cnt)
+            .offset((req.page_num - 1) * req.page_cnt)
+        )
+
+        async with PGManager.session() as session:
+            total = (await session.execute(count_stmt)).scalar_one()
+            rows = (await session.execute(data_stmt)).all()
+
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            mapping = dict(row._mapping)
+            data: dict[str, Any] = {
+                "id": mapping["id"],
+                "src_ip": mapping["src_ip"],
+                "dst_ip": mapping["dst_ip"],
+                "log_id": mapping["log_id"],
+                "log_parse_result_cnt": mapping.get("log_parse_result_cnt"),
+                "anomaly_log_parse_result_cnt": mapping.get(
+                    "anomaly_log_parse_result_cnt"
+                ),
+                "anomaly_cnt": mapping.get("anomaly_cnt"),
+                "existed_status": mapping["existed_status"],
+                "created_at": format_timestamp(mapping["created_at"]),
+            }
+            for name in [
+                "total_latency",
+                "query_meta_latency",
+                "urma_total_latency",
+                "urma_link_latency",
+                "c2w_urma_latency",
+                "w2w_urma_latency",
+            ]:
+                for st in valid_stat_types:
+                    data[f"{st}_{name}"] = mapping.get(f"{st}_{name}")
+            out.append(SrcDstAggregatedEventPGManager._format_row(data))
+        return total, out
+
+    @staticmethod
+    async def get_aggregated_event_by_id(
+        event_id: str,
+    ) -> dict[str, Any] | None:
+        """Look up the aggregate row by its UUID and compute real-time stats."""
+        async with PGManager.session() as session:
+            agg = await session.get(SrcDstAggregatedEvent, event_id)
+            if agg is None or not agg.existed_status:
+                return None
+
+        field_map = {
+            "total_latency": LogParseResult.total_latency,
+            "query_meta_latency": LogParseResult.worker_query_meta_latency,
+            "urma_total_latency": LogParseResult.urma_total_latency,
+            "urma_link_latency": LogParseResult.urma_link_latency,
+            "c2w_urma_latency": LogParseResult.c2w_urma_latency,
+            "w2w_urma_latency": LogParseResult.w2w_urma_latency,
+        }
+
+        stmt = (
+            select(
+                LogParseResult.log_id,
+                LogParseResult.src_ip,
+                LogParseResult.dst_ip,
+                func.count().label("log_parse_result_cnt"),
+                func.sum(
+                    case((LogParseResult.anomalous_event_id != "", 1), else_=0)
+                ).label("anomaly_log_parse_result_cnt"),
+                func.sum(func.cast(LogParseResult.is_anomalous, Integer)).label(
+                    "anomaly_cnt"
+                ),
+                *SrcDstAggregatedEventPGManager._stats_columns(field_map),
+            )
+            .where(LogParseResult.log_id == agg.log_id)
+            .where(LogParseResult.src_ip == agg.src_ip)
+            .where(LogParseResult.dst_ip == agg.dst_ip)
+            .where(LogParseResult.existed_status.is_(True))
+            .group_by(LogParseResult.log_id, LogParseResult.src_ip, LogParseResult.dst_ip)
+        )
+
+        async with PGManager.session() as session:
+            row = (await session.execute(stmt)).one_or_none()
+            if row is None:
+                return None
+            data = dict(row._mapping)
+            data["id"] = agg.id
+            data["existed_status"] = agg.existed_status
+            data["created_at"] = format_timestamp(agg.created_at)
+            return SrcDstAggregatedEventPGManager._format_row(data)
 
     @staticmethod
     async def delete_aggregated_events_by_log_id(log_id: str) -> bool:
-        """根据日志ID删除聚合事件"""
-        sql_str = """
-            UPDATE src_dst_aggregated_event_table
-            SET existed_status = 0
-            WHERE log_id = :log_id
-        """
-        params = {"log_id": log_id}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
+        """Hard delete all src/dst aggregates for a log_id."""
+        async with PGManager.connection() as conn:
+            await conn.execute(
+                text("DELETE FROM src_dst_aggregated_event WHERE log_id = :log_id"),
+                {"log_id": log_id},
+            )
+        return True
 
     @staticmethod
     async def update_aggregated_events_existed_status_by_log_id(
         log_id: str, existed_status: int
     ) -> bool:
-        """根据日志ID更新聚合事件的existed_status"""
-        sql_str = """
-            UPDATE src_dst_aggregated_event_table
-            SET existed_status = :existed_status
-            WHERE log_id = :log_id
-        """
-        params = {"log_id": log_id, "existed_status": existed_status}
-        success, _ = await AsyncSQLiteSingleton().execute_modify(sql_str, params)
-        return success
-
-    @staticmethod
-    async def list_aggregated_events(
-        req: ListSrcDstAggregatedEventRequest,
-    ) -> tuple[int, list[SrcDstAggregatedEventModel]]:
-        """分页查询聚合事件"""
-        params = {}
-        cte_sql = ""
-        matched_event_join = ""
-        if req.cluster_name or req.host or req.pod_ip:
-            original_filters = []
-            scope_filters = []
-            if req.cluster_name:
-                original_filters.append("lpr.cluster_name = :cluster_name")
-                params["cluster_name"] = req.cluster_name
-            if req.host:
-                original_filters.append("lpr.host = :host")
-                params["host"] = req.host
-            if req.pod_ip:
-                original_filters.append("""
-                    lpr.id IN (
-                        SELECT pod_map.log_parse_result_id
-                        FROM log_parse_result_pod_ip_table AS pod_map
-                        WHERE pod_map.pod_ip = :pod_ip
-                    )
-                """)
-                params["pod_ip"] = req.pod_ip
-            if req.kb_id:
-                scope_filters.append("matched_lf.kb_id = :kb_id")
-            if req.log_id:
-                scope_filters.append("lpr.log_id = :log_id")
-            scope_sql = ""
-            matched_log_file_join = ""
-            if req.kb_id:
-                matched_log_file_join = (
-                    "INNER JOIN log_file_table AS matched_lf ON matched_lf.id = lpr.log_id"
-                )
-            if scope_filters:
-                scope_sql = " AND " + " AND ".join(scope_filters)
-            cte_sql = """
-                WITH matched_aggregated_events AS MATERIALIZED (
-                    SELECT DISTINCT lpr.aggregated_event_id
-                    FROM log_parse_result_table AS lpr
-                    {}
-                    WHERE lpr.existed_status = 1
-                      AND lpr.aggregated_event_id != ''
-                      AND {}
-                      {}
-                )
-            """.format(
-                matched_log_file_join,
-                " AND ".join(original_filters),
-                scope_sql,
+        async with PGManager.connection() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE src_dst_aggregated_event "
+                    "SET existed_status = :existed_status WHERE log_id = :log_id"
+                ),
+                {"log_id": log_id, "existed_status": bool(existed_status)},
             )
-            matched_event_join = """
-                INNER JOIN matched_aggregated_events AS matched
-                    ON matched.aggregated_event_id = ae.id
-            """
-
-        sql_str = cte_sql + """
-            SELECT ae.id, ae.src_ip, ae.dst_ip, ae.log_id, ae.operation, ae.log_parse_result_cnt,
-                ae.anomaly_log_parse_result_cnt, ae.anomaly_cnt, ae.ave_total_latency,
-                ae.min_total_latency, ae.max_total_latency, ae.p99_total_latency, ae.p95_total_latency,
-                ae.ave_query_meta_latency, ae.min_query_meta_latency, ae.max_query_meta_latency,
-                ae.p99_query_meta_latency, ae.p95_query_meta_latency, ae.ave_urma_total_latency,
-                ae.min_urma_total_latency, ae.max_urma_total_latency, ae.p99_urma_total_latency,
-                ae.p95_urma_total_latency, ae.ave_urma_link_latency, ae.min_urma_link_latency,
-                ae.max_urma_link_latency, ae.p99_urma_link_latency, ae.p95_urma_link_latency,
-                ae.ave_c2w_urma_latency, ae.min_c2w_urma_latency, ae.max_c2w_urma_latency,
-                ae.p99_c2w_urma_latency, ae.p95_c2w_urma_latency, ae.ave_w2w_urma_latency,
-                ae.min_w2w_urma_latency, ae.max_w2w_urma_latency, ae.p99_w2w_urma_latency,
-                ae.p95_w2w_urma_latency, ae.ave_create_latency, ae.min_create_latency,
-                ae.max_create_latency, ae.p99_create_latency, ae.p95_create_latency,
-                ae.ave_publish_latency, ae.min_publish_latency, ae.max_publish_latency,
-                ae.p99_publish_latency, ae.p95_publish_latency, ae.ave_worker_total_latency,
-                ae.min_worker_total_latency, ae.max_worker_total_latency, ae.p99_worker_total_latency,
-                ae.p95_worker_total_latency, ae.existed_status, ae.created_at
-            FROM src_dst_aggregated_event_table ae
-            {}
-            LEFT JOIN log_file_table lf ON ae.log_id = lf.id
-            WHERE ae.existed_status = 1
-        """.format(matched_event_join)
-        if req.kb_id:
-            sql_str += " AND lf.kb_id = :kb_id"
-            params["kb_id"] = req.kb_id
-        if req.log_id:
-            sql_str += " AND ae.log_id = :log_id"
-            params["log_id"] = req.log_id
-        if req.src_ip:
-            sql_str += " AND ae.src_ip LIKE :src_ip"
-            params["src_ip"] = f"%{req.src_ip}%"
-        if req.dst_ip:
-            sql_str += " AND ae.dst_ip LIKE :dst_ip"
-            params["dst_ip"] = f"%{req.dst_ip}%"
-        if req.start_time:
-            sql_str += " AND ae.created_at >= :start_time"
-            params["start_time"] = req.start_time
-        if req.end_time:
-            sql_str += " AND ae.created_at <= :end_time"
-            params["end_time"] = req.end_time
-        if req.operation:
-            op = req.operation.upper()
-            if op == "GET":
-                # 兼容旧数据：operation 为空的历史数据视为 GET 请求
-                sql_str += " AND (ae.operation = :operation OR ae.operation = '')"
-            else:
-                sql_str += " AND ae.operation = :operation"
-            params["operation"] = op
-
-        count_sql = f"SELECT COUNT(*) as cnt FROM ({sql_str})"
-        count_rows = await AsyncSQLiteSingleton().execute_query(count_sql, params)
-        total = count_rows[0]["cnt"] if count_rows else 0
-
-        stat_type = req.stat_type if req.stat_type in ["p99", "p95", "ave", "min", "max"] else "ave"
-        
-        sort_field_mapping = {
-            "total_latency": f"ae.{stat_type}_total_latency",
-            "query_meta_latency": f"ae.{stat_type}_query_meta_latency",
-            "urma_total_latency": f"ae.{stat_type}_urma_total_latency",
-            "urma_link_latency": f"ae.{stat_type}_urma_link_latency",
-            "c2w_urma_latency": f"ae.{stat_type}_c2w_urma_latency",
-            "w2w_urma_latency": f"ae.{stat_type}_w2w_urma_latency",
-            "create_latency": f"ae.{stat_type}_create_latency",
-            "publish_latency": f"ae.{stat_type}_publish_latency",
-            "worker_total_latency": f"ae.{stat_type}_worker_total_latency",
-            "src_ip": "ae.src_ip",
-            "dst_ip": "ae.dst_ip",
-            "operation": "ae.operation",
-            "anomaly_log_parse_result_cnt": "ae.anomaly_log_parse_result_cnt",
-            "created_at": "ae.created_at",
-        }
-        
-        if req.sort_fields and len(req.sort_fields) > 0:
-            sort_clauses = []
-            for sort_field in req.sort_fields:
-                field_name = sort_field.field
-                if field_name in sort_field_mapping:
-                    order = "DESC" if sort_field.order == "desc" else "ASC"
-                    sort_clauses.append(f"{sort_field_mapping[field_name]} {order}")
-            # 如果有有效的排序字段，使用它们；否则使用默认排序
-            if sort_clauses:
-                sql_str += " ORDER BY " + ", ".join(sort_clauses)
-            else:
-                sql_str += f" ORDER BY {sort_field_mapping['total_latency']} DESC"
-        else:
-            sql_str += f" ORDER BY {sort_field_mapping['total_latency']} DESC"
-
-        offset = (req.page_num - 1) * req.page_cnt
-        sql_str += " LIMIT :limit OFFSET :offset"
-        params["limit"] = req.page_cnt
-        params["offset"] = offset
-
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        events = [SrcDstAggregatedEventModel(**row) for row in rows]
-        return total, events
-
-    @staticmethod
-    async def get_aggregated_event_by_id(
-        event_id: str,
-    ) -> SrcDstAggregatedEventModel | None:
-        """根据ID获取聚合事件"""
-        sql_str = """
-            SELECT id, src_ip, dst_ip, log_id, operation, log_parse_result_cnt,
-                anomaly_log_parse_result_cnt, anomaly_cnt, ave_total_latency,
-                min_total_latency, max_total_latency, p99_total_latency, p95_total_latency,
-                ave_query_meta_latency, min_query_meta_latency, max_query_meta_latency,
-                p99_query_meta_latency, p95_query_meta_latency, ave_urma_total_latency,
-                min_urma_total_latency, max_urma_total_latency, p99_urma_total_latency,
-                p95_urma_total_latency, ave_urma_link_latency, min_urma_link_latency,
-                max_urma_link_latency, p99_urma_link_latency, p95_urma_link_latency,
-                ave_c2w_urma_latency, min_c2w_urma_latency, max_c2w_urma_latency,
-                p99_c2w_urma_latency, p95_c2w_urma_latency, ave_w2w_urma_latency,
-                min_w2w_urma_latency, max_w2w_urma_latency, p99_w2w_urma_latency,
-                p95_w2w_urma_latency, ave_create_latency, min_create_latency,
-                max_create_latency, p99_create_latency, p95_create_latency,
-                ave_publish_latency, min_publish_latency, max_publish_latency,
-                p99_publish_latency, p95_publish_latency, ave_worker_total_latency,
-                min_worker_total_latency, max_worker_total_latency, p99_worker_total_latency,
-                p95_worker_total_latency, existed_status, created_at
-            FROM src_dst_aggregated_event_table
-            WHERE id = :event_id
-        """
-        params = {"event_id": event_id}
-        rows = await AsyncSQLiteSingleton().execute_query(sql_str, params)
-        if rows:
-            return SrcDstAggregatedEventModel(**rows[0])
-        return None
-
-    @staticmethod
-    async def list_time_window_events(
-        req,
-    ) -> tuple[int, list[dict]]:
-        """从预计算表查询时间窗口聚合事件"""
-        from collections import defaultdict
-        from datetime import datetime, timedelta
-        import math
-
-        from latency.database.managers.time_window_aggregated_event import (
-            TimeWindowAggregatedEventManager,
-        )
-
-        def strip_port(ip: str) -> str:
-            """去掉 IP 地址中的端口号"""
-            if not ip:
-                return ""
-            return ip.rsplit(":", 1)[0] if ":" in ip else ip
-
-        def calc_percentile(sorted_vals: list[float], pct: float) -> float | None:
-            if not sorted_vals:
-                return None
-            sorted_vals.sort()
-            k = (pct / 100) * (len(sorted_vals) - 1)
-            f = math.floor(k)
-            c = math.ceil(k)
-            if f == c:
-                return sorted_vals[int(k)]
-            d0 = sorted_vals[int(f)] * (c - k) if int(f) < len(sorted_vals) else 0
-            d1 = sorted_vals[int(c)] * (k - f) if int(c) < len(sorted_vals) else 0
-            return d0 + d1
-
-        def get_bucket_key(time_bucket: str, interval: str) -> str:
-            """根据 interval 截断时间戳，生成分组 key"""
-            if interval == "hour":
-                return time_bucket[:13] + ":00:00"
-            elif interval == "minute":
-                return time_bucket[:16] + ":00"
-            else:
-                return time_bucket
-
-        rows = await TimeWindowAggregatedEventManager.get_time_window_events(
-            kb_id=req.kb_id or "",
-            start_time=req.start_time or "",
-            end_time=req.end_time or "",
-            src_ip=req.src_ip,
-            dst_ip=req.dst_ip,
-            cluster_name=req.cluster_name,
-            host=req.host,
-            pod_ip=req.pod_ip,
-            operation=req.operation or None,
-        )
-
-        if not rows:
-            return 0, []
-
-        interval_delta = {
-            "second": timedelta(seconds=1),
-            "minute": timedelta(minutes=1),
-            "hour": timedelta(hours=1),
-        }.get(req.interval, timedelta(minutes=1))
-
-        time_buckets: dict[str, dict] = defaultdict(lambda: {
-            "start_time": "",
-            "end_time": "",
-            "total_cnt": 0,
-            "anomaly_cnt": 0,
-            "ip_pairs": [],
-            "ave_total_latencies": [],
-            "min_total_latencies": [],
-            "max_total_latencies": [],
-            "p99_total_latencies": [],
-            "p95_total_latencies": [],
-            "ave_query_meta_latencies": [],
-            "p99_query_meta_latencies": [],
-            "p95_query_meta_latencies": [],
-            "ave_urma_total_latencies": [],
-            "p99_urma_total_latencies": [],
-            "p95_urma_total_latencies": [],
-            "ave_urma_link_latencies": [],
-            "p99_urma_link_latencies": [],
-            "p95_urma_link_latencies": [],
-            "ave_c2w_urma_latencies": [],
-            "p99_c2w_urma_latencies": [],
-            "p95_c2w_urma_latencies": [],
-            "ave_w2w_urma_latencies": [],
-            "p99_w2w_urma_latencies": [],
-            "p95_w2w_urma_latencies": [],
-            "ave_create_latencies": [],
-            "p99_create_latencies": [],
-            "p95_create_latencies": [],
-            "ave_publish_latencies": [],
-            "p99_publish_latencies": [],
-            "p95_publish_latencies": [],
-            "ave_worker_total_latencies": [],
-            "p99_worker_total_latencies": [],
-            "p95_worker_total_latencies": [],
-        })
-
-        ip_pair_keys: dict[tuple[str, str], list[dict]] = defaultdict(list)
-
-        for row in rows:
-            bucket_key = get_bucket_key(row["time_bucket"], req.interval)
-            tb = bucket_key
-
-            if tb not in time_buckets:
-                try:
-                    start_dt = datetime.strptime(tb, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    start_dt = datetime.strptime(tb, "%Y-%m-%d %H:%M:00")
-                end_dt = start_dt + interval_delta
-                time_buckets[tb]["start_time"] = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-                time_buckets[tb]["end_time"] = end_dt.strftime("%Y-%m-%d %H:%M:%S")
-
-            bucket = time_buckets[tb]
-            cnt = row["log_parse_result_cnt"] or 0
-            anomaly_cnt = row["anomaly_cnt"] or 0
-            bucket["total_cnt"] += cnt
-            bucket["anomaly_cnt"] += anomaly_cnt
-
-            if row["ave_total_latency"] is not None:
-                bucket["ave_total_latencies"].append(row["ave_total_latency"])
-            if row["min_total_latency"] is not None:
-                bucket["min_total_latencies"].append(row["min_total_latency"])
-            if row["max_total_latency"] is not None:
-                bucket["max_total_latencies"].append(row["max_total_latency"])
-            if row["p99_total_latency"] is not None:
-                bucket["p99_total_latencies"].append(row["p99_total_latency"])
-            if row["p95_total_latency"] is not None:
-                bucket["p95_total_latencies"].append(row["p95_total_latency"])
-
-            if row["ave_query_meta_latency"] is not None:
-                bucket["ave_query_meta_latencies"].append(row["ave_query_meta_latency"])
-            if row["p99_query_meta_latency"] is not None:
-                bucket["p99_query_meta_latencies"].append(row["p99_query_meta_latency"])
-            if row["p95_query_meta_latency"] is not None:
-                bucket["p95_query_meta_latencies"].append(row["p95_query_meta_latency"])
-
-            if row["ave_urma_total_latency"] is not None:
-                bucket["ave_urma_total_latencies"].append(row["ave_urma_total_latency"])
-            if row["p99_urma_total_latency"] is not None:
-                bucket["p99_urma_total_latencies"].append(row["p99_urma_total_latency"])
-            if row["p95_urma_total_latency"] is not None:
-                bucket["p95_urma_total_latencies"].append(row["p95_urma_total_latency"])
-
-            if row["ave_urma_link_latency"] is not None:
-                bucket["ave_urma_link_latencies"].append(row["ave_urma_link_latency"])
-            if row["p99_urma_link_latency"] is not None:
-                bucket["p99_urma_link_latencies"].append(row["p99_urma_link_latency"])
-            if row["p95_urma_link_latency"] is not None:
-                bucket["p95_urma_link_latencies"].append(row["p95_urma_link_latency"])
-
-            if row["ave_c2w_urma_latency"] is not None:
-                bucket["ave_c2w_urma_latencies"].append(row["ave_c2w_urma_latency"])
-            if row["p99_c2w_urma_latency"] is not None:
-                bucket["p99_c2w_urma_latencies"].append(row["p99_c2w_urma_latency"])
-            if row["p95_c2w_urma_latency"] is not None:
-                bucket["p95_c2w_urma_latencies"].append(row["p95_c2w_urma_latency"])
-
-            if row["ave_w2w_urma_latency"] is not None:
-                bucket["ave_w2w_urma_latencies"].append(row["ave_w2w_urma_latency"])
-            if row["p99_w2w_urma_latency"] is not None:
-                bucket["p99_w2w_urma_latencies"].append(row["p99_w2w_urma_latency"])
-            if row["p95_w2w_urma_latency"] is not None:
-                bucket["p95_w2w_urma_latencies"].append(row["p95_w2w_urma_latency"])
-
-            if row["ave_create_latency"] is not None:
-                bucket["ave_create_latencies"].append(row["ave_create_latency"])
-            if row["p99_create_latency"] is not None:
-                bucket["p99_create_latencies"].append(row["p99_create_latency"])
-            if row["p95_create_latency"] is not None:
-                bucket["p95_create_latencies"].append(row["p95_create_latency"])
-            if row["ave_publish_latency"] is not None:
-                bucket["ave_publish_latencies"].append(row["ave_publish_latency"])
-            if row["p99_publish_latency"] is not None:
-                bucket["p99_publish_latencies"].append(row["p99_publish_latency"])
-            if row["p95_publish_latency"] is not None:
-                bucket["p95_publish_latencies"].append(row["p95_publish_latency"])
-            if row["ave_worker_total_latency"] is not None:
-                bucket["ave_worker_total_latencies"].append(row["ave_worker_total_latency"])
-            if row["p99_worker_total_latency"] is not None:
-                bucket["p99_worker_total_latencies"].append(row["p99_worker_total_latency"])
-            if row["p95_worker_total_latency"] is not None:
-                bucket["p95_worker_total_latencies"].append(row["p95_worker_total_latency"])
-
-            ip_pair_key = (strip_port(row["src_ip"] or ""), strip_port(row["dst_ip"] or ""))
-            ip_pair_keys[ip_pair_key].append({
-                "row": row,
-                "bucket_key": bucket_key,
-                "cnt": cnt,
-                "anomaly_cnt": anomaly_cnt,
-            })
-
-        for ip_pair_key, entries in ip_pair_keys.items():
-            src_ip, dst_ip = ip_pair_key
-
-            ip_pair_group: dict[str, dict] = defaultdict(lambda: {
-                "cnt": 0,
-                "anomaly_cnt": 0,
-                "ave_total_latencies": [],
-                "min_total_latencies": [],
-                "max_total_latencies": [],
-                "p99_total_latencies": [],
-                "p95_total_latencies": [],
-                "ave_query_meta_latencies": [],
-                "min_query_meta_latencies": [],
-                "max_query_meta_latencies": [],
-                "p99_query_meta_latencies": [],
-                "p95_query_meta_latencies": [],
-                "ave_urma_total_latencies": [],
-                "min_urma_total_latencies": [],
-                "max_urma_total_latencies": [],
-                "p99_urma_total_latencies": [],
-                "p95_urma_total_latencies": [],
-                "ave_urma_link_latencies": [],
-                "min_urma_link_latencies": [],
-                "max_urma_link_latencies": [],
-                "p99_urma_link_latencies": [],
-                "p95_urma_link_latencies": [],
-                "ave_c2w_urma_latencies": [],
-                "min_c2w_urma_latencies": [],
-                "max_c2w_urma_latencies": [],
-                "p99_c2w_urma_latencies": [],
-                "p95_c2w_urma_latencies": [],
-                "ave_w2w_urma_latencies": [],
-                "min_w2w_urma_latencies": [],
-                "max_w2w_urma_latencies": [],
-                "p99_w2w_urma_latencies": [],
-                "p95_w2w_urma_latencies": [],
-                "ave_create_latencies": [],
-                "min_create_latencies": [],
-                "max_create_latencies": [],
-                "p99_create_latencies": [],
-                "p95_create_latencies": [],
-                "ave_publish_latencies": [],
-                "min_publish_latencies": [],
-                "max_publish_latencies": [],
-                "p99_publish_latencies": [],
-                "p95_publish_latencies": [],
-                "ave_worker_total_latencies": [],
-                "min_worker_total_latencies": [],
-                "max_worker_total_latencies": [],
-                "p99_worker_total_latencies": [],
-                "p95_worker_total_latencies": [],
-            })
-
-            for entry in entries:
-                bucket_key = entry["bucket_key"]
-                row = entry["row"]
-                cnt = entry["cnt"]
-                anomaly_cnt = entry["anomaly_cnt"]
-
-                g = ip_pair_group[bucket_key]
-                g["cnt"] += cnt
-                g["anomaly_cnt"] += anomaly_cnt
-
-                if row["ave_total_latency"] is not None:
-                    g["ave_total_latencies"].append(row["ave_total_latency"])
-                if row["min_total_latency"] is not None:
-                    g["min_total_latencies"].append(row["min_total_latency"])
-                if row["max_total_latency"] is not None:
-                    g["max_total_latencies"].append(row["max_total_latency"])
-                if row["p99_total_latency"] is not None:
-                    g["p99_total_latencies"].append(row["p99_total_latency"])
-                if row["p95_total_latency"] is not None:
-                    g["p95_total_latencies"].append(row["p95_total_latency"])
-
-                if row["ave_query_meta_latency"] is not None:
-                    g["ave_query_meta_latencies"].append(row["ave_query_meta_latency"])
-                if row["min_query_meta_latency"] is not None:
-                    g["min_query_meta_latencies"].append(row["min_query_meta_latency"])
-                if row["max_query_meta_latency"] is not None:
-                    g["max_query_meta_latencies"].append(row["max_query_meta_latency"])
-                if row["p99_query_meta_latency"] is not None:
-                    g["p99_query_meta_latencies"].append(row["p99_query_meta_latency"])
-                if row["p95_query_meta_latency"] is not None:
-                    g["p95_query_meta_latencies"].append(row["p95_query_meta_latency"])
-
-                if row["ave_urma_total_latency"] is not None:
-                    g["ave_urma_total_latencies"].append(row["ave_urma_total_latency"])
-                if row["min_urma_total_latency"] is not None:
-                    g["min_urma_total_latencies"].append(row["min_urma_total_latency"])
-                if row["max_urma_total_latency"] is not None:
-                    g["max_urma_total_latencies"].append(row["max_urma_total_latency"])
-                if row["p99_urma_total_latency"] is not None:
-                    g["p99_urma_total_latencies"].append(row["p99_urma_total_latency"])
-                if row["p95_urma_total_latency"] is not None:
-                    g["p95_urma_total_latencies"].append(row["p95_urma_total_latency"])
-
-                if row["ave_urma_link_latency"] is not None:
-                    g["ave_urma_link_latencies"].append(row["ave_urma_link_latency"])
-                if row["min_urma_link_latency"] is not None:
-                    g["min_urma_link_latencies"].append(row["min_urma_link_latency"])
-                if row["max_urma_link_latency"] is not None:
-                    g["max_urma_link_latencies"].append(row["max_urma_link_latency"])
-                if row["p99_urma_link_latency"] is not None:
-                    g["p99_urma_link_latencies"].append(row["p99_urma_link_latency"])
-                if row["p95_urma_link_latency"] is not None:
-                    g["p95_urma_link_latencies"].append(row["p95_urma_link_latency"])
-
-                if row["ave_c2w_urma_latency"] is not None:
-                    g["ave_c2w_urma_latencies"].append(row["ave_c2w_urma_latency"])
-                if row["min_c2w_urma_latency"] is not None:
-                    g["min_c2w_urma_latencies"].append(row["min_c2w_urma_latency"])
-                if row["max_c2w_urma_latency"] is not None:
-                    g["max_c2w_urma_latencies"].append(row["max_c2w_urma_latency"])
-                if row["p99_c2w_urma_latency"] is not None:
-                    g["p99_c2w_urma_latencies"].append(row["p99_c2w_urma_latency"])
-                if row["p95_c2w_urma_latency"] is not None:
-                    g["p95_c2w_urma_latencies"].append(row["p95_c2w_urma_latency"])
-
-                if row["ave_w2w_urma_latency"] is not None:
-                    g["ave_w2w_urma_latencies"].append(row["ave_w2w_urma_latency"])
-                if row["min_w2w_urma_latency"] is not None:
-                    g["min_w2w_urma_latencies"].append(row["min_w2w_urma_latency"])
-                if row["max_w2w_urma_latency"] is not None:
-                    g["max_w2w_urma_latencies"].append(row["max_w2w_urma_latency"])
-                if row["p99_w2w_urma_latency"] is not None:
-                    g["p99_w2w_urma_latencies"].append(row["p99_w2w_urma_latency"])
-                if row["p95_w2w_urma_latency"] is not None:
-                    g["p95_w2w_urma_latencies"].append(row["p95_w2w_urma_latency"])
-
-                if row["ave_create_latency"] is not None:
-                    g["ave_create_latencies"].append(row["ave_create_latency"])
-                if row["min_create_latency"] is not None:
-                    g["min_create_latencies"].append(row["min_create_latency"])
-                if row["max_create_latency"] is not None:
-                    g["max_create_latencies"].append(row["max_create_latency"])
-                if row["p99_create_latency"] is not None:
-                    g["p99_create_latencies"].append(row["p99_create_latency"])
-                if row["p95_create_latency"] is not None:
-                    g["p95_create_latencies"].append(row["p95_create_latency"])
-                if row["ave_publish_latency"] is not None:
-                    g["ave_publish_latencies"].append(row["ave_publish_latency"])
-                if row["min_publish_latency"] is not None:
-                    g["min_publish_latencies"].append(row["min_publish_latency"])
-                if row["max_publish_latency"] is not None:
-                    g["max_publish_latencies"].append(row["max_publish_latency"])
-                if row["p99_publish_latency"] is not None:
-                    g["p99_publish_latencies"].append(row["p99_publish_latency"])
-                if row["p95_publish_latency"] is not None:
-                    g["p95_publish_latencies"].append(row["p95_publish_latency"])
-                if row["ave_worker_total_latency"] is not None:
-                    g["ave_worker_total_latencies"].append(row["ave_worker_total_latency"])
-                if row["min_worker_total_latency"] is not None:
-                    g["min_worker_total_latencies"].append(row["min_worker_total_latency"])
-                if row["max_worker_total_latency"] is not None:
-                    g["max_worker_total_latencies"].append(row["max_worker_total_latency"])
-                if row["p99_worker_total_latency"] is not None:
-                    g["p99_worker_total_latencies"].append(row["p99_worker_total_latency"])
-                if row["p95_worker_total_latency"] is not None:
-                    g["p95_worker_total_latencies"].append(row["p95_worker_total_latency"])
-
-            for bucket_key, g in ip_pair_group.items():
-                aves = g["ave_total_latencies"]
-                mins = g["min_total_latencies"]
-                maxs = g["max_total_latencies"]
-                p99s = g["p99_total_latencies"]
-                p95s = g["p95_total_latencies"]
-
-                ip_pair = {
-                    "src_ip": src_ip,
-                    "dst_ip": dst_ip,
-                    "log_parse_result_cnt": g["cnt"],
-                    "anomaly_log_parse_result_cnt": g["anomaly_cnt"],
-                    "anomaly_cnt": g["anomaly_cnt"],
-                    "ave_total_latency": sum(aves) / len(aves) if aves else None,
-                    "min_total_latency": min(mins) if mins else None,
-                    "max_total_latency": max(maxs) if maxs else None,
-                    "p99_total_latency": calc_percentile(p99s[:], 99) if p99s else None,
-                    "p95_total_latency": calc_percentile(p95s[:], 95) if p95s else None,
-                }
-
-                aves_qm = g["ave_query_meta_latencies"]
-                mins_qm = g["min_query_meta_latencies"]
-                maxs_qm = g["max_query_meta_latencies"]
-                p99s_qm = g["p99_query_meta_latencies"]
-                p95s_qm = g["p95_query_meta_latencies"]
-                ip_pair["ave_query_meta_latency"] = sum(aves_qm) / len(aves_qm) if aves_qm else None
-                ip_pair["min_query_meta_latency"] = min(mins_qm) if mins_qm else None
-                ip_pair["max_query_meta_latency"] = max(maxs_qm) if maxs_qm else None
-                ip_pair["p99_query_meta_latency"] = calc_percentile(p99s_qm[:], 99) if p99s_qm else None
-                ip_pair["p95_query_meta_latency"] = calc_percentile(p95s_qm[:], 95) if p95s_qm else None
-
-                aves_ut = g["ave_urma_total_latencies"]
-                mins_ut = g["min_urma_total_latencies"]
-                maxs_ut = g["max_urma_total_latencies"]
-                p99s_ut = g["p99_urma_total_latencies"]
-                p95s_ut = g["p95_urma_total_latencies"]
-                ip_pair["ave_urma_total_latency"] = sum(aves_ut) / len(aves_ut) if aves_ut else None
-                ip_pair["min_urma_total_latency"] = min(mins_ut) if mins_ut else None
-                ip_pair["max_urma_total_latency"] = max(maxs_ut) if maxs_ut else None
-                ip_pair["p99_urma_total_latency"] = calc_percentile(p99s_ut[:], 99) if p99s_ut else None
-                ip_pair["p95_urma_total_latency"] = calc_percentile(p95s_ut[:], 95) if p95s_ut else None
-
-                aves_ul = g["ave_urma_link_latencies"]
-                mins_ul = g["min_urma_link_latencies"]
-                maxs_ul = g["max_urma_link_latencies"]
-                p99s_ul = g["p99_urma_link_latencies"]
-                p95s_ul = g["p95_urma_link_latencies"]
-                ip_pair["ave_urma_link_latency"] = sum(aves_ul) / len(aves_ul) if aves_ul else None
-                ip_pair["min_urma_link_latency"] = min(mins_ul) if mins_ul else None
-                ip_pair["max_urma_link_latency"] = max(maxs_ul) if maxs_ul else None
-                ip_pair["p99_urma_link_latency"] = calc_percentile(p99s_ul[:], 99) if p99s_ul else None
-                ip_pair["p95_urma_link_latency"] = calc_percentile(p95s_ul[:], 95) if p95s_ul else None
-
-                aves_c2w = g["ave_c2w_urma_latencies"]
-                mins_c2w = g["min_c2w_urma_latencies"]
-                maxs_c2w = g["max_c2w_urma_latencies"]
-                p99s_c2w = g["p99_c2w_urma_latencies"]
-                p95s_c2w = g["p95_c2w_urma_latencies"]
-                ip_pair["ave_c2w_urma_latency"] = sum(aves_c2w) / len(aves_c2w) if aves_c2w else None
-                ip_pair["min_c2w_urma_latency"] = min(mins_c2w) if mins_c2w else None
-                ip_pair["max_c2w_urma_latency"] = max(maxs_c2w) if maxs_c2w else None
-                ip_pair["p99_c2w_urma_latency"] = calc_percentile(p99s_c2w[:], 99) if p99s_c2w else None
-                ip_pair["p95_c2w_urma_latency"] = calc_percentile(p95s_c2w[:], 95) if p95s_c2w else None
-
-                aves_w2w = g["ave_w2w_urma_latencies"]
-                mins_w2w = g["min_w2w_urma_latencies"]
-                maxs_w2w = g["max_w2w_urma_latencies"]
-                p99s_w2w = g["p99_w2w_urma_latencies"]
-                p95s_w2w = g["p95_w2w_urma_latencies"]
-                ip_pair["ave_w2w_urma_latency"] = sum(aves_w2w) / len(aves_w2w) if aves_w2w else None
-                ip_pair["min_w2w_urma_latency"] = min(mins_w2w) if mins_w2w else None
-                ip_pair["max_w2w_urma_latency"] = max(maxs_w2w) if maxs_w2w else None
-                ip_pair["p99_w2w_urma_latency"] = calc_percentile(p99s_w2w[:], 99) if p99s_w2w else None
-                ip_pair["p95_w2w_urma_latency"] = calc_percentile(p95s_w2w[:], 95) if p95s_w2w else None
-
-                aves_cl = g["ave_create_latencies"]
-                mins_cl = g["min_create_latencies"]
-                maxs_cl = g["max_create_latencies"]
-                p99s_cl = g["p99_create_latencies"]
-                p95s_cl = g["p95_create_latencies"]
-                ip_pair["ave_create_latency"] = sum(aves_cl) / len(aves_cl) if aves_cl else None
-                ip_pair["min_create_latency"] = min(mins_cl) if mins_cl else None
-                ip_pair["max_create_latency"] = max(maxs_cl) if maxs_cl else None
-                ip_pair["p99_create_latency"] = calc_percentile(p99s_cl[:], 99) if p99s_cl else None
-                ip_pair["p95_create_latency"] = calc_percentile(p95s_cl[:], 95) if p95s_cl else None
-
-                aves_pl = g["ave_publish_latencies"]
-                mins_pl = g["min_publish_latencies"]
-                maxs_pl = g["max_publish_latencies"]
-                p99s_pl = g["p99_publish_latencies"]
-                p95s_pl = g["p95_publish_latencies"]
-                ip_pair["ave_publish_latency"] = sum(aves_pl) / len(aves_pl) if aves_pl else None
-                ip_pair["min_publish_latency"] = min(mins_pl) if mins_pl else None
-                ip_pair["max_publish_latency"] = max(maxs_pl) if maxs_pl else None
-                ip_pair["p99_publish_latency"] = calc_percentile(p99s_pl[:], 99) if p99s_pl else None
-                ip_pair["p95_publish_latency"] = calc_percentile(p95s_pl[:], 95) if p95s_pl else None
-
-                aves_wtl = g["ave_worker_total_latencies"]
-                mins_wtl = g["min_worker_total_latencies"]
-                maxs_wtl = g["max_worker_total_latencies"]
-                p99s_wtl = g["p99_worker_total_latencies"]
-                p95s_wtl = g["p95_worker_total_latencies"]
-                ip_pair["ave_worker_total_latency"] = sum(aves_wtl) / len(aves_wtl) if aves_wtl else None
-                ip_pair["min_worker_total_latency"] = min(mins_wtl) if mins_wtl else None
-                ip_pair["max_worker_total_latency"] = max(maxs_wtl) if maxs_wtl else None
-                ip_pair["p99_worker_total_latency"] = calc_percentile(p99s_wtl[:], 99) if p99s_wtl else None
-                ip_pair["p95_worker_total_latency"] = calc_percentile(p95s_wtl[:], 95) if p95s_wtl else None
-
-                time_buckets[bucket_key]["ip_pairs"].append(ip_pair)
-
-        for tb in time_buckets:
-            bucket = time_buckets[tb]
-            bucket["ip_pairs"].sort(key=lambda x: x.get("p99_total_latency", 0) or 0, reverse=True)
-
-        events = []
-        for tb in sorted(time_buckets.keys()):
-            bucket = time_buckets[tb]
-
-            aves = bucket["ave_total_latencies"]
-            mins = bucket["min_total_latencies"]
-            maxs = bucket["max_total_latencies"]
-            p99s = bucket["p99_total_latencies"]
-            p95s = bucket["p95_total_latencies"]
-
-            aves_qm = bucket["ave_query_meta_latencies"]
-            p99s_qm = bucket["p99_query_meta_latencies"]
-            p95s_qm = bucket["p95_query_meta_latencies"]
-
-            aves_ut = bucket["ave_urma_total_latencies"]
-            p99s_ut = bucket["p99_urma_total_latencies"]
-            p95s_ut = bucket["p95_urma_total_latencies"]
-
-            aves_ul = bucket["ave_urma_link_latencies"]
-            p99s_ul = bucket["p99_urma_link_latencies"]
-            p95s_ul = bucket["p95_urma_link_latencies"]
-
-            aves_c2w = bucket["ave_c2w_urma_latencies"]
-            p99s_c2w = bucket["p99_c2w_urma_latencies"]
-            p95s_c2w = bucket["p95_c2w_urma_latencies"]
-
-            aves_w2w = bucket["ave_w2w_urma_latencies"]
-            p99s_w2w = bucket["p99_w2w_urma_latencies"]
-            p95s_w2w = bucket["p95_w2w_urma_latencies"]
-
-            aves_cl = bucket["ave_create_latencies"]
-            p99s_cl = bucket["p99_create_latencies"]
-            p95s_cl = bucket["p95_create_latencies"]
-
-            aves_pl = bucket["ave_publish_latencies"]
-            p99s_pl = bucket["p99_publish_latencies"]
-            p95s_pl = bucket["p95_publish_latencies"]
-
-            aves_wtl = bucket["ave_worker_total_latencies"]
-            p99s_wtl = bucket["p99_worker_total_latencies"]
-            p95s_wtl = bucket["p95_worker_total_latencies"]
-
-            events.append({
-                "start_time": bucket["start_time"],
-                "end_time": bucket["end_time"],
-                "total_cnt": bucket["total_cnt"],
-                "anomaly_cnt": bucket["anomaly_cnt"],
-                "ave_total_latency": sum(aves) / len(aves) if aves else None,
-                "min_total_latency": min(mins) if mins else None,
-                "max_total_latency": max(maxs) if maxs else None,
-                "p99_total_latency": calc_percentile(p99s[:], 99) if p99s else None,
-                "p95_total_latency": calc_percentile(p95s[:], 95) if p95s else None,
-                "ave_query_meta_latency": sum(aves_qm) / len(aves_qm) if aves_qm else None,
-                "p99_query_meta_latency": calc_percentile(p99s_qm[:], 99) if p99s_qm else None,
-                "p95_query_meta_latency": calc_percentile(p95s_qm[:], 95) if p95s_qm else None,
-                "ave_urma_total_latency": sum(aves_ut) / len(aves_ut) if aves_ut else None,
-                "p99_urma_total_latency": calc_percentile(p99s_ut[:], 99) if p99s_ut else None,
-                "p95_urma_total_latency": calc_percentile(p95s_ut[:], 95) if p95s_ut else None,
-                "ave_urma_link_latency": sum(aves_ul) / len(aves_ul) if aves_ul else None,
-                "p99_urma_link_latency": calc_percentile(p99s_ul[:], 99) if p99s_ul else None,
-                "p95_urma_link_latency": calc_percentile(p95s_ul[:], 95) if p95s_ul else None,
-                "ave_c2w_urma_latency": sum(aves_c2w) / len(aves_c2w) if aves_c2w else None,
-                "p99_c2w_urma_latency": calc_percentile(p99s_c2w[:], 99) if p99s_c2w else None,
-                "p95_c2w_urma_latency": calc_percentile(p95s_c2w[:], 95) if p95s_c2w else None,
-                "ave_w2w_urma_latency": sum(aves_w2w) / len(aves_w2w) if aves_w2w else None,
-                "p99_w2w_urma_latency": calc_percentile(p99s_w2w[:], 99) if p99s_w2w else None,
-                "p95_w2w_urma_latency": calc_percentile(p95s_w2w[:], 95) if p95s_w2w else None,
-                "ave_create_latency": sum(aves_cl) / len(aves_cl) if aves_cl else None,
-                "p99_create_latency": calc_percentile(p99s_cl[:], 99) if p99s_cl else None,
-                "p95_create_latency": calc_percentile(p95s_cl[:], 95) if p95s_cl else None,
-                "ave_publish_latency": sum(aves_pl) / len(aves_pl) if aves_pl else None,
-                "p99_publish_latency": calc_percentile(p99s_pl[:], 99) if p99s_pl else None,
-                "p95_publish_latency": calc_percentile(p95s_pl[:], 95) if p95s_pl else None,
-                "ave_worker_total_latency": sum(aves_wtl) / len(aves_wtl) if aves_wtl else None,
-                "p99_worker_total_latency": calc_percentile(p99s_wtl[:], 99) if p99s_wtl else None,
-                "p95_worker_total_latency": calc_percentile(p95s_wtl[:], 95) if p95s_wtl else None,
-                "ip_pairs": bucket["ip_pairs"],
-            })
-
-        def get_sort_value(event: dict, field_name: str):
-            if field_name == "start_time":
-                return event["start_time"]
-            if field_name == "total_cnt":
-                return event["total_cnt"]
-            if field_name == "anomaly_cnt":
-                return event["anomaly_cnt"]
-            metric_key = f"ave_{field_name}"
-            return event.get(metric_key) or 0
-
-        sort_fields = req.sort_fields if req.sort_fields and len(req.sort_fields) > 0 else []
-        if not sort_fields:
-            sort_fields = [{"field": req.sort_by or "start_time", "order": req.sort_order or "asc"}]
-
-        for sort_field in reversed(sort_fields):
-            if isinstance(sort_field, dict):
-                field_name = sort_field.get("field", "start_time")
-                sort_order = sort_field.get("order", "asc")
-            else:
-                field_name = sort_field.field
-                sort_order = sort_field.order or "asc"
-            events.sort(
-                key=lambda event, field_name=field_name: get_sort_value(event, field_name),
-                reverse=sort_order == "desc",
-            )
-
-        total = len(events)
-
-        offset = (req.page_num - 1) * req.page_cnt
-        events = events[offset : offset + req.page_cnt]
-
-        return total, events
+        return True

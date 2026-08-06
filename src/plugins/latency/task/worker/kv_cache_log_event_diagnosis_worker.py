@@ -11,18 +11,13 @@ from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.common.ds_log_io import glob_paths, open_log
 from latency.config.config import Config
 from latency.detect import AnomalyDetector
-from latency.database.engine import AsyncSQLiteSingleton
-from latency.database.managers.log_parse_result import LogParseResultManager
-from latency.database.managers.task import TaskManager
-from latency.database.managers.task_report import TaskReportManager
-from latency.database.managers.log_knowledge import LogKnowledgeManager
-from latency.database.managers.log_file import LogFileManager
-from latency.database.managers.log_failure_event import LogFailureEventManager
-from latency.database.managers.src_dst_aggregated_event import (
-    SrcDstAggregatedEventManager,
-)
-from latency.database.managers.anomalous_event import AnomalousEventManager
-from latency.database.managers.anomalous_event_chain import AnomalousEventChainManager
+from latency.database.managers.log_parse_result import LogParseResultPGManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.task_report import TaskReportPGManager
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
     LogFileModel,
@@ -46,7 +41,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     @staticmethod
     async def init(op_id: str) -> str | None:
         """初始化任务"""
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(op_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(op_id)
         if not log_file_model:
             return None
         kb_id = log_file_model.kb_id
@@ -57,8 +52,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
             status=TaskStatusEnum.PENDING,
         )
-        await TaskManager.add_task(task)
-        await LogFileManager.update_log_file(
+        await TaskPGManager.add_task(task)
+        await LogFilePGManager.update_log_file(
             log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
         await BaseWorker.report(task.id, "初始化任务", 0.0)
@@ -67,7 +62,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     @staticmethod
     async def reinit(task_id: str) -> bool:
         """重新初始化任务"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
         # await LogParseResultManager.update_log_parse_results_existed_status_by_log_id(
@@ -86,14 +81,14 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         #     task_id, status=TaskStatusEnum.PENDING
         # )
         # if task.retry_times > Config().get_config().task.task_retry_times:
-        #     await LogFileManager.update_log_file(
+        #     await LogFilePGManager.update_log_file(
         #         task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
         #     )
         #     logger.warning(
         #         f"任务 {task_id} 重试次数 {task.retry_times} 已超过最大重试次数 {Config().get_config().task.task_retry_times}"
         #     )
         #     return False
-        # await LogFileManager.update_log_file(
+        # await LogFilePGManager.update_log_file(
         #     task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
         # )
         # await BaseWorker.report(task.id, "重新初始化任务", 0.0)
@@ -195,13 +190,37 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             src_match = re.search(r'srcAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
             if src_match:
                 src_ip = src_match.group(1)
-        
+
         if not dst_ip:
             dst_match = re.search(r'targetAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
             if dst_match:
                 dst_ip = dst_match.group(1)
-        
+
+        if not src_ip or not dst_ip:
+            return "", ""
+
         return src_ip, dst_ip
+
+    @staticmethod
+    def _extract_operation(raw_text: str) -> str:
+        parts = raw_text.split('|')
+        if len(parts) < 9:
+            return ""
+        
+        handle = parts[8].strip()
+        from latency.parse.base_parser import SDK_GET_OPS, SDK_SET_OPS, WORKER_GET_OPS, WORKER_SET_OPS
+        from latency.ENUM.ds_log import OpType
+        
+        try:
+            op_type = OpType(handle)
+            if op_type in SDK_GET_OPS or op_type in WORKER_GET_OPS:
+                return "GET"
+            elif op_type in SDK_SET_OPS or op_type in WORKER_SET_OPS:
+                return "SET"
+        except ValueError:
+            pass
+        
+        return ""
 
     @staticmethod
     def _merge_trace_failure_event(
@@ -213,6 +232,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         raw_text = log_failure_event.get("raw_text", "")
         src_ip, dst_ip = KVCacheLogEventDiagnosisWorker._extract_src_dst_ip(raw_text)
+        operation = KVCacheLogEventDiagnosisWorker._extract_operation(raw_text)
 
         if trace_id not in trace_failure_events_map:
             failure_mode = log_failure_event["failure_mode"]
@@ -235,6 +255,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 "timestamp": log_failure_event["timestamp"],
                 "status_code": log_failure_event["status_code"] if log_failure_event["status_code"] else "",
                 "failure_mode": leaf_mode,
+                "operation": operation,
             }
             return
 
@@ -269,6 +290,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             trace_failure_event["src_ip"] = src_ip
         if dst_ip:
             trace_failure_event["dst_ip"] = dst_ip
+        
+        if operation and not trace_failure_event.get("operation"):
+            trace_failure_event["operation"] = operation
 
         if not failure_mode:
             return
@@ -294,9 +318,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     async def parse_filepath_config(kb_id: str | None = None):
         try:
             if kb_id:
-                from latency.database.managers.diagnosis_config import DiagnosisConfigManager
-
-                config = await DiagnosisConfigManager.get_or_create(kb_id)
+                config = await DiagnosisConfigPGManager.get_or_create(kb_id)
                 args = config.log_filename_pattern.model_dump()
             else:
                 args = Config().get_config().log_filename_pattern.model_dump()
@@ -351,7 +373,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             if result.returncode != 0:
                 logger.error(f"定界工具运行失败，返回码: {result.returncode}")
                 logger.error(f"错误输出: {result.stderr}")
-                await TaskManager.update_task(
+                await TaskPGManager.update_task(
                     task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 return False
@@ -361,13 +383,13 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
         except subprocess.TimeoutExpired:
             logger.error("定界工具运行超时")
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
         except Exception as e:
             logger.error(f"运行定界工具时发生错误: {e}")
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
@@ -418,20 +440,20 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     async def run(task_id: str, log_dir: str | None = None) -> bool:
         """运行任务"""
         try:
-            task = await TaskManager.get_task_by_task_id(task_id)
+            task = await TaskPGManager.get_task_by_task_id(task_id)
             if not task:
                 logger.error(f"任务 {task_id} 不存在")
                 return False
             
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
             await BaseWorker.report(task.id, "运行任务", 5.0)
             
-            log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             if not log_file:
                 logger.error(f"LogFile {task.op_id} 不存在")
-                await TaskManager.update_task(
+                await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 return False
@@ -448,28 +470,42 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             )
             if not result:
                 return False
+            
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
+            
             print("故障定界工具运行完成")
             # output_log_path = os.path.join(witty_dir, "log_" + random_str)
             # trace_failure_event_cnt = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
             # await BaseWorker.report(task.id, "故障事件和Trace解析完成", 80.0)
             # print("故障事件和Trace解析完成")
-            # await LogFileManager.update_log_file(
+            # await LogFilePGManager.update_log_file(
             #     task.op_id, {"trace_failure_event_cnt": trace_failure_event_cnt}
             # )
             await BaseWorker.report(task.id, "故障定界完成，等待Trace上下文落库任务处理", 80.0)
-            # 以下是自带内容
-            await TaskManager.update_task(
-                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
-            )
-            await LogFileManager.update_log_file(
+            await LogFilePGManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
+            if log_file.kb_id:
+                from sqlalchemy import text
+                from latency.database.engine import PGManager
+                async with PGManager.session() as session:
+                    await session.execute(
+                        text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :kb_id"),
+                        {"kb_id": log_file.kb_id}
+                    )
             await BaseWorker.report(task.id, "任务成功", 100.0)
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+            )
             print("故障定界任务成功")
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
@@ -477,7 +513,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     @staticmethod
     async def stop(task_id: str) -> str | None:
         """停止任务"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         # if task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
         #     await LogParseResultManager.update_log_parse_results_existed_status_by_log_id(
         #         task.op_id, existed_status=0
@@ -488,7 +524,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         #     await TaskReportManager.update_task_reports_existed_status_by_task_id(
         #         task_id, existed_status=0
         #     )
-        #     await TaskManager.update_task(
+        #     await TaskPGManager.update_task(
         #         task_id, {"status": TaskStatusEnum.CANCELLED.value}
         #     )
             # return task_id

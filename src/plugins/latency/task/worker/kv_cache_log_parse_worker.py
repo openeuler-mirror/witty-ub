@@ -43,20 +43,18 @@ from latency.parse.parallel_scanner import ParallelFileScanner
 from latency.ENUM.task import TaskSplitStrategy
 from latency.common.stats import stats
 from latency.detect import AnomalyDetector
-from latency.database.managers.log_parse_result import LogParseResultManager
-from latency.database.managers.task import TaskManager
-from latency.database.managers.task_report import TaskReportManager
-from latency.database.managers.log_knowledge import LogKnowledgeManager
-from latency.database.managers.log_file import LogFileManager
+from latency.database.managers.log_parse_result import LogParseResultPGManager
+from latency.database.managers.task import TaskPGManager
+from latency.database.managers.task_report import TaskReportPGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.database.managers.src_dst_aggregated_event import (
-    SrcDstAggregatedEventManager,
+    SrcDstAggregatedEventPGManager,
 )
-from latency.database.managers.time_window_aggregated_event import (
-    TimeWindowAggregatedEventManager,
-    TimeWindowAggregatedEventDataclass,
-)
-from latency.database.managers.anomalous_event import AnomalousEventManager
-from latency.database.managers.anomalous_event_chain import AnomalousEventChainManager
+from latency.database.managers.anomalous_event import AnomalousEventPGManager
+from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
     SrcDstAggregatedEventDataclass,
@@ -141,11 +139,11 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def init(op_id: str) -> str | None:
         """初始化任务"""
-        log_file_model = await LogFileManager.get_log_file_by_log_file_id(op_id)
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(op_id)
         if not log_file_model:
             return None
         kb_id = log_file_model.kb_id
-        log_kb_model = await LogKnowledgeManager.get_log_kb_by_kb_id(kb_id)
+        log_kb_model = await LogKnowledgePGManager.get_log_kb_by_kb_id(kb_id)
         if not log_kb_model:
             return None
 
@@ -156,8 +154,8 @@ class KVCacheLogParseWorker(BaseWorker):
             task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
             status=TaskStatusEnum.PENDING,
         )
-        await TaskManager.add_task(task)
-        await LogFileManager.update_log_file(
+        await TaskPGManager.add_task(task)
+        await LogFilePGManager.update_log_file(
             log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
         await BaseWorker.report(task.id, "Task initialized", 0.0)
@@ -166,34 +164,33 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def reinit(task_id: str) -> bool:
         """重新初始化任务"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
-        await LogParseResultManager.update_log_parse_results_existed_status_by_log_id(
+        await LogParseResultPGManager.update_log_parse_results_existed_status_by_log_id(
             task.op_id, existed_status=0
         )
-        await AnomalousEventManager.update_anomalous_events_existed_status_by_log_id(
+        await AnomalousEventPGManager.update_anomalous_events_existed_status_by_log_id(
             task.op_id, existed_status=0
         )
-        await AnomalousEventChainManager.update_event_chains_existed_status_by_log_id(
+        await AnomalousEventChainPGManager.update_event_chains_existed_status_by_log_id(
             task.op_id, existed_status=0
         )
-        await SrcDstAggregatedEventManager.update_aggregated_events_existed_status_by_log_id(
+        await SrcDstAggregatedEventPGManager.update_aggregated_events_existed_status_by_log_id(
             task.op_id, existed_status=0
         )
-        await TimeWindowAggregatedEventManager.delete_by_log_id(task.op_id)
-        await TaskReportManager.update_task_reports_existed_status_by_task_id(
+        await TaskReportPGManager.update_task_reports_existed_status_by_task_id(
             task_id, existed_status=TaskStatusEnum.PENDING
         )
         if task.retry_times > Config().get_config().task.task_retry_times:
-            await LogFileManager.update_log_file(
+            await LogFilePGManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
             )
             logger.warning(
                 f"Task {task_id} retry count {task.retry_times} exceeded max retries {Config().get_config().task.task_retry_times}"
             )
             return False
-        await LogFileManager.update_log_file(
+        await LogFilePGManager.update_log_file(
             task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
         )
         await BaseWorker.report(task.id, "Task reinitialized", 0.0)
@@ -416,31 +413,25 @@ class KVCacheLogParseWorker(BaseWorker):
         # 优先使用 log_id，如果没有则使用 log_dir（向后兼容）
         if log_id:
             # 从数据库获取日志文件信息
-            from latency.database.managers.log_file import LogFileManager
-            log_file = await LogFileManager.get_log_file_by_log_file_id(log_id)
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(log_id)
             if not log_file:
                 raise ValueError(f"Log file with id {log_id} not found")
             if not log_dir:
                 log_dir = log_file.file_path
-            from latency.database.managers.diagnosis_config import DiagnosisConfigManager
-
-            diagnosis_config = await DiagnosisConfigManager.get_or_create(log_file.kb_id)
+            diagnosis_config = await DiagnosisConfigPGManager.get_or_create(log_file.kb_id)
         elif not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
         else:
             diagnosis_config = Config().get_diagnosis_config()
 
-        sdk_parsers = [SdkAccessLogParser(parse_config)]
+        from latency.parse import ClientInfoParser
+
+        sdk_parsers = [SdkAccessLogParser(parse_config), ClientInfoParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
         info_parsers = [WorkerInfoParser(parse_config)]
         filename_config = diagnosis_config.log_filename_pattern
-        sdk_patterns = [
-            *filename_config.ds_client_access_log_file,
-            *filename_config.ds_client_info_log_file,
-        ]
-        
-        for parser in sdk_parsers:
-            parser._runtime_patterns = sdk_patterns
+        sdk_parsers[0]._runtime_patterns = filename_config.ds_client_access_log_file
+        sdk_parsers[1]._runtime_patterns = filename_config.ds_client_info_log_file
         for parser in worker_access_parsers:
             parser._runtime_patterns = filename_config.ds_worker_access_log_file
         for parser in info_parsers:
@@ -550,11 +541,17 @@ class KVCacheLogParseWorker(BaseWorker):
         )
         t_sort = time.perf_counter() - t_sort_start
 
+        if task_id:
+            await BaseWorker.report(task_id, "Log parsing: scanning done", 10.0)
+
         logger.info("=== Stage 2/3: Correlating entries ===")
         t_corr_start = time.perf_counter()
         correlator = LogCorrelator(parsed)
         correlated = correlator.correlate()
         t_corr = time.perf_counter() - t_corr_start
+
+        if task_id:
+            await BaseWorker.report(task_id, "Log parsing: correlating done", 15.0)
         logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
                      f"Worker→URMA: {len(correlated.worker_urma_map):,}")
         correlate_index_seconds = correlator.index_build_seconds
@@ -909,7 +906,7 @@ class KVCacheLogParseWorker(BaseWorker):
     async def generate_aggregate_result(
         list_log_parse_results: list[LogParseResultModel],
     ) -> tuple[
-        list[SrcDstAggregatedEventDataclass], dict[tuple[str, str, str], str], list[TimeWindowAggregatedEventDataclass]
+        list[SrcDstAggregatedEventDataclass], dict[tuple[str, str, str], str]
     ]:
         """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
         sparse_hint = getattr(list_log_parse_results, "all_sparse", None)
@@ -927,7 +924,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 "Aggregate result: skipped %s sparse results without endpoints",
                 f"{len(list_log_parse_results):,}",
             )
-            return [], {}, []
+            return [], {}
 
         src_dst_latency_fields = [
             ("total_latency", "total_latency"),
@@ -941,35 +938,9 @@ class KVCacheLogParseWorker(BaseWorker):
             ("worker_total_latency", "worker_total_latency"),
         ]
 
-        time_window_latency_fields = [
-            ("total_latency", "total_latency"),
-            ("query_meta_latency", "worker_query_meta_latency"),
-            ("urma_total_latency", "urma_total_latency"),
-            ("urma_link_latency", "urma_link_latency"),
-            ("c2w_urma_latency", "c2w_urma_latency"),
-            ("w2w_urma_latency", "w2w_urma_latency"),
-            ("create_latency", "create_latency"),
-            ("publish_latency", "publish_latency"),
-            ("worker_total_latency", "worker_total_latency"),
-            ("sdk_process", "sdk_process"),
-            ("sdk_rpc", "sdk_rpc"),
-            ("local_worker_cost", "local_worker_cost"),
-            ("local_worker_lock", "local_worker_lock"),
-            ("remote_worker_cost", "remote_worker_cost"),
-            ("remote_worker_rpc", "remote_worker_rpc"),
-            ("master_process", "master_process"),
-            ("master_rpc_total", "master_rpc_total"),
-        ]
-
         groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
             lambda: GroupStats(
                 latency_values={prefix: [] for prefix, _ in src_dst_latency_fields}
-            )
-        )
-
-        time_window_groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
-            lambda: GroupStats(
-                latency_values={prefix: [] for prefix, _ in time_window_latency_fields}
             )
         )
         
@@ -993,30 +964,11 @@ class KVCacheLogParseWorker(BaseWorker):
                 if not g.first_log_id:
                     g.first_log_id = r.log_id or ""
             
-            key2 = (time_bucket, src, dst, op_key)
-            g2 = time_window_groups[key2]
-            g2.count += 1
-            if r.is_anomalous:
-                g2.anomaly_count += 1
-            if not g2.first_log_id:
-                g2.first_log_id = r.log_id or ""
-            
             if src or dst:
                 for prefix, field_name in src_dst_latency_fields:
                     val = getattr(r, field_name)
                     if val is not None:
                         g.latency_values[prefix].append(val)
-                        g2.latency_values[prefix].append(val)
-            else:
-                for prefix, field_name in src_dst_latency_fields:
-                    val = getattr(r, field_name)
-                    if val is not None:
-                        g2.latency_values[prefix].append(val)
-            
-            for prefix, field_name in time_window_latency_fields[len(src_dst_latency_fields):]:
-                val = getattr(r, field_name)
-                if val is not None:
-                    g2.latency_values[prefix].append(val)
         
         results: list[SrcDstAggregatedEventDataclass] = []
         src_dst_to_agg_id_map: dict[tuple[str, str, str], str] = {}
@@ -1054,39 +1006,6 @@ class KVCacheLogParseWorker(BaseWorker):
         
         del groups
         
-        time_window_results: list[TimeWindowAggregatedEventDataclass] = []
-        for (time_bucket, src, dst, op_key), g in time_window_groups.items():
-            agg: dict[str, float | None] = {}
-            for prefix, _ in time_window_latency_fields:
-                values = g.latency_values[prefix]
-                if values:
-                    st = stats(values)
-                    agg[f"ave_{prefix}"] = st["ave"]
-                    agg[f"min_{prefix}"] = st["min"]
-                    agg[f"max_{prefix}"] = st["max"]
-                    agg[f"p95_{prefix}"] = st["p95"]
-                    agg[f"p99_{prefix}"] = st["p99"]
-                    agg[f"p9999_{prefix}"] = st["p9999"]
-                else:
-                    for f in [f"ave_{prefix}", f"min_{prefix}", f"max_{prefix}", f"p95_{prefix}", f"p99_{prefix}", f"p9999_{prefix}"]:
-                        agg[f] = None
-                g.latency_values[prefix] = []
-            
-            time_window_results.append(TimeWindowAggregatedEventDataclass(
-                id=str(uuid.uuid4()),
-                kb_id="",
-                log_id=g.first_log_id,
-                time_bucket=time_bucket,
-                src_ip=src,
-                dst_ip=dst,
-                operation=op_key,
-                log_parse_result_cnt=g.count,
-                anomaly_cnt=g.anomaly_count,
-                **agg,
-            ))
-        
-        del time_window_groups
-        
         for r in list_log_parse_results:
             src = r.src_ip or ""
             dst = r.dst_ip or ""
@@ -1096,11 +1015,10 @@ class KVCacheLogParseWorker(BaseWorker):
             if key in src_dst_to_agg_id_map:
                 r.aggregated_event_id = src_dst_to_agg_id_map[key]
         
-        logger.info(f"Aggregate result: {len(results):,} endpoints, "
-                     f"{len(time_window_results):,} time windows from "
-                     f"{len(list_log_parse_results):,} results")
+        logger.info(f"Aggregate result: {len(results):,} endpoints "
+                     f"from {len(list_log_parse_results):,} results")
         
-        return results, src_dst_to_agg_id_map, time_window_results
+        return results, src_dst_to_agg_id_map
 
     # 存库
     @staticmethod
@@ -1109,62 +1027,69 @@ class KVCacheLogParseWorker(BaseWorker):
         anomalous_events: list[AnomalousEventDataclass],
         anomalous_event_chains: list[AnomalousEventChainModel],
         src_dst_aggregated_events: list[SrcDstAggregatedEventDataclass],
-        time_window_aggregated_events: list[TimeWindowAggregatedEventDataclass] | None = None,
         kb_id: str = "",
     ) -> bool:
         """存库
 
-        按引用顺序依次写入：log_parse_results → aggregated_events → time_window_events → anomalous_events → event_chains
+        按引用顺序依次写入：log_parse_results → aggregated_events → anomalous_events → event_chains
         """
         success = True
 
         if list_log_parse_results:
             try:
-                anomalous_results = [r for r in list_log_parse_results if r.is_anomalous]
-                count = len(anomalous_results)
-                if count > 0:
-                    stored = await LogParseResultManager.add_log_parse_results(
-                        anomalous_results
-                    )
-                    if not stored:
-                        raise RuntimeError("Failed to batch insert log parse results")
-                    logger.info(f"Stored {count:,} anomalous log parse results (filtered from {len(list_log_parse_results):,})")
-                else:
-                    logger.info(f"No anomalous results to store (out of {len(list_log_parse_results):,} total)")
+                count = len(list_log_parse_results)
+                t0 = time.perf_counter()
+                stored = await LogParseResultPGManager.add_log_parse_results(
+                    list_log_parse_results
+                )
+                logger.info(
+                    "[PG] Stored %s log parse results in %.3fs",
+                    count,
+                    time.perf_counter() - t0,
+                )
+                if not stored:
+                    raise RuntimeError("Failed to batch insert log parse results into PostgreSQL")
             except Exception as e:
-                logger.error(f"Failed to store log parse results: {e}")
+                logger.error(f"[PG] Failed to store log parse results: {e}")
                 success = False
 
         if src_dst_aggregated_events:
             try:
-                await SrcDstAggregatedEventManager.add_aggregated_events(src_dst_aggregated_events)
-                logger.info(f"Stored {len(src_dst_aggregated_events):,} aggregated events")
+                t0 = time.perf_counter()
+                await SrcDstAggregatedEventPGManager.add_aggregated_events(
+                    src_dst_aggregated_events
+                )
+                logger.info(
+                    "[PG] Stored %s aggregated events in %.3fs",
+                    len(src_dst_aggregated_events),
+                    time.perf_counter() - t0,
+                )
             except Exception as e:
-                logger.error(f"Failed to store aggregated events: {e}")
-                success = False
-
-        if time_window_aggregated_events:
-            for event in time_window_aggregated_events:
-                event.kb_id = kb_id
-            try:
-                await TimeWindowAggregatedEventManager.add_events(time_window_aggregated_events)
-                logger.info(f"Stored {len(time_window_aggregated_events):,} time window aggregated events")
-            except Exception as e:
-                logger.error(f"Failed to store time window aggregated events: {e}")
+                logger.error(f"[PG] Failed to store aggregated events: {e}")
                 success = False
 
         if anomalous_events:
             try:
-                await AnomalousEventManager.add_anomalous_events(anomalous_events)
-                logger.info(f"Stored {len(anomalous_events):,} anomalous events")
+                t0 = time.perf_counter()
+                await AnomalousEventPGManager.add_anomalous_events(anomalous_events)
+                logger.info(
+                    "[PG] Stored %s anomalous events in %.3fs",
+                    len(anomalous_events),
+                    time.perf_counter() - t0,
+                )
             except Exception as e:
                 logger.error(f"Failed to store anomalous events: {e}")
                 success = False
 
         if anomalous_event_chains:
             try:
-                await AnomalousEventChainManager.add_event_chains(anomalous_event_chains)
-                logger.info(f"Stored {len(anomalous_event_chains):,} event chains")
+                t0 = time.perf_counter()
+                await AnomalousEventChainPGManager.add_event_chains(anomalous_event_chains)
+                logger.info(
+                    "[PG] Stored %s event chains in %.3fs",
+                    len(anomalous_event_chains),
+                    time.perf_counter() - t0,
+                )
             except Exception as e:
                 logger.error(f"Failed to store event chains: {e}")
                 success = False
@@ -1175,12 +1100,12 @@ class KVCacheLogParseWorker(BaseWorker):
     async def run(task_id: str, log_dir: str | None = None) -> bool:
         """运行任务"""
         try:
-            task = await TaskManager.get_task_by_task_id(task_id)
+            task = await TaskPGManager.get_task_by_task_id(task_id)
             if not task:
                 logger.error(f"Task {task_id} not found")
                 return False
             
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
             await BaseWorker.report(task.id, "Task running", 5.0)
@@ -1203,12 +1128,18 @@ class KVCacheLogParseWorker(BaseWorker):
 
             if not list_log_parse_results:
                 await BaseWorker.report(task.id, "解析失败：未在路径中识别到日志信息", 100.0)
-                await TaskManager.update_task(
+                await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
-                await LogFileManager.update_log_file(
+                await LogFilePGManager.update_log_file(
                     task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
                 )
+                return False
+
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
                 return False
 
             await BaseWorker.report(task.id, "Log parse completed", 20.0)
@@ -1219,17 +1150,15 @@ class KVCacheLogParseWorker(BaseWorker):
             )
 
             # 获取 kb_id 用于后续更新知识库统计
-            log_file = await LogFileManager.get_log_file_by_log_file_id(task.op_id)
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             kb_id = log_file.kb_id if log_file else None
 
             # 先检测异常（填充 anomalous_event_id）
             t_detect_start = time.perf_counter()
             analyzer_config = None
             if kb_id:
-                from latency.database.managers.diagnosis_config import DiagnosisConfigManager
-
                 analyzer_config = (
-                    await DiagnosisConfigManager.get_or_create(kb_id)
+                    await DiagnosisConfigPGManager.get_or_create(kb_id)
                 ).log_analyzer_params
             anomalous_events = await KVCacheLogParseWorker.detect_exception(
                 list_log_parse_results, analyzer_config
@@ -1242,9 +1171,15 @@ class KVCacheLogParseWorker(BaseWorker):
                 t_detect,
             )
             
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
+            
             # 再生成聚合事件（此时 anomalous_event_id 已填充）
             t_agg_start = time.perf_counter()
-            src_dst_aggregated_events, src_dst_to_agg_id_map, time_window_aggregated_events = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
+            src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
             t_agg = time.perf_counter() - t_agg_start
             await BaseWorker.report(task.id, "Aggregate events done", 40.0)
             await BaseWorker.report(
@@ -1252,7 +1187,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 (
                     "[perf][aggregate.summary] "
                     f"results={len(list_log_parse_results)}, endpoints={len(src_dst_aggregated_events)}, "
-                    f"time_windows={len(time_window_aggregated_events)}, time={t_agg:.3f}s"
+                    f"time={t_agg:.3f}s"
                 ),
                 t_agg,
             )
@@ -1276,13 +1211,18 @@ class KVCacheLogParseWorker(BaseWorker):
                 0.0,
             )
 
+            # 检查任务是否被取消
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if not task or task.status == TaskStatusEnum.CANCELLED:
+                logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
+                return False
+
             t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
                 list_log_parse_results=list_log_parse_results,
                 anomalous_events=anomalous_events,
                 anomalous_event_chains=anomalous_event_chains or [],
                 src_dst_aggregated_events=src_dst_aggregated_events,
-                time_window_aggregated_events=time_window_aggregated_events,
                 kb_id=kb_id or "",
             )
             t_store = time.perf_counter() - t_store_start
@@ -1303,23 +1243,25 @@ class KVCacheLogParseWorker(BaseWorker):
             if not stored:
                 logger.warning(f"Task {task_id} store partially failed, still marking as successful")
 
-            await LogFileManager.update_log_file(
-                task.op_id, {"anomaly_cnt": len(anomalous_events)}
+            await LogFilePGManager.update_log_file(
+                task.op_id, {"anomalous_count": len(anomalous_events)}
             )
-            
+
             # 更新关联的知识库统计
             if kb_id:
-                await LogKnowledgeManager.update_log_kb(
-                    kb_id, {"anomaly_cnt": len(anomalous_events)}
+                await LogKnowledgePGManager.update_log_kb(
+                    kb_id, {"anomalous_count": len(anomalous_events)}
                 )
             
-            await TaskManager.update_task(
-                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
-            )
-            await LogFileManager.update_log_file(
+            # 所有落库和元数据更新完成后再报告 100%，最后翻转任务状态。
+            # 这样 UI 读取到的进度不会早于实际存储完成。
+            await LogFilePGManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+            )
 
             # 全流程耗时汇总
             t_total = t_parse + t_detect + t_agg + t_store
@@ -1344,7 +1286,7 @@ class KVCacheLogParseWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception(f"Task {task_id} failed: {e}")
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )
             return False
@@ -1352,24 +1294,26 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def stop(task_id: str) -> str | None:
         """停止任务"""
-        task = await TaskManager.get_task_by_task_id(task_id)
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return None
         if task.status in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
-            await LogParseResultManager.update_log_parse_results_existed_status_by_log_id(
+            await LogParseResultPGManager.update_log_parse_results_existed_status_by_log_id(
                 task.op_id, existed_status=0
             )
-            await AnomalousEventManager.update_anomalous_events_existed_status_by_log_id(
+            await AnomalousEventPGManager.update_anomalous_events_existed_status_by_log_id(
                 task.op_id, existed_status=0
             )
-            await AnomalousEventChainManager.update_event_chains_existed_status_by_log_id(
+            await AnomalousEventChainPGManager.update_event_chains_existed_status_by_log_id(
                 task.op_id, existed_status=0
             )
-            await SrcDstAggregatedEventManager.update_aggregated_events_existed_status_by_log_id(
+            await SrcDstAggregatedEventPGManager.update_aggregated_events_existed_status_by_log_id(
                 task.op_id, existed_status=0
             )
-            await TaskReportManager.update_task_reports_existed_status_by_task_id(
+            await TaskReportPGManager.update_task_reports_existed_status_by_task_id(
                 task_id, existed_status=0
             )
-            await TaskManager.update_task(
+            await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.CANCELLED.value}
             )
             return task_id
@@ -1378,4 +1322,24 @@ class KVCacheLogParseWorker(BaseWorker):
     @staticmethod
     async def delete(task_id: str) -> str:
         """删除任务"""
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return ""
+        
+        log_id = task.op_id
+        
+        all_tasks = await TaskPGManager.list_tasks_by_op_id(log_id)
+        same_type_tasks = [t for t in all_tasks if t.task_type == task.task_type]
+        
+        if len(same_type_tasks) == 1:
+            logger.info(f"[KVCacheLogParseWorker] 删除任务 {task_id} 时清理 log_id={log_id} 的所有数据")
+            await LogParseResultPGManager.delete_log_parse_results_by_log_id(log_id)
+            await AnomalousEventPGManager.delete_anomalous_events_by_log_id(log_id)
+            await AnomalousEventChainPGManager.delete_event_chains_by_log_id(log_id)
+            await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_id)
+            await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_id)
+            await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_id)
+        else:
+            logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
+        
         return task_id

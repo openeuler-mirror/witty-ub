@@ -32,6 +32,7 @@ class TraceFailureEventModel(BaseModel):
     timestamp: str = Field(..., description="日志最早时间戳")
     status_code: str = Field(..., description="状态码")
     failure_mode: str = Field(..., description="故障模式")
+    operation: str = Field(default="", description="操作类型：GET / SET")
 
 class ErrCodeMetricItem(BaseModel):
     """延迟指标数据点（用于时间曲线）"""

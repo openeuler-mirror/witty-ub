@@ -4,6 +4,27 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: quay.io/sclorg/postgresql-15-c9s:latest
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "15432:5432"
+    volumes:
+      - pg15-data:/var/lib/pgsql/data
+    environment:
+      - POSTGRESQL_USER=witty-ub
+      - POSTGRESQL_PASSWORD=witty-ub
+      - POSTGRESQL_DATABASE=witty-ub
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "witty-ub"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - witty-ub-network
+
   witty-ub:
     build:
       context: .
@@ -26,6 +47,12 @@ services:
       - PYTHONPATH=/var/witty-ub
       # Log level (optional)
       - LOG_LEVEL=info
+      # PostgreSQL 连接（容器内通过容器名 postgres 访问，端口为容器内 5432）
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DATABASE=witty-ub
+      - PG_USER=witty-ub
+      - PG_PASSWORD=witty-ub
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -36,6 +63,8 @@ services:
       - witty-ub-network
 
 volumes:
+  pg15-data:
+    driver: local
   witty-ub-data:
     driver: local
   witty-ub-logs:
