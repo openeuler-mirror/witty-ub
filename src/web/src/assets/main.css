@@ -1828,10 +1828,12 @@ button {
 
 .latency-series-toggle {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: 8px;
+  min-width: 0;
   padding: 6px 16px 8px;
+  overflow: hidden;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
   border-radius: 0 0 12px 12px;
@@ -1842,6 +1844,40 @@ button {
   font-size: 0.76rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.latency-series-toggle-count {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #e0ecff;
+  color: #2563eb;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 20px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.latency-series-options {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 1px 2px 3px;
+  scrollbar-color: #bfdbfe transparent;
+  scrollbar-width: thin;
+}
+
+.latency-series-options::-webkit-scrollbar {
+  height: 4px;
+}
+
+.latency-series-options::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #bfdbfe;
 }
 
 .latency-series-toggle-btn {
@@ -1866,21 +1902,127 @@ button {
 
 .latency-series-checkbox {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   cursor: pointer;
-  font-size: 0.74rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: white;
+  font-size: 0.7rem;
   color: #334155;
+  padding: 2px 7px 2px 5px;
   white-space: nowrap;
   user-select: none;
 }
 
+.latency-series-checkbox:has(input:checked) {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+}
+
 .latency-series-checkbox input[type='checkbox'] {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   cursor: pointer;
   accent-color: var(--primary);
   flex-shrink: 0;
+}
+
+.latency-breakdown-header {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+
+.latency-breakdown-header small {
+  overflow: hidden;
+  max-width: 100%;
+  color: #94a3b8;
+  font-size: 0.64rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latency-breakdown-header.compact {
+  align-items: center;
+}
+
+.aggregate-cell.latency-breakdown-cell {
+  padding: 6px 10px;
+}
+
+.latency-breakdown {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 4px;
+}
+
+.latency-breakdown-bar {
+  display: flex;
+  width: 100%;
+  min-width: 180px;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #e8edf4;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16);
+}
+
+.latency-breakdown-segment {
+  display: block;
+  flex: 0 0 auto;
+  height: 100%;
+  transition: filter 0.15s ease;
+}
+
+.latency-breakdown-segment:hover {
+  filter: brightness(0.86) saturate(1.15);
+}
+
+.latency-breakdown-bar.empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.latency-breakdown-empty {
+  color: #94a3b8;
+  font-size: 0.62rem;
+}
+
+.latency-breakdown-values {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.61rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.latency-breakdown-value {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.latency-breakdown-value i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 2px;
+}
+
+.latency-breakdown-value.abnormal {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .latency-series-color-dot {

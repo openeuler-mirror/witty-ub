@@ -2,6 +2,8 @@
 import * as echarts from 'echarts'
 import {
   computed,
+  defineComponent,
+  h,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -10,6 +12,7 @@ import {
   ref,
   watch,
 } from 'vue'
+import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
 import diagnosisConfig from '../../../config/diagnosis_config.toml'
@@ -1727,7 +1730,7 @@ type ColumnWidthMap = {
 const traceListColumnWidths = reactive<ColumnWidthMap>({
   latencyLeft: [110, 185, 300, 130, 80, 110, 110],
   faultLeft: [110, 185, 300, 130, 110, 110, 80, 110],
-  latencyData: [110, 180, 165, 170, 175, 175],
+  latencyData: [110, 480],
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
   faultTraceActions: [150],
@@ -1859,23 +1862,21 @@ const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
 const getLatencyDataGridColumnWidths = () => {
-  const cols = getLatencyDataColumns.value
-  return cols.map((_, i) => `${traceListColumnWidths.latencyData[i] || 160}px`).join(' ')
+  return `${traceListColumnWidths.latencyData[0] || 110}px ${traceListColumnWidths.latencyData[1] || 480}px`
 }
 
 const getLatencyDataTotalWidth = () => {
-  const cols = getLatencyDataColumns.value
-  return cols.reduce((sum, _, i) => sum + (traceListColumnWidths.latencyData[i] || 160), 0)
+  return (
+    (traceListColumnWidths.latencyData[0] || 110) + (traceListColumnWidths.latencyData[1] || 480)
+  )
 }
 
 const getTimeWindowGridColumnWidths = () => {
-  const cols = getLatencyDataColumns.value.slice(1)
-  return cols.map((_, i) => `${traceListColumnWidths.latencyData[i + 1] || 160}px`).join(' ')
+  return `${traceListColumnWidths.latencyData[1] || 480}px`
 }
 
 const getTimeWindowTotalWidth = () => {
-  const cols = getLatencyDataColumns.value.slice(1)
-  return cols.reduce((sum, _, i) => sum + (traceListColumnWidths.latencyData[i + 1] || 160), 0)
+  return traceListColumnWidths.latencyData[1] || 480
 }
 
 const getFaultDataGridColumnWidths = () =>
@@ -2552,8 +2553,6 @@ const createEmptyAssetState = (): AssetState => ({
 
 const assetStates = ref<Record<string, AssetState>>({})
 
-
-
 const createEmptyFilters = (): GlobalFilterState => ({
   startTime: '',
   endTime: '',
@@ -2755,6 +2754,8 @@ const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
   'urma_processing_us',
 ])
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
+const selectedLatencySeriesCount = computed(() => visibleLatencyKeys.value.size)
+const latencySeriesCount = computed(() => latencySeriesConfig.value.length)
 
 const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
   const next = new Set(visibleLatencyKeys.value)
@@ -2840,10 +2841,6 @@ const aggregatedLatencyColumns = [
   { key: 'worker_total_latency', label: 'Worker端总时延 (ms)', threshold: 100 },
 ] as const
 
-const timeWindowLatencyColumns = computed(() =>
-  getLatencyDataColumns.value.slice(1),
-)
-
 const getLatencyDataColumns = computed(() => {
   const isSet = selectedOperation.value === 'set'
   return aggregatedLatencyColumns.filter((col) => {
@@ -2851,7 +2848,13 @@ const getLatencyDataColumns = computed(() => {
     if (isSet) {
       return ['create_latency', 'publish_latency', 'worker_total_latency'].includes(col.key)
     }
-    return ['query_meta_latency', 'urma_total_latency', 'urma_link_latency', 'c2w_urma_latency', 'w2w_urma_latency'].includes(col.key)
+    return [
+      'query_meta_latency',
+      'urma_total_latency',
+      'urma_link_latency',
+      'c2w_urma_latency',
+      'w2w_urma_latency',
+    ].includes(col.key)
   })
 })
 
@@ -2869,14 +2872,120 @@ const LATENCY_KEY_TO_ROW_FIELD: Record<string, string> = {
 
 const getLatencyRowValue = (row: Record<string, unknown>, key: string): number | null => {
   const field = LATENCY_KEY_TO_ROW_FIELD[key]
-  return field ? (row[field] as number | null) ?? null : null
+  return field ? ((row[field] as number | null) ?? null) : null
 }
 
-const DETAIL_SORT_KEY_MAP: Record<string, string> = {
-  query_meta_latency: 'worker_query_meta_latency',
+type LatencyBreakdownSegment = {
+  key: string
+  label: string
+  shortLabel: string
+  color: string
+  value: number | null
+  width: number
+  abnormal: boolean
 }
 
-const getDetailSortKey = (colKey: string): string => DETAIL_SORT_KEY_MAP[colKey] || colKey
+const LATENCY_BREAKDOWN_COLORS = ['#5470c6', '#fac858', '#ee6666', '#73c0de', '#3ba272'] as const
+
+const getLatencyBreakdownShortLabel = (label: string) =>
+  label.replace(' (ms)', '').replace('阶段时延', '').replace('时延', '')
+
+const buildLatencyBreakdownSegments = (
+  totalLatency: number | null,
+  getValue: (key: string) => number | null,
+): LatencyBreakdownSegment[] => {
+  const stageColumns = getLatencyDataColumns.value.slice(1)
+  const values = stageColumns.map((column) => getValue(column.key))
+  const fallbackMax = Math.max(
+    0,
+    ...values.filter((value): value is number => typeof value === 'number' && value > 0),
+  )
+  const scale = typeof totalLatency === 'number' && totalLatency > 0 ? totalLatency : fallbackMax
+
+  return stageColumns.map((column, index) => {
+    const value = values[index] ?? null
+    const width =
+      typeof value === 'number' && value > 0 && scale > 0 ? Math.min(100, (value / scale) * 100) : 0
+    return {
+      key: column.key,
+      label: column.label.replace(' (ms)', ''),
+      shortLabel: getLatencyBreakdownShortLabel(column.label),
+      color: LATENCY_BREAKDOWN_COLORS[index % LATENCY_BREAKDOWN_COLORS.length]!,
+      value,
+      width,
+      abnormal: isLatencyMetricAbnormal(column.key, value),
+    }
+  })
+}
+
+const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) =>
+  buildLatencyBreakdownSegments(getLatencyRowValue(row, 'total_latency'), (key) =>
+    getLatencyRowValue(row, key),
+  )
+
+const getLatencyBreakdownTooltip = (segment: LatencyBreakdownSegment) =>
+  `${segment.label}: ${formatNullableMetricValue(segment.value)} ms`
+
+const LatencyBreakdownBar = defineComponent({
+  name: 'LatencyBreakdownBar',
+  props: {
+    segments: {
+      type: Array as PropType<LatencyBreakdownSegment[]>,
+      required: true,
+    },
+  },
+  setup(props) {
+    return () => {
+      const visibleSegments = props.segments.filter((segment) => segment.width > 0)
+      const summary = props.segments.map(getLatencyBreakdownTooltip).join('；')
+      return h(
+        'div',
+        {
+          class: 'latency-breakdown',
+          title: summary,
+          'aria-label': `各阶段时延分解：${summary}`,
+        },
+        [
+          h(
+            'div',
+            { class: ['latency-breakdown-bar', { empty: visibleSegments.length === 0 }] },
+            visibleSegments.length > 0
+              ? visibleSegments.map((segment) =>
+                  h('span', {
+                    key: segment.key,
+                    class: 'latency-breakdown-segment',
+                    style: {
+                      width: `${segment.width}%`,
+                      backgroundColor: segment.color,
+                    },
+                    title: getLatencyBreakdownTooltip(segment),
+                  }),
+                )
+              : [h('span', { class: 'latency-breakdown-empty' }, '暂无阶段数据')],
+          ),
+          h(
+            'div',
+            { class: 'latency-breakdown-values' },
+            props.segments.map((segment) =>
+              h(
+                'span',
+                {
+                  key: segment.key,
+                  class: ['latency-breakdown-value', { abnormal: segment.abnormal }],
+                  title: getLatencyBreakdownTooltip(segment),
+                },
+                [
+                  h('i', { style: { backgroundColor: segment.color } }),
+                  `${segment.shortLabel} ${formatNullableMetricValue(segment.value)}`,
+                ],
+              ),
+            ),
+          ),
+        ],
+      )
+    }
+  },
+})
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
 
@@ -3309,11 +3418,21 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
         typeof value === 'number' ? `${formatMetricValue(value)} µs` : String(value ?? '-'),
     },
     legend: {
+      type: 'scroll',
       data: visibleSeries.map((series) => series.label),
       top: 0,
+      left: 8,
+      right: 8,
       itemGap: 18,
       itemWidth: 18,
       itemHeight: 10,
+      pageButtonGap: 8,
+      pageIconColor: '#2563eb',
+      pageIconInactiveColor: '#cbd5e1',
+      pageTextStyle: {
+        color: '#64748b',
+        fontSize: 11,
+      },
       textStyle: {
         color: '#334155',
         fontSize: 12,
@@ -3664,7 +3783,8 @@ const renderLatencyEchart = () => {
         faultChartCenterTime.value = bucket.time
         // Sync time range to filter panel
         const scaleSeconds = selectedLatencyScale.value || 10
-        const halfSpan = (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        const halfSpan =
+          (latencyChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
         globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
         globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllLatencyData(latencyChartRange.value)
@@ -3730,7 +3850,8 @@ const renderFaultEchart = () => {
         latencyChartCenterTime.value = bucket.time
         // Sync time range to filter panel
         const scaleSeconds = selectedFaultScale.value || 10
-        const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+        const halfSpan =
+          (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
         globalFilters.startTime = timestampToDatetimeLocal(bucket.time - halfSpan)
         globalFilters.endTime = timestampToDatetimeLocal(bucket.time + halfSpan)
         void loadAllFaultData()
@@ -5806,8 +5927,6 @@ const formatDateTime = (value: string) => {
   return `${value.replace('T', ' ')}:00`
 }
 
-
-
 const timestampToDatetimeLocal = (ts: number) => {
   const d = new Date(ts)
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -6539,6 +6658,17 @@ const getTimeWindowSummaryValue = (twEvent: TimeWindowAggregatedEvent, metric: s
   return typeof val === 'number' ? val : null
 }
 
+const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) =>
+  buildLatencyBreakdownSegments(getTimeWindowSummaryValue(twEvent, 'total_latency'), (key) =>
+    getTimeWindowSummaryValue(twEvent, key),
+  )
+
+const getTimeWindowIpPairBreakdownSegments = (ipPair: TimeWindowAggregatedIpPair) =>
+  buildLatencyBreakdownSegments(
+    getTimeWindowAggregatedLatencyValue(ipPair, 'total_latency'),
+    (key) => getTimeWindowAggregatedLatencyValue(ipPair, key),
+  )
+
 const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
   const record = result as Record<string, unknown>
   return {
@@ -7137,11 +7267,11 @@ const loadAssetDetail = async (assetId: string) => {
       uploadLogError: uploadLogError.value,
     }
   }
-  
+
   // Switch to new asset
   activePage.value = 'asset'
   selectedAssetId.value = assetId
-  
+
   // Restore or initialize asset state
   const savedState = assetStates.value[assetId] || createEmptyAssetState()
   Object.assign(globalFilters, savedState.filters)
@@ -7152,7 +7282,7 @@ const loadAssetDetail = async (assetId: string) => {
   selectedFaultScale.value = savedState.selectedFaultScale
   logSourceInput.value = savedState.logSourceInput
   uploadLogError.value = savedState.uploadLogError
-  
+
   selectedAsset.value = null
   selectedTrace.value = null
   selectedFaultTrace.value = null
@@ -8518,7 +8648,9 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <p class="monitor-sub">完整复刻 yuanrong_tool 的 24 项指标与总时延曲线，可交互选择展示</p>
+            <p class="monitor-sub">
+              完整复刻 yuanrong_tool 的 24 项指标与总时延曲线，可交互选择展示
+            </p>
           </header>
 
           <div class="monitor-grid">
@@ -8563,6 +8695,9 @@ onBeforeUnmount(() => {
               </div>
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
+                <span class="latency-series-toggle-count">
+                  已选 {{ selectedLatencySeriesCount }}/{{ latencySeriesCount }}
+                </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
                   type="button"
@@ -8577,22 +8712,24 @@ onBeforeUnmount(() => {
                 >
                   清空
                 </button>
-                <label
-                  v-for="series in latencySeriesConfig"
-                  :key="series.key"
-                  class="latency-series-checkbox"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="isLatencySeriesVisible(series.key)"
-                    @change="toggleLatencySeriesVisibility(series.key)"
-                  />
-                  <span
-                    class="latency-series-color-dot"
-                    :style="{ backgroundColor: series.color }"
-                  ></span>
-                  {{ series.label }}
-                </label>
+                <div class="latency-series-options" aria-label="时延指标选择">
+                  <label
+                    v-for="series in latencySeriesConfig"
+                    :key="series.key"
+                    class="latency-series-checkbox"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isLatencySeriesVisible(series.key)"
+                      @change="toggleLatencySeriesVisibility(series.key)"
+                    />
+                    <span
+                      class="latency-series-color-dot"
+                      :style="{ backgroundColor: series.color }"
+                    ></span>
+                    {{ series.label }}
+                  </label>
+                </div>
               </div>
               <div class="latency-chart-panel">
                 <div v-if="isLatencyChartLoading" class="chart-state">
@@ -8618,8 +8755,7 @@ onBeforeUnmount(() => {
               <div class="monitor-card-title top-slow-chart-title">
                 <span>🐢 Top {{ topSlowRequestLimit }} 最慢请求时序分解</span>
                 <span class="top-slow-chart-summary">
-                  当前展示 {{ topSlowChartRows.length }} 条 / 符合条件
-                  {{ topSlowRequestsTotal }} 条
+                  当前展示 {{ topSlowChartRows.length }} 条 / 符合条件 {{ topSlowRequestsTotal }} 条
                 </span>
               </div>
               <p class="top-slow-chart-description">
@@ -8635,7 +8771,10 @@ onBeforeUnmount(() => {
                 >
                   {{ topSlowChartError }}
                 </div>
-                <div v-else-if="topSlowChartRows.length === 0" class="chart-state top-slow-chart-state">
+                <div
+                  v-else-if="topSlowChartRows.length === 0"
+                  class="chart-state top-slow-chart-state"
+                >
                   暂无符合条件的请求
                 </div>
                 <div
@@ -9085,41 +9224,16 @@ onBeforeUnmount(() => {
                       }"
                     >
                       <div class="aggregate-latency-head aggregate-latency-sync">
-                        <div class="aggregate-latency-grid aggregate-table-header"
-                          :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }">
-                          <div
-                            v-for="column in timeWindowLatencyColumns"
-                            :key="column.key"
-                            class="aggregate-cell aggregate-sortable-cell"
-                            @click="handleTimeWindowSort(column.key)"
-                          >
-                            <span class="sort-header-content">
-                              {{ column.label }}
-                              <span class="sort-icons">
-                                <span
-                                  class="sort-icon-up"
-                                  :class="{
-                                    'sort-icon-active':
-                                      getTimeWindowSortOrder(column.key) === 'asc',
-                                  }"
-                                  >▲</span
-                                >
-                                <span
-                                  class="sort-icon-down"
-                                  :class="{
-                                    'sort-icon-active':
-                                      getTimeWindowSortOrder(column.key) === 'desc',
-                                  }"
-                                  >▼</span
-                                >
-                                <span
-                                  v-if="getTimeWindowSortPriority(column.key)"
-                                  class="sort-priority-badge"
-                                >
-                                  {{ getTimeWindowSortPriority(column.key) }}
-                                </span>
-                              </span>
-                            </span>
+                        <div
+                          class="aggregate-latency-grid aggregate-table-header"
+                          :style="{
+                            gridTemplateColumns: getTimeWindowGridColumnWidths(),
+                            minWidth: getTimeWindowTotalWidth() + 'px',
+                          }"
+                        >
+                          <div class="aggregate-cell latency-breakdown-header">
+                            <span>各阶段时延分解 (ms)</span>
+                            <small>柱长按总时延占比显示，悬停查看明细</small>
                           </div>
                         </div>
                       </div>
@@ -9156,60 +9270,27 @@ onBeforeUnmount(() => {
                               @click="toggleTimeWindowRow(twIdx)"
                               @mouseenter="hoveredTimeWindowRowIndex = twIdx"
                               @mouseleave="hoveredTimeWindowRowIndex = null"
-                              :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
+                              :style="{
+                                gridTemplateColumns: getTimeWindowGridColumnWidths(),
+                                minWidth: getTimeWindowTotalWidth() + 'px',
+                              }"
                             >
-                              <div
-                                v-for="column in timeWindowLatencyColumns"
-                                :key="column.key"
-                                class="aggregate-cell"
-                              >
-                                <span class="metric-value">
-                                  {{
-                                    formatMetricValue(
-                                      getTimeWindowSummaryValue(twEvent, column.key),
-                                    )
-                                  }}
-                                </span>
+                              <div class="aggregate-cell latency-breakdown-cell">
+                                <LatencyBreakdownBar
+                                  :segments="getTimeWindowBreakdownSegments(twEvent)"
+                                />
                               </div>
                             </div>
                             <template v-if="isTimeWindowExpanded(twIdx)">
                               <div
                                 class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-header"
-                                :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
+                                :style="{
+                                  gridTemplateColumns: getTimeWindowGridColumnWidths(),
+                                  minWidth: getTimeWindowTotalWidth() + 'px',
+                                }"
                               >
-                                <div
-                                  v-for="column in timeWindowLatencyColumns"
-                                  :key="column.key"
-                                  class="aggregate-cell aggregate-sortable-cell"
-                                  @click.stop="handleIpPairSort(column.key)"
-                                >
-                                  <span class="sort-header-content">
-                                    {{ column.label }}
-                                    <span class="sort-icons">
-                                      <span
-                                        class="sort-icon-up"
-                                        :class="{
-                                          'sort-icon-active':
-                                            getTimeWindowIpPairSortOrder(column.key) === 'asc',
-                                        }"
-                                        >▲</span
-                                      >
-                                      <span
-                                        class="sort-icon-down"
-                                        :class="{
-                                          'sort-icon-active':
-                                            getTimeWindowIpPairSortOrder(column.key) === 'desc',
-                                        }"
-                                        >▼</span
-                                      >
-                                      <span
-                                        v-if="getTimeWindowIpPairSortPriority(column.key)"
-                                        class="sort-priority-badge"
-                                      >
-                                        {{ getTimeWindowIpPairSortPriority(column.key) }}
-                                      </span>
-                                    </span>
-                                  </span>
+                                <div class="aggregate-cell latency-breakdown-header compact">
+                                  <span>IP 对阶段时延分解 (ms)</span>
                                 </div>
                               </div>
                               <div
@@ -9225,40 +9306,26 @@ onBeforeUnmount(() => {
                                   hoveredTimeWindowIpPairKey = `${twIdx}:${ipPair.src_ip}:${ipPair.dst_ip}`
                                 "
                                 @mouseleave="hoveredTimeWindowIpPairKey = ''"
-                                :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
+                                :style="{
+                                  gridTemplateColumns: getTimeWindowGridColumnWidths(),
+                                  minWidth: getTimeWindowTotalWidth() + 'px',
+                                }"
                               >
-                                <div
-                                  v-for="column in timeWindowLatencyColumns"
-                                  :key="column.key"
-                                  class="aggregate-cell"
-                                >
-                                  <span
-                                    class="metric-value"
-                                    :class="{
-                                      abnormal: isLatencyMetricAbnormal(
-                                        column.key,
-                                        getTimeWindowAggregatedLatencyValue(ipPair, column.key),
-                                      ),
-                                    }"
-                                  >
-                                    {{
-                                      formatMetricValue(
-                                        getTimeWindowAggregatedLatencyValue(ipPair, column.key),
-                                      )
-                                    }}
-                                  </span>
+                                <div class="aggregate-cell latency-breakdown-cell">
+                                  <LatencyBreakdownBar
+                                    :segments="getTimeWindowIpPairBreakdownSegments(ipPair)"
+                                  />
                                 </div>
                               </div>
                               <div
                                 v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
                                 class="aggregate-latency-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
-                                :style="{ gridTemplateColumns: getTimeWindowGridColumnWidths(), minWidth: getTimeWindowTotalWidth() + 'px' }"
+                                :style="{
+                                  gridTemplateColumns: getTimeWindowGridColumnWidths(),
+                                  minWidth: getTimeWindowTotalWidth() + 'px',
+                                }"
                               >
-                                <div
-                                  v-for="column in timeWindowLatencyColumns"
-                                  :key="column.key"
-                                  class="aggregate-cell"
-                                ></div>
+                                <div class="aggregate-cell"></div>
                               </div>
                             </template>
                           </template>
@@ -9521,7 +9588,10 @@ onBeforeUnmount(() => {
                     <div class="aggregate-latency-head aggregate-latency-sync">
                       <div
                         class="abnormal-latency-grid aggregate-table-header"
-                        :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths(), minWidth: getLatencyDataTotalWidth() + 'px' }"
+                        :style="{
+                          gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                          minWidth: getLatencyDataTotalWidth() + 'px',
+                        }"
                       >
                         <div
                           class="aggregate-cell aggregate-sortable-cell column-resizable"
@@ -9553,36 +9623,12 @@ onBeforeUnmount(() => {
                             @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 0)"
                           ></div>
                         </div>
-                        <div
-                          v-for="(col, index) in getLatencyDataColumns.slice(1)"
-                          :key="col.key"
-                          class="aggregate-cell aggregate-sortable-cell column-resizable"
-                          @click="abnormalTraceSort.handleHeaderClick(col.key)"
-                        >
-                          <span class="sort-header-content">
-                            {{ col.label.replace(' (ms)', '') }}
-                            <span class="sort-icons">
-                              <span
-                                class="sort-icon-up"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder(col.key) === 'asc',
-                                }"
-                                >▲</span
-                              >
-                              <span
-                                class="sort-icon-down"
-                                :class="{
-                                  'sort-icon-active':
-                                    abnormalTraceSort.getSortOrder(col.key) === 'desc',
-                                }"
-                                >▼</span
-                              >
-                            </span>
-                          </span>
+                        <div class="aggregate-cell latency-breakdown-header column-resizable">
+                          <span>各阶段时延分解 (ms)</span>
+                          <small>柱长按总时延占比显示，悬停查看明细</small>
                           <div
                             class="column-resize-handle"
-                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', index + 1)"
+                            @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 1)"
                           ></div>
                         </div>
                       </div>
@@ -9636,24 +9682,11 @@ onBeforeUnmount(() => {
                               {{ formatNullableMetricValue(row.totalLatency) }}
                             </span>
                           </div>
-                          <div
-                          v-for="col in getLatencyDataColumns.slice(1)"
-                          :key="col.key"
-                          class="aggregate-cell"
-                        >
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isAnomalyListLatencyMetricAbnormal(
-                                row,
-                                col.key,
-                                getLatencyRowValue(row as any, col.key),
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(getLatencyRowValue(row as any, col.key)) }}
-                          </span>
-                        </div>
+                          <div class="aggregate-cell latency-breakdown-cell">
+                            <LatencyBreakdownBar
+                              :segments="getLatencyRowBreakdownSegments(row as any)"
+                            />
+                          </div>
                         </div>
                       </template>
                     </div>
@@ -11069,7 +11102,9 @@ onBeforeUnmount(() => {
                   @click="deleteLogFile(file.id)"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M10 11v6M14 11v6M15 7V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3" />
+                    <path
+                      d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M10 11v6M14 11v6M15 7V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3"
+                    />
                   </svg>
                 </button>
               </div>
@@ -11625,6 +11660,9 @@ onBeforeUnmount(() => {
             <div class="aggregate-detail-chart-title">时延趋势（P99）</div>
             <div class="latency-series-toggle">
               <span class="latency-series-toggle-label">曲线选择：</span>
+              <span class="latency-series-toggle-count">
+                已选 {{ selectedLatencySeriesCount }}/{{ latencySeriesCount }}
+              </span>
               <button
                 class="latency-series-toggle-btn latency-series-toggle-all"
                 type="button"
@@ -11639,22 +11677,24 @@ onBeforeUnmount(() => {
               >
                 清空
               </button>
-              <label
-                v-for="series in latencySeriesConfig"
-                :key="series.key"
-                class="latency-series-checkbox"
-              >
-                <input
-                  type="checkbox"
-                  :checked="isLatencySeriesVisible(series.key)"
-                  @change="toggleLatencySeriesVisibility(series.key)"
-                />
-                <span
-                  class="latency-series-color-dot"
-                  :style="{ backgroundColor: series.color }"
-                ></span>
-                {{ series.label }}
-              </label>
+              <div class="latency-series-options" aria-label="时延指标选择">
+                <label
+                  v-for="series in latencySeriesConfig"
+                  :key="series.key"
+                  class="latency-series-checkbox"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="isLatencySeriesVisible(series.key)"
+                    @change="toggleLatencySeriesVisibility(series.key)"
+                  />
+                  <span
+                    class="latency-series-color-dot"
+                    :style="{ backgroundColor: series.color }"
+                  ></span>
+                  {{ series.label }}
+                </label>
+              </div>
             </div>
             <div class="latency-chart-panel detail-latency-chart-panel">
               <div v-if="isDetailLatencyChartLoading" class="chart-state detail-chart-state">
@@ -11782,7 +11822,10 @@ onBeforeUnmount(() => {
                   <div class="aggregate-latency-head aggregate-latency-sync">
                     <div
                       class="abnormal-latency-grid aggregate-table-header"
-                      :style="{ gridTemplateColumns: getLatencyDataGridColumnWidths(), minWidth: getLatencyDataTotalWidth() + 'px' }"
+                      :style="{
+                        gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                        minWidth: getLatencyDataTotalWidth() + 'px',
+                      }"
                     >
                       <div
                         class="aggregate-cell aggregate-sortable-cell"
@@ -11810,37 +11853,9 @@ onBeforeUnmount(() => {
                           </span>
                         </span>
                       </div>
-                      <div
-                        v-for="col in getLatencyDataColumns.slice(1)"
-                        :key="col.key"
-                        class="aggregate-cell aggregate-sortable-cell"
-                        @click="detailParseResultSort.handleHeaderClick(getDetailSortKey(col.key))"
-                      >
-                        <span class="sort-header-content">
-                          {{ col.label }}
-                          <span class="sort-icons">
-                            <span
-                              class="sort-icon-up"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder(
-                                    getDetailSortKey(col.key),
-                                  ) === 'asc',
-                              }"
-                              >▲</span
-                            >
-                            <span
-                              class="sort-icon-down"
-                              :class="{
-                                'sort-icon-active':
-                                  detailParseResultSort.getSortOrder(
-                                    getDetailSortKey(col.key),
-                                  ) === 'desc',
-                              }"
-                              >▼</span
-                            >
-                          </span>
-                        </span>
+                      <div class="aggregate-cell latency-breakdown-header">
+                        <span>各阶段时延分解 (ms)</span>
+                        <small>柱长按总时延占比显示，悬停查看明细</small>
                       </div>
                     </div>
                   </div>
@@ -11884,23 +11899,10 @@ onBeforeUnmount(() => {
                             {{ formatNullableMetricValue(row.totalLatency) }}
                           </span>
                         </div>
-                        <div
-                          v-for="col in getLatencyDataColumns.slice(1)"
-                          :key="col.key"
-                          class="aggregate-cell"
-                        >
-                          <span
-                            class="metric-value"
-                            :class="{
-                              abnormal: isAnomalyListLatencyMetricAbnormal(
-                                row,
-                                col.key,
-                                getLatencyRowValue(row as any, col.key),
-                              ),
-                            }"
-                          >
-                            {{ formatNullableMetricValue(getLatencyRowValue(row as any, col.key)) }}
-                          </span>
+                        <div class="aggregate-cell latency-breakdown-cell">
+                          <LatencyBreakdownBar
+                            :segments="getLatencyRowBreakdownSegments(row as any)"
+                          />
                         </div>
                       </div>
                     </template>
