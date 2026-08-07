@@ -31,6 +31,7 @@ class SrcDstAggregatedEventPGManager:
 
     _COPY_COLUMNS = [
         "id",
+        "kb_id",
         "src_ip",
         "dst_ip",
         "log_id",
@@ -51,6 +52,7 @@ class SrcDstAggregatedEventPGManager:
     def _event_to_mapping(event: SrcDstAggregatedEventDataclass) -> dict[str, Any]:
         return {
             "id": event.id,
+            "kb_id": getattr(event, "kb_id", ""),
             "src_ip": parse_ip(event.src_ip),
             "dst_ip": parse_ip(event.dst_ip),
             "log_id": event.log_id,
@@ -64,6 +66,7 @@ class SrcDstAggregatedEventPGManager:
     def _event_to_copy_tuple(event: SrcDstAggregatedEventDataclass) -> tuple[Any, ...]:
         return (
             event.id,
+            getattr(event, "kb_id", ""),
             parse_ip(event.src_ip),
             parse_ip(event.dst_ip),
             event.log_id,
@@ -206,6 +209,16 @@ class SrcDstAggregatedEventPGManager:
         valid_stat_types = {"ave", "min", "max", "p95", "p99"}
         stat = req.stat_type if req.stat_type in valid_stat_types else "ave"
 
+        use_kb_fastpath = bool(req.kb_id and not req.log_id)
+        if not req.kb_id and req.log_id:
+            async with PGManager.session() as session:
+                lf = await session.get(LogFile, req.log_id)
+                if lf and lf.kb_id:
+                    use_kb_fastpath = True
+                    req.kb_id = lf.kb_id
+        if use_kb_fastpath:
+            return await SrcDstAggregatedEventPGManager._list_by_kb(req)
+
         subq = SrcDstAggregatedEventPGManager._build_stats_subquery(req)
 
         selected_agg_cols = [
@@ -311,6 +324,47 @@ class SrcDstAggregatedEventPGManager:
         return total, out
 
     @staticmethod
+    async def _list_by_kb(
+        req: ListSrcDstAggregatedEventRequest,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        """Fast path: query by kb_id directly using pre-computed aggregate columns."""
+        stmt = (
+            select(SrcDstAggregatedEvent)
+            .where(SrcDstAggregatedEvent.kb_id == req.kb_id)
+            .where(SrcDstAggregatedEvent.existed_status.is_(True))
+        )
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        data_stmt = stmt.order_by(
+            SrcDstAggregatedEvent.anomaly_cnt.desc()
+        ).limit(req.page_cnt).offset((req.page_num - 1) * req.page_cnt)
+
+        async with PGManager.session() as session:
+            total = (await session.execute(count_stmt)).scalar_one()
+            rows = (await session.execute(data_stmt)).scalars().all()
+
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            data = {
+                "id": row.id,
+                "src_ip": format_ip(row.src_ip) if row.src_ip else "",
+                "dst_ip": format_ip(row.dst_ip) if row.dst_ip else "",
+                "log_id": row.log_id,
+                "log_parse_result_cnt": row.log_parse_result_cnt,
+                "anomaly_log_parse_result_cnt": row.anomaly_log_parse_result_cnt,
+                "anomaly_cnt": row.anomaly_cnt,
+                "existed_status": row.existed_status,
+                "created_at": format_timestamp(row.created_at),
+            }
+            for name in [
+                "total_latency", "query_meta_latency", "urma_total_latency",
+                "urma_link_latency", "c2w_urma_latency", "w2w_urma_latency",
+            ]:
+                for st in ("ave", "min", "max", "p95", "p99"):
+                    data[f"{st}_{name}"] = None
+            out.append(data)
+        return total, out
+
+    @staticmethod
     async def get_aggregated_event_by_id(
         event_id: str,
     ) -> dict[str, Any] | None:
@@ -362,10 +416,13 @@ class SrcDstAggregatedEventPGManager:
 
     @staticmethod
     async def delete_aggregated_events_by_log_id(log_id: str) -> bool:
-        """Hard delete all src/dst aggregates for a log_id."""
+        """Soft delete all src/dst aggregates for a log_id."""
         async with PGManager.connection() as conn:
             await conn.execute(
-                text("DELETE FROM src_dst_aggregated_event WHERE log_id = :log_id"),
+                text(
+                    "UPDATE src_dst_aggregated_event "
+                    "SET existed_status = FALSE WHERE log_id = :log_id"
+                ),
                 {"log_id": log_id},
             )
         return True

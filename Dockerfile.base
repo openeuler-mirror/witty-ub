@@ -10,8 +10,8 @@ LABEL maintainer="witty-ub"
 LABEL description="Witty-UB base image with all dependencies"
 
 # Install build tools and runtime dependencies
-RUN dnf update -y && \
-    dnf install -y \
+RUN dnf update -y --allowerasing && \
+    dnf install -y --allowerasing \
     cmake gcc-c++ make \
     log4cplus-devel cpp-httplib-devel sqlite-devel \
     jsoncpp-devel tinyxml2-devel openssl-devel \
@@ -54,7 +54,8 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     urllib3>=2.1.0 \
     rarfile>=4.0 \
     sqlalchemy==2.0.51 \
-    asyncpg==0.31.0 && \
+    asyncpg==0.31.0 \
+    "numpy>=1.26.0,<3.0.0" && \
     rm -rf /root/.cache/pip
 
 # Install OpenCode (install in base image to avoid QEMU issues in multi-arch builds)

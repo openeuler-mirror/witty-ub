@@ -97,9 +97,23 @@ def parse_pod_ips(value: str | list[str] | None) -> list[str] | None:
 
 
 def format_timestamp(value: datetime | None) -> str | None:
-    """Format datetime back to SQLite-style string."""
+    """Format datetime back to API string, preserving the timezone offset.
+
+    Aware datetimes (e.g. asyncpg ``timestamptz`` results) are converted to the
+    local timezone and emitted with an explicit offset suffix, e.g.
+    ``2026-07-31 22:17:19.529+08:00``, so the frontend can parse them as local
+    time instead of a naive (UTC-looking) string. Naive values keep their
+    historical format unchanged.
+    """
     if value is None:
         return None
+    if value.tzinfo is not None:
+        value = value.astimezone()
+        base = value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        tz = value.strftime("%z")  # e.g. "+0800"
+        if len(tz) == 5:  # "+0800" -> "+08:00"
+            tz = tz[:3] + ":" + tz[3:]
+        return base + tz
     return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 

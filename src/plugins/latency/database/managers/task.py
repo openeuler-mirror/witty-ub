@@ -232,4 +232,3 @@ class TaskPGManager:
             result = await session.execute(stmt)
             rows = result.scalars().all()
         return [TaskPGManager._row_to_model(r) for r in rows]
-        return TaskPGManager._row_to_model(row)

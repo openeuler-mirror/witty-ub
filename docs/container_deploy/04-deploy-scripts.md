@@ -7,18 +7,19 @@
 
 ## 概述
 
-项目在 `deploy/` 目录下提供了一组一键部署脚本，替代手动执行 `docker run` / `docker compose` 命令，降低部署门槛。
+项目在 `deploy/` 目录下提供了一组一键部署脚本，分为**宿主机部署** (`host/`) 和**容器部署** (`docker/`) 两个场景，另有共用的 PG 部署脚本和配置文件。
 
 ```
 deploy/
-├── pg.conf                  # 统一配置文件（所有脚本共用）
-├── deploy_pg.sh             # PostgreSQL 部署脚本
-├── deploy_witty.sh          # witty-ub 部署脚本
-├── manage.sh                # 统一管理入口（交互式菜单 + 命令行）
-├── container/
-│   └── run_pg.sh            # 旧版 PG Docker 部署脚本（保留，迁移提示）
-└── rpm/
-    └── setup_pg.sh          # 旧版 PG RPM 部署脚本（保留，迁移提示）
+├── host/                     # 宿主机/本地部署
+│   ├── _lib.sh               # 共享工具库
+│   ├── install_deps.sh       # 依赖安装 (系统包 + Python venv)，可独立执行
+│   └── deploy.sh             # 总控: PG 初始化 + C++ 编译 + 启动 + stop/clean
+├── docker/                   # 容器部署
+│   ├── deploy_witty.sh       # witty-ub 容器一键部署
+│   └── manage.sh             # 统一管理入口 (交互式菜单 + 命令行)
+├── deploy_pg.sh              # PostgreSQL 独立部署 (Docker/RPM/APT)，两边共用
+└── pg.conf                   # 统一配置文件 (所有脚本共用)
 ```
 
 ---
@@ -83,12 +84,12 @@ WITTY_EXTRA_MOUNTS=""
 
 ## 一键部署：manage.sh
 
-`deploy/manage.sh` 是统一管理入口，支持**交互式菜单**和**命令行直接调用**两种模式。
+`deploy/docker/manage.sh` 是统一管理入口，支持**交互式菜单**和**命令行直接调用**两种模式。
 
 ### 模式一：交互式菜单（推荐新手）
 
 ```bash
-bash deploy/manage.sh
+bash deploy/docker/manage.sh
 ```
 
 输出：
@@ -150,28 +151,28 @@ bash deploy/manage.sh
 
 ```bash
 # 一键安装 PostgreSQL + witty-ub
-bash deploy/manage.sh install-all
+bash deploy/docker/manage.sh install-all
 
 # 仅安装 PostgreSQL（Docker 方式）
-bash deploy/manage.sh install-pg
+bash deploy/docker/manage.sh install-pg
 
 # 仅安装 witty-ub
-bash deploy/manage.sh install-witty
+bash deploy/docker/manage.sh install-witty
 
 # 卸载 witty-ub
-bash deploy/manage.sh uninstall-witty
+bash deploy/docker/manage.sh uninstall-witty
 
 # 卸载全部
-bash deploy/manage.sh uninstall-all
+bash deploy/docker/manage.sh uninstall-all
 
 # 重启 witty-ub
-bash deploy/manage.sh restart-witty
+bash deploy/docker/manage.sh restart-witty
 
 # 查看状态
-bash deploy/manage.sh status
+bash deploy/docker/manage.sh status
 
 # 查看帮助
-bash deploy/manage.sh --help
+bash deploy/docker/manage.sh --help
 ```
 
 ---
@@ -184,13 +185,13 @@ bash deploy/manage.sh --help
 
 ```bash
 # 使用默认配置（从 pg.conf 读取）
-bash deploy/deploy_witty.sh
+bash deploy/docker/deploy_witty.sh
 
 # 指定镜像
-bash deploy/deploy_witty.sh --image hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
+bash deploy/docker/deploy_witty.sh --image hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 
 # 查看帮助
-bash deploy/deploy_witty.sh --help
+bash deploy/docker/deploy_witty.sh --help
 ```
 
 ### 自动完成的工作
@@ -240,13 +241,13 @@ witty-ub Deployment Completed!
 
 ```bash
 # 指定端口和镜像
-WITTY_HOST_PORT=8080 WITTY_IMAGE=my-custom:v1 bash deploy/deploy_witty.sh
+WITTY_HOST_PORT=8080 WITTY_IMAGE=my-custom:v1 bash deploy/docker/deploy_witty.sh
 
 # 指定额外挂载
-WITTY_EXTRA_MOUNTS="/data/logs:/var/witty-ub/logs:ro" bash deploy/deploy_witty.sh
+WITTY_EXTRA_MOUNTS="/data/logs:/var/witty-ub/logs:ro" bash deploy/docker/deploy_witty.sh
 
 # 手动指定 PG 连接（覆盖自动检测）
-PG_HOST_IN_CONTAINER=172.18.0.1 PG_PORT_IN_CONTAINER=15432 bash deploy/deploy_witty.sh
+PG_HOST_IN_CONTAINER=172.18.0.1 PG_PORT_IN_CONTAINER=15432 bash deploy/docker/deploy_witty.sh
 ```
 
 ---
@@ -284,18 +285,18 @@ bash deploy/deploy_pg.sh --help
 
 ```bash
 # 方式一：交互式
-bash deploy/manage.sh
+bash deploy/docker/manage.sh
 # 选择 [1] 一键安装
 
 # 方式二：命令行
-bash deploy/manage.sh install-all
+bash deploy/docker/manage.sh install-all
 ```
 
 ### 场景 2：已有 RPM PostgreSQL，仅部署 witty-ub
 
 ```bash
 # 脚本会自动检测到宿主机 PG，无需额外配置
-bash deploy/manage.sh install-witty
+bash deploy/docker/manage.sh install-witty
 ```
 
 ### 场景 3：需要容器访问宿主机日志目录
@@ -309,13 +310,13 @@ WITTY_EXTRA_MOUNTS="/var/log/neocopilot:/var/witty-ub/host_logs:ro"
 然后重新部署：
 
 ```bash
-bash deploy/deploy_witty.sh
+bash deploy/docker/deploy_witty.sh
 ```
 
 ### 场景 4：使用自定义镜像
 
 ```bash
-bash deploy/deploy_witty.sh --image my-registry.com/witty-ub:v2.0
+bash deploy/docker/deploy_witty.sh --image my-registry.com/witty-ub:v2.0
 ```
 
 或在 `pg.conf` 中永久配置：

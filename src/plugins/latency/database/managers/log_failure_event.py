@@ -735,6 +735,8 @@ class LogFailureEventPGManager:
             if req.operation:
                 stmt = stmt.where(TraceFailureEvent.operation == req.operation)
 
+            stmt = stmt.order_by(TraceFailureEvent.timestamp.asc())
+
             async with PGManager.session() as session:
                 result = await session.execute(stmt)
                 rows = result.scalars().all()

@@ -138,11 +138,11 @@ class BaseWorker:
         flag = ProcessHandler.add_task(
             task_id, BaseWorker.find_worker_class(worker_name).run, *args
         )
-        if flag:
-            await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
-        else:
-            logger.error(f"[BaseWorker] 任务 {task_id} 添加到进程池失败")
-        return flag
+        if not flag:
+            logger.error("ProcessHandler.add_task 失败: task_id=%s worker=%s", task_id, worker_name)
+            return False
+        await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
+        return True
 
     @staticmethod
     async def stop(task_id: str) -> bool:

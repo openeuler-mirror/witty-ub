@@ -90,12 +90,17 @@ class ModelConfig(BaseModel):
 
 
 class DSLogAnalyzerConfig(BaseModel):
-    # 各指标阈值配置（直接阈值判断：单条数据超过阈值即标记异常）
-    total_p99_threshold_ms: float = Field(default=2.0, description="总时延阈值，单位毫秒")
-    c2w_p99_threshold_ms: float = Field(default=1.0, description="C2W时延阈值，单位毫秒")
-    w2w_p99_threshold_ms: float = Field(default=1.0, description="W2W时延阈值，单位毫秒")
-    urma_link_p99_threshold_ms: float = Field(default=1.0, description="URMA建链时延阈值，单位毫秒")
-    query_meta_p99_threshold_ms: float = Field(default=1.0, description="Worker QueryMeta时延阈值，单位毫秒")
+    # 多窗口配置（每个指标都会使用所有窗口检测）
+    sliding_window_sizes: list[int] = Field(default=[100, 200, 300, 500], description="滑动窗口大小列表")
+    sliding_window_steps: list[int] = Field(default=[20, 30, 40, 50], description="滑动窗口步长列表，与窗口大小一一对应")
+    zone_anomaly_density_threshold: float = Field(default=0.9999, description="区间异常密度阈值，超过此比例则整个区间标记为异常")
+
+    # 各指标阈值配置
+    total_p99_threshold_ms: float = Field(default=5.0, description="总时延P99阈值，单位毫秒")
+    c2w_p99_threshold_ms: float = Field(default=1.0, description="C2W时延P99阈值，单位毫秒")
+    w2w_p99_threshold_ms: float = Field(default=1.0, description="W2W时延P99阈值，单位毫秒")
+    urma_link_p99_threshold_ms: float = Field(default=1.0, description="URMA建链时延P99阈值，单位毫秒")
+    query_meta_p99_threshold_ms: float = Field(default=1.0, description="Worker QueryMeta时延P99阈值，单位毫秒")
 
 
 class LogFilenamePatternConfig(BaseModel):
@@ -124,6 +129,17 @@ class DiagnosisRuntimeConfig(BaseModel):
                 f"日志文件名 Pattern 不能为空: {', '.join(empty_pattern_types)}"
             )
 
+        params = self.log_analyzer_params
+        if not params.sliding_window_sizes:
+            raise ValueError("至少需要配置一组滑动窗口")
+        if len(params.sliding_window_sizes) != len(params.sliding_window_steps):
+            raise ValueError("滑动窗口大小与步长数量必须一致")
+        if any(value <= 0 for value in params.sliding_window_sizes):
+            raise ValueError("滑动窗口大小必须大于 0")
+        if any(value <= 0 for value in params.sliding_window_steps):
+            raise ValueError("滑动窗口步长必须大于 0")
+        if not 0 <= params.zone_anomaly_density_threshold <= 1:
+            raise ValueError("区间异常密度阈值必须在 0 到 1 之间")
         return self
 
 

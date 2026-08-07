@@ -10,17 +10,27 @@ import time
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskSplitStrategy
+from latency.common.disk import io_concurrency_for
 
 from .file_parser_map_builder import FileParserMapBuilder
 from .preprocessor import LogPreprocessor
-from .process_worker import process_worker_func
+from .process_worker import (
+    _PERF_MARKER,
+    _TIMING_COLLECTOR,
+    process_worker_func,
+)
 from .task_splitter import FileGroup, ScanTaskSplitter
+from .columnar import COLUMNS_KEY
 
 logger = logging.getLogger(__name__)
+
+# T7: 有界提交死锁保护超时 — 窗口内任一任务超时未完成即判死锁, 取消并降级
+# asyncio 路径。正常批次(数分钟级)远小于 600s, 不会误触发。
+_BOUNDED_SUBMIT_WAIT_TIMEOUT_S = 600
 
 
 @dataclass
@@ -83,6 +93,7 @@ class ParallelFileScanner:
         parsers: list,
         parse_config: Optional[ParseConfig] = None,
         scan_scope: Optional[dict] = None,
+        progress_cb: Optional[Callable[[float], Awaitable]] = None,
     ) -> dict[str, list]:
         """
         扫描所有日志文件
@@ -91,6 +102,9 @@ class ParallelFileScanner:
             log_dir: 日志目录
             parsers: 解析器列表
             parse_config: 解析配置
+            progress_cb: 可选扫描进度回调 ``async (fraction: float) -> None``，
+                每个文件组完成后以 0.0→1.0 的单调递增比例调用；None 时不调用
+                （向后兼容，既有调用方/测试不受影响）。
 
         返回:
             {parser_label: [entries]} 所有解析结果
@@ -151,33 +165,57 @@ class ParallelFileScanner:
             )
 
         # Step 3: 执行扫描
+        # multiprocessing 主路径不做 IO 并发限制（池=窗口=全量）;
+        # asyncio 降级路径保留 io_concurrency gate（T7 契约, fallback 限 IO）。
+        io_concurrency = io_concurrency_for(log_dir)
+        logger.info(
+            f"asyncio fallback IO gate: disk io_concurrency={io_concurrency}"
+        )
         scan_start = time.perf_counter()
         if self.use_multiprocessing and len(file_groups) > 1:
             logger.info(f"Using multiprocessing with {len(file_groups)} processes")
             try:
                 results = await self._scan_with_multiprocessing(
-                    file_groups, parsers, log_dir, parse_config, scan_scope
+                    file_groups,
+                    parsers,
+                    log_dir,
+                    parse_config,
+                    scan_scope,
+                    io_concurrency=io_concurrency,
+                    progress_cb=progress_cb,
                 )
             except Exception as e:
                 logger.warning(
                     f"Multiprocessing failed, fallback to asyncio: {e}"
                 )
                 results = await self._scan_with_asyncio(
-                    file_groups, parsers, scan_scope
+                    file_groups,
+                    parsers,
+                    scan_scope,
+                    io_concurrency=io_concurrency,
+                    progress_cb=progress_cb,
                 )
         else:
             logger.info(
                 f"Using asyncio mode: use_multiprocessing={self.use_multiprocessing}, "
                 f"len(file_groups)={len(file_groups)}"
             )
-            results = await self._scan_with_asyncio(file_groups, parsers, scan_scope)
+            results = await self._scan_with_asyncio(
+                file_groups,
+                parsers,
+                scan_scope,
+                io_concurrency=io_concurrency,
+                progress_cb=progress_cb,
+            )
 
         self.metrics.scan_time_ms = (time.perf_counter() - scan_start) * 1000
 
         # Step 4: 汇总结果
         merged = self._merge_results(results)
         self.metrics.total_entries = sum(
-            len(entries) for entries in merged.values()
+            len(entries)
+            for label, entries in merged.items()
+            if label != COLUMNS_KEY
         )
 
         self.metrics.total_time_ms = (time.perf_counter() - overall_start) * 1000
@@ -194,9 +232,14 @@ class ParallelFileScanner:
         log_dir: str,
         parse_config: Optional[ParseConfig],
         scan_scope: Optional[dict],
+        io_concurrency: Optional[int] = None,
+        progress_cb: Optional[Callable[[float], Awaitable]] = None,
     ) -> list[dict[str, list[dict]]]:
         """
         使用多进程执行扫描
+
+        T7: 进程池 max_workers 与有界提交窗口均按 IO 并发 cap 限制, 避免
+        HDD 下全量提交导致 IO 风暴。
 
         返回:
             [{parser_label: [serialized_entries]}, ...]
@@ -218,12 +261,60 @@ class ParallelFileScanner:
         # 序列化 parse_config
         parse_config_dict = parse_config.dict() if parse_config else None
 
-        loop = asyncio.get_event_loop()
-        with ProcessPoolExecutor(max_workers=len(file_groups)) as executor:
-            futures = []
-            for group in file_groups:
-                future = loop.run_in_executor(
-                    executor,
+        # 进程池大小决定解析并行度（吃满 CPU）; 有界提交窗口 = 池大小,
+        # 即全量提交由进程池自然调度, 不做额外 IO 并发限制。
+        parse_workers = max(1, self.max_processes or (os.cpu_count() or 1))
+        logger.info(f"Parallel scanning: pool={parse_workers} workers")
+
+        executor = ProcessPoolExecutor(max_workers=parse_workers)
+        try:
+            results = await self._submit_bounded_multiprocessing(
+                executor,
+                file_groups,
+                parsers_info,
+                parse_config_dict,
+                scan_scope,
+                parse_workers,
+                progress_cb=progress_cb,
+            )
+        except Exception:
+            # 卡死场景下 shutdown(wait=True) 会同步等 worker 结束而挂起 → 立即释放
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            executor.shutdown(wait=True)
+
+        return results
+
+    async def _submit_bounded_multiprocessing(
+        self,
+        executor,
+        file_groups: list[FileGroup],
+        parsers_info: list[dict],
+        parse_config_dict: Optional[dict],
+        scan_scope: Optional[dict],
+        max_concurrent: int,
+        progress_cb: Optional[Callable[[float], Awaitable]] = None,
+    ) -> list[dict[str, list[dict]]]:
+        """有界提交: 同时最多 max_concurrent 个任务在途, 完成一个补位一个。
+
+        parent 侧 asyncio.Semaphore 包提交循环是 no-op(所有 future 已同时
+        提交), 因此这里用 asyncio.wait(FIRST_COMPLETED) 做真正的有界提交,
+        并对每次等待加超时保护, 防止"完成一个补一个"死锁时永久挂起(P1-4)。
+        返回顺序与 file_groups 一致, 保持原返回类型 list[dict]。
+
+        progress_cb: 可选进度回调, 每完成一个 group 后以
+            ``completed_groups / total_groups``（0.0→1.0 单调递增）调用。
+        """
+        pending: dict[asyncio.Future, int] = {}
+        results: dict[int, dict[str, list[dict]]] = {}
+        iterator = iter(enumerate(file_groups))
+        total_groups = len(file_groups) or 1
+        completed_groups = 0
+
+        def _submit(group: FileGroup) -> asyncio.Future:
+            return asyncio.wrap_future(
+                executor.submit(
                     process_worker_func,
                     group.files,
                     group.group_id,
@@ -231,26 +322,84 @@ class ParallelFileScanner:
                     parse_config_dict,
                     scan_scope,
                 )
-                futures.append(future)
+            )
 
-            results = await asyncio.gather(*futures)
+        # 初始窗口: 一次提交 max_concurrent 个
+        for _ in range(max_concurrent):
+            try:
+                index, group = next(iterator)
+            except StopIteration:
+                break
+            pending[_submit(group)] = index
 
-        return results
+        while pending:
+            try:
+                done, _ = await asyncio.wait_for(
+                    asyncio.wait(list(pending), return_when=asyncio.FIRST_COMPLETED),
+                    timeout=_BOUNDED_SUBMIT_WAIT_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                for fut in list(pending):
+                    fut.cancel()
+                raise RuntimeError(
+                    "Bounded multiprocess submission deadlocked: no group "
+                    f"completed within {_BOUNDED_SUBMIT_WAIT_TIMEOUT_S}s "
+                    f"(pending={len(pending)})"
+                ) from None
+
+            for fut in done:
+                index = pending.pop(fut)
+                try:
+                    results[index] = await fut
+                except Exception:
+                    # 任务失败: 取消其余在途任务, 交由 scan_all 降级 asyncio 路径
+                    for other in list(pending):
+                        other.cancel()
+                    raise
+                completed_groups += 1
+
+            if progress_cb is not None:
+                await progress_cb(completed_groups / total_groups)
+
+            # 补位: 每个完成的槽位提交下一个 group
+            for _ in range(len(done)):
+                try:
+                    index, group = next(iterator)
+                except StopIteration:
+                    break
+                pending[_submit(group)] = index
+
+        return [results[i] for i in range(len(file_groups))]
 
     async def _scan_with_asyncio(
         self,
         file_groups: list[FileGroup],
         parsers: list,
         scan_scope: Optional[dict] = None,
+        io_concurrency: Optional[int] = None,
+        log_dir: Optional[str] = None,
+        progress_cb: Optional[Callable[[float], Awaitable]] = None,
     ) -> list[dict[str, list]]:
         """
         使用 asyncio 执行扫描（单进程模式 / 降级模式）
+
+        T7: 用 asyncio.Semaphore(max_concurrent) 包 _scan_file_multi 的
+        to_thread 调用, 限制降级路径的 IO 并发(这里 Semaphore 是有效模式,
+        因为 to_thread 是真正并发执行的, 与 multiprocessing 提交循环不同)。
 
         返回:
             [{parser_label: [entries]}, ...]
         """
         logger.info(
             f"Starting asyncio scanning with {len(file_groups)} groups"
+        )
+
+        if io_concurrency is None:
+            io_concurrency = io_concurrency_for(log_dir) if log_dir else 3
+        io_semaphore = asyncio.Semaphore(max(1, io_concurrency))
+        logger.info(
+            f"IO-aware asyncio gate: max_concurrent={io_concurrency} "
+            f"(Semaphore around _scan_file_multi to_thread)"
         )
 
         # 构建 group_id → 解析器索引映射
@@ -261,71 +410,118 @@ class ParallelFileScanner:
                 all_indices.update(indices)
             group_parser_map[group.group_id] = sorted(all_indices)
 
-        tasks = []
-        for group in file_groups:
-            task = asyncio.create_task(
-                self._scan_group_asyncio(group, parsers, scan_scope)
-            )
-            tasks.append(task)
+        # T8: asyncio 路径在父进程内计时（_scan_file_multi 写入共享收集器）。
+        # 起始 reset 防止与其他扫描调用串数据；gather 后 snapshot 挂到首组结果。
+        _TIMING_COLLECTOR.reset()
 
-        return await asyncio.gather(*tasks)
+        async def _collect(index: int, group: FileGroup) -> tuple[int, dict]:
+            return index, await self._scan_group_asyncio(
+                group, parsers, scan_scope, io_semaphore
+            )
+
+        # as_completed 逐个收集, 每个 group 完成后触发 progress_cb（若提供）。
+        tasks = [
+            asyncio.create_task(_collect(index, group))
+            for index, group in enumerate(file_groups)
+        ]
+        total_groups = len(tasks) or 1
+        completed_groups = 0
+        results = [None] * len(tasks)
+        for done_task in asyncio.as_completed(tasks):
+            index, result = await done_task
+            results[index] = result
+            completed_groups += 1
+            if progress_cb is not None:
+                await progress_cb(completed_groups / total_groups)
+
+        timing_data = _TIMING_COLLECTOR.snapshot_and_reset()
+        if timing_data and results:
+            results[0][_PERF_MARKER] = timing_data
+        return results
 
     async def _scan_group_asyncio(
         self,
         file_group: FileGroup,
         parsers: list,
         scan_scope: Optional[dict] = None,
+        io_semaphore: Optional[asyncio.Semaphore] = None,
     ) -> dict[str, list]:
         """异步扫描单个文件组（单进程模式）"""
-        from .process_worker import _apply_scan_scope, _scan_file_multi, _serialize_entry
+        from .process_worker import _apply_scan_scope, _scan_file_multi
 
         _apply_scan_scope(parsers, scan_scope)
 
         tasks = []
         for path, parser_indices in file_group.files:
             group_parsers = [parsers[idx] for idx in parser_indices]
-            task = asyncio.to_thread(_scan_file_multi, group_parsers, path)
+            if io_semaphore is None:
+                task = asyncio.to_thread(_scan_file_multi, group_parsers, path)
+            else:
+                task = self._bounded_to_thread(
+                    io_semaphore, _scan_file_multi, group_parsers, path
+                )
             tasks.append(task)
 
         results = await asyncio.gather(*tasks)
 
-        # 汇总并序列化（与多进程模式保持一致）
+        # 汇总为列式输出（与多进程模式保持一致）
         merged = defaultdict(list)
         for result in results:
             for label, entries in result.items():
-                for e in entries:
-                    if isinstance(e, tuple):
-                        merged[label].append(e)
-                    else:
-                        merged[label].append(_serialize_entry(e))
+                merged[label].extend(entries)
 
-        return dict(merged)
+        from .columnar import entries_to_columns
+
+        return {COLUMNS_KEY: entries_to_columns(dict(merged))}
+
+    @staticmethod
+    async def _bounded_to_thread(semaphore: asyncio.Semaphore, func, *args):
+        """Semaphore 包 to_thread: 真正限制并发线程数(IO 读)。"""
+        async with semaphore:
+            return await asyncio.to_thread(func, *args)
 
     @staticmethod
     def _merge_results(
         results: list[dict[str, list]],
     ) -> dict[str, list]:
         merged = defaultdict(list)
+        merged_columns: dict | None = None
         t0 = time.perf_counter()
-        total_tuples = 0
+
+        perf_files = 0
+        perf_io_ms = 0.0
+        perf_parse_ms = 0.0
 
         for result in results:
-            for label, entries in result.items():
-                if entries and isinstance(entries[0], tuple):
-                    merged[label].extend(entries)
-                    total_tuples += len(entries)
+            timing = result.pop(_PERF_MARKER, None)
+            if isinstance(timing, dict):
+                perf_files += len(timing)
+                for file_name, t in timing.items():
+                    perf_io_ms += t["io_ms"]
+                    perf_parse_ms += t["parse_ms"]
+            columns = result.pop(COLUMNS_KEY, None)
+            if columns is not None:
+                if merged_columns is None:
+                    merged_columns = {k: list(v) for k, v in columns.items()}
                 else:
-                    merged[label].extend(entries)
+                    for k, v in columns.items():
+                        merged_columns[k].extend(v)
 
         merge_ms = (time.perf_counter() - t0) * 1000
+        entry_count = len(merged_columns.get("_label", [])) if merged_columns else 0
         logger.info(
             f"Results merged: {len(results)} groups, "
-            f"{len(merged)} parsers, "
-            f"{sum(len(e) for e in merged.values()):,} total entries, "
-            f"{total_tuples:,} tuples (no deserialization), "
+            f"{entry_count:,} column rows, "
             f"merge={merge_ms:.0f}ms"
         )
+        if perf_files:
+            logger.info(
+                f"[perf][total] files={perf_files} "
+                f"io={perf_io_ms:.1f}ms parse={perf_parse_ms:.1f}ms"
+            )
 
+        if merged_columns is not None:
+            merged[COLUMNS_KEY] = merged_columns
         return dict(merged)
 
     def _log_metrics(self) -> None:

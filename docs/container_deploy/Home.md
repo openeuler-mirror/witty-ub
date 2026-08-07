@@ -12,7 +12,7 @@
 | [1. 容器化部署说明](01-overview.md) | 概述、架构说明、镜像分层、环境要求、文件结构、RPM迁移 |
 | [2. 镜像构建、上传与打包](02-build-and-package.md) | 构建步骤、多架构构建、上传镜像、打包分发 |
 | [3. 镜像拉取、启动与使用](03-pull-and-run.md) | 拉取镜像、启动容器、配置说明、数据持久化、验证访问 |
-| [4. 部署脚本使用指南](04-deploy-scripts.md) | deploy/manage.sh 和 deploy/deploy_witty.sh 的使用方法、参数说明、常见场景 |
+| [4. 部署脚本使用指南](04-deploy-scripts.md) | deploy/docker/manage.sh 和 deploy/docker/deploy_witty.sh 的使用方法、参数说明、常见场景 |
 | [5. 故障排查](05-troubleshooting.md) | 常见问题、容器调试、日志管理、生产环境建议 |
 
 ---

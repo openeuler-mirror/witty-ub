@@ -32,7 +32,7 @@ FAILED_STATUSES = {
     TaskStatusEnum.FAILED,
     TaskStatusEnum.CANCELLED,
 }
-MONITOR_INTERVAL_SECONDS = 5
+MONITOR_INTERVAL_SECONDS = 1
 
 
 def cleanup_temp_dirs(output_log_path: str, log_file_id: str) -> None:
@@ -141,7 +141,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 client_access_patterns,
             )
             
-            print(f"开始日志落库，共{len(trace_id_set)}条故障trace，{total_log_failure_events}条日志事件")
+            logger.info(f"开始日志落库，共{len(trace_id_set)}条故障trace，{total_log_failure_events}条日志事件")
             t_store_start = time.perf_counter()
 
             def _report_progress(inserted: int) -> None:
@@ -246,7 +246,6 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                         f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
                                     )
                                     logger.info(progress_msg)
-                                    print(progress_msg)
                                     _report_progress(total_inserted)
                                     log_failure_events = []
                             
@@ -265,7 +264,6 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
                 )
                 logger.info(progress_msg)
-                print(progress_msg)
                 _report_progress(total_inserted)
 
             trace_failure_events = list(trace_failure_events_map.values())
@@ -434,6 +432,14 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
+            if not os.path.isdir(output_log_path) or not os.listdir(output_log_path):
+                logger.error(f"诊断输出目录不存在或为空: {output_log_path}")
+                await TaskPGManager.update_task(
+                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                cleanup_temp_dirs(output_log_path, log_file_id)
+                return False
+
             trace_id_set, trace_failure_id = await StoreTraceContextLogsWorker._generate_trace_id_set_diagnosis(
                 output_log_path=output_log_path,
             )
@@ -447,7 +453,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 progress_end=45.0,
             )
             await LogFilePGManager.update_log_file(
-                task.op_id, {"failure_count": len(trace_id_set)}
+                task.op_id, {
+                    "failure_count": len(trace_id_set),
+                    "trace_failure_event_cnt": len(trace_id_set),
+                }
             )
             await BaseWorker.report(
                 task.id,

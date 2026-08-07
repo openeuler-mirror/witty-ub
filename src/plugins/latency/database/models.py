@@ -2,9 +2,10 @@
 """PostgreSQL ORM models for latency plugin.
 
 Design choices:
-- SrcDstAggregatedEvent table keeps only dimensions and counts.  All
-  percentile/min/max/ave values are computed on the fly from log_parse_result
-  via PostgreSQL ordered-set aggregates / window functions.
+- Aggregate tables (src_dst_aggregated_event, time_window_aggregated) keep only
+  dimensions and counts.  All percentile/min/max/ave values are computed on the
+  fly from log_parse_result via PostgreSQL ordered-set aggregates / window
+  functions.
 - pod_ips is stored as TEXT[] with a GIN index; the legacy trigger-maintained
   junction table is removed.
 - IP columns use PostgreSQL INET type.
@@ -178,14 +179,120 @@ class LogParseResult(Base):
 
 
 # ============================================================
+# 2b. 分位统计表: latency_bucket_*
+#     parse 时按 10s/1min/10min/1h 四档粒度预统计,每 (bucket, operation, mode)
+#     存一条"代表请求"的行(14 个指标列同源)。按 log_id HASH 分区(仿 log_parse_result)。
+#     src_ip/dst_ip 是代表请求的属性,可为 NULL,不参与主键唯一性。
+# ============================================================
+class _LatencyBucketBase(Base):
+    """4 张 latency_bucket_* 表的共享列(abstract,不直接映射表)。
+
+    子类只需声明 ``__tablename__`` 与 ``__table_args__``(postgresql_partition_by)。
+    主键 (log_id, bucket, operation, mode) 在基类列上声明,四张表共用。
+    """
+
+    __abstract__ = True
+
+    kb_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    log_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    bucket: Mapped[datetime] = mapped_column(DateTime(timezone=False), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(16), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(8), primary_key=True)
+    src_ip: Mapped[Optional[ipaddress.IPv4Address | ipaddress.IPv6Address]] = mapped_column(INET)
+    dst_ip: Mapped[Optional[ipaddress.IPv4Address | ipaddress.IPv6Address]] = mapped_column(INET)
+    trace_id: Mapped[Optional[str]] = mapped_column(String(64))
+    total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    urma_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    worker_query_meta_latency: Mapped[Optional[float]] = mapped_column(Float)
+    sdk_process: Mapped[Optional[float]] = mapped_column(Float)
+    sdk_rpc: Mapped[Optional[float]] = mapped_column(Float)
+    local_worker_cost: Mapped[Optional[float]] = mapped_column(Float)
+    local_worker_lock: Mapped[Optional[float]] = mapped_column(Float)
+    remote_worker_cost: Mapped[Optional[float]] = mapped_column(Float)
+    remote_worker_rpc: Mapped[Optional[float]] = mapped_column(Float)
+    master_process: Mapped[Optional[float]] = mapped_column(Float)
+    master_rpc_total: Mapped[Optional[float]] = mapped_column(Float)
+    create_latency: Mapped[Optional[float]] = mapped_column(Float)
+    publish_latency: Mapped[Optional[float]] = mapped_column(Float)
+    worker_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+
+
+class LatencyBucket10s(_LatencyBucketBase):
+    """10 秒粒度分位统计表,按 log_id HASH 分区。"""
+
+    __tablename__ = "latency_bucket_10s"
+    __table_args__ = (
+        {"postgresql_partition_by": "HASH (log_id)"},
+    )
+
+
+class LatencyBucket1min(_LatencyBucketBase):
+    """1 分钟粒度分位统计表,按 log_id HASH 分区。"""
+
+    __tablename__ = "latency_bucket_1min"
+    __table_args__ = (
+        {"postgresql_partition_by": "HASH (log_id)"},
+    )
+
+
+class LatencyBucket10min(_LatencyBucketBase):
+    """10 分钟粒度分位统计表,按 log_id HASH 分区。"""
+
+    __tablename__ = "latency_bucket_10min"
+    __table_args__ = (
+        {"postgresql_partition_by": "HASH (log_id)"},
+    )
+
+
+class LatencyBucket1h(_LatencyBucketBase):
+    """1 小时粒度分位统计表,按 log_id HASH 分区。"""
+
+    __tablename__ = "latency_bucket_1h"
+    __table_args__ = (
+        {"postgresql_partition_by": "HASH (log_id)"},
+    )
+
+
+# ============================================================
 # 3. 聚合表（仅保留维度 + 计数）
 # ============================================================
+class TimeWindowAggregated(Base):
+    """时序聚合表，仅保留维度 + 计数，统计量从 log_parse_result 实时计算。"""
+
+    __tablename__ = "time_window_aggregated"
+    __table_args__ = (
+        {"postgresql_partition_by": "RANGE (time_bucket)"},
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    time_bucket: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), primary_key=True
+    )
+    kb_id: Mapped[str] = mapped_column(String)
+    log_id: Mapped[str] = mapped_column(String)
+    src_ip: Mapped[Optional[Any]] = mapped_column(INET)
+    dst_ip: Mapped[Optional[Any]] = mapped_column(INET)
+    log_parse_result_cnt: Mapped[Optional[int]] = mapped_column(Integer)
+    anomaly_cnt: Mapped[Optional[int]] = mapped_column(Integer)
+    ave_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    latency_sum: Mapped[Optional[float]] = mapped_column(Float)
+    min_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    max_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    p95_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    p99_total_latency: Mapped[Optional[float]] = mapped_column(Float)
+    existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: datetime.now()
+    )
+
+
 class SrcDstAggregatedEvent(Base):
     """源目的聚合表，仅保留维度 + 计数，统计量从 log_parse_result 实时计算。"""
 
     __tablename__ = "src_dst_aggregated_event"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    kb_id: Mapped[str] = mapped_column(String, default="", index=True)
     src_ip: Mapped[Optional[Any]] = mapped_column(INET)
     dst_ip: Mapped[Optional[Any]] = mapped_column(INET)
     log_id: Mapped[str] = mapped_column(String, index=True)

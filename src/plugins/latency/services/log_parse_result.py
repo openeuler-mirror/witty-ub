@@ -34,15 +34,28 @@ class LogParseResultService:
         """获取延迟指标时间曲线数据"""
         # 从数据库获取分桶数据（dict 列表）
         total, rows = await LogParseResultPGManager.get_latency_metrics(req)
-        
-        # 对分桶数据做聚合（JSON 数组 → 单值）或原始数据采样
-        sampled_metrics, sampling_info = LatencyMetricsSampler.sample(
-            metrics=rows,
-            max_points=req.max_points,
-            sample_mode=req.sample_mode,
-            original_count=total,
-        )
-        
+
+        # 桶模式（前端传 bucket_seconds，Pydantic 默认 60）：统计表已按粒度预聚合出
+        # 代表行（每 (桶, op, mode) 一行），行数 = 桶数 ≤ 8640，直接透传，
+        # 不得再做二次 p99-of-p99 / 窗口降采样
+        bucket_mode = req.bucket_seconds is not None
+        if bucket_mode:
+            sampled_metrics = rows
+            sampling_info = {
+                "mode": req.sample_mode.value,
+                "window_ms": 0,
+                "original_count": total,
+                "sampled_count": len(rows),
+            }
+        else:
+            # 非桶模式（无 bucket_seconds，旧调用）：对原始数据做窗口采样
+            sampled_metrics, sampling_info = LatencyMetricsSampler.sample(
+                metrics=rows,
+                max_points=req.max_points,
+                sample_mode=req.sample_mode,
+                original_count=total,
+            )
+
         return GetLatencyMetricsMsg(
             total=total,
             metrics=sampled_metrics,

@@ -5,6 +5,7 @@
 #   bash deploy/deploy_pg.sh            # 默认 Docker 容器部署
 #   bash deploy/deploy_pg.sh --docker   # Docker 容器部署
 #   bash deploy/deploy_pg.sh --rpm     # RPM 包部署（openEuler/CentOS/RHEL）
+#   bash deploy/deploy_pg.sh --apt     # APT 包部署（Ubuntu/Debian）
 
 set -e
 
@@ -22,9 +23,10 @@ PostgreSQL 一键部署脚本
 用法:
   $0 [OPTIONS]
 
-选项:
+ 选项:
   --docker    Docker 容器部署（默认）
   --rpm       RPM 包部署（适用于 openEuler / CentOS / RHEL）
+  --apt       APT 包部署（适用于 Ubuntu / Debian）
   -h, --help  显示此帮助
 
 配置文件: ${CONF_FILE}
@@ -39,6 +41,10 @@ while [ $# -gt 0 ]; do
             ;;
         --rpm)
             DEPLOY_MODE="rpm"
+            shift
+            ;;
+        --apt)
+            DEPLOY_MODE="apt"
             shift
             ;;
         -h|--help)
@@ -73,6 +79,22 @@ check_root() {
         log_error "This script must be run as root"
         exit 1
     fi
+}
+
+# 交互确认：非 TTY（如被 deploy.sh 自动调用）时自动继续，避免卡住自动部署。
+confirm() {
+    local prompt="$1"
+    if [ ! -t 0 ]; then
+        log_warn "${prompt} (非交互环境，自动继续)"
+        return 0
+    fi
+    local ans=""
+    printf "%s [y/N] " "$prompt"
+    read -r ans
+    case "$ans" in
+        y|Y|yes|YES) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 check_docker() {
@@ -306,7 +328,7 @@ deploy_rpm() {
         INSTALL_SUCCESS=0
         for pkg in "${PG_PKG_CANDIDATES[@]}"; do
             log_info "Trying to install $pkg ..."
-            if yum install -y "$pkg" &> /dev/null; then
+            if yum install -y --allowerasing "$pkg" &> /dev/null; then
                 log_ok "Installed $pkg successfully"
                 INSTALLED_PKG="$pkg"
                 INSTALL_SUCCESS=1
@@ -322,7 +344,7 @@ deploy_rpm() {
 
     if ! command -v psql &> /dev/null; then
         log_info "Installing PostgreSQL client ..."
-        yum install -y postgresql &> /dev/null || true
+        yum install -y --allowerasing postgresql &> /dev/null || true
     fi
     log_ok "PostgreSQL client: $(psql --version 2>&1 | head -1)"
 
@@ -506,6 +528,237 @@ deploy_rpm() {
 }
 
 # ============================================================
+# APT 包部署（Ubuntu / Debian）
+# ============================================================
+deploy_apt() {
+    echo "========================================"
+    echo "PostgreSQL APT Deployment (Ubuntu/Debian)"
+    echo "========================================"
+
+    check_root
+
+    # Step 1: Install PostgreSQL
+    echo ""
+    echo "[Step 1/7] Installing PostgreSQL ..."
+
+    PG_PKG_CANDIDATES=("postgresql" "postgresql-15")
+    INSTALLED_PKG=""
+    for pkg in "${PG_PKG_CANDIDATES[@]}"; do
+        if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+            log_ok "PostgreSQL already installed: $pkg"
+            INSTALLED_PKG="$pkg"
+            break
+        fi
+    done
+
+    if [ -z "$INSTALLED_PKG" ]; then
+        log_info "Installing postgresql ..."
+        apt-get update -y &> /dev/null
+        apt-get install -y postgresql postgresql-client
+        INSTALLED_PKG="postgresql"
+    fi
+
+    if ! command -v psql &> /dev/null; then
+        log_info "Installing PostgreSQL client ..."
+        apt-get install -y postgresql-client &> /dev/null || true
+    fi
+    log_ok "PostgreSQL client: $(psql --version 2>&1 | head -1)"
+
+    # Step 2: Detect version and paths
+    echo ""
+    echo "[Step 2/7] Detecting PostgreSQL version and paths ..."
+
+    PG_VERSION=$(pg_lsclusters -h 2>/dev/null | head -1 | awk '{print $1}')
+    if [ -z "$PG_VERSION" ]; then
+        PG_VERSION=$(ls /etc/postgresql/ 2>/dev/null | sort -V | tail -1)
+    fi
+    if [ -z "$PG_VERSION" ]; then
+        log_error "Cannot detect PostgreSQL version. Is postgresql installed?"
+        exit 1
+    fi
+
+    PG_CONF_DIR="/etc/postgresql/${PG_VERSION}/main"
+    PG_DATA_DIR="/var/lib/postgresql/${PG_VERSION}/main"
+    PG_SERVICE_NAME="postgresql"
+
+    log_info "Version: ${PG_VERSION}"
+    log_info "Config directory: ${PG_CONF_DIR}"
+    log_info "Data directory: ${PG_DATA_DIR}"
+
+    # Step 3: Initialize if needed
+    echo ""
+    echo "[Step 3/7] Checking database initialization ..."
+    if [ ! -f "${PG_DATA_DIR}/PG_VERSION" ]; then
+        log_info "Running pg_createcluster ..."
+        pg_createcluster "$PG_VERSION" main 2>/dev/null || true
+    fi
+    if [ ! -f "${PG_DATA_DIR}/PG_VERSION" ]; then
+        log_error "Database initialization failed"
+        exit 1
+    fi
+    log_ok "Database initialized"
+
+    # Step 4: Configure postgresql.conf
+    echo ""
+    echo "[Step 4/7] Configuring postgresql.conf ..."
+    PG_CONF="${PG_CONF_DIR}/postgresql.conf"
+
+    # 端口冲突检测：若系统 PG 已运行且当前端口 ≠ 目标端口，明确警告（防止
+    # 静默改端口导致既有部署/数据访问失效——实测踩坑：5432 被改成 15432）。
+    local CURRENT_PORT=""
+    if [ -f "$PG_CONF" ]; then
+        CURRENT_PORT="$(grep -E "^port" "$PG_CONF" 2>/dev/null | awk '{print $3}' | tr -d "'\"")"
+    fi
+    if [ -n "$CURRENT_PORT" ] && [ "$CURRENT_PORT" != "$PG_PORT" ]; then
+        log_warn "检测到 PostgreSQL 当前监听端口为 ${CURRENT_PORT}，将改为 ${PG_PORT}"
+        log_warn "若 ${CURRENT_PORT} 上有正在使用的数据（如既有部署），请先确认再继续"
+        if ! confirm "确认将 PostgreSQL 端口从 ${CURRENT_PORT} 改为 ${PG_PORT}？"; then
+            log_error "已取消：不修改端口"
+            exit 1
+        fi
+    fi
+
+    if [ -f "$PG_CONF" ] && [ ! -f "${PG_CONF}.bak" ]; then
+        cp "$PG_CONF" "${PG_CONF}.bak"
+    fi
+
+    if grep -q "^#listen_addresses" "$PG_CONF" 2>/dev/null; then
+        sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PG_CONF"
+    elif grep -q "^listen_addresses" "$PG_CONF" 2>/dev/null; then
+        sed -i "s/^listen_addresses.*/listen_addresses = '*'/" "$PG_CONF"
+    else
+        echo "listen_addresses = '*'" >> "$PG_CONF"
+    fi
+
+    if grep -q "^#port" "$PG_CONF" 2>/dev/null; then
+        sed -i "s/^#port.*/port = ${PG_PORT}/" "$PG_CONF"
+    elif grep -q "^port" "$PG_CONF" 2>/dev/null; then
+        sed -i "s/^port.*/port = ${PG_PORT}/" "$PG_CONF"
+    else
+        echo "port = ${PG_PORT}" >> "$PG_CONF"
+    fi
+    log_ok "postgresql.conf configured (listen=*, port=${PG_PORT})"
+
+    # Step 5: Configure pg_hba.conf
+    echo ""
+    echo "[Step 5/7] Configuring pg_hba.conf ..."
+    PG_HBA="${PG_CONF_DIR}/pg_hba.conf"
+    if [ -f "$PG_HBA" ] && [ ! -f "${PG_HBA}.bak" ]; then
+        cp "$PG_HBA" "${PG_HBA}.bak"
+    fi
+
+    # Keep postgres superuser local as peer
+    if grep -q "^local\s\+all\s\+postgres\s\+peer" "$PG_HBA" 2>/dev/null; then
+        :
+    else
+        sed -i '/^local\s\+all\s\+all/i local   all             postgres                                peer' "$PG_HBA" 2>/dev/null || \
+        echo "local   all             postgres                                peer" > /tmp/pg_hba_insert.tmp
+    fi
+
+    # Local users md5 auth
+    sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
+    sed -i 's/^local\s\+all\s\+all\s\+scram-sha-256/local   all             all                                     md5/' "$PG_HBA"
+    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
+    sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
+    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+md5/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
+
+    if ! grep -q "host    all             all             0.0.0.0/0" "$PG_HBA" 2>/dev/null; then
+        echo "host    all             all             0.0.0.0/0               md5" >> "$PG_HBA"
+    fi
+    if ! grep -q "host    all             all             ::/0" "$PG_HBA" 2>/dev/null; then
+        echo "host    all             all             ::/0                    md5" >> "$PG_HBA"
+    fi
+    log_ok "pg_hba.conf configured (md5 auth + remote access)"
+
+    # Step 6: Start service
+    echo ""
+    echo "[Step 6/7] Starting PostgreSQL service ..."
+    systemctl enable "$PG_SERVICE_NAME" &> /dev/null || true
+    systemctl restart "$PG_SERVICE_NAME"
+
+    log_info "Waiting for PostgreSQL to become ready ..."
+    READY=0
+    for i in {1..30}; do
+        if command -v pg_isready &> /dev/null; then
+            if pg_isready -p "${PG_PORT}" &> /dev/null; then
+                READY=1
+                break
+            fi
+        fi
+        if su - postgres -c "psql -h 127.0.0.1 -p ${PG_PORT} -U postgres -c 'SELECT 1'" &> /dev/null; then
+            READY=1
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "$READY" -eq 1 ] && systemctl is-active --quiet "$PG_SERVICE_NAME"; then
+        log_ok "PostgreSQL service is running"
+    else
+        log_error "PostgreSQL service failed to start"
+        log_error "Check: systemctl status ${PG_SERVICE_NAME}"
+        log_error "Check: tail -50 ${PG_DATA_DIR}/log/postgresql-*.log"
+        exit 1
+    fi
+
+    # Step 7: Create user and database
+    echo ""
+    echo "[Step 7/7] Creating user and database ..."
+    psql_cmd() {
+        su - postgres -c "psql -p ${PG_PORT} $*"
+    }
+
+    USER_EXISTS=$(printf "SELECT 1 FROM pg_roles WHERE rolname='%s';\n" "${PG_USER}" | psql_cmd -tA 2>/dev/null || echo "")
+    if [ "$USER_EXISTS" = "1" ]; then
+        log_info "User ${PG_USER} already exists, updating password ..."
+        printf 'ALTER USER "%s" WITH PASSWORD '\''%s'\'';\n' "${PG_USER}" "${PG_PASSWORD}" | psql_cmd
+    else
+        log_info "Creating user ${PG_USER} ..."
+        printf 'CREATE USER "%s" WITH PASSWORD '\''%s'\'';\n' "${PG_USER}" "${PG_PASSWORD}" | psql_cmd
+    fi
+    log_ok "User ${PG_USER} ready"
+
+    DB_EXISTS=$(printf "SELECT 1 FROM pg_database WHERE datname='%s';\n" "${PG_DATABASE}" | psql_cmd -tA 2>/dev/null || echo "")
+    if [ "$DB_EXISTS" = "1" ]; then
+        log_ok "Database ${PG_DATABASE} already exists"
+    else
+        log_info "Creating database ${PG_DATABASE} ..."
+        printf 'CREATE DATABASE "%s" OWNER "%s";\n' "${PG_DATABASE}" "${PG_USER}" | psql_cmd
+        log_ok "Database ${PG_DATABASE} created"
+    fi
+
+    # Verify
+    echo ""
+    echo "========================================"
+    echo "Verifying connection ..."
+    if PGPASSWORD="${PG_PASSWORD}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DATABASE}" -c "SELECT version();" &> /dev/null; then
+        log_ok "Connection verified successfully!"
+    else
+        log_warn "Connection verification failed. Check:"
+        log_warn "  systemctl status ${PG_SERVICE_NAME}"
+        log_warn "  firewall port ${PG_PORT}"
+    fi
+
+    echo ""
+    echo "========================================"
+    echo "PostgreSQL APT Deployment Completed!"
+    echo "========================================"
+    echo "  Host:     ${PG_HOST}"
+    echo "  Port:     ${PG_PORT}"
+    echo "  Database: ${PG_DATABASE}"
+    echo "  User:     ${PG_USER}"
+    echo "  Version:  ${PG_VERSION}"
+    echo "  Config:   ${PG_CONF_DIR}"
+    echo "  Data Dir: ${PG_DATA_DIR}"
+    echo ""
+    echo "Useful commands:"
+    echo "  systemctl status ${PG_SERVICE_NAME}            # 查看服务状态"
+    echo "  pg_lsclusters                                   # 列出所有集群"
+    echo "  journalctl -u ${PG_SERVICE_NAME} -f            # 查看服务日志"
+    echo "========================================"
+}
+
+# ============================================================
 # 入口
 # ============================================================
 case "$DEPLOY_MODE" in
@@ -514,5 +767,8 @@ case "$DEPLOY_MODE" in
         ;;
     rpm)
         deploy_rpm
+        ;;
+    apt)
+        deploy_apt
         ;;
 esac
