@@ -291,7 +291,7 @@ docker run -d \
 
 ### 使用部署脚本（自动检测）
 
-使用 `deploy/manage.sh` 或 `deploy/deploy_witty.sh` 部署时，脚本会**自动检测** PostgreSQL 的部署方式并配置连接参数，无需手动填写：
+使用 `deploy/docker/manage.sh` 或 `deploy/docker/deploy_witty.sh` 部署时，脚本会**自动检测** PostgreSQL 的部署方式并配置连接参数，无需手动填写：
 
 - 检测到同网络有 PG 容器 → 自动使用 `postgres:5432`
 - 检测到宿主机有 RPM PG 服务 → 自动获取网关 IP 和监听端口
@@ -299,11 +299,11 @@ docker run -d \
 
 ```bash
 # 交互式部署（推荐）
-bash deploy/manage.sh
+bash deploy/docker/manage.sh
 # 选择 3) 仅安装 witty-ub
 
 # 或一键部署
-bash deploy/deploy_witty.sh
+bash deploy/docker/deploy_witty.sh
 ```
 
 ---

@@ -2,6 +2,7 @@
 
 - [快速入门](#快速入门)
   - [部署指导](#部署指导)
+    - [一键部署（推荐）](#一键部署推荐)
     - [docker 容器部署](#docker-容器部署)
     - [从 RPM 包安装](#从-rpm-包安装)
     - [源码编译安装](#源码编译安装)
@@ -10,6 +11,109 @@
     - [超节点故障智能监控诊断平台使用指导](#超节点故障智能监控诊断平台使用指导)
 
 ## 部署指导
+
+### 一键部署（推荐）
+
+witty-ub 提供一键部署脚本，自动完成系统依赖安装、PostgreSQL 初始化、Python 虚拟环境创建、C++ 诊断工具编译和服务启动。支持 **openEuler 24.03-LTS** 和 **Ubuntu 24.04 / WSL**。
+
+#### 环境要求
+
+| 环境 | 支持 |
+|------|------|
+| openEuler 24.03-LTS (x86_64 / aarch64) | ✅ 全功能 |
+| Ubuntu 24.04 LTS | ✅ 全功能 |
+| WSL (Ubuntu) | ✅ 需预先安装 WSL 内核和 systemd |
+
+#### 部署脚本结构
+
+```
+deploy/
+├── host/                     # 宿主机/本地部署
+│   ├── _lib.sh               # 共享工具库
+│   ├── install_deps.sh       # 依赖安装 (系统包 + Python venv)，可独立执行
+│   └── deploy.sh             # 总控: PG 初始化 + C++ 编译 + 前端 + 启动 + stop/clean
+├── docker/                   # 容器部署
+│   ├── deploy_witty.sh       # Docker 一键部署
+│   └── manage.sh             # 运维管理 (交互菜单 + 命令行)
+├── deploy_pg.sh              # PostgreSQL 独立部署 (Docker/RPM/APT)，两边共用
+└── pg.conf                   # PG 数据库连接配置，两边共用
+```
+
+#### 快速开始
+
+```bash
+# 1. 克隆仓库
+git clone https://gitcode.com/openeuler/witty-ub.git
+cd witty-ub
+
+# 2. 一键部署（首次运行约 5-10 分钟，取决于网络和 CPU）
+bash deploy/host/deploy.sh
+```
+
+部署完成后，浏览器打开 **`http://localhost:5173`**。
+
+如果在远程服务器上部署，将 `localhost` 替换为服务器 IP：
+```
+http://<服务器IP>:5173
+```
+
+#### 脚本完成的工作
+
+| 步骤 | 内容 |
+|------|------|
+| ① OS 检测 | 自动识别 openEuler / Ubuntu，选择对应包管理器 (dnf / apt) |
+| ② 系统依赖 | 安装 cmake, gcc-c++, PostgreSQL, Python3, Node.js 等 |
+| ③ PostgreSQL | 创建 `witty-ub` 数据库和用户，监听 15432 端口 |
+| ④ Python | 创建 `.venv` 虚拟环境，安装 FastAPI/SQLAlchemy/asyncpg 等依赖 |
+| ⑤ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具 |
+| ⑥ 数据文件 | 将故障模式、配置文件复制到 `/var/witty-ub/` |
+| ⑦ 启动服务 | 启动 FastAPI 后端 (9772) + Vite 前端 (5173) |
+
+#### 后续使用
+
+```bash
+# 仅启动服务（已部署过，跳过安装和编译）
+bash deploy/host/deploy.sh --start
+
+# 停止所有服务
+bash deploy/host/deploy.sh --stop
+
+# 一键清理
+bash deploy/host/deploy.sh --clean
+
+# 仅安装依赖（不启动服务）
+bash deploy/host/install_deps.sh
+```
+
+#### 服务说明
+
+| 服务 | 地址 | 用途 |
+|------|------|------|
+| 前端 (Vite) | `http://localhost:5173` | Web 管理界面 |
+| 后端 (FastAPI) | `http://localhost:9772` | 日志解析 / 异常检测 API |
+| 健康检查 | `http://localhost:9772/health_check` | 服务可用性探测 |
+| PostgreSQL | `127.0.0.1:15432` | 数据存储 |
+
+#### 日志
+
+所有服务的运行日志位于 `.deploy-logs/` 目录：
+
+```bash
+# 查看后端日志
+tail -f .deploy-logs/backend.log
+
+# 查看前端日志
+tail -f .deploy-logs/frontend.log
+```
+
+#### 已知问题
+
+- **sudo 权限**：安装系统包和启动 PostgreSQL 需要 `sudo` 权限。如果当前用户无 sudo 权限，脚本会提示需要手动执行的命令。
+- **C++ 编译失败**：如果缺少 C++ 编译依赖导致诊断工具编译失败，脚本会自动生成一个 shell 存根替代。故障定界功能将不可用，但日志解析和异常检测仍正常工作。
+- **端口冲突**：默认使用 5173（前端）和 9772（后端）。如需修改，编辑 `src/web/vite.config.ts` 和 `src/plugins/latency/access/fastapi_server.py`。
+- **WSL**：建议 WSL 版本 >= 2，并在 `wsl.conf` 中启用 systemd。
+
+---
 
 ### docker 容器部署
 1. 环境要求：已安装docker 18.09 或更高版本
@@ -48,7 +152,7 @@
         ```bash
         docker ps -a | grep witty-ub        
         ```
-3. witty-ub容器镜像介绍、容器镜像构建、上传与打包、部署与运行、已知问题等详细指导请见：[容器化部署指南](./container_deploy/Home.md)
+4. witty-ub容器镜像介绍、容器镜像构建、上传与打包、部署与运行、已知问题等详细指导请见：[容器化部署指南](./container_deploy/Home.md)
 4. 已经通过 RPM 包进行部署，希望迁移到容器化部署，请参考[从 RPM 迁移到容器化](./container_deploy/01-overview.md#从-rpm-迁移到容器化)
 
 ### 从 RPM 包安装

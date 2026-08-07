@@ -1,0 +1,67 @@
+%%{init: {'theme': 'base', 'themeVariables': {
+  'fontSize': '14px',
+  'fontFamily': 'Inter, PingFang SC, Microsoft YaHei, sans-serif',
+  'primaryColor': '#1f6feb',
+  'primaryTextColor': '#ffffff',
+  'primaryBorderColor': '#1f6feb',
+  'lineColor': '#8b949e',
+  'secondaryColor': '#f6f8fa',
+  'tertiaryColor': '#e6edf3',
+  'clusterBkg': '#ffffff',
+  'clusterBorder': '#d0d7de',
+  'edgeLabelBackground': '#ffffff'
+}}}%%
+flowchart TB
+    subgraph L0["📁 日志输入 · data/logs"]
+        DIR["日志目录<br/>4 文件 · 106 MB<br/>347,471 条 trace 记录"]
+    end
+
+    subgraph L1["① 多进程扫描 · ParallelFileScanner"]
+        P1["Process 1<br/>SDK 日志解析"]
+        P2["Process 2<br/>Worker 日志解析"]
+        P3["Process 3 · 4<br/>INFO 日志解析"]
+        COL["列式投影<br/>entries_to_columns<br/>31 列 + _label/_src_rank"]
+    end
+
+    subgraph L2["② df_trace · Polars 列式归并"]
+        CONCAT["pl.concat(各 worker)"]
+        GROUP["group_by(tid)<br/>merge: first() / src·dst=max_rank"]
+        TRACE["df_trace<br/>每 trace 一行 · 31 列<br/>347,471 → 每 trace 一行"]
+    end
+
+    subgraph L3["③ 三路消费 · 一份数据三种视角"]
+        AGG["聚合 _aggregate_polars<br/>src_dst / time_window<br/>66 ms"]
+        BUCKET["桶统计<br/>compute_bucket_stats_from_frame<br/>4 档粒度 · 5 分位代表行"]
+        DETAIL["明细物化<br/>_build_anomalous_detail_rows<br/>仅异常 trace"]
+    end
+
+    subgraph L4["④ 落库 · PostgreSQL"]
+        T1["src_dst_aggregated_event<br/>2 行"]
+        T2["time_window_aggregated<br/>1,210 行"]
+        T3["latency_bucket_{10s,1min,10min,1h}<br/>12,100 行"]
+        T4["log_parse_result<br/>异常明细"]
+        T5["trace_failure_event<br/>75 行 · 诊断产物"]
+    end
+
+    subgraph L5["⑤ 展示 · Vue 前端 5173"]
+        UI["时延监控 / 通断监控<br/>聚合曲线 · 故障 trace · 中文进度"]
+    end
+
+    DIR --> P1 & P2 & P3
+    P1 & P2 & P3 --> COL
+    COL --> CONCAT
+    CONCAT --> GROUP --> TRACE
+    TRACE --> AGG
+    TRACE --> BUCKET
+    TRACE --> DETAIL
+    AGG --> T1 & T2
+    BUCKET --> T3
+    DETAIL --> T4
+    T1 & T2 & T3 & T4 & T5 --> UI
+
+    classDef local fill:#ddf4ff,stroke:#1f6feb,stroke-width:2px,color:#0d1117
+    classDef polars fill:#fff8c5,stroke:#bf8700,stroke-width:2px,color:#0d1117
+    classDef db fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#0d1117
+    class TRACE,AGG,BUCKET polars
+    class T1,T2,T3,T4,T5 db
+    class P1,P2,P3,COL local

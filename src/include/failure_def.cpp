@@ -193,10 +193,8 @@ namespace failure {
         }
     }
 
-    std::optional<int64_t> DatetimeStrToTimestamp(const std::string& datetimeStr)
+    std::optional<int64_t> DatetimeStrToTimestamp(const std::string& datetimeStr, bool allowFuture)
     {
-        auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
         auto validate_and_convert = [&](std::tm& t, int64_t us) -> std::optional<int64_t> {
             std::tm orginal = t;
             std::time_t s = mktime(&t);
@@ -212,8 +210,15 @@ namespace failure {
             }
 
             int64_t total_us = static_cast<int64_t>(s) * 1000000 + us;
-            if (total_us < 0 || total_us > now_us) {
+            if (total_us < 0) {
                 return std::nullopt;
+            }
+            if (!allowFuture) {
+                auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                if (total_us > now_us) {
+                    return std::nullopt;
+                }
             }
 
             return total_us;

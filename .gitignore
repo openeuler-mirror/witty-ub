@@ -11,8 +11,23 @@ node_modules/
 data/docs/
 data/original_docs/
 data/projects/
+data/logs/
+data/20260728-skills-cmd-check/
+data/kvcache-conn-fault-log/
 
 *.log
 latency.db
 latency.db-shm
 latency.db-wal
+.deploy-logs/
+
+# 本地构建依赖包
+*.deb
+
+# opencode 临时状态（不入库）
+.omo/boulder.json
+.omo/drafts/
+.omo/plans/
+.omo/run-continuation/
+.omo/ulw-research/
+.omo/ralph-loop.local.md

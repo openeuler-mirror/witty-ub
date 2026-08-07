@@ -8,11 +8,18 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
-CONF_FILE="${DEPLOY_DIR}/pg.conf"
+CONF_FILE="${DEPLOY_DIR}/../pg.conf"
 
 PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
 WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
 PG_VOLUME="${PG_VOLUME:-pg15-data}"
+
+# ---------- 本地开发模式配置（非 Docker 部署） ----------
+BACKEND_SERVICE="${BACKEND_SERVICE:-witty-ub-backend.service}"
+BACKEND_PORT="${BACKEND_PORT:-9772}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+FRONTEND_DIR="${FRONTEND_DIR:-${DEPLOY_DIR}/../src/web}"
+VITE_LOG_FILE="${VITE_LOG_FILE:-/tmp/witty-vite.log}"
 
 # ---------- 加载配置 ----------
 if [ -f "$CONF_FILE" ]; then
@@ -94,7 +101,7 @@ do_install_all() {
     sep
     check_docker || return 1
     echo ""
-    bash "${DEPLOY_DIR}/deploy_pg.sh" --docker
+    bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker
     echo ""
     bash "${DEPLOY_DIR}/deploy_witty.sh"
     sep
@@ -114,8 +121,8 @@ do_install_pg() {
     read -p "请选择 [1-2，默认 1]: " choice
     choice="${choice:-1}"
     case "$choice" in
-        1) check_docker || return 1; bash "${DEPLOY_DIR}/deploy_pg.sh" --docker ;;
-        2) sudo bash "${DEPLOY_DIR}/deploy_pg.sh" --rpm ;;
+        1) check_docker || return 1; bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker ;;
+        2) sudo bash "${DEPLOY_DIR}/../deploy_pg.sh" --rpm ;;
         *) log_error "无效选项" ;;
     esac
 }
@@ -423,6 +430,209 @@ do_restart() {
     done
 }
 
+port_listening() {
+    local port="$1"
+    if command -v ss &> /dev/null; then
+        ss -tln 2>/dev/null | grep -q ":${port} "
+    elif command -v netstat &> /dev/null; then
+        netstat -tln 2>/dev/null | grep -q ":${port} "
+    else
+        return 1
+    fi
+}
+
+find_pid_by_port() {
+    local port="$1"
+    local pid=""
+    if command -v ss &> /dev/null; then
+        pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -1 || true)
+    fi
+    if [ -z "$pid" ] && command -v pgrep &> /dev/null; then
+        pid=$(pgrep -f "node ./node_modules/.bin/vite" | head -1 || true)
+    fi
+    echo "$pid"
+}
+
+is_local_mode() {
+    if command -v systemctl &> /dev/null; then
+        local backend_state
+        backend_state=$(systemctl --user is-active "${BACKEND_SERVICE}" 2>/dev/null || true)
+        if [ "$backend_state" = "active" ]; then
+            return 0
+        fi
+    fi
+    if port_listening "${FRONTEND_PORT}"; then
+        return 0
+    fi
+    return 1
+}
+
+# 以裸进程方式重启后端（systemd user 单元不可用时的回退；与 deploy.sh 的
+# nohup 启动方式一致）。按端口 9772 找进程 → 停止 → 重新拉起 → 健康检查。
+restart_backend_bare() {
+    local old_pid
+    old_pid=$(find_pid_by_port "${BACKEND_PORT}")
+    if [ -n "$old_pid" ]; then
+        log_info "停止旧后端进程: PID ${old_pid}"
+        kill "$old_pid" 2>/dev/null || true
+        local i
+        for i in 1 2 3; do
+            if ! kill -0 "$old_pid" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+        if kill -0 "$old_pid" 2>/dev/null; then
+            log_warn "旧后端进程 ${old_pid} 3 秒内未退出，强制结束"
+            kill -9 "$old_pid" 2>/dev/null || true
+        fi
+    else
+        log_info "未检测到占用 ${BACKEND_PORT} 端口的旧后端进程"
+    fi
+    sleep 1
+
+    local latency_dir="${DEPLOY_DIR}/../src/plugins/latency"
+    latency_dir=$(cd "$latency_dir" 2>/dev/null && pwd || echo "")
+    if [ -z "$latency_dir" ] || [ ! -f "$latency_dir/.venv/bin/activate" ]; then
+        log_error "后端目录或 venv 不存在: ${latency_dir}"
+        return 1
+    fi
+    local project_dir
+    project_dir=$(cd "${DEPLOY_DIR}/.." && pwd)
+    local log_dir="${project_dir}/.deploy-logs"
+    mkdir -p "$log_dir"
+
+    (
+        source "$latency_dir/.venv/bin/activate"
+        export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+        export CONFIG="${CONFIG:-$project_dir/config/diagnosis_config.toml}"
+        export PYTHONPATH="$project_dir/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
+        cd "$latency_dir"
+        nohup python3 -u access/fastapi_server.py > "${log_dir}/backend.log" 2>&1 &
+        echo $! > "${log_dir}/backend.pid"
+    )
+    log_ok "后端裸进程已在后台启动 (日志: ${log_dir}/backend.log)"
+
+    log_info "等待后端健康检查（最多 30 秒）…"
+    local ok=0
+    local j=0
+    while [ "$j" -lt 30 ]; do
+        j=$((j + 1))
+        if curl -sf --max-time 3 "http://127.0.0.1:${BACKEND_PORT}/health_check" > /dev/null 2>&1; then
+            ok=1
+            log_ok "后端健康检查通过: http://127.0.0.1:${BACKEND_PORT}/health_check"
+            break
+        fi
+        sleep 1
+    done
+    if [ "$ok" -ne 1 ]; then
+        log_error "后端健康检查失败（30 秒内未通过），请查看 ${log_dir}/backend.log"
+        return 1
+    fi
+}
+
+ do_restart_local() {
+     sep
+     echo "本地开发模式重启（backend: systemd user unit 或裸进程；frontend: vite dev server）"
+     sep
+
+     log_info "重启后端服务: ${BACKEND_SERVICE}"
+     if command -v systemctl &> /dev/null && systemctl --user restart "${BACKEND_SERVICE}" 2>/dev/null; then
+         log_ok "已重启后端服务: ${BACKEND_SERVICE}"
+     else
+         # systemd user 单元不可用 → 按裸进程重启（与 deploy.sh 的 nohup 方式一致）
+         log_warn "systemd 服务 ${BACKEND_SERVICE} 不可用，改用裸进程重启"
+         restart_backend_bare
+     fi
+
+    log_info "重启前端 vite dev server（端口 ${FRONTEND_PORT}）"
+    local old_pid
+    old_pid=$(find_pid_by_port "${FRONTEND_PORT}")
+    if [ -n "$old_pid" ]; then
+        log_info "停止旧 vite 进程: PID ${old_pid}"
+        kill "$old_pid" 2>/dev/null || true
+        local i
+        for i in 1 2 3; do
+            if ! kill -0 "$old_pid" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+        if kill -0 "$old_pid" 2>/dev/null; then
+            log_warn "旧 vite 进程 ${old_pid} 3 秒内未退出，强制结束"
+            kill -9 "$old_pid" 2>/dev/null || true
+        fi
+        log_ok "已停止旧 vite 进程: PID ${old_pid}"
+    else
+        log_warn "未检测到占用 ${FRONTEND_PORT} 端口的旧 vite 进程"
+    fi
+    sleep 1
+
+    local frontend_dir
+    frontend_dir=$(cd "${FRONTEND_DIR}" 2>/dev/null && pwd || echo "")
+    if [ -z "$frontend_dir" ]; then
+        log_error "前端目录不存在: ${FRONTEND_DIR}"
+        return 1
+    fi
+    if [ ! -x "${frontend_dir}/node_modules/.bin/vite" ]; then
+        log_error "vite 未安装: ${frontend_dir}/node_modules/.bin/vite 不存在，请先在 ${frontend_dir} 执行 npm install"
+        return 1
+    fi
+
+    log_info "启动 vite dev server（目录: ${frontend_dir}，日志: ${VITE_LOG_FILE}）"
+    (
+        cd "$frontend_dir" \
+        && nohup node ./node_modules/.bin/vite --host 0.0.0.0 --port "${FRONTEND_PORT}" > "${VITE_LOG_FILE}" 2>&1 &
+    )
+    log_ok "vite dev server 已在后台启动"
+
+    sep
+    log_info "健康检查（最多等待 30 秒）…"
+    local wait_secs=30
+    local backend_ok=0
+    local frontend_ok=0
+    local j=0
+    while [ "$j" -lt "$wait_secs" ]; do
+        j=$((j + 1))
+        if [ "$backend_ok" -eq 0 ] && curl -sf --max-time 3 "http://127.0.0.1:${BACKEND_PORT}/health_check" > /dev/null 2>&1; then
+            backend_ok=1
+            log_ok "后端健康检查通过: http://127.0.0.1:${BACKEND_PORT}/health_check"
+        fi
+        if [ "$frontend_ok" -eq 0 ] && port_listening "${FRONTEND_PORT}"; then
+            frontend_ok=1
+            log_ok "前端已就绪: 端口 ${FRONTEND_PORT} 开始监听"
+        fi
+        if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    sep
+    if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
+        log_ok "本地开发环境重启完成！"
+        log_ok "  Web UI:   http://localhost:${FRONTEND_PORT}"
+        log_ok "  API:      http://localhost:${BACKEND_PORT}/health_check"
+        return 0
+    fi
+    if [ "$backend_ok" -eq 0 ]; then
+        log_error "后端健康检查失败（${wait_secs} 秒内未通过）: http://127.0.0.1:${BACKEND_PORT}/health_check"
+    fi
+    if [ "$frontend_ok" -eq 0 ]; then
+        log_error "前端启动失败（${wait_secs} 秒内端口 ${FRONTEND_PORT} 未监听），请查看日志: ${VITE_LOG_FILE}"
+    fi
+    return 1
+}
+
+do_restart_all() {
+    if is_local_mode; then
+        do_restart_local
+    else
+        log_info "未检测到本地开发模式（systemd/vite），使用 Docker 容器模式重启"
+        do_restart
+    fi
+}
+
 show_status() {
     check_docker || return 1
     sep
@@ -531,7 +741,7 @@ show_menu() {
     echo "  🔧  管理"
     echo "    7) 启动全部"
     echo "    8) 停止全部"
-    echo "    9) 重启全部"
+    echo "    9) 重启全部（自动检测: 本地/Docker）"
     echo "   10) 查看状态"
     echo "   11) 查看日志"
     echo ""
@@ -558,7 +768,7 @@ main() {
             6) do_uninstall_pg ;;
             7) do_start ;;
             8) do_stop ;;
-            9) do_restart ;;
+            9) do_restart_all ;;
             10) show_status ;;
             11) do_logs ;;
             12) do_psql ;;
@@ -587,7 +797,7 @@ if [ $# -gt 0 ]; then
         uninstall-pg)           do_uninstall_pg ;;
         start)                  do_start ;;
         stop)                   do_stop ;;
-        restart)                do_restart ;;
+        restart)                do_restart_all ;;
         status)                 show_status ;;
         logs)                   do_logs ;;
         psql)                   do_psql ;;
@@ -609,7 +819,7 @@ witty-ub 部署管理器
   uninstall-pg     仅卸载 PG 容器
   start            启动全部
   stop             停止全部
-  restart          重启全部
+  restart          重启全部（自动检测: 本地 systemd+vite / Docker）
   status           查看状态
   logs             查看日志
   psql             进入 psql
