@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 async def test_log_parser(log_dir: str = None):
-    """测试日志解析器"""
+    """测试日志解析器（关联/构建阶段已删，改用聚合三路产出验证链路）"""
     from latency.parse import (
         SdkAccessLogParser,
         WorkerAccessLogParser,
@@ -24,15 +24,13 @@ async def test_log_parser(log_dir: str = None):
         RemotePullLogParser,
         LinkLogParser,
         QueryMetaLogParser,
-        LogCorrelator,
-        ParseResultBuilder,
     )
-    from latency.schemas.log import LogParseResultModel
+    from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
     # 如果没有指定日志目录，使用默认的测试数据目录
     if log_dir is None:
         log_dir = os.path.join(os.path.dirname(__file__), "test_data")
-    
+
     logger.info(f"Testing with dir: {log_dir}")
     logger.info(f"Directory exists: {os.path.exists(log_dir)}")
 
@@ -52,51 +50,64 @@ async def test_log_parser(log_dir: str = None):
     parsed = {}
     for parser in parsers:
         entries = parser.parse(log_dir)
-        parsed[parser.label] = entries
+        # 聚合侧消费 TupleField 序元组（parse_log scanner 产物形态），单 parser 返回 LogEntry
+        parsed[parser.label] = [
+            (
+                e.timestamp, e.operation, e.elapsed_us, e.data_size,
+                e.object_key, e.trace_id, e.pod_ip, e.status_code,
+                e.resp_msg, e.entry_type, e.cluster_name, e.src_addr,
+                e.dst_addr, e.inflight_count, e.request_size, e.log_id,
+            )
+            for e in entries
+        ]
         logger.info(f"{parser.label}: {len(entries)} entries")
 
         # 打印前几条解析的条目
         for i, entry in enumerate(entries[:3]):
-            logger.info(f"  Entry {i}: trace_id={entry.trace_id}, op={entry.operation}, elapsed={entry.elapsed_us}us, cluster_name={entry.cluster_name}")
+            logger.info(f"  Entry {i}: trace_id={entry.trace_id}, op={entry.operation}, "
+                        f"elapsed={entry.elapsed_us}us, cluster_name={entry.cluster_name}")
 
-    correlator = LogCorrelator(parsed)
-    correlated = correlator.correlate()
+    # 关联/结果构建阶段已删除（Todo 1）；用聚合三路产出（metrics 表 + src_dst +
+    # time_window + 异常 trace）验证整条解析链路仍可用。
+    src_dst_events, src_dst_map, time_window_events, anom_tids, metrics_table = (
+        await KVCacheLogParseWorker._aggregate_three_way(parsed)
+    )
 
-    sdk_entries = parsed.get("SDK access parse", [])
-    worker_entries = parsed.get("Worker access parse", [])
-
-    builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir)
-    results = builder.build()
+    # T4：metrics_table 是轻量 dict 行，仅对展示/序列化按需物化前 5 行
+    field_rows = [
+        KVCacheLogParseWorker._make_field_row(m, "") for m in metrics_table[:5]
+    ]
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"Total results: {len(results)}")
-    logger.info(f"Anomalous: {sum(1 for r in results if r.is_anomalous)}")
+    logger.info(f"Metrics table rows: {len(metrics_table)}")
+    logger.info(f"src_dst aggregated: {len(src_dst_events)}")
+    logger.info(f"time_window aggregated: {len(time_window_events)}")
+    logger.info(f"Anomalous trace ids: {len(anom_tids)}")
     logger.info(f"{'='*60}")
 
-    for i, r in enumerate(results[:5]):  # 只打印前5条
-        logger.info(f"\n--- Result {i} ---")
-        logger.info(f"  log_id: {r.log_id}")
+    for i, r in enumerate(field_rows):
+        logger.info(f"\n--- Field row {i} ---")
         logger.info(f"  trace_id: {r.trace_id}")
         logger.info(f"  timestamp: {r.timestamp}")
-        logger.info(f"  pod_ip: {r.pod_ip}")
+        logger.info(f"  pod_ips: {r.pod_ips}")
         logger.info(f"  cluster_name: {r.cluster_name}")
         logger.info(f"  host: {r.host}")
         logger.info(f"  total_latency: {r.total_latency}")
         logger.info(f"  operation: {r.operation}")
-        logger.info(f"  data_size: {r.data_size}")
+        logger.info(f"  src_ip: {r.src_ip} dst_ip: {r.dst_ip}")
         logger.info(f"  is_anomalous: {r.is_anomalous}")
 
     logger.info(f"\n{'='*60}")
-    logger.info("Model dump serialization test:")
+    logger.info("Field row serialization (dataclass -> dict) test:")
     logger.info(f"{'='*60}")
-    if results:
-        dump = results[0].model_dump(exclude_none=False)
-        logger.info(f"  timestamp type: {type(dump['timestamp']).__name__} = {dump['timestamp']}")
-        logger.info(f"  created_at type: {type(dump['created_at']).__name__} = {dump['created_at']}")
-        logger.info(f"  log_id: {dump['log_id']}")
+    if field_rows:
+        from dataclasses import asdict
+        dump = asdict(field_rows[0])
+        logger.info(f"  timestamp type: {type(dump.get('timestamp')).__name__}")
+        logger.info(f"  total_latency: {dump.get('total_latency')}")
 
     logger.info("\n=== TEST PASSED ===")
-    return results
+    return field_rows
 
 
 async def test_data_file(data_file: str):
