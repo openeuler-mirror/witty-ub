@@ -1354,7 +1354,7 @@ const abortAgentSession = async () => {
     void scrollAgentChatToBottom()
   }
 }
-const assetPageSize = 5
+const assetInitialFetchSize = 100
 const logFilesPageSize = 10
 const aggregateEventPageSize = 10
 const abnormalTracesPageSize = 10
@@ -1378,10 +1378,9 @@ const toFaultAggregatedEventRows = (
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
 const selectedAssetId = ref<string | null>(null)
-const assetPage = ref(1)
-const assetTotal = ref(0)
 const activePage = ref<'asset' | 'abnormal'>('asset')
 const isAssetSidebarCollapsed = ref(false)
+const assetDetailRef = ref<HTMLElement | null>(null)
 const isListLoading = ref(false)
 const isDetailLoading = ref(false)
 const isSaving = ref(false)
@@ -1766,9 +1765,9 @@ type ColumnWidthMap = {
 }
 
 const traceListColumnWidths = reactive<ColumnWidthMap>({
-  latencyLeft: [110, 185, 300, 130, 80, 110, 110],
+  latencyLeft: [78, 160, 235, 115, 68, 82, 67],
   faultLeft: [110, 185, 300, 130, 110, 110, 80, 110],
-  latencyData: [110, 480],
+  latencyData: [88, 520],
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
   faultTraceActions: [150],
@@ -1894,19 +1893,13 @@ onBeforeUnmount(() => {
 })
 
 const getLatencyLeftGridColumnWidths = () =>
-  traceListColumnWidths.latencyLeft.map((w) => `${w}px`).join(' ')
+  traceListColumnWidths.latencyLeft.map((w) => `minmax(0, ${w}fr)`).join(' ')
 
 const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
 const getLatencyDataGridColumnWidths = () => {
-  return `${traceListColumnWidths.latencyData[0] || 110}px minmax(${traceListColumnWidths.latencyData[1] || 480}px, 1fr)`
-}
-
-const getLatencyDataTotalWidth = () => {
-  return (
-    (traceListColumnWidths.latencyData[0] || 110) + (traceListColumnWidths.latencyData[1] || 480)
-  )
+  return `minmax(72px, ${traceListColumnWidths.latencyData[0] || 88}fr) minmax(0, ${traceListColumnWidths.latencyData[1] || 520}fr)`
 }
 
 const getTimeWindowGridColumnWidths = () => {
@@ -2237,7 +2230,6 @@ const isFaultDetailTraceEventsLoading = ref(false)
 const faultDetailTraceEventsError = ref('')
 const faultDetailTraceEventsPage = ref(1)
 const faultDetailTraceEventsTotal = ref(0)
-const assetPageInput = ref('')
 const logFilesPageInput = ref('')
 const abnormalTracesPageInput = ref('')
 const abnormalTraceIdInput = ref('')
@@ -2674,7 +2666,6 @@ const resultsDialog = reactive({
 })
 
 const dialogTitle = computed(() => (dialog.mode === 'create' ? '添加资产库' : '编辑资产库'))
-const assetPageCount = computed(() => Math.max(1, Math.ceil(assetTotal.value / assetPageSize)))
 const logFilesPageCount = computed(() =>
   Math.max(1, Math.ceil(logFilesTotal.value / logFilesPageSize)),
 )
@@ -2704,7 +2695,6 @@ const getPageWindow = (currentPage: number, pageCount: number) => {
   })
   return pageWindow
 }
-const assetPageWindow = computed(() => getPageWindow(assetPage.value, assetPageCount.value))
 const logFilesPageWindow = computed(() =>
   getPageWindow(logFilesPage.value, logFilesPageCount.value),
 )
@@ -3037,7 +3027,13 @@ const LatencyBreakdownBar = defineComponent({
   setup(props) {
     return () => {
       const visibleSegments = props.segments.filter((segment) => segment.width > 0)
-      const summary = props.segments.map(getLatencyBreakdownTooltip).join('；')
+      const parsedSegments = props.segments.filter((segment) => segment.value !== null)
+      const displayedValueSegments =
+        visibleSegments.length > 0 ? visibleSegments : parsedSegments
+      const summary =
+        parsedSegments.length > 0
+          ? parsedSegments.map(getLatencyBreakdownTooltip).join('；')
+          : '暂无阶段数据'
       return h(
         'div',
         {
@@ -3066,7 +3062,7 @@ const LatencyBreakdownBar = defineComponent({
           h(
             'div',
             { class: 'latency-breakdown-values' },
-            props.segments.map((segment) =>
+            displayedValueSegments.map((segment) =>
               h(
                 'span',
                 {
@@ -4083,6 +4079,8 @@ const resizeLatencyCharts = () => {
   syncDetailLatencyTraceRowHeights()
   syncFaultTraceRowHeights()
 }
+
+let assetDetailResizeObserver: ResizeObserver | null = null
 
 const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: number } | null) => {
   await Promise.all([loadLatencyChart(), loadTopSlowChart()])
@@ -6131,14 +6129,22 @@ const formatTimestamp = (ts: number) => {
 const normalizeTraceIdQuery = (value: string) => value.trim()
 
 const listLogKbs = async (body: Record<string, unknown>) => {
-  const result = await request<{ total: number; kbs: LogKnowledge[] }>('/log_kb/list', {
-    method: 'POST',
-    body: JSON.stringify({
-      page_cnt: assetPageSize,
-      page_num: 1,
-      ...body,
-    }),
-  })
+  const fetchAssets = (pageCnt: number) =>
+    request<{ total: number; kbs: LogKnowledge[] }>('/log_kb/list', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...body,
+        page_cnt: pageCnt,
+        page_num: 1,
+      }),
+    })
+
+  const initialResult = await fetchAssets(assetInitialFetchSize)
+  const initialAssets = initialResult.kbs ?? []
+  const result =
+    (initialResult.total ?? 0) > initialAssets.length
+      ? await fetchAssets(initialResult.total)
+      : initialResult
 
   return {
     total: result.total ?? 0,
@@ -6241,7 +6247,9 @@ const loadLatencyChart = async () => {
 }
 
 watch(selectedOperation, () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>(['total_latency_us'])
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>([
+    selectedOperation.value === 'get' ? 'total_latency_us' : 'total_latency',
+  ])
   loadLatencyChart()
   loadTopSlowChart()
   loadLatencyDetail()
@@ -7430,45 +7438,20 @@ const jumpFaultTraceEventsPage = () => {
   goFaultTraceEventsPage(nextPage)
 }
 
-const loadAssets = async (pageNum = assetPage.value) => {
+const loadAssets = async () => {
   isListLoading.value = true
   errorMessage.value = ''
 
   try {
     const result = await listLogKbs({
-      page_num: pageNum,
       created_sorted_desc: true,
     })
-    const nextTotal = result.total
-    const nextPageCount = Math.max(1, Math.ceil(nextTotal / assetPageSize))
-
-    if (pageNum > nextPageCount) {
-      isListLoading.value = false
-      await loadAssets(nextPageCount)
-      return
-    }
-
     assets.value = result.assets
-    assetTotal.value = nextTotal
-    assetPage.value = pageNum
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '资产库列表加载失败'
   } finally {
     isListLoading.value = false
   }
-}
-
-const goAssetPage = (pageNum: number) => {
-  const nextPage = Math.min(Math.max(1, pageNum), assetPageCount.value)
-  if (nextPage === assetPage.value || isListLoading.value) return
-  void loadAssets(nextPage)
-}
-
-const jumpAssetPage = () => {
-  const nextPage = normalizePageInput(assetPageInput.value, assetPageCount.value)
-  if (nextPage === null) return
-  assetPageInput.value = ''
-  goAssetPage(nextPage)
 }
 
 const handleAssetClick = (assetId: string) => {
@@ -8438,6 +8421,10 @@ watch(selectedFaultScale, (newVal) => {
 onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
+  if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
+    assetDetailResizeObserver = new ResizeObserver(resizeLatencyCharts)
+    assetDetailResizeObserver.observe(assetDetailRef.value)
+  }
   document.addEventListener('click', handleStatusCodePopoverOutsideClick)
 })
 
@@ -8450,6 +8437,8 @@ onBeforeUnmount(() => {
   stopLogFilesPolling()
   closeAgentEventStream()
   window.removeEventListener('resize', resizeLatencyCharts)
+  assetDetailResizeObserver?.disconnect()
+  assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
   latencyChartInstance?.dispose()
   topSlowChartInstance?.dispose()
@@ -8593,57 +8582,6 @@ onBeforeUnmount(() => {
               <small>{{ asset.description }}</small>
             </span>
           </div>
-        </div>
-        <div v-if="assetTotal > assetPageSize" class="asset-pagination">
-          <button
-            class="asset-page-btn"
-            type="button"
-            :disabled="assetPage <= 1 || isListLoading"
-            @click="goAssetPage(assetPage - 1)"
-          >
-            上一页
-          </button>
-          <span class="pagination-pages" aria-label="资产库页码">
-            <button
-              v-for="pageNum in assetPageWindow"
-              :key="`asset-page-${pageNum}`"
-              class="pagination-page-btn"
-              :class="{ active: pageNum === assetPage, ellipsis: pageNum < 0 }"
-              type="button"
-              :disabled="pageNum < 0 || pageNum === assetPage || isListLoading"
-              @click="pageNum > 0 && goAssetPage(pageNum)"
-            >
-              {{ pageNum < 0 ? '…' : pageNum }}
-            </button>
-          </span>
-          <button
-            class="asset-page-btn"
-            type="button"
-            :disabled="assetPage >= assetPageCount || isListLoading"
-            @click="goAssetPage(assetPage + 1)"
-          >
-            下一页
-          </button>
-          <span class="pagination-jump">
-            <span>{{ assetPage }} / {{ assetPageCount }}</span>
-            <input
-              v-model="assetPageInput"
-              class="pagination-jump-input"
-              type="number"
-              min="1"
-              :max="assetPageCount"
-              aria-label="跳转资产库页码"
-              @keyup.enter="jumpAssetPage"
-            />
-            <button
-              class="pagination-jump-btn"
-              type="button"
-              :disabled="isListLoading"
-              @click="jumpAssetPage"
-            >
-              跳转
-            </button>
-          </span>
         </div>
       </section>
 
@@ -8926,7 +8864,7 @@ onBeforeUnmount(() => {
       </section>
     </aside>
 
-    <main class="asset-detail">
+    <main ref="assetDetailRef" class="asset-detail">
       <div v-if="errorMessage" class="error-banner">{{ errorMessage }}</div>
 
       <div v-if="activePage === 'abnormal'" class="monitor-page">
@@ -9896,7 +9834,6 @@ onBeforeUnmount(() => {
                         class="abnormal-latency-grid aggregate-table-header"
                         :style="{
                           gridTemplateColumns: getLatencyDataGridColumnWidths(),
-                          minWidth: getLatencyDataTotalWidth() + 'px',
                         }"
                       >
                         <div
@@ -9943,10 +9880,7 @@ onBeforeUnmount(() => {
                       class="aggregate-latency-scrollbar aggregate-latency-sync"
                       @scroll="syncAggregateLatencyScroll"
                     >
-                      <div
-                        class="aggregate-latency-scrollbar-spacer"
-                        :style="{ minWidth: getLatencyDataTotalWidth() + 'px' }"
-                      ></div>
+                      <div class="aggregate-latency-scrollbar-spacer"></div>
                     </div>
                     <div
                       class="aggregate-latency-body aggregate-latency-sync"
@@ -12130,7 +12064,6 @@ onBeforeUnmount(() => {
                       class="abnormal-latency-grid aggregate-table-header"
                       :style="{
                         gridTemplateColumns: getLatencyDataGridColumnWidths(),
-                        minWidth: getLatencyDataTotalWidth() + 'px',
                       }"
                     >
                       <div
@@ -12169,10 +12102,7 @@ onBeforeUnmount(() => {
                     class="aggregate-latency-scrollbar aggregate-latency-sync"
                     @scroll="syncAggregateLatencyScroll"
                   >
-                    <div
-                      class="aggregate-latency-scrollbar-spacer"
-                      :style="{ minWidth: getLatencyDataTotalWidth() + 'px' }"
-                    ></div>
+                    <div class="aggregate-latency-scrollbar-spacer"></div>
                   </div>
                   <div
                     class="aggregate-latency-body aggregate-latency-sync"
@@ -12189,7 +12119,10 @@ onBeforeUnmount(() => {
                         v-for="row in detailParseResultRows"
                         :key="`${row.id}-latency`"
                         class="abnormal-latency-grid aggregate-body-row"
-                        :style="{ height: getTraceRowHeight(row.podIp) }"
+                        :style="{
+                          gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                          height: getTraceRowHeight(row.podIp),
+                        }"
                       >
                         <div class="aggregate-cell">
                           <span
