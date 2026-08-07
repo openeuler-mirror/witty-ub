@@ -5,12 +5,10 @@ import os
 import uuid
 import subprocess
 import time
-from datetime import datetime
 from latency.schemas.log_failure_event import TraceFailureEventModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.common.ds_log_io import glob_paths, open_log
 from latency.config.config import Config
-from latency.detect import AnomalyDetector
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
@@ -65,34 +63,17 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
-        # await LogParseResultManager.update_log_parse_results_existed_status_by_log_id(
-        #     task.op_id, existed_status=0
-        # )
-        # await AnomalousEventManager.update_anomalous_events_existed_status_by_log_id(
-        #     task.op_id, existed_status=0
-        # )
-        # await AnomalousEventChainManager.update_event_chains_existed_status_by_log_id(
-        #     task.op_id, existed_status=0
-        # )
-        # await SrcDstAggregatedEventManager.update_aggregated_events_existed_status_by_log_id(
-        #     task.op_id, existed_status=0
-        # )
-        # await TaskReportManager.update_task_reports_existed_status_by_task_id(
-        #     task_id, status=TaskStatusEnum.PENDING
-        # )
-        # if task.retry_times > Config().get_config().task.task_retry_times:
-        #     await LogFilePGManager.update_log_file(
-        #         task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
-        #     )
-        #     logger.warning(
-        #         f"任务 {task_id} 重试次数 {task.retry_times} 已超过最大重试次数 {Config().get_config().task.task_retry_times}"
-        #     )
-        #     return False
-        # await LogFilePGManager.update_log_file(
-        #     task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
-        # )
-        # await BaseWorker.report(task.id, "重新初始化任务", 0.0)
-        # return True
+        if task.retry_times >= Config().get_config().task.task_retry_times:
+            await LogFilePGManager.update_log_file(
+                task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
+            )
+            logger.warning(
+                "任务 %s 重试次数 %d 已超过最大重试次数 %d",
+                task_id, task.retry_times, Config().get_config().task.task_retry_times,
+            )
+            return False
+        await BaseWorker.report(task.id, "重新初始化任务", 0.0)
+        return True
 
     @staticmethod
     async def deinit(task_id: str) -> str:
@@ -190,15 +171,15 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             src_match = re.search(r'srcAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
             if src_match:
                 src_ip = src_match.group(1)
-
+        
         if not dst_ip:
             dst_match = re.search(r'targetAddress\s*=\s*(' + ip_pattern + ')', raw_text, re.IGNORECASE)
             if dst_match:
                 dst_ip = dst_match.group(1)
-
+        
         if not src_ip or not dst_ip:
             return "", ""
-
+        
         return src_ip, dst_ip
 
     @staticmethod
@@ -206,11 +187,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         parts = raw_text.split('|')
         if len(parts) < 9:
             return ""
-        
+
         handle = parts[8].strip()
         from latency.parse.base_parser import SDK_GET_OPS, SDK_SET_OPS, WORKER_GET_OPS, WORKER_SET_OPS
         from latency.ENUM.ds_log import OpType
-        
+
         try:
             op_type = OpType(handle)
             if op_type in SDK_GET_OPS or op_type in WORKER_GET_OPS:
@@ -219,7 +200,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 return "SET"
         except ValueError:
             pass
-        
+
         return ""
 
     @staticmethod
@@ -229,7 +210,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         failure_mode_cache: dict,
     ) -> None:
         trace_id = log_failure_event["trace_id"]
-        
+
         raw_text = log_failure_event.get("raw_text", "")
         src_ip, dst_ip = KVCacheLogEventDiagnosisWorker._extract_src_dst_ip(raw_text)
         operation = KVCacheLogEventDiagnosisWorker._extract_operation(raw_text)
@@ -285,12 +266,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
 
         if trace_failure_event["status_code"] == "0" and status_code != "0":
             trace_failure_event["status_code"] = status_code
-        
+
         if src_ip:
             trace_failure_event["src_ip"] = src_ip
         if dst_ip:
             trace_failure_event["dst_ip"] = dst_ip
-        
+
         if operation and not trace_failure_event.get("operation"):
             trace_failure_event["operation"] = operation
 
@@ -325,17 +306,24 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             logger.info("读取日志文件名参数: %s", args)
             return args
         except Exception as e:
-            logger.error("读取统一配置文件失败: %s", e)
-            return {}
+            logger.warning("KB/global config unavailable (%s), using built-in defaults", e)
+            return {
+                "ds_client_access_log_file": ["ds_client_access*.log", "*_access.log", "*_split_access.log"],
+                "ds_client_info_log_file": ["ds_client*.INFO.log", "*_runtime.log", "*_split_runtime.log"],
+                "ds_worker_access_log_file": ["access.log", "access*.log", "*_access.log", "*_split_access.log"],
+                "ds_worker_info_log_file": ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "*_runtime.log", "*_split_runtime.log"],
+                "resource_log_file": ["resource.log"],
+            }
     
     @staticmethod
     async def run_diagnosis_tool(
         file_path: str, task: TaskModel, random_str: str, kb_id: str | None = None
     ) -> bool:
         config = await KVCacheLogEventDiagnosisWorker.parse_filepath_config(kb_id)
-        # 获取当前机器时间
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+        if not config:
+            logger.warning("KB config empty, falling back to global config")
+            config = Config().get_config().log_filename_pattern.model_dump()
+
         # 构建命令行参数
         witty_install_path = os.getenv("WITTY_INSTALL_PATH", WITTY_INSTALL_PATH_DEFAULT)
         diag_tool_path = os.path.join(witty_install_path, "witty-ub-diag-tool")
@@ -344,7 +332,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             diag_tool_path,
             "--ds-log-path", file_path,
             "--start-time", "2020-01-01 00:00:00",
-            "--end-time", current_time,
+            "--end-time", "2099-12-31 23:59:59",
             "--random-str", random_str,
         ]
         
@@ -356,9 +344,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     ",".join(patterns),
                 ])
         
-        for arg in cmd_args:
-            print(arg)
-        logger.info(f"运行定界工具: {' '.join(cmd_args)}")
+        logger.debug("运行定界工具: %s", ' '.join(cmd_args))
         await BaseWorker.report(task.id, "运行定界工具", 20.0)
         
         # 运行定界工具
@@ -377,7 +363,22 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 return False
-            
+
+            combined_output = (result.stdout or "") + (result.stderr or "")
+            if "[ERROR]" in combined_output:
+                error_lines = [
+                    line.strip()
+                    for line in combined_output.splitlines()
+                    if "[ERROR]" in line
+                ]
+                logger.error(f"定界工具输出包含错误标记，任务失败: {len(error_lines)} 条错误")
+                for line in error_lines[:50]:
+                    logger.error("定界工具错误输出: %s", line)
+                await TaskPGManager.update_task(
+                    task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                return False
+
             logger.info(f"定界工具运行成功: {result.stdout}")
             await BaseWorker.report(task.id, "定界工具运行完成", 40.0)
             
@@ -439,17 +440,29 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
     @staticmethod
     async def run(task_id: str, log_dir: str | None = None) -> bool:
         """运行任务"""
+        import asyncio as _asyncio
+        for attempt in range(5):
+            try:
+                task = await TaskPGManager.get_task_by_task_id(task_id)
+                if task:
+                    break
+            except Exception:
+                pass
+            await _asyncio.sleep(1)
+        else:
+            logger.error(f"任务 {task_id} PGManager 初始化失败，重试耗尽")
+            return False
+
+        if not task:
+            logger.error(f"任务 {task_id} 不存在")
+            return False
+
         try:
-            task = await TaskPGManager.get_task_by_task_id(task_id)
-            if not task:
-                logger.error(f"任务 {task_id} 不存在")
-                return False
-            
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
             await BaseWorker.report(task.id, "运行任务", 5.0)
-            
+
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             if not log_file:
                 logger.error(f"LogFile {task.op_id} 不存在")
@@ -457,11 +470,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
                 return False
-            
+
             random_str = log_file.id[:8]
             preprocessed_log_dir = log_dir or log_file.file_path
-            
-            print("故障定界工具开始运行")
+
+            logger.info("故障定界工具开始运行")
             result = await KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(
                 file_path=preprocessed_log_dir,
                 task=task,
@@ -470,21 +483,22 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             )
             if not result:
                 return False
-            
+
+            output_log_path = os.path.join(witty_dir, "log_" + random_str)
+            if not os.path.isdir(output_log_path) or not os.listdir(output_log_path):
+                logger.error(f"定界工具输出目录不存在或为空: {output_log_path}")
+                await TaskPGManager.update_task(
+                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                return False
+
             # 检查任务是否被取消
             task = await TaskPGManager.get_task_by_task_id(task_id)
             if not task or task.status == TaskStatusEnum.CANCELLED:
                 logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
                 return False
-            
-            print("故障定界工具运行完成")
-            # output_log_path = os.path.join(witty_dir, "log_" + random_str)
-            # trace_failure_event_cnt = await KVCacheLogEventDiagnosisWorker.parse_log_failure_events(output_log_path=output_log_path, log_id=log_file.id)
-            # await BaseWorker.report(task.id, "故障事件和Trace解析完成", 80.0)
-            # print("故障事件和Trace解析完成")
-            # await LogFilePGManager.update_log_file(
-            #     task.op_id, {"trace_failure_event_cnt": trace_failure_event_cnt}
-            # )
+
+            logger.info("故障定界工具运行完成")
             await BaseWorker.report(task.id, "故障定界完成，等待Trace上下文落库任务处理", 80.0)
             await LogFilePGManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
@@ -501,7 +515,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
-            print("故障定界任务成功")
+            logger.info("故障定界任务成功")
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")

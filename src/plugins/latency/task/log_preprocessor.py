@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 WITTY_DIR_DEFAULT = "/var/witty-ub"
 _BUFFER_SIZE = 8 * 1024 * 1024
-_ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".gz", ".zip", ".rar")
+_ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".zip", ".rar")
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,67 @@ def cleanup_preprocess_dir(log_file_id: str) -> str | None:
                 logger.error("删除日志预处理目录 %s 失败(已重试%d次): %s", 
                             preprocess_dir, max_retries, exc)
                 return None
+
+
+def _configured_filename_patterns() -> list[str]:
+    """返回配置里所有日志文件名 pattern(展平)。
+
+    用于判断源目录文件是否都已匹配 filename_patterns —— 全部匹配则
+    无需拆分,可直接扫描源目录,跳过预处理拷贝。
+    """
+    try:
+        patterns_cfg = (
+            Config().get_default_diagnosis_config().log_filename_pattern.model_dump()
+        )
+        return [p for plist in patterns_cfg.values() for p in plist]
+    except Exception as exc:  # 配置不可用时不优化,走原有拷贝路径
+        logger.warning("读取 filename_patterns 失败, 预处理将不跳过: %s", exc)
+        return []
+
+
+def needs_preprocess(source_path: str) -> bool:
+    """判断 source_path 是否需要预处理(拷贝+解压+拆分)。
+
+    返回 False 表示源是纯文本日志目录/文件,且每个文件都已匹配
+    filename_patterns(无需 split_unmatched_log_files 拆分),也没有压缩包
+    —— scan_all 可直接扫描源路径,省去 106MB 级重复拷贝。
+
+    需要预处理的情形:
+      - 源含压缩包(.tar.gz/.zip/.rar)—— 需要解压(.gz 不在此列;
+        open_log 直接流式读取, 无需解压写盘)
+      - 存在未匹配 filename_patterns 的文本文件 —— 需要拆分成 access/runtime
+    """
+    patterns = _configured_filename_patterns()
+
+    def _needs_split(source_file: str) -> bool:
+        rel = os.path.relpath(source_file, source_path).replace(os.sep, "/")
+        if _matches_any_pattern(rel, os.path.basename(source_file), patterns):
+            return False
+        if filename_looks_like_text(source_file):
+            return True
+        return False
+
+    if os.path.isfile(source_path):
+        return _needs_split(source_path)
+
+    saw_file = False
+    for source_file, _ in _iter_source_files(source_path):
+        saw_file = True
+        if _is_archive(source_file):
+            return True
+        if source_file.lower().endswith(".gz"):
+            # .gz handled transparently by open_log() + FileParserMapBuilder
+            # .gz variant patterns — no extraction or splitting needed.
+            continue
+        if _needs_split(source_file):
+            return True
+    # 有文件且全部匹配 → 无需预处理;空目录/源不存在 → 保底交给原逻辑
+    return not saw_file
+
+
+def filename_looks_like_text(path: str) -> bool:
+    """读前 8KB 判断是否文本文件(与 split 逻辑同判据)。"""
+    return _looks_like_text_file(path)
 
 
 def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult:
