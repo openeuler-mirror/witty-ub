@@ -63,6 +63,22 @@ class FileParserMapBuilder:
                 patterns = [os.path.join(self.log_dir, "**", p) for p in parser.patterns]
                 paths = glob_paths(patterns)
 
+                gz_patterns = [
+                    os.path.join(self.log_dir, "**", p + ".gz")
+                    for p in parser.patterns
+                    if not p.endswith(".gz")
+                ]
+                if gz_patterns:
+                    gz_paths = glob_paths(gz_patterns)
+                    if gz_paths:
+                        logger.info(
+                            "[%s] found %d .gz file(s): %s",
+                            parser.label,
+                            len(gz_paths),
+                            [os.path.basename(p) for p in gz_paths],
+                        )
+                        paths.extend(gz_paths)
+
                 for path in paths:
                     # 如果是 .gz 文件且已解压，使用解压后的路径
                     effective_path = self.gz_mapping.get(path, path)

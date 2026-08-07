@@ -25,6 +25,39 @@ ACCESS_LOG_MIN_PARTS = 13
 RUN_LOG_MIN_PARTS = 8
 
 
+def _build_parsed_access(parts: list[str], plen: int) -> dict:
+    """从已按 '|' 切分的 access 行提取字段（缺失列 pad 为空串）。
+
+    parse_access_line 与 process_worker 的 _pre_parsed 预解析共享此实现，
+    消除双实现漂移。字面量 dict（常量键）为实测最快形式。
+    """
+    col = LogParser.AccessCol
+    return {
+        "timestamp": parts[col.TIMESTAMP].strip(),
+        "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < plen else "",
+        "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < plen else "",
+        "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < plen else "",
+        "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < plen else "",
+        "handle": parts[col.HANDLE].strip() if col.HANDLE < plen else "",
+        "elapsed": parts[col.ELAPSED].strip() if col.ELAPSED < plen else "",
+        "size": parts[col.SIZE].strip() if col.SIZE < plen else "",
+        "req_msg": parts[col.REQ_MSG].strip() if col.REQ_MSG < plen else "",
+        "resp_msg": parts[col.RESP_MSG].strip() if col.RESP_MSG < plen else "",
+    }
+
+
+def _build_parsed_run(parts: list[str], plen: int) -> dict:
+    """从已按 '|' 切分的 run 行提取字段（缺失列 pad 为空串）。"""
+    col = LogParser.RunCol
+    return {
+        "timestamp": parts[col.TIMESTAMP].strip(),
+        "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < plen else "",
+        "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < plen else "",
+        "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < plen else "",
+        "msg": parts[col.MSG].strip() if col.MSG < plen else "",
+    }
+
+
 class LogParser(ABC):
     """日志解析器基类"""
     label: str = ""
@@ -189,20 +222,7 @@ class LogParser(ABC):
         if len(parts) < ACCESS_LOG_MIN_PARTS:
             return None
 
-        col = LogParser.AccessCol
-        plen = len(parts)
-        return {
-            "timestamp": parts[col.TIMESTAMP].strip(),
-            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < plen else "",
-            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < plen else "",
-            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < plen else "",
-            "status_code": parts[col.STATUS_CODE].strip() if col.STATUS_CODE < plen else "",
-            "handle": parts[col.HANDLE].strip() if col.HANDLE < plen else "",
-            "elapsed": parts[col.ELAPSED].strip() if col.ELAPSED < plen else "",
-            "size": parts[col.SIZE].strip() if col.SIZE < plen else "",
-            "req_msg": parts[col.REQ_MSG].strip() if col.REQ_MSG < plen else "",
-            "resp_msg": parts[col.RESP_MSG].strip() if col.RESP_MSG < plen else "",
-        }
+        return _build_parsed_access(parts, len(parts))
 
     @staticmethod
     def parse_run_line(line: str) -> dict | None:
@@ -213,15 +233,7 @@ class LogParser(ABC):
         if len(parts) < RUN_LOG_MIN_PARTS:
             return None
 
-        col = LogParser.RunCol
-        plen = len(parts)
-        return {
-            "timestamp": parts[col.TIMESTAMP].strip(),
-            "pod_name": parts[col.POD_NAME].strip() if col.POD_NAME < plen else "",
-            "trace_id": parts[col.TRACE_ID].strip() if col.TRACE_ID < plen else "",
-            "cluster_name": parts[col.CLUSTER_NAME].strip() if col.CLUSTER_NAME < plen else "",
-            "msg": parts[col.MSG].strip() if col.MSG < plen else "",
-        }
+        return _build_parsed_run(parts, len(parts))
 
     @abstractmethod
     def match_line(self, line: str, pod_ip: str) -> LogEntry | None:

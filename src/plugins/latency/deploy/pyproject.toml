@@ -26,6 +26,7 @@ dependencies = [
     "rarfile>=4.0",
     "sqlalchemy==2.0.51",
     "asyncpg==0.31.0",
+    "numpy>=1.26.0,<3.0.0",
     ]
 
 [project.optional-dependencies]

@@ -72,6 +72,7 @@ class LogFileModel(BaseModel):
 
 class SrcDstAggregatedEventModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="事件ID")
+    kb_id: str = Field(default="", description="关联的知识ID")
     src_ip: str = Field(..., description="源IP地址")
     dst_ip: str = Field(..., description="目的IP地址")
     log_id: str = Field(..., description="关联的日志ID")
@@ -201,6 +202,7 @@ class SrcDstAggregatedEventDataclass:
     src_ip: str
     dst_ip: str
     log_id: str
+    kb_id: str = ""
     operation: str = ""
     log_parse_result_cnt: int = 0
     anomaly_log_parse_result_cnt: int = 0
@@ -847,3 +849,48 @@ LogParseResultStorage = (
     | C2WLogParseResultDataclass
     | SparseLogParseResultDataclass
 )
+
+
+@dataclass(slots=True)
+class TimeWindowAggregatedEventDataclass:
+    """时序聚合计算和批量存库使用的轻量对象。"""
+
+    id: str = ""
+    kb_id: str = ""
+    log_id: str = ""
+    time_bucket: str = ""
+    src_ip: str = ""
+    dst_ip: str = ""
+    log_parse_result_cnt: int = 0
+    anomaly_cnt: int = 0
+    ave_total_latency: float | None = None
+    # latency_sum 承载桶内各 10s 行总延迟累加和（lat_sum），供查询侧
+    # sum(latency_sum)/sum(cnt) 重聚合；旧行/未物化时为 None，
+    # 查询侧以 COALESCE(latency_sum, ave_total_latency*cnt) 兜底。
+    latency_sum: float | None = None
+    min_total_latency: float | None = None
+    max_total_latency: float | None = None
+    p95_total_latency: float | None = None
+    p99_total_latency: float | None = None
+    ave_query_meta_latency: float | None = None
+    p99_query_meta_latency: float | None = None
+    ave_urma_total_latency: float | None = None
+    p99_urma_total_latency: float | None = None
+    ave_urma_link_latency: float | None = None
+    p99_urma_link_latency: float | None = None
+    ave_c2w_urma_latency: float | None = None
+    p99_c2w_urma_latency: float | None = None
+    ave_w2w_urma_latency: float | None = None
+    p99_w2w_urma_latency: float | None = None
+    ave_create_latency: float | None = None
+    p99_create_latency: float | None = None
+    ave_publish_latency: float | None = None
+    p99_publish_latency: float | None = None
+    ave_worker_total_latency: float | None = None
+    p99_worker_total_latency: float | None = None
+    existed_status: bool = True
+    created_at: str = dataclass_field(
+        default_factory=lambda: datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )[:-3]
+    )
