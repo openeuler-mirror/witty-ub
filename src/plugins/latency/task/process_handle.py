@@ -37,7 +37,7 @@ class ProcessHandler:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         
-        logging.getLogger("latency.task.task_handler").setLevel(logging.WARNING)
+        logging.getLogger("latency.task.task_handler").setLevel(logging.INFO)
         logging.getLogger("latency.database").setLevel(logging.WARNING)
         logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 

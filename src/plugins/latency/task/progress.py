@@ -57,6 +57,8 @@ def _task_progress(task, *, include_preprocess: bool = True) -> float:
             # 对应: "解析失败：未在路径中识别到日志信息" (100%)
             "解析失败",
             "日志解析",
+            # 对应: StageProgress 平滑进度消息 ("[polars][stage] progress=X%")
+            "[polars]",
         },
         TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER: {
             # 对应: "运行定界工具" (20%)

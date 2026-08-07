@@ -59,13 +59,11 @@ def parse_timestamp(ts: str) -> datetime:
     matches the timezone of the machine where the logs were generated.
     This ensures consistent behavior across UTC and Asia/Shanghai deployments.
     """
+    # 3.10 的 fromisoformat 拒绝空格分隔的 ISO 串（3.11+ 才接受），
+    # 必须先 replace(" ", "T", 1) 再解析，否则空格分隔时间戳在 3.10 每行 ValueError。
     try:
-        return datetime(
-            int(ts[0:4]), int(ts[5:7]), int(ts[8:10]),
-            int(ts[11:13]), int(ts[14:16]), int(ts[17:19]),
-            int(ts[20:26]) if len(ts) > 20 else 0,
-        )
-    except (ValueError, IndexError):
+        return datetime.fromisoformat(ts.replace(" ", "T", 1))
+    except ValueError:
         raise ValueError(f"Invalid timestamp: {ts}")
 
 

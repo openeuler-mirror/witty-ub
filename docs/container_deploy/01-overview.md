@@ -90,7 +90,7 @@ witty-UB 容器依赖 PostgreSQL 存储故障诊断数据。PostgreSQL 不属于
 | Docker 容器（同网络） | `postgres`（容器名） | `5432` | 全新部署、开发测试 |
 | 宿主机 RPM | Docker 网络网关 IP（如 `172.18.0.1`） | `15432` | 已有 RPM PG、数据迁移 |
 
-> **提示**：使用 `deploy/deploy_witty.sh` 部署时，脚本会自动检测 PostgreSQL 的部署方式并配置连接参数，无需手动填写。详见 [PostgreSQL 连接配置](03-pull-and-run.md#postgresql-连接配置)。
+> **提示**：使用 `deploy/docker/deploy_witty.sh` 部署时，脚本会自动检测 PostgreSQL 的部署方式并配置连接参数，无需手动填写。详见 [PostgreSQL 连接配置](03-pull-and-run.md#postgresql-连接配置)。
 
 ### 镜像分层架构
 

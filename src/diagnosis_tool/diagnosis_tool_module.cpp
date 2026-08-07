@@ -165,8 +165,8 @@ RackResult DiagnosisToolModule::ParseDiagArgs()
         LOG_ERROR << "Invalid end-time format: " << endTimeStr_ << ", expected yyyy-mm-dd hh:mm:ss";
         return RACK_FAIL;
     }
-    auto startTs = failure::DatetimeStrToTimestamp(startTimeStr_);
-    auto endTs = failure::DatetimeStrToTimestamp(endTimeStr_);
+    auto startTs = failure::DatetimeStrToTimestamp(startTimeStr_, true);
+    auto endTs = failure::DatetimeStrToTimestamp(endTimeStr_, true);
     if (!startTs.has_value() || !endTs.has_value()) {
         LOG_ERROR << "Failed to parse start-time or end-time";
         return RACK_FAIL;

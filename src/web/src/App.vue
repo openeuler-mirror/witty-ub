@@ -113,12 +113,19 @@ type LogAnalyzerThresholdKey =
 
 type DiagnosisConfigForm = {
   logFilenamePattern: Record<LogFilenamePatternKey, string[]>
-  logAnalyzerParams: Record<LogAnalyzerThresholdKey, number>
+  logAnalyzerParams: Record<LogAnalyzerThresholdKey, number> & {
+    slidingWindowPairs: Array<{ size: number; step: number }>
+    zone_anomaly_density_threshold: number
+  }
 }
 
 type DiagnosisConfigApiModel = {
   log_filename_pattern: Record<LogFilenamePatternKey, string[]>
-  log_analyzer_params: Record<LogAnalyzerThresholdKey, number>
+  log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
+    sliding_window_sizes: number[]
+    sliding_window_steps: number[]
+    zone_anomaly_density_threshold: number
+  }
 }
 
 type LogParseResultModel = {
@@ -1446,6 +1453,8 @@ const analyzerThresholdOptions: Array<{
   },
 ]
 const logFiles = ref<LogFileModel[]>([])
+// 当前选中的日志文件 id：用于时延指标桶模式直读分位统计表（bucket_seconds + log_id）
+const selectedLogFileId = ref<string | null>(null)
 const isLogFilesLoading = ref(false)
 const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
@@ -1493,6 +1502,14 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     w2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: diagnosisConfig.log_analyzer_params.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: diagnosisConfig.log_analyzer_params.query_meta_p99_threshold_ms,
+    slidingWindowPairs: diagnosisConfig.log_analyzer_params.sliding_window_sizes.map(
+      (size, index) => ({
+        size,
+        step: diagnosisConfig.log_analyzer_params.sliding_window_steps[index] ?? size,
+      }),
+    ),
+    zone_anomaly_density_threshold:
+      diagnosisConfig.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
 
@@ -1513,6 +1530,11 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     w2w_p99_threshold_ms: config.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.log_analyzer_params.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: config.log_analyzer_params.query_meta_p99_threshold_ms,
+    slidingWindowPairs: config.log_analyzer_params.sliding_window_sizes.map((size, index) => ({
+      size,
+      step: config.log_analyzer_params.sliding_window_steps[index] ?? size,
+    })),
+    zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
 
@@ -1524,6 +1546,9 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigForm): DiagnosisConfigApiMo
     w2w_p99_threshold_ms: config.logAnalyzerParams.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.logAnalyzerParams.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: config.logAnalyzerParams.query_meta_p99_threshold_ms,
+    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) => size),
+    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) => step),
+    zone_anomaly_density_threshold: config.logAnalyzerParams.zone_anomaly_density_threshold,
   },
 })
 
@@ -1642,6 +1667,10 @@ const saveParseConfig = async () => {
     diagnosisConfigError.value = `${emptyPatternType.label}至少需要一个 Pattern`
     return
   }
+  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
+    diagnosisConfigError.value = '至少需要配置一组滑动窗口'
+    return
+  }
   isDiagnosisConfigSaving.value = true
   try {
     const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
@@ -1681,6 +1710,14 @@ const removeFilenamePattern = (key: LogFilenamePatternKey, index: number) => {
   diagnosisConfigDraft.logFilenamePattern[key].splice(index, 1)
 }
 
+const addSlidingWindowPair = () => {
+  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.push({ size: 100, step: 20 })
+}
+
+const removeSlidingWindowPair = (index: number) => {
+  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
+}
+
 // 聚合事件列表排序状态
 const aggregateEventSort = useTableSort([{ field: 'total_latency', order: 'desc' }], () => {
   // 排序变化时重新加载数据（重置到第一页）
@@ -1696,7 +1733,7 @@ const abnormalTraceSort = useTableSort([{ field: 'total_latency', order: 'desc' 
 })
 
 // 时间窗口聚合事件列表
-const selectedLatencyTimeWindowInterval = ref<'hour' | 'minute' | 'second'>('minute')
+const selectedLatencyTimeWindowInterval = ref<number>(60)
 const timeWindowAggregatedEvents = ref<TimeWindowAggregatedEvent[]>([])
 const isTimeWindowLoading = ref(false)
 const timeWindowError = ref('')
@@ -2214,10 +2251,10 @@ const faultDetailTraceEventsPageInput = ref('')
 const faultDetailTraceIdInput = ref('')
 const faultDetailTraceIdQuery = ref('')
 const latencyChartRef = ref<HTMLDivElement | null>(null)
-const topSlowChartRef = ref<HTMLDivElement | null>(null)
 const detailLatencyChartRef = ref<HTMLDivElement | null>(null)
 const faultChartRef = ref<HTMLDivElement | null>(null)
 const faultDetailChartRef = ref<HTMLDivElement | null>(null)
+const topSlowChartRef = ref<HTMLDivElement | null>(null)
 const logFilesPollingTimer = ref<ReturnType<typeof window.setInterval> | null>(null)
 const isFaultChartLoading = ref(false)
 const faultChartError = ref('')
@@ -2691,36 +2728,62 @@ const shouldShowFaultCodeFilter = computed(
   () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
 )
 const getLatencySeriesConfig = [
-  ['total_latency_us', '总时延', '#d32f2f'],
-  ['sdk_processing_us', 'SDK处理', '#5470c6'],
-  ['master_processing_us', 'Master处理', '#91cc75'],
-  ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
-  ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
-  ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
-  ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
-  ['sdk_rpc_network_us', 'SDK RPC网络', '#fc8452'],
-  ['sdk_rpc_framework_us', 'SDK RPC框架', '#9a60b4'],
-  ['sdk_rpc_total_us', 'SDK RPC总时延', '#ea7ccc'],
-  ['master_rpc_network_us', 'Master RPC网络', '#ff9f7f'],
-  ['master_rpc_framework_us', 'Master RPC框架', '#ffdb5c'],
-  ['master_rpc_total_us', 'Master RPC总时延', '#c23531'],
-  ['remote_worker_rpc_network_us', 'Remote Worker RPC网络', '#2f4554'],
-  ['remote_worker_rpc_framework_us', 'Remote Worker RPC框架', '#61a0a8'],
-  ['remote_worker_rpc_total_us', 'Remote Worker RPC总时延', '#bda29a'],
-  ['urma_processing_us', 'URMA+UDMA+交换机+OS处理', '#6e7074'],
-  ['urma_inflight_max', 'URMA并发数', '#749f83'],
-  ['remote_worker_processing_us', 'Remote Worker处理', '#ca8622'],
-  ['client_master_rpc_network_us', 'Client Master RPC网络', '#bda29a'],
-  ['client_master_rpc_framework_us', 'Client Master RPC框架', '#6e7074'],
-  ['client_master_rpc_total_us', 'Client Master RPC总时延', '#546570'],
-  ['client_remote_rpc_network_us', 'Client Remote RPC网络', '#c4ccd3'],
-  ['client_remote_rpc_framework_us', 'Client Remote RPC框架', '#f05b72'],
-  ['client_remote_rpc_total_us', 'Client Remote RPC总时延', '#d53a35'],
-].map(([key, label, color]) => ({ key, label, color })) as Array<{
-  key: string
-  label: string
-  color: string
-}>
+  {
+    key: 'total_latency',
+    label: '总时延',
+    color: '#5470c6',
+  },
+  {
+    key: 'worker_query_meta_latency',
+    label: '查询元数据时延',
+    color: '#91cc75',
+  },
+  {
+    key: 'urma_total_latency',
+    label: 'URMA总时延',
+    color: '#fac858',
+  },
+  {
+    key: 'sdk_process',
+    label: 'SDK处理时延',
+    color: '#ee6666',
+  },
+  {
+    key: 'sdk_rpc',
+    label: 'SDK RPC时延',
+    color: '#73c0de',
+  },
+  {
+    key: 'local_worker_cost',
+    label: '本地Worker处理时延',
+    color: '#3ba272',
+  },
+  {
+    key: 'local_worker_lock',
+    label: '本地Worker锁时延',
+    color: '#fc8452',
+  },
+  {
+    key: 'remote_worker_cost',
+    label: '远程Worker处理时延',
+    color: '#9a60b4',
+  },
+  {
+    key: 'remote_worker_rpc',
+    label: '远程Worker RPC时延',
+    color: '#ea7ccc',
+  },
+  {
+    key: 'master_process',
+    label: 'Master处理时延',
+    color: '#48b8d0',
+  },
+  {
+    key: 'master_rpc_total',
+    label: 'Master RPC总时延',
+    color: '#7b9ce1',
+  },
+] as const
 
 const setLatencySeriesConfig = [
   {
@@ -2745,14 +2808,16 @@ const setLatencySeriesConfig = [
   },
 ] as const
 
-const latencySeriesConfig = computed(() => getLatencySeriesConfig)
+const latencySeriesConfig = computed(() =>
+  selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
+)
 
 type LatencyMetricKey = (typeof getLatencySeriesConfig)[number]['key']
 
 const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
-  'total_latency_us',
-  'sdk_processing_us',
-  'urma_processing_us',
+  'total_latency',
+  'worker_query_meta_latency',
+  'urma_total_latency',
 ])
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
 
@@ -2775,14 +2840,14 @@ const selectAllLatencySeries = () => {
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0]!.key])
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0].key])
 }
 
 const latencyPercentileOptions = [
-  { value: 'p99', label: 'P99', abnormalThreshold: 2000 },
-  { value: 'p9999', label: 'P99.99', abnormalThreshold: 5000 },
-  { value: 'pmax', label: 'Pmax', abnormalThreshold: 5000 },
-  { value: 'ave', label: '均值', abnormalThreshold: 5000 },
+  { value: 'p99', label: 'P99', abnormalThreshold: 2 },
+  { value: 'p9999', label: 'P9999', abnormalThreshold: 5 },
+  { value: 'pmax', label: 'Pmax', abnormalThreshold: 5 },
+  { value: 'ave', label: '均值', abnormalThreshold: 5 },
 ] as const
 
 const latencySampleModeMap: Record<LatencyPercentileValue, string> = {
@@ -2802,13 +2867,13 @@ const selectedLatencyPercentileConfig = computed(
 
 const latencyAnomalyHint = computed(
   () =>
-    `🔴 红色区域 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}µs`,
+    `🔴 红色区域 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
 )
 
-const detailLatencyAbnormalThreshold = 2000
+const detailLatencyAbnormalThreshold = 2
 
 const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
-  const totalLatency = values.total_latency_us
+  const totalLatency = values.total_latency
   return (
     typeof totalLatency === 'number' &&
     Number.isFinite(totalLatency) &&
@@ -2817,7 +2882,7 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
 }
 
 const isDetailLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
-  const totalLatency = values.total_latency_us
+  const totalLatency = values.total_latency
   return (
     typeof totalLatency === 'number' &&
     Number.isFinite(totalLatency) &&
@@ -2969,6 +3034,11 @@ const maxBucketMetricValue = (values: number[]) => {
   return Math.max(...values)
 }
 
+const avgBucketMetricValue = (values: number[]) => {
+  if (values.length === 0) return null
+  return values.reduce((a, b) => a + b, 0) / values.length
+}
+
 const createEmptyLatencyMetricBuckets = (): Record<LatencyMetricKey, number[]> =>
   latencySeriesConfig.value.reduce(
     (acc, series) => {
@@ -2978,6 +3048,40 @@ const createEmptyLatencyMetricBuckets = (): Record<LatencyMetricKey, number[]> =
     {} as Record<LatencyMetricKey, number[]>,
   )
 
+const parseDateAsLocal = (raw: string): Date | null => {
+  if (!raw) return null
+  const cleaned = raw.trim()
+  // If the string already contains a timezone specifier (+, -, Z),
+  // let the Date constructor handle it natively — it will parse correctly.
+  if (/(?:[+-]\d{2}(?::?\d{2})?|Z)$/.test(cleaned)) {
+    const d = new Date(cleaned)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  // Parse as LOCAL time by extracting components and using
+  // new Date(year, month-1, day, hours, minutes, seconds).
+  // This avoids the ECMAScript rule that "T"-separated
+  // datetime strings without timezone are parsed as UTC.
+  const normalized = cleaned.replace('T', ' ').replace(/Z$/i, '')
+  const match = normalized.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/,
+  )
+  if (match) {
+    const [, y, m, d, h, min, s] = match
+    const parsed = new Date(+y, +m - 1, +d, +h, +min, +s)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  // Last resort — try direct constructor
+  const parsed = new Date(cleaned)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const displayLocalTime = (raw: string | undefined | null): string => {
+  if (!raw) return '-'
+  const d = parseDateAsLocal(raw)
+  if (!d) return raw
+  return formatFullTimeLabel(d)
+}
+
 const parseMetricDate = (result: {
   time?: string | null
   timestamp?: string | null
@@ -2985,8 +3089,7 @@ const parseMetricDate = (result: {
 }) => {
   const raw = result.time || result.timestamp || result.created_at
   if (!raw) return null
-  const parsed = new Date(raw.replace(' ', 'T'))
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return parseDateAsLocal(raw)
 }
 
 const padDatePart = (value: number) => String(value).padStart(2, '0')
@@ -3191,7 +3294,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 
   const allTimes = allMetricPoints.map((point) => point.date.getTime())
   const bucketMs =
-    selectedLatencyScale.value !== 0 && chartRange
+    selectedLatencyScale.value !== 0
       ? selectedLatencyScale.value * secondMs
       : getAdaptiveLatencyBucketMs(allTimes)
   const minTime = chartRange?.startTime ?? Math.min(...allTimes)
@@ -3208,9 +3311,14 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     const bucket = buckets.get(bucketStart) ?? createEmptyLatencyMetricBuckets()
 
     latencySeriesConfig.value.forEach((series) => {
-      const value = result[series.key]
+      let value = result[series.key]
       if (typeof value === 'number' && Number.isFinite(value)) {
-        bucket[series.key]!.push(value)
+        // _us 后缀字段单位是微秒（来自 yuanrong compute），折线图 Y 轴标 ms
+        // master_rpc_total 同理（rpro_e2e_us）
+        if (typeof series.key === 'string' && (series.key.endsWith('_us') || series.key === 'master_rpc_total')) {
+          value = value / 1000
+        }
+        bucket[series.key].push(value)
       }
     })
 
@@ -3221,9 +3329,10 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
     const groupedValues = buckets.get(time) ?? createEmptyLatencyMetricBuckets()
 
+    const reduceFn = selectedLatencyPercentile.value === 'ave' ? avgBucketMetricValue : maxBucketMetricValue
     const values = latencySeriesConfig.value.reduce(
       (acc, series) => {
-        acc[series.key] = maxBucketMetricValue(groupedValues[series.key] ?? [])
+        acc[series.key] = reduceFn(groupedValues[series.key])
         return acc
       },
       {} as Record<LatencyMetricKey, number | null>,
@@ -3248,8 +3357,11 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 
       const values = latencySeriesConfig.value.reduce(
         (acc, series) => {
-          const value = metric[series.key]
+          let value = metric[series.key]
           if (typeof value === 'number' && Number.isFinite(value)) {
+            if (series.key === 'master_rpc_total') {
+              value = value / 1000
+            }
             acc[series.key] = value
           } else {
             acc[series.key] = null
@@ -3271,10 +3383,10 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 )
 
 let latencyChartInstance: ECharts | null = null
-let topSlowChartInstance: ECharts | null = null
 let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
 let faultDetailChartInstance: ECharts | null = null
+let topSlowChartInstance: ECharts | null = null
 
 const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   const ranges: Array<[Record<string, number>, Record<string, number>]> = []
@@ -3306,7 +3418,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
       trigger: 'axis',
       appendToBody: true,
       valueFormatter: (value) =>
-        typeof value === 'number' ? `${formatMetricValue(value)} µs` : String(value ?? '-'),
+        typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
     },
     legend: {
       data: visibleSeries.map((series) => series.label),
@@ -3364,7 +3476,7 @@ const createLatencyEchartsOption = (buckets: LatencyChartBucket[]): EChartsOptio
     },
     yAxis: {
       type: 'value',
-      name: '时延 (µs)',
+      name: '延迟(ms)',
       min: 0,
       splitLine: {
         lineStyle: {
@@ -3674,22 +3786,6 @@ const renderLatencyEchart = () => {
   latencyChartInstance.resize()
 }
 
-const renderTopSlowEchart = () => {
-  if (!isAbnormalMonitorPage.value || isTopSlowChartLoading.value || topSlowChartError.value) {
-    return
-  }
-  const element = topSlowChartRef.value
-  if (!element || topSlowChartRows.value.length === 0) return
-
-  if (topSlowChartInstance && topSlowChartInstance.getDom() !== element) {
-    topSlowChartInstance.dispose()
-    topSlowChartInstance = null
-  }
-  topSlowChartInstance ??= echarts.init(element)
-  topSlowChartInstance.setOption(createTopSlowEchartsOption(topSlowChartRows.value), true)
-  topSlowChartInstance.resize()
-}
-
 const renderDetailLatencyEchart = () => {
   if (isDetailLatencyChartLoading.value || detailLatencyChartError.value) return
   const element = detailLatencyChartRef.value
@@ -3763,12 +3859,28 @@ const renderFaultDetailEchart = () => {
   faultDetailChartInstance.resize()
 }
 
+const renderTopSlowEchart = () => {
+  if (!isAbnormalMonitorPage.value || isTopSlowChartLoading.value || topSlowChartError.value) {
+    return
+  }
+  const element = topSlowChartRef.value
+  if (!element || topSlowChartRows.value.length === 0) return
+
+  if (topSlowChartInstance && topSlowChartInstance.getDom() !== element) {
+    topSlowChartInstance.dispose()
+    topSlowChartInstance = null
+  }
+  topSlowChartInstance ??= echarts.init(element)
+  topSlowChartInstance.setOption(createTopSlowEchartsOption(topSlowChartRows.value), true)
+  topSlowChartInstance.resize()
+}
+
 const resizeLatencyCharts = () => {
   latencyChartInstance?.resize()
-  topSlowChartInstance?.resize()
   detailLatencyChartInstance?.resize()
   faultChartInstance?.resize()
   faultDetailChartInstance?.resize()
+  topSlowChartInstance?.resize()
   syncLatencyTraceRowHeights()
   syncDetailLatencyTraceRowHeights()
   syncFaultTraceRowHeights()
@@ -4080,7 +4192,7 @@ const faultChartBuckets = computed<FaultChartBucket[]>(() => {
 
   const allTimes = allMetricPoints.map((p) => p.time)
   const bucketMs =
-    selectedFaultScale.value !== 0 && chartRange
+    selectedFaultScale.value !== 0
       ? selectedFaultScale.value * secondMs
       : getAdaptiveLatencyBucketMs(allTimes)
   const minTime = chartRange?.startTime ?? Math.min(...allTimes)
@@ -4316,7 +4428,9 @@ const normalizeTraceOperation = (operation: string) => {
 }
 
 const normalizeTimeText = (value: string) => {
-  let normalized = value.replace('T', ' ').replace(/Z$/, '')
+  let normalized = value.replace('T', ' ').replace(/Z$/i, '')
+  // Strip timezone suffix like +08, +08:00, +0800
+  normalized = normalized.replace(/[+-]\d{2}(?::?\d{2})?$/, '').trim()
   const match = normalized.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(\.\d+)?$/)
   if (match) {
     const base = match[1]
@@ -4339,7 +4453,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       id: getRecordString(record, ['id', 'trace_id', 'traceId']),
       logStatus: getLogDisplayStatus(record),
       statusReason: getLogDisplayReason(record),
-      time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
+      time: displayLocalTime(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
       traceId: getRecordString(record, ['trace_id', 'traceId', 'span_id', 'id']),
       podIp: (() => {
         const podIps = record['pod_ips']
@@ -4584,7 +4698,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     : []
 
   return {
-    time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
+    time: displayLocalTime(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
     level,
     filename: logFile,
     podIp: (() => {
@@ -4772,8 +4886,7 @@ const normalizeFilterText = (value: string) => value.trim()
 
 const parseFilterDate = (value: string) => {
   if (!value) return null
-  const parsed = new Date(value.replace(' ', 'T'))
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return parseDateAsLocal(value)
 }
 
 const matchesLatencyRowPodIpFilters = (row: LatencyDetailRow) => {
@@ -4843,7 +4956,7 @@ const toFaultTraceTableRow = (result: TraceFailureEventResultModel): FaultTraceT
     hostNames,
     clusterName: clusterNames[0] ?? '-',
     clusterNames,
-    time: normalizeTimeText(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
+    time: displayLocalTime(getRecordString(record, ['timestamp', 'created_at', 'time'], '')),
     sdkMs: null,
     reqDelay: null,
     respDelay: null,
@@ -5162,9 +5275,9 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
       is_anomalous: true,
       start_time: detail.eventRow.startTime,
       end_time: detail.eventRow.endTime,
-      operation: selectedFaultOperation.value.toUpperCase(),
       page_cnt: faultDetailTraceEventsPageSize,
       page_num: pageNum,
+      operation: selectedFaultOperation.value.toUpperCase(),
     }
     if (faultDetailTraceIdQuery.value) {
       requestBody.trace_ids = [faultDetailTraceIdQuery.value]
@@ -5266,8 +5379,8 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
         dst_ip: detail.podRow.dstIp,
         start_time: detail.eventRow.startTime,
         end_time: detail.eventRow.endTime,
-        operation: selectedFaultOperation.value.toUpperCase(),
         max_points: 1000,
+        operation: selectedFaultOperation.value.toUpperCase(),
       }),
     })
 
@@ -5657,9 +5770,9 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     const requestBody: Record<string, unknown> = {
       kb_id: selectedAssetId.value,
       is_anomalous: true,
-      operation: selectedFaultOperation.value.toUpperCase(),
       page_cnt: faultTraceEventsPageSize,
       page_num: pageNum,
+      operation: selectedFaultOperation.value.toUpperCase(),
     }
 
     if (filters.startTime) {
@@ -5866,15 +5979,27 @@ const loadLatencyChart = async () => {
 
   const range = latencyChartRange.value
 
+  // 桶模式下每点 = 一个时间桶：max_points 按窗口/粒度取桶数并 clamp 到 [100, 5000]，
+  // 避免误触发后端 sampler；无 range（全量）时保持默认 1000
+  const maxPoints =
+    range && selectedLatencyScale.value > 0
+      ? Math.min(
+          5000,
+          Math.max(100, Math.ceil((range.endTime - range.startTime) / (selectedLatencyScale.value * 1000))),
+        )
+      : 1000
+
   try {
     const filters = appliedFilters.value
     const body: Record<string, unknown> = {
       kb_id: assetId,
-      max_points: 1000,
+      max_points: maxPoints,
       sample_mode: latencySampleModeMap[percentile],
       sort_by: 'timestamp',
       sort_order: 'asc',
       operation: selectedOperation.value.toUpperCase(),
+      bucket_seconds: selectedLatencyScale.value,
+      log_id: selectedLogFileId.value ?? undefined,
     }
 
     if (filters.startTime) {
@@ -5918,6 +6043,26 @@ const loadLatencyChart = async () => {
     isLatencyChartLoading.value = false
   }
 }
+
+watch(selectedOperation, () => {
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>(['total_latency'])
+  loadLatencyChart()
+  loadTopSlowChart()
+  loadLatencyDetail()
+  loadTimeWindowAggregatedEvents()
+  loadAbnormalTraces(1)
+  if (selectedAggregatedEvent.value) {
+    selectedAggregatedEvent.value.operation = selectedOperation.value.toUpperCase()
+    detailParseResultsPage.value = 1
+    void loadDetailParseResults(selectedAggregatedEvent.value, 1)
+  }
+})
+
+watch(selectedFaultOperation, () => {
+  loadFaultChart()
+  loadFaultAggregatedEvents(1)
+  loadFaultTraceEvents(1)
+})
 
 const loadTopSlowChart = async () => {
   if (!selectedAssetId.value) {
@@ -5977,26 +6122,6 @@ const loadTopSlowChart = async () => {
   }
 }
 
-watch(selectedOperation, () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>(['total_latency'])
-  loadLatencyChart()
-  loadTopSlowChart()
-  loadLatencyDetail()
-  loadTimeWindowAggregatedEvents()
-  loadAbnormalTraces(1)
-  if (selectedAggregatedEvent.value) {
-    selectedAggregatedEvent.value.operation = selectedOperation.value.toUpperCase()
-    detailParseResultsPage.value = 1
-    void loadDetailParseResults(selectedAggregatedEvent.value, 1)
-  }
-})
-
-watch(selectedFaultOperation, () => {
-  loadFaultChart()
-  loadFaultAggregatedEvents(1)
-  loadFaultTraceEvents(1)
-})
-
 const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
   if (!selectedAssetId.value) {
     detailLatencyMetrics.value = []
@@ -6018,6 +6143,8 @@ const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
       max_points: 30,
       sort_by: 'timestamp',
       sort_order: 'asc',
+      bucket_seconds: selectedLatencyScale.value,
+      log_id: selectedLogFileId.value ?? undefined,
     }
     if (row.startTime) {
       requestBody.start_time = row.startTime
@@ -6545,7 +6672,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     id: result.id,
     logStatus: getLogDisplayStatus(record),
     statusReason: getLogDisplayReason(record),
-    time: result.timestamp ?? result.created_at ?? '-',
+    time: displayLocalTime(result.timestamp ?? result.created_at),
     traceId: result.trace_id ?? '-',
     podIp: Array.isArray(result.pod_ips) ? result.pod_ips.join('<br>') : (result.pod_ips ?? '-'),
     operation: normalizeTraceOperation(
@@ -6812,12 +6939,12 @@ const loadFaultAggregatedEventPodRows = async (row: FaultAggregatedEventRow, pag
           pod_ip: getLogParseFilterValue(filters.podIps),
           src_ip: getLogParseFilterValue(filters.sourcePodIps),
           dst_ip: getLogParseFilterValue(filters.targetPodIps),
-          operation: selectedFaultOperation.value.toUpperCase(),
           sort_fields: sortFields.length > 0 ? sortFields : undefined,
           sort_by: 'all',
           sort_desc: true,
           page_cnt: faultAggregatedEventPodPageSize,
           page_num: pageNum,
+          operation: selectedFaultOperation.value.toUpperCase(),
         }),
       },
     )
@@ -6948,12 +7075,12 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       pod_ip: getLogParseFilterValue(filters.podIps),
       src_ip: getLogParseFilterValue(filters.sourcePodIps),
       dst_ip: getLogParseFilterValue(filters.targetPodIps),
-      operation: selectedFaultOperation.value.toUpperCase(),
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       sort_by: 'timestamp',
       sort_desc: faultAggregatedEventSortDesc.value,
       page_cnt: faultAggregatedEventPageSize,
       page_num: pageNum,
+      operation: selectedFaultOperation.value.toUpperCase(),
     }
 
     if (chartRange) {
@@ -7375,8 +7502,8 @@ const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
 const getTaskReportTime = (report: TaskReportModel) => {
   if (!report.created_at) return 0
-  const time = Date.parse(report.created_at)
-  return Number.isFinite(time) ? time : 0
+  const d = parseDateAsLocal(report.created_at)
+  return d ? d.getTime() : 0
 }
 
 const ignoredTaskReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
@@ -7460,13 +7587,67 @@ const getLogFileProgress = (file: LogFileModel) => {
 
 const getLogFileProgressText = (file: LogFileModel) => `${Math.round(getLogFileProgress(file))}%`
 
+// [polars][<stage>] progress=<x>% [detail] → 中文阶段描述（阶段名见
+// latency/common/stage_progress.py 的 DEFAULT_STAGES）。
+const logFileProgressStageLabels: Record<string, string> = {
+  scan: '正在扫描日志',
+  trace_frame: '正在构建Trace索引',
+  aggregate: '正在聚合分析',
+  bucket: '正在计算分位桶',
+  detail: '正在生成明细',
+  store: '正在写入数据库',
+}
+
+// 后端原始英文里程碑 → 中文展示（新增的旧英文文案只需在此登记）。
+const logFileProgressMilestoneMap: Record<string, string> = {
+  'Task initialized': '任务已初始化',
+  'Task reinitialized': '任务已重新初始化',
+  'Task running': '任务运行中',
+  'Log parse completed': '日志解析完成',
+  'Anomaly detection done': '异常检测完成',
+  'Aggregate events done': '聚合事件完成',
+  'Fault matching done': '故障匹配完成',
+  'Results stored': '结果已入库',
+  'Task completed successfully': '解析完成',
+  'Task failed': '解析失败',
+}
+
+const humanizeLogFileProgressMessage = (message: string): string => {
+  const trimmed = message.trim()
+  if (!trimmed) return trimmed
+
+  // 1) [polars][<stage>] progress=<x>% [detail] → 中文阶段描述（可附带原始 detail）
+  const stageMatch = trimmed.match(
+    /^\[polars\]\[([\w-]+)\](?:\s+progress=\d+(?:\.\d+)?%)?(?:\s+(.*))?$/
+  )
+  if (stageMatch) {
+    const stageLabel = logFileProgressStageLabels[stageMatch[1]] ?? `正在解析（${stageMatch[1]}）`
+    const detail = (stageMatch[2] ?? '').trim()
+    return detail ? `${stageLabel}: ${detail}` : stageLabel
+  }
+
+  // 2) 已知英文里程碑 → 中文
+  for (const [english, chinese] of Object.entries(logFileProgressMilestoneMap)) {
+    if (
+      trimmed === english ||
+      trimmed.startsWith(`${english}:`) ||
+      trimmed.startsWith(`${english} `)
+    ) {
+      return chinese
+    }
+  }
+
+  // 3) 其它消息原样返回，仅剥离 progress=<x>% 噪音
+  return trimmed.replace(/\s*progress=\d+(?:\.\d+)?%/g, '')
+}
+
 const getLogFileProgressMessage = (file: LogFileModel) => {
   const latestProgress = getLatestProgressReport(file)
   const progressMessage = latestProgress?.message?.trim()
-  if (progressMessage) return progressMessage
+  if (progressMessage) return humanizeLogFileProgressMessage(progressMessage)
   const latestMilestone = getLatestLogFileTaskReport(file)
   const milestoneMessage = latestMilestone?.message?.trim()
-  if (milestoneMessage) return milestoneMessage
+  if (milestoneMessage) return humanizeLogFileProgressMessage(milestoneMessage)
   return statusLabel(getLogFileTaskStatus(file))
 }
 
@@ -7646,6 +7827,18 @@ const loadLogFiles = async (
     logFiles.value = nextLogFiles
     logFilesTotal.value = nextTotal
     logFilesPage.value = pageNum
+    // 默认选中最新（列表首项，created_sorted_desc）日志文件作为“当前 log”，
+    // 供时延指标桶模式直读分位统计表（log_id）使用；列表为空则清空
+    if (nextLogFiles.length > 0) {
+      const currentId = selectedLogFileId.value
+      const stillExists =
+        currentId !== null && nextLogFiles.some((f) => getLogFileId(f) === currentId)
+      if (!stillExists) {
+        selectedLogFileId.value = getLogFileId(nextLogFiles[0]!)
+      }
+    } else {
+      selectedLogFileId.value = null
+    }
     loadTaskDetailsForLogFiles(nextLogFiles)
     loadSuccessfulLogFileAnomalyCounts(nextLogFiles)
   } catch {
@@ -7733,6 +7926,11 @@ const deleteLogFile = async (logFileId: string) => {
     if (index !== -1) {
       logFiles.value.splice(index, 1)
       logFilesTotal.value = Math.max(0, logFilesTotal.value - 1)
+    }
+    // 若删除的是当前选中 log，回退到列表首项（或清空）
+    if (selectedLogFileId.value === logFileId) {
+      selectedLogFileId.value =
+        logFiles.value.length > 0 ? getLogFileId(logFiles.value[0]!) : null
     }
   } catch (error) {
     console.error('删除日志文件失败:', error)
@@ -7984,9 +8182,9 @@ watch([selectedAssetId, activePage], () => {
 })
 
 watch(selectedLatencyScale, () => {
+  void loadLatencyChart()
+  void loadTopSlowChart()
   if (latencyChartCenterTime.value !== null) {
-    void loadLatencyChart()
-    void loadTopSlowChart()
     void loadAbnormalTraces(1)
     void loadLatencyDetail(1)
     void loadTimeWindowAggregatedEvents(1, latencyChartRange.value)
@@ -8518,7 +8716,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <p class="monitor-sub">完整复刻 yuanrong_tool 的 24 项指标与总时延曲线，可交互选择展示</p>
+            <p class="monitor-sub">支持 11 项时延指标曲线，可交互选择展示</p>
           </header>
 
           <div class="monitor-grid">
@@ -8674,9 +8872,10 @@ onBeforeUnmount(() => {
                     v-model="selectedLatencyTimeWindowInterval"
                     @change="changeLatencyTimeWindowInterval"
                   >
-                    <option value="hour">时</option>
-                    <option value="minute">分</option>
-                    <option value="second">秒</option>
+                    <option :value="10">10秒</option>
+                    <option :value="60">1分钟</option>
+                    <option :value="600">10分钟</option>
+                    <option :value="3600">1小时</option>
                   </select>
                 </label>
                 <div v-else class="abnormal-trace-filter-actions">
@@ -10890,8 +11089,8 @@ onBeforeUnmount(() => {
             <h1>{{ selectedAsset.name }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
-              <span>创建时间：{{ selectedAsset.created_at || '-' }}</span>
-              <span>更新时间：{{ selectedAsset.updated_at || '-' }}</span>
+              <span>创建时间：{{ displayLocalTime(selectedAsset.created_at) }}</span>
+              <span>更新时间：{{ displayLocalTime(selectedAsset.updated_at) }}</span>
             </div>
           </div>
           <div class="detail-actions">
@@ -10997,7 +11196,7 @@ onBeforeUnmount(() => {
                 <div class="log-file-summary">
                   <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
                   <span class="log-file-meta">
-                    <span class="log-file-time">创建时间：{{ file.created_at || '-' }}</span>
+                    <span class="log-file-time">创建时间：{{ displayLocalTime(file.created_at) }}</span>
                     <span
                       class="status-badge"
                       :class="statusBadgeClass(getLogFileTaskStatus(file))"
@@ -12845,8 +13044,8 @@ onBeforeUnmount(() => {
                 <h3>{{ asset.name }}</h3>
                 <p>{{ asset.description }}</p>
                 <div class="result-times">
-                  <span>创建时间：{{ asset.created_at || '-' }}</span>
-                  <span>更新时间：{{ asset.updated_at || '-' }}</span>
+                  <span>创建时间：{{ displayLocalTime(asset.created_at) }}</span>
+                  <span>更新时间：{{ displayLocalTime(asset.updated_at) }}</span>
                 </div>
               </div>
 
@@ -13015,7 +13214,7 @@ onBeforeUnmount(() => {
             <div class="parse-config-section-heading">
               <div>
                 <h3>日志分析参数</h3>
-                <p>调整异常检测使用的时延阈值，单条日志超过阈值即标记为异常。</p>
+                <p>调整异常检测使用的时延阈值、滑动窗口以及区间异常密度。</p>
               </div>
             </div>
 
@@ -13039,6 +13238,64 @@ onBeforeUnmount(() => {
                 </span>
               </label>
             </div>
+
+            <div class="analyzer-divider"></div>
+            <div class="analyzer-group-heading">
+              <div>
+                <h4 class="analyzer-group-title">滑动窗口</h4>
+                <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
+              </div>
+              <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
+                + 添加窗口
+              </button>
+            </div>
+            <div class="window-pair-list">
+              <div
+                v-for="(windowPair, index) in diagnosisConfigDraft.logAnalyzerParams
+                  .slidingWindowPairs"
+                :key="index"
+                class="window-pair-row"
+              >
+                <span class="window-index">{{ index + 1 }}</span>
+                <label>
+                  <span>窗口大小</span>
+                  <input v-model.number="windowPair.size" type="number" min="1" step="1" />
+                </label>
+                <label>
+                  <span>窗口步长</span>
+                  <input v-model.number="windowPair.step" type="number" min="1" step="1" />
+                </label>
+                <button
+                  type="button"
+                  class="window-remove-btn"
+                  title="删除该窗口"
+                  aria-label="删除该窗口"
+                  @click="removeSlidingWindowPair(index)"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div class="analyzer-divider"></div>
+            <label class="density-field">
+              <span>
+                <strong>区间异常密度阈值</strong>
+                <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
+              </span>
+              <span class="density-input">
+                <input
+                  v-model.number="
+                    diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
+                  "
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                />
+                <em>0–1</em>
+              </span>
+            </label>
           </section>
         </div>
 

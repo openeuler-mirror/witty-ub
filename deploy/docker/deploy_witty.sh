@@ -9,7 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
-CONF_FILE="${DEPLOY_DIR}/pg.conf"
+CONF_FILE="${DEPLOY_DIR}/../pg.conf"
 
 # ---------- 参数解析 ----------
 CUSTOM_IMAGE=""
