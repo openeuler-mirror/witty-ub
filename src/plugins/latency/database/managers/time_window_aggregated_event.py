@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import Integer, func, insert, select, text
 
@@ -17,7 +17,7 @@ from latency.database.engine import PGManager
 from latency.database.init import ensure_time_window_partitions
 from latency.database.models import LogFile, LogParseResult, TimeWindowAggregated
 from latency.database.utils import format_ip, parse_ip, parse_timestamp
-from latency.schemas.log import TimeWindowAggregatedEventDataclass
+from latency.schemas.log import TimeWindowAggregatedEventDataclass, YUANRONG_METRIC_FIELDS
 from latency.schemas.request import ListTimeWindowAggregatedEventRequest
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,12 @@ _LATENCY_FIELDS = [
     ("create_latency", LogParseResult.create_latency),
     ("publish_latency", LogParseResult.publish_latency),
     ("worker_total_latency", LogParseResult.worker_total_latency),
+]
+
+_YUANRONG_BREAKDOWN_FIELDS = [
+    (name, getattr(LogParseResult, name))
+    for name in YUANRONG_METRIC_FIELDS
+    if name != "request_mode"
 ]
 
 
@@ -269,6 +275,8 @@ class TimeWindowAggregatedEventPGManager:
             stats_columns.append(
                 func.percentile_cont(0.99).within_group(col.asc()).label(f"p99_{name}")
             )
+        for name, col in _YUANRONG_BREAKDOWN_FIELDS:
+            stats_columns.append(func.avg(col).label(f"ave_{name}"))
 
         stmt = (
             select(
@@ -459,6 +467,118 @@ class TimeWindowAggregatedEventPGManager:
         return total, events[offset : offset + req.page_cnt]
 
     @staticmethod
+    async def _attach_yuanrong_breakdown(
+        events: list[dict[str, Any]],
+        req: ListTimeWindowAggregatedEventRequest,
+        interval: int,
+    ) -> None:
+        """补齐当前页的 yuanrong_tool 分阶段均值。
+
+        主列表仍从物化时间窗口表读取；这里只对已经分页出的时间桶查询明细表，
+        因而保留上游预聚合路径的性能收益，同时避免横向时延柱只剩旧指标颜色。
+        """
+        if not events:
+            return
+
+        bucket_epochs = {
+            int(
+                datetime.strptime(event["start_time"], "%Y-%m-%d %H:%M:%S")
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+            )
+            for event in events
+        }
+        bucket_epoch = (
+            func.floor(func.extract("epoch", LogParseResult.timestamp) / interval)
+            .cast(Integer)
+            * interval
+        ).label("bucket_epoch")
+
+        filters = [
+            LogParseResult.existed_status.is_(True),
+            bucket_epoch.in_(bucket_epochs),
+        ]
+        if req.kb_id:
+            kb_subq = select(LogFile.id).where(LogFile.kb_id == req.kb_id).subquery()
+            filters.append(LogParseResult.log_id.in_(select(kb_subq.c.id)))
+        if req.start_time:
+            filters.append(LogParseResult.timestamp >= parse_timestamp(req.start_time))
+        if req.end_time:
+            filters.append(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+        if req.src_ip:
+            filters.append(func.host(LogParseResult.src_ip).like(f"%{req.src_ip}%"))
+        if req.dst_ip:
+            filters.append(func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%"))
+        if req.cluster_name:
+            filters.append(LogParseResult.cluster_name == req.cluster_name)
+        if req.host:
+            filters.append(LogParseResult.host == req.host)
+        if req.pod_ip:
+            filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
+        if req.operation:
+            filters.append(LogParseResult.operation.ilike(f"%{req.operation}%"))
+
+        stmt = (
+            select(
+                bucket_epoch,
+                LogParseResult.src_ip,
+                LogParseResult.dst_ip,
+                func.count().label("metric_weight"),
+                *[
+                    func.avg(column).label(f"ave_{name}")
+                    for name, column in _YUANRONG_BREAKDOWN_FIELDS
+                ],
+            )
+            .where(*filters)
+            .group_by(bucket_epoch, LogParseResult.src_ip, LogParseResult.dst_ip)
+        )
+        async with PGManager.session() as session:
+            rows = (await session.execute(stmt)).all()
+
+        events_by_epoch = {
+            int(
+                datetime.strptime(event["start_time"], "%Y-%m-%d %H:%M:%S")
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+            ): event
+            for event in events
+        }
+        parent_values: dict[int, dict[str, list[tuple[float, int]]]] = {}
+        for row in rows:
+            epoch = int(row.bucket_epoch)
+            event = events_by_epoch.get(epoch)
+            if event is None:
+                continue
+            src_ip = TimeWindowAggregatedEventPGManager._format_ip(row.src_ip)
+            dst_ip = TimeWindowAggregatedEventPGManager._format_ip(row.dst_ip)
+            pair = next(
+                (
+                    item
+                    for item in event["ip_pairs"]
+                    if item["src_ip"] == src_ip and item["dst_ip"] == dst_ip
+                ),
+                None,
+            )
+            weight = int(row.metric_weight or 0)
+            epoch_values = parent_values.setdefault(epoch, {})
+            for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
+                value = getattr(row, f"ave_{name}")
+                if pair is not None:
+                    pair[f"ave_{name}"] = value
+                if value is not None and weight > 0:
+                    epoch_values.setdefault(name, []).append((float(value), weight))
+
+        for epoch, metrics in parent_values.items():
+            event = events_by_epoch[epoch]
+            for name, weighted_values in metrics.items():
+                total_weight = sum(weight for _, weight in weighted_values)
+                event[f"ave_{name}"] = (
+                    sum(value * weight for value, weight in weighted_values) / total_weight
+                    if total_weight
+                    else None
+                )
+
+    @staticmethod
     async def list_time_window_events(
         req: ListTimeWindowAggregatedEventRequest,
     ) -> tuple[int, list[dict[str, Any]]]:
@@ -544,5 +664,10 @@ class TimeWindowAggregatedEventPGManager:
         async with PGManager.session() as session:
             rows = (await session.execute(stmt)).all()
 
-        return TimeWindowAggregatedEventPGManager._rows_to_events(rows, interval, req)
-
+        total, events = TimeWindowAggregatedEventPGManager._rows_to_events(
+            rows, interval, req
+        )
+        await TimeWindowAggregatedEventPGManager._attach_yuanrong_breakdown(
+            events, req, interval
+        )
+        return total, events

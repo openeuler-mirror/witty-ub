@@ -55,7 +55,22 @@ CREATE TABLE IF NOT EXISTS {tbl} (
     remote_worker_cost float, remote_worker_rpc float,
     master_process float, master_rpc_total float,
     create_latency float, publish_latency float,
-    worker_total_latency float
+    worker_total_latency float,
+    total_latency_us float,
+    sdk_processing_us float, master_processing_us float,
+    worker_access_latency_us float,
+    remote_worker_internal_us float,
+    local_worker_internal_us float, local_worker_internal_active_us float,
+    sdk_rpc_network_us float, sdk_rpc_framework_us float, sdk_rpc_total_us float,
+    master_rpc_network_us float, master_rpc_framework_us float, master_rpc_total_us float,
+    remote_worker_rpc_network_us float, remote_worker_rpc_framework_us float,
+    remote_worker_rpc_total_us float,
+    urma_processing_us float, urma_inflight_max integer,
+    remote_worker_processing_us float,
+    client_master_rpc_network_us float, client_master_rpc_framework_us float,
+    client_master_rpc_total_us float,
+    client_remote_rpc_network_us float, client_remote_rpc_framework_us float,
+    client_remote_rpc_total_us float
 )
 """
 

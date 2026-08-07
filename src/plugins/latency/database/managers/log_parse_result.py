@@ -57,8 +57,8 @@ _AGGREGATABLE_FIELDS = [
     *(name for name in YUANRONG_METRIC_FIELDS if name != "request_mode"),
 ]
 
-# 延迟曲线返回的全部指标列（走 bucket 表，只有 ms 旧字段）。
-_LATENCY_METRIC_KEYS = [
+# 分位桶中直接持久化的旧指标列。
+_BUCKET_LATENCY_METRIC_KEYS = [
     "total_latency",
     "urma_total_latency",
     "worker_query_meta_latency",
@@ -73,6 +73,16 @@ _LATENCY_METRIC_KEYS = [
     "create_latency",
     "publish_latency",
     "worker_total_latency",
+]
+
+# yuanrong_tool 时延分解字段仍存放在 log_parse_result。读取分位桶时按桶内
+# 代表请求的 trace_id 一次性补齐，避免为了展示细分指标退回全表聚合。
+_YUANRONG_LATENCY_METRIC_KEYS = [
+    name for name in YUANRONG_METRIC_FIELDS if name != "request_mode"
+]
+_LATENCY_METRIC_KEYS = [
+    *_BUCKET_LATENCY_METRIC_KEYS,
+    *_YUANRONG_LATENCY_METRIC_KEYS,
 ]
 
 # bucket_seconds → 统计表 ORM 模型（仅四档合法粒度有表）。
@@ -697,14 +707,19 @@ class LogParseResultPGManager:
         """
         bucket_table = _BUCKET_SECONDS_TABLES.get(req.bucket_seconds)
         stats_mode = _STATS_MODE_MAP.get(req.sample_mode)
-        if bucket_table is None:
-            return 0, []
-        if stats_mode is None:
-            return 0, []
+        if (
+            bucket_table is None
+            or stats_mode is None
+            or not req.log_id
+            or _has_ip_dimension_filters(req)
+        ):
+            return await LogParseResultPGManager._fallback_latency_metrics(req)
         rows = await LogParseResultPGManager._query_bucket_stats(
             bucket_table, req, stats_mode
         )
-        return len(rows), rows
+        if rows:
+            return len(rows), rows
+        return await LogParseResultPGManager._fallback_latency_metrics(req)
 
     @staticmethod
     async def _query_bucket_stats(
@@ -731,13 +746,38 @@ class LogParseResultPGManager:
             rows = result.scalars().all()
 
         formatted = []
+        trace_ids: list[str] = []
         for r in rows:
             d = {"time": format_timestamp(r.bucket)}
             d["src_ip"] = format_ip(r.src_ip)
             d["dst_ip"] = format_ip(r.dst_ip)
-            for name in _LATENCY_METRIC_KEYS:
+            d["trace_id"] = r.trace_id
+            if r.trace_id:
+                trace_ids.append(r.trace_id)
+            for name in _BUCKET_LATENCY_METRIC_KEYS:
                 d[name] = getattr(r, name, None)
             formatted.append(d)
+
+        if trace_ids:
+            metric_columns = [
+                getattr(LogParseResult, name).label(name)
+                for name in _YUANRONG_LATENCY_METRIC_KEYS
+            ]
+            metric_stmt = (
+                select(LogParseResult.trace_id, *metric_columns)
+                .where(LogParseResult.log_id == req.log_id)
+                .where(LogParseResult.trace_id.in_(set(trace_ids)))
+                .where(LogParseResult.existed_status.is_(True))
+            )
+            async with PGManager.session() as session:
+                metric_rows = (await session.execute(metric_stmt)).mappings().all()
+            metrics_by_trace = {
+                row["trace_id"]: row for row in metric_rows if row["trace_id"]
+            }
+            for d in formatted:
+                metric_row = metrics_by_trace.get(d.get("trace_id"))
+                for name in _YUANRONG_LATENCY_METRIC_KEYS:
+                    d[name] = metric_row.get(name) if metric_row is not None else None
         return formatted
 
     @staticmethod
