@@ -6315,7 +6315,7 @@ const loadTopSlowChart = async () => {
       body: JSON.stringify(body),
     })
 
-    topSlowRequestsTotal.value = result.total ?? 0
+    topSlowRequestsTotal.value = Math.min(result.total ?? 0, topSlowRequestLimit)
     topSlowRequests.value = result.log_parse_results ?? []
   } catch (error) {
     topSlowRequests.value = []

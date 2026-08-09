@@ -150,6 +150,33 @@ async def create_latency_bucket_partitions() -> None:
                 )
 
 
+async def migrate_yuanrong_bucket_columns() -> None:
+    """为已有数据库幂等补齐 latency_bucket_* 的 yuanrong 请求级指标列。"""
+    _cols = (
+        "total_latency_us", "sdk_processing_us", "master_processing_us",
+        "worker_access_latency_us", "remote_worker_internal_us", "local_worker_internal_us",
+        "local_worker_internal_active_us", "sdk_rpc_network_us", "sdk_rpc_framework_us",
+        "sdk_rpc_total_us", "master_rpc_network_us", "master_rpc_framework_us",
+        "master_rpc_total_us", "remote_worker_rpc_network_us", "remote_worker_rpc_framework_us",
+        "remote_worker_rpc_total_us", "urma_processing_us", "remote_worker_processing_us",
+        "client_master_rpc_network_us", "client_master_rpc_framework_us",
+        "client_master_rpc_total_us", "client_remote_rpc_network_us",
+        "client_remote_rpc_framework_us", "client_remote_rpc_total_us",
+    )
+    async with PGManager.engine().begin() as conn:
+        for table in LATENCY_BUCKET_TABLES:
+            for column in _cols:
+                await conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} DOUBLE PRECISION"
+                ))
+            await conn.execute(text(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS request_mode VARCHAR"
+            ))
+            await conn.execute(text(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS urma_inflight_max INTEGER"
+            ))
+
+
 async def create_time_window_partitions(
     start: datetime,
     months: int = 24,
@@ -233,4 +260,5 @@ async def init_postgresql_database() -> None:
     await create_log_parse_result_partitions()
     await create_time_window_partitions(datetime.now())
     await create_latency_bucket_partitions()
+    await migrate_yuanrong_bucket_columns()
     await create_manual_indexes()
