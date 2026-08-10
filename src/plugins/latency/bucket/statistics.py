@@ -10,8 +10,9 @@
     C1  算桶号：绝对墙钟对齐（epoch 秒 // 粒度，floor），跨天自动唯一，
         无时区 / DST 坑；桶起点可直接由桶号还原，与回退实时 SQL 一致。
     C2  组键：(桶号, operation)，GET/SET 分开选代表行。
-    C3  组内按 total_latency 排序（``rank("ordinal")``）后取 5 分位代表行。
-    C4  主进程拼 22 列 tuple，4 张表 delete+insert 放一个事务（写库幂等）。
+    C3  组内按 total_latency 排序（``rank("ordinal")``）后取 4 分位代表行。
+    C4  主进程拼 48 列 tuple（8 固定键 + 14 legacy 指标 + 26 yuanrong 分段
+        时延），4 张表 delete+insert 放一个事务（写库幂等）。
 
 T7 已删除 numpy / shared_memory / multiprocessing.spawn 旧实现
 （``_filter_and_build_arrays`` / ``_parallel_pick`` / ``_pick_segment_worker``
@@ -31,6 +32,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from latency.database.utils import parse_ip
+from latency.schemas.log import YUANRONG_METRIC_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -73,16 +75,16 @@ METRIC_KEYS: tuple[str, ...] = (
     "worker_total_latency",
 )
 
-# 5 种分位模式：(模式名, 分位点)。pmax=1.0 → floor(cnt*1)-1 = cnt-1（最大值行）。
+# 4 种分位模式：(模式名, 分位点)。pmax=1.0 → floor(cnt*1)-1 = cnt-1（最大值行）。
 PERCENTILE_MODES: tuple[tuple[str, float], ...] = (
     ("median", 0.5),
-    ("p95", 0.95),
     ("p99", 0.99),
     ("p9999", 0.9999),
     ("pmax", 1.0),
 )
 
-# 统计表 COPY 列，与正式表 DDL 列序一致。
+# 统计表 COPY 列（8 个固定键 + 14 个 legacy 时延指标 + 26 个 yuanrong 分段
+# 时延），与正式表 DDL 列序一致。
 BUCKET_COLUMNS: tuple[str, ...] = (
     "kb_id",
     "log_id",
@@ -106,6 +108,14 @@ BUCKET_COLUMNS: tuple[str, ...] = (
     "create_latency",
     "publish_latency",
     "worker_total_latency",
+    *YUANRONG_METRIC_FIELDS,
+)
+
+# df_trace 中 yuanrong 内部原材料列（``_yuanrong_from_grouped`` 的输入），
+# 用于判断 df_trace 是否携带可计算的 yuanrong 分段时延。
+_YUANRONG_INTERNAL_COLS: tuple[str, ...] = (
+    "__se", "__sop", "__we", "__ue", "__ui", "__cn", "__ce", "__cs", "__cnw",
+    "__me", "__ms", "__mn", "__re", "__rs", "__rn", "__qm",
 )
 
 def _normalize_op(operation: Any) -> int:
@@ -187,13 +197,13 @@ def _group_edges(
 # ---------------------------------------------------------------------------
 
 def percentile_kth_positions(count: int) -> list[int]:
-    """每 (桶, op) 组内 5 个分位在排序后行中的相对位置（0-based）。
+    """每 (桶, op) 组内 4 个分位在排序后行中的相对位置（0-based）。
 
     用 ``math.floor(cnt*p) - 1`` 而非 ``round()``：round 是 banker's rounding
     （round(2.5)=2），会 off-by-one。结果 clamp 到 [0, cnt-1] 防越界
     （cnt>=1 时 floor(1*0.5)-1=-1 → 0；pmax 恒为 cnt-1）。
     小桶（如 cnt=2）时多个分位可能落同一行，允许重复（语义：小桶内
-    p95≈p99≈p9999≈pmax 同请求，写库时不同 mode 是不同行）。
+    p99≈p9999≈pmax 同请求，写库时不同 mode 是不同行）。
     """
     if count <= 0:
         return [0] * len(PERCENTILE_MODES)
@@ -206,12 +216,12 @@ def percentile_kth_positions(count: int) -> list[int]:
 def pick_percentile_rows(
     latency_slice: np.ndarray, kth_positions: list[int] | None = None
 ) -> list[int]:
-    """对一组 (桶, op) 的延迟数组用 argpartition 一次选出 5 个分位代表行。
+    """对一组 (桶, op) 的延迟数组用 argpartition 一次选出 4 个分位代表行。
 
     Args:
         latency_slice: 该组所有行的 total_latency（无需预排序，argpartition
-            内部处理；O(n) 非全排序，一次拿 5 个 kth）。
-        kth_positions: 5 个分位位置，缺省时用 ``percentile_kth_positions``
+            内部处理；O(n) 非全排序，一次拿 4 个 kth）。
+        kth_positions: 4 个分位位置，缺省时用 ``percentile_kth_positions``
             按组内行数计算。
 
     Returns:
@@ -253,21 +263,26 @@ def _representative_tuple(
         parse_ip(_row_field(r, "src_ip")),
         parse_ip(_row_field(r, "dst_ip")),
         _row_field(r, "trace_id"),
-        _row_field(r, "total_latency"),
-        _row_field(r, "urma_total_latency"),
-        _row_field(r, "worker_query_meta_latency"),
-        _row_field(r, "sdk_process"),
-        _row_field(r, "sdk_rpc"),
-        _row_field(r, "local_worker_cost"),
-        _row_field(r, "local_worker_lock"),
-        _row_field(r, "remote_worker_cost"),
-        _row_field(r, "remote_worker_rpc"),
-        _row_field(r, "master_process"),
-        _row_field(r, "master_rpc_total"),
-        _row_field(r, "create_latency"),
-        _row_field(r, "publish_latency"),
-        _row_field(r, "worker_total_latency"),
+        *(_row_field(r, name) for name in METRIC_KEYS),
+        *(_row_field(r, name) for name in YUANRONG_METRIC_FIELDS),
     )
+
+
+def _merge_yuanrong(r: Any, yrow: dict[str, Any] | None) -> Any:
+    """把 yuanrong 分段时延并入代表行 ``r``（dict 或 dataclass 双源）。
+
+    ``yrow`` 为 None（无 yuanrong 数据可算）时原样返回。dict 行直接
+    ``update``；dataclass 行（``slots=True``）逐个 ``setattr`` 非空值。
+    """
+    if yrow is None:
+        return r
+    if isinstance(r, dict):
+        r.update(yrow)
+    else:
+        for name, val in yrow.items():
+            if val is not None:
+                setattr(r, name, val)
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +311,7 @@ def compute_bucket_stats_from_frame(
     log_id: str = "",
     materializer: Any = None,
 ) -> dict[int, list[tuple[Any, ...]]]:
-    """纯 polars 分位代表行选择（T7 后唯一选择路径）。
+    """纯 polars 分位代表行选择（T7 后唯一选择路径，含 yuanrong 富化）。
 
     语义（与 numpy 参考实现逐字段一致，见 T4 parity 测试）：
     - C0 过滤：``bucket_epoch``（= trace 时间戳的 10s 对齐 epoch 秒；非空
@@ -308,10 +323,14 @@ def compute_bucket_stats_from_frame(
     - 代表行：组内按 ``total_latency`` 排序（``rank("ordinal")``，并列按
       行序稳定断结）后取 ``percentile_kth_positions(cnt)`` 指定的 kth 位置
       行。
+    - yuanrong 富化（Phase 2）：对 4 档粒度收集到的代表 trace_id 去重后，
+      仅当 df_trace 携带 ``_YUANRONG_INTERNAL_COLS`` 内部列时调用
+      ``_yuanrong_from_grouped`` 一次算出 26 项分段时延，再按 tid 并入代表行
+      （4 档粒度共用同一份 lookup，不重复计算）。
 
     Args:
-        df_trace: T2 ``parse_log`` 产出的 polars DataFrame（31 TRACE_COLUMNS，
-            每 trace 一行）。
+        df_trace: T2 ``parse_log`` 产出的 polars DataFrame（31 TRACE_COLUMNS
+            + yuanrong 内部列，每 trace 一行）。
         kb_id / log_id: 写库冗余键（COPY tuple 前两列，与 ``_build_bucket_rows``
             同序）。
         materializer: 可选 ``callable(df_row_dict) -> dataclass``。df 行 dict
@@ -321,9 +340,11 @@ def compute_bucket_stats_from_frame(
 
     Returns:
         {granularity: rep 行 tuple 列表}。tuple 与 ``BUCKET_COLUMNS`` 对齐
-        （``_representative_tuple`` 产物），可直接喂 ``_store_bucket_rows``。
+        （48 列：8 固定键 + 14 legacy 指标 + 26 yuanrong，``_representative_tuple``
+        产物），可直接喂 ``_store_bucket_rows``。
     """
     import polars as pl
+    from latency.parse.parallel_scanner.trace_frame import _yuanrong_from_grouped
 
     df = df_trace.filter(
         pl.col("bucket_epoch").is_not_null()
@@ -339,7 +360,8 @@ def compute_bucket_stats_from_frame(
         .alias("_op_code"),
     )
 
-    rows_by_granularity: dict[int, list[tuple[Any, ...]]] = {}
+    # ── Phase 1: collect all representative rows ─────────────────────
+    pending: list[dict[str, Any]] = []
     for g in GRANULARITY_KEYS:
         dg = df.with_columns((pl.col("bucket_epoch") // g).alias("_bucket_id"))
         dg = dg.with_columns(
@@ -350,7 +372,6 @@ def compute_bucket_stats_from_frame(
             .alias("_rank"),
             pl.len().over(["_bucket_id", "_op_code"]).alias("_cnt"),
         )
-        rows: list[tuple[Any, ...]] = []
         for mode_name, p in PERCENTILE_MODES:
             # kth rank（1-based）= max(1, min(floor(cnt*p), cnt))，与
             # percentile_kth_positions 的 0-based 位置 +1 完全一致（pmax→cnt）。
@@ -368,17 +389,39 @@ def compute_bucket_stats_from_frame(
                 r: Any = _frame_row_to_representative_dict(row)
                 if materializer is not None:
                     r = materializer(row)
-                rows.append(
-                    _representative_tuple(
-                        kb_id,
-                        log_id,
-                        bucket_start_dt,
-                        int(row["_op_code"]),
-                        mode_name,
-                        r,
-                    )
-                )
-        rows_by_granularity[g] = rows
+                pending.append({
+                    "g": g,
+                    "bucket_dt": bucket_start_dt,
+                    "op_code": int(row["_op_code"]),
+                    "mode": mode_name,
+                    "r": r,
+                    "tid": row.get("tid"),
+                })
+
+    # ── Phase 2: yuanrong enrichment (dedup across all granularities) ─
+    rep_tids: set[Any] = {p["tid"] for p in pending if p["tid"]}
+    yr_lookup: dict[Any, dict[str, Any]] = {}
+    if rep_tids and all(c in df.columns for c in _YUANRONG_INTERNAL_COLS):
+        rep_df = df.filter(pl.col("tid").is_in(rep_tids))
+        if rep_df.height > 0:
+            yr = _yuanrong_from_grouped(rep_df)
+            yr_lookup = {
+                r["tid"]: {name: r[name] for name in YUANRONG_METRIC_FIELDS}
+                for r in yr.iter_rows(named=True)
+            }
+
+    # ── Phase 3: build tuples ────────────────────────────────────────
+    rows_by_granularity: dict[int, list[tuple[Any, ...]]] = {}
+    for p_item in pending:
+        r = p_item["r"]
+        yrow = yr_lookup.get(p_item["tid"]) if p_item["tid"] else None
+        _merge_yuanrong(r, yrow)
+        g = p_item["g"]
+        rows_by_granularity.setdefault(g, []).append(
+            _representative_tuple(
+                kb_id, log_id, p_item["bucket_dt"], p_item["op_code"], p_item["mode"], r,
+            )
+        )
     return rows_by_granularity
 
 

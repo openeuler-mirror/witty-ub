@@ -1284,6 +1284,16 @@ class KVCacheLogParseWorker(BaseWorker):
             except Exception:
                 logger.warning("[yuanrong] top1000 tid selection failed", exc_info=True)
 
+            # 异常 trace 如果在 top1000 中：top1000 行标 is_anomalous，
+            # 不再单独构建异常行（避免同一 trace 在 log_parse_result 存两行）。
+            anomalous_only_tids: set[str] = anomalous_tids - top1000_tids
+            if anomalous_only_tids:
+                logger.info(
+                    "[yuanrong] %d anomalous traces outside top1000, "
+                    "will build separate rows",
+                    len(anomalous_only_tids),
+                )
+
             all_detail_tids: set[str] = top1000_tids | anomalous_tids
             if all_detail_tids:
                 detail_subset = trace_index.filter(
@@ -1291,11 +1301,11 @@ class KVCacheLogParseWorker(BaseWorker):
                 )
                 detail_subset = _yuanrong_from_grouped(detail_subset)
 
-                if anomalous_tids:
+                if anomalous_only_tids:
                     detail_rows: list[LogParseResultDataclass] = (
                         KVCacheLogParseWorker._build_anomalous_detail_rows(
                             detail_subset,
-                            anomalous_tids,
+                            anomalous_only_tids,
                             kb_id=kb_id or "",
                             log_file_id=log_file_id,
                         )
@@ -1313,7 +1323,8 @@ class KVCacheLogParseWorker(BaseWorker):
                         top1000_rows = []
                         for flat in top1000_df.to_dicts():
                             row = KVCacheLogParseWorker._make_field_row(
-                                flat, log_file_id=log_file_id, created_at=created_at
+                                flat, log_file_id=log_file_id, created_at=created_at,
+                                is_anomalous=flat["tid"] in anomalous_tids,
                             )
                             for field in yuanrong_fields:
                                 val = flat.get(field)
@@ -1322,8 +1333,10 @@ class KVCacheLogParseWorker(BaseWorker):
                             top1000_rows.append(row)
                         detail_rows = top1000_rows + detail_rows
                         logger.info(
-                            "[yuanrong] top%d detail rows built, merged into detail_rows",
+                            "[yuanrong] top%d detail rows built + %d anomalous-only, "
+                            "merged into detail_rows",
                             len(top1000_rows),
+                            len(detail_rows) - len(top1000_rows),
                         )
                 except Exception:
                     logger.warning(

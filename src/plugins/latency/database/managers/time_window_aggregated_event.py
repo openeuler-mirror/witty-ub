@@ -472,7 +472,12 @@ class TimeWindowAggregatedEventPGManager:
         req: ListTimeWindowAggregatedEventRequest,
         interval: int,
     ) -> None:
-        """补齐当前页的 yuanrong_tool 分阶段均值。
+        """TODO(Issue 2 follow-up): 分位桶表已携带 26 项 yuanrong 代表行值后，本方法仍对
+        log_parse_result（仅 top1000+异常 trace）做 func.avg()，曲线数据不完整。
+        未来应改读 latency_bucket_*；注意语义差异——桶表是每 (bucket, op, mode) 的
+        代表行原始值，而这里是全量 trace 的均值，两者口径不同，需先对齐前端展示语义。
+
+        补齐当前页的 yuanrong_tool 分阶段均值。
 
         主列表仍从物化时间窗口表读取；这里只对已经分页出的时间桶查询明细表，
         因而保留上游预聚合路径的性能收益，同时避免横向时延柱只剩旧指标颜色。

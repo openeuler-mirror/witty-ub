@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any
 
-from sqlalchemy import Integer, extract, func, literal_column, select, text
+from sqlalchemy import Integer, func, select, text
 
 from latency.database.engine import PGManager
 from latency.database.models import (
@@ -29,6 +29,7 @@ from latency.database.utils import (
     result_to_pg_tuple,
 )
 from latency.ENUM.sampling import SampleMode
+from latency.exceptions.biz_exceptions import BadRequestBizException
 from latency.schemas.log import LogParseResultModel, LogParseResultStorage, YUANRONG_METRIC_FIELDS
 from latency.schemas.request import (
     GetLatencyMetricsRequest,
@@ -96,27 +97,13 @@ _BUCKET_SECONDS_TABLES: dict[int, Any] = {
 # 请求采样模式 → 统计表 mode 字符串。
 #   avg→median：统计表的中位代表行与前端"均值"曲线语义对齐（文档化差异）。
 #   none→p99：与旧实现"none 按 p99 处理"语义一致。
-#   min：统计表无对应模式 → 不在此映射中，走回退实时 SQL（rn=1 取最小行）。
+#   min / p95：统计表无对应模式，且回退实时 SQL 已删除 → 直接 400 拒绝。
 _STATS_MODE_MAP: dict[SampleMode, str] = {
     SampleMode.NONE: "p99",
     SampleMode.MAX: "pmax",
     SampleMode.AVG: "median",
-    SampleMode.P95: "p95",
     SampleMode.P99: "p99",
     SampleMode.P9999: "p9999",
-}
-
-# 请求采样模式 → 回退实时 SQL 的分位点 p。
-# SQL 用 1-based rn = GREATEST(1, FLOOR(cnt * p))，与 numpy 桶统计模块的
-# 0-based kth = floor(cnt*p)-1 一一对应（pmax/max→cnt，min→rn=1）。
-_FALLBACK_POS: dict[SampleMode, float] = {
-    SampleMode.NONE: 0.99,
-    SampleMode.MAX: 1.0,
-    SampleMode.AVG: 0.5,
-    SampleMode.MIN: 0.0,
-    SampleMode.P95: 0.95,
-    SampleMode.P99: 0.99,
-    SampleMode.P9999: 0.9999,
 }
 
 
@@ -124,8 +111,8 @@ def _has_ip_dimension_filters(req: GetLatencyMetricsRequest) -> bool:
     """是否带 IP 维度过滤（cluster/host/pod/src_ip/dst_ip）。
 
     统计表每 (bucket, operation, mode) 只有一行“整桶代表请求”，不含
-    src_ip/dst_ip/host/cluster/pod 维度；带这些过滤时必须走回退实时 SQL
-    （其 ROW_NUMBER 分区含 src_ip/dst_ip，过滤字段齐全），否则过滤被静默忽略。
+    src_ip/dst_ip/host/cluster/pod 维度；回退实时 SQL 已删除，带这些过滤
+    的请求无法在桶表上满足 → 作为拒绝守卫，命中即抛 400。
     """
     return bool(
         req.cluster_name
@@ -689,37 +676,27 @@ class LogParseResultPGManager:
     async def get_latency_metrics(
         req: GetLatencyMetricsRequest,
     ) -> tuple[int, list[dict[str, Any]]]:
-        """延迟指标时间曲线：优先直读分位统计表，无数据回退实时 SQL。
-
-        两条路径返回结构完全一致：(total, [{"time", src_ip, dst_ip, 14 指标列}, ...])。
-
-        - 统计表路径：有 log_id、bucket_seconds 合法、请求模式在统计表有对应
-          模式**且未带 IP 维度过滤**时，直读 latency_bucket_{10s|1min|10min|1h}，
-          每 (bucket, operation, mode) 一条代表请求（14 列同源），毫秒级。
-          统计表无 src_ip/dst_ip/host/cluster/pod 维度（一行是整桶代表请求），
-          因此带 IP 维度过滤时**必须**走实时 SQL（其 ROW_NUMBER 分区含
-          src_ip/dst_ip，过滤字段齐全）。
-        - 回退实时路径：无 log_id / 统计表无数据 / min 模式无统计表对应 /
-          bucket_seconds 非法 / 带 IP 维度过滤时，用 ROW_NUMBER() OVER
-          (PARTITION BY 动态桶, src_ip, dst_ip, operation) + COUNT(*) OVER
-          同分区选分位代表行（nearest-rank，与 numpy 桶统计模块
-          floor(cnt*p)-1 语义一致），不用 percentile_cont 聚合 / 两阶段阈值 JOIN。
-        """
         bucket_table = _BUCKET_SECONDS_TABLES.get(req.bucket_seconds)
+        if bucket_table is None:
+            raise BadRequestBizException(
+                f"bucket_seconds 仅支持 10/60/600/3600，收到 {req.bucket_seconds}"
+            )
         stats_mode = _STATS_MODE_MAP.get(req.sample_mode)
-        if (
-            bucket_table is None
-            or stats_mode is None
-            or not req.log_id
-            or _has_ip_dimension_filters(req)
-        ):
-            return await LogParseResultPGManager._fallback_latency_metrics(req)
+        if stats_mode is None:
+            raise BadRequestBizException(
+                f"sample_mode '{req.sample_mode.value}' 无分位表对应模式"
+            )
+        if _has_ip_dimension_filters(req):
+            raise BadRequestBizException(
+                "IP 维度过滤暂不支持：分位统计表每 (bucket, operation, mode) "
+                "只有一行整桶代表请求，无 IP 维度"
+            )
+        if not req.log_id:
+            return 0, []
         rows = await LogParseResultPGManager._query_bucket_stats(
             bucket_table, req, stats_mode
         )
-        if rows:
-            return len(rows), rows
-        return await LogParseResultPGManager._fallback_latency_metrics(req)
+        return len(rows), rows
 
     @staticmethod
     async def _query_bucket_stats(
@@ -727,7 +704,6 @@ class LogParseResultPGManager:
         req: GetLatencyMetricsRequest,
         stats_mode: str,
     ) -> list[dict[str, Any]]:
-        """从统计表直读 (log_id, operation, mode) 的全部桶行。"""
         stmt = (
             select(table)
             .where(table.log_id == req.log_id)
@@ -746,162 +722,18 @@ class LogParseResultPGManager:
             rows = result.scalars().all()
 
         formatted = []
-        trace_ids: list[str] = []
         for r in rows:
             d = {"time": format_timestamp(r.bucket)}
             d["src_ip"] = format_ip(r.src_ip)
             d["dst_ip"] = format_ip(r.dst_ip)
             d["trace_id"] = r.trace_id
-            if r.trace_id:
-                trace_ids.append(r.trace_id)
             for name in _BUCKET_LATENCY_METRIC_KEYS:
                 d[name] = getattr(r, name, None)
+            for name in _YUANRONG_LATENCY_METRIC_KEYS:
+                d[name] = getattr(r, name, None)
+            d["request_mode"] = getattr(r, "request_mode", None)
             formatted.append(d)
-
-        if trace_ids:
-            metric_columns = [
-                getattr(LogParseResult, name).label(name)
-                for name in _YUANRONG_LATENCY_METRIC_KEYS
-            ]
-            metric_stmt = (
-                select(LogParseResult.trace_id, *metric_columns)
-                .where(LogParseResult.log_id == req.log_id)
-                .where(LogParseResult.trace_id.in_(set(trace_ids)))
-                .where(LogParseResult.existed_status.is_(True))
-            )
-            async with PGManager.session() as session:
-                metric_rows = (await session.execute(metric_stmt)).mappings().all()
-            metrics_by_trace = {
-                row["trace_id"]: row for row in metric_rows if row["trace_id"]
-            }
-            for d in formatted:
-                metric_row = metrics_by_trace.get(d.get("trace_id"))
-                for name in _YUANRONG_LATENCY_METRIC_KEYS:
-                    d[name] = metric_row.get(name) if metric_row is not None else None
         return formatted
-
-    @staticmethod
-    def _dynamic_bucket_expr(bucket_seconds: int):
-        """按粒度构造墙钟对齐的桶表达式（与 numpy 绝对 epoch 对齐等价）。
-
-        10/60/600/3600 均整除 86400，跨天桶不碰撞；非法值回退秒级桶。
-        """
-        ts = LogParseResult.timestamp
-        if bucket_seconds == 3600:
-            return func.date_trunc("hour", ts)
-        if bucket_seconds == 600:
-            minute_floor = func.floor(extract("minute", ts).cast(Integer) / 10) * 10
-            return func.date_trunc("hour", ts) + minute_floor * literal_column(
-                "interval '1 minute'"
-            )
-        if bucket_seconds == 60:
-            return func.date_trunc("minute", ts)
-        if bucket_seconds == 10:
-            second_floor = func.floor(extract("second", ts).cast(Integer) / 10) * 10
-            return func.date_trunc("minute", ts) + second_floor * literal_column(
-                "interval '1 second'"
-            )
-        return func.date_trunc("second", ts)
-
-    @staticmethod
-    def _build_fallback_stmt(req: GetLatencyMetricsRequest):
-        """构造回退实时 SQL：ROW_NUMBER 分位代表行 + 动态桶表达式。"""
-        p = _FALLBACK_POS.get(req.sample_mode, 0.99)
-        bucket_expr = LogParseResultPGManager._dynamic_bucket_expr(req.bucket_seconds)
-
-        def _apply_filters(stmt):
-            stmt = stmt.where(LogParseResult.existed_status.is_(True))
-            if req.log_id:
-                stmt = stmt.where(LogParseResult.log_id == req.log_id)
-            if req.kb_id:
-                stmt = stmt.join(LogFile, LogParseResult.log_id == LogFile.id).where(
-                    LogFile.kb_id == req.kb_id
-                )
-            if req.cluster_name:
-                stmt = stmt.where(LogParseResult.cluster_name == req.cluster_name)
-            if req.host:
-                stmt = stmt.where(LogParseResult.host.ilike(f"%{req.host}%"))
-            if req.pod_ip:
-                stmt = stmt.where(LogParseResult.pod_ips.contains([req.pod_ip]))
-            if req.src_ip is not None:
-                if req.src_ip == "":
-                    stmt = stmt.where(LogParseResult.src_ip.is_(None))
-                else:
-                    stmt = stmt.where(
-                        func.host(LogParseResult.src_ip).like(f"%{req.src_ip}%")
-                    )
-            if req.dst_ip is not None:
-                if req.dst_ip == "":
-                    stmt = stmt.where(LogParseResult.dst_ip.is_(None))
-                else:
-                    stmt = stmt.where(
-                        func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%")
-                    )
-            if req.start_time:
-                stmt = stmt.where(
-                    LogParseResult.timestamp >= parse_timestamp(req.start_time)
-                )
-            if req.end_time:
-                stmt = stmt.where(
-                    LogParseResult.timestamp <= parse_timestamp(req.end_time)
-                )
-            if req.operation:
-                stmt = stmt.where(LogParseResult.operation.ilike(f"%{req.operation}%"))
-            return stmt
-
-        partition = [
-            bucket_expr,
-            LogParseResult.src_ip,
-            LogParseResult.dst_ip,
-            LogParseResult.operation,
-        ]
-        inner_cols = [
-            bucket_expr.label("time"),
-            LogParseResult.src_ip,
-            LogParseResult.dst_ip,
-            LogParseResult.operation,
-        ]
-        inner_cols.extend(
-            getattr(LogParseResult, name) for name in _LATENCY_METRIC_KEYS
-        )
-        inner_cols.append(
-            func.row_number()
-            .over(partition_by=partition, order_by=LogParseResult.total_latency.asc())
-            .label("rn")
-        )
-        inner_cols.append(func.count().over(partition_by=partition).label("cnt"))
-        inner = _apply_filters(select(*inner_cols)).subquery()
-
-        target_rn = func.greatest(1, func.floor(inner.c.cnt * p))
-        outer_cols = [inner.c.time, inner.c.src_ip, inner.c.dst_ip]
-        outer_cols.extend(getattr(inner.c, name) for name in _LATENCY_METRIC_KEYS)
-        return (
-            select(*outer_cols)
-            .select_from(inner)
-            .where(inner.c.rn == target_rn)
-            .order_by(inner.c.time)
-        )
-
-    @staticmethod
-    async def _fallback_latency_metrics(
-        req: GetLatencyMetricsRequest,
-    ) -> tuple[int, list[dict[str, Any]]]:
-        """回退实时 SQL：ROW_NUMBER 分位代表行 + 动态桶表达式。"""
-        stmt = LogParseResultPGManager._build_fallback_stmt(req)
-
-        async with PGManager.session() as session:
-            result = await session.execute(stmt)
-            rows = result.mappings().all()
-
-        formatted = []
-        for r in rows:
-            d = dict(r)
-            if "time" in d and d["time"] is not None:
-                d["time"] = format_timestamp(d["time"])
-            d["src_ip"] = format_ip(d.get("src_ip"))
-            d["dst_ip"] = format_ip(d.get("dst_ip"))
-            formatted.append(d)
-        return len(formatted), formatted
 
     @staticmethod
     async def get_cluster_list(kb_id: str | None = None) -> list[str]:

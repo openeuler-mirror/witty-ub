@@ -65,6 +65,22 @@ CREATE TABLE IF NOT EXISTS {tbl} (
     master_process float, master_rpc_total float,
     create_latency float, publish_latency float,
     worker_total_latency float,
+    total_latency_us float,
+    request_mode varchar(16),
+    sdk_processing_us float, master_processing_us float,
+    worker_access_latency_us float,
+    remote_worker_internal_us float,
+    local_worker_internal_us float, local_worker_internal_active_us float,
+    sdk_rpc_network_us float, sdk_rpc_framework_us float, sdk_rpc_total_us float,
+    master_rpc_network_us float, master_rpc_framework_us float, master_rpc_total_us float,
+    remote_worker_rpc_network_us float, remote_worker_rpc_framework_us float,
+    remote_worker_rpc_total_us float,
+    urma_processing_us float, urma_inflight_max integer,
+    remote_worker_processing_us float,
+    client_master_rpc_network_us float, client_master_rpc_framework_us float,
+    client_master_rpc_total_us float,
+    client_remote_rpc_network_us float, client_remote_rpc_framework_us float,
+    client_remote_rpc_total_us float,
     PRIMARY KEY (log_id, bucket, operation, mode)
 )
 """
@@ -196,28 +212,28 @@ def test_pick_percentile_rows_hand_computed():
     # 100 行严格递增：排序位置 k 的行索引就是 k
     lat100 = np.arange(100, dtype=np.float64)
     kth100 = percentile_kth_positions(100)
-    # 手算 floor(cnt*p)-1：median=49, p95=94, p99=98, p9999=98, pmax=99
-    assert kth100 == [49, 94, 98, 98, 99]
-    assert pick_percentile_rows(lat100) == [49, 94, 98, 98, 99]
+    # 手算 floor(cnt*p)-1：median=49, p99=98, p9999=98, pmax=99
+    assert kth100 == [49, 98, 98, 99]
+    assert pick_percentile_rows(lat100) == [49, 98, 98, 99]
 
     # 奇数桶 cnt=5：[0,1,2,3,4] 手算
-    #   median floor(2.5)-1=1；p95 floor(4.75)-1=3（若误用 round：round(4.75)=5→4）
-    #   p99 floor(4.95)-1=3；p9999 floor(4.9995)-1=3；pmax floor(5)-1=4
+    #   median floor(2.5)-1=1；p99 floor(4.95)-1=3；p9999 floor(4.9995)-1=3；
+    #   pmax floor(5)-1=4
     kth5 = percentile_kth_positions(5)
-    assert kth5 == [1, 3, 3, 3, 4]
-    assert pick_percentile_rows(np.arange(5, dtype=np.float64)) == [1, 3, 3, 3, 4]
+    assert kth5 == [1, 3, 3, 4]
+    assert pick_percentile_rows(np.arange(5, dtype=np.float64)) == [1, 3, 3, 4]
 
-    # 小桶 cnt=2：[10, 20] → median/p95/p99/p9999 同落 index0，pmax=index1
+    # 小桶 cnt=2：[10, 20] → median/p99/p9999 同落 index0，pmax=index1
     kth2 = percentile_kth_positions(2)
-    assert kth2 == [0, 0, 0, 0, 1]
-    assert pick_percentile_rows(np.array([10.0, 20.0])) == [0, 0, 0, 0, 1]
+    assert kth2 == [0, 0, 0, 1]
+    assert pick_percentile_rows(np.array([10.0, 20.0])) == [0, 0, 0, 1]
 
     # cnt=1 边界：全 clamp 到 0（防 floor(0.5)-1=-1 越界）
-    assert percentile_kth_positions(1) == [0, 0, 0, 0, 0]
+    assert percentile_kth_positions(1) == [0, 0, 0, 0]
 
     # mode 列名与顺序
     assert [m for m, _ in PERCENTILE_MODES] == [
-        "median", "p95", "p99", "p9999", "pmax",
+        "median", "p99", "p9999", "pmax",
     ]
 
 
@@ -327,20 +343,20 @@ def _trace_index_to_labeled(trace_index):
 
 def test_bucket_percentiles_match_golden_field_table_source():
     """分位值 == golden fixture：单 (桶,op) 组 100 行 latency 严格递增 [0..99]，
-    代表行的 total_latency 可手算 floor(cnt*p)-1（median=49, p95=94, p99=98,
-    p9999=98, pmax=99）；timestamp 齐全 → 无 epoch-0 桶行。"""
+    代表行的 total_latency 可手算 floor(cnt*p)-1（median=49, p99=98, p9999=98,
+    pmax=99）；timestamp 齐全 → 无 epoch-0 桶行。"""
     rows = [_make_row(i, "2026-05-10 12:00:00", "GET", float(i)) for i in range(100)]
     valid, per_gran, reps = _pick_reps(rows)
     by_gran = _build_bucket_rows(valid, per_gran, reps, "kb", "lg")
 
-    expected = [49.0, 94.0, 98.0, 98.0, 99.0]
+    expected = [49.0, 98.0, 98.0, 99.0]
     for g in GRANULARITY_KEYS:
-        # BUCKET_COLUMNS[8] = total_latency；同组 5 个分位代表行
+        # BUCKET_COLUMNS[8] = total_latency；同组 4 个分位代表行
         lats = sorted(r[8] for r in by_gran[g])
         assert lats == expected, f"granularity {g} 分位值 != golden"
-        # 5 个 mode 齐全且顺序稳定
+        # 4 个 mode 齐全且顺序稳定
         assert sorted(r[4] for r in by_gran[g]) == [
-            "median", "p95", "p99", "p9999", "pmax",
+            "median", "p99", "p9999", "pmax",
         ]
         # 无 0 桶行：桶起点为 2026 年（epoch 远大于 0）
         assert all(r[2].year == 2026 for r in by_gran[g]), f"granularity {g} 含 0 桶行"
@@ -475,17 +491,23 @@ def test_bucket_stats_from_frame_matches_numpy_path():
     )
 
     # 300 条 trace（每秒 1 条, GET/SET 交替）→ 10s 桶 30 个 / 60s 桶 5 个 /
-    # 600s 与 1h 各 1 个桶；每 (桶,op) 组 5 个 mode 代表行。
+    # 600s 与 1h 各 1 个桶；每 (桶,op) 组 4 个 mode 代表行。
     assert {g: len(rows_pl[g]) for g in GRANULARITY_KEYS} == {
-        10: 300, 60: 50, 600: 10, 3600: 10,
+        10: 240, 60: 40, 600: 8, 3600: 8,
     }
     for g in GRANULARITY_KEYS:
-        # 整行 tuple 集合相等（mode/trace_id/src/dst/bucket_start + 14 值）
-        assert set(rows_pl[g]) == set(rows_np[g]), f"granularity {g} rep-rows 不一致"
-        assert set(rows_pl_mat[g]) == set(rows_np[g]), (
+        # 前 22 列（8 固定键 + 14 legacy 指标）tuple 集合相等
+        # （mode/trace_id/src/dst/bucket_start + 14 值）；yuanrong 26 列只走
+        # polars 路径，numpy 参考不含，故只比前 22 列。
+        legacy_np = {tuple(r[:22]) for r in rows_np[g]}
+        assert {tuple(r[:22]) for r in rows_pl[g]} == legacy_np, (
+            f"granularity {g} rep-rows 不一致"
+        )
+        assert {tuple(r[:22]) for r in rows_pl_mat[g]} == legacy_np, (
             f"granularity {g} materializer 路径不一致"
         )
-        assert len(rows_pl[g][0]) == len(BUCKET_COLUMNS) == 22
+        assert len(rows_pl[g][0]) == len(BUCKET_COLUMNS) == 48
+        assert rows_pl[g][0][22] is not None  # BUCKET_COLUMNS[22] = total_latency_us
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -530,3 +552,16 @@ async def test_bucket_stats_from_frame_db_write_idempotent():
         except Exception:
             pass
         await PGManager.close()
+
+
+def test_bucket_rep_rows_carry_yuanrong():
+    """yuanrong 富化契约：代表行 tuple 带 26 项分段时延（48 列），
+    BUCKET_COLUMNS[22]=total_latency_us 非空、[23]=request_mode 合法。"""
+    df_trace = _frame_from_trace_index(_trace_index_fixture(300))
+    rows = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
+    for g in GRANULARITY_KEYS:
+        assert rows[g], f"{GRANULARITY_LABELS[g]} 应产生代表行"
+        assert len(rows[g][0]) == len(BUCKET_COLUMNS) == 48
+        assert rows[g][0][22] is not None
+        assert rows[g][0][23] in ("remote", "local", "unknown")
+        assert all(len(r) == 48 for r in rows[g])
