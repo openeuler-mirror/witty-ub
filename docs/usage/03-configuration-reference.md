@@ -1,0 +1,265 @@
+# 配置参考手册
+
+本文档汇总 witty-ub 系统的所有配置项，包括环境变量、端口映射、数据卷、Nginx 配置、OpenCode 配置和 pg.conf 配置。
+
+---
+
+## 环境变量
+
+### witty-ub 容器环境变量
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `PYTHONPATH` | `/var/witty-ub` | Python 模块搜索路径 |
+| `LOG_LEVEL` | `info` | 日志级别（debug/info/warning/error） |
+| `PG_HOST` | `postgres` | PostgreSQL 主机地址 |
+| `PG_PORT` | `5432` | PostgreSQL 端口 |
+| `PG_DATABASE` | `witty-ub` | PostgreSQL 数据库名 |
+| `PG_USER` | `witty-ub` | PostgreSQL 用户名 |
+| `PG_PASSWORD` | `witty-ub` | PostgreSQL 密码 |
+
+### PostgreSQL 容器环境变量
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `POSTGRESQL_USER` | `witty-ub` | 数据库用户 |
+| `POSTGRESQL_PASSWORD` | `witty-ub` | 数据库密码 |
+| `POSTGRESQL_DATABASE` | `witty-ub` | 数据库名称 |
+| `POSTGRESQL_SHARED_BUFFERS` | `2GB` | 共享缓冲区大小 |
+| `POSTGRESQL_EFFECTIVE_CACHE_SIZE` | `6GB` | 有效缓存大小 |
+| `POSTGRESQL_MAX_CONNECTIONS` | `200` | 最大连接数 |
+
+---
+
+## 端口映射
+
+### 容器部署端口
+
+| 服务 | 容器内端口 | 宿主机端口 | 说明 |
+|------|-----------|-----------|------|
+| Web UI (Nginx) | 8080 | 32412 | Web 界面和 API 代理 |
+| Latency Plugin API | 9772 | 9772 | 后端 API 服务（FastAPI） |
+| OpenCode Server | 4096 | 4096 | AI 诊断服务 |
+| PostgreSQL | 5432 | 15432 | 数据库服务 |
+
+### RPM 部署端口
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| Web UI (Nginx) | 8080 | Web 界面 |
+| Latency Plugin API | 9772 | 后端 API 服务 |
+| OpenCode Server | 4096 | AI 诊断服务 |
+| PostgreSQL | 5432 或 15432 | 数据库服务（取决于配置） |
+
+---
+
+## 数据卷
+
+### 容器数据卷配置
+
+| 卷名 | 容器路径 | 用途 |
+|------|---------|------|
+| `witty-ub-data` | `/var/witty-ub/data` | 故障模式数据、KVCache、拓扑数据 |
+| `witty-ub-logs` | `/var/log/witty-ub` | 应用日志 |
+| `witty-ub-uploads` | `/var/witty-ub/latency/file/file_upload` | 上传的日志文件 |
+| `witty-ub-results` | `/var/witty-ub/latency/file/file_parse_result` | 解析结果 |
+| `~/.config/opencode` | `/root/.config/opencode` | OpenCode 配置目录 |
+| `pg15-data` | `/var/lib/pgsql/data` | PostgreSQL 数据目录 |
+
+### 目录结构
+
+```
+/var/witty-ub/
+├── data/                    # 数据目录
+│   ├── failure_mode_tree.json
+│   ├── kvcache/
+│   ├──urma/
+│   └── view-vis/
+├── latency/                 # Latency Plugin 代码
+├── web/                     # Web 前端文件
+├── config/                  # 配置文件
+└── log/                     # 日志目录
+
+/var/log/witty-ub/
+├── web.log
+├── latency.log
+└── opencode.log
+```
+
+---
+
+## Nginx 配置
+
+### 配置文件位置
+
+- **容器部署**：`/etc/witty-ub/web/nginx.conf`
+- **RPM 部署**：`/etc/nginx/conf.d/witty-ub-web.conf`
+
+### 主要配置项
+
+```nginx
+server {
+    listen 8080;
+    server_name _;
+
+    root /var/witty-ub/web;
+    index index.html;
+
+    # 前端路由
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API 代理到 Latency Plugin
+    location ~ ^/(log_kb|log_file|log_parse_result|aggregated_event|anomalous_event|anomalous_event_chain|log_failure_event_result|failure_mode|task|health_check|docs|openapi.json) {
+        proxy_pass http://127.0.0.1:9772;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # OpenCode API 代理
+    location /agent-api/ {
+        proxy_pass http://127.0.0.1:4096/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### 日志配置
+
+- **错误日志**：`/var/log/witty-ub-web/error.log`（级别：warn）
+- **访问日志**：`/var/log/witty-ub-web/access.log`
+- **PID 文件**：`/run/witty-ub-web/nginx.pid`
+
+---
+
+## OpenCode 配置
+
+### 配置文件位置
+
+- **宿主机**：`~/.config/opencode/config.yaml`
+- **容器内**：`/root/.config/opencode/config.yaml`
+
+### 配置示例
+
+```yaml
+provider:
+  my-provider:
+    type: custom
+    apiKey: "your-api-key"
+    baseURL: "your-base-url"
+model: "my-provider/model-name"
+```
+
+### 启动命令
+
+```bash
+# 启动 OpenCode 后台服务
+bash /var/witty-ub/latency/deploy/run_opencode.sh
+```
+
+---
+
+## pg.conf 配置
+
+### 数据库连接配置
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `PG_HOST` | `127.0.0.1` | PostgreSQL 主机地址 |
+| `PG_PORT` | `15432` | PostgreSQL 端口 |
+| `PG_DATABASE` | `witty-ub` | 数据库名 |
+| `PG_USER` | `witty-ub` | 用户名 |
+| `PG_PASSWORD` | `witty-ub` | 密码 |
+| `PG_POOL_SIZE` | `10` | 连接池大小 |
+| `PG_MAX_OVERFLOW` | `20` | 连接池最大溢出数 |
+
+### PG_HOST 场景说明
+
+| 场景 | PG_HOST | PG_PORT | 说明 |
+|------|---------|---------|------|
+| 宿主机访问 | `127.0.0.1` | `15432` | 部署脚本、本地开发 |
+| 容器访问宿主机 RPM PG | `172.18.0.1` | `15432` | Docker 网络网关 |
+| 容器访问 PG 容器 | `postgres` | `5432` | Docker 网络 DNS |
+
+### PostgreSQL 性能调优参数
+
+以下参数留空时由部署脚本根据宿主机内存自动计算：
+
+| 配置项 | 说明 | 推荐值（8GB 内存） |
+|--------|------|-------------------|
+| `PG_SHARED_BUFFERS` | 共享缓冲区 | `2GB`（物理内存 25%） |
+| `PG_EFFECTIVE_CACHE_SIZE` | 优化器缓存 | `6GB`（物理内存 50%-75%） |
+| `PG_WORK_MEM` | 排序/哈希内存 | `64MB` |
+| `PG_MAINTENANCE_WORK_MEM` | 维护操作内存 | `512MB` |
+| `PG_WAL_BUFFERS` | WAL 缓冲区 | `64MB` |
+| `PG_MAX_WAL_SIZE` | 最大 WAL 体积 | `4GB` |
+| `PG_CHECKPOINT_COMPLETION_TARGET` | checkpoint 分散度 | `0.9` |
+| `PG_RANDOM_PAGE_COST` | 随机页成本 | `1.1`（SSD）/ `4.0`（HDD） |
+| `PG_EFFECTIVE_IO_CONCURRENCY` | 并发 IO 数 | `200`（SSD）/ `2`（HDD） |
+| `PG_MAX_CONNECTIONS` | 最大连接数 | `200` |
+
+### Docker 部署专用配置
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `PG_CONTAINER_NAME` | `postgres` | PostgreSQL 容器名称 |
+| `PG_IMAGE` | `quay.io/sclorg/postgresql-15-c9s:latest` | PostgreSQL 镜像 |
+| `PG_NETWORK` | `witty-ub-network` | Docker 网络名称 |
+| `PG_VOLUME` | `pg15-data` | 数据卷名称 |
+| `PG_CONTAINER_DATA_DIR` | `/var/lib/pgsql/data` | 容器内数据目录 |
+
+### witty-ub 容器部署专用配置
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `WITTY_CONTAINER_NAME` | `witty-ub` | witty-ub 容器名称 |
+| `WITTY_IMAGE` | （自动选择） | witty-ub 镜像 |
+| `WITTY_HOST_PORT` | `32412` | 宿主机端口 |
+| `WITTY_LOG_LEVEL` | `info` | 日志级别 |
+| `OPENCODE_CONFIG_DIR` | `${HOME}/.config/opencode` | OpenCode 配置目录 |
+| `WITTY_EXTRA_MOUNTS` | `/home:/home:ro` | 额外目录挂载 |
+
+### RPM 部署专用配置
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `PG_DATA_DIR` | （自动探测） | PostgreSQL 数据目录 |
+| `PG_SERVICE_NAME` | （自动探测） | PostgreSQL 服务名 |
+
+---
+
+## 健康检查配置
+
+### PostgreSQL 健康检查
+
+```yaml
+test: ["CMD", "pg_isready", "-U", "postgres", "-d", "witty-ub"]
+interval: 30s
+timeout: 10s
+retries: 3
+start_period: 40s
+```
+
+### witty-ub 健康检查
+
+```yaml
+test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
+interval: 30s
+timeout: 10s
+retries: 3
+start_period: 40s
+```
+
+---
+
+## 相关文档
+
+- 平台操作指南 → [01-platform-guide.md](01-platform-guide.md)
+- 数据采集工具 → [02-data-collection-guide.md](02-data-collection-guide.md)
+- 部署指南 → [../deployment/01-overview.md](../deployment/01-overview.md)
