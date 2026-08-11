@@ -99,6 +99,10 @@ detect_os() {
 # confirm(manage 是 Docker 路径);保持与脚本其它交互一致。
 _confirm_clean() {
     local prompt="$1"
+    # NONINTERACTIVE=1 (CI/自动化测试) 时跳过交互, 视为确认。
+    if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+        return 0
+    fi
     local ans
     read -r -p "$prompt [y/N]: " ans
     case "$ans" in

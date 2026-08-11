@@ -6,15 +6,24 @@
 # 支持 openEuler 24.03-LTS / Ubuntu 24.04 / WSL (Ubuntu)
 #
 # 用法:
-#   bash deploy/host/deploy.sh          # 完整部署（首次运行）
+#   bash deploy/host/deploy.sh          # 交互式菜单（默认）
+#   bash deploy/host/deploy.sh --deploy # 直接完整部署（跳过菜单，首次运行）
 #   bash deploy/host/deploy.sh --start  # 仅启动服务（已部署过）
 #   bash deploy/host/deploy.sh --stop   # 停止所有服务
 #   bash deploy/host/deploy.sh --clean  # 一键清理
 #
 # 访问:
-#   前端: http://localhost:5173     (开发模式, Vite HMR)
+#   前端: http://localhost:5173     (生产: vite preview 托管 dist/; 无 dist 时回退 dev server)
 #   后端: http://localhost:9772
 #   健康: http://localhost:9772/health_check
+#
+# 进程管理:
+#   默认 systemd user units 托管 (witty-ub-backend / witty-ub-frontend),
+#   机器重启 / 异常退出后自动拉起 (Restart=always)。
+#   systemctl --user 不可用 (缺 systemd-pam / WSL / 容器) 时自动回退
+#   nohup 裸进程 + PID 文件托管 (无崩溃自愈/开机自启)。
+#   可用 DEPLOY_PM=systemd|nohup 强制指定托管方式 (测试/排障)。
+#   开发前端时手动运行: cd src/web && npm run dev
 
 set -euo pipefail
 
@@ -83,6 +92,8 @@ build_cpp() {
     local BUILD_DIR="$PROJECT_DIR/build"
     local DIAG_TOOL="$BUILD_DIR/src/witty-ub-diag-tool"
 
+    mkdir -p "$LOG_DIR"
+
     if [ -f "$DIAG_TOOL" ]; then
         _log "witty-ub-diag-tool 已存在，跳过编译"
         return 0
@@ -95,7 +106,11 @@ build_cpp() {
     cmake "$PROJECT_DIR" -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -3
 
     _info "编译 witty-ub-diag-tool (使用 $(nproc) 核)..."
-    make -j"$(nproc)" witty-ub-diag-tool 2>&1 | tail -5
+    if ! make -j"$(nproc)" witty-ub-diag-tool 2>&1 | tee "$LOG_DIR/cpp-build.log"; then
+        _err "C++ 编译失败，最近日志:"
+        tail -30 "$LOG_DIR/cpp-build.log"
+        return 1
+    fi
 
     if [ -f "$DIAG_TOOL" ]; then
         chmod +x "$DIAG_TOOL"
@@ -118,6 +133,8 @@ build_frontend() {
     local WEB_DIR="$PROJECT_DIR/src/web"
     [ -d "$WEB_DIR" ] || { _warn "前端目录不存在，跳过"; return 0; }
 
+    mkdir -p "$LOG_DIR"
+
     cd "$WEB_DIR"
     _check_node || _warn "Node 版本不满足要求，前端编译可能失败"
     if ! npm ping --silent 2>/dev/null; then
@@ -126,8 +143,12 @@ build_frontend() {
         grep -H '^registry=' "$WEB_DIR/.npmrc" "$PROJECT_DIR/.npmrc" 2>/dev/null || true
         _info "可尝试: npm config set strict-ssl false"
     fi
-    [ -d node_modules ] || npm install --silent 2>&1 | tail -3
-    npm run build-only 2>&1 | tail -5 || _warn "前端编译失败，运行 npm run dev 启动开发模式"
+    [ -d node_modules ] || npm install --silent 2>&1 | tee "$LOG_DIR/frontend-build.log" >/dev/null
+    if ! npm run build-only 2>&1 | tee "$LOG_DIR/frontend-build.log"; then
+        _warn "前端编译失败，最近日志:"
+        tail -30 "$LOG_DIR/frontend-build.log"
+        _warn "可先运行 npm run dev 启动开发模式"
+    fi
     cd "$PROJECT_DIR"
     _log "前端编译完成: $WEB_DIR/dist/"
 }
@@ -193,6 +214,46 @@ sync_pg_credentials() {
     done
 }
 
+# ──────────────────── systemd user units ────────────────────
+
+# systemctl --user 是否可用。user 会话强依赖 pam_systemd.so
+# (openEuler 24.03+ 拆到独立包 systemd-pam), 缺失时 user@0.service PAM
+# 加载失败 → /run/user/<UID> 不建 → systemctl --user 全部失败。
+systemd_user_available() {
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl --user daemon-reload >/dev/null 2>&1
+}
+
+# 从 deploy/host/systemd/*.service 模板生成 user units 并安装到
+# ~/.config/systemd/user/ (路径占位符 __PROJECT_DIR__ / __WITTY_DIR__
+# 替换为实际路径)。幂等: 每次 start 前调用, 保证 units 存在且与
+# deploy.sh 的运行时语义 (WITTY_DIR/CONFIG/WITTY_INSTALL_PATH) 一致。
+# systemd 不可用时返回 1 (调用方决定是否回退 nohup)。
+install_systemd_units() {
+    _step_header "安装 systemd user units"
+
+    local UNIT_SRC="$SCRIPT_DIR/systemd"
+    local UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    local SYS_WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+
+    [ -d "$UNIT_SRC" ] || { _warn "systemd 模板目录缺失: $UNIT_SRC"; return 1; }
+    mkdir -p "$UNIT_DIR"
+
+    sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+        -e "s|__WITTY_DIR__|$SYS_WITTY_DIR|g" \
+        "$UNIT_SRC/witty-ub-backend.service" > "$UNIT_DIR/witty-ub-backend.service"
+    sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+        "$UNIT_SRC/witty-ub-frontend.service" > "$UNIT_DIR/witty-ub-frontend.service"
+
+    if ! systemd_user_available; then
+        _warn "systemctl --user 不可用 (缺 pam_systemd.so / 无 systemd user 会话?)"
+        _warn "openEuler 24.03+ 修复: sudo dnf install -y systemd-pam; 或 loginctl enable-linger $USER"
+        return 1
+    fi
+    systemctl --user enable witty-ub-backend.service witty-ub-frontend.service >/dev/null 2>&1 || true
+    _log "systemd user units 已安装并启用 (witty-ub-backend / witty-ub-frontend)"
+}
+
 # ──────────────────── 启动服务 ────────────────────
 
 start_services() {
@@ -200,16 +261,55 @@ start_services() {
 
     local LATENCY_DIR="$PROJECT_DIR/src/plugins/latency"
     local WEB_DIR="$PROJECT_DIR/src/web"
-    local BUILD_DIR="$PROJECT_DIR/build"
 
     mkdir -p "$LOG_DIR"
 
-    # --- Kill old processes (PID file first, then by port) ---
-    # 只杀本项目的旧进程：PID 文件 + 精确端口（fuser）。不用宽泛的
-    # pkill -f "fastapi_server" —— 会误杀其他项目/用户的同名进程。
-    [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")"  2>/dev/null || true
-    [ -f "$LOG_DIR/frontend.pid" ] && kill "$(cat "$LOG_DIR/frontend.pid")" 2>/dev/null || true
-    _has_cmd fuser && { fuser -k 9772/tcp 2>/dev/null || true; fuser -k 5173/tcp 2>/dev/null || true; }
+    # --- 选择进程托管方式 ---
+    # 默认 auto: systemd user units 优先 (崩溃自愈/开机自启);
+    # systemctl --user 不可用 (缺 systemd-pam / WSL / 容器) 时回退 nohup 裸进程。
+    # DEPLOY_PM=systemd|nohup 可强制指定 (测试/排障)。
+    local USE_SYSTEMD=0
+    case "${DEPLOY_PM:-auto}" in
+        systemd)
+            if systemd_user_available; then
+                USE_SYSTEMD=1
+            else
+                _err "DEPLOY_PM=systemd 但 systemctl --user 不可用"
+                return 1
+            fi
+            ;;
+        nohup)
+            USE_SYSTEMD=0
+            _warn "DEPLOY_PM=nohup 强制使用裸进程托管"
+            ;;
+        *)
+            if install_systemd_units; then
+                USE_SYSTEMD=1
+                _log "进程托管: systemd user units (崩溃自愈/开机自启)"
+            else
+                _warn "进程托管: 回退 nohup 裸进程 + PID 文件 (无崩溃自愈/开机自启)"
+                _info "恢复 systemd 托管: openEuler 24.03+ 执行 sudo dnf install -y systemd-pam 后重跑"
+            fi
+            ;;
+    esac
+
+    # --- 清理旧进程 (PID 文件 + 精确端口) ---
+    # 只杀本项目的旧进程, 不用宽泛 pkill 以免误杀他项目同名进程。
+    # systemd 托管时仅当 unit 非活跃才清, 避免误杀 systemd 正在管理的进程。
+    if [ "$USE_SYSTEMD" = "1" ]; then
+        if ! systemctl --user is-active --quiet witty-ub-backend.service 2>/dev/null; then
+            [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")"  2>/dev/null || true
+            _has_cmd fuser && fuser -k 9772/tcp 2>/dev/null || true
+        fi
+        if ! systemctl --user is-active --quiet witty-ub-frontend.service 2>/dev/null; then
+            [ -f "$LOG_DIR/frontend.pid" ] && kill "$(cat "$LOG_DIR/frontend.pid")" 2>/dev/null || true
+            _has_cmd fuser && fuser -k 5173/tcp 2>/dev/null || true
+        fi
+    else
+        [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")"  2>/dev/null || true
+        [ -f "$LOG_DIR/frontend.pid" ] && kill "$(cat "$LOG_DIR/frontend.pid")" 2>/dev/null || true
+        _has_cmd fuser && { fuser -k 9772/tcp 2>/dev/null || true; fuser -k 5173/tcp 2>/dev/null || true; }
+    fi
     sleep 1
 
     # --- Verify PostgreSQL is reachable ---
@@ -223,60 +323,62 @@ start_services() {
     fi
 
     # --- Backend ---
-    _info "启动 FastAPI 后端..."
-    if [ -f "$LATENCY_DIR/.venv/bin/activate" ]; then
-        source "$LATENCY_DIR/.venv/bin/activate"
-    else
+    if [ ! -f "$LATENCY_DIR/.venv/bin/python" ]; then
         _warn "Python venv 不存在，跳过后端启动"
         _info "请先运行完整部署: bash deploy/host/deploy.sh"
         return 1
     fi
-    export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
-    export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$BUILD_DIR/src}"
-    export CONFIG="${CONFIG:-$PROJECT_DIR/config/diagnosis_config.toml}"
-    export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
-
-    # 必须用 venv python：系统 python3 无 polars（T7 后是唯一解析路径），
-    # 用系统 python 启动会导致解析任务 ModuleNotFoundError 重试耗尽失败。
-    nohup "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py" \
-        > "$LOG_DIR/backend.log" 2>&1 &
-    local BACKEND_PID=$!
-    echo "$BACKEND_PID" > "$LOG_DIR/backend.pid"
+    if [ "$USE_SYSTEMD" = "1" ]; then
+        _info "启动 FastAPI 后端 (systemd user unit)..."
+        systemctl --user start witty-ub-backend.service || { _err "后端 unit 启动失败"; return 1; }
+    else
+        _info "启动 FastAPI 后端 (nohup 裸进程)..."
+        # 环境与 systemd unit 对齐 (PYTHONPATH/WITTY_DIR/WITTY_INSTALL_PATH/CONFIG)。
+        # 必须用 venv python: 系统 python3 无 polars, 解析任务会 ModuleNotFoundError。
+        export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+        export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
+        export CONFIG="${CONFIG:-$PROJECT_DIR/config/diagnosis_config.toml}"
+        export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
+        nohup "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py" \
+            > "$LOG_DIR/backend.log" 2>&1 &
+        echo $! > "$LOG_DIR/backend.pid"
+    fi
 
     # Wait for backend
     local BACKEND_OK=0
     for i in $(seq 1 30); do
         if curl -s http://127.0.0.1:9772/health_check 2>/dev/null | grep -q "ok"; then
-            _log "后端已启动 (PID=$BACKEND_PID, port 9772)"
+            _log "后端已启动 (${USE_SYSTEMD:+unit=witty-ub-backend, }port 9772)"
             BACKEND_OK=1
             break
         fi
         if [ $i -eq 30 ]; then
             _warn "后端启动超时，最近日志如下:"
-            tail -20 "$LOG_DIR/backend.log" 2>/dev/null || true
+            journalctl --user -u witty-ub-backend.service -n 20 --no-pager 2>/dev/null || tail -20 "$LOG_DIR/backend.log" 2>/dev/null || true
         fi
         sleep 2
     done
     if [ "$BACKEND_OK" -ne 1 ]; then
         _err "后端启动失败(60 秒内健康检查未通过)。"
-        _err "请检查 $LOG_DIR/backend.log 定位原因（最常见：PostgreSQL 密码/端口配置错误）。"
+        _err "请检查 journalctl --user -u witty-ub-backend.service 或 $LOG_DIR/backend.log 定位原因（最常见：PostgreSQL 密码/端口配置错误）。"
         return 1
     fi
 
-    # --- Frontend (dev mode) ---
+    # --- Frontend ---
     if [ -d "$WEB_DIR" ]; then
         _check_node || _warn "Node 版本不满足要求，前端可能无法启动"
-        _info "启动 Vite 前端 (开发模式)..."
-        cd "$WEB_DIR"
-        nohup ./node_modules/.bin/vite --host 0.0.0.0 --port 5173 \
-            > "$LOG_DIR/frontend.log" 2>&1 &
-        local FRONTEND_PID=$!
-        echo "$FRONTEND_PID" > "$LOG_DIR/frontend.pid"
-        cd "$PROJECT_DIR"
+        if [ "$USE_SYSTEMD" = "1" ]; then
+            _info "启动前端 (systemd user unit, vite preview 托管 dist/)..."
+            systemctl --user start witty-ub-frontend.service || { _err "前端 unit 启动失败"; return 1; }
+        else
+            _info "启动前端 (nohup 裸进程, vite preview 托管 dist/)..."
+            nohup bash "$SCRIPT_DIR/run_frontend.sh" > "$LOG_DIR/frontend.log" 2>&1 &
+            echo $! > "$LOG_DIR/frontend.pid"
+        fi
 
         sleep 3
         if curl -so /dev/null -w "%{http_code}" http://127.0.0.1:5173 2>/dev/null | grep -q 200; then
-            _log "前端已启动 (PID=$FRONTEND_PID, port 5173)"
+            _log "前端已启动 (${USE_SYSTEMD:+unit=witty-ub-frontend, }port 5173)"
         else
             _warn "前端可能尚未就绪，等待 Vite 编译..."
         fi
@@ -287,12 +389,14 @@ stop_services() {
     _step_header "停止服务"
 
     _info "停止 FastAPI 后端..."
-    [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")" 2>/dev/null || true
-    _has_cmd fuser && fuser -k 9772/tcp 2>/dev/null || true
-
+    systemctl --user stop witty-ub-backend.service 2>/dev/null || true
     _info "停止 Vite 前端..."
+    systemctl --user stop witty-ub-frontend.service 2>/dev/null || true
+
+    # 清理残留 nohup 孤儿进程 (历史部署方式遗留)
+    [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")" 2>/dev/null || true
     [ -f "$LOG_DIR/frontend.pid" ] && kill "$(cat "$LOG_DIR/frontend.pid")" 2>/dev/null || true
-    _has_cmd fuser && fuser -k 5173/tcp 2>/dev/null || true
+    _has_cmd fuser && { fuser -k 9772/tcp 2>/dev/null || true; fuser -k 5173/tcp 2>/dev/null || true; }
 
     _log "所有服务已停止"
 }
@@ -350,8 +454,13 @@ clean_all() {
     echo "  2) 以上全部 + 删除 build/ + .venv/ + 部署日志 (彻底干净, 下次需重新编译/装依赖)"
     echo ""
     local scope
-    read -r -p "请选择 [1-2, 默认 1]: " scope
-    scope="${scope:-1}"
+    # CLEAN_SCOPE 环境变量 (CI/自动化测试) 优先, 跳过交互。
+    if [ -n "${CLEAN_SCOPE:-}" ]; then
+        scope="$CLEAN_SCOPE"
+    else
+        read -r -p "请选择 [1-2, 默认 1]: " scope
+        scope="${scope:-1}"
+    fi
     case "$scope" in
         1|2) ;;
         *) _err "无效选择: $scope"; return 1 ;;
@@ -454,6 +563,7 @@ main_deploy() {
     install_system_deps
     setup_postgresql
     install_python_deps
+    build_frontend
     build_cpp
     copy_data_files
     sync_pg_credentials
@@ -461,9 +571,66 @@ main_deploy() {
     show_access_info
 }
 
+# ──────────────────── 交互式菜单 ────────────────────
+
+# 与 deploy/docker/manage.sh 的交互式菜单风格一致, 选项映射到
+# deploy.sh 现有的子命令。命令行模式 (--start/--stop/--clean) 不受影响。
+show_menu() {
+    echo ""
+    echo "========================================"
+    echo "  witty-ub 宿主机部署管理器"
+    echo "========================================"
+    echo ""
+    echo "  📦  安装"
+    echo "    1) 完整部署（依赖 + PostgreSQL + 编译 + 启动）"
+    echo "    2) 仅安装依赖"
+    echo ""
+    echo "  🔧  管理"
+    echo "    3) 仅启动服务（已部署过）"
+    echo "    4) 停止所有服务"
+    echo ""
+    echo "  🗑️  清理"
+    echo "    5) 一键清理（交互选择范围）"
+    echo ""
+    echo "    0) 退出"
+    echo ""
+    echo "========================================"
+}
+
+menu_main() {
+    show_banner
+    detect_os
+    # NONINTERACTIVE=1 (CI/自动化测试) 时跳过菜单, 直接完整部署。
+    if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+        main_deploy
+        return 0
+    fi
+    while true; do
+        show_menu
+        read -r -p "请选择操作 [0-5]: " choice
+        echo ""
+        case "$choice" in
+            1) main_deploy ;;
+            2) install_deps ;;
+            3) start_services; show_access_info ;;
+            4) stop_services ;;
+            5) clean_all ;;
+            0)
+                echo "再见！"
+                exit 0
+                ;;
+            *)
+                _err "无效选项，请重新选择"
+                ;;
+        esac
+        echo ""
+        read -r -p "按回车继续..." _
+    done
+}
+
 # ──────────────────── 参数解析 ────────────────────
 
-case "${1:-deploy}" in
+case "${1:-menu}" in
     --start|-s|start)
         detect_os
         start_services
@@ -477,11 +644,18 @@ case "${1:-deploy}" in
         detect_os
         clean_all
         ;;
+    --deploy|deploy)
+        main_deploy
+        ;;
+    --menu|-m|menu)
+        menu_main
+        ;;
     --help|-h|help)
         show_banner
         echo "用法: bash deploy/host/deploy.sh [选项]"
         echo ""
-        echo "  (无参数)      完整部署（安装依赖 + 初始化 + 编译 + 启动）"
+        echo "  (无参数)      交互式菜单（选择部署 / 启动 / 停止 / 清理）"
+        echo "  --deploy      直接完整部署（跳过菜单，同 NONINTERACTIVE=1）"
         echo "  --start / -s  仅启动服务"
         echo "  --stop  / -x  停止服务"
         echo "  --clean / -c  一键清理（交互选择范围: 服务+PG数据+var数据 / 或加 build+venv+日志）"
