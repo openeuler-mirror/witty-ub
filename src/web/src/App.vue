@@ -946,7 +946,9 @@ const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
 const normalizeAgentServerAddress = (address: string) => {
   const value = address.trim().replace(/\/+$/, '')
   if (!value) return defaultAgentApiBase
-  return /^https?:\/\//i.test(value) ? value : `http://${value}`
+  if (/^https?:\/\//i.test(value)) return value
+  if (value.startsWith('/')) return value
+  return `http://${value}`
 }
 
 const getAgentRequestModelId = (provider: OpenCodeProvider, model: OpenCodeModel) => {
@@ -975,7 +977,7 @@ const connectAgent = async (serverAddress: string, authHeader = '') => {
   }
 }
 
-const loginLocalAgent = () => connectAgent('http://127.0.0.1:4096')
+const loginLocalAgent = () => connectAgent(defaultAgentApiBase)
 
 const loginAgent = async () => {
   if (!agentUsername.value.trim() || !agentPassword.value) {
@@ -9094,7 +9096,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <p class="monitor-sub">
-              包含 yuanrong KVCache 的 24 项指标与总时延曲线，可交互选择展示
+            24 项指标与总时延曲线，可交互选择展示
             </p>
           </header>
 
