@@ -450,7 +450,12 @@ class LogParseResultPGManager:
         if req.created_at_end:
             stmt = stmt.where(LogParseResult.created_at <= parse_timestamp(req.created_at_end))
         if req.operation:
-            stmt = stmt.where(LogParseResult.operation.ilike(f"%{req.operation}%"))
+            if req.operation.upper() == "GET":
+                stmt = stmt.where(LogParseResult.operation.ilike("%GET%"))
+            elif req.operation.upper() == "SET":
+                stmt = stmt.where(
+                    LogParseResult.operation.in_(["DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
+                )
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         async with PGManager.session() as session:
@@ -637,7 +642,12 @@ class LogParseResultPGManager:
         if req.end_time:
             stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(req.end_time))
         if req.operation:
-            stmt = stmt.where(LogParseResult.operation.ilike(f"%{req.operation}%"))
+            if req.operation.upper() == "GET":
+                stmt = stmt.where(LogParseResult.operation.ilike("%GET%"))
+            elif req.operation.upper() == "SET":
+                stmt = stmt.where(
+                    LogParseResult.operation.in_(["DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
+                )
         if req.is_anomalous is not None:
             stmt = stmt.where(LogParseResult.is_anomalous.is_(req.is_anomalous))
 

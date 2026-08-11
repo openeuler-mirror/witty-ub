@@ -58,6 +58,15 @@ _MERGE_SPEC: dict[str, str] = {
 }
 _MERGE_SPEC["src"] = "max_rank"
 _MERGE_SPEC["dst"] = "max_rank"
+# operation 字段：优先从 SDK 提取，如果没有则从 Worker access 提取
+# 这样即使只有 Worker 日志（没有 SDK 日志），operation 字段也能正确填充
+_MERGE_SPEC["op"] = "first"
+_MERGE_SPEC["operation"] = "first"
+_MERGE_SPEC["op_key"] = "first"
+# pod_ip 和 cluster_name：使用 implode 策略收集所有涉及的 pod_ip 和 cluster_name
+# 参考通断故障的做法，确保所有相关 pod 和集群都被记录
+_MERGE_SPEC["pod_ip"] = "implode_unique"
+_MERGE_SPEC["cluster_name"] = "implode_unique"
 
 _SRC_RANK_COL: str = INTERNAL_COLUMNS[1]  # "_src_rank"
 
@@ -142,7 +151,10 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
     _remote_proc = pl.when(pl.col("__isd")).then(_cs1).otherwise(_r_se)
 
     yr = yr.with_columns([
-        pl.col("__se").alias("total_latency_us"),
+        pl.when(pl.col("__se").is_not_null())
+        .then(pl.col("__se"))
+        .otherwise(pl.col("total_latency") * 1000.0)
+        .alias("total_latency_us"),
 
         pl.when(pl.col("__isd"))
           .then(pl.lit("remote"))
@@ -254,6 +266,16 @@ def build_trace_frame(worker_columnar: dict[str, list]):
                 .filter(pl.col(_SRC_RANK_COL) == pl.col(_SRC_RANK_COL).max())
                 .first()
             )
+        elif op == "sdk_first":
+            agg_exprs[col] = (
+                pl.col(col)
+                .filter(pl.col("_label") == SDK_LABEL)
+                .drop_nulls()
+                .first()
+            )
+        elif op == "implode_unique":
+            # 收集所有非空且非重复的值到列表（用于 pod_ip）
+            agg_exprs[col] = pl.col(col).drop_nulls().unique().implode()
         else:
             agg_exprs[col] = pl.col(col).drop_nulls().first()
 
@@ -301,6 +323,19 @@ def build_trace_frame(worker_columnar: dict[str, list]):
     # _yuanrong_from_grouped deferred to run() — computed only on
     # top1000 + anomalous subset (~1k rows), not all 347k traces.
     # Internal __ columns preserved in output for the deferred call.
+
+    # Fallback: when SDK access data is missing (total_ms is null), use
+    # worker_total_latency so traces can still be built from worker-only logs.
+    df_trace = df_trace.with_columns(
+        pl.when(pl.col("total_ms").is_null())
+        .then(pl.col("worker_total_latency"))
+        .otherwise(pl.col("total_ms"))
+        .alias("total_ms"),
+        pl.when(pl.col("total_latency").is_null())
+        .then(pl.col("worker_total_latency"))
+        .otherwise(pl.col("total_latency"))
+        .alias("total_latency"),
+    )
 
     df_trace = df_trace.filter(
         pl.col("tid").is_not_null()

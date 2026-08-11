@@ -211,6 +211,7 @@ type AggregatedEventModel = {
   id: string
   src_ip?: string | null
   dst_ip?: string | null
+  operation?: string | null
   log_parse_result_cnt?: number | null
   anomaly_log_parse_result_cnt?: number | null
   ave_total_latency?: number | null
@@ -1750,7 +1751,7 @@ const hoveredTimeWindowIpPairKey = ref('')
 const timeWindowSortFields = ref<SortField[]>([])
 const timeWindowStartTimeSortOrder = ref<SortField['order']>('asc')
 const isTimeWindowStartTimeSortActive = computed(() => timeWindowSortFields.value.length === 0)
-const timeWindowIpPairSortFields = ref<SortField[]>([{ field: 'total_cnt', order: 'desc' }])
+const timeWindowIpPairSortFields = ref<SortField[]>([])
 
 const IP_PAIR_PAGE_SIZE = 10
 const timeWindowIpPairPageMap = ref<Record<number, number>>({})
@@ -1765,9 +1766,9 @@ type ColumnWidthMap = {
 }
 
 const traceListColumnWidths = reactive<ColumnWidthMap>({
-  latencyLeft: [78, 160, 235, 115, 68, 82, 67],
+  latencyLeft: [150, 185, 220, 170, 95, 90, 75],
   faultLeft: [110, 185, 300, 130, 110, 110, 80, 110],
-  latencyData: [88, 520],
+  latencyData: [100, 400],
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
   faultTraceActions: [150],
@@ -1899,7 +1900,7 @@ const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
 const getLatencyDataGridColumnWidths = () => {
-  return `minmax(72px, ${traceListColumnWidths.latencyData[0] || 88}fr) minmax(0, ${traceListColumnWidths.latencyData[1] || 520}fr)`
+  return `${traceListColumnWidths.latencyData[0] || 55}px ${traceListColumnWidths.latencyData[1] || 180}px`
 }
 
 const getTimeWindowGridColumnWidths = () => {
@@ -1928,8 +1929,12 @@ const setTimeWindowIpPairPage = (twIdx: number, page: number) => {
   }
 }
 
-const getTimeWindowIpPairTotalPages = (twEvent: TimeWindowAggregatedEvent) =>
-  Math.max(1, Math.ceil(twEvent.ip_pairs.length / IP_PAIR_PAGE_SIZE))
+const getTimeWindowIpPairTotalPages = (twEvent: TimeWindowAggregatedEvent) => {
+  const filteredCount = twEvent.ip_pairs.filter(
+    (pair) => pair.anomaly_log_parse_result_cnt > 0,
+  ).length
+  return Math.max(1, Math.ceil(filteredCount / IP_PAIR_PAGE_SIZE))
+}
 
 const getTimeWindowIpPairPageWindow = (twIdx: number, twEvent: TimeWindowAggregatedEvent) =>
   getPageWindow(getTimeWindowIpPairPage(twIdx), getTimeWindowIpPairTotalPages(twEvent))
@@ -1990,7 +1995,9 @@ const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) 
 const timeWindowPageCount = computed(() => Math.max(1, Math.ceil(timeWindowTotal.value / 10)))
 
 const sortedTimeWindowAggregatedEvents = computed(() => {
-  const events = [...timeWindowAggregatedEvents.value]
+  const events = [...timeWindowAggregatedEvents.value].filter(
+    (event) => event.anomaly_cnt > 0,
+  )
   const sortFields = timeWindowSortFields.value
   const getValue = (event: TimeWindowAggregatedEvent, key: string): number | string => {
     if (key === 'start_time') return event.start_time
@@ -2222,6 +2229,7 @@ const isDetailLatencyChartLoading = ref(false)
 const detailLatencyChartError = ref('')
 const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
 const detailParseResults = ref<LogParseResultModel[]>([])
+const allDetailParseResults = ref<LogParseResultModel[]>([])
 const isDetailParseResultsLoading = ref(false)
 const detailParseResultsError = ref('')
 const detailParseResultsPage = ref(1)
@@ -2887,6 +2895,7 @@ const aggregatedLatencyColumns = [
   { key: 'create_latency', label: 'CREATE阶段时延 (ms)', threshold: 100 },
   { key: 'publish_latency', label: 'PUBLISH阶段时延 (ms)', threshold: 100 },
   { key: 'worker_total_latency', label: 'Worker端总时延 (ms)', threshold: 100 },
+  { key: 'master_rpc_total', label: 'Master RPC总时延 (ms)', threshold: 150 },
 ] as const
 
 const getLatencyDataColumns = computed(() => {
@@ -2977,9 +2986,13 @@ const buildLatencyBreakdownSegments = (
         : 0
 
   return configs.map((config, index) => {
-    const value = values[index] ?? null
+    const rawValue = values[index] ?? null
+    const value =
+      config.unit === 'us' && typeof rawValue === 'number' ? rawValue / 1000 : rawValue
     const width =
-      typeof value === 'number' && value > 0 && scale > 0 ? Math.min(100, (value / scale) * 100) : 0
+      typeof rawValue === 'number' && rawValue > 0 && scale > 0
+        ? Math.min(100, (rawValue / scale) * 100)
+        : 0
     return {
       key: config.key,
       label: config.label,
@@ -2988,9 +3001,9 @@ const buildLatencyBreakdownSegments = (
       value,
       width,
       abnormal:
-        config.unit === 'ms' &&
+        config.unit === 'us' &&
         isLatencyMetricAbnormal(config.key as AggregatedLatencyKey, value),
-      unit: config.unit,
+      unit: config.unit === 'us' ? 'ms' : config.unit,
     }
   })
 }
@@ -3011,7 +3024,7 @@ const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) => {
 }
 
 const getLatencyBreakdownUnit = (segment: LatencyBreakdownSegment) =>
-  segment.unit === 'count' ? '个' : segment.unit === 'us' ? 'µs' : 'ms'
+  segment.unit === 'count' ? '个' : 'ms'
 
 const getLatencyBreakdownTooltip = (segment: LatencyBreakdownSegment) =>
   `${segment.label}: ${formatNullableMetricValue(segment.value)} ${getLatencyBreakdownUnit(segment)}`
@@ -3138,14 +3151,14 @@ const traceDelayColumns = [
     threshold: 100,
     unit: 'ms',
   },
-  { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'remoteWorkerRpc', label: '远端Worker RPC时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'masterProcess', label: 'Master处理时延 (ms)', threshold: 150, unit: 'ms' },
-  { key: 'masterRpcTotal', label: 'Master RPC总时延 (us)', threshold: 150000, unit: 'us' },
+  { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'remoteWorkerRpc', label: '远端Worker RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'masterProcess', label: 'Master处理时延 (ms)', threshold: 1.5, unit: 'ms' },
+  { key: 'masterRpcTotal', label: 'Master RPC总时延 (ms)', metric: 'master_rpc_total', threshold: 150, unit: 'ms' },
 ] as const satisfies readonly {
   key: TraceDelayKey
   label: string
@@ -3348,6 +3361,7 @@ const anomalyListLatencyThresholds = {
   create_latency: 1,
   publish_latency: 1,
   worker_total_latency: 1,
+  master_rpc_total: 1,
 } satisfies Record<AggregatedLatencyKey, number>
 
 const isBackendLatencyAnomalyRow = (row: { raw: LogParseResultModel }) =>
@@ -3377,7 +3391,8 @@ const isTraceDelayAbnormal = (
     if (column.metric === 'total_latency' && trace && 'faultCode' in trace && trace.faultCode) {
       return true
     }
-    return isLatencyMetricAbnormal(column.metric, value)
+    const threshold = anomalyListLatencyThresholds[column.metric] ?? column.threshold ?? 150
+    return value > threshold
   }
   return value > column.threshold
 }
@@ -3521,6 +3536,39 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
     .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
     .sort((first, second) => first.time - second.time),
 )
+
+const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
+  const operation = selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
+  const segmentConfig = operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
+
+  return allDetailParseResults.value
+    .map((result) => {
+      const date = parseMetricDate(result)
+      const totalLatency = finiteLatencyValue(result.total_latency)
+      if (!date || totalLatency <= 0) return null
+
+      const segments = {} as Record<TopSlowSegmentKey, number>
+      let displayedLatency = 0
+      segmentConfig.forEach((segment) => {
+        const value = finiteLatencyValue(result[segment.key])
+        segments[segment.key] = value
+        if (segment.unit !== 'count') displayedLatency += value
+      })
+
+      return {
+        id: result.id,
+        traceId: result.trace_id || '-',
+        timestamp: date.getTime(),
+        timestampLabel: formatFullTimeLabel(date),
+        operation: result.operation || operation.toUpperCase(),
+        totalLatency,
+        otherLatency: Math.max(totalLatency - displayedLatency, 0),
+        segments,
+      }
+    })
+    .filter((row): row is TopSlowChartRow => row !== null)
+    .sort((first, second) => first.timestamp - second.timestamp)
+})
 
 let latencyChartInstance: ECharts | null = null
 let detailLatencyChartInstance: ECharts | null = null
@@ -3783,8 +3831,7 @@ const escapeChartHtml = (value: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
 
-const formatTopSlowLatency = (value: number) =>
-  value >= 1000 ? `${(value / 1000).toFixed(2)} ms` : `${value.toFixed(0)} μs`
+const formatTopSlowLatency = (value: number) => `${value.toFixed(2)} ms`
 
 const formatTopSlowMetric = (seriesName: string | undefined, value: number) => {
   const segment = topSlowSegmentConfig.value.find((item) => item.label === seriesName)
@@ -3802,7 +3849,117 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
     barMaxWidth: 22,
     emphasis: { focus: 'series' as const },
     itemStyle: { color: segment.color },
-    data: rows.map((row) => row.segments[segment.key]),
+    data: rows.map((row) => {
+      const value = row.segments[segment.key]
+      return typeof value === 'number' ? value / 1000 : value
+    }),
+  }))
+
+  if (hasOtherLatency) {
+    barSeries.push({
+      name: '其他',
+      type: 'bar' as const,
+      stack: 'latency-components',
+      barMaxWidth: 22,
+      emphasis: { focus: 'series' as const },
+      itemStyle: { color: '#94a3b8' },
+      data: rows.map((row) => row.otherLatency / 1000),
+    })
+  }
+
+  return {
+    animation: rows.length <= 300,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      appendToBody: true,
+      formatter: (params: unknown) => {
+        const items = Array.isArray(params) ? params : []
+        const first = items[0] as { dataIndex?: number } | undefined
+        const dataIndex = first?.dataIndex
+        const row = typeof dataIndex === 'number' ? rows[dataIndex] : undefined
+        if (!row) return ''
+
+        const details = items
+          .map((item) => item as { seriesName?: string; value?: unknown; color?: string })
+          .filter(
+            (item) =>
+              item.seriesName !== '总时延' &&
+              typeof item.value === 'number' &&
+              Number.isFinite(item.value) &&
+              item.value > 0,
+          )
+          .map(
+            (item) =>
+              `<div class="top-slow-tooltip-row"><span><i style="background:${item.color || '#94a3b8'}"></i>${escapeChartHtml(item.seriesName || '-')}</span><strong>${formatTopSlowMetric(item.seriesName, item.value as number)}</strong></div>`,
+          )
+          .join('')
+
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+      },
+    },
+    legend: {
+      type: 'scroll',
+      top: 0,
+      left: 8,
+      right: 8,
+      data: [
+        ...topSlowSegmentConfig.value.map((segment) => segment.label),
+        ...(hasOtherLatency ? ['其他'] : []),
+        '总时延',
+      ],
+      textStyle: { color: '#334155', fontSize: 12 },
+    },
+    grid: { top: 58, right: 24, bottom: 92, left: 62, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: { color: '#cbd5e1', fontSize: 10, fontWeight: 400, rotate: 42, interval: 0 },
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+    },
+    yAxis: {
+      type: 'value',
+      name: '时延 (ms)',
+      min: 0,
+      axisLabel: { color: '#64748b', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#e2e8f0' } },
+    },
+    dataZoom: [
+      { type: 'inside', start: 0, end: initialEnd, zoomOnMouseWheel: true, moveOnMouseMove: true },
+      { type: 'slider', start: 0, end: initialEnd, bottom: 48, height: 20 },
+    ],
+    series: [
+      ...barSeries,
+      {
+        name: '总时延',
+        type: 'line',
+        symbol: 'none',
+        lineStyle: { color: '#dc2626', width: 2 },
+        itemStyle: { color: '#dc2626' },
+        z: 10,
+        data: rows.map((row) => row.totalLatency / 1000),
+      },
+    ],
+  }
+}
+
+const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
+  const operation = selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
+  const segmentConfig = operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
+  const labels = rows.map((row) => row.timestampLabel)
+  const initialEnd = Math.min(100, (50 / rows.length) * 100)
+  const hasOtherLatency = rows.some((row) => row.otherLatency > 0)
+  const barSeries = segmentConfig.map((segment) => ({
+    name: segment.label,
+    type: 'bar' as const,
+    stack: 'latency-components',
+    barMaxWidth: 22,
+    emphasis: { focus: 'series' as const },
+    itemStyle: { color: segment.color },
+    data: rows.map((row) => {
+      const value = row.segments[segment.key]
+      return typeof value === 'number' ? value : 0
+    }),
   }))
 
   if (hasOtherLatency) {
@@ -3841,7 +3998,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
           )
           .map(
             (item) =>
-              `<div class="top-slow-tooltip-row"><span><i style="background:${item.color || '#94a3b8'}"></i>${escapeChartHtml(item.seriesName || '-')}</span><strong>${formatTopSlowMetric(item.seriesName, item.value as number)}</strong></div>`,
+              `<div class="top-slow-tooltip-row"><span><i style="background:${item.color || '#94a3b8'}"></i>${escapeChartHtml(item.seriesName || '-')}</span><strong>${formatTopSlowLatency(item.value as number)}</strong></div>`,
           )
           .join('')
 
@@ -3854,7 +4011,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
       left: 8,
       right: 8,
       data: [
-        ...topSlowSegmentConfig.value.map((segment) => segment.label),
+        ...segmentConfig.map((segment) => segment.label),
         ...(hasOtherLatency ? ['其他'] : []),
         '总时延',
       ],
@@ -3869,7 +4026,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
     },
     yAxis: {
       type: 'value',
-      name: '时延 (μs)',
+      name: '时延 (ms)',
       min: 0,
       axisLabel: { color: '#64748b', fontSize: 11 },
       splitLine: { lineStyle: { color: '#e2e8f0' } },
@@ -3980,9 +4137,9 @@ const renderLatencyEchart = () => {
 }
 
 const renderDetailLatencyEchart = () => {
-  if (isDetailLatencyChartLoading.value || detailLatencyChartError.value) return
+  if (isDetailParseResultsLoading.value || detailParseResultsError.value) return
   const element = detailLatencyChartRef.value
-  if (!element || detailLatencyChartBuckets.value.length === 0) return
+  if (!element || detailFaultTraceChartRows.value.length === 0) return
 
   if (detailLatencyChartInstance && detailLatencyChartInstance.getDom() !== element) {
     detailLatencyChartInstance.dispose()
@@ -3990,7 +4147,7 @@ const renderDetailLatencyEchart = () => {
   }
   detailLatencyChartInstance ??= echarts.init(element)
   detailLatencyChartInstance.setOption(
-    createDetailLatencyEchartsOption(detailLatencyChartBuckets.value, element.clientWidth),
+    createFaultTraceEchartsOption(detailFaultTraceChartRows.value),
     true,
   )
   detailLatencyChartInstance.off('click')
@@ -4558,6 +4715,7 @@ const latencyMetricRecordKeys: Record<AggregatedLatencyKey, string[]> = {
   create_latency: ['create_latency'],
   publish_latency: ['publish_latency'],
   worker_total_latency: ['worker_total_latency'],
+  master_rpc_total: ['master_rpc_total'],
 }
 
 const getLogFailureReason = (record: Record<string, unknown>) => {
@@ -4619,7 +4777,7 @@ const getLogDisplayReason = (record: Record<string, unknown>) => {
 const normalizeTraceOperation = (operation: string) => {
   const normalized = operation.trim().toUpperCase()
   if (normalized.includes('GET')) return 'GET'
-  if (normalized.includes('SET')) return 'SET'
+  if (normalized.includes('SET') || normalized.includes('CREATE') || normalized.includes('PUBLISH')) return 'SET'
   return '-'
 }
 
@@ -5422,7 +5580,7 @@ const openAggregatedEventDetail = (row: LatencyDetailRow) => {
   detailParseResultsPageInput.value = ''
   detailParseResultTraceIdInput.value = ''
   detailParseResultTraceIdQuery.value = ''
-  void loadDetailLatencyChart(row)
+  void loadAllDetailParseResults(row)
   void loadDetailParseResults(row, 1)
 }
 
@@ -5431,6 +5589,7 @@ const closeAggregatedEventDetail = () => {
   detailLatencyMetrics.value = []
   detailLatencyChartError.value = ''
   detailParseResults.value = []
+  allDetailParseResults.value = []
   detailParseResultsError.value = ''
   detailParseResultsTotal.value = 0
   detailParseResultsPage.value = 1
@@ -6193,6 +6352,7 @@ const loadLatencyChart = async () => {
 
   try {
     const filters = appliedFilters.value
+    const logId = selectedLogFileId.value ?? (logFiles.value[0] ? getLogFileId(logFiles.value[0]) : undefined)
     const body: Record<string, unknown> = {
       kb_id: assetId,
       max_points: maxPoints,
@@ -6201,7 +6361,7 @@ const loadLatencyChart = async () => {
       sort_order: 'asc',
       operation: selectedOperation.value.toUpperCase(),
       bucket_seconds: selectedLatencyScale.value,
-      log_id: selectedLogFileId.value ?? undefined,
+      log_id: logId,
     }
 
     if (filters.startTime) {
@@ -6410,7 +6570,7 @@ const loadDetailParseResults = async (
       page_num: pageNum,
       sort_fields: sortFields.length > 0 ? sortFields : undefined,
       is_anomalous: true,
-      operation: row.operation || undefined,
+      operation: row.operation || selectedOperation.value.toUpperCase(),
     }
     if (detailParseResultTraceIdQuery.value) {
       requestBody.trace_id = detailParseResultTraceIdQuery.value
@@ -6452,6 +6612,47 @@ const loadDetailParseResults = async (
       isDetailParseResultsLoading.value = false
     }
     detailParseResultSort.releaseSortLock()
+  }
+}
+
+const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
+  if (!selectedAssetId.value) {
+    allDetailParseResults.value = []
+    return
+  }
+
+  const assetId = selectedAssetId.value
+
+  try {
+    const requestBody: Record<string, unknown> = {
+      kb_id: assetId,
+      aggregated_event_id: row.startTime || row.endTime ? undefined : row.id,
+      src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
+      dst_ip: row.targetPodIp === '-' ? undefined : row.targetPodIp,
+      start_time: row.startTime || undefined,
+      end_time: row.endTime || undefined,
+      page_cnt: 1000,
+      page_num: 1,
+      sort_fields: [{ field: 'timestamp', order: 'asc' }],
+      is_anomalous: true,
+      operation: row.operation || selectedOperation.value.toUpperCase(),
+    }
+
+    const result = await request<{ total: number; log_parse_results: LogParseResultModel[] }>(
+      '/log_parse_result/list',
+      {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      },
+    )
+
+    if (selectedAggregatedEvent.value?.id === row.id) {
+      allDetailParseResults.value = result.log_parse_results ?? []
+    }
+  } catch (error) {
+    if (selectedAggregatedEvent.value?.id === row.id) {
+      allDetailParseResults.value = []
+    }
   }
 }
 
@@ -6765,11 +6966,14 @@ const handleIpPairSort = (sortBy: string) => {
 }
 
 const getSortedIpPairs = (event: TimeWindowAggregatedEvent): TimeWindowAggregatedIpPair[] => {
-  const pairs = [...event.ip_pairs]
+  const pairs = [...event.ip_pairs].filter(
+    (pair) => pair.anomaly_log_parse_result_cnt > 0,
+  )
   const sortFields = timeWindowIpPairSortFields.value
+  if (sortFields.length === 0) return pairs
   const getValue = (pair: TimeWindowAggregatedIpPair, key: string): number => {
     if (key === 'total_cnt') return pair.log_parse_result_cnt
-    if (key === 'anomaly_cnt') return pair.anomaly_log_parse_result_cnt
+    if (key === 'anomaly_cnt') return pair.anomaly_cnt
     const metricKey = `ave_${key}` as keyof TimeWindowAggregatedIpPair
     const val = pair[metricKey]
     return typeof val === 'number' ? val : 0
@@ -7648,7 +7852,6 @@ const deleteAsset = async (asset: LogKnowledge) => {
     }
 
     assets.value = assets.value.filter((item) => item.id !== asset.id)
-    await loadAssets()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '删除资产库失败'
   }
@@ -8347,11 +8550,10 @@ watch(
 
 watch(
   [
-    detailLatencyChartBuckets,
-    isDetailLatencyChartLoading,
-    detailLatencyChartError,
+    detailFaultTraceChartRows,
+    isDetailParseResultsLoading,
+    detailParseResultsError,
     selectedAggregatedEvent,
-    visibleLatencyKeys,
   ],
   () => {
     void nextTick(renderDetailLatencyEchart)
@@ -8892,7 +9094,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <p class="monitor-sub">
-              完整复刻 yuanrong_tool 的 24 项指标与总时延曲线，可交互选择展示
+              包含 yuanrong KVCache 的 24 项指标与总时延曲线，可交互选择展示
             </p>
           </header>
 
@@ -9136,37 +9338,6 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell">结束时间</div>
                         <div
                           class="aggregate-cell count-cell aggregate-sortable-cell"
-                          @click="handleTimeWindowSort('total_cnt')"
-                        >
-                          <span class="sort-header-content">
-                            结果数
-                            <span class="sort-icons">
-                              <span
-                                class="sort-icon-up"
-                                :class="{
-                                  'sort-icon-active': getTimeWindowSortOrder('total_cnt') === 'asc',
-                                }"
-                                >▲</span
-                              >
-                              <span
-                                class="sort-icon-down"
-                                :class="{
-                                  'sort-icon-active':
-                                    getTimeWindowSortOrder('total_cnt') === 'desc',
-                                }"
-                                >▼</span
-                              >
-                              <span
-                                v-if="getTimeWindowSortPriority('total_cnt')"
-                                class="sort-priority-badge"
-                              >
-                                {{ getTimeWindowSortPriority('total_cnt') }}
-                              </span>
-                            </span>
-                          </span>
-                        </div>
-                        <div
-                          class="aggregate-cell count-cell aggregate-sortable-cell"
                           @click="handleTimeWindowSort('anomaly_cnt')"
                         >
                           <span class="sort-header-content">
@@ -9258,7 +9429,6 @@ onBeforeUnmount(() => {
                             </div>
                             <div class="aggregate-cell">{{ twEvent.start_time }}</div>
                             <div class="aggregate-cell">{{ twEvent.end_time }}</div>
-                            <div class="aggregate-cell count-cell">{{ twEvent.total_cnt }}</div>
                             <div class="aggregate-cell count-cell anomaly-count">
                               {{ twEvent.anomaly_cnt }}
                             </div>
@@ -9275,38 +9445,6 @@ onBeforeUnmount(() => {
                               <div class="aggregate-cell fault-expand-cell"></div>
                               <div class="aggregate-cell">源IP</div>
                               <div class="aggregate-cell">目标IP</div>
-                              <div
-                                class="aggregate-cell count-cell aggregate-sortable-cell"
-                                @click.stop="handleIpPairSort('total_cnt')"
-                              >
-                                <span class="sort-header-content">
-                                  结果数
-                                  <span class="sort-icons">
-                                    <span
-                                      class="sort-icon-up"
-                                      :class="{
-                                        'sort-icon-active':
-                                          getTimeWindowIpPairSortOrder('total_cnt') === 'asc',
-                                      }"
-                                      >▲</span
-                                    >
-                                    <span
-                                      class="sort-icon-down"
-                                      :class="{
-                                        'sort-icon-active':
-                                          getTimeWindowIpPairSortOrder('total_cnt') === 'desc',
-                                      }"
-                                      >▼</span
-                                    >
-                                    <span
-                                      v-if="getTimeWindowIpPairSortPriority('total_cnt')"
-                                      class="sort-priority-badge"
-                                    >
-                                      {{ getTimeWindowIpPairSortPriority('total_cnt') }}
-                                    </span>
-                                  </span>
-                                </span>
-                              </div>
                               <div
                                 class="aggregate-cell count-cell aggregate-sortable-cell"
                                 @click.stop="handleIpPairSort('anomaly_cnt')"
@@ -9389,9 +9527,6 @@ onBeforeUnmount(() => {
                               <div class="aggregate-cell fault-expand-cell"></div>
                               <div class="aggregate-cell">{{ ipPair.src_ip || '-' }}</div>
                               <div class="aggregate-cell">{{ ipPair.dst_ip || '-' }}</div>
-                              <div class="aggregate-cell count-cell">
-                                {{ ipPair.log_parse_result_cnt }}
-                              </div>
                               <div class="aggregate-cell count-cell anomaly-count">
                                 {{ ipPair.anomaly_log_parse_result_cnt }}
                               </div>
@@ -9477,7 +9612,7 @@ onBeforeUnmount(() => {
                         >
                           <div class="aggregate-cell latency-breakdown-header">
                             <span>各阶段时延分解</span>
-                            <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
+                            <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
                           </div>
                         </div>
                       </div>
@@ -9534,7 +9669,7 @@ onBeforeUnmount(() => {
                                 }"
                               >
                                 <div class="aggregate-cell latency-breakdown-header compact">
-                                  <span>IP 对阶段时延分解（µs）</span>
+                                  <span>IP 对阶段时延分解（ms）</span>
                                 </div>
                               </div>
                               <div
@@ -9811,7 +9946,7 @@ onBeforeUnmount(() => {
                           </span>
                         </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
+                        <div class="aggregate-cell trace-id"><span class="trace-id-text">{{ row.traceId }}</span></div>
                         <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
@@ -9868,7 +10003,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="aggregate-cell latency-breakdown-header column-resizable">
                           <span>各阶段时延分解</span>
-                          <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
+                          <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
                           <div
                             class="column-resize-handle"
                             @mousedown.stop="(e) => handleColumnResizeStart(e, 'latencyData', 1)"
@@ -11897,67 +12032,29 @@ onBeforeUnmount(() => {
           </div>
 
           <section class="aggregate-detail-chart">
-            <div class="aggregate-detail-chart-title">时延趋势（P99）</div>
-            <div class="latency-series-toggle">
-              <span class="latency-series-toggle-label">曲线选择：</span>
-              <span class="latency-series-toggle-count">
-                已选 {{ selectedLatencySeriesCount }}/{{ latencySeriesCount }}
-              </span>
-              <button
-                class="latency-series-toggle-btn latency-series-toggle-all"
-                type="button"
-                @click="selectAllLatencySeries"
-              >
-                全选
-              </button>
-              <button
-                class="latency-series-toggle-btn latency-series-toggle-none"
-                type="button"
-                @click="deselectAllLatencySeries"
-              >
-                清空
-              </button>
-              <div class="latency-series-options" aria-label="时延指标选择">
-                <label
-                  v-for="series in latencySeriesConfig"
-                  :key="series.key"
-                  class="latency-series-checkbox"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="isLatencySeriesVisible(series.key)"
-                    @change="toggleLatencySeriesVisibility(series.key)"
-                  />
-                  <span
-                    class="latency-series-color-dot"
-                    :style="{ backgroundColor: series.color }"
-                  ></span>
-                  {{ series.label }}
-                </label>
-              </div>
-            </div>
+            <div class="aggregate-detail-chart-title">故障Trace时序分解</div>
             <div class="latency-chart-panel detail-latency-chart-panel">
-              <div v-if="isDetailLatencyChartLoading" class="chart-state detail-chart-state">
-                正在加载时延趋势...
+              <div v-if="isDetailParseResultsLoading" class="chart-state detail-chart-state">
+                正在加载故障Trace时序分解...
               </div>
               <div
-                v-else-if="detailLatencyChartError"
+                v-else-if="detailParseResultsError"
                 class="chart-state chart-error detail-chart-state"
               >
-                {{ detailLatencyChartError }}
+                {{ detailParseResultsError }}
               </div>
               <div
-                v-else-if="detailLatencyChartBuckets.length === 0"
+                v-else-if="detailFaultTraceChartRows.length === 0"
                 class="chart-state detail-chart-state"
               >
-                暂无时延数据
+                暂无故障Trace数据
               </div>
               <div
                 v-else
                 ref="detailLatencyChartRef"
                 class="echarts-latency-chart detail-echarts-latency-chart"
                 role="img"
-                aria-label="聚合事件时延趋势"
+                aria-label="故障Trace时序分解"
               ></div>
             </div>
           </section>

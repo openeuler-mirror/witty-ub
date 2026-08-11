@@ -66,6 +66,7 @@ class TimeWindowAggregatedEventPGManager:
         "log_id",
         "src_ip",
         "dst_ip",
+        "operation",
         "log_parse_result_cnt",
         "anomaly_cnt",
         "ave_total_latency",
@@ -93,6 +94,7 @@ class TimeWindowAggregatedEventPGManager:
             "time_bucket": parse_timestamp(event.time_bucket),
             "src_ip": parse_ip(event.src_ip),
             "dst_ip": parse_ip(event.dst_ip),
+            "operation": getattr(event, "operation", ""),
             "log_parse_result_cnt": event.log_parse_result_cnt,
             "anomaly_cnt": event.anomaly_cnt,
             "ave_total_latency": event.ave_total_latency,
@@ -115,6 +117,7 @@ class TimeWindowAggregatedEventPGManager:
             event.log_id,
             parse_ip(event.src_ip),
             parse_ip(event.dst_ip),
+            getattr(event, "operation", ""),
             event.log_parse_result_cnt,
             event.anomaly_cnt,
             event.ave_total_latency,
@@ -259,7 +262,12 @@ class TimeWindowAggregatedEventPGManager:
         if pod_ip:
             filters.append(LogParseResult.pod_ips.contains([pod_ip]))
         if operation:
-            filters.append(LogParseResult.operation.ilike(f"%{operation}%"))
+            if operation.upper() == "GET":
+                filters.append(LogParseResult.operation.ilike("%GET%"))
+            elif operation.upper() == "SET":
+                filters.append(
+                    LogParseResult.operation.in_(["DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
+                )
         if kb_id:
             kb_subq = select(LogFile.id).where(LogFile.kb_id == kb_id).subquery()
             filters.append(LogParseResult.log_id.in_(select(kb_subq.c.id)))
@@ -521,7 +529,12 @@ class TimeWindowAggregatedEventPGManager:
         if req.pod_ip:
             filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
         if req.operation:
-            filters.append(LogParseResult.operation.ilike(f"%{req.operation}%"))
+            if req.operation.upper() == "GET":
+                filters.append(LogParseResult.operation.ilike("%GET%"))
+            elif req.operation.upper() == "SET":
+                filters.append(
+                    LogParseResult.operation.in_(["DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
+                )
 
         stmt = (
             select(
@@ -621,6 +634,13 @@ class TimeWindowAggregatedEventPGManager:
             filters.append(func.host(TimeWindowAggregated.src_ip).like(f"%{req.src_ip}%"))
         if req.dst_ip:
             filters.append(func.host(TimeWindowAggregated.dst_ip).like(f"%{req.dst_ip}%"))
+        if req.operation:
+            if req.operation.upper() == "GET":
+                filters.append(TimeWindowAggregated.operation.ilike("%GET%"))
+            elif req.operation.upper() == "SET":
+                filters.append(
+                    TimeWindowAggregated.operation.in_(["SET", "DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
+                )
 
         bucket_epoch = (
             func.floor(
@@ -663,6 +683,7 @@ class TimeWindowAggregatedEventPGManager:
                 TimeWindowAggregated.src_ip,
                 TimeWindowAggregated.dst_ip,
             )
+            .having(func.sum(TimeWindowAggregated.anomaly_cnt) > 0)
             .order_by(bucket_epoch)
         )
 

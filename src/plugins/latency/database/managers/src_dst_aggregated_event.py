@@ -34,6 +34,7 @@ class SrcDstAggregatedEventPGManager:
         "kb_id",
         "src_ip",
         "dst_ip",
+        "operation",
         "log_id",
         "log_parse_result_cnt",
         "anomaly_log_parse_result_cnt",
@@ -55,6 +56,7 @@ class SrcDstAggregatedEventPGManager:
             "kb_id": getattr(event, "kb_id", ""),
             "src_ip": parse_ip(event.src_ip),
             "dst_ip": parse_ip(event.dst_ip),
+            "operation": getattr(event, "operation", ""),
             "log_id": event.log_id,
             "log_parse_result_cnt": event.log_parse_result_cnt,
             "anomaly_log_parse_result_cnt": event.anomaly_log_parse_result_cnt,
@@ -69,6 +71,7 @@ class SrcDstAggregatedEventPGManager:
             getattr(event, "kb_id", ""),
             parse_ip(event.src_ip),
             parse_ip(event.dst_ip),
+            getattr(event, "operation", ""),
             event.log_id,
             event.log_parse_result_cnt,
             event.anomaly_log_parse_result_cnt,
@@ -172,13 +175,19 @@ class SrcDstAggregatedEventPGManager:
         if req.pod_ip:
             filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
         if req.operation:
-            filters.append(LogParseResult.operation.ilike(f"%{req.operation}%"))
+            if req.operation.upper() == "GET":
+                filters.append(LogParseResult.operation.ilike("%GET%"))
+            elif req.operation.upper() == "SET":
+                filters.append(
+                    LogParseResult.operation.in_(["DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
+                )
 
         return (
             select(
                 LogParseResult.log_id,
                 LogParseResult.src_ip,
                 LogParseResult.dst_ip,
+                func.max(LogParseResult.operation).label("operation"),
                 func.count().label("log_parse_result_cnt"),
                 func.sum(
                     case((LogParseResult.anomalous_event_id != "", 1), else_=0)
@@ -301,6 +310,7 @@ class SrcDstAggregatedEventPGManager:
                 "id": mapping["id"],
                 "src_ip": mapping["src_ip"],
                 "dst_ip": mapping["dst_ip"],
+                "operation": mapping.get("operation", ""),
                 "log_id": mapping["log_id"],
                 "log_parse_result_cnt": mapping.get("log_parse_result_cnt"),
                 "anomaly_log_parse_result_cnt": mapping.get(
@@ -333,6 +343,14 @@ class SrcDstAggregatedEventPGManager:
             .where(SrcDstAggregatedEvent.kb_id == req.kb_id)
             .where(SrcDstAggregatedEvent.existed_status.is_(True))
         )
+        
+        # 添加 operation 过滤
+        if req.operation:
+            if req.operation.upper() == "GET":
+                stmt = stmt.where(SrcDstAggregatedEvent.operation.ilike("%GET%"))
+            elif req.operation.upper() == "SET":
+                stmt = stmt.where(SrcDstAggregatedEvent.operation.in_(["SET", "DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"]))
+        
         count_stmt = select(func.count()).select_from(stmt.subquery())
         data_stmt = stmt.order_by(
             SrcDstAggregatedEvent.anomaly_cnt.desc()
@@ -348,6 +366,7 @@ class SrcDstAggregatedEventPGManager:
                 "id": row.id,
                 "src_ip": format_ip(row.src_ip) if row.src_ip else "",
                 "dst_ip": format_ip(row.dst_ip) if row.dst_ip else "",
+                "operation": row.operation or "",
                 "log_id": row.log_id,
                 "log_parse_result_cnt": row.log_parse_result_cnt,
                 "anomaly_log_parse_result_cnt": row.anomaly_log_parse_result_cnt,
@@ -388,6 +407,7 @@ class SrcDstAggregatedEventPGManager:
                 LogParseResult.log_id,
                 LogParseResult.src_ip,
                 LogParseResult.dst_ip,
+                func.max(LogParseResult.operation).label("operation"),
                 func.count().label("log_parse_result_cnt"),
                 func.sum(
                     case((LogParseResult.anomalous_event_id != "", 1), else_=0)

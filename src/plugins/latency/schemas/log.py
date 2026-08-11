@@ -865,6 +865,7 @@ class TimeWindowAggregatedEventDataclass:
     time_bucket: str = ""
     src_ip: str = ""
     dst_ip: str = ""
+    operation: str = ""
     log_parse_result_cnt: int = 0
     anomaly_cnt: int = 0
     ave_total_latency: float | None = None

@@ -95,6 +95,8 @@ def needs_preprocess(source_path: str) -> bool:
         return False
 
     if os.path.isfile(source_path):
+        if _is_archive(source_path):
+            return True
         return _needs_split(source_path)
 
     saw_file = False
