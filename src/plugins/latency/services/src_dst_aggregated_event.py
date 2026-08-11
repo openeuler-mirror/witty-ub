@@ -72,7 +72,18 @@ class SrcDstAggregatedEventService:
             result = [e for e in result if e.dst_ip and req.dst_ip in e.dst_ip]
         if req.operation:
             op_upper = req.operation.strip().upper()
-            result = [e for e in result if (e.operation or "").strip().upper() == op_upper]
+            # GET 操作：匹配包含 GET 的操作（如 DS_KV_CLIENT_GET）
+            if op_upper == "GET":
+                result = [e for e in result if "GET" in (e.operation or "").upper()]
+            # SET 操作：匹配包含 SET/CREATE/PUBLISH 的操作
+            elif op_upper == "SET":
+                result = [
+                    e for e in result 
+                    if any(kw in (e.operation or "").upper() for kw in ["SET", "CREATE", "PUBLISH"])
+                ]
+            else:
+                # 其他操作类型：精确匹配
+                result = [e for e in result if (e.operation or "").strip().upper() == op_upper]
         if req.cluster_name:
             result = [e for e in result if e.cluster_name == req.cluster_name]
         if req.host:

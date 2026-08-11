@@ -513,17 +513,23 @@ class KVCacheLogParseWorker(BaseWorker):
         snapshot: dict[str, float | None] = {}
 
         # total_latency  ──────────────────────────────────────────
-        snapshot["total_latency"] = (
-            sdk[0][TupleField.ELAPSED_US] / 1000.0 if sdk else None
-        )
+        # 支持三种场景：只有SDK、只有Worker、都有
+        if sdk:
+            snapshot["total_latency"] = sdk[0][TupleField.ELAPSED_US] / 1000.0
+        elif worker:
+            snapshot["total_latency"] = worker[0][TupleField.ELAPSED_US] / 1000.0
+        else:
+            snapshot["total_latency"] = None
 
         # c2w_urma_latency  ───────────────────────────────────────
+        # 只有同时有SDK和Worker时才能计算C2W时延
         if sdk and worker:
             snapshot["c2w_urma_latency"] = (
                 sdk[0][TupleField.ELAPSED_US]
                 - worker[0][TupleField.ELAPSED_US]
             ) / 1000.0
         else:
+            # 只有SDK或只有Worker，无法计算C2W
             snapshot["c2w_urma_latency"] = None
 
         # Label-based fields  ─────────────────────────────────────
@@ -559,34 +565,56 @@ class KVCacheLogParseWorker(BaseWorker):
     ) -> dict | None:
         """Extract per-trace metrics shared by the aggregate and field-table builds.
 
-        Returns ``None`` when the trace must be skipped (no SDK entry, or the
-        SDK ``elapsed_us`` is missing/negative) — mirroring the aggregate's
+        Returns ``None`` when the trace must be skipped (no SDK/Worker entry, or the
+        elapsed_us is missing/negative) — mirroring the aggregate's
         first pass so the two slices stay perfectly aligned.
+        
+        支持三种场景：
+        1. 只有SDK access日志
+        2. 只有Worker access日志
+        3. 同时包含SDK和Worker access日志
         """
         sdk_entries = entries.get("SDK access parse", [])
-        if not sdk_entries:
+        worker_entries = entries.get("Worker access parse", [])
+        
+        if sdk_entries:
+            first = sdk_entries[0]
+        elif worker_entries:
+            first = worker_entries[0]
+        else:
             return None
-        first = sdk_entries[0]
+        
         elapsed_us = first[TupleField.ELAPSED_US]
         if elapsed_us is None or elapsed_us < 0:
             return None
         total_ms = elapsed_us / 1000.0
-        # Resolve src/dst from downstream entries (URMA/RemotePull), not from
+        # Resolve src/dst from downstream entries (URMA/RemotePull/RemoteWorker), not from
         # the SDK entry, which never carries SRC_ADDR/DST_ADDR. Fallback
-        # chain: URMA -> RemotePull -> empty.
+        # chain: URMA -> RemotePull -> RemoteWorkerCost -> RemoteWorkerRpc -> empty.
         _urma = entries.get(URMA_LABEL, [])
         _pop = entries.get(REMOTE_PULL_LABEL, [])
+        _rwc = entries.get(REMOTE_WORKER_COST_LABEL, [])
+        _rwr = entries.get(REMOTE_WORKER_RPC_LABEL, [])
         if _urma:
             src = str(_urma[0][TupleField.SRC_ADDR] or "").strip() or ""
             dst = str(_urma[0][TupleField.DST_ADDR] or "").strip() or ""
         elif _pop:
             src = str(_pop[0][TupleField.SRC_ADDR] or "").strip() or ""
             dst = str(_pop[0][TupleField.DST_ADDR] or "").strip() or ""
+        elif _rwc:
+            src = str(_rwc[0][TupleField.SRC_ADDR] or "").strip() or ""
+            dst = str(_rwc[0][TupleField.DST_ADDR] or "").strip() or ""
+        elif _rwr:
+            src = str(_rwr[0][TupleField.SRC_ADDR] or "").strip() or ""
+            dst = str(_rwr[0][TupleField.DST_ADDR] or "").strip() or ""
         else:
             src = ""
             dst = ""
         op = (str(first[TupleField.OPERATION] or "")).strip().upper()
-        op_key = "SET" if "SET" in op else "GET"
+        # 对于Worker-only trace，operation可能是DS_POSIX_GET/CREATE/PUBLISH
+        # 对于SDK trace，operation是DS_KV_CLIENT_GET/SET等
+        # 统一映射到GET/SET分类
+        op_key = "GET" if "GET" in op else "SET"
         bucket_epoch = KVCacheLogParseWorker._bucket_epoch_10s(
             first[TupleField.TIMESTAMP]
         )
@@ -677,8 +705,17 @@ class KVCacheLogParseWorker(BaseWorker):
             operation=flat.get("op") or None,
             trace_id=flat.get("tid"),
             log_id=log_file_id or flat.get("log_id", ""),
+            # pod_ip 现在是一个列表（implode_unique 策略），需要处理列表类型
             pod_ips=(
-                [str(flat["pod_ip"])] if flat.get("pod_ip") else None
+                [str(ip) for ip in flat["pod_ip"]]
+                if isinstance(flat.get("pod_ip"), list)
+                else ([str(flat["pod_ip"])] if flat.get("pod_ip") else None)
+            ),
+            # cluster_name 现在也是一个列表（implode_unique 策略），需要处理列表类型
+            cluster_name=(
+                ", ".join(str(cn) for cn in flat["cluster_name"])
+                if isinstance(flat.get("cluster_name"), list)
+                else (str(flat["cluster_name"]) if flat.get("cluster_name") else None)
             ),
             data_size=(
                 str(flat["data_size"]) if flat.get("data_size") else None
@@ -776,10 +813,12 @@ class KVCacheLogParseWorker(BaseWorker):
         31 TRACE_COLUMNS, one row/trace); no spawn/pickle/sharding.
 
         Semantics:
-        - anomaly mask ``(total_ms >= threshold_ms) | (status_code != 0)``
-          (status_code null → not anomalous by status).
+        - 先计算 anomalous_tids（完整异常：时延异常 + 状态码异常）
+        - 再在 df_trace 中添加 is_anomalous_int 列（标记每个trace是否在 anomalous_tids 中）
+        - 聚合时统计 is_anomalous_int.sum()（确保 anomaly_cnt 与实际异常trace数量一致）
+        - ``anomaly_cnt`` 总和 = ``len(anomalous_tids)``（严格等于）
         - ``op_key`` 直接消费 df_trace 的 ``op_key`` 列（T1 列式投影已按
-          ``"SET" if "SET" in op.upper() else "GET"`` 计算）。
+          ``"GET" if "GET" in op.upper() else "SET"`` 计算）。
         - ``bucket_str`` 复刻 ``_format_bucket_epoch``（10s-aligned epoch →
           ``YYYY-MM-DD HH:MM:SS``）；``bucket_epoch=None`` → ``""``。
         - p99 必须 ``quantile(0.99, interpolation="linear")`` —— polars 默认
@@ -795,17 +834,26 @@ class KVCacheLogParseWorker(BaseWorker):
         import polars as pl
 
         # ── anomaly mask（单 trace 阈值, 与旧 worker 首遍一致）─────────
-        anomaly = (pl.col("total_ms") >= threshold_ms) | (
+        # 时延异常（仅用于统计 anomaly_cnt）
+        latency_anomaly = (pl.col("total_ms") >= threshold_ms)
+        
+        # 完整异常（用于 anomalous_tids，包含时延异常和状态码异常）
+        anomaly = latency_anomaly | (
             pl.col("status_code").is_not_null() & (pl.col("status_code") != 0)
         )
-        anomaly_i64 = anomaly.cast(pl.Int64)
 
+        # 先计算 anomalous_tids，用于后续聚合
         anomalous_tids: set[str] = set(df_trace.filter(anomaly)["tid"].to_list())
+        
+        # 在 df_trace 中添加 is_anomalous 列，用于聚合统计
+        df_trace = df_trace.with_columns(
+            pl.col("tid").is_in(anomalous_tids).cast(pl.Int64).alias("is_anomalous_int")
+        )
 
         # ── src_dst: group by (src, dst, op_key) ──────────────────────
         sd = df_trace.group_by(["src", "dst", "op_key"]).agg(
             pl.len().alias("cnt"),
-            anomaly_i64.sum().alias("anomaly_sum"),
+            pl.col("is_anomalous_int").sum().alias("anomaly_sum"),
             pl.col("log_id").drop_nulls().first().alias("first_log"),
         )
         src_dst_results: list[SrcDstAggregatedEventDataclass] = []
@@ -823,11 +871,11 @@ class KVCacheLogParseWorker(BaseWorker):
                     operation=r["op_key"],
                     log_parse_result_cnt=int(r["cnt"]),
                     anomaly_cnt=int(r["anomaly_sum"]),
-                    anomaly_log_parse_result_cnt=0,
+                    anomaly_log_parse_result_cnt=int(r["anomaly_sum"]),
                 )
             )
 
-        # ── time_window: group by (bucket_str, src, dst) ──────────────
+        # ── time_window: group by (bucket_str, src, dst, op_key) ──────────────
         # bucket_epoch 已是 10s-aligned 秒级 epoch（columnar._bucket_epoch_10s
         # 返回 ``(epoch_sec // 10) * 10``），直接格式化即 _format_bucket_epoch。
         df = df_trace.with_columns(
@@ -841,9 +889,9 @@ class KVCacheLogParseWorker(BaseWorker):
             .otherwise(pl.lit(""))
             .alias("bucket_str")
         )
-        tw = df.group_by(["bucket_str", "src", "dst"]).agg(
+        tw = df.group_by(["bucket_str", "src", "dst", "op_key"]).agg(
             pl.len().alias("cnt"),
-            anomaly_i64.sum().alias("anomaly_sum"),
+            pl.col("is_anomalous_int").sum().alias("anomaly_sum"),
             pl.col("log_id").drop_nulls().first().alias("first_log"),
             pl.col("total_ms").mean().alias("ave_total_latency"),
             pl.col("total_ms").sum().alias("latency_sum"),
@@ -856,6 +904,7 @@ class KVCacheLogParseWorker(BaseWorker):
             .quantile(0.99, interpolation="linear")
             .alias("p99_total_latency"),
         )
+        tw = tw.filter(pl.col("bucket_str") != "")
         time_window_results: list[TimeWindowAggregatedEventDataclass] = []
         for r in tw.iter_rows(named=True):
             time_window_results.append(
@@ -866,6 +915,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     time_bucket=r["bucket_str"],
                     src_ip=r["src"],
                     dst_ip=r["dst"],
+                    operation=r["op_key"],
                     log_parse_result_cnt=int(r["cnt"]),
                     anomaly_cnt=int(r["anomaly_sum"]),
                     ave_total_latency=(
@@ -1356,7 +1406,7 @@ class KVCacheLogParseWorker(BaseWorker):
             if detail_rows:
                 for row in detail_rows:
                     op = (row.operation or "").strip().upper()
-                    op_key = "SET" if "SET" in op else "GET"
+                    op_key = "GET" if "GET" in op else "SET"
                     row.aggregated_event_id = src_dst_to_agg_id_map.get(
                         (row.src_ip or "", row.dst_ip or "", op_key), ""
                     )

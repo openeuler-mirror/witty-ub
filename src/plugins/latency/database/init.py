@@ -15,6 +15,8 @@ from latency.database.models import Base
 _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
     ("trace_failure_event", "operation", "VARCHAR"),
     ("src_dst_aggregated_event", "kb_id", "VARCHAR"),
+    ("src_dst_aggregated_event", "operation", "VARCHAR"),
+    ("time_window_aggregated", "operation", "VARCHAR"),
     ("time_window_aggregated", "ave_total_latency", "DOUBLE PRECISION"),
     ("time_window_aggregated", "latency_sum", "DOUBLE PRECISION"),
     ("time_window_aggregated", "min_total_latency", "DOUBLE PRECISION"),
