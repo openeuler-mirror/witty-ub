@@ -1,26 +1,26 @@
+import asyncio
 import logging
 import os
-import operator
+from datetime import datetime, timezone
+
 import time
 import uuid
+import functools
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 from latency.schemas.log import (
-    LogParseResultModel,
+    TimeWindowAggregatedEventDataclass,
     LogParseResultDataclass,
-    SparseLogParseResultDataclass,
 )
 from latency.schemas.request import ParseConfig
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
-from latency.common.trace_context import collect_trace_context_logs
 from latency.parse import (
     SdkAccessLogParser,
+    ClientInfoParser,
     WorkerAccessLogParser,
     WorkerInfoParser,
-    LogCorrelator,
-    ParseResultBuilder,
 )
 from latency.parse.worker_info_parser import (
     URMA_LABEL,
@@ -40,41 +40,52 @@ from latency.parse.worker_info_parser import (
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.ds_log import TupleField
 from latency.parse.parallel_scanner import ParallelFileScanner
+from latency.parse.parallel_scanner.trace_frame import build_trace_frame
 from latency.ENUM.task import TaskSplitStrategy
-from latency.common.stats import stats
-from latency.detect import AnomalyDetector
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
-from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.utils import parse_timestamp
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventPGManager,
+)
+from latency.database.managers.time_window_aggregated_event import (
+    TimeWindowAggregatedEventPGManager,
+
 )
 from latency.database.managers.anomalous_event import AnomalousEventPGManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
 from latency.schemas.task import TaskModel
 from latency.schemas.log import (
+    TimeWindowAggregatedEventDataclass,
     SrcDstAggregatedEventDataclass,
-    AnomalousEventDataclass,
-    AnomalousEventChainModel,
 )
 from latency.task.worker.base import BaseWorker
+from latency.bucket.statistics import (
+    compute_and_store_bucket_stats_from_frame,
+)
 
 
 
 logger = logging.getLogger(__name__)
 
-TRACE_CONTEXT_TIMEOUT_THRESHOLDS_MS = {
-    "total_latency": 150.0,
-    "worker_query_meta_latency": 150.0,
-    "urma_total_latency": 150.0,
-    "urma_link_latency": 150.0,
-    "c2w_urma_latency": 100.0,
-    "w2w_urma_latency": 100.0,
-}
+
+def _utc_now_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _trace_row_count(trace_index: Any) -> int:
+    """Unified row count: df_trace (polars, ``.height``) or flat-dict (``len``).
+
+    T2/T5 列式路径下 *trace_index* 是 polars DataFrame；legacy（
+    WITTY_UB_SCAN_COLUMNS=0）下是平铺 dict。run() 的进度/日志统一走这里。
+    """
+    if hasattr(trace_index, "height"):
+        return int(trace_index.height)
+    return len(trace_index)
 
 WORKER_INFO_LABEL_BY_ENTRY_TYPE = {
     EntryType.URMA.value: URMA_LABEL,
@@ -94,6 +105,19 @@ WORKER_INFO_LABEL_BY_ENTRY_TYPE = {
 # scan_scope 会作为 ProcessPool 参数复制到每个子进程。大型日志通常每条
 # SDK 都有唯一 trace_id；传递百万级集合的序列化成本远高于直接扫描日志。
 MAX_PROCESS_SCAN_SCOPE_TRACE_IDS = 50_000
+
+# _resolve_snapshot 返回的全部时延字段(平铺 dict 中与 dataclass 同名的键)。
+# 供 _make_field_row 从平铺 dict 挑出, 构造 LogParseResultDataclass。
+_SNAPSHOT_KEYS = frozenset({
+    "total_latency", "c2w_urma_latency", "c2w_latency",
+    "urma_total_latency", "urma_link_latency", "query_meta_latency",
+    "worker_query_meta_latency", "worker_total_latency",
+    "sdk_process", "sdk_rpc", "local_worker_cost", "local_worker_lock",
+    "remote_worker_cost", "remote_worker_rpc",
+    "master_process", "master_rpc_total",
+    "w2w_urma_latency", "create_latency", "publish_latency",
+    "urma_inflight_count",
+})
 
 def _expand_worker_access_patterns(patterns: list[str]) -> list[str]:
     """兼容 access_*.log 形式的 Worker access 日志文件名。
@@ -179,6 +203,7 @@ class KVCacheLogParseWorker(BaseWorker):
         await SrcDstAggregatedEventPGManager.update_aggregated_events_existed_status_by_log_id(
             task.op_id, existed_status=0
         )
+        await TimeWindowAggregatedEventPGManager.delete_by_log_id(task.op_id)
         await TaskReportPGManager.update_task_reports_existed_status_by_task_id(
             task_id, existed_status=TaskStatusEnum.PENDING
         )
@@ -211,106 +236,6 @@ class KVCacheLogParseWorker(BaseWorker):
         )
 
     @staticmethod
-    def _build_worker_access_scan_scope(parsed: dict[str, list]) -> dict:
-        sdk_entries = parsed.get("SDK access parse", [])
-
-        if not sdk_entries:
-            return {
-                "enabled": False,
-                "_stats": {
-                    "sdk_traces": 0,
-                },
-            }
-
-        is_tuple = isinstance(sdk_entries[0], tuple)
-        trace_ids: set[str] = set()
-        for entry in sdk_entries:
-            trace_id = entry[TupleField.TRACE_ID] if is_tuple else entry.trace_id
-            if not trace_id:
-                continue
-            trace_ids.add(trace_id)
-            if len(trace_ids) > MAX_PROCESS_SCAN_SCOPE_TRACE_IDS:
-                return {
-                    "enabled": False,
-                    "reason": "trace_scope_too_large",
-                    "_stats": {
-                        "sdk_entries": len(sdk_entries),
-                        "sdk_traces": len(trace_ids),
-                        "trace_limit": MAX_PROCESS_SCAN_SCOPE_TRACE_IDS,
-                    },
-                }
-        return {
-            "enabled": True,
-            "trace_ids": trace_ids,
-            "_stats": {
-                "sdk_entries": len(sdk_entries),
-                "sdk_traces": len(trace_ids),
-                "trace_limit": MAX_PROCESS_SCAN_SCOPE_TRACE_IDS,
-            },
-        }
-
-    @staticmethod
-    def _build_worker_info_scan_scope(
-        parsed: dict[str, list],
-        sdk_trace_ids: Optional[set[str]] = None,
-    ) -> dict:
-        sdk_entries = parsed.get("SDK access parse", [])
-        worker_entries = parsed.get("Worker access parse", [])
-
-        if not sdk_entries:
-            return {
-                "enabled": False,
-                "_stats": {
-                    "sdk_traces": 0,
-                    "worker_scope": len(worker_entries),
-                    "pod_trace_scope": 0,
-                    "pod_scope": 0,
-                },
-            }
-
-        worker_is_tuple = worker_entries and isinstance(worker_entries[0], tuple)
-
-        if sdk_trace_ids is None:
-            sdk_is_tuple = isinstance(sdk_entries[0], tuple)
-            trace_ids = (
-                {
-                    entry[TupleField.TRACE_ID]
-                    for entry in sdk_entries
-                    if entry[TupleField.TRACE_ID]
-                }
-                if sdk_is_tuple
-                else {entry.trace_id for entry in sdk_entries if entry.trace_id}
-            )
-        else:
-            trace_ids = sdk_trace_ids
-        pod_trace_keys = set()
-        pod_ips = set()
-        worker_scope = 0
-        for worker in worker_entries:
-            w_trace_id = worker[TupleField.TRACE_ID] if worker_is_tuple else worker.trace_id
-            if w_trace_id not in trace_ids:
-                continue
-            worker_scope += 1
-            w_pod_ip = worker[TupleField.POD_IP] if worker_is_tuple else worker.pod_ip
-            if w_pod_ip and w_trace_id:
-                pod_trace_keys.add((w_pod_ip, w_trace_id))
-            if w_pod_ip:
-                pod_ips.add(w_pod_ip)
-
-        return {
-            "enabled": True,
-            "trace_ids": trace_ids,  # 直接传递集合
-            "pod_trace_keys": pod_trace_keys,  # 直接传递集合
-            "pod_ips": pod_ips,  # 直接传递集合
-            "_stats": {
-                "sdk_traces": len(trace_ids),
-                "worker_scope": worker_scope,
-                "pod_trace_scope": len(pod_trace_keys),
-                "pod_scope": len(pod_ips),
-            },
-        }
-
-    @staticmethod
     def _split_worker_info_entries(parsed: dict[str, list]) -> None:
         """将聚合的 Worker INFO 结果单遍拆分为关联器使用的标签。"""
         info_entries = parsed.pop("Worker info parse", [])
@@ -338,7 +263,14 @@ class KVCacheLogParseWorker(BaseWorker):
                 label = label_get(entry_type_value)
                 if label is not None:
                     split_entries[label].append(entry)
-        parsed.update(split_entries)
+        # 追加而非覆盖：合并单趟扫描下，快路径（scan_file）文件已把 info
+        # 条目直接写入子标签，多解析器路径的桶条目必须并入，不能覆盖丢失。
+        for label, extra in split_entries.items():
+            existing = parsed.get(label)
+            if existing is None:
+                parsed[label] = extra
+            else:
+                existing.extend(extra)
 
     @staticmethod
     def _trace_ids(entries: list) -> set[str]:
@@ -398,7 +330,8 @@ class KVCacheLogParseWorker(BaseWorker):
         parse_config: Optional[ParseConfig] = None,
         log_dir: str = "",  # 向后兼容参数
         task_id: str = "",  # 用于上报分阶段耗时到 TaskReport
-    ) -> list[LogParseResultModel]:
+        scan_progress_cb: Optional[Callable[[float], Awaitable]] = None,
+    ) -> Any:
         """解析日志文件
 
         Args:
@@ -406,9 +339,14 @@ class KVCacheLogParseWorker(BaseWorker):
             parse_config: 解析配置
             log_dir: 日志目录路径（向后兼容，优先使用 log_id）
             task_id: 任务ID（用于上报分阶段耗时）
+            scan_progress_cb: 可选扫描进度回调 ``async (fraction: float) -> None``，
+                转发给 scanner.scan_all，使扫描阶段进度平滑前进；None 时无副作用。
 
         Returns:
-            解析结果列表
+            列式路径（默认，WITTY_UB_SCAN_COLUMNS=1）: polars DataFrame ——
+            每 trace 一行，列 = TRACE_COLUMNS（31），即 df_trace 契约（D4）。
+            Legacy 路径（WITTY_UB_SCAN_COLUMNS=0）: {trace_id: 平铺dict(29键)}
+            字典，保持向后兼容。
         """
         # 优先使用 log_id，如果没有则使用 log_dir（向后兼容）
         if log_id:
@@ -418,13 +356,13 @@ class KVCacheLogParseWorker(BaseWorker):
                 raise ValueError(f"Log file with id {log_id} not found")
             if not log_dir:
                 log_dir = log_file.file_path
+            from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
+
             diagnosis_config = await DiagnosisConfigPGManager.get_or_create(log_file.kb_id)
         elif not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
         else:
             diagnosis_config = Config().get_diagnosis_config()
-
-        from latency.parse import ClientInfoParser
 
         sdk_parsers = [SdkAccessLogParser(parse_config), ClientInfoParser(parse_config)]
         worker_access_parsers = [WorkerAccessLogParser(parse_config)]
@@ -437,210 +375,72 @@ class KVCacheLogParseWorker(BaseWorker):
         for parser in info_parsers:
             parser._runtime_patterns = filename_config.ds_worker_info_log_file
 
-        sdk_scanner = KVCacheLogParseWorker._new_parallel_scanner()
-        worker_access_scanner = KVCacheLogParseWorker._new_parallel_scanner()
-        info_scanner = KVCacheLogParseWorker._new_parallel_scanner()
+        # T5 (Block D): 3 次串行 scan_all（SDK / WorkerAccess / INFO）合并为
+        # 1 次 scan_all + 3 parser 列表，每文件只读 1 遍（IO × 1/3）。
+        # FileParserMapBuilder 已支持多 parser per file；_scan_file_multi
+        # 按 keyword 把行路由到所有匹配 parser（all-matching）。
+        scanner = KVCacheLogParseWorker._new_parallel_scanner()
+        all_parsers = [*sdk_parsers, *worker_access_parsers, *info_parsers]
 
-        logger.info("=== Stage 1/3: Scanning files with parallel scanner ===")
+        logger.info("=== Stage 1/2: Scanning files with parallel scanner ===")
         t_scan_start = time.perf_counter()
-        parsed = await sdk_scanner.scan_all(log_dir, sdk_parsers, parse_config)
-
-        t_worker_access_scope_start = time.perf_counter()
-        worker_access_scan_scope = KVCacheLogParseWorker._build_worker_access_scan_scope(parsed)
-        t_worker_access_scope = time.perf_counter() - t_worker_access_scope_start
-        worker_access_scope_stats = worker_access_scan_scope.get("_stats", {})
-        logger.info(
-            "Worker access scan scope: enabled=%s, sdk_traces=%d, reason=%s",
-            worker_access_scan_scope.get("enabled", False),
-            worker_access_scope_stats.get("sdk_traces", 0),
-            worker_access_scan_scope.get("reason", "bounded_scope"),
-        )
-
-        worker_access_parsed = await worker_access_scanner.scan_all(
+        parsed = await scanner.scan_all(
             log_dir,
-            worker_access_parsers,
+            all_parsers,
             parse_config,
-            scan_scope=worker_access_scan_scope,
-        )
-        parsed.update(worker_access_parsed)
-
-        t_info_scope_start = time.perf_counter()
-        if worker_access_scan_scope.get("enabled", False):
-            info_scan_scope = KVCacheLogParseWorker._build_worker_info_scan_scope(
-                parsed,
-                worker_access_scan_scope["trace_ids"],
-            )
-        else:
-            worker_entries = parsed.get("Worker access parse", [])
-            info_scan_scope = {
-                "enabled": False,
-                "reason": worker_access_scan_scope.get("reason", "sdk_scope_disabled"),
-                "_stats": {
-                    "sdk_traces": worker_access_scope_stats.get("sdk_traces", 0),
-                    "worker_scope": len(worker_entries),
-                    "pod_trace_scope": 0,
-                    "pod_scope": 0,
-                },
-            }
-        t_info_scope = time.perf_counter() - t_info_scope_start
-        info_scope_stats = info_scan_scope.get("_stats", {})
-        logger.info(
-            "Worker INFO scan scope: enabled=%s, sdk_traces=%d, worker_scope=%d, pod_trace_scope=%d, pod_scope=%d",
-            info_scan_scope.get("enabled", False),
-            info_scope_stats.get("sdk_traces", 0),
-            info_scope_stats.get("worker_scope", 0),
-            info_scope_stats.get("pod_trace_scope", 0),
-            info_scope_stats.get("pod_scope", 0),
+            progress_cb=scan_progress_cb,
         )
 
-        skip_info_scan = (
-            info_scan_scope.get("enabled", False)
-            and not info_scan_scope.get("trace_ids")
-            and not info_scan_scope.get("pod_ips")
-        )
-        if skip_info_scan:
-            info_parsed = {}
-            logger.info("Skipping Worker INFO scan because SDK trace scope is empty")
-        else:
-            info_parsed = await info_scanner.scan_all(
-                log_dir,
-                info_parsers,
-                parse_config,
-                scan_scope=info_scan_scope,
+        # T1 (polars rewrite): 列式输出已随 legacy 标签一并返回, 本任务暂不消费
+        # （T2 用 build_trace_frame 从列重建 df_trace），弹出避免下游误读。
+        column_rows = parsed.pop("columns", None)
+        if column_rows is not None:
+            logger.info(
+                "Columnar scan output: %d per-line rows",
+                len(column_rows.get("tid", [])),
             )
-            parsed.update(info_parsed)
-            
-            # 兼容聚合标签路径：如果 WorkerInfoParser 结果落在
-            # "Worker info parse"，按 entry_type 拆成各个细分 label。
-            KVCacheLogParseWorker._split_worker_info_entries(parsed)
+            # 从 column_rows 统计各 label 条目数（替代已删除的 {label:[tuple]}）
+            from collections import Counter
+            entry_counts = Counter(column_rows.get("_label", []))
 
         t_scan = time.perf_counter() - t_scan_start
 
-        # 排序解析结果
-        t_sort_start = time.perf_counter()
-        for label in parsed:
-            entries = parsed[label]
-            if entries and isinstance(entries[0], tuple):
-                parsed[label].sort(key=operator.itemgetter(0))
-            else:
-                parsed[label].sort(key=operator.attrgetter("timestamp"))
-            logger.info(f"  {label}: {len(parsed[label]):,} entries")
-        entry_counts = {label: len(entries) for label, entries in parsed.items()}
-        trace_overlap_stats = KVCacheLogParseWorker._build_trace_overlap_stats(parsed)
-        logger.info(
-            "Trace overlap: "
-            "sdk_traces=%d, worker_traces=%d, sdk∩worker=%d, "
-            "worker∩urma=%d, worker∩pull=%d, worker∩meta=%d, worker∩timed=%d",
-            trace_overlap_stats["sdk_trace_ids"],
-            trace_overlap_stats["worker_trace_ids"],
-            trace_overlap_stats["sdk_worker_trace_overlap"],
-            trace_overlap_stats["worker_urma_trace_overlap"],
-            trace_overlap_stats["worker_remote_pull_trace_overlap"],
-            trace_overlap_stats["worker_query_meta_trace_overlap"],
-            trace_overlap_stats["worker_timed_trace_overlap"],
-        )
-        t_sort = time.perf_counter() - t_sort_start
+        if column_rows is not None:
+            # T2 (polars rewrite): 列式路径 —— 从列式行重建 df_trace
+            # （pl.concat → group_by("tid") → 每 trace 一行，列 = TRACE_COLUMNS）。
+            # yuanrong 26 项分段时延已内置在 build_trace_frame 中。
+            trace_index = build_trace_frame(column_rows)
+            del column_rows
+            del parsed
+            logger.info("Released parsed entries (columnar path)")
+            total = trace_index.height
+        else:
+            # T7: columnar 是唯一解析路径（legacy 平铺 dict 兜底已删）。扫描器
+            # 在 WITTY_UB_SCAN_COLUMNS=0 时不会产出 "columns"，此时必须显式报错。
+            raise RuntimeError(
+                "Columnar scan output missing — WITTY_UB_SCAN_COLUMNS must be "
+                "enabled (columnar is the only supported parse path after T7)"
+            )
 
-        if task_id:
-            await BaseWorker.report(task_id, "Log parsing: scanning done", 10.0)
-
-        logger.info("=== Stage 2/3: Correlating entries ===")
-        t_corr_start = time.perf_counter()
-        correlator = LogCorrelator(parsed)
-        correlated = correlator.correlate()
-        t_corr = time.perf_counter() - t_corr_start
-
-        if task_id:
-            await BaseWorker.report(task_id, "Log parsing: correlating done", 15.0)
-        logger.info(f"  SDK→Worker: {len(correlated.sdk_worker_map):,}, "
-                     f"Worker→URMA: {len(correlated.worker_urma_map):,}")
-        correlate_index_seconds = correlator.index_build_seconds
-        correlate_stage_timings = list(correlator.stage_timings)
-        correlate_worker_scope_count = correlator.worker_scope_count
-        correlate_worker_scope_pod_trace_count = correlator.worker_scope_pod_trace_count
-        timed_worker_indices = set()
-        for timed_map in (
-            correlated.worker_sdk_process_map,
-            correlated.worker_sdk_rpc_map,
-            correlated.worker_local_worker_cost_map,
-            correlated.worker_local_worker_lock_map,
-            correlated.worker_remote_worker_cost_map,
-            correlated.worker_remote_worker_rpc_map,
-            correlated.worker_master_process_map,
-            correlated.worker_master_rpc_map,
-        ):
-            timed_worker_indices.update(timed_map.keys())
-        timed_entry_count = sum(entry_counts.get(label, 0) for label in TIMED_LABELS)
-        correlate_match_counts = {
-            "sdk_worker": len(correlated.sdk_worker_map),
-            "sdk_urma_groups": len(correlated.sdk_urma_index),
-            "worker_urma": len(correlated.worker_urma_map),
-            "worker_link": len(correlated.worker_link_map),
-            "worker_meta": len(correlated.worker_query_meta_map),
-            "worker_timed": len(timed_worker_indices),
-        }
-
-        # correlator 仍持有 parsed 列表和索引；先断开引用，再依靠引用计数
-        # 即时回收。强制全量 GC 只会扫描千万级对象。
-        del correlator
-        sdk_entries = parsed.pop("SDK access parse", [])
-        worker_entries = parsed.pop("Worker access parse", [])
-        del parsed
-        logger.info("Released parsed entries")
-
-        logger.info("=== Stage 3/3: Building parse results ===")
-        t_build_start = time.perf_counter()
-        builder = ParseResultBuilder(sdk_entries, worker_entries, correlated, log_dir=log_dir, log_file_id=log_id)
-        results = builder.build()
-        anomalous_count = builder.anomalous_count
-        t_build = time.perf_counter() - t_build_start
-
-        # 及时释放所有中间结构（降低内存峰值）
-        del sdk_entries, worker_entries, correlated, builder
-        logger.info("Released sdk_entries, worker_entries, correlated & builder")
-
-        total = len(results)
-        logger.info(f"Parse complete: {total:,} results, {anomalous_count:,} anomalous")
+        logger.info(f"Parse complete: {total:,} traces")
 
         # 分阶段耗时报告
-        t_total = t_scan + t_sort + t_corr + t_build
+        t_total = t_scan
         logger.info(
             f"=== [parse_log] Timing Breakdown (total={t_total:.1f}s) ===\n"
-            f"  Scan + deserialize: {t_scan:7.1f}s ({t_scan/t_total*100:5.1f}%)\n"
-            f"  Sort entries:       {t_sort:7.1f}s ({t_sort/t_total*100:5.1f}%)\n"
-            f"  Correlate:          {t_corr:7.1f}s ({t_corr/t_total*100:5.1f}%)\n"
-            f"  Build results:      {t_build:7.1f}s ({t_build/t_total*100:5.1f}%)"
+            f"  Scan + deserialize: {t_scan:7.1f}s ({t_scan/t_total*100:5.1f}%)"
         )
 
         if task_id:
-            pct_scan = t_scan / t_total * 100
-            pct_sort = t_sort / t_total * 100
-            pct_corr = t_corr / t_total * 100
-            pct_build = t_build / t_total * 100
+            pct_scan = t_scan / t_total * 100 if t_total else 0.0
             await BaseWorker.report(task_id, f"[parse_log] Scan+deserialize: {t_scan:.1f}s ({pct_scan:.1f}%)", t_scan)
-            sdk_metrics = sdk_scanner.metrics
-            worker_access_metrics = worker_access_scanner.metrics
-            info_metrics = info_scanner.metrics
-            scan_build_map_s = (
-                sdk_metrics.build_map_time_ms
-                + worker_access_metrics.build_map_time_ms
-                + info_metrics.build_map_time_ms
-            ) / 1000
-            scan_split_s = (
-                sdk_metrics.split_time_ms
-                + worker_access_metrics.split_time_ms
-                + info_metrics.split_time_ms
-            ) / 1000
-            scan_worker_exec_s = (
-                sdk_metrics.scan_time_ms
-                + worker_access_metrics.scan_time_ms
-                + info_metrics.scan_time_ms
-            ) / 1000
+            metrics = scanner.metrics
+            scan_build_map_s = metrics.build_map_time_ms / 1000
+            scan_split_s = metrics.split_time_ms / 1000
+            scan_worker_exec_s = metrics.scan_time_ms / 1000
             scan_merge_overhead_s = max(
                 0.0,
                 t_scan
-                - t_worker_access_scope
-                - t_info_scope
                 - scan_build_map_s
                 - scan_split_s
                 - scan_worker_exec_s,
@@ -649,63 +449,12 @@ class KVCacheLogParseWorker(BaseWorker):
                 task_id,
                 (
                     "[perf][scan.summary] "
-                    f"phases=3, files={sdk_metrics.total_files + worker_access_metrics.total_files + info_metrics.total_files}, "
-                    f"processes={sdk_metrics.total_processes}+{worker_access_metrics.total_processes}+{info_metrics.total_processes}, "
-                    f"entries={sdk_metrics.total_entries + worker_access_metrics.total_entries + info_metrics.total_entries}, "
+                    f"phases=1, files={metrics.total_files}, "
+                    f"processes={metrics.total_processes}, "
+                    f"entries={metrics.total_entries}, "
                     f"total={t_scan:.1f}s"
                 ),
                 t_scan,
-            )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][scan.sdk] "
-                    f"files={sdk_metrics.total_files}, processes={sdk_metrics.total_processes}, "
-                    f"entries={sdk_metrics.total_entries}, total={sdk_metrics.total_time_ms/1000:.1f}s"
-                ),
-                sdk_metrics.total_time_ms / 1000,
-            )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][scan.worker_access_scope] "
-                    f"enabled={worker_access_scan_scope.get('enabled', False)}, "
-                    f"sdk_traces={worker_access_scope_stats.get('sdk_traces', 0)}, "
-                    f"reason={worker_access_scan_scope.get('reason', 'bounded_scope')}, "
-                    f"time={t_worker_access_scope:.3f}s"
-                ),
-                t_worker_access_scope,
-            )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][scan.worker_access] "
-                    f"files={worker_access_metrics.total_files}, processes={worker_access_metrics.total_processes}, "
-                    f"entries={worker_access_metrics.total_entries}, total={worker_access_metrics.total_time_ms/1000:.1f}s"
-                ),
-                worker_access_metrics.total_time_ms / 1000,
-            )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][scan.info_scope] "
-                    f"enabled={info_scan_scope.get('enabled', False)}, "
-                    f"sdk_traces={info_scope_stats.get('sdk_traces', 0)}, "
-                    f"worker_scope={info_scope_stats.get('worker_scope', 0)}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"pod_trace_scope={info_scope_stats.get('pod_trace_scope', 0)}, "
-                    f"pods={info_scope_stats.get('pod_scope', 0)}, "
-                    f"time={t_info_scope:.3f}s"
-                ),
-                t_info_scope,
-            )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][scan.info] "
-                    f"files={info_metrics.total_files}, processes={info_metrics.total_processes}, "
-                    f"entries={info_metrics.total_entries}, total={info_metrics.total_time_ms/1000:.1f}s"
-                ),
-                info_metrics.total_time_ms / 1000,
             )
             await BaseWorker.report(
                 task_id,
@@ -737,364 +486,701 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
                     f"link={entry_counts.get('Worker link parse', 0)}, "
                     f"meta={entry_counts.get('Worker query meta parse', 0)}, "
-                    f"timed={timed_entry_count}"
+                    f"timed={sum(entry_counts.get(l, 0) for l in TIMED_LABELS)}"
                 ),
                 0.0,
             )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][trace.overlap] "
-                    f"sdk_traces={trace_overlap_stats['sdk_trace_ids']}, "
-                    f"worker_traces={trace_overlap_stats['worker_trace_ids']}, "
-                    f"sdk_worker={trace_overlap_stats['sdk_worker_trace_overlap']}, "
-                    f"urma_traces={trace_overlap_stats['urma_trace_ids']}, "
-                    f"worker_urma={trace_overlap_stats['worker_urma_trace_overlap']}, "
-                    f"pull_traces={trace_overlap_stats['remote_pull_trace_ids']}, "
-                    f"worker_pull={trace_overlap_stats['worker_remote_pull_trace_overlap']}, "
-                    f"meta_traces={trace_overlap_stats['query_meta_trace_ids']}, "
-                    f"worker_meta={trace_overlap_stats['worker_query_meta_trace_overlap']}, "
-                    f"timed_traces={trace_overlap_stats['timed_trace_ids']}, "
-                    f"worker_timed={trace_overlap_stats['worker_timed_trace_overlap']}"
-                ),
-                0.0,
-            )
-            await BaseWorker.report(task_id, f"[parse_log] Sort entries: {t_sort:.1f}s ({pct_sort:.1f}%)", t_sort)
-            await BaseWorker.report(task_id, f"[parse_log] Correlate: {t_corr:.1f}s ({pct_corr:.1f}%)", t_corr)
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][correlate.index] "
-                    f"{correlate_index_seconds:.3f}s "
-                    f"sdk={entry_counts.get('SDK access parse', 0)}, "
-                    f"worker={entry_counts.get('Worker access parse', 0)}, "
-                    f"urma={entry_counts.get('Worker urma parse', 0)}, "
-                    f"pull={entry_counts.get('Worker remote pull parse', 0)}, "
-                    f"link={entry_counts.get('Worker link parse', 0)}, "
-                    f"meta={entry_counts.get('Worker query meta parse', 0)}, "
-                    f"timed={timed_entry_count}"
-                ),
-                correlate_index_seconds,
-            )
-            for stage_name, elapsed in correlate_stage_timings:
-                await BaseWorker.report(
-                    task_id,
-                    f"[perf][correlate.{stage_name}] {elapsed:.3f}s",
-                    elapsed,
-                )
-            await BaseWorker.report(
-                task_id,
-                (
-                    "[perf][correlate.matches] "
-                    f"worker_scope={correlate_worker_scope_count}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"pod_trace_scope={correlate_worker_scope_pod_trace_count}, "
-                    f"sdk_worker={correlate_match_counts['sdk_worker']}/{entry_counts.get('SDK access parse', 0)}, "
-                    f"sdk_urma_groups={correlate_match_counts['sdk_urma_groups']}, "
-                    f"worker_urma={correlate_match_counts['worker_urma']}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"worker_link={correlate_match_counts['worker_link']}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"worker_meta={correlate_match_counts['worker_meta']}/{entry_counts.get('Worker access parse', 0)}, "
-                    f"worker_timed={correlate_match_counts['worker_timed']}/{entry_counts.get('Worker access parse', 0)}"
-                ),
-                0.0,
-            )
-            await BaseWorker.report(task_id, f"[parse_log] Build results: {t_build:.1f}s ({pct_build:.1f}%)", t_build)
             await BaseWorker.report(task_id, f"[parse_log] Total: {t_total:.1f}s, {total} results", 0.0)
-        return results
 
-    # 异常事件检测
+        return trace_index
+
     @staticmethod
-    async def detect_exception(
-        list_log_parse_results: list[LogParseResultModel],
-        analyzer_config=None,
-    ) -> list[AnomalousEventDataclass]:
-        """使用多窗口并行检测引擎检测异常事件"""
-        n = len(list_log_parse_results)
+    def _resolve_snapshot(trace_entries: dict[str, list]) -> dict[str, float | None]:
+        """Resolve ALL latency fields from a single trace's raw scanner entries.
 
-        detector = AnomalyDetector.from_config(analyzer_config)
-        events = await detector.detect(list_log_parse_results)
+        Extracts ``ELAPSED_US / 1000.0`` (us → ms) for every recognised
+        label.  Computed fields (w2w, create, publish) are returned as None
+        because they require the result-builder correlation stage and are
+        not present in the raw trace_index.
 
-        if not events:
-            return events
+        Returns:
+            dict with keys matching the dataclass field suffix
+            (e.g. ``total_latency``, ``query_meta_latency``, …).
+        """
+        sdk = trace_entries.get("SDK access parse", [])
+        worker = trace_entries.get("Worker access parse", [])
 
-        from latency.schemas.log import generate_uuids_hex
+        snapshot: dict[str, float | None] = {}
 
-        event_ids = generate_uuids_hex(len(events))
-        for event, event_id in zip(events, event_ids):
-            event.id = event_id
-            event.aggregated_event_id = ""
-            start_idx = event.start_log_parse_offset
-            end_idx = event.end_log_parse_offset
-            for idx in range(start_idx, end_idx + 1):
-                if 0 <= idx < len(list_log_parse_results):
-                    r = list_log_parse_results[idx]
-                    r.anomalous_event_id = event.id
-                    r.is_anomalous = True
+        # total_latency  ──────────────────────────────────────────
+        # 支持三种场景：只有SDK、只有Worker、都有
+        if sdk:
+            snapshot["total_latency"] = sdk[0][TupleField.ELAPSED_US] / 1000.0
+        elif worker:
+            snapshot["total_latency"] = worker[0][TupleField.ELAPSED_US] / 1000.0
+        else:
+            snapshot["total_latency"] = None
 
-        logger.info(
-            f"Detect exception: {len(events):,} anomalous entries out of {n:,} results"
+        # c2w_urma_latency  ───────────────────────────────────────
+        # 只有同时有SDK和Worker时才能计算C2W时延
+        if sdk and worker:
+            snapshot["c2w_urma_latency"] = (
+                sdk[0][TupleField.ELAPSED_US]
+                - worker[0][TupleField.ELAPSED_US]
+            ) / 1000.0
+        else:
+            # 只有SDK或只有Worker，无法计算C2W
+            snapshot["c2w_urma_latency"] = None
+
+        # Label-based fields  ─────────────────────────────────────
+        _label_map = {
+            "urma_total_latency": URMA_LABEL,
+            "urma_link_latency": LINK_LABEL,
+            "query_meta_latency": QUERY_META_LABEL,
+            "worker_total_latency": "Worker access parse",
+            "sdk_process": SDK_PROCESS_LABEL,
+            "sdk_rpc": SDK_RPC_LABEL,
+            "local_worker_cost": LOCAL_WORKER_COST_LABEL,
+            "local_worker_lock": LOCAL_WORKER_LOCK_LABEL,
+            "remote_worker_cost": REMOTE_WORKER_COST_LABEL,
+            "remote_worker_rpc": REMOTE_WORKER_RPC_LABEL,
+            "master_process": MASTER_PROCESS_LABEL,
+            "master_rpc_total": MASTER_RPC_LABEL,
+        }
+        for suffix, label in _label_map.items():
+            entries = trace_entries.get(label, [])
+            snapshot[suffix] = (
+                entries[0][TupleField.ELAPSED_US] / 1000.0 if entries else None
+            )
+
+        # Computed-only fields (not in raw trace_index)  ──────────
+        for suffix in ("w2w_urma_latency", "create_latency", "publish_latency"):
+            snapshot[suffix] = None
+        return snapshot
+
+    @staticmethod
+    def _extract_trace_metrics(
+        tid: str,
+        entries: dict[str, list],
+    ) -> dict | None:
+        """Extract per-trace metrics shared by the aggregate and field-table builds.
+
+        Returns ``None`` when the trace must be skipped (no SDK/Worker entry, or the
+        elapsed_us is missing/negative) — mirroring the aggregate's
+        first pass so the two slices stay perfectly aligned.
+        
+        支持三种场景：
+        1. 只有SDK access日志
+        2. 只有Worker access日志
+        3. 同时包含SDK和Worker access日志
+        """
+        sdk_entries = entries.get("SDK access parse", [])
+        worker_entries = entries.get("Worker access parse", [])
+        
+        if sdk_entries:
+            first = sdk_entries[0]
+        elif worker_entries:
+            first = worker_entries[0]
+        else:
+            return None
+        
+        elapsed_us = first[TupleField.ELAPSED_US]
+        if elapsed_us is None or elapsed_us < 0:
+            return None
+        total_ms = elapsed_us / 1000.0
+        # Resolve src/dst from downstream entries (URMA/RemotePull/RemoteWorker), not from
+        # the SDK entry, which never carries SRC_ADDR/DST_ADDR. Fallback
+        # chain: URMA -> RemotePull -> RemoteWorkerCost -> RemoteWorkerRpc -> empty.
+        _urma = entries.get(URMA_LABEL, [])
+        _pop = entries.get(REMOTE_PULL_LABEL, [])
+        _rwc = entries.get(REMOTE_WORKER_COST_LABEL, [])
+        _rwr = entries.get(REMOTE_WORKER_RPC_LABEL, [])
+        if _urma:
+            src = str(_urma[0][TupleField.SRC_ADDR] or "").strip() or ""
+            dst = str(_urma[0][TupleField.DST_ADDR] or "").strip() or ""
+        elif _pop:
+            src = str(_pop[0][TupleField.SRC_ADDR] or "").strip() or ""
+            dst = str(_pop[0][TupleField.DST_ADDR] or "").strip() or ""
+        elif _rwc:
+            src = str(_rwc[0][TupleField.SRC_ADDR] or "").strip() or ""
+            dst = str(_rwc[0][TupleField.DST_ADDR] or "").strip() or ""
+        elif _rwr:
+            src = str(_rwr[0][TupleField.SRC_ADDR] or "").strip() or ""
+            dst = str(_rwr[0][TupleField.DST_ADDR] or "").strip() or ""
+        else:
+            src = ""
+            dst = ""
+        op = (str(first[TupleField.OPERATION] or "")).strip().upper()
+        # 对于Worker-only trace，operation可能是DS_POSIX_GET/CREATE/PUBLISH
+        # 对于SDK trace，operation是DS_KV_CLIENT_GET/SET等
+        # 统一映射到GET/SET分类
+        op_key = "GET" if "GET" in op else "SET"
+        bucket_epoch = KVCacheLogParseWorker._bucket_epoch_10s(
+            first[TupleField.TIMESTAMP]
         )
-        return events
+        log_id = first[TupleField.LOG_ID] or ""
+        return {
+            "tid": tid,
+            "entries": entries,
+            "sdk_entries": sdk_entries,
+            "first": first,
+            "total_ms": total_ms,
+            "src": src,
+            "dst": dst,
+            "op": op,
+            "op_key": op_key,
+            "bucket_epoch": bucket_epoch,
+            "log_id": log_id,
+            "status_code": first[TupleField.STATUS_CODE],
+        }
 
     @staticmethod
-    def _is_failure_result(result: LogParseResultModel) -> bool:
-        remark = (result.remark or "").strip()
-        if remark and remark.upper() != "OK":
-            return True
+    def _build_flat_trace_index(
+        parsed: dict[str, list],
+    ) -> dict[str, dict]:
+        """归并扫描产物 → {trace_id: 平铺dict(29键)}。
 
-        anomaly_reason = (result.anomaly_reason or "").strip()
-        if anomaly_reason and "threshold" not in anomaly_reason.lower():
-            return True
-
-        return False
-
-    @staticmethod
-    def _is_timeout_result(result: LogParseResultModel) -> bool:
-        for field_name, threshold in TRACE_CONTEXT_TIMEOUT_THRESHOLDS_MS.items():
-            value = getattr(result, field_name, None)
-            if isinstance(value, (int, float)) and value > threshold:
-                return True
-        return False
-
-    @staticmethod
-    def _collect_context_trace_ids(
-        list_log_parse_results: list[LogParseResultModel],
-    ) -> set[str]:
-        trace_ids: set[str] = set()
-        for result in list_log_parse_results:
-            trace_id = (result.trace_id or "").strip()
-            if not trace_id:
+        按 trace_id 归并 + 每 trace 提取全部字段(聚合标量 + 全部时延 +
+        明细字段), 是唯一数据源。下游(聚合/桶统计/明细)直接消费, 无三层。
+        """
+        from collections import defaultdict as _dd
+        grouped: dict[str, dict[str, list]] = _dd(lambda: _dd(list))
+        for label, entries in parsed.items():
+            for e in entries:
+                tid = e[TupleField.TRACE_ID]
+                if tid:
+                    grouped[tid][label].append(e)
+        flat: dict[str, dict] = {}
+        for tid, entries in grouped.items():
+            metrics = KVCacheLogParseWorker._extract_trace_metrics(tid, entries)
+            if metrics is None:
                 continue
-            if (
-                KVCacheLogParseWorker._is_failure_result(result)
-                or KVCacheLogParseWorker._is_timeout_result(result)
-            ):
-                trace_ids.add(trace_id)
-        return trace_ids
+            first = metrics["first"]
+            snapshot = KVCacheLogParseWorker._resolve_snapshot(entries)
+            worker_query_meta = snapshot.pop("query_meta_latency", None)
+            snapshot["worker_query_meta_latency"] = worker_query_meta
+            ts_raw = first[TupleField.TIMESTAMP]
+            flat[tid] = {
+                "tid": tid,
+                "total_ms": metrics["total_ms"],
+                "total_latency": metrics["total_ms"],
+                "src": metrics["src"],
+                "dst": metrics["dst"],
+                "op": metrics["op"],
+                "operation": metrics["op"] or None,
+                "op_key": metrics["op_key"],
+                "bucket_epoch": metrics["bucket_epoch"],
+                "log_id": metrics["log_id"],
+                "status_code": metrics["status_code"],
+                "timestamp": str(ts_raw) if ts_raw else None,
+                "pod_ip": str(first[TupleField.POD_IP]) if first[TupleField.POD_IP] else None,
+                "data_size": str(first[TupleField.DATA_SIZE]) if first[TupleField.DATA_SIZE] else None,
+                "inflight_count": first[TupleField.INFLIGHT_COUNT],
+                **snapshot,
+            }
+        return flat
 
     @staticmethod
-    async def store_trace_context_logs(
-        log_id: str,
-        log_dir: str,
-        list_log_parse_results: list[LogParseResultModel],
-    ) -> int:
-        trace_ids = KVCacheLogParseWorker._collect_context_trace_ids(list_log_parse_results)
-        return await collect_trace_context_logs(
-            log_id=log_id,
-            log_dir=log_dir,
-            trace_ids=trace_ids,
-            clear_existing=True,
+    def _make_field_row(
+        flat: dict,
+        log_file_id: str = "",
+        created_at: str | None = None,
+        is_anomalous: bool = False,
+    ) -> LogParseResultDataclass:
+        """Build one ``LogParseResultDataclass`` row from a trace's flat dict.
+
+        平铺 dict(parse_log 归并产物)已含所有字段: 聚合标量 + 全部时延 +
+        明细字段, 直接读, 无 entries / 无回读。
+        """
+        snapshot = {k: v for k, v in flat.items() if k in _SNAPSHOT_KEYS}
+        # c2w_urma_latency(_resolve_snapshot 键名) → dataclass 的 c2w_latency
+        if "c2w_latency" not in snapshot and "c2w_urma_latency" in flat:
+            snapshot["c2w_latency"] = flat.get("c2w_urma_latency")
+        return LogParseResultDataclass(
+            is_anomalous=is_anomalous,
+            aggregated_event_id="",
+            timestamp=flat.get("timestamp"),
+            src_ip=flat.get("src") or None,
+            dst_ip=flat.get("dst") or None,
+            operation=flat.get("op") or None,
+            trace_id=flat.get("tid"),
+            log_id=log_file_id or flat.get("log_id", ""),
+            # pod_ip 现在是一个列表（implode_unique 策略），需要处理列表类型
+            pod_ips=(
+                [str(ip) for ip in flat["pod_ip"]]
+                if isinstance(flat.get("pod_ip"), list)
+                else ([str(flat["pod_ip"])] if flat.get("pod_ip") else None)
+            ),
+            # cluster_name 现在也是一个列表（implode_unique 策略），需要处理列表类型
+            cluster_name=(
+                ", ".join(str(cn) for cn in flat["cluster_name"])
+                if isinstance(flat.get("cluster_name"), list)
+                else (str(flat["cluster_name"]) if flat.get("cluster_name") else None)
+            ),
+            data_size=(
+                str(flat["data_size"]) if flat.get("data_size") else None
+            ),
+            urma_inflight_count=(
+                int(flat["inflight_count"])
+                if isinstance(flat.get("inflight_count"), (int, float))
+                else None
+            ),
+            created_at=created_at or _utc_now_str(),
+            **snapshot,
         )
 
-    # 异常事件匹配故障
     @staticmethod
-    async def match_fault(
-        anomalous_events: list[AnomalousEventDataclass],
-    ) -> list[AnomalousEventChainModel]:
-        """异常事件匹配故障"""
-        pass
+    def _build_field_table_rows(
+        trace_index: dict[str, dict[str, list]],
+        log_file_id: str = "",
+    ) -> list[LogParseResultDataclass]:
+        """Serial full-trace field-table build — the golden-fixture reference.
 
-    # 异常事件成因分析
+        One ``LogParseResultDataclass`` row per valid trace (``is_anomalous``
+        always ``False``), in SDK-entry order.  Feed for anomalous detail rows
+        (filtered by ``anomalous_tids``) and for the bucket percentile tables.
+        trace_index 已是 {trace_id: 平铺dict}(parse_log 归并产物)。
+        """
+        created_at = _utc_now_str()
+        rows: list[LogParseResultDataclass] = []
+        for tid, flat in trace_index.items():
+            rows.append(
+                KVCacheLogParseWorker._make_field_row(
+                    flat, log_file_id, created_at
+                )
+            )
+        return rows
+
     @staticmethod
-    async def root_cause_analysis(
-        anomalous_event_chains: list[AnomalousEventChainModel],
-    ) -> list[AnomalousEventChainModel]:
-        """异常事件成因分析"""
-        pass
+    def _bucket_epoch_10s(ts_raw: Any) -> int | None:
+        """Wall-clock 10s-aligned bucket epoch seconds (int), or None.
+
+        Alignment mirrors ``bucket/statistics.py`` ``compute_bucket_ids``:
+        the naive wall-clock timestamp is treated as UTC for the epoch
+        second count, then floored to 10s. Because 10 divides 60/600/3600,
+        coarser query granularities align exactly on bucket boundaries.
+        """
+        ts = parse_timestamp(ts_raw)
+        if ts is not None:
+            epoch_sec = int(ts.replace(tzinfo=timezone.utc).timestamp())
+            return (epoch_sec // 10) * 10
+        return None
+
+    @staticmethod
+    def _format_bucket_epoch(bucket_epoch: int) -> str:
+        """10s-aligned bucket epoch → ``YYYY-MM-DD HH:MM:SS`` string."""
+        return datetime.fromtimestamp(bucket_epoch, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
     # 基于src ip和dst ip的生成聚合结果
     @staticmethod
     async def generate_aggregate_result(
-        list_log_parse_results: list[LogParseResultModel],
+        trace_index: dict[str, dict[str, list]],
+        diagnosis_config=None,
     ) -> tuple[
-        list[SrcDstAggregatedEventDataclass], dict[tuple[str, str, str], str]
+        list[SrcDstAggregatedEventDataclass],
+        dict[tuple[str, str, str], str],
+        list[TimeWindowAggregatedEventDataclass],
+        set[str],
     ]:
-        """按 src_ip/dst_ip 增量聚合统计（优化内存：不构建完整对象引用列表）"""
-        sparse_hint = getattr(list_log_parse_results, "all_sparse", None)
-        all_sparse = (
-            sparse_hint
-            if sparse_hint is not None
-            else bool(list_log_parse_results)
-            and all(
-                type(result) is SparseLogParseResultDataclass
-                for result in list_log_parse_results
+        """Backward-compatible 4-tuple wrapper over ``_aggregate_three_way``.
+
+        The field table is produced by the same one-slice parallel pass but
+        only surfaced via ``_aggregate_three_way`` (the ``run()`` path).
+        """
+        results, agg_map, tw, anom_tids, _field_table = (
+            await KVCacheLogParseWorker._aggregate_three_way(
+                trace_index, diagnosis_config
             )
         )
-        if all_sparse:
-            logger.info(
-                "Aggregate result: skipped %s sparse results without endpoints",
-                f"{len(list_log_parse_results):,}",
-            )
-            return [], {}
+        return results, agg_map, tw, anom_tids
 
-        src_dst_latency_fields = [
-            ("total_latency", "total_latency"),
-            ("query_meta_latency", "worker_query_meta_latency"),
-            ("urma_total_latency", "urma_total_latency"),
-            ("urma_link_latency", "urma_link_latency"),
-            ("c2w_urma_latency", "c2w_urma_latency"),
-            ("w2w_urma_latency", "w2w_urma_latency"),
-            ("create_latency", "create_latency"),
-            ("publish_latency", "publish_latency"),
-            ("worker_total_latency", "worker_total_latency"),
-        ]
+    @staticmethod
+    def _aggregate_polars(
+        df_trace,
+        threshold_ms: float,
+        log_file_id: str = "",
+    ) -> tuple[
+        list[SrcDstAggregatedEventDataclass],
+        dict[tuple[str, str, str], str],
+        list[TimeWindowAggregatedEventDataclass],
+        set[str],
+    ]:
+        """Polars aggregation for src_dst / time_window / anomalous traces (T3).
 
-        groups: dict[tuple[str, str, str], GroupStats] = defaultdict(
-            lambda: GroupStats(
-                latency_values={prefix: [] for prefix, _ in src_dst_latency_fields}
-            )
+        One ``group_by`` pass over the per-trace ``df_trace`` (T2 contract,
+        31 TRACE_COLUMNS, one row/trace); no spawn/pickle/sharding.
+
+        Semantics:
+        - 先计算 anomalous_tids（完整异常：时延异常 + 状态码异常）
+        - 再在 df_trace 中添加 is_anomalous_int 列（标记每个trace是否在 anomalous_tids 中）
+        - 聚合时统计 is_anomalous_int.sum()（确保 anomaly_cnt 与实际异常trace数量一致）
+        - ``anomaly_cnt`` 总和 = ``len(anomalous_tids)``（严格等于）
+        - ``op_key`` 直接消费 df_trace 的 ``op_key`` 列（T1 列式投影已按
+          ``"GET" if "GET" in op.upper() else "SET"`` 计算）。
+        - ``bucket_str`` 复刻 ``_format_bucket_epoch``（10s-aligned epoch →
+          ``YYYY-MM-DD HH:MM:SS``）；``bucket_epoch=None`` → ``""``。
+        - p99 必须 ``quantile(0.99, interpolation="linear")`` —— polars 默认
+          ``nearest`` 会偏差 ~1%（旧 numpy 参考实现是 ``np.percentile`` 默认
+          linear）。
+        - ``first_log`` = 组内首个非空 log_id（df_trace 行序 = 参考实现的
+          entries 插入序）。
+
+        Returns the legacy aggregate 4-tuple shape:
+          (src_dst_results, src_dst_to_agg_id_map, time_window_results,
+           anomalous_tids)
+        """
+        import polars as pl
+
+        # ── anomaly mask（单 trace 阈值, 与旧 worker 首遍一致）─────────
+        # 时延异常（仅用于统计 anomaly_cnt）
+        latency_anomaly = (pl.col("total_ms") >= threshold_ms)
+        
+        # 完整异常（用于 anomalous_tids，包含时延异常和状态码异常）
+        anomaly = latency_anomaly | (
+            pl.col("status_code").is_not_null() & (pl.col("status_code") != 0)
         )
+
+        # 先计算 anomalous_tids，用于后续聚合
+        anomalous_tids: set[str] = set(df_trace.filter(anomaly)["tid"].to_list())
         
-        for r in list_log_parse_results:
-            src = r.src_ip or ""
-            dst = r.dst_ip or ""
+        # 在 df_trace 中添加 is_anomalous 列，用于聚合统计
+        df_trace = df_trace.with_columns(
+            pl.col("tid").is_in(anomalous_tids).cast(pl.Int64).alias("is_anomalous_int")
+        )
 
-            op = (r.operation or "").strip().upper()
-            op_key = "SET" if "SET" in op else "GET"
-
-            time_bucket = (r.timestamp or "")[:19]
-
-            if src or dst:
-                key = (src, dst, op_key)
-                g = groups[key]
-                g.count += 1
-                if r.is_anomalous:
-                    g.anomaly_count += 1
-                if r.anomalous_event_id:
-                    g.anomaly_log_count += 1
-                if not g.first_log_id:
-                    g.first_log_id = r.log_id or ""
-            
-            if src or dst:
-                for prefix, field_name in src_dst_latency_fields:
-                    val = getattr(r, field_name)
-                    if val is not None:
-                        g.latency_values[prefix].append(val)
-        
-        results: list[SrcDstAggregatedEventDataclass] = []
+        # ── src_dst: group by (src, dst, op_key) ──────────────────────
+        sd = df_trace.group_by(["src", "dst", "op_key"]).agg(
+            pl.len().alias("cnt"),
+            pl.col("is_anomalous_int").sum().alias("anomaly_sum"),
+            pl.col("log_id").drop_nulls().first().alias("first_log"),
+        )
+        src_dst_results: list[SrcDstAggregatedEventDataclass] = []
         src_dst_to_agg_id_map: dict[tuple[str, str, str], str] = {}
-        
-        for (src, dst, op_key), g in groups.items():
+        for r in sd.iter_rows(named=True):
             agg_id = str(uuid.uuid4())
-            src_dst_to_agg_id_map[(src, dst, op_key)] = agg_id
-            
-            agg: dict[str, float | None] = {}
-            for prefix, _ in src_dst_latency_fields:
-                values = g.latency_values[prefix]
-                if values:
-                    st = stats(values)
-                    agg[f"ave_{prefix}"] = st["ave"]
-                    agg[f"min_{prefix}"] = st["min"]
-                    agg[f"max_{prefix}"] = st["max"]
-                    agg[f"p95_{prefix}"] = st["p95"]
-                    agg[f"p99_{prefix}"] = st["p99"]
-                else:
-                    for f in [f"ave_{prefix}", f"min_{prefix}", f"max_{prefix}", f"p95_{prefix}", f"p99_{prefix}"]:
-                        agg[f] = None
-                g.latency_values[prefix] = []
-            
-            results.append(SrcDstAggregatedEventDataclass(
-                id=agg_id,
-                src_ip=src,
-                dst_ip=dst,
-                log_id=g.first_log_id,
-                operation=op_key,
-                log_parse_result_cnt=g.count,
-                anomaly_log_parse_result_cnt=g.anomaly_log_count,
-                anomaly_cnt=g.anomaly_count,
-                **agg,
-            ))
-        
-        del groups
-        
-        for r in list_log_parse_results:
-            src = r.src_ip or ""
-            dst = r.dst_ip or ""
-            op = (r.operation or "").strip().upper()
-            op_key = "SET" if "SET" in op else "GET"
-            key = (src, dst, op_key)
-            if key in src_dst_to_agg_id_map:
-                r.aggregated_event_id = src_dst_to_agg_id_map[key]
-        
-        logger.info(f"Aggregate result: {len(results):,} endpoints "
-                     f"from {len(list_log_parse_results):,} results")
-        
-        return results, src_dst_to_agg_id_map
+            sd_key = (r["src"], r["dst"], r["op_key"])
+            src_dst_to_agg_id_map[sd_key] = agg_id
+            src_dst_results.append(
+                SrcDstAggregatedEventDataclass(
+                    id=agg_id,
+                    src_ip=r["src"],
+                    dst_ip=r["dst"],
+                    log_id=log_file_id or r["first_log"] or "",
+                    operation=r["op_key"],
+                    log_parse_result_cnt=int(r["cnt"]),
+                    anomaly_cnt=int(r["anomaly_sum"]),
+                    anomaly_log_parse_result_cnt=int(r["anomaly_sum"]),
+                )
+            )
+
+        # ── time_window: group by (bucket_str, src, dst, op_key) ──────────────
+        # bucket_epoch 已是 10s-aligned 秒级 epoch（columnar._bucket_epoch_10s
+        # 返回 ``(epoch_sec // 10) * 10``），直接格式化即 _format_bucket_epoch。
+        df = df_trace.with_columns(
+            pl.when(pl.col("bucket_epoch").is_not_null())
+            .then(
+                (pl.col("bucket_epoch").cast(pl.Int64) * 1000)
+                .cast(pl.Datetime("ms"))
+                .dt.replace_time_zone("UTC")
+                .dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+            .otherwise(pl.lit(""))
+            .alias("bucket_str")
+        )
+        tw = df.group_by(["bucket_str", "src", "dst", "op_key"]).agg(
+            pl.len().alias("cnt"),
+            pl.col("is_anomalous_int").sum().alias("anomaly_sum"),
+            pl.col("log_id").drop_nulls().first().alias("first_log"),
+            pl.col("total_ms").mean().alias("ave_total_latency"),
+            pl.col("total_ms").sum().alias("latency_sum"),
+            pl.col("total_ms").min().alias("min_total_latency"),
+            pl.col("total_ms").max().alias("max_total_latency"),
+            pl.col("total_ms")
+            .quantile(0.95, interpolation="linear")
+            .alias("p95_total_latency"),
+            pl.col("total_ms")
+            .quantile(0.99, interpolation="linear")
+            .alias("p99_total_latency"),
+        )
+        tw = tw.filter(pl.col("bucket_str") != "")
+        time_window_results: list[TimeWindowAggregatedEventDataclass] = []
+        for r in tw.iter_rows(named=True):
+            time_window_results.append(
+                TimeWindowAggregatedEventDataclass(
+                    id=str(uuid.uuid4()),
+                    kb_id="",
+                    log_id=log_file_id or r["first_log"] or "",
+                    time_bucket=r["bucket_str"],
+                    src_ip=r["src"],
+                    dst_ip=r["dst"],
+                    operation=r["op_key"],
+                    log_parse_result_cnt=int(r["cnt"]),
+                    anomaly_cnt=int(r["anomaly_sum"]),
+                    ave_total_latency=(
+                        float(r["ave_total_latency"])
+                        if r["ave_total_latency"] is not None
+                        else None
+                    ),
+                    latency_sum=(
+                        float(r["latency_sum"])
+                        if r["latency_sum"] is not None
+                        else None
+                    ),
+                    min_total_latency=(
+                        float(r["min_total_latency"])
+                        if r["min_total_latency"] is not None
+                        else None
+                    ),
+                    max_total_latency=(
+                        float(r["max_total_latency"])
+                        if r["max_total_latency"] is not None
+                        else None
+                    ),
+                    p95_total_latency=(
+                        float(r["p95_total_latency"])
+                        if r["p95_total_latency"] is not None
+                        else None
+                    ),
+                    p99_total_latency=(
+                        float(r["p99_total_latency"])
+                        if r["p99_total_latency"] is not None
+                        else None
+                    ),
+                )
+            )
+
+        logger.info(
+            "[AGGREGATE][polars] sd_groups=%d tw_groups=%d anomalous=%d "
+            "threshold_ms=%.1f",
+            len(src_dst_results),
+            len(time_window_results),
+            len(anomalous_tids),
+            threshold_ms,
+        )
+        return (
+            src_dst_results,
+            src_dst_to_agg_id_map,
+            time_window_results,
+            anomalous_tids,
+        )
+
+    @staticmethod
+    async def _aggregate_three_way(
+        trace_index: Any,
+        diagnosis_config=None,
+        log_file_id: str = "",
+    ) -> tuple[
+        list[SrcDstAggregatedEventDataclass],
+        dict[tuple[str, str, str], str],
+        list[TimeWindowAggregatedEventDataclass],
+        set[str],
+        Any,
+    ]:
+        """Aggregate src_dst / time_window / anomalous traces (T3, polars).
+
+        列式路径（唯一, WITTY_UB_SCAN_COLUMNS=1）: *trace_index* 是
+        ``parse_log`` 返回的 df_trace（polars DataFrame）→ 交给
+        ``_aggregate_polars`` 单次聚合。第 5 位契约: df_trace 本身（T4/T5
+        接手消费）。T7 已删除 numpy ``_worker_process_shard`` +
+        ``_merge_and_finalize`` 兜底。
+        """
+        # ── config ──────────────────────────────────────────────────
+        threshold_ms = 5.0
+        if diagnosis_config is not None:
+            threshold_ms = float(
+                getattr(diagnosis_config, "total_p99_threshold_ms", 5.0) or 5.0
+            )
+
+        _t_agg_start = time.perf_counter()
+        results, agg_map, tw, anom_tids = (
+            KVCacheLogParseWorker._aggregate_polars(
+                trace_index, threshold_ms, log_file_id
+            )
+        )
+        logger.info(
+            "[PERF][AGG] polars traces=%d sd=%d tw=%d anom=%d total=%dms",
+            trace_index.height,
+            len(results),
+            len(tw),
+            len(anom_tids),
+            (time.perf_counter() - _t_agg_start) * 1000,
+        )
+        return results, agg_map, tw, anom_tids, trace_index
+
+    @staticmethod
+    def _build_anomalous_detail_rows(
+        trace_index: Any,
+        anomalous_tids: set[str],
+        kb_id: str = "",
+        log_file_id: str = "",
+    ) -> list[LogParseResultDataclass]:
+        """Construct LogParseResultDataclass rows for anomalous traces only.
+
+        T5/T7（列式路径, 唯一）: *trace_index* 是 ``parse_log`` 返回的
+        df_trace（polars DataFrame, T2/T3 契约）→ 按 ``tid ∈ anomalous_tids``
+        过滤 → 每行 ``to_dict()`` → ``_make_field_row`` 物化
+        （``_make_field_row`` 本身不变）。df_trace 列名 == 平铺 dict 键名
+        （TRACE_COLUMNS 冻结契约，T2 parity 测试逐列验证），无需列名映射；
+        src/dst 已是 ""（T2 fill_null），``_make_field_row`` 的 ``or None``
+        归一化把 "" → None，与平铺 dict 路径语义一致。所有返回行
+        ``is_anomalous=True``、``aggregated_event_id=""``。
+        """
+        rows: list[LogParseResultDataclass] = []
+
+        if anomalous_tids:
+            import polars as pl
+
+            created_at = _utc_now_str()
+            frame = trace_index.filter(pl.col("tid").is_in(anomalous_tids))
+            # 拷贝 yuanrong 字段（df_trace 已含全量 26 列）
+            from latency.schemas.log import YUANRONG_METRIC_FIELDS
+            yuanrong_fields = list(YUANRONG_METRIC_FIELDS)
+            for flat in frame.to_dicts():
+                row = KVCacheLogParseWorker._make_field_row(
+                    flat,
+                    log_file_id,
+                    created_at=created_at,
+                    is_anomalous=True,
+                )
+                for field in yuanrong_fields:
+                    val = flat.get(field)
+                    if val is not None:
+                        setattr(row, field, val)
+                rows.append(row)
+        logger.info(
+            "[BUILD_DETAIL] anomalous_tids=%d rows_built=%d log_file_id=%s",
+            len(anomalous_tids),
+            len(rows),
+            log_file_id or "(unset)",
+        )
+        return rows
 
     # 存库
     @staticmethod
     async def store_result(
-        list_log_parse_results: list[LogParseResultDataclass],
-        anomalous_events: list[AnomalousEventDataclass],
-        anomalous_event_chains: list[AnomalousEventChainModel],
+        anomalous_detail_rows: list[LogParseResultDataclass],
         src_dst_aggregated_events: list[SrcDstAggregatedEventDataclass],
+        time_window_aggregated_events: list[TimeWindowAggregatedEventDataclass] | None = None,
         kb_id: str = "",
     ) -> bool:
         """存库
 
-        按引用顺序依次写入：log_parse_results → aggregated_events → anomalous_events → event_chains
+        三表（log_parse_result / src_dst_aggregated_event / time_window_aggregated）
+        各自独立写，asyncio.gather 并行（无表间依赖，pool_size 10 可容纳并行 COPY）。
+        单表失败仅记日志并置 success=False，不阻塞其他表；bucket×4 由 run() 的
+        _store_bucket_stats_degraded 单独写（降级语义，不入 gather）。
+        anomalous_event/anomalous_event_chain 表保留但不再由 parse 写入（detect 已删）。
         """
+        import time as _time
+
+        if time_window_aggregated_events:
+            for event in time_window_aggregated_events:
+                event.kb_id = kb_id
+
+        async def _store_detail() -> None:
+            if not anomalous_detail_rows:
+                return
+            stored = await LogParseResultPGManager.add_log_parse_results(
+                anomalous_detail_rows
+            )
+            if not stored:
+                raise RuntimeError("Failed to batch insert anomalous log parse results")
+
+        async def _store_src_dst() -> int:
+            if not src_dst_aggregated_events:
+                return 0
+            for event in src_dst_aggregated_events:
+                event.kb_id = kb_id
+            await SrcDstAggregatedEventPGManager.add_aggregated_events(
+                src_dst_aggregated_events
+            )
+            return len(src_dst_aggregated_events)
+
+        async def _store_time_window() -> int:
+            if not time_window_aggregated_events:
+                return 0
+            await TimeWindowAggregatedEventPGManager.add_events(
+                time_window_aggregated_events
+            )
+            return len(time_window_aggregated_events)
+
+        t_store_start = _time.perf_counter()
+        results = await asyncio.gather(
+            _store_detail(),
+            _store_src_dst(),
+            _store_time_window(),
+            return_exceptions=True,
+        )
+        t_store_elapsed = _time.perf_counter() - t_store_start
+
         success = True
-
-        if list_log_parse_results:
-            try:
-                count = len(list_log_parse_results)
-                t0 = time.perf_counter()
-                stored = await LogParseResultPGManager.add_log_parse_results(
-                    list_log_parse_results
-                )
-                logger.info(
-                    "[PG] Stored %s log parse results in %.3fs",
-                    count,
-                    time.perf_counter() - t0,
-                )
-                if not stored:
-                    raise RuntimeError("Failed to batch insert log parse results into PostgreSQL")
-            except Exception as e:
-                logger.error(f"[PG] Failed to store log parse results: {e}")
+        num_aggregate_rows = 0
+        for name, outcome in zip(
+            ("log_parse_result", "src_dst_aggregated_event", "time_window_aggregated"),
+            results,
+        ):
+            if isinstance(outcome, BaseException):
+                logger.error("Failed to store %s: %s", name, outcome)
                 success = False
+            elif name != "log_parse_result":
+                num_aggregate_rows += outcome or 0
 
-        if src_dst_aggregated_events:
-            try:
-                t0 = time.perf_counter()
-                await SrcDstAggregatedEventPGManager.add_aggregated_events(
-                    src_dst_aggregated_events
-                )
-                logger.info(
-                    "[PG] Stored %s aggregated events in %.3fs",
-                    len(src_dst_aggregated_events),
-                    time.perf_counter() - t0,
-                )
-            except Exception as e:
-                logger.error(f"[PG] Failed to store aggregated events: {e}")
-                success = False
-
-        if anomalous_events:
-            try:
-                t0 = time.perf_counter()
-                await AnomalousEventPGManager.add_anomalous_events(anomalous_events)
-                logger.info(
-                    "[PG] Stored %s anomalous events in %.3fs",
-                    len(anomalous_events),
-                    time.perf_counter() - t0,
-                )
-            except Exception as e:
-                logger.error(f"Failed to store anomalous events: {e}")
-                success = False
-
-        if anomalous_event_chains:
-            try:
-                t0 = time.perf_counter()
-                await AnomalousEventChainPGManager.add_event_chains(anomalous_event_chains)
-                logger.info(
-                    "[PG] Stored %s event chains in %.3fs",
-                    len(anomalous_event_chains),
-                    time.perf_counter() - t0,
-                )
-            except Exception as e:
-                logger.error(f"Failed to store event chains: {e}")
-                success = False
+        logger.info(
+            "[STORE] detail_rows=%d store_elapsed=%.1fs aggregate_rows=%d",
+            len(anomalous_detail_rows),
+            t_store_elapsed,
+            num_aggregate_rows,
+        )
 
         return success
+
+    @staticmethod
+    async def _store_bucket_stats_degraded(
+        log_id: str,
+        kb_id: str,
+        rows: Sequence[Any],
+        task_id: str | None = None,
+        tables=None,
+    ) -> dict[int, int] | None:
+        """Write 4 latency_bucket_* tables from df_trace, degrading on failure.
+
+        T7: ``rows`` 唯一来源是 df_trace（polars DataFrame, T2/T3 产物）→
+        ``compute_and_store_bucket_stats_from_frame``（纯 polars 选代表行）。
+        materializer = ``_make_field_row`` 只对选中的代表行构造 dataclass
+        （~300 个），其余行不物化。numpy 版 ``compute_and_store_bucket_stats``
+        已删。非 df_trace 输入（legacy 平铺 dict）直接降级返回 None。
+
+        ``compute_and_store_bucket_stats_from_frame`` 自己打
+        ``[parse_log] Bucket stats:`` 进度点并在任何阶段失败时 re-raise；
+        本包装捕获并仅记日志，保证桶统计失败永不阻塞主解析/落库。Returns
+        ``{granularity: rows written}`` 或 ``None``（降级）。
+        """
+        if not (hasattr(rows, "height") and hasattr(rows, "columns")):
+            logger.warning(
+                "[run] Bucket stats skipped: expected df_trace (polars), got %s",
+                type(rows).__name__,
+            )
+            return None
+
+        materializer = functools.partial(
+            KVCacheLogParseWorker._make_field_row,
+            log_file_id=log_id,
+            created_at=_utc_now_str(),
+        )
+        try:
+            return await compute_and_store_bucket_stats_from_frame(
+                df_trace=rows,
+                log_id=log_id,
+                kb_id=kb_id,
+                task_id=task_id or None,
+                tables=tables,
+                materializer=materializer,
+            )
+        except Exception as e:
+            logger.exception("[run] Bucket stats failed, degraded: %s", e)
+            return None
 
     @staticmethod
     async def run(task_id: str, log_dir: str | None = None) -> bool:
@@ -1108,7 +1194,13 @@ class KVCacheLogParseWorker(BaseWorker):
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
-            await BaseWorker.report(task.id, "Task running", 5.0)
+            # 平滑进度: 权重化/单调/限流上报(替换固定 5/20/40/70/100 上报点)。
+            # 阶段注册表+权重表在 latency/common/stage_progress.py, 与 run() 解耦,
+            # T3/T5 重构聚合/明细段时可调整阶段名/权重。
+            from latency.common.stage_progress import StageProgress
+
+            progress = StageProgress(task_id)
+            await progress.report("scan", 0.0, detail="task started")
 
             # 从 TaskHandler 获取解析配置
             from latency.task.task_handler import TaskHandler
@@ -1118,15 +1210,20 @@ class KVCacheLogParseWorker(BaseWorker):
 
             # 直接使用 task.op_id 作为 log_id，parse_log 内部会获取 log_file 信息
             t_run_start = time.perf_counter()
-            list_log_parse_results = await KVCacheLogParseWorker.parse_log(
+            # 平滑扫描子进度: 每文件组完成上报 scan 比例, 避免扫描期进度条冻结
+            async def _scan_progress(fraction: float) -> None:
+                await progress.report("scan", fraction)
+
+            trace_index = await KVCacheLogParseWorker.parse_log(
                 task.op_id,
                 parse_config,
                 log_dir=log_dir or "",
                 task_id=task_id,
+                scan_progress_cb=_scan_progress,
             )
             t_parse = time.perf_counter() - t_run_start
 
-            if not list_log_parse_results:
+            if trace_index is None or _trace_row_count(trace_index) == 0:
                 await BaseWorker.report(task.id, "解析失败：未在路径中识别到日志信息", 100.0)
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
@@ -1136,79 +1233,70 @@ class KVCacheLogParseWorker(BaseWorker):
                 )
                 return False
 
+            trace_rows = _trace_row_count(trace_index)
+            await progress.report("scan", 1.0)
+            await progress.stage_log("scan", f"rows={trace_rows}", elapsed_ms=t_parse * 1000)
+            await BaseWorker.report(
+                task.id,
+                f"[perf][parse.results] rows={trace_rows}",
+                0.0,
+            )
+
             # 检查任务是否被取消
             task = await TaskPGManager.get_task_by_task_id(task_id)
             if not task or task.status == TaskStatusEnum.CANCELLED:
                 logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
                 return False
-
-            await BaseWorker.report(task.id, "Log parse completed", 20.0)
-            await BaseWorker.report(
-                task.id,
-                f"[perf][parse.results] rows={len(list_log_parse_results)}",
-                0.0,
-            )
 
             # 获取 kb_id 用于后续更新知识库统计
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             kb_id = log_file.kb_id if log_file else None
 
-            # 先检测异常（填充 anomalous_event_id）
-            t_detect_start = time.perf_counter()
+            # 解析聚合阈值配置（异常判定 = 聚合侧单 trace 阈值）
             analyzer_config = None
             if kb_id:
+                from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
+
                 analyzer_config = (
                     await DiagnosisConfigPGManager.get_or_create(kb_id)
                 ).log_analyzer_params
-            anomalous_events = await KVCacheLogParseWorker.detect_exception(
-                list_log_parse_results, analyzer_config
-            )
-            t_detect = time.perf_counter() - t_detect_start
-            await BaseWorker.report(task.id, "Anomaly detection done", 30.0)
-            await BaseWorker.report(
-                task.id,
-                f"[perf][detect.summary] results={len(list_log_parse_results)}, events={len(anomalous_events)}, time={t_detect:.3f}s",
-                t_detect,
-            )
-            
+
             # 检查任务是否被取消
             task = await TaskPGManager.get_task_by_task_id(task_id)
             if not task or task.status == TaskStatusEnum.CANCELLED:
                 logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
                 return False
-            
-            # 再生成聚合事件（此时 anomalous_event_id 已填充）
+
+            # 生成聚合事件（异常判定 = 聚合侧单 trace 阈值）
             t_agg_start = time.perf_counter()
-            src_dst_aggregated_events, src_dst_to_agg_id_map = await KVCacheLogParseWorker.generate_aggregate_result(list_log_parse_results)
+            (
+                src_dst_aggregated_events,
+                src_dst_to_agg_id_map,
+                time_window_aggregated_events,
+                anomalous_tids,
+                df_trace,
+            ) = await KVCacheLogParseWorker._aggregate_three_way(
+                trace_index, analyzer_config, log_file_id=task.op_id
+            )
             t_agg = time.perf_counter() - t_agg_start
-            await BaseWorker.report(task.id, "Aggregate events done", 40.0)
+            await progress.report("aggregate", 1.0)
+            await progress.stage_log(
+                "aggregate",
+                f"sd={len(src_dst_aggregated_events)} tw={len(time_window_aggregated_events)} anom={len(anomalous_tids)}",
+                elapsed_ms=t_agg * 1000,
+            )
             await BaseWorker.report(
                 task.id,
                 (
                     "[perf][aggregate.summary] "
-                    f"results={len(list_log_parse_results)}, endpoints={len(src_dst_aggregated_events)}, "
-                    f"time={t_agg:.3f}s"
+                    f"results={trace_rows}, endpoints={len(src_dst_aggregated_events)}, "
+                    f"time_windows={len(time_window_aggregated_events)}, time={t_agg:.3f}s"
                 ),
                 t_agg,
             )
-            
-            # 更新异常事件的 aggregated_event_id
-            for event in anomalous_events:
-                start_idx = event.start_log_parse_offset
-                if 0 <= start_idx < len(list_log_parse_results):
-                    r = list_log_parse_results[start_idx]
-                    src = r.src_ip or ""
-                    dst = r.dst_ip or ""
-                    op = (r.operation or "").strip().upper()
-                    op_key = "SET" if "SET" in op else "GET"
-                    event.aggregated_event_id = src_dst_to_agg_id_map.get((src, dst, op_key), "")
-            
-            anomalous_event_chains = await KVCacheLogParseWorker.match_fault(anomalous_events)
-            await BaseWorker.report(task.id, "Fault matching done", 50.0)
-            await BaseWorker.report(
-                task.id,
-                f"[perf][fault.summary] events={len(anomalous_events)}, chains={len(anomalous_event_chains or [])}",
-                0.0,
+            logger.info(
+                "[AGGREGATE] df_trace=%d",
+                _trace_row_count(df_trace),
             )
 
             # 检查任务是否被取消
@@ -1217,69 +1305,189 @@ class KVCacheLogParseWorker(BaseWorker):
                 logger.warning(f"任务 {task_id} 已被取消或不存在，停止执行")
                 return False
 
+            # ── 内存缓存聚合事件（API 立即可用） ──────────────────
+            from latency.common.aggregate_cache import (
+                set_aggregated_events,
+                set_time_window_events,
+            )
+            log_file_id = task.op_id
+            # 设置 kb_id 后缓存，后续 API 可按 kb_id 查询
+            for event in time_window_aggregated_events:
+                event.kb_id = kb_id or ""
+            set_aggregated_events(log_file_id, src_dst_aggregated_events, kb_id=kb_id or "")
+            set_time_window_events(log_file_id, time_window_aggregated_events)
+
+            # ── 明细行：yuanrong 分段时延仅对 top1000 + 异常 trace 子集计算（T5/T9）。
+            #    _yuanrong_from_grouped 从全量 347k 行延后到 ~(1K+anomalous) 行子集，
+            #    5 遍 with_columns 开销从 347k×5 降到 ~ (1K+anomalous)×5。
+            import polars as pl
+            from latency.parse.parallel_scanner.trace_frame import _yuanrong_from_grouped
+            from latency.schemas.log import YUANRONG_METRIC_FIELDS
+
+            top1000_tids: set[str] = set()
+            try:
+                top1000_tids = set(
+                    trace_index.sort("total_latency", descending=True)
+                    .head(1000)["tid"]
+                    .to_list()
+                )
+            except Exception:
+                logger.warning("[yuanrong] top1000 tid selection failed", exc_info=True)
+
+            # 异常 trace 如果在 top1000 中：top1000 行标 is_anomalous，
+            # 不再单独构建异常行（避免同一 trace 在 log_parse_result 存两行）。
+            anomalous_only_tids: set[str] = anomalous_tids - top1000_tids
+            if anomalous_only_tids:
+                logger.info(
+                    "[yuanrong] %d anomalous traces outside top1000, "
+                    "will build separate rows",
+                    len(anomalous_only_tids),
+                )
+
+            all_detail_tids: set[str] = top1000_tids | anomalous_tids
+            if all_detail_tids:
+                detail_subset = trace_index.filter(
+                    pl.col("tid").is_in(all_detail_tids)
+                )
+                detail_subset = _yuanrong_from_grouped(detail_subset)
+
+                if anomalous_only_tids:
+                    detail_rows: list[LogParseResultDataclass] = (
+                        KVCacheLogParseWorker._build_anomalous_detail_rows(
+                            detail_subset,
+                            anomalous_only_tids,
+                            kb_id=kb_id or "",
+                            log_file_id=log_file_id,
+                        )
+                    )
+                else:
+                    detail_rows = []
+
+                yuanrong_fields = list(YUANRONG_METRIC_FIELDS)
+                try:
+                    top1000_df = detail_subset.filter(
+                        pl.col("tid").is_in(top1000_tids)
+                    ).sort("total_latency", descending=True)
+                    if top1000_df.height > 0:
+                        created_at = _utc_now_str()
+                        top1000_rows = []
+                        for flat in top1000_df.to_dicts():
+                            row = KVCacheLogParseWorker._make_field_row(
+                                flat, log_file_id=log_file_id, created_at=created_at,
+                                is_anomalous=flat["tid"] in anomalous_tids,
+                            )
+                            for field in yuanrong_fields:
+                                val = flat.get(field)
+                                if val is not None:
+                                    setattr(row, field, val)
+                            top1000_rows.append(row)
+                        detail_rows = top1000_rows + detail_rows
+                        logger.info(
+                            "[yuanrong] top%d detail rows built + %d anomalous-only, "
+                            "merged into detail_rows",
+                            len(top1000_rows),
+                            len(detail_rows) - len(top1000_rows),
+                        )
+                except Exception:
+                    logger.warning(
+                        "[yuanrong] top1000 detail build failed, skipping",
+                        exc_info=True,
+                    )
+            else:
+                detail_rows = []
+                logger.info("[yuanrong] no detail tids (top1000=%d anomalous=%d), skipped",
+                           len(top1000_tids), len(anomalous_tids))
+            await progress.report("detail", 1.0)
+            await progress.stage_log("detail", f"rows={len(detail_rows)}")
+
+            # 回填 aggregated_event_id：metrics 行已带统一取源链
+            # （URMA→RemotePull→""）解析出的 src/dst/op，与聚合一致，经
+            # agg_id_map 写入明细行，保持钻取链路。
+            if detail_rows:
+                for row in detail_rows:
+                    op = (row.operation or "").strip().upper()
+                    op_key = "GET" if "GET" in op else "SET"
+                    row.aggregated_event_id = src_dst_to_agg_id_map.get(
+                        (row.src_ip or "", row.dst_ip or "", op_key), ""
+                    )
+
+            # ── 分位桶统计：df_trace（T4 frame 路径, polars 选代表行）→
+            # 4 张 latency_bucket_* 表。仅对选中代表行构造 dataclass（~300），
+            # 失败经降级包装仅记录日志，不阻塞明细/聚合落库。
+            await KVCacheLogParseWorker._store_bucket_stats_degraded(
+                log_id=task.op_id,
+                kb_id=kb_id or "",
+                rows=df_trace,
+                task_id=task_id,
+            )
+            await progress.report("bucket", 1.0)
+            await progress.stage_log("bucket", "latency_bucket_* written")
+
+            # ── 异步持久化（聚合事件已在内存缓存中，API 不阻塞）────
             t_store_start = time.perf_counter()
             stored = await KVCacheLogParseWorker.store_result(
-                list_log_parse_results=list_log_parse_results,
-                anomalous_events=anomalous_events,
-                anomalous_event_chains=anomalous_event_chains or [],
+                anomalous_detail_rows=detail_rows,
                 src_dst_aggregated_events=src_dst_aggregated_events,
+                time_window_aggregated_events=time_window_aggregated_events,
                 kb_id=kb_id or "",
             )
             t_store = time.perf_counter() - t_store_start
-            await BaseWorker.report(task.id, "Results stored", 70.0)
+            await progress.report("store", 1.0)
+            await progress.stage_log("store", f"stored={stored}", elapsed_ms=t_store * 1000)
             await BaseWorker.report(
                 task.id,
                 (
                     "[perf][store.summary] "
-                    f"parse_results={len(list_log_parse_results)}, "
+                    f"detail_rows={len(detail_rows)}, "
                     f"aggregated={len(src_dst_aggregated_events)}, "
-                    f"anomalous={len(anomalous_events)}, "
-                    f"chains={len(anomalous_event_chains or [])}, "
                     f"stored={stored}, time={t_store:.3f}s"
                 ),
                 t_store,
             )
             
             if not stored:
-                logger.warning(f"Task {task_id} store partially failed, still marking as successful")
+                logger.error(f"Task {task_id} store failed, marking task as failed")
+                await TaskPGManager.update_task(
+                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                )
+                await LogFilePGManager.update_log_file(
+                    task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
+                )
+                await BaseWorker.report(task.id, "Task failed: store to DB unsuccessful", 100.0)
+                return False
 
             await LogFilePGManager.update_log_file(
-                task.op_id, {"anomalous_count": len(anomalous_events)}
+                task.op_id, {"anomalous_count": len(anomalous_tids)}
             )
-
+            
             # 更新关联的知识库统计
             if kb_id:
                 await LogKnowledgePGManager.update_log_kb(
-                    kb_id, {"anomalous_count": len(anomalous_events)}
+                    kb_id, {"anomalous_count": len(anomalous_tids)}
                 )
             
-            # 所有落库和元数据更新完成后再报告 100%，最后翻转任务状态。
-            # 这样 UI 读取到的进度不会早于实际存储完成。
+            await TaskPGManager.update_task(
+                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+            )
             await LogFilePGManager.update_log_file(
                 task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)
-            await TaskPGManager.update_task(
-                task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
-            )
 
             # 全流程耗时汇总
-            t_total = t_parse + t_detect + t_agg + t_store
+            t_total = t_parse + t_agg + t_store
             pct_p = t_parse / t_total * 100
-            pct_d = t_detect / t_total * 100
             pct_a = t_agg / t_total * 100
             pct_s = t_store / t_total * 100
             logger.info(
                 f"============================================================\n"
                 f"=== [TASK TIMING] Total: {t_total:.1f}s ===\n"
                 f"  [1] Parse log:       {t_parse:7.1f}s ({pct_p:5.1f}%)\n"
-                f"  [2] Detect anomaly:  {t_detect:7.1f}s ({pct_d:5.1f}%)\n"
-                f"  [3] Aggregate result:{t_agg:7.1f}s ({pct_a:5.1f}%)\n"
-                f"  [4] Store to DB:     {t_store:7.1f}s ({pct_s:5.1f}%)\n"
+                f"  [2] Aggregate result:{t_agg:7.1f}s ({pct_a:5.1f}%)\n"
+                f"  [3] Store to DB:     {t_store:7.1f}s ({pct_s:5.1f}%)\n"
                 f"============================================================"
             )
             await BaseWorker.report(task.id, f"[TASK] Parse log: {t_parse:.1f}s ({pct_p:.1f}%)", t_parse)
-            await BaseWorker.report(task.id, f"[TASK] Detect anomaly: {t_detect:.1f}s ({pct_d:.1f}%)", t_detect)
             await BaseWorker.report(task.id, f"[TASK] Aggregate result: {t_agg:.1f}s ({pct_a:.1f}%)", t_agg)
             await BaseWorker.report(task.id, f"[TASK] Store to DB: {t_store:.1f}s ({pct_s:.1f}%)", t_store)
             await BaseWorker.report(task.id, f"[TASK] Total: {t_total:.1f}s", 0.0)
@@ -1343,3 +1551,4 @@ class KVCacheLogParseWorker(BaseWorker):
             logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
         
         return task_id
+

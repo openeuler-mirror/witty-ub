@@ -4,7 +4,7 @@ KVCacheLogParseWorker 测试脚本
 用法:
     python test_kv_cache_log_parse_worker.py all <log_dir>     # 运行所有测试
     python test_kv_cache_log_parse_worker.py parse <log_id>    # 测试解析
-    python test_kv_cache_log_parse_worker.py detect <log_id>   # 测试异常检测
+    python test_kv_cache_log_parse_worker.py anomaly <log_id>  # 测试异常明细（替代已删的 detect）
     python test_kv_cache_log_parse_worker.py aggregate <log_id> # 测试聚合
     python test_kv_cache_log_parse_worker.py store <log_id>    # 测试存库
     python test_kv_cache_log_parse_worker.py run <log_id>      # 测试完整流水线
@@ -26,74 +26,94 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger(__name__)
 
 
-async def test_parse_log(log_id: str):
-    """测试日志解析 - 使用 log_id"""
+async def _parse_target(target: str):
+    """解析 log_id 或 log_dir 为 trace_index（parse_log 双模式）"""
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
+    if os.path.isdir(target) or os.path.isfile(target):
+        return await KVCacheLogParseWorker.parse_log(log_dir=target)
+    return await KVCacheLogParseWorker.parse_log(log_id=target)
+
+
+async def test_parse_log(log_id: str):
+    """测试日志解析 - 使用 log_id"""
     logger.info("=" * 60)
     logger.info("TEST: parse_log (log_id=%s)", log_id)
     logger.info("=" * 60)
 
     start = time.perf_counter()
-    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
+    trace_index = await _parse_target(log_id)
     elapsed = time.perf_counter() - start
 
-    total = len(results)
-    anomalous = sum(1 for r in results if r.is_anomalous)
-    logger.info(f"解析完成: {total:,} 条结果, {anomalous:,} 条异常, 耗时: {elapsed:.3f}s")
+    sdk_entries = trace_index.get("SDK access parse", [])
+    total = len(sdk_entries)
+    logger.info(f"解析完成: {total:,} 条 SDK 条目, 耗时: {elapsed:.3f}s")
 
-    for i, r in enumerate(results[:3]):
-        logger.info(f"  [{i}] trace_id={r.trace_id}, total_latency={r.total_latency:.3f}, "
-                     f"src_ip={r.src_ip}, dst_ip={r.dst_ip}")
+    for i, r in enumerate(sdk_entries[:3]):
+        logger.info(f"  [{i}] trace_id={r[5]}, elapsed_us={r[2]}, "
+                     f"src_addr={r[11]}, dst_addr={r[12]}")
 
     logger.info("=== TEST PASSED ===")
-    return results
+    return trace_index
 
 
-async def test_detect_exception(log_id: str):
-    """测试异常检测 - 使用 log_id"""
+async def test_anomaly(target: str):
+    """测试异常明细（detect 已删，异常判定由聚合侧承担）"""
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
     logger.info("=" * 60)
-    logger.info("TEST: detect_exception (log_id=%s)", log_id)
+    logger.info("TEST: anomaly detail rows (target=%s)", target)
     logger.info("=" * 60)
 
-    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
-    if not results:
-        logger.warning("解析结果为空，跳过异常检测")
-        return []
+    trace_index = await _parse_target(target)
+    if not trace_index.get("SDK access parse"):
+        logger.warning("解析结果为空，跳过异常判定")
+        return [], set()
 
     start = time.perf_counter()
-    events = await KVCacheLogParseWorker.detect_exception(results)
+    _, _, _, anom_tids, metrics_table = (
+        await KVCacheLogParseWorker._aggregate_three_way(trace_index)
+    )
+    # T4：metrics_table 是轻量 dict 行，仅对异常 trace 物化 dataclass
+    detail_rows = [
+        KVCacheLogParseWorker._make_field_row(m, "")
+        for m in metrics_table if m["tid"] in anom_tids
+    ]
     elapsed = time.perf_counter() - start
 
-    logger.info(f"异常检测完成: {len(events):,} 个异常事件, 耗时: {elapsed:.3f}s")
+    logger.info(f"异常明细完成: {len(detail_rows):,} 条, 耗时: {elapsed:.3f}s")
 
-    for i, e in enumerate(events[:3]):
-        logger.info(f"  [{i}] id={e.id[:8]}..., reason={e.anomaly_reason[:80]}...")
+    for i, r in enumerate(detail_rows[:3]):
+        logger.info(f"  [{i}] trace_id={r.trace_id}, total_latency={r.total_latency:.3f}")
 
     logger.info("=== TEST PASSED ===")
-    return events
+    return detail_rows, anom_tids
 
 
-async def test_aggregate(log_id: str):
-    """测试聚合统计 - 使用 log_id"""
+async def test_aggregate(target: str):
+    """测试聚合统计"""
     from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
 
     logger.info("=" * 60)
-    logger.info("TEST: generate_aggregate_result (log_id=%s)", log_id)
+    logger.info("TEST: generate_aggregate_result (target=%s)", target)
     logger.info("=" * 60)
 
-    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
-    if not results:
+    trace_index = await _parse_target(target)
+    if not trace_index.get("SDK access parse"):
         logger.warning("解析结果为空，跳过聚合")
         return [], {}
 
     start = time.perf_counter()
-    agg_events, src_dst_map, _ = await KVCacheLogParseWorker.generate_aggregate_result(results)
+    agg_events, src_dst_map, time_window_events, anom_tids = (
+        await KVCacheLogParseWorker.generate_aggregate_result(trace_index)
+    )
     elapsed = time.perf_counter() - start
 
-    logger.info(f"聚合完成: {len(agg_events):,} 个端点对, 耗时: {elapsed:.3f}s")
+    logger.info(
+        f"聚合完成: {len(agg_events):,} 个端点对, "
+        f"{len(time_window_events):,} 个时间窗, {len(anom_tids):,} 个异常 trace, "
+        f"耗时: {elapsed:.3f}s"
+    )
 
     for i, a in enumerate(agg_events[:3]):
         logger.info(f"  [{i}] {a.src_ip} -> {a.dst_ip}, "
@@ -111,26 +131,25 @@ async def test_store(log_id: str):
     logger.info("TEST: store_result (log_id=%s)", log_id)
     logger.info("=" * 60)
 
-    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
-    if not results:
+    trace_index = await KVCacheLogParseWorker.parse_log(log_id=log_id)
+    if not trace_index.get("SDK access parse"):
         logger.warning("解析结果为空，跳过往存库")
         return False
 
-    events = await KVCacheLogParseWorker.detect_exception(results)
-    agg_events, _, time_window_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
-
-    # 更新异常事件的 aggregated_event_id
-    for event in events:
-        idx = event.start_log_parse_offset
-        if 0 <= idx < len(results):
-            r = results[idx]
-            event.aggregated_event_id = r.aggregated_event_id or ""
+    agg_events, _, time_window_events, anom_tids = (
+        await KVCacheLogParseWorker.generate_aggregate_result(trace_index)
+    )
+    _, _, _, _, metrics_table = (
+        await KVCacheLogParseWorker._aggregate_three_way(trace_index)
+    )
+    detail_rows = [
+        KVCacheLogParseWorker._make_field_row(m, "")
+        for m in metrics_table if m["tid"] in anom_tids
+    ]
 
     start = time.perf_counter()
     success = await KVCacheLogParseWorker.store_result(
-        list_log_parse_results=results,
-        anomalous_events=events,
-        anomalous_event_chains=[],
+        anomalous_detail_rows=detail_rows,
         src_dst_aggregated_events=agg_events,
         time_window_aggregated_events=time_window_events,
     )
@@ -153,32 +172,36 @@ async def test_run_pipeline(log_id: str):
 
     # 步骤1: 解析
     logger.info(">>> Step 1: parse_log")
-    results = await KVCacheLogParseWorker.parse_log(log_id=log_id)
-    logger.info(f"    -> {len(results):,} results")
+    trace_index = await KVCacheLogParseWorker.parse_log(log_id=log_id)
+    sdk_count = len(trace_index.get("SDK access parse", []))
+    logger.info(f"    -> {sdk_count:,} SDK entries")
 
-    # 步骤2: 异常检测
-    logger.info(">>> Step 2: detect_exception")
-    events = await KVCacheLogParseWorker.detect_exception(results)
-    logger.info(f"    -> {len(events):,} events")
+    # 步骤2: 聚合（含异常判定 + 轻量 metrics 表）
+    logger.info(">>> Step 2: _aggregate_three_way")
+    agg_events, src_dst_map, time_window_events, anom_tids, metrics_table = (
+        await KVCacheLogParseWorker._aggregate_three_way(trace_index)
+    )
+    logger.info(f"    -> {len(agg_events):,} aggregated events, "
+                f"{len(anom_tids):,} anomalous tids")
 
-    # 步骤3: 聚合
-    logger.info(">>> Step 3: generate_aggregate_result")
-    agg_events, src_dst_map, time_window_events = await KVCacheLogParseWorker.generate_aggregate_result(results)
-    logger.info(f"    -> {len(agg_events):,} aggregated events")
+    # 步骤3: 异常明细行（metrics 表按 anomalous_tids 过滤 + 物化 + is_anomalous=True）
+    logger.info(">>> Step 3: build anomalous detail rows")
+    detail_rows = [
+        KVCacheLogParseWorker._make_field_row(m, "", is_anomalous=True)
+        for m in metrics_table if m["tid"] in anom_tids
+    ]
+    for row in detail_rows:
+        op = (row.operation or "").strip().upper()
+        op_key = "SET" if "SET" in op else "GET"
+        row.aggregated_event_id = src_dst_map.get(
+            (row.src_ip or "", row.dst_ip or "", op_key), ""
+        )
+    logger.info(f"    -> {len(detail_rows):,} detail rows")
 
-    # 步骤4: 更新异常事件的 aggregated_event_id
-    for event in events:
-        idx = event.start_log_parse_offset
-        if 0 <= idx < len(results):
-            r = results[idx]
-            event.aggregated_event_id = src_dst_map.get((r.src_ip, r.dst_ip), "")
-
-    # 步骤5: 存库
+    # 步骤4: 存库
     logger.info(">>> Step 4: store_result")
     stored = await KVCacheLogParseWorker.store_result(
-        list_log_parse_results=results,
-        anomalous_events=events,
-        anomalous_event_chains=[],
+        anomalous_detail_rows=detail_rows,
         src_dst_aggregated_events=agg_events,
         time_window_aggregated_events=time_window_events,
     )
@@ -202,15 +225,14 @@ async def test_parse_log_dir(log_dir: str):
     logger.info("=" * 60)
 
     start = time.perf_counter()
-    results = await KVCacheLogParseWorker.parse_log(log_dir=log_dir)
+    trace_index = await KVCacheLogParseWorker.parse_log(log_dir=log_dir)
     elapsed = time.perf_counter() - start
 
-    total = len(results)
-    anomalous = sum(1 for r in results if r.is_anomalous)
-    logger.info(f"解析完成: {total:,} 条结果, {anomalous:,} 条异常, 耗时: {elapsed:.3f}s")
+    total = len(trace_index.get("SDK access parse", []))
+    logger.info(f"解析完成: {total:,} 条 SDK 条目, 耗时: {elapsed:.3f}s")
 
     logger.info("=== TEST PASSED ===")
-    return results
+    return trace_index
 
 
 # ============================================================
@@ -234,7 +256,7 @@ async def main():
             await test_parse_log_dir(target)
         elif target:
             await test_parse_log(target)
-            await test_detect_exception(target)
+            await test_anomaly(target)
             await test_aggregate(target)
             await test_store(target)
             await test_run_pipeline(target)
@@ -249,8 +271,8 @@ async def main():
         else:
             logger.error("请提供 log_id 或 log_dir")
 
-    elif cmd == "detect":
-        await test_detect_exception(target)
+    elif cmd in ("detect", "anomaly"):
+        await test_anomaly(target)
     elif cmd == "aggregate":
         await test_aggregate(target)
     elif cmd == "store":

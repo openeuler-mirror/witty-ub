@@ -165,7 +165,10 @@ async def startup_event():
     logger.info("PostgreSQL backend initialized")
 
     await FailureModeKnowledge().init_failure_mode_knowledge()
-    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=5, max_instances=6)
+    # 5s → 1s: 任务创建后被更快拾起, 缩短上传→解析的调度延迟(实测创建后要
+    # 等下一轮轮询 ~4s)。handle_tasks 每轮仅 3 个低开销 DB 查询, 1s 间隔
+    # 不构成压力; max_instances=3 防重入(重叠时 APScheduler 跳过本轮)。
+    scheduler.add_job(TaskHandler.handle_tasks, "interval", seconds=1, max_instances=3)
     scheduler.start()
 
 
@@ -180,7 +183,7 @@ def _setup_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     
-    logging.getLogger("latency.task.task_handler").setLevel(logging.WARNING)
+    logging.getLogger("latency.task.task_handler").setLevel(logging.INFO)
     logging.getLogger("latency.database").setLevel(logging.WARNING)
     logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
     

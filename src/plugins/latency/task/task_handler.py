@@ -7,7 +7,11 @@ from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.worker.base import BaseWorker
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_file import LogFilePGManager
-from latency.task.log_preprocessor import default_preprocess_dir, preprocess_log_dir
+from latency.task.log_preprocessor import (
+    default_preprocess_dir,
+    needs_preprocess,
+    preprocess_log_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +55,17 @@ class TaskHandler:
         log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
         if not log_file:
             return None
+
+        # 纯文本日志目录(无压缩包、文件全匹配 filename_patterns)无需拷贝/拆分:
+        # scan_all 可直接扫源路径,省去每次上传重复拷贝 106MB 级日志的浪费。
+        if not needs_preprocess(log_file.file_path):
+            logger.info(
+                "日志无需预处理, 直接扫描源目录: %s (log_file=%s)",
+                log_file.file_path,
+                log_file.id,
+            )
+            await BaseWorker.report(task.id, "日志无需预处理，直接扫描源目录", 5.0)
+            return log_file.file_path
 
         output_dir = default_preprocess_dir(log_file.id)
         loop = asyncio.get_running_loop()

@@ -127,6 +127,7 @@ def seeded(base_url):
             [
                 SrcDstAggregatedEventDataclass(
                     id=event_id,
+                    kb_id=kb_id,
                     log_id=log_id,
                     src_ip="192.168.1.1",
                     dst_ip="192.168.1.2",
@@ -586,6 +587,9 @@ class TestDiagnosisConfigContent:
                     "w2w_p99_threshold_ms": 1.0,
                     "urma_link_p99_threshold_ms": 1.0,
                     "query_meta_p99_threshold_ms": 1.0,
+                    "sliding_window_sizes": [100],
+                    "sliding_window_steps": [20],
+                    "zone_anomaly_density_threshold": 0.5,
                 },
             },
             timeout=10,

@@ -10,7 +10,7 @@ Set LATENCY_PG_DSN to override.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -171,28 +171,62 @@ async def test_time_window_list_events():
         await init_postgresql_database()
         await _truncate_log_parse_result()
         log_id = f"pg-tw-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        kb_id = f"kb-tw-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-        results = [
-            LogParseResultDataclass(
-                total_latency=float(i),
-                is_anomalous=i % 2 == 0,
+        # 10s 物化桶：6 个连续 10s 桶（共 60s），每桶 cnt=10 anomaly=1 ave=5.0
+        # p99 物化为 1.0..6.0，用于验证 10s 透传 + 1min p99-of-p99s。
+        base = datetime.now().replace(second=0, microsecond=0)
+        base -= timedelta(seconds=base.second % 10)
+        events = [
+            TimeWindowAggregatedEventDataclass(
+                id=f"{log_id}-tw-{i}",
+                kb_id=kb_id,
                 log_id=log_id,
+                time_bucket=(base + timedelta(seconds=10 * i)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
                 src_ip="10.0.0.1",
                 dst_ip="10.0.0.2",
-                timestamp=now,
-                created_at=now,
+                log_parse_result_cnt=10,
+                anomaly_cnt=1,
+                ave_total_latency=5.0,
+                latency_sum=50.0,
+                p99_total_latency=float(i + 1),
             )
-            for i in range(10)
+            for i in range(6)
         ]
-        assert await LogParseResultPGManager.add_log_parse_results(results)
+        await TimeWindowAggregatedEventPGManager.add_events(events)
 
-        req = ListTimeWindowAggregatedEventRequest(log_id=log_id, interval="second")
+        # 10s 粒度：6 个桶，全量 cnt 每桶 10 > anomaly 1
+        req = ListTimeWindowAggregatedEventRequest(
+            kb_id=kb_id, interval=10, page_cnt=100
+        )
         total, rows = await TimeWindowAggregatedEventPGManager.list_time_window_events(
             req
         )
-        assert total >= 1
-        assert rows[0]["total_cnt"] == 10
+        assert total == 6
+        assert sum(r["total_cnt"] for r in rows) == 60
+        assert sum(r["anomaly_cnt"] for r in rows) == 6
+        assert all(
+            r["total_cnt"] > r["anomaly_cnt"] for r in rows
+        )
+        # 10s 单行透传：每组仅一行，ip_pair p99 = 物化值原样
+        p99_10s = sorted(p["p99_total_latency"] for r in rows for p in r["ip_pairs"])
+        assert p99_10s == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+        # 1min 粒度：6×10s 聚合为 1 个父桶，cnt/anomaly 相加、ave 加权
+        req = ListTimeWindowAggregatedEventRequest(
+            kb_id=kb_id, interval=60, page_cnt=100
+        )
+        total, rows = await TimeWindowAggregatedEventPGManager.list_time_window_events(
+            req
+        )
+        assert total == 1
+        assert rows[0]["total_cnt"] == 60
+        assert rows[0]["anomaly_cnt"] == 6
+        assert rows[0]["ave_total_latency"] == 5.0
         assert "ip_pairs" in rows[0]
+        # p99-of-p99s：percentile_cont(0.99) over [1..6]（线性插值）= 5.95
+        assert rows[0]["ip_pairs"][0]["p99_total_latency"] == pytest.approx(5.95)
     finally:
         await PGManager.close()

@@ -1,3 +1,12 @@
+[db]
+pg_host = "127.0.0.1"
+pg_port = 15432
+pg_database = "witty-ub"
+pg_user = "witty-ub"
+pg_password = "witty-ub"
+pg_pool_size = 5
+pg_max_overflow = 10
+
 [log_filename_pattern]
 ds_client_access_log_file = ["ds_client_access*.log", "*_access.log", "*_split_access.log"]
 ds_client_info_log_file = ["ds_client*.INFO.log", "*_runtime.log", "*_split_runtime.log"]
@@ -6,17 +15,11 @@ ds_worker_info_log_file = ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "
 resource_log_file = ["resource.log"]
 
 [log_analyzer_params]
-total_p99_threshold_ms = 2.0
+total_p99_threshold_ms = 5.0
 c2w_p99_threshold_ms = 2.0
 w2w_p99_threshold_ms = 1.5
 urma_link_p99_threshold_ms = 4.0
 query_meta_p99_threshold_ms = 1.0
-
-[db]
-pg_host = "127.0.0.1"
-pg_port = 15432
-pg_database = "witty-ub"
-pg_user = "witty-ub"
-pg_password = "witty-ub"
-pg_pool_size = 10
-pg_max_overflow = 20
+sliding_window_sizes = [100, 200, 300, 500]
+sliding_window_steps = [20, 30, 40, 50]
+zone_anomaly_density_threshold = 0.5

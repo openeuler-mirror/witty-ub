@@ -5,6 +5,7 @@ _DEFAULT_SDK_ACCESS_LOG_PATTERNS = [
     "SDK_*/ds_client_access_*.log",
     "SDK_*/ds_client.log",
     "SDK_*/ds_client_access.log",
+    "*_split_access.log",
 ]
 
 _DEFAULT_WORKER_ACCESS_LOG_PATTERNS = [
@@ -12,11 +13,13 @@ _DEFAULT_WORKER_ACCESS_LOG_PATTERNS = [
     "*worker_*/access*.log",
     "*worker_*/access.log.gz",
     "*worker_*/access*.log.gz",
+    "*_split_access.log",
 ]
 
 _DEFAULT_WORKER_INFO_LOG_PATTERNS = [
     "*worker_*/datasystem_worker.INFO.*",
     "*worker_*/kvcache.INFO.*",
+    "*_split_runtime.log",
 ]
 
 

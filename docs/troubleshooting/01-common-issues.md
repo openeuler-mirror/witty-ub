@@ -1,0 +1,217 @@
+# 常见问题诊断与解决
+
+本文档汇总 witty-ub 部署和运行过程中的常见问题及其解决方案。
+
+---
+
+## 快速定位问题
+
+```bash
+# 使用 docker compose
+docker compose ps
+docker compose logs witty-ub
+docker compose exec -it witty-ub bash
+
+# 使用纯 Docker 命令
+docker ps
+docker logs witty-ub
+docker exec -it witty-ub /bin/bash
+```
+
+---
+
+## 1. 容器无法启动
+
+**症状**: 容器启动失败，提示镜像不存在或启动后立即退出
+
+**解决方案**:
+
+```bash
+# 查看当前容器状态
+docker compose ps
+docker images
+
+# 如果镜像名称为 <none>，为其打上标签
+docker tag <镜像ID> witty-ub:latest
+
+# 重新启动容器
+docker compose up -d
+```
+
+---
+
+## 2. 端口冲突
+
+**症状**: 启动失败，提示端口已被占用
+
+**解决方案**:
+
+```bash
+# 查看端口占用
+netstat -tlnp | grep 32412
+
+# 修改 docker-compose.yml 中的端口映射（只需修改宿主机端口）
+ports:
+  - "32413:8080"  # 改为其他可用端口
+```
+
+---
+
+## 3. 权限问题
+
+**症状**: 容器内无法写入数据
+
+**解决方案**:
+
+```bash
+# 检查卷权限
+docker exec witty-ub ls -la /var/witty-ub
+
+# 修复权限
+docker exec witty-ub chmod -R 755 /var/witty-ub
+```
+
+---
+
+## 4. Latency Plugin 未启动
+
+**症状**: API 返回 502 或连接拒绝
+
+**解决方案**:
+
+```bash
+# 查看 Latency 服务日志
+docker exec witty-ub cat /var/log/witty-ub/latency_server.log
+
+# 手动启动 Latency 服务
+docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
+  /var/witty-ub/latency/access/fastapi_server.py
+
+# 检查健康状态
+docker exec witty-ub curl http://localhost:9772/health_check
+```
+
+---
+
+## 5. Nginx 无法访问
+
+**症状**: Web UI 无法打开
+
+**解决方案**:
+
+```bash
+# 检查 Nginx 状态
+docker exec witty-ub nginx -t
+
+# 查看 Nginx 错误日志
+docker exec witty-ub cat /var/log/witty-ub-web/error.log
+
+# 重启 Nginx
+docker exec witty-ub nginx -s reload
+```
+
+---
+
+## 6. 磁盘空间不足
+
+**症状**: 容器启动失败或运行异常
+
+**解决方案**:
+
+```bash
+# 检查磁盘使用
+df -h
+
+# 清理 Docker 无用资源
+docker system prune -a
+
+# 清理悬空镜像
+docker image prune
+
+# 清理未使用的卷
+docker volume prune
+```
+
+---
+
+## 7. OpenCode 服务异常
+
+**症状**: AI 诊断功能无法使用，提示 "bad file reference"、"Agent 处理消息时发生错误" 或 OpenCode 服务未启动
+
+### 7.1 配置目录未挂载
+
+```bash
+# 检查 opencode 配置目录是否存在
+ls ~/.config/opencode/
+
+# 确保 docker-compose.yml 中挂载了配置目录
+# - ~/.config/opencode:/root/.config/opencode
+```
+
+### 7.2 环境变量未设置
+
+```bash
+# 进入容器检查环境变量
+docker exec witty-ub env | grep -E "(OPENCODE_CONFIG|WITTY_DIR|WITTY_UB_PLUGINS_DIR)"
+
+# 预期输出:
+# OPENCODE_CONFIG=/var/witty-ub/config/opencode.json
+# WITTY_DIR=/var/witty-ub/config
+# WITTY_UB_PLUGINS_DIR=/var/witty-ub
+```
+
+### 7.3 OpenCode 进程未启动
+
+```bash
+# 检查 OpenCode 进程是否运行
+docker exec witty-ub ps aux | grep opencode
+
+# 检查 OpenCode 日志
+docker exec witty-ub cat /var/log/witty-ub/opencode_server.log
+
+# 手动启动 OpenCode
+docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=/var/witty-ub/config/opencode.json /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 > /var/log/witty-ub/opencode_server.log 2>&1 &"
+```
+
+### 7.4 Agent 文件路径错误
+
+```bash
+# 检查 agent 文件是否存在
+docker exec witty-ub ls -la /var/witty-ub/config/agents/
+
+# 检查 opencode.json 配置文件中的路径是否正确（使用绝对路径）
+docker exec witty-ub cat /var/witty-ub/config/opencode.json | grep -A5 prompt
+
+# 预期输出:
+# "prompt": "{file:/var/witty-ub/config/agents/witty-ub-diagnostician.md}"
+```
+
+### 7.5 MCP 服务未启动
+
+```bash
+# 检查 MCP 服务进程是否运行
+docker exec witty-ub ps aux | grep mcp_server
+
+# 检查 Latency 服务是否正常（MCP 依赖它）
+docker exec witty-ub curl http://localhost:9772/health_check
+```
+
+---
+
+## 8. 依赖包找不到
+
+**症状**: `cpp-httplib-devel` 等包安装失败
+
+**解决方案**:
+
+确保使用正确的基础镜像版本:
+- `openeuler/openeuler:24.03-lts-sp4` (推荐，包含完整依赖)
+- 基础版本 `24.03-lts` 可能缺少部分包
+
+---
+
+## 相关文档
+
+- 容器运行问题排查 → [02-container-runtime.md](02-container-runtime.md)
+- 部署指南 → [../deployment/01-overview.md](../deployment/01-overview.md)
+- 配置参考 → [../usage/03-configuration-reference.md](../usage/03-configuration-reference.md)

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Union
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -418,6 +418,15 @@ class GetLatencyMetricsRequest(BaseModel):
     )
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="asc", description="排序方向，默认升序（时间正序）")
+    bucket_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="时间桶粒度(秒):10/60/600/3600 对应 10s/1min/10min/1h",
+    )
+    log_id: Optional[str] = Field(
+        default=None,
+        description="日志文件ID,用于直接查分位统计表;为空时回退实时聚合",
+    )
 
 class GetErrCodeMetricsRequest(BaseModel):
     """获取故障码指标时间曲线请求"""
@@ -513,9 +522,9 @@ class ListTimeWindowAggregatedEventRequest(BaseModel):
     src_ip: Optional[str] = Field(default=None, description="源IP过滤")
     dst_ip: Optional[str] = Field(default=None, description="目标IP过滤")
     operation: Optional[str] = Field(default=None, description="操作类型过滤：GET / SET")
-    interval: str = Field(
-        default="minute",
-        description="时间窗口间隔，可选hour, minute, second"
+    interval: Union[str, int] = Field(
+        default=10,
+        description="时间窗口间隔(秒)：10/60/600/3600，兼容旧值 second/minute/hour",
     )
     stat_type: Optional[str] = Field(default="ave", description="统计类型：p99、p95、ave、min、max")
     sort_by: Optional[str] = Field(
