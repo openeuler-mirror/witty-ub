@@ -1,0 +1,16 @@
+[Unit]
+Description=Witty-UB Frontend (vite on 5173)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__PROJECT_DIR__/deploy/host/run_frontend.sh
+Restart=always
+RestartSec=5
+# SIGTERM 停止 (128+15) 视为正常退出, 避免 systemctl stop 后显示 failed
+SuccessExitStatus=143
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

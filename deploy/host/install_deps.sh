@@ -38,16 +38,23 @@ install_system_deps() {
         postgresql postgresql-client
         python3 python3-pip python3-venv
         nodejs npm git curl
+        libpam-systemd
     )
 
     if [ "$OS_ID" = "openeuler" ]; then
         if _is_root; then
+            # systemd-pam (24.03+): pam_systemd.so 缺失 → systemctl --user 全不可用
+            # 22.03 无此包 → 先探测存在才装, 避免 dnf 整批失败
+            local SYSTEMD_PAM=""
+            dnf list systemd-pam >/dev/null 2>&1 && SYSTEMD_PAM="systemd-pam"
             eval "$PM_UPDATE"
-            eval "$PM_INSTALL ${OPENEULER_PKGS[*]}"
+            eval "$PM_INSTALL ${OPENEULER_PKGS[*]} $SYSTEMD_PAM"
             systemctl enable postgresql 2>/dev/null || true
         else
             _warn "需要 root 权限安装系统包，请运行:"
             echo "  sudo dnf install -y ${OPENEULER_PKGS[*]}"
+            _info "openEuler 24.03+ 另需 systemd-pam (systemctl --user 依赖):"
+            echo "  sudo dnf install -y systemd-pam"
             _info "跳过系统包安装，假设已手动安装"
         fi
     elif [ "$OS_ID" = "ubuntu" ]; then
@@ -72,6 +79,10 @@ install_python_deps() {
     local LATENCY_DIR="$PROJECT_DIR/src/plugins/latency"
     local VENV_DIR="$LATENCY_DIR/.venv"
 
+    # 依赖安装日志会写入 LOG_DIR; clean(scope 2)会删除该目录,
+    # 不重建会让 tee 写日志失败 → pipefail 误判安装失败。
+    mkdir -p "$LOG_DIR"
+
     if [ ! -d "$VENV_DIR" ]; then
         python3 -m venv "$VENV_DIR"
     fi
@@ -79,8 +90,10 @@ install_python_deps() {
     source "$VENV_DIR/bin/activate"
     # 升级既有依赖到 requirements 声明的版本（全新环境一次装好；
     # 旧环境避免因残留旧版 polars/numpy 导致 ImportError）。
-    if ! pip install --quiet -U -r "$LATENCY_DIR/deploy/requirements.txt" 2>&1 | tail -3; then
-        _err "Python 依赖安装失败，请检查 $LATENCY_DIR/deploy/requirements.txt"
+    # tee 流式回显 + 留档: 依赖安装耗时最长, 静默会让部署看起来像假死。
+    if ! pip install -U -r "$LATENCY_DIR/deploy/requirements.txt" 2>&1 | tee "$LOG_DIR/pip-install.log"; then
+        _err "Python 依赖安装失败，最近日志:"
+        tail -30 "$LOG_DIR/pip-install.log"
         return 1
     fi
     _log "Python 依赖安装完成"

@@ -1,4 +1,4 @@
-# Witty-UB 系统架构与部署概览
+                                                                    # Witty-UB 系统架构与部署概览
 
 ## 系统架构
 
@@ -81,6 +81,17 @@ Witty-UB 是一个用于超节点故障定位的工具，由以下两个核心�
                                         └── 4096 (OpenCode)
 ```
 
+### 宿主机脚本部署（deploy/host/deploy.sh）
+
+| 端口 | 协议 | 用途 | 访问方式 |
+|------|------|------|----------|
+| 5173 | TCP | Web UI（vite preview 托管 `dist/`；无 `dist/` 时回退 dev server） | 外部访问 |
+| 9772 | TCP | FastAPI（后端服务） | 外部访问 |
+| 15432 | TCP | PostgreSQL（数据存储） | 本机访问（部署脚本） |
+| 4096 | TCP | OpenCode（AI Agent） | 不直接访问 |
+
+> 该方式前端直接由 Vite 托管（无 Nginx 反代），后端 9772 无需代理即可访问。
+
 ### RPM / 源码部署
 
 | 端口 | 协议 | 用途 |
@@ -142,6 +153,9 @@ witty-ub/
 │   ├── host/                     # 宿主机/源码部署
 │   │   ├── deploy.sh             # 一键部署脚本
 │   │   ├── install_deps.sh       # 依赖安装
+│   │   ├── run_frontend.sh       # 前端启动器 (vite preview / dev 回退)
+│   │   ├── test_full_deploy.sh   # 全量部署回归测试
+│   │   ├── systemd/              # systemd user unit 模板
 │   │   └── _lib.sh               # 共享工具库
 │   └── docker/                   # 容器部署
 │       ├── manage.sh             # 统一管理入口
@@ -159,8 +173,8 @@ witty-ub/
 
 根据你的部署场景选择：
 
-- **宿主机脚本部署** → [02-script-host.md](02-script-host.md)
 - **容器脚本部署** → [03-script-container.md](03-script-container.md)
+- **宿主机脚本部署** → [02-script-host.md](02-script-host.md)
 - **手动数据库部署** → [05-database.md](05-database.md)
 - **手动源码部署** → [06-source.md](06-source.md)
 - **手动 RPM 部署** → [07-rpm.md](07-rpm.md)

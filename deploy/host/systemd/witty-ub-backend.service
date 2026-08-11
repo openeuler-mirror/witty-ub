@@ -1,0 +1,19 @@
+[Unit]
+Description=Witty-UB Backend (FastAPI on 9772)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__PROJECT_DIR__/src/plugins/latency
+Environment=PYTHONPATH=__PROJECT_DIR__/src/plugins
+Environment=WITTY_DIR=__WITTY_DIR__
+Environment=WITTY_INSTALL_PATH=__PROJECT_DIR__/build/src
+Environment=CONFIG=__PROJECT_DIR__/config/diagnosis_config.toml
+ExecStart=__PROJECT_DIR__/src/plugins/latency/.venv/bin/python -u access/fastapi_server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
