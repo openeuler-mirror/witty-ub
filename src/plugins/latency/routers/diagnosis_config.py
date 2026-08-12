@@ -21,7 +21,7 @@ async def update_diagnosis_config(
     kb_id: str,
     req: Annotated[DiagnosisRuntimeConfig, Body()],
 ) -> ResponseBase:
-    """更新指定资产库的配置，不写回原始 diagnosis_config.json。"""
+    """更新指定资产库的配置，不写回原始 diagnosis_config.toml。"""
     return ResponseBase(result=await DiagnosisConfigPGManager.upsert(kb_id, req))
 
 

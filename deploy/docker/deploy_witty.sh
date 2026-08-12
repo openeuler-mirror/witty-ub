@@ -47,6 +47,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# 保存环境变量传入的值（优先级高于配置文件）
+_SAVED_HOST_PORT="${WITTY_HOST_PORT:-}"
+_SAVED_EXTRA_MOUNTS="${WITTY_EXTRA_MOUNTS:-}"
+_SAVED_IMAGE="${WITTY_IMAGE:-}"
+
 # ---------- 加载配置 ----------
 if [ -f "$CONF_FILE" ]; then
     echo "[INFO] Loading config from ${CONF_FILE}"
@@ -54,6 +59,12 @@ if [ -f "$CONF_FILE" ]; then
 else
     echo "[WARN]  Config file not found: ${CONF_FILE}, using defaults"
 fi
+
+# 环境变量优先级高于配置文件（来自 manage.sh 交互式输入）
+[ -n "$_SAVED_HOST_PORT" ] && WITTY_HOST_PORT="$_SAVED_HOST_PORT"
+[ -n "$_SAVED_EXTRA_MOUNTS" ] && WITTY_EXTRA_MOUNTS="$_SAVED_EXTRA_MOUNTS"
+[ -n "$_SAVED_IMAGE" ] && WITTY_IMAGE="$_SAVED_IMAGE"
+unset _SAVED_HOST_PORT _SAVED_EXTRA_MOUNTS _SAVED_IMAGE
 
 # witty-ub 默认值（未在 pg.conf 中配置的项）
 WITTY_CONTAINER_NAME="${WITTY_CONTAINER_NAME:-witty-ub}"
