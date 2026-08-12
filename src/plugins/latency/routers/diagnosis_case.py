@@ -30,7 +30,6 @@ async def create_diagnosis_case(
         "Get one historical diagnosis case by ID. Inspect its symptom, root cause, "
         "recommendation, fingerprint and evidence references after case search."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_diagnosis_case(
     case_id: Annotated[str, Path()],
@@ -48,7 +47,6 @@ async def get_diagnosis_case(
         "codes, failure modes, IPs, hosts, pods, clusters, latency components and "
         "log phrases. A match is a hypothesis to verify, not proof."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def search_diagnosis_cases(
     req: Annotated[SearchDiagnosisCasesRequest, Body()],

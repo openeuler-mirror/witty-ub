@@ -68,7 +68,6 @@ async def update_log_kb(
         "Get one log knowledge base by ID. Use it to verify the selected data set "
         "before investigating its logs."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_kb_by_kb_id(
     kb_id: Annotated[str, Path()],
@@ -86,7 +85,6 @@ async def get_log_kb_by_kb_id(
         "base IDs. Returns metadata including ID, name, description and creation "
         "time. Results are paginated."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_kbs(
     req: Annotated[ListLogKnowledgeRequest, Body()],

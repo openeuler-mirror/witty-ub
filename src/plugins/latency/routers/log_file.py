@@ -130,7 +130,6 @@ async def run_or_stop_log_file_by_log_file_id(
         "status, task IDs and fault counts. A non-successful parse status means "
         "downstream results may be incomplete."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_files(
     kb_id: Annotated[str, Path()],
@@ -148,7 +147,6 @@ async def list_log_files(
         "Get one log file by ID, including its knowledge base, source, parse "
         "status, task information and fault statistics."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_file_by_log_file_id(
     log_file_id: Annotated[str, Path()],
