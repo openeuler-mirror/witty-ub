@@ -40,7 +40,6 @@ router = APIRouter(prefix="/failure_mode", tags=["failure_mode"])
         "base. A not-found response means the code is unknown, not that the event "
         "is healthy."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_status_code_knowledge(
     status_code: Annotated[str, Path()],
@@ -59,7 +58,6 @@ async def get_status_code_knowledge(
         "Get a complete curated failure mode by ID, including symptom, root cause, "
         "solution, failure domain and child failure-mode relationships."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_failure_mode_by_id(
     failure_mode_id: Annotated[str, Path()],

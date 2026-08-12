@@ -8,7 +8,7 @@ Python FastAPI microservice (port 9772) for DS log parsing, latency anomaly dete
 
 ```
 latency/
-├── access/              # Entry points: FastAPI(9772), MCP server, shell CLI
+├── access/              # Entry points: FastAPI(9772), shell CLI
 ├── routers/             # FastAPI API definitions (prefix+tags per resource)
 ├── services/            # Business logic, @staticmethod stateless classes
 ├── database/
@@ -51,7 +51,7 @@ latency/
 | Configuration | `config/config.py` | `Config` singleton, `diagnosis_config.toml`, `DiagnosisRuntimeConfig` |
 | API response models | `schemas/response.py` | `ResponseBase`, `PaginatedResponse` |
 | Parse result schemas | `schemas/log.py` | `LogParseResultDataclass`(36 fields), `C2WLogParseResultDataclass`(18), `SparseLogParseResultDataclass`(15) |
-| MCP server | `access/mcp_server.py` | Read-only MCP tools for AI Agent (stdio/sse/streamable-http) |
+| Diagnosis API | `routers/` | Read-only HTTP queries used directly by the AI Agent |
 
 ## KEY PATTERNS
 
@@ -85,9 +85,8 @@ latency/
 ```bash
 # Deploy & run
 cd deploy && bash deploy.sh                              # uv venv + start (9772)
-bash run_opencode.sh                                     # MCP serve (4096)
+bash run_opencode.sh                                     # OpenCode serve (4096)
 PYTHONPATH=$(pwd)/src/plugins python latency/access/fastapi_server.py
-PYTHONPATH=$(pwd)/src/plugins python -m latency.access.mcp_server  # stdio
 
 # Tests
 source .venv/bin/activate && pytest test/ -v

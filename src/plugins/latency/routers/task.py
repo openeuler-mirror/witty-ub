@@ -47,7 +47,6 @@ async def delete_task(
         "List parsing tasks by knowledge base, status, type or creation time. Use "
         "this to inspect parsing progress when a log file has no direct task ID."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_tasks(
     req: Annotated[ListTasksRequest, Body()],
@@ -65,7 +64,6 @@ async def list_tasks(
         "Call this before treating empty analysis results as evidence that no "
         "fault exists."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_task_by_id(
     task_id: Annotated[str, Path()],

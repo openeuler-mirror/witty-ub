@@ -30,7 +30,6 @@ router = APIRouter(prefix="/log_failure_event_result", tags=["log_failure_event_
         "records are primary evidence; quote only relevant fields and do not infer "
         "a root cause solely from coincident log messages."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_failure_event_results(
     req: Annotated[ListLogFailureEventResultRequest, Body()],
@@ -47,7 +46,6 @@ async def list_log_failure_event_results(
         "IP pair, trace ID or time. Use returned trace IDs and failure-mode IDs to "
         "retrieve raw logs and knowledge evidence."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_trace_failure_event_results(
     req: Annotated[ListTraceFailureEventResultRequest, Body()],
@@ -63,7 +61,6 @@ async def list_trace_failure_event_results(
         "Aggregate connectivity fault codes by time window. Use this first to "
         "locate periods with concentrated connectivity failures."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_time_aggregated_failure_event_results(
     req: Annotated[ListTimeAggregatedFailureEventRequest, Body()],
@@ -79,7 +76,6 @@ async def list_time_aggregated_failure_event_results(
         "Aggregate connectivity fault codes by pod within a time range. Use this "
         "only when the investigation needs to identify pods contributing faults."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_pod_aggregated_failure_event_results(
     req: Annotated[ListPodAggregatedFailureEventRequest, Body()],
@@ -96,7 +92,6 @@ async def list_pod_aggregated_failure_event_results(
         "this after locating a failure window to identify affected paths before "
         "drilling into traces."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_src_dst_aggregated_failure_event_results(
     req: Annotated[ListSrcDstAggregatedFailureEventRequest, Body()],
@@ -113,7 +108,6 @@ async def list_src_dst_aggregated_failure_event_results(
         "error code, cluster, host, pod, IP pair or time range to quantify fault "
         "frequency and correlate spikes."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_err_code_metrics(
     req: Annotated[GetErrCodeMetricsRequest, Body()],

@@ -50,7 +50,6 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     chardet==4.0.0 \
     requests==2.32.2 \
     httpx==0.28.1 \
-    "mcp>=1.28.0,<2.0.0" \
     urllib3>=2.1.0 \
     rarfile>=4.0 \
     sqlalchemy==2.0.51 \
