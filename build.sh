@@ -148,10 +148,8 @@ build_web() {
 
     cd src/web
 
-    if [ ! -d "node_modules" ]; then
-        echo "Installing npm dependencies..."
-        npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
-    fi
+    echo "Ensuring npm dependencies are installed..."
+    npm install
 
     echo "Building frontend..."
     export HUSKY=0

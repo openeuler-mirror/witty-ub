@@ -24,7 +24,6 @@ router = APIRouter(prefix="/log_parse_result", tags=["log_parse_result"])
         "host, pod or IP pair. Results contain detailed latency components and "
         "anomaly markers used as diagnosis evidence."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_parse_results(
     req: Annotated[ListLogParseResultRequest, Body()],
@@ -40,7 +39,6 @@ async def list_log_parse_results(
         "List cluster and host filter values that actually exist in parsed logs. "
         "Use this before filtering by cluster or host instead of guessing names."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_parse_options(
     kb_id: Annotated[Optional[str], Query(description="知识库ID，用于过滤")] = None,
@@ -60,7 +58,6 @@ async def get_log_parse_options(
         "Get one parsed latency trace by result ID, including detailed latency "
         "components, topology fields, trace ID and anomaly markers."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_parse_result_by_id(
     result_id: Annotated[str, Path()],
@@ -87,7 +84,6 @@ async def list_traces_by_host(
         "P99 for fault spikes and AVG for general trends. Respect the returned "
         "sampling metadata and do not describe sampled points as full raw data."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_latency_metrics(
     req: Annotated[GetLatencyMetricsRequest, Body()],

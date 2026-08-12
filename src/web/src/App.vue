@@ -1015,13 +1015,19 @@ const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
       method: 'PUT',
       body: JSON.stringify({ type: 'api', key: providerApiKey.value.trim() }),
     })
+    closeAgentEventStream()
+    agentSessionId.value = ''
+    assistantMessageIds.clear()
+    await requestAgentApi<boolean>('/instance/dispose', { method: 'POST' })
     agentProviders.value = await requestAgentApi<OpenCodeProviderResult>('/provider')
+    agentConnectionState.value = 'connected'
     selectedAgentProvider.value =
       agentProviders.value.all.find((item) => item.id === provider.id) || provider
     providerApiKey.value = ''
     agentView.value = 'new-models'
   } catch (error) {
-    agentConnectionError.value = error instanceof Error ? error.message : 'API key 认证失败。'
+    agentConnectionError.value =
+      error instanceof Error ? error.message : 'API key 认证或 Provider 刷新失败。'
   } finally {
     isAgentAuthorizing.value = false
   }

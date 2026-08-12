@@ -10,7 +10,6 @@ This plugin is a FastAPI-based log parsing and anomaly detection service, design
 latency/
 ├── access/                 # Entry Layer (App)
 │   ├── fastapi_server.py   # FastAPI application main entry
-│   ├── mcp_server.py       # MCP server entry
 │   └── shell_server.py     # Shell command-line entry
 ├── routers/                # Router Layer
 │   ├── anomalous_event_chain.py
