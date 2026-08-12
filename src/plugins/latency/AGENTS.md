@@ -27,7 +27,7 @@ latency/
 │   └── engine.py        # DetectionEngine: field-grouped parallel detection
 ├── schemas/             # Pydantic v2 models + dataclass(slots=True) intermediates
 ├── ENUM/                # StrEnum enums (TaskType, TaskStatus, DetectionMode, etc.)
-├── config/config.py     # Config singleton: diagnosis_config.json with hot-reload
+├── config/config.py     # Config singleton: diagnosis_config.toml with hot-reload
 ├── common/              # Stats, converter, trace_context, zip_handler
 ├── models/              # AI model wrappers (chat, embedding, OCR, reranker)
 ├── deploy/              # deploy.sh (uv venv), pyproject.toml, Dockerfile
@@ -48,7 +48,7 @@ latency/
 | Task FSM | `task/task_handler.py` | `handle_tasks()` → 3-queue dispatch, 7-state machine |
 | Worker pattern | `task/worker/base.py` | `__subclasses__()` reflection, `init/run/stop/delete/reinit/deinit` |
 | DB engine | `database/engine.py` | `AsyncSQLiteSingleton`, `table_ddl_list` (18 tables), 1 write + 5 read pool |
-| Configuration | `config/config.py` | `Config` singleton, `diagnosis_config.json`, `DiagnosisRuntimeConfig` |
+| Configuration | `config/config.py` | `Config` singleton, `diagnosis_config.toml`, `DiagnosisRuntimeConfig` |
 | API response models | `schemas/response.py` | `ResponseBase`, `PaginatedResponse` |
 | Parse result schemas | `schemas/log.py` | `LogParseResultDataclass`(36 fields), `C2WLogParseResultDataclass`(18), `SparseLogParseResultDataclass`(15) |
 | MCP server | `access/mcp_server.py` | Read-only MCP tools for AI Agent (stdio/sse/streamable-http) |

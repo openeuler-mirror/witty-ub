@@ -656,11 +656,18 @@ show_status() {
     done
     sep
 
+    # 从 docker port 获取实际映射端口
+    local actual_port=""
+    if container_running "$WITTY_CONTAINER"; then
+        actual_port=$(docker port "$WITTY_CONTAINER" 2>/dev/null | grep '8080' | sed 's/.*://' | head -1 || true)
+    fi
+    actual_port="${actual_port:-${WITTY_HOST_PORT:-32412}}"
+
     echo ""
     echo "访问地址："
-    echo "  Web UI:   http://localhost:${WITTY_HOST_PORT:-32412}"
-    echo "  API:      http://localhost:${WITTY_HOST_PORT:-32412}/health_check"
-    echo "  API 文档: http://localhost:${WITTY_HOST_PORT:-32412}/docs"
+    echo "  Web UI:   http://localhost:${actual_port}"
+    echo "  API:      http://localhost:${actual_port}/health_check"
+    echo "  API 文档: http://localhost:${actual_port}/docs"
 }
 
 do_logs() {
