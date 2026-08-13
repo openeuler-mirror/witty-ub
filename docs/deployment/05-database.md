@@ -15,6 +15,12 @@
 
 ---
 
+## 获取镜像
+
+```bash
+docker pull quay.io/sclorg/postgresql-15-c9s:latest
+```
+
 ## 方式一：容器化部署（推荐）
 
 ### 手动 docker run

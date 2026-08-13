@@ -74,6 +74,12 @@ if [ "$USE_RPM" = "true" ] && [ -z "$REPO_URL" ]; then
     exit 1
 fi
 
+# Check buildx availability
+HAS_BUILDX=false
+if docker buildx version >/dev/null 2>&1; then
+    HAS_BUILDX=true
+fi
+
 create_builder() {
     BUILDKIT_CONFIG="$(dirname "$0")/buildkitd.toml"
     if [ -f "$BUILDKIT_CONFIG" ]; then
@@ -93,13 +99,23 @@ create_builder() {
 }
 
 if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
+    if [ "$HAS_BUILDX" = "false" ]; then
+        echo "Error: Multi-architecture build requires docker buildx (Docker 19.03+)"
+        echo "       Alternative: build on each architecture separately and push to the same registry tag"
+        exit 1
+    fi
     create_builder
-elif [ "$PLATFORM" = "local" ]; then
-    echo "Using default builder for local build (can access local images)"
-    docker buildx use default
 else
-    echo "Using default builder for single-platform build (can access local images)"
-    docker buildx use default
+    if [ "$HAS_BUILDX" = "true" ]; then
+        echo "Using default builder for build (can access local images)"
+        docker buildx use default
+    else
+        echo "buildx not available, using docker build directly"
+        if [ "$PLATFORM" != "local" ]; then
+            echo "Warning: --platform requires buildx, falling back to local build"
+            PLATFORM="local"
+        fi
+    fi
 fi
 
 build_base() {
