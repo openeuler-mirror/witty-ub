@@ -84,6 +84,10 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },
+        '/brpc_profiling': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
       },
     },
   }

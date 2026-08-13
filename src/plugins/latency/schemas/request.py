@@ -86,6 +86,10 @@ class UpLoadLogFileConfig(BaseModel):
         default=None,
         description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
     )
+    log_type: Optional[str] = Field(
+        default="kv-cache",
+        description="日志类型：kv-cache（默认）或 brpc",
+    )
 
 
 class UpLoadLogFilesRequest(BaseModel):

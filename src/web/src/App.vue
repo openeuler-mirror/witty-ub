@@ -1397,6 +1397,7 @@ const isQuerying = ref(false)
 const errorMessage = ref('')
 
 const logSourceInput = ref('')
+const logType = ref('kv-cache')
 const isUploadingLog = ref(false)
 const uploadLogError = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -6000,10 +6001,11 @@ const setActiveAggregateTab = (tab: 'event' | 'trace') => {
 }
 
 const request = async <T,>(path: string, init: RequestInit = {}) => {
+  const hasBody = !!init.body
   const response = await fetch(`${apiBase}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,
     },
   })
@@ -8383,6 +8385,7 @@ const submitLogSource = async () => {
             name: input.split('/').pop() || input,
             source_type: sourceType,
             source: input,
+            log_type: logType.value,
           },
         ],
       }),
@@ -8441,6 +8444,490 @@ const loadFaultPage = async () => {
   await Promise.all(requests)
 }
 
+// ============================================================
+// BRPC 接口监控
+// ============================================================
+const brpcLogFiles = ref<{ id: string; name: string }[]>([])
+const brpcSelectedLogId = ref('')
+const brpcDataLoading = ref(false)
+const brpcInterfaceNames = ref<string[]>([])
+const brpcAllRows = ref<Record<string, any>[]>([])
+
+// 图表1：接口成功率总览
+const brpcSuccessMetric = ref('successRate')
+const brpcSuccessSelectedIfaces = ref<string[]>([])
+const brpcSuccessChartRef = ref<HTMLDivElement | null>(null)
+let brpcSuccessChartInstance: echarts.ECharts | null = null
+
+// 图表2：单接口成功率监控
+const brpcSingleIface = ref('')
+const brpcSingleMetrics = [
+  { value: 'requestCount', label: '请求数' },
+  { value: 'successRate', label: '成功率' },
+  { value: 'failureRate', label: '失败率' },
+  { value: 'successCount', label: '成功量' },
+  { value: 'failureCount', label: '失败量' },
+]
+const brpcSingleSelectedMetrics = ref<string[]>(['requestCount', 'successRate', 'failureRate'])
+const brpcSingleChartRef = ref<HTMLDivElement | null>(null)
+let brpcSingleChartInstance: echarts.ECharts | null = null
+
+// 图表3：时延监控
+const brpcLatencyMetrics = [
+  { value: 'total_ns', label: 'total' },
+  { value: 'avg_ns', label: 'avg' },
+  { value: 'max_ns', label: 'max' },
+  { value: 'min_ns', label: 'min' },
+  { value: 'p50_ns', label: 'P50' },
+  { value: 'p90_ns', label: 'P90' },
+  { value: 'p95_ns', label: 'P95' },
+  { value: 'p99_ns', label: 'P99' },
+  { value: 'p999_ns', label: 'P999' },
+]
+const brpcLatencyMetric = ref('avg_ns')
+const brpcLatencySelectedIfaces = ref<string[]>([])
+const brpcLatencyChartRef = ref<HTMLDivElement | null>(null)
+let brpcLatencyChartInstance: echarts.ECharts | null = null
+
+const loadBrpcLogFiles = async () => {
+  if (!selectedAssetId.value) return
+  try {
+    const result = await request<{
+      total: number
+      log_files: { id: string; name: string; log_type: string; parse_status: string }[]
+    }>(`/log_file/list/${selectedAssetId.value}`, {
+      method: 'POST',
+      body: JSON.stringify({ page_num: 1, page_cnt: 200 }),
+    })
+    brpcLogFiles.value = (result.log_files ?? []).filter(
+      (f: any) => f.log_type === 'brpc' && f.parse_status === 'successful',
+    )
+  } catch {
+    brpcLogFiles.value = []
+  }
+}
+
+const onBrpcLogChange = async () => {
+  await loadBrpcMonitorData()
+}
+
+const loadBrpcMonitorData = async () => {
+  if (!brpcSelectedLogId.value) return
+  brpcDataLoading.value = true
+  try {
+    const result = await request<{
+      interface_names: string[]
+      rows: Record<string, any>[]
+    }>(`/brpc_profiling/${brpcSelectedLogId.value}`)
+
+    brpcInterfaceNames.value = result.interface_names ?? []
+    brpcAllRows.value = result.rows ?? []
+
+    // 默认全选接口
+    if (brpcSuccessSelectedIfaces.value.length === 0) {
+      brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
+    }
+    if (brpcLatencySelectedIfaces.value.length === 0) {
+      brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
+    }
+    if (!brpcSingleIface.value && brpcInterfaceNames.value.length > 0) {
+      brpcSingleIface.value = brpcInterfaceNames.value[0]
+    }
+
+    await nextTick()
+    renderBrpcSuccessChart()
+    renderBrpcSingleChart()
+    renderBrpcLatencyChart()
+  } catch {
+    brpcInterfaceNames.value = []
+    brpcAllRows.value = []
+  } finally {
+    brpcDataLoading.value = false
+  }
+}
+
+// 按接口名和时间戳聚合数据，返回 Map<interface_name, Map<timestamp, row>>
+const buildBrpcDataMap = () => {
+  const map = new Map<string, Map<string, Record<string, any>>>()
+  for (const row of brpcAllRows.value) {
+    const iface = row.interface_name
+    const ts = row.timestamp
+    if (!iface || !ts) continue
+    if (!map.has(iface)) map.set(iface, new Map())
+    map.get(iface)!.set(ts, row)
+  }
+  return map
+}
+
+// 获取所有时间戳（排序）
+const getBrpcTimestamps = (): string[] => {
+  const tsSet = new Set<string>()
+  for (const row of brpcAllRows.value) {
+    if (row.timestamp) tsSet.add(row.timestamp)
+  }
+  return Array.from(tsSet).sort()
+}
+
+// 计算成功率/失败率
+const calcRate = (success: number, failure: number): number => {
+  const total = success + failure
+  return total > 0 ? (success / total) * 100 : 0
+}
+const calcFailureRate = (success: number, failure: number): number => {
+  const total = success + failure
+  return total > 0 ? (failure / total) * 100 : 0
+}
+
+const getBrpcMetricValue = (row: Record<string, any> | undefined, metric: string): number | null => {
+  if (!row) return null
+  switch (metric) {
+    case 'successRate':
+      return calcRate(row.success_count ?? 0, row.failure_count ?? 0)
+    case 'failureRate':
+      return calcFailureRate(row.success_count ?? 0, row.failure_count ?? 0)
+    case 'requestCount':
+      return (row.success_count ?? 0) + (row.failure_count ?? 0)
+    case 'successCount':
+      return row.success_count ?? 0
+    case 'failureCount':
+      return row.failure_count ?? 0
+    case 'total_ns':
+    case 'avg_ns':
+    case 'max_ns':
+    case 'min_ns':
+    case 'p50_ns':
+    case 'p90_ns':
+    case 'p95_ns':
+    case 'p99_ns':
+    case 'p999_ns':
+      // 纳秒转微秒
+      return row[metric] != null ? Math.round(row[metric] / 1000) : null
+    default:
+      return null
+  }
+}
+
+// 格式化 brpc 时间戳为 HH:mm:ss
+const formatBrpcTimestamp = (ts: string): string => {
+  const match = ts.match(/[T ](\d{2}:\d{2}:\d{2})/)
+  return match ? match[1] : ts
+}
+
+// brpc 图表公共图例样式（与 kv-cache 时延监控统一）
+const brpcLegendStyle = {
+  top: 6,
+  left: 'center',
+  itemGap: 14,
+  itemWidth: 24,
+  itemHeight: 8,
+  padding: [7, 12],
+  backgroundColor: 'rgba(248, 250, 252, 0.94)',
+  borderColor: '#e2e8f0',
+  borderWidth: 1,
+  borderRadius: 9,
+  textStyle: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: 500,
+  },
+  inactiveColor: '#cbd5e1',
+}
+
+// brpc 图表公共横轴样式（与 kv-cache 时延监控统一）
+const brpcXAxisStyle = {
+  type: 'category' as const,
+  boundaryGap: true,
+  axisTick: {
+    show: true,
+    alignWithLabel: true,
+    length: 6,
+    lineStyle: { color: '#94a3b8', width: 1 },
+  },
+  axisLine: {
+    lineStyle: { color: '#94a3b8' },
+  },
+  axisLabel: {
+    color: '#64748b',
+    fontSize: 12,
+    rotate: 38,
+    margin: 6,
+  },
+}
+
+// brpc 接口颜色调色板
+const BRPC_INTERFACE_COLORS = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b8d0',
+  '#f6a25c', '#6f7bd7', '#c15c5c', '#6aa0d8', '#b5c46b',
+  '#d48265', '#91c7ae', '#749f83', '#ca8622', '#bda29a',
+  '#6e7074',
+]
+
+const getBrpcInterfaceColor = (iface: string): string => {
+  const idx = brpcInterfaceNames.value.indexOf(iface)
+  return idx >= 0
+    ? BRPC_INTERFACE_COLORS[idx % BRPC_INTERFACE_COLORS.length]
+    : '#94a3b8'
+}
+
+// 估算 brpc 图例行数
+const estimateBrpcLegendRows = (labels: string[], availableWidth: number): number => {
+  let rows = 1
+  let currentWidth = 0
+  labels.forEach((label) => {
+    const textWidth = Array.from(label).reduce(
+      (width, ch) => width + (/^[\u0000-\u00ff]$/.test(ch) ? 7 : 12),
+      0,
+    )
+    const itemWidth = textWidth + 52
+    if (currentWidth > 0 && currentWidth + itemWidth > availableWidth) {
+      rows += 1
+      currentWidth = itemWidth
+    } else {
+      currentWidth += itemWidth
+    }
+  })
+  return rows
+}
+
+const renderBrpcSuccessChart = () => {
+  const el = brpcSuccessChartRef.value
+  if (!el || brpcInterfaceNames.value.length === 0) return
+  if (brpcSuccessChartInstance && brpcSuccessChartInstance.getDom() !== el) {
+    brpcSuccessChartInstance.dispose()
+    brpcSuccessChartInstance = null
+  }
+  brpcSuccessChartInstance ??= echarts.init(el)
+
+  const dataMap = buildBrpcDataMap()
+  const timestamps = getBrpcTimestamps()
+  const labels = timestamps.map(formatBrpcTimestamp)
+  const selectedIfaces = brpcSuccessSelectedIfaces.value.length > 0
+    ? brpcSuccessSelectedIfaces.value
+    : brpcInterfaceNames.value
+
+  const metricLabelMap: Record<string, string> = {
+    successRate: '成功率(%)',
+    failureRate: '失败率(%)',
+    requestCount: '请求数',
+    successCount: '成功量',
+    failureCount: '失败量',
+  }
+
+  const series = selectedIfaces.map((iface) => {
+    const ifaceData = dataMap.get(iface)
+    return {
+      name: iface,
+      type: 'line' as const,
+      data: timestamps.map((ts) => getBrpcMetricValue(ifaceData?.get(ts), brpcSuccessMetric.value)),
+      smooth: true,
+      connectNulls: true,
+      itemStyle: { color: getBrpcInterfaceColor(iface) },
+    }
+  })
+
+  const legendWidth = Math.max(320, el.clientWidth - 88)
+  const legendRows = estimateBrpcLegendRows(selectedIfaces, legendWidth)
+  const gridTop = 38 + legendRows * 25
+
+  brpcSuccessChartInstance.setOption(
+    {
+      tooltip: {
+        trigger: 'axis',
+        appendToBody: true,
+      },
+      legend: {
+        ...brpcLegendStyle,
+        data: selectedIfaces,
+        width: legendWidth,
+      },
+      grid: { left: 60, right: 20, top: gridTop, bottom: 15, containLabel: true },
+      xAxis: { ...brpcXAxisStyle, data: labels },
+      yAxis: { type: 'value', name: metricLabelMap[brpcSuccessMetric.value] || brpcSuccessMetric.value },
+      series,
+    },
+    true,
+  )
+  brpcSuccessChartInstance.resize()
+}
+
+const renderBrpcSingleChart = () => {
+  const el = brpcSingleChartRef.value
+  if (!el || !brpcSingleIface.value || brpcInterfaceNames.value.length === 0) return
+  if (brpcSingleChartInstance && brpcSingleChartInstance.getDom() !== el) {
+    brpcSingleChartInstance.dispose()
+    brpcSingleChartInstance = null
+  }
+  brpcSingleChartInstance ??= echarts.init(el)
+
+  const dataMap = buildBrpcDataMap()
+  const timestamps = getBrpcTimestamps()
+  const labels = timestamps.map(formatBrpcTimestamp)
+  const ifaceData = dataMap.get(brpcSingleIface.value)
+  const selectedMetrics = brpcSingleSelectedMetrics.value.length > 0
+    ? brpcSingleSelectedMetrics.value
+    : ['requestCount', 'successRate', 'failureRate']
+
+  const metricLabelMap: Record<string, string> = {
+    requestCount: '请求数',
+    successRate: '成功率(%)',
+    failureRate: '失败率(%)',
+    successCount: '成功量',
+    failureCount: '失败量',
+  }
+
+  // 左轴（数量）：requestCount, successCount, failureCount  → yAxisIndex: 0
+  // 右轴（比率）：successRate, failureRate                     → yAxisIndex: 1
+  const rightAxisMetrics = ['successRate', 'failureRate']
+
+  const series = selectedMetrics.map((metric) => ({
+    name: metricLabelMap[metric] || metric,
+    type: 'line' as const,
+    yAxisIndex: rightAxisMetrics.includes(metric) ? 1 : 0,
+    data: timestamps.map((ts) => getBrpcMetricValue(ifaceData?.get(ts), metric)),
+    smooth: true,
+    connectNulls: true,
+  }))
+
+  const legendData = selectedMetrics.map((m) => metricLabelMap[m] || m)
+  const legendWidth = Math.max(200, el.clientWidth - 88)
+  const legendRows = estimateBrpcLegendRows(legendData, legendWidth)
+  const gridTop = 38 + legendRows * 25
+
+  brpcSingleChartInstance.setOption(
+    {
+      tooltip: {
+        trigger: 'axis',
+        appendToBody: true,
+      },
+      legend: {
+        ...brpcLegendStyle,
+        data: legendData,
+        width: legendWidth,
+      },
+      grid: { left: 60, right: 60, top: gridTop, bottom: 15, containLabel: true },
+      xAxis: { ...brpcXAxisStyle, data: labels },
+      yAxis: [
+        { type: 'value', name: '数量' },
+        { type: 'value', name: '比率(%)' },
+      ],
+      series,
+    },
+    true,
+  )
+  brpcSingleChartInstance.resize()
+}
+
+const renderBrpcLatencyChart = () => {
+  const el = brpcLatencyChartRef.value
+  if (!el || brpcInterfaceNames.value.length === 0) return
+  if (brpcLatencyChartInstance && brpcLatencyChartInstance.getDom() !== el) {
+    brpcLatencyChartInstance.dispose()
+    brpcLatencyChartInstance = null
+  }
+  brpcLatencyChartInstance ??= echarts.init(el)
+
+  const dataMap = buildBrpcDataMap()
+  const timestamps = getBrpcTimestamps()
+  const labels = timestamps.map(formatBrpcTimestamp)
+  const selectedIfaces = brpcLatencySelectedIfaces.value.length > 0
+    ? brpcLatencySelectedIfaces.value
+    : brpcInterfaceNames.value
+
+  const series = selectedIfaces.map((iface) => {
+    const ifaceData = dataMap.get(iface)
+    return {
+      name: iface,
+      type: 'line' as const,
+      data: timestamps.map((ts) => getBrpcMetricValue(ifaceData?.get(ts), brpcLatencyMetric.value)),
+      smooth: true,
+      connectNulls: true,
+      itemStyle: { color: getBrpcInterfaceColor(iface) },
+    }
+  })
+
+  const metricLabel = brpcLatencyMetrics.find((m) => m.value === brpcLatencyMetric.value)?.label ?? ''
+  const legendWidth = Math.max(320, el.clientWidth - 88)
+  const legendRows = estimateBrpcLegendRows(selectedIfaces, legendWidth)
+  const gridTop = 38 + legendRows * 25
+
+  brpcLatencyChartInstance.setOption(
+    {
+      tooltip: {
+        trigger: 'axis',
+        appendToBody: true,
+        valueFormatter: (value) =>
+          typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
+      },
+      legend: {
+        ...brpcLegendStyle,
+        data: selectedIfaces,
+        width: legendWidth,
+      },
+      grid: { left: 60, right: 20, top: gridTop, bottom: 15, containLabel: true },
+      xAxis: { ...brpcXAxisStyle, data: labels },
+      yAxis: { type: 'value', name: `${metricLabel} (µs)` },
+      series,
+    },
+    true,
+  )
+  brpcLatencyChartInstance.resize()
+}
+
+const selectAllBrpcIfaces = (chart: 'success' | 'latency') => {
+  const target = chart === 'success' ? brpcSuccessSelectedIfaces : brpcLatencySelectedIfaces
+  target.value = [...brpcInterfaceNames.value]
+  if (chart === 'success') renderBrpcSuccessChart()
+  else renderBrpcLatencyChart()
+}
+
+const deselectAllBrpcIfaces = (chart: 'success' | 'latency') => {
+  const target = chart === 'success' ? brpcSuccessSelectedIfaces : brpcLatencySelectedIfaces
+  target.value = []
+  if (chart === 'success') renderBrpcSuccessChart()
+  else renderBrpcLatencyChart()
+}
+
+const toggleBrpcSuccessIface = (iface: string) => {
+  const idx = brpcSuccessSelectedIfaces.value.indexOf(iface)
+  if (idx >= 0) {
+    brpcSuccessSelectedIfaces.value.splice(idx, 1)
+  } else {
+    brpcSuccessSelectedIfaces.value.push(iface)
+  }
+  renderBrpcSuccessChart()
+}
+
+const toggleBrpcLatencyIface = (iface: string) => {
+  const idx = brpcLatencySelectedIfaces.value.indexOf(iface)
+  if (idx >= 0) {
+    brpcLatencySelectedIfaces.value.splice(idx, 1)
+  } else {
+    brpcLatencySelectedIfaces.value.push(iface)
+  }
+  renderBrpcLatencyChart()
+}
+
+const selectAllBrpcSingleMetrics = () => {
+  brpcSingleSelectedMetrics.value = brpcSingleMetrics.map((m) => m.value)
+  renderBrpcSingleChart()
+}
+
+const deselectAllBrpcSingleMetrics = () => {
+  brpcSingleSelectedMetrics.value = []
+  renderBrpcSingleChart()
+}
+
+const toggleBrpcSingleMetric = (metric: string) => {
+  const idx = brpcSingleSelectedMetrics.value.indexOf(metric)
+  if (idx >= 0) {
+    brpcSingleSelectedMetrics.value.splice(idx, 1)
+  } else {
+    brpcSingleSelectedMetrics.value.push(metric)
+  }
+  renderBrpcSingleChart()
+}
+
 const loadAbnormalMonitorPage = async () => {
   if (isFaultCodeFeatureEnabled) {
     await Promise.all([loadLatencyPage(), loadFaultPage()])
@@ -8449,8 +8936,18 @@ const loadAbnormalMonitorPage = async () => {
   await loadLatencyPage()
 }
 
-const openMonitorPage = async (section: 'latency' | 'fault' = 'latency') => {
+const openMonitorPage = async (section: 'latency' | 'fault' | 'brpc' = 'latency') => {
   if (!selectedAssetId.value) return
+  if (section === 'brpc') {
+    activePage.value = 'abnormal'
+    await nextTick()
+    document.getElementById('brpc-monitor')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+    await loadBrpcLogFiles()
+    return
+  }
   const targetSection = isFaultCodeFeatureEnabled ? section : 'latency'
   const shouldLoadMonitorData = !isAbnormalMonitorPage.value
 
@@ -8488,6 +8985,7 @@ const handleFileChange = async (event: Event) => {
           name: file.name,
           source_type: 'upload',
           source: file.name,
+          log_type: logType.value,
         },
       ]),
     )
@@ -8816,6 +9314,15 @@ onBeforeUnmount(() => {
             @click="openMonitorPage('fault')"
           >
             ⚠️ 通断故障监控
+          </button>
+          <button
+            class="monitor-nav-item"
+            :class="{ disabled: !selectedAssetId }"
+            type="button"
+            :disabled="!selectedAssetId"
+            @click="openMonitorPage('brpc')"
+          >
+            🔧 BRPC接口监控
           </button>
         </div>
       </section>
@@ -11295,6 +11802,184 @@ onBeforeUnmount(() => {
             </article>
           </div>
         </section>
+
+        <section id="brpc-monitor" class="monitor-section">
+          <header class="monitor-header">
+            <h1>BRPC接口监控</h1>
+            <p class="monitor-sub">监控 BRPC profiling 日志中 21 个接口的请求成功率、失败率、时延等指标</p>
+          </header>
+
+          <!-- 日志文件选择器 -->
+          <div class="brpc-log-selector">
+            <span class="brpc-log-label">选择日志文件：</span>
+            <select v-model="brpcSelectedLogId" class="brpc-log-select" @change="onBrpcLogChange">
+              <option value="">-- 请选择 BRPC 日志文件 --</option>
+              <option v-for="log in brpcLogFiles" :key="log.id" :value="log.id">
+                {{ log.name }}
+              </option>
+            </select>
+            <span v-if="brpcDataLoading" class="brpc-loading">加载中...</span>
+            <span class="brpc-log-hint">（每个 BRPC profiling 文件独立解析，以文件名区分；选择要呈现的解析结果）</span>
+          </div>
+
+          <!-- 图表1：接口成功率总览 -->
+          <div class="monitor-grid">
+            <article class="monitor-card chart-slot">
+              <div class="monitor-card-title">
+                <span>📈 接口成功率总览</span>
+                <div class="chart-title-actions">
+                  <span class="scale-label">指标：</span>
+                  <select v-model="brpcSuccessMetric" class="brpc-metric-select" @change="renderBrpcSuccessChart">
+                    <option value="successRate">成功率</option>
+                    <option value="failureRate">失败率</option>
+                    <option value="requestCount">请求数</option>
+                    <option value="successCount">成功量</option>
+                    <option value="failureCount">失败量</option>
+                  </select>
+                </div>
+              </div>
+              <div class="latency-series-toggle">
+                <span class="latency-series-toggle-label">曲线选择：</span>
+                <span class="latency-series-toggle-count">
+                  已选 {{ brpcSuccessSelectedIfaces.length }}/{{ brpcInterfaceNames.length }}
+                </span>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-all"
+                  type="button"
+                  @click="selectAllBrpcIfaces('success')"
+                >
+                  全选
+                </button>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-none"
+                  type="button"
+                  @click="deselectAllBrpcIfaces('success')"
+                >
+                  清空
+                </button>
+                <div class="latency-series-options" aria-label="接口选择">
+                  <label
+                    v-for="iface in brpcInterfaceNames"
+                    :key="iface"
+                    class="latency-series-checkbox"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="brpcSuccessSelectedIfaces.includes(iface)"
+                      @change="toggleBrpcSuccessIface(iface)"
+                    />
+                    <span
+                      class="latency-series-color-dot"
+                      :style="{ backgroundColor: getBrpcInterfaceColor(iface) }"
+                    ></span>
+                    {{ iface }}
+                  </label>
+                </div>
+              </div>
+              <div ref="brpcSuccessChartRef" class="chart-box"></div>
+            </article>
+
+            <!-- 图表2：单接口成功率监控 -->
+            <article class="monitor-card chart-slot">
+              <div class="monitor-card-title">
+                <span>📉 单接口成功率监控</span>
+                <div class="chart-title-actions">
+                  <span class="scale-label">接口：</span>
+                  <select v-model="brpcSingleIface" class="brpc-metric-select" @change="renderBrpcSingleChart">
+                    <option v-for="iface in brpcInterfaceNames" :key="iface" :value="iface">{{ iface }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="latency-series-toggle">
+                <span class="latency-series-toggle-label">指标选择：</span>
+                <span class="latency-series-toggle-count">
+                  已选 {{ brpcSingleSelectedMetrics.length }}/{{ brpcSingleMetrics.length }}
+                </span>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-all"
+                  type="button"
+                  @click="selectAllBrpcSingleMetrics"
+                >
+                  全选
+                </button>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-none"
+                  type="button"
+                  @click="deselectAllBrpcSingleMetrics"
+                >
+                  清空
+                </button>
+                <div class="latency-series-options" aria-label="指标选择">
+                  <label
+                    v-for="metric in brpcSingleMetrics"
+                    :key="metric.value"
+                    class="latency-series-checkbox"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="brpcSingleSelectedMetrics.includes(metric.value)"
+                      @change="toggleBrpcSingleMetric(metric.value)"
+                    />
+                    {{ metric.label }}
+                  </label>
+                </div>
+              </div>
+              <div ref="brpcSingleChartRef" class="chart-box"></div>
+            </article>
+
+            <!-- 图表3：时延监控 -->
+            <article class="monitor-card chart-slot">
+              <div class="monitor-card-title">
+                <span>⏱️ 时延监控 (µs)</span>
+                <div class="chart-title-actions">
+                  <span class="scale-label">指标：</span>
+                  <select v-model="brpcLatencyMetric" class="brpc-metric-select" @change="renderBrpcLatencyChart">
+                    <option v-for="m in brpcLatencyMetrics" :key="m.value" :value="m.value">{{ m.label }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="latency-series-toggle">
+                <span class="latency-series-toggle-label">曲线选择：</span>
+                <span class="latency-series-toggle-count">
+                  已选 {{ brpcLatencySelectedIfaces.length }}/{{ brpcInterfaceNames.length }}
+                </span>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-all"
+                  type="button"
+                  @click="selectAllBrpcIfaces('latency')"
+                >
+                  全选
+                </button>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-none"
+                  type="button"
+                  @click="deselectAllBrpcIfaces('latency')"
+                >
+                  清空
+                </button>
+                <div class="latency-series-options" aria-label="接口选择">
+                  <label
+                    v-for="iface in brpcInterfaceNames"
+                    :key="iface"
+                    class="latency-series-checkbox"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="brpcLatencySelectedIfaces.includes(iface)"
+                      @change="toggleBrpcLatencyIface(iface)"
+                    />
+                    <span
+                      class="latency-series-color-dot"
+                      :style="{ backgroundColor: getBrpcInterfaceColor(iface) }"
+                    ></span>
+                    {{ iface }}
+                  </label>
+                </div>
+              </div>
+              <div ref="brpcLatencyChartRef" class="chart-box"></div>
+            </article>
+          </div>
+        </section>
       </div>
 
       <div v-else-if="isDetailLoading" class="empty-detail">正在加载详情...</div>
@@ -11369,6 +12054,27 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="log-upload-area">
+            <div class="log-type-selector">
+              <span class="log-type-label">日志类型：</span>
+              <label class="log-type-option">
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="kv-cache"
+                  :disabled="isUploadingLog"
+                />
+                <span>kv-cache</span>
+              </label>
+              <label class="log-type-option">
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="brpc"
+                  :disabled="isUploadingLog"
+                />
+                <span>brpc</span>
+              </label>
+            </div>
             <input
               v-model="logSourceInput"
               type="text"

@@ -54,6 +54,7 @@ class LogFileModel(BaseModel):
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
+    log_type: str = Field(default="kv-cache", description="日志类型：kv-cache 或 brpc")
     task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
     overall_progress: float = Field(
         default=0.0,

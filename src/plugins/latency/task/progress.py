@@ -119,12 +119,14 @@ def _preprocess_progress(*tasks) -> float:
 
 def parallel_overall_progress(*tasks) -> float:
     """Shared preprocessing progress plus average progress of parallel tasks."""
-    if not tasks:
+    # 过滤掉 None 任务（brpc 等单任务类型只有 parse_task）
+    valid_tasks = [t for t in tasks if t is not None]
+    if not valid_tasks:
         return 0.0
-    preprocess_progress = _preprocess_progress(*tasks)
+    preprocess_progress = _preprocess_progress(*valid_tasks)
     preprocess_weight = min(preprocess_progress, 5.0)  # 预处理进度最大占5%
-    # 取三个任务进度的平均值
-    task_progress_values = [_task_progress(task, include_preprocess=False) for task in tasks]
+    # 取有效任务进度的平均值
+    task_progress_values = [_task_progress(task, include_preprocess=False) for task in valid_tasks]
     task_average = sum(task_progress_values) / len(task_progress_values) if task_progress_values else 0.0
     return min(
         100.0,
