@@ -22,6 +22,7 @@ from latency.task.task_handler import TaskHandler
 from latency.task.worker import *
 from latency.services.failure_mode_knowledge import FailureModeKnowledge
 from latency.routers import (
+    brpc_diagnosis,
     log_file,
     log_knowledge,
     log_parse_result,
@@ -110,6 +111,7 @@ logger = logging.getLogger(__name__)
 
 
 async def configure():
+    app.include_router(brpc_diagnosis.router)
     app.include_router(log_file.router)
     app.include_router(log_knowledge.router)
     app.include_router(log_parse_result.router)

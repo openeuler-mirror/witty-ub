@@ -157,14 +157,29 @@ class TaskHandler:
             if i >= single_batch_limit:
                 break
             try:
-                log_dir = await TaskHandler._preprocess_log_source(task)
-                flag = await BaseWorker.run(task.id, log_dir=log_dir)
+                # BRPC diagnosis is isolated from the KVCache preprocessing
+                # lifecycle and always reads the original LogFile path.
+                log_dir = None
+                worker_kwargs = None
+                if task.task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
+                    parse_config = TaskHandler.get_task_config(task.id)
+                    if parse_config and parse_config.start_time:
+                        worker_kwargs = {"start_time": parse_config.start_time}
+                else:
+                    log_dir = await TaskHandler._preprocess_log_source(task)
+                flag = await BaseWorker.run(
+                    task.id,
+                    log_dir=log_dir,
+                    worker_kwargs=worker_kwargs,
+                )
             except Exception as e:
                 flag = False
                 err = f"[TaskQueueService] 处理待处理任务失败 {e}"
                 logger.exception(err)
             if not flag:
-                break
+                # 任务之间彼此独立：一个 worker 启动失败不应阻断
+                # 同一批次中的其他 worker（尤其是 BRPC parse/diagnosis）。
+                continue
             running_task_ids.append(task.id)
 
     @staticmethod
