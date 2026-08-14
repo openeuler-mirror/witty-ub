@@ -25,7 +25,11 @@ RUN dnf update -y --allowerasing && \
 # Create directories
 RUN mkdir -p /var/witty-ub/data/kvcache \
     /var/witty-ub/data/urma \
+    /var/witty-ub/data/ubsocket \
+    /var/witty-ub/data/umq \
+    /usr/share/witty-ub/data \
     /var/witty-ub/config \
+    /var/witty-ub/config/agents \
     /var/witty-ub/config/latency \
     /var/witty-ub/web \
     /var/witty-ub/latency \
