@@ -9,10 +9,34 @@
 ## See the Mulan PSL v2 for more details.
 
 add_library(brpc_diag_tool STATIC
+    time_utils.cpp
     log_collector.cpp
-    diagnosis_engine.cpp
     diagnosis_result.cpp
+    diagnosis_engine.cpp
     diagnosis_module.cpp
 )
 target_include_directories(brpc_diag_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(brpc_diag_tool PUBLIC include ubse_context)
+
+find_package(jsoncpp QUIET)
+find_package(OpenSSL REQUIRED)
+
+if(jsoncpp_FOUND)
+    target_link_libraries(brpc_diag_tool
+        PUBLIC
+            include
+            ubse_context
+        PRIVATE
+            jsoncpp_lib
+            OpenSSL::Crypto
+    )
+else()
+    target_include_directories(brpc_diag_tool PRIVATE /usr/include/jsoncpp)
+    target_link_libraries(brpc_diag_tool
+        PUBLIC
+            include
+            ubse_context
+        PRIVATE
+            jsoncpp
+            OpenSSL::Crypto
+    )
+endif()
