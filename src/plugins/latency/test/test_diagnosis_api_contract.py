@@ -103,6 +103,16 @@ def test_agent_diagnosis_api_operations_are_stable_and_unique() -> None:
     assert operations == EXPECTED_DIAGNOSIS_OPERATIONS
 
 
+def test_brpc_diagnosis_start_endpoint_is_explicit_and_mutating() -> None:
+    operation = _openapi_schema()["paths"][
+        "/log_file/{log_file_id}/brpc-diagnosis"
+    ]["post"]
+
+    assert operation["operationId"] == "run_brpc_log_diagnosis"
+    assert operation.get("x-mcp-enabled", False) is False
+    assert operation["requestBody"]["required"] is True
+
+
 def test_documented_agent_rules_do_not_change_backend_request_models() -> None:
     latency_events = ListSrcDstAggregatedEventRequest(page_cnt=1000)
     latency_traces = ListLogParseResultRequest(page_cnt=1000)

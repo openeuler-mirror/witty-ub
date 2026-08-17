@@ -126,7 +126,11 @@ class BaseWorker:
         cleanup_preprocess_dir(op_id)
 
     @staticmethod
-    async def run(task_id: str, log_dir: str | None = None) -> bool:
+    async def run(
+        task_id: str,
+        log_dir: str | None = None,
+        worker_kwargs: dict | None = None,
+    ) -> bool:
         """运行任务"""
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
@@ -136,7 +140,10 @@ class BaseWorker:
         worker_name = task.task_type
         args = (task_id, log_dir) if log_dir else (task_id,)
         flag = ProcessHandler.add_task(
-            task_id, BaseWorker.find_worker_class(worker_name).run, *args
+            task_id,
+            BaseWorker.find_worker_class(worker_name).run,
+            *args,
+            **(worker_kwargs or {}),
         )
         if not flag:
             logger.error("ProcessHandler.add_task 失败: task_id=%s worker=%s", task_id, worker_name)

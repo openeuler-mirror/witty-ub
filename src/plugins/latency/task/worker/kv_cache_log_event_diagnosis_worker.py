@@ -338,6 +338,8 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         # 添加配置文件中的参数
         for key, patterns in config.items():
+            if key == "brpc_log_file_patterns":
+                continue
             if patterns:
                 cmd_args.extend([
                     f"--{key.replace('_', '-')}",

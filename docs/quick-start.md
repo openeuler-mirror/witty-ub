@@ -32,6 +32,12 @@ bash deploy/docker/manage.sh
 
 → [架构概览](./deployment/01-overview.md)
 
+## 打包构建
+
+- [Docker 镜像构建](./package/01-docker-build.md) — 分层镜像架构，构建应用镜像用于容器部署
+- [RPM 包构建](./package/02-rpm-build.md) — 生成 RPM 安装包，适用于生产环境快速部署
+- [镜像分发](./package/03-distribution.md) — 镜像推送、导出 tar 包、离线加载
+
 ## 使用文档
 
 - [平台操作指南](./usage/01-platform-guide.md)

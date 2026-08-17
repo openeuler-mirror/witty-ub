@@ -41,6 +41,9 @@ bash deploy/docker/manage.sh
 
 ```bash
 # 在有网络的机器导出镜像
+docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
+docker pull quay.io/sclorg/postgresql-15-c9s:latest
+
 docker save -o witty-ub.tar hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 docker save -o pg15.tar quay.io/sclorg/postgresql-15-c9s:latest
 

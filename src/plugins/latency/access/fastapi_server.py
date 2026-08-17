@@ -22,6 +22,7 @@ from latency.task.task_handler import TaskHandler
 from latency.task.worker import *
 from latency.services.failure_mode_knowledge import FailureModeKnowledge
 from latency.routers import (
+    brpc_diagnosis,
     log_file,
     log_knowledge,
     log_parse_result,
@@ -33,6 +34,7 @@ from latency.routers import (
     log_failure_event_result,
     diagnosis_case,
     diagnosis_config,
+    brpc_profiling,
 )
 
 from latency.database.engine import PGManager
@@ -109,6 +111,7 @@ logger = logging.getLogger(__name__)
 
 
 async def configure():
+    app.include_router(brpc_diagnosis.router)
     app.include_router(log_file.router)
     app.include_router(log_knowledge.router)
     app.include_router(log_parse_result.router)
@@ -120,6 +123,7 @@ async def configure():
     app.include_router(log_failure_event_result.router)
     app.include_router(diagnosis_case.router)
     app.include_router(diagnosis_config.router)
+    app.include_router(brpc_profiling.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):

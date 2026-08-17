@@ -23,6 +23,13 @@ _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
     ("time_window_aggregated", "max_total_latency", "DOUBLE PRECISION"),
     ("time_window_aggregated", "p95_total_latency", "DOUBLE PRECISION"),
     ("time_window_aggregated", "p99_total_latency", "DOUBLE PRECISION"),
+    ("brpc_diag_batch", "hit_count", "BIGINT"),
+    ("brpc_diag_hit", "interface_id", "VARCHAR"),
+    (
+        "brpc_diag_hit",
+        "interface_resolution",
+        "VARCHAR NOT NULL DEFAULT 'unresolved'",
+    ),
 ]
 
 
@@ -40,6 +47,74 @@ async def _ensure_missing_columns() -> None:
                 f"ALTER TABLE {table} "
                 f"ADD COLUMN IF NOT EXISTS {column} {col_type}"
             ))
+
+
+async def _backfill_brpc_batch_hit_count() -> None:
+    """Backfill the immutable batch count before enforcing NOT NULL."""
+    async with PGManager.engine().begin() as conn:
+        await conn.execute(text(
+            "UPDATE brpc_diag_batch AS batch "
+            "SET hit_count = ("
+            "SELECT COUNT(*) FROM brpc_diag_hit AS hit "
+            "WHERE hit.batch_id = batch.batch_id"
+            ") WHERE batch.hit_count IS NULL"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE brpc_diag_batch "
+            "ALTER COLUMN hit_count SET NOT NULL"
+        ))
+
+
+async def _backfill_brpc_batch_time_range() -> None:
+    """Replace scan bounds with the actual imported-hit interval.
+
+    BRPC query timestamps have second precision.  Keep the stored lower bound
+    exact and round the exclusive upper bound to the next second so formatting
+    cannot exclude the final hit.
+    """
+    async with PGManager.engine().begin() as conn:
+        await conn.execute(text(
+            "UPDATE brpc_diag_batch AS batch "
+            "SET start_timestamp = bounds.start_timestamp, "
+            "end_timestamp = bounds.end_timestamp "
+            "FROM ("
+            "SELECT batch_id, MIN(timestamp) AS start_timestamp, "
+            "((MAX(timestamp) / 1000000) + 1) * 1000000 AS end_timestamp "
+            "FROM brpc_diag_hit GROUP BY batch_id"
+            ") AS bounds "
+            "WHERE batch.batch_id = bounds.batch_id "
+            "AND (batch.start_timestamp <> bounds.start_timestamp "
+            "OR batch.end_timestamp <> bounds.end_timestamp)"
+        ))
+        await conn.execute(text(
+            "UPDATE brpc_diag_batch "
+            "SET start_timestamp = created_at_timestamp, "
+            "end_timestamp = "
+            "((created_at_timestamp / 1000000) + 1) * 1000000 "
+            "WHERE hit_count = 0 "
+            "AND (start_timestamp <> created_at_timestamp "
+            "OR end_timestamp <> "
+            "((created_at_timestamp / 1000000) + 1) * 1000000)"
+        ))
+
+
+async def _backfill_brpc_unique_interfaces() -> None:
+    """Resolve historical hits whose schema mapping has one candidate."""
+    async with PGManager.engine().begin() as conn:
+        await conn.execute(text(
+            "UPDATE brpc_diag_hit AS hit "
+            "SET interface_id = candidate.interface_id, "
+            "interface_resolution = 'static_unique' "
+            "FROM ("
+            "SELECT schema_id, failure_mode_id, MIN(interface_id) AS interface_id "
+            "FROM brpc_diag_failure_interface "
+            "GROUP BY schema_id, failure_mode_id "
+            "HAVING COUNT(*) = 1"
+            ") AS candidate "
+            "WHERE hit.schema_id = candidate.schema_id "
+            "AND hit.failure_mode_id = candidate.failure_mode_id "
+            "AND hit.interface_id IS NULL"
+        ))
 
 
 def _month_iter(start: datetime, end: datetime):
@@ -139,6 +214,21 @@ LATENCY_BUCKET_TABLES = (
 )
 
 
+BRPC_DIAG_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_hit_batch_timestamp "
+    "ON brpc_diag_hit (batch_id, timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_hit_batch_pod_timestamp "
+    "ON brpc_diag_hit (batch_id, pod_ip, timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_hit_batch_thread_timestamp "
+    "ON brpc_diag_hit (batch_id, pod_ip, thread_id, timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_hit_batch_failure "
+    "ON brpc_diag_hit (batch_id, schema_id, failure_mode_id)",
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_failure_interface_lookup "
+    "ON brpc_diag_failure_interface "
+    "(schema_id, failure_mode_id, interface_id)",
+)
+
+
 async def create_latency_bucket_partitions() -> None:
     """Create 32 HASH partitions for each latency_bucket_* table."""
     async with PGManager.engine().begin() as conn:
@@ -221,6 +311,14 @@ async def ensure_time_window_partitions(
             await _create_time_window_partition(conn, month)
 
 
+async def migrate_brpc_log_type_column() -> None:
+    """为已有数据库幂等补齐 log_file 表的 log_type 列。"""
+    async with PGManager.engine().begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE log_file ADD COLUMN IF NOT EXISTS log_type VARCHAR DEFAULT 'kv-cache'"
+        ))
+
+
 async def create_manual_indexes() -> None:
     """Create GIN / partial indexes that are not auto-generated by SQLAlchemy."""
     indexes = [
@@ -242,6 +340,7 @@ async def create_manual_indexes() -> None:
         f"ON {table} (log_id, operation, bucket)"
         for table in LATENCY_BUCKET_TABLES
     ]
+    indexes += BRPC_DIAG_INDEX_DDL
     async with PGManager.engine().begin() as conn:
         for idx_sql in indexes:
             await conn.execute(text(idx_sql))
@@ -257,8 +356,12 @@ async def init_postgresql_database() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     await _ensure_missing_columns()
+    await _backfill_brpc_batch_hit_count()
+    await _backfill_brpc_batch_time_range()
+    await _backfill_brpc_unique_interfaces()
     await migrate_timestamptz_to_timestamp()
     await migrate_yuanrong_metric_columns()
+    await migrate_brpc_log_type_column()
     await create_log_parse_result_partitions()
     await create_time_window_partitions(datetime.now())
     await create_latency_bucket_partitions()

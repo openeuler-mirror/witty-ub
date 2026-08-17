@@ -15,9 +15,13 @@ witty-ub 采用分层镜像架构：
 
 ## 前置条件
 
-- Docker 20.10+
+- Docker 17.05+（多阶段构建最低要求）
+- Docker 19.03+ + buildx 插件（`--platform` 指定平台构建）
+- Docker 20.10+ + buildx 插件（`--multi` 双架构构建）
 - Node.js 18+ 和 npm（前端构建）
 - Git
+
+> 无 buildx 的低版本 Docker（< 19.03）可使用 `--platform local`（默认）或[方法三：纯 Docker 命令](#方法三纯-docker-命令)。脚本会自动检测 buildx 可用性并回退。
 
 ```bash
 git clone https://gitcode.com/openeuler/witty-ub.git
@@ -59,13 +63,15 @@ bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub
 bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub --version v1.0.0
 ```
 
-> 多架构构建需要 QEMU 支持（脚本自动安装），结果必须推送到镜像仓库。
+> 多架构构建需要 QEMU 支持（脚本自动安装），结果必须推送到镜像仓库。低版本 Docker（< 19.03，无 buildx）不支持双架构构建，需在各架构机器上分别构建后推送至同一 tag。
 
 ---
 
 ## 方法二：docker compose
 
 适用于开发调试。
+
+> 需要 Docker Compose。Docker 20.10+ 内置 `docker compose`（插件式 v2）；低版本需单独安装 `docker-compose`（v1，命令为 `docker-compose`）。
 
 ### 前置条件
 
@@ -79,15 +85,16 @@ npm ci --registry=https://mirrors.huaweicloud.com/repository/npm/
 npm run build-only
 cd ../..
 
-# 3. 切换到 default builder
-docker buildx use default
+# 3. 切换到 default builder（需要 buildx，无 buildx 可跳过）
+docker buildx use default 2>/dev/null || true
 ```
 
 ### 构建
 
 ```bash
 # 构建并启动
-docker compose up -d --build
+docker compose up -d --build        # Docker 20.10+（Compose v2）
+# docker-compose up -d --build      # 低版本（Compose v1）
 
 # 仅构建
 docker compose build
@@ -100,7 +107,7 @@ docker compose build --no-cache
 
 ## 方法三：纯 Docker 命令
 
-适用于低版本 Docker 环境。
+适用于低版本 Docker 环境（无 buildx、无 Compose v2）。
 
 ```bash
 # 1. 构建 base 镜像

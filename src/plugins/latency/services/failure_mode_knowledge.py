@@ -26,92 +26,96 @@ class FailureModeKnowledge:
         status_code_json_path = os.path.join(
             data_path, "kvcache", "kvcache_conn_fault_code_info.json"
         )
-        if os.path.exists(status_code_json_path):
-            try:
-                with open(status_code_json_path, "r", encoding="utf-8") as f:
-                    status_code_data = json.load(f)
+        try:
+            with open(status_code_json_path, "r", encoding="utf-8") as f:
+                status_code_data = json.load(f)
 
-                status_code_knowledge = []
-                for item in status_code_data:
-                    for status_code, info in item.items():
-                        status_code_knowledge.append(
-                            StatusCodeKnowledgeModel(
-                                status_code=str(status_code),
-                                symptom=info.get("故障现象", ""),
-                                root_cause=info.get("故障原因", ""),
-                            )
+            status_code_knowledge = []
+            for item in status_code_data:
+                for status_code, info in item.items():
+                    status_code_knowledge.append(
+                        StatusCodeKnowledgeModel(
+                            status_code=str(status_code),
+                            symptom=info.get("故障现象", ""),
+                            root_cause=info.get("故障原因", ""),
                         )
-                await FailureModeKnowledgePGManager.add_status_code_knowledge(
-                    status_code_knowledge
-                )
-                logger.info("成功初始化故障码知识库: 共 %d 条", len(status_code_knowledge))
-            except Exception as e:
-                logger.error("读取故障码知识失败: %s", str(e))
+                    )
+            await FailureModeKnowledgePGManager.add_status_code_knowledge(
+                status_code_knowledge
+            )
+            logger.info("成功初始化故障码知识库: 共 %d 条", len(status_code_knowledge))
+        except FileNotFoundError:
+            logger.error("故障码知识文件不存在: %s", status_code_json_path)
+        except Exception as e:
+            logger.error("读取故障码知识失败: %s", str(e))
         
         kvcache_json_path = os.path.join(data_path, "kvcache", "kvcache_conn_fault_mode.json")
-        if os.path.exists(kvcache_json_path):
-            try:
-                with open(kvcache_json_path, "r", encoding="utf-8") as f:
-                    kvcache_data = json.load(f)
-                
-                for row in kvcache_data:
-                    failure_mode = FailureModeModel(
-                        id=row.get("故障编码", ""),
-                        name=row.get("故障名称", ""),
-                        symptom=row.get("故障现象", ""),
-                        root_cause=row.get("故障原因", ""),
-                        solution=row.get("解决办法", ""),
-                        failure_domain=row.get("故障域", ""),
-                        children_failure_mode_ids=""
-                    )
-                    failure_modes.append(failure_mode)
-                logger.info(f"成功读取 kvcache 故障模式: {len(kvcache_data)} 条")
-            except Exception as e:
-                logger.error(f"读取 kvcache 故障模式失败: {str(e)}")
+        try:
+            with open(kvcache_json_path, "r", encoding="utf-8") as f:
+                kvcache_data = json.load(f)
+            
+            for row in kvcache_data:
+                failure_mode = FailureModeModel(
+                    id=row.get("故障编码", ""),
+                    name=row.get("故障名称", ""),
+                    symptom=row.get("故障现象", ""),
+                    root_cause=row.get("故障原因", ""),
+                    solution=row.get("解决办法", ""),
+                    failure_domain=row.get("故障域", ""),
+                    children_failure_mode_ids=""
+                )
+                failure_modes.append(failure_mode)
+            logger.info(f"成功读取 kvcache 故障模式: {len(kvcache_data)} 条")
+        except FileNotFoundError:
+            logger.error(f"kvcache 故障模式文件不存在: {kvcache_json_path}")
+        except Exception as e:
+            logger.error(f"读取 kvcache 故障模式失败: {str(e)}")
         
         urma_json_path = os.path.join(data_path, "urma", "urma_failure_mode.json")
         urma_count = 0
-        if os.path.exists(urma_json_path):
-            try:
-                with open(urma_json_path, "r", encoding="utf-8") as f:
-                    urma_data = json.load(f)
-                
-                for row in urma_data:
-                    failure_mode = FailureModeModel(
-                        id=row.get("故障编码", ""),
-                        name=row.get("故障名称", ""),
-                        symptom=row.get("故障表现（验证方法）", ""),
-                        root_cause=row.get("故障原因", ""),
-                        solution=row.get("解决办法", ""),
-                        failure_domain=row.get("故障域", ""),
-                        children_failure_mode_ids=""
-                    )
-                    failure_modes.append(failure_mode)
-                    urma_count += 1
-                logger.info(f"成功读取 urma 故障模式: {urma_count} 条")
-            except Exception as e:
-                logger.error(f"读取 urma 故障模式失败: {str(e)}")
+        try:
+            with open(urma_json_path, "r", encoding="utf-8") as f:
+                urma_data = json.load(f)
+            
+            for row in urma_data:
+                failure_mode = FailureModeModel(
+                    id=row.get("故障编码", ""),
+                    name=row.get("故障名称", ""),
+                    symptom=row.get("故障表现（验证方法）", ""),
+                    root_cause=row.get("故障原因", ""),
+                    solution=row.get("解决办法", ""),
+                    failure_domain=row.get("故障域", ""),
+                    children_failure_mode_ids=""
+                )
+                failure_modes.append(failure_mode)
+                urma_count += 1
+            logger.info(f"成功读取 urma 故障模式: {urma_count} 条")
+        except FileNotFoundError:
+            logger.error(f"urma 故障模式文件不存在: {urma_json_path}")
+        except Exception as e:
+            logger.error(f"读取 urma 故障模式失败: {str(e)}")
         
         tree_json_path = os.path.join(data_path, "failure_mode_tree.json")
-        if os.path.exists(tree_json_path):
-            try:
-                with open(tree_json_path, "r", encoding="utf-8") as f:
-                    tree_data = json.load(f)
-                
-                children_map = {}
-                for category in ["kvcache_conn", "urma"]:
-                    if category in tree_data:
-                        for mode_id, children_ids in tree_data[category].items():
-                            if children_ids:
-                                children_map[mode_id] = ",".join(children_ids)
-                
-                for failure_mode in failure_modes:
-                    if failure_mode.id in children_map:
-                        failure_mode.children_failure_mode_ids = children_map[failure_mode.id]
-                
-                logger.info(f"成功读取故障模式树关系: {len(children_map)} 条")
-            except Exception as e:
-                logger.error(f"读取故障模式树关系失败: {str(e)}")
+        try:
+            with open(tree_json_path, "r", encoding="utf-8") as f:
+                tree_data = json.load(f)
+            
+            children_map = {}
+            for category in ["kvcache_conn", "urma"]:
+                if category in tree_data:
+                    for mode_id, children_ids in tree_data[category].items():
+                        if children_ids:
+                            children_map[mode_id] = ",".join(children_ids)
+            
+            for failure_mode in failure_modes:
+                if failure_mode.id in children_map:
+                    failure_mode.children_failure_mode_ids = children_map[failure_mode.id]
+            
+            logger.info(f"成功读取故障模式树关系: {len(children_map)} 条")
+        except FileNotFoundError:
+            logger.error(f"故障模式树文件不存在: {tree_json_path}")
+        except Exception as e:
+            logger.error(f"读取故障模式树关系失败: {str(e)}")
         
         if failure_modes:
             await FailureModeKnowledgePGManager.add_failure_mode_knowledge(failure_modes)

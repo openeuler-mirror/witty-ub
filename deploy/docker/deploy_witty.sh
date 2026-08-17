@@ -197,6 +197,19 @@ else
     exit 1
 fi
 
+log_info "Verifying BRPC diagnosis assets in image ..."
+if docker run --rm --entrypoint /bin/bash "$SELECTED_IMAGE" -c \
+    'test -x /usr/bin/witty-ub-brpc-diag &&
+     test -f /var/witty-ub/data/ubsocket/ubsocket_failure_mode.json &&
+     test -f /var/witty-ub/data/umq/umq_failure_mode.json &&
+     test -f /var/witty-ub/data/urma/urma_failure_mode_for_brpc.json'; then
+    log_ok "BRPC diagnosis binary and data verified"
+else
+    log_error "Image is missing the BRPC diagnosis binary or required data files"
+    log_error "Please use an updated image containing witty-ub-brpc-diag and ubsocket/umq/urma rules"
+    exit 1
+fi
+
 # Step 3: 启动容器
 echo ""
 echo "[Step 3/3] Starting witty-ub container ..."

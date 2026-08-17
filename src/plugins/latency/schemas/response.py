@@ -105,6 +105,14 @@ class RunOrStopLogParseResponse(ResponseBase):
     result: RunOrStopLogParseMsg = Field(..., description="运行或停止日志解析响应结果")
 
 
+class RunBrpcDiagnosisMsg(BaseModel):
+    task_id: str = Field(..., description="BRPC 诊断任务 ID")
+
+
+class RunBrpcDiagnosisResponse(ResponseBase):
+    result: RunBrpcDiagnosisMsg = Field(..., description="BRPC 诊断任务创建结果")
+
+
 class UpdateLogFileMsg(BaseModel):
     log_file_id: Optional[str] = Field(default=None, description="更新的日志文件ID")
 
@@ -442,3 +450,15 @@ class ListTimeWindowAggregatedEventResponse(ResponseBase):
     result: ListTimeWindowAggregatedEventMsg = Field(
         ..., description="查询时间窗口聚合事件列表响应结果"
     )
+
+
+# ============================================================
+# BRPC Profiling
+# ============================================================
+class BrpcProfilingDataMsg(BaseModel):
+    interface_names: list[str] = Field(default_factory=list, description="所有接口名列表")
+    rows: list[dict] = Field(default_factory=list, description="时序数据行")
+
+
+class BrpcProfilingDataResponse(ResponseBase):
+    result: BrpcProfilingDataMsg = Field(..., description="BRPC profiling 数据")

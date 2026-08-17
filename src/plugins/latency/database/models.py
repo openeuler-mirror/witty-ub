@@ -22,13 +22,17 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
+    ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Integer,
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -87,6 +91,7 @@ class LogFile(Base):
     total_count: Mapped[int] = mapped_column(Integer, default=0)
     anomalous_count: Mapped[int] = mapped_column(Integer, default=0)
     failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    log_type: Mapped[Optional[str]] = mapped_column(String, default="kv-cache")
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=lambda: datetime.now()
@@ -410,7 +415,36 @@ class DiagnosisCaseSignal(Base):
 
 
 # ============================================================
-# 5. 任务表
+# 5. BRPC Profiling 结果表
+# ============================================================
+class BrpcProfilingResult(Base):
+    """BRPC profiling 日志解析结果表，每个 timestamp 间隔下的每个接口函数一行。"""
+
+    __tablename__ = "brpc_profiling_result"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    log_id: Mapped[str] = mapped_column(String, index=True)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    interface_name: Mapped[str] = mapped_column(String)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    avg_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    max_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    min_ns: Mapped[int] = mapped_column(BigInteger, default=0)
+    p50_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p90_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p95_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p99_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    p999_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
+    existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: datetime.now()
+    )
+
+
+# ============================================================
+# 6. 任务表
 # ============================================================
 class Task(Base):
     __tablename__ = "task"
@@ -446,7 +480,7 @@ class TaskReport(Base):
 
 
 # ============================================================
-# 6. 失败事件表
+# 7. 失败事件表
 # ============================================================
 class LogFailureEvent(Base):
     __tablename__ = "log_failure_event"
@@ -504,3 +538,176 @@ class StatusCodeKnowledge(Base):
     status_code: Mapped[str] = mapped_column(String, primary_key=True)
     symptom: Mapped[str] = mapped_column(Text)
     root_cause: Mapped[str] = mapped_column(Text)
+
+
+# ============================================================
+# 7. BRPC diagnosis V2.1 protocol tables
+# ============================================================
+class BrpcDiagSchema(Base):
+    __tablename__ = "brpc_diag_schema"
+
+    schema_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class BrpcDiagNode(Base):
+    __tablename__ = "brpc_diag_node"
+    __table_args__ = (
+        CheckConstraint(
+            "node_type IN ('interface', 'failure_mode')",
+            name="ck_brpc_diag_node_type",
+        ),
+        CheckConstraint(
+            "component IN ('ubsocket', 'umq', 'urma')",
+            name="ck_brpc_diag_node_component",
+        ),
+    )
+
+    schema_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("brpc_diag_schema.schema_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    node_id: Mapped[str] = mapped_column(String, primary_key=True)
+    node_type: Mapped[str] = mapped_column(String, nullable=False)
+    component: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    function_name: Mapped[str] = mapped_column(Text, nullable=False)
+    phenomenon: Mapped[str] = mapped_column(Text, nullable=False)
+    cause: Mapped[str] = mapped_column(Text, nullable=False)
+    solution: Mapped[str] = mapped_column(Text, nullable=False)
+    error_code: Mapped[int | str | None] = mapped_column(JSONB)
+
+
+class BrpcDiagEdge(Base):
+    __tablename__ = "brpc_diag_edge"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["schema_id", "source_node_id"],
+            ["brpc_diag_node.schema_id", "brpc_diag_node.node_id"],
+            ondelete="CASCADE",
+            name="fk_brpc_diag_edge_source",
+        ),
+        ForeignKeyConstraint(
+            ["schema_id", "target_node_id"],
+            ["brpc_diag_node.schema_id", "brpc_diag_node.node_id"],
+            ondelete="CASCADE",
+            name="fk_brpc_diag_edge_target",
+        ),
+        CheckConstraint(
+            "edge_type IN ('intra_component', 'cross_component')",
+            name="ck_brpc_diag_edge_type",
+        ),
+    )
+
+    schema_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("brpc_diag_schema.schema_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    source_node_id: Mapped[str] = mapped_column(String, primary_key=True)
+    target_node_id: Mapped[str] = mapped_column(String, primary_key=True)
+    edge_type: Mapped[str] = mapped_column(String, primary_key=True)
+
+
+class BrpcDiagFailureInterface(Base):
+    __tablename__ = "brpc_diag_failure_interface"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["schema_id", "failure_mode_id"],
+            ["brpc_diag_node.schema_id", "brpc_diag_node.node_id"],
+            ondelete="CASCADE",
+            name="fk_brpc_diag_failure_interface_failure",
+        ),
+        ForeignKeyConstraint(
+            ["schema_id", "interface_id"],
+            ["brpc_diag_node.schema_id", "brpc_diag_node.node_id"],
+            ondelete="CASCADE",
+            name="fk_brpc_diag_failure_interface_interface",
+        ),
+    )
+
+    schema_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("brpc_diag_schema.schema_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    failure_mode_id: Mapped[str] = mapped_column(String, primary_key=True)
+    interface_id: Mapped[str] = mapped_column(String, primary_key=True)
+
+
+class BrpcDiagFailureSubgraph(Base):
+    __tablename__ = "brpc_diag_failure_subgraph"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["schema_id", "failure_mode_id"],
+            ["brpc_diag_node.schema_id", "brpc_diag_node.node_id"],
+            ondelete="CASCADE",
+            name="fk_brpc_diag_failure_subgraph_failure",
+        ),
+    )
+
+    schema_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    failure_mode_id: Mapped[str] = mapped_column(String, primary_key=True)
+    subgraph_edge_indexes: Mapped[list[int]] = mapped_column(
+        JSONB,
+        nullable=False,
+    )
+
+
+class BrpcDiagBatch(Base):
+    __tablename__ = "brpc_diag_batch"
+    __table_args__ = (
+        UniqueConstraint("task_id", name="uq_brpc_diag_batch_task_id"),
+    )
+
+    batch_id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    schema_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("brpc_diag_schema.schema_id"),
+        nullable=False,
+    )
+    created_at_timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    start_timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    end_timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    hit_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class BrpcDiagHit(Base):
+    __tablename__ = "brpc_diag_hit"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["schema_id", "failure_mode_id"],
+            ["brpc_diag_node.schema_id", "brpc_diag_node.node_id"],
+            name="fk_brpc_diag_hit_failure_mode",
+        ),
+    )
+
+    hit_id: Mapped[str] = mapped_column(String, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("brpc_diag_batch.batch_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("brpc_diag_schema.schema_id"),
+        nullable=False,
+    )
+    failure_mode_id: Mapped[str] = mapped_column(String, nullable=False)
+    interface_id: Mapped[Optional[str]] = mapped_column(String)
+    interface_resolution: Mapped[str] = mapped_column(
+        String, nullable=False, default="unresolved"
+    )
+    timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    pod_name: Mapped[Optional[str]] = mapped_column(String)
+    pod_ip: Mapped[Optional[str]] = mapped_column(String)
+    component: Mapped[Optional[str]] = mapped_column(String)
+    filename: Mapped[Optional[str]] = mapped_column(Text)
+    function_name: Mapped[Optional[str]] = mapped_column(Text)
+    line_number: Mapped[Optional[int]] = mapped_column(Integer)
+    thread_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    trace_id: Mapped[Optional[str]] = mapped_column(String)
+    message: Mapped[str] = mapped_column(Text, nullable=False)

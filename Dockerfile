@@ -13,7 +13,11 @@ COPY . .
 
 RUN mkdir -p build && cd build && \
     cmake .. && \
-    make -j$(nproc)
+    make -j$(nproc) \
+        witty-ub-log \
+        witty-ub-topo \
+        witty-ub-diag-tool \
+        witty-ub-brpc-diag
 
 # ============================================
 # Stage 2: Runtime image (based on base image)
@@ -27,12 +31,21 @@ LABEL description="Witty-UB: Fault localization tool for superpods with Lingqu(U
 COPY --from=builder-cpp /build/build/src/witty-ub-log /usr/bin/
 COPY --from=builder-cpp /build/build/src/witty-ub-topo /usr/bin/
 COPY --from=builder-cpp /build/build/src/witty-ub-diag-tool /usr/bin/
+COPY --from=builder-cpp /build/build/src/witty-ub-brpc-diag /usr/bin/
 
-# Copy data files
-COPY data/view-vis /var/witty-ub/data/view-vis/
-COPY data/failure_mode_tree.json /var/witty-ub/data/
-COPY data/kvcache/kvcache_conn_fault_mode.json /var/witty-ub/data/kvcache/
-COPY data/urma/urma_failure_mode.json /var/witty-ub/data/urma/
+# Keep an immutable copy of packaged data so the entrypoint can refresh an
+# existing witty-ub-data volume when the image is upgraded.
+COPY data/view-vis /usr/share/witty-ub/data/view-vis/
+COPY data/failure_mode_tree.json /usr/share/witty-ub/data/
+COPY data/kvcache/kvcache_conn_fault_mode.json /usr/share/witty-ub/data/kvcache/
+COPY data/kvcache/kvcache_conn_fault_code_info.json /var/witty-ub/data/kvcache/
+COPY data/ubsocket /usr/share/witty-ub/data/ubsocket/
+COPY data/umq /usr/share/witty-ub/data/umq/
+COPY data/urma /usr/share/witty-ub/data/urma/
+RUN find /usr/share/witty-ub/data -type f -exec chmod 0640 {} \; && \
+    cp -a /usr/share/witty-ub/data/. /var/witty-ub/data/
+
+# Copy configuration files
 COPY config/diagnosis_config.toml /var/witty-ub/config/
 COPY config/opencode.json /var/witty-ub/config/
 COPY config/agents/witty-ub-diagnostician.md /var/witty-ub/config/agents/
@@ -61,7 +74,8 @@ COPY src/plugins/latency/deploy/run_opencode.sh /var/witty-ub/latency/deploy/run
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 
 # Set permissions
-RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo /usr/bin/witty-ub-diag-tool && \
+RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
+        /usr/bin/witty-ub-diag-tool /usr/bin/witty-ub-brpc-diag && \
     chmod 0755 /var/witty-ub/latency/deploy/run_opencode.sh && \
     find /var/witty-ub/data -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/config -type f -exec chmod 0640 {} \; && \
