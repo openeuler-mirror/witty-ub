@@ -119,6 +119,9 @@ type LogAnalyzerThresholdKey =
   | 'w2w_p99_threshold_ms'
   | 'urma_link_p99_threshold_ms'
   | 'query_meta_p99_threshold_ms'
+  | 'total_p9999_threshold_ms'
+  | 'total_pmax_threshold_ms'
+  | 'total_ave_threshold_ms'
 
 type DiagnosisConfigToml = {
   log_filename_pattern: Record<LogFilenamePatternKey, string[]> & {
@@ -1674,6 +1677,21 @@ const analyzerThresholdOptions: Array<{
     label: 'QueryMeta 时延阈值',
     description: '查询元数据时延阈值',
   },
+  {
+    key: 'total_p9999_threshold_ms',
+    label: '总时延 P9999 阈值',
+    description: '端到端总耗时 99.99 百分位',
+  },
+  {
+    key: 'total_pmax_threshold_ms',
+    label: '总时延 Pmax 阈值',
+    description: '端到端总耗时最大值',
+  },
+  {
+    key: 'total_ave_threshold_ms',
+    label: '总时延均值阈值',
+    description: '端到端总耗时平均值',
+  },
 ]
 const logFiles = ref<LogFileModel[]>([])
 // 当前选中的日志文件 id：用于时延指标桶模式直读分位统计表（bucket_seconds + log_id）
@@ -1725,6 +1743,9 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     w2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: diagnosisConfig.log_analyzer_params.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: diagnosisConfig.log_analyzer_params.query_meta_p99_threshold_ms,
+    total_p9999_threshold_ms: diagnosisConfig.log_analyzer_params.total_p9999_threshold_ms,
+    total_pmax_threshold_ms: diagnosisConfig.log_analyzer_params.total_pmax_threshold_ms,
+    total_ave_threshold_ms: diagnosisConfig.log_analyzer_params.total_ave_threshold_ms,
     slidingWindowPairs: diagnosisConfig.log_analyzer_params.sliding_window_sizes.map(
       (size, index) => ({
         size,
@@ -1753,6 +1774,9 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     w2w_p99_threshold_ms: config.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.log_analyzer_params.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: config.log_analyzer_params.query_meta_p99_threshold_ms,
+    total_p9999_threshold_ms: config.log_analyzer_params.total_p9999_threshold_ms,
+    total_pmax_threshold_ms: config.log_analyzer_params.total_pmax_threshold_ms,
+    total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
     slidingWindowPairs: config.log_analyzer_params.sliding_window_sizes.map((size, index) => ({
       size,
       step: config.log_analyzer_params.sliding_window_steps[index] ?? size,
@@ -1769,6 +1793,9 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigForm): DiagnosisConfigApiMo
     w2w_p99_threshold_ms: config.logAnalyzerParams.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.logAnalyzerParams.urma_link_p99_threshold_ms,
     query_meta_p99_threshold_ms: config.logAnalyzerParams.query_meta_p99_threshold_ms,
+    total_p9999_threshold_ms: config.logAnalyzerParams.total_p9999_threshold_ms,
+    total_pmax_threshold_ms: config.logAnalyzerParams.total_pmax_threshold_ms,
+    total_ave_threshold_ms: config.logAnalyzerParams.total_ave_threshold_ms,
     sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) => size),
     sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) => step),
     zone_anomaly_density_threshold: config.logAnalyzerParams.zone_anomaly_density_threshold,
@@ -3040,6 +3067,7 @@ const latencySeriesConfig = computed(() =>
 type LatencyMetricKey =
   | (typeof getLatencySeriesConfig)[number]['key']
   | (typeof setLatencySeriesConfig)[number]['key']
+  | 'total_latency'
 
 const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
   'total_latency_us',
@@ -3072,12 +3100,12 @@ const deselectAllLatencySeries = () => {
   visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0].key])
 }
 
-const latencyPercentileOptions = [
-  { value: 'p99', label: 'P99', abnormalThreshold: 2 },
-  { value: 'p9999', label: 'P9999', abnormalThreshold: 5 },
-  { value: 'pmax', label: 'Pmax', abnormalThreshold: 5 },
-  { value: 'ave', label: '均值', abnormalThreshold: 5 },
-] as const
+const latencyPercentileOptions = computed(() => [
+  { value: 'p99' as const, label: 'P99', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ?? 5.0 },
+  { value: 'p9999' as const, label: 'P9999', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ?? 5.0 },
+  { value: 'pmax' as const, label: 'Pmax', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ?? 5.0 },
+  { value: 'ave' as const, label: '均值', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ?? 5.0 },
+])
 
 const latencySampleModeMap: Record<LatencyPercentileValue, string> = {
   p99: 'p99',
@@ -3088,11 +3116,19 @@ const latencySampleModeMap: Record<LatencyPercentileValue, string> = {
 
 const latencyMetrics = computed(() => latencyMetricsByPercentile[selectedLatencyPercentile.value])
 
-const selectedLatencyPercentileConfig = computed(
-  () =>
-    latencyPercentileOptions.find((option) => option.value === selectedLatencyPercentile.value) ??
-    latencyPercentileOptions[0],
-)
+const selectedLatencyPercentileConfig = computed(() => {
+  const found = latencyPercentileOptions.value.find(
+    (option) => option.value === selectedLatencyPercentile.value,
+  )
+  const config = found! || latencyPercentileOptions.value[0]!
+  console.log(
+    '[LatencyAbnormal] percentile:',
+    selectedLatencyPercentile.value,
+    'threshold:',
+    config.abnormalThreshold,
+  )
+  return config
+})
 
 const latencyAnomalyHint = computed(
   () =>
@@ -3103,11 +3139,19 @@ const detailLatencyAbnormalThreshold = 2
 
 const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
   const totalLatency = values.total_latency
-  return (
+  const threshold = selectedLatencyPercentileConfig.value.abnormalThreshold ?? 5.0
+  const abnormal =
     typeof totalLatency === 'number' &&
     Number.isFinite(totalLatency) &&
-    totalLatency > selectedLatencyPercentileConfig.value.abnormalThreshold
-  )
+    totalLatency > threshold
+  if (abnormal) {
+    console.log('[LatencyAbnormal] Detected abnormal point:', {
+      totalLatency,
+      threshold,
+      abnormal,
+    })
+  }
+  return abnormal
 }
 
 const isDetailLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
@@ -3421,25 +3465,6 @@ type FaultChartBucket = {
   counts: Record<string, number>
 }
 
-const maxBucketMetricValue = (values: number[]) => {
-  if (values.length === 0) return null
-  return Math.max(...values)
-}
-
-const avgBucketMetricValue = (values: number[]) => {
-  if (values.length === 0) return null
-  return values.reduce((a, b) => a + b, 0) / values.length
-}
-
-const createEmptyLatencyMetricBuckets = (): Record<LatencyMetricKey, number[]> =>
-  latencySeriesConfig.value.reduce(
-    (acc, series) => {
-      acc[series.key] = []
-      return acc
-    },
-    {} as Record<LatencyMetricKey, number[]>,
-  )
-
 const getFiniteMetricValue = (record: Record<string, unknown>, key: string): number | null => {
   const value = record[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -3684,73 +3709,43 @@ const getAdaptiveLatencyBucketMs = (times: number[]) => {
 
 const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   const chartRange = latencyChartRange.value
-  const allMetricPoints = latencyMetrics.value
-    .map((result) => ({
-      result,
-      date: parseMetricDate(result),
-    }))
-    .filter((point): point is { result: LatencyMetricItem; date: Date } => {
-      return point.date !== null
-    })
 
-  if (allMetricPoints.length === 0) return []
+  return latencyMetrics.value
+    .map((metric) => {
+      const date = parseMetricDate(metric)
+      if (!date) return null
 
-  const allTimes = allMetricPoints.map((point) => point.date.getTime())
-  const bucketMs =
-    selectedLatencyScale.value !== 0
-      ? selectedLatencyScale.value * secondMs
-      : getAdaptiveLatencyBucketMs(allTimes)
-  const minTime = chartRange?.startTime ?? Math.min(...allTimes)
-  const maxTime = chartRange?.endTime ?? Math.max(...allTimes)
-  const firstBucketStart = Math.floor(minTime / bucketMs) * bucketMs
-  const lastBucketStart = Math.floor(maxTime / bucketMs) * bucketMs
-  const buckets = new Map<number, Record<LatencyMetricKey, number[]>>()
+      const time = date.getTime()
+      if (chartRange && (time < chartRange.startTime || time > chartRange.endTime)) {
+        return null
+      }
 
-  allMetricPoints.forEach(({ result, date }) => {
-    const time = date.getTime()
-    if (chartRange && (time < chartRange.startTime || time > chartRange.endTime)) return
+      const values = latencySeriesConfig.value.reduce(
+        (acc, series) => {
+          let value = getFiniteMetricValue(metric, series.key)
+          if (value !== null && typeof series.key === 'string' && series.key.endsWith('_us')) {
+            value = value / 1000
+          }
+          acc[series.key] = value
+          return acc
+        },
+        {} as Record<LatencyMetricKey, number | null>,
+      )
 
-    const bucketStart = Math.floor(date.getTime() / bucketMs) * bucketMs
-    const bucket = buckets.get(bucketStart) ?? createEmptyLatencyMetricBuckets()
+      // 额外提取 total_latency 用于异常判断
+      const totalLatency = getFiniteMetricValue(metric, 'total_latency')
+      if (totalLatency !== null) {
+        values.total_latency = totalLatency
+      }
 
-    latencySeriesConfig.value.forEach((series) => {
-      let value = getFiniteMetricValue(result, series.key)
-      if (value !== null) {
-        // _us 后缀字段单位是微秒（来自 yuanrong compute），折线图 Y 轴标 ms
-        // master_rpc_total 同理（rpro_e2e_us）
-        if (typeof series.key === 'string' && series.key.endsWith('_us')) {
-          value = value / 1000
-        }
-        ;(bucket[series.key] ??= []).push(value)
+      return {
+        time,
+        label: formatFullTimeLabel(date),
+        values,
+        abnormal: isLatencyChartBucketAbnormal(values),
       }
     })
-
-    buckets.set(bucketStart, bucket)
-  })
-
-  const chartBuckets: LatencyChartBucket[] = []
-  for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
-    const groupedValues = buckets.get(time) ?? createEmptyLatencyMetricBuckets()
-
-    const reduceFn =
-      selectedLatencyPercentile.value === 'ave' ? avgBucketMetricValue : maxBucketMetricValue
-    const values = latencySeriesConfig.value.reduce(
-      (acc, series) => {
-        acc[series.key] = reduceFn(groupedValues[series.key] ?? [])
-        return acc
-      },
-      {} as Record<LatencyMetricKey, number | null>,
-    )
-
-    chartBuckets.push({
-      time,
-      label: formatFullTimeLabel(new Date(time)),
-      values,
-      abnormal: isLatencyChartBucketAbnormal(values),
-    })
-  }
-
-  return chartBuckets
+    .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
 })
 
 const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
@@ -3835,10 +3830,17 @@ const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
     if ((!bucket.abnormal || index === buckets.length - 1) && startIndex !== null) {
       const endIndex = bucket.abnormal && index === buckets.length - 1 ? index : index - 1
       ranges.push([{ xAxis: startIndex }, { xAxis: endIndex }])
+      console.log('[LatencyAbnormal] Mark area:', {
+        startIndex,
+        endIndex,
+        startBucket: buckets[startIndex],
+        endBucket: buckets[endIndex],
+      })
       startIndex = null
     }
   })
 
+  console.log('[LatencyAbnormal] Total mark areas:', ranges.length)
   return ranges
 }
 
