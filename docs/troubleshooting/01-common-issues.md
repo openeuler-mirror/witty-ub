@@ -148,6 +148,8 @@ ls ~/.config/opencode/
 # - ~/.config/opencode:/root/.config/opencode
 ```
 
+> **说明**：docker 部署时修改 opencode 配置文件请在宿主机上操作，部署会将宿主机配置目录映射到容器中，在容器内修改不会持久化。详见 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)。
+
 ### 7.2 环境变量未设置
 
 ```bash

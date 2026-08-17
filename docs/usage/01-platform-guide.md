@@ -190,6 +190,8 @@ witty-ub 超节点故障智能监控诊断平台是基于故障树驱动的诊�
 - 点击某一个大模型提供商，输入用户自己的 API key，点击确认，进入新增模型页
 - 支持搜索提供商名称
 
+> **说明**：若 API-key 提供方给出了直接修改 OpenCode 配置文件的方法，可跳过本页，直接在本机配置文件中按 API-key 提供方的教程配置即可，平台会自动识别大模型。详见 [配置参考手册 · OpenCode 配置](03-configuration-reference.md#opencode-配置)。
+
 #### 8.4 新增模型页
 
 ![Agent新增模型页](../figures/web-ui/Agent新增模型页.png)
