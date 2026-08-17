@@ -169,7 +169,8 @@ class StoreTraceContextLogsWorker(BaseWorker):
                         log_file_name, client_access_patterns
                     ):
                         is_access_log = True
-                    with open(log_file_path, 'r', encoding='utf-8') as f:
+                    # 使用 errors='replace' 处理编码错误，避免非 UTF-8 字符导致程序崩溃
+                    with open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
                         for line in f:
                             try:
                                 raw_line = line.strip()
