@@ -117,6 +117,8 @@ docker run -d \
   witty-ub:latest
 ```
 
+> **说明**：docker 部署时若需修改 opencode 配置文件，请在宿主机上操作。部署会将宿主机的 opencode 配置目录（`~/.config/opencode/`）映射到容器中（`/root/.config/opencode/`），在容器内修改不会持久化。详见 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)。
+
 ---
 
 ## PostgreSQL 连接

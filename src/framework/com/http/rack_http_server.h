@@ -29,7 +29,7 @@ public:
     }
     void HandlerRequest(const httplib::Request &req, httplib::Response &res);
     RackResult ValidateHttpRequest(const httplib::Request &req, RackHttpRequest &request);
-    std::string GenerateQueryString(const std::multimap<std::string, std::string> &queryParams);
+    std::string GenerateQueryString(const httplib::Params &queryParams);
     bool Start();
     void Stop();
     void Run();

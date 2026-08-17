@@ -311,7 +311,10 @@ class TestDiagnosisConfig:
                     "resource_log_file": ["*.log"]
                 },
                 "log_analyzer_params": {
-                    "total_p99_threshold_ms": 2.0
+                    "total_p99_threshold_ms": 2.0,
+                    "total_p9999_threshold_ms": 5.0,
+                    "total_pmax_threshold_ms": 5.0,
+                    "total_ave_threshold_ms": 5.0
                 }
             },
             timeout=10

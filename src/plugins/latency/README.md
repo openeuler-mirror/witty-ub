@@ -258,11 +258,14 @@ ds_worker_info_log_file = ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "
 resource_log_file = ["resource.log"]
 
 [log_analyzer_params]
-total_p99_threshold_ms = 2.0
+total_p99_threshold_ms = 5.0
 c2w_p99_threshold_ms = 2.0
 w2w_p99_threshold_ms = 1.5
 urma_link_p99_threshold_ms = 4.0
 query_meta_p99_threshold_ms = 1.0
+total_p9999_threshold_ms = 5.0
+total_pmax_threshold_ms = 5.0
+total_ave_threshold_ms = 5.0
 ```
 
 #### 日志路径映射 `[log_filename_pattern]`
@@ -285,11 +288,14 @@ Worker 解析日志时，会根据上传日志所在的目录，按以下 key �
 
 | key | 说明 |
 |-----|------|
-| `total_p99_threshold_ms` | 总时延阈值（毫秒） |
+| `total_p99_threshold_ms` | 总时延 P99 阈值（毫秒） |
 | `c2w_p99_threshold_ms` | Client-to-Worker 时延阈值 |
 | `w2w_p99_threshold_ms` | Worker-to-Worker 时延阈值 |
 | `urma_link_p99_threshold_ms` | URMA 建链时延阈值 |
 | `query_meta_p99_threshold_ms` | Worker QueryMeta 时延阈值 |
+| `total_p9999_threshold_ms` | 总时延 P9999 阈值（毫秒） |
+| `total_pmax_threshold_ms` | 总时延最大值阈值（毫秒） |
+| `total_ave_threshold_ms` | 总时延均值阈值（毫秒） |
 
 ### 6. 启动服务
 
