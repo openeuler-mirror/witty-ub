@@ -6,6 +6,7 @@ class TaskTypeEnum(StrEnum):
     KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER = "kv_cache_log_event_diagnosis_worker"
     STORE_TRACE_CONTEXT_LOGS_WORKER = "store_trace_context_logs_worker"
     BRPC_LOG_PARSE_WORKER = "brpc_log_parse_worker"
+    BRPC_LOG_DIAGNOSIS_WORKER = "brpc_log_diagnosis_worker"
 
 
 class TaskStatusEnum(StrEnum):

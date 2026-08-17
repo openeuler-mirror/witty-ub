@@ -15,7 +15,7 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
-import diagnosisConfig from '../../../config/diagnosis_config.toml'
+import rawDiagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
   id: string
@@ -100,19 +100,38 @@ type LogFileModel = {
   file_size: number
   anomaly_cnt: number
   trace_failure_event_cnt?: number
+  log_type?: string
   task: TaskModel | null
   overall_progress?: number
   existed_status: boolean
   created_at: string
 }
 
-type LogFilenamePatternKey = keyof typeof diagnosisConfig.log_filename_pattern
+type LogFilenamePatternKey =
+  | 'ds_client_access_log_file'
+  | 'ds_client_info_log_file'
+  | 'ds_worker_access_log_file'
+  | 'ds_worker_info_log_file'
+  | 'resource_log_file'
 type LogAnalyzerThresholdKey =
   | 'total_p99_threshold_ms'
   | 'c2w_p99_threshold_ms'
   | 'w2w_p99_threshold_ms'
   | 'urma_link_p99_threshold_ms'
   | 'query_meta_p99_threshold_ms'
+
+type DiagnosisConfigToml = {
+  log_filename_pattern: Record<LogFilenamePatternKey, string[]> & {
+    brpc_log_file_patterns?: string[]
+  }
+  log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
+    sliding_window_sizes: number[]
+    sliding_window_steps: number[]
+    zone_anomaly_density_threshold: number
+  }
+}
+
+const diagnosisConfig = rawDiagnosisConfig as DiagnosisConfigToml
 
 type DiagnosisConfigForm = {
   logFilenamePattern: Record<LogFilenamePatternKey, string[]>
@@ -199,6 +218,166 @@ type ErrCodeMetricItem = {
   count?: number | null
   value?: number | null
   [key: string]: unknown
+}
+
+type BrpcInterfaceTimelinePoint = {
+  window_start_time: string
+  window_end_time: string
+  interface_hit_count: number
+}
+
+type BrpcInterfaceTimelineSeries = {
+  component: string
+  interface_id: string
+  interface_name: string
+  function_name: string
+  points: BrpcInterfaceTimelinePoint[]
+}
+
+type BrpcDiagnosisBatch = {
+  batch_id: string
+  task_id: string
+  start_time: string
+  end_time: string
+  hit_count: number
+}
+
+type BrpcInterfaceHit = {
+  component: string
+  interface_id: string
+  interface_name: string
+  function_name: string
+  interface_hit_count: number
+}
+
+const BRPC_UNRESOLVED_INTERFACE_ID = '__unresolved__'
+const BRPC_TOTAL_SORT_FIELD = 'total_interface_hit_count'
+const BRPC_INTERFACE_COLUMN_WIDTH = 140
+
+const getBrpcInterfaceDisplayName = (iface: {
+  interface_name: string
+  function_name?: string | null
+}) =>
+  iface.function_name ? `${iface.interface_name}（${iface.function_name}）` : iface.interface_name
+
+const sortBrpcInterfaceColumns = (columns: BrpcInterfaceHit[]) =>
+  columns.sort((first, second) => {
+    if (first.interface_id === second.interface_id) return 0
+    if (first.interface_id === BRPC_UNRESOLVED_INTERFACE_ID) return 1
+    if (second.interface_id === BRPC_UNRESOLVED_INTERFACE_ID) return -1
+    return `${first.component}/${first.interface_name}`.localeCompare(
+      `${second.component}/${second.interface_name}`,
+    )
+  })
+
+type BrpcFailureModeHit = {
+  failure_mode_id: string
+  component: string
+  failure_mode_name: string
+  hit_count: number
+}
+
+type BrpcFailureGraphNode = {
+  node_id: string
+  node_type: 'interface' | 'failure_mode'
+  component: string
+  name: string
+  filename: string
+  function_name: string
+  phenomenon: string
+  cause: string
+  solution: string
+  error_code: number | string | null
+  directly_hit: boolean
+  hit_count: number
+}
+
+type BrpcFailureGraphEdge = {
+  source_node_id: string
+  target_node_id: string
+  edge_type: string
+}
+
+type BrpcFailureGraph = {
+  nodes: BrpcFailureGraphNode[]
+  edges: BrpcFailureGraphEdge[]
+}
+
+type BrpcDiagHitLog = {
+  hit_id: string
+  batch_id: string
+  schema_id: string
+  failure_mode_id: string
+  time: string
+  pod_name: string | null
+  pod_ip: string | null
+  component: string | null
+  filename: string | null
+  function_name: string | null
+  line_number: number | null
+  thread_id: number | null
+  trace_id: string | null
+  message: string
+}
+
+type BrpcAggregatedEvent = {
+  event_id: string
+  batch_id: string
+  window_start_time: string
+  window_end_time: string
+  pod_ip: string
+  pod_name: string | null
+  thread_id?: number
+  interface_hits: BrpcInterfaceHit[]
+}
+
+type BrpcAggregatedEventDetail = {
+  event: BrpcAggregatedEvent
+  failure_modes: Array<{
+    failure_mode_id: string
+    component: string
+    failure_mode_name: string
+    hit_count: number
+  }>
+  hit_total: number
+}
+
+type BrpcInterfaceTimelineResult = {
+  batch_id: string
+  start_time: string
+  end_time: string
+  window_size: string
+  series: BrpcInterfaceTimelineSeries[]
+}
+
+type BrpcEventWindow = {
+  key: string
+  startTime: string
+  endTime: string
+  events: BrpcAggregatedEvent[]
+}
+
+type BrpcAbnormalThread = {
+  thread_key: string
+  batch_id: string
+  pod_ip: string
+  pod_name: string | null
+  thread_id: number
+  first_hit_time: string
+  last_hit_time: string
+  total_interface_hit_count: number
+  interface_hits: BrpcInterfaceHit[]
+}
+
+type BrpcAbnormalThreadDetail = {
+  thread: BrpcAbnormalThread
+  start_time: string
+  end_time: string
+  interface_timeline: BrpcInterfaceTimelineSeries[]
+  failure_modes: BrpcFailureModeHit[]
+  failure_graph: BrpcFailureGraph
+  hit_total: number
+  hits: BrpcDiagHitLog[]
 }
 
 type StatusCodeKnowledge = {
@@ -1370,6 +1549,8 @@ const abnormalTracesPageSize = 10
 const faultAggregatedEventPageSize = 10
 const faultAggregatedEventPodPageSize = 5
 const faultTraceEventsPageSize = 10
+const brpcAggregatedEventPageSize = 10
+const brpcAbnormalThreadPageSize = 10
 const detailParseResultsPageSize = 10
 const faultDetailTraceEventsPageSize = 10
 const logFilesPollIntervalMs = 3_000
@@ -1387,7 +1568,16 @@ const toFaultAggregatedEventRows = (
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
 const selectedAssetId = ref<string | null>(null)
+let assetSelectionRequestSequence = 0
 const activePage = ref<'asset' | 'abnormal'>('asset')
+type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
+type MonitorProduct = 'kvcache' | 'brpc'
+const activeMonitorSection = ref<MonitorSection>('latency')
+const activeMonitorProduct = computed<MonitorProduct>(() =>
+  activeMonitorSection.value === 'brpc' || activeMonitorSection.value === 'brpc-fault'
+    ? 'brpc'
+    : 'kvcache',
+)
 const isAssetSidebarCollapsed = ref(false)
 const assetDetailRef = ref<HTMLElement | null>(null)
 const isListLoading = ref(false)
@@ -1397,7 +1587,27 @@ const isQuerying = ref(false)
 const errorMessage = ref('')
 
 const logSourceInput = ref('')
-const logType = ref('kv-cache')
+type LogType = 'kv-cache' | 'brpc'
+const getLogTypeStorageKey = (assetId: string) => `witty-ub.asset-detail.log-type:${assetId}`
+const getStoredLogType = (assetId: string): LogType => {
+  try {
+    const storedLogType = window.localStorage.getItem(getLogTypeStorageKey(assetId))
+    if (storedLogType === 'kv-cache' || storedLogType === 'brpc') return storedLogType
+  } catch {
+    // localStorage may be unavailable in privacy-restricted browser contexts.
+  }
+  return 'kv-cache'
+}
+const logType = ref<LogType>('kv-cache')
+watch(logType, (nextLogType) => {
+  const assetId = selectedAssetId.value
+  if (!assetId) return
+  try {
+    window.localStorage.setItem(getLogTypeStorageKey(assetId), nextLogType)
+  } catch {
+    // Keep the in-memory selection usable even when persistence is unavailable.
+  }
+})
 const isUploadingLog = ref(false)
 const uploadLogError = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -1618,6 +1828,10 @@ const openParseConfigDrawer = async () => {
   diagnosisConfigImportAssetId.value = ''
   diagnosisConfigImportMessage.value = ''
   isParseConfigDrawerOpen.value = true
+  if (logType.value === 'brpc') {
+    isDiagnosisConfigLoading.value = false
+    return
+  }
   void loadDiagnosisConfigImportAssets()
   isDiagnosisConfigLoading.value = true
   try {
@@ -2004,9 +2218,7 @@ const getPaginatedIpPairs = (twEvent: TimeWindowAggregatedEvent, twIdx: number) 
 const timeWindowPageCount = computed(() => Math.max(1, Math.ceil(timeWindowTotal.value / 10)))
 
 const sortedTimeWindowAggregatedEvents = computed(() => {
-  const events = [...timeWindowAggregatedEvents.value].filter(
-    (event) => event.anomaly_cnt > 0,
-  )
+  const events = [...timeWindowAggregatedEvents.value].filter((event) => event.anomaly_cnt > 0)
   const sortFields = timeWindowSortFields.value
   const getValue = (event: TimeWindowAggregatedEvent, key: string): number | string => {
     if (key === 'start_time') return event.start_time
@@ -2155,9 +2367,10 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
     return
   }
 
+  const assetId = selectedAssetId.value
   try {
     const body: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       is_anomalous: true,
       page_cnt: 1000,
       page_num: 1,
@@ -2176,9 +2389,13 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
     ;(result.log_parse_results ?? []).forEach((r) => {
       if (r.trace_id) latencyTraceIds.add(r.trace_id)
     })
-    faultTraceIdsWithLatency.value = latencyTraceIds
+    if (selectedAssetId.value === assetId) {
+      faultTraceIdsWithLatency.value = latencyTraceIds
+    }
   } catch {
-    faultTraceIdsWithLatency.value = new Set()
+    if (selectedAssetId.value === assetId) {
+      faultTraceIdsWithLatency.value = new Set()
+    }
   }
 }
 
@@ -2188,9 +2405,10 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
     return
   }
 
+  const assetId = selectedAssetId.value
   try {
     const body: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       is_anomalous: true,
       page_cnt: 1000,
       page_num: 1,
@@ -2209,9 +2427,13 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
     ;(result.trace_failure_event_results ?? []).forEach((r) => {
       if (r.trace_id) faultTraceIds.add(r.trace_id)
     })
-    latencyTraceIdsWithFault.value = faultTraceIds
+    if (selectedAssetId.value === assetId) {
+      latencyTraceIdsWithFault.value = faultTraceIds
+    }
   } catch {
-    latencyTraceIdsWithFault.value = new Set()
+    if (selectedAssetId.value === assetId) {
+      latencyTraceIdsWithFault.value = new Set()
+    }
   }
 }
 
@@ -2659,6 +2881,12 @@ const faultAggregatedPodIpFilterDialog = reactive({
   addTargetPodIp: false,
 })
 
+const brpcFilterDialog = reactive({
+  open: false,
+  target: null as BrpcAggregatedEvent | BrpcAbnormalThread | null,
+  addPodIp: false,
+})
+
 const dialog = reactive({
   open: false,
   mode: 'create' as 'create' | 'edit',
@@ -2734,37 +2962,35 @@ const shouldShowTraceListFilters = computed(
 const shouldShowFaultCodeFilter = computed(
   () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
 )
-const getLatencySeriesConfig = [
-  ['total_latency_us', '总时延', '#d32f2f'],
-  ['sdk_processing_us', 'SDK处理', '#5470c6'],
-  ['master_processing_us', 'Master处理', '#91cc75'],
-  ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
-  ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
-  ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
-  ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
-  ['sdk_rpc_network_us', 'SDK RPC网络', '#fc8452'],
-  ['sdk_rpc_framework_us', 'SDK RPC框架', '#9a60b4'],
-  ['sdk_rpc_total_us', 'SDK RPC总时延', '#ea7ccc'],
-  ['master_rpc_network_us', 'Master RPC网络', '#ff9f7f'],
-  ['master_rpc_framework_us', 'Master RPC框架', '#ffdb5c'],
-  ['master_rpc_total_us', 'Master RPC总时延', '#c23531'],
-  ['remote_worker_rpc_network_us', 'Remote Worker RPC网络', '#2f4554'],
-  ['remote_worker_rpc_framework_us', 'Remote Worker RPC框架', '#61a0a8'],
-  ['remote_worker_rpc_total_us', 'Remote Worker RPC总时延', '#bda29a'],
-  ['urma_processing_us', 'URMA+UDMA+交换机+OS处理', '#6e7074'],
-  ['urma_inflight_max', 'URMA并发数', '#749f83'],
-  ['remote_worker_processing_us', 'Remote Worker处理', '#ca8622'],
-  ['client_master_rpc_network_us', 'Client Master RPC网络', '#bda29a'],
-  ['client_master_rpc_framework_us', 'Client Master RPC框架', '#6e7074'],
-  ['client_master_rpc_total_us', 'Client Master RPC总时延', '#546570'],
-  ['client_remote_rpc_network_us', 'Client Remote RPC网络', '#c4ccd3'],
-  ['client_remote_rpc_framework_us', 'Client Remote RPC框架', '#f05b72'],
-  ['client_remote_rpc_total_us', 'Client Remote RPC总时延', '#d53a35'],
-].map(([key, label, color]) => ({ key, label, color })) as Array<{
-  key: string
-  label: string
-  color: string
-}>
+const getLatencySeriesConfig = (
+  [
+    ['total_latency_us', '总时延', '#d32f2f'],
+    ['sdk_processing_us', 'SDK处理', '#5470c6'],
+    ['master_processing_us', 'Master处理', '#91cc75'],
+    ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
+    ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
+    ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
+    ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
+    ['sdk_rpc_network_us', 'SDK RPC网络', '#fc8452'],
+    ['sdk_rpc_framework_us', 'SDK RPC框架', '#9a60b4'],
+    ['sdk_rpc_total_us', 'SDK RPC总时延', '#ea7ccc'],
+    ['master_rpc_network_us', 'Master RPC网络', '#ff9f7f'],
+    ['master_rpc_framework_us', 'Master RPC框架', '#ffdb5c'],
+    ['master_rpc_total_us', 'Master RPC总时延', '#c23531'],
+    ['remote_worker_rpc_network_us', 'Remote Worker RPC网络', '#2f4554'],
+    ['remote_worker_rpc_framework_us', 'Remote Worker RPC框架', '#61a0a8'],
+    ['remote_worker_rpc_total_us', 'Remote Worker RPC总时延', '#bda29a'],
+    ['urma_processing_us', 'URMA+UDMA+交换机+OS处理', '#6e7074'],
+    ['urma_inflight_max', 'URMA并发数', '#749f83'],
+    ['remote_worker_processing_us', 'Remote Worker处理', '#ca8622'],
+    ['client_master_rpc_network_us', 'Client Master RPC网络', '#bda29a'],
+    ['client_master_rpc_framework_us', 'Client Master RPC框架', '#6e7074'],
+    ['client_master_rpc_total_us', 'Client Master RPC总时延', '#546570'],
+    ['client_remote_rpc_network_us', 'Client Remote RPC网络', '#c4ccd3'],
+    ['client_remote_rpc_framework_us', 'Client Remote RPC框架', '#f05b72'],
+    ['client_remote_rpc_total_us', 'Client Remote RPC总时延', '#d53a35'],
+  ] as const
+).map(([key, label, color]) => ({ key, label, color }))
 
 const latencyBreakdownSeriesConfig = getLatencySeriesConfig
   .filter(
@@ -2811,7 +3037,9 @@ const latencySeriesConfig = computed(() =>
   selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
 )
 
-type LatencyMetricKey = (typeof getLatencySeriesConfig)[number]['key']
+type LatencyMetricKey =
+  | (typeof getLatencySeriesConfig)[number]['key']
+  | (typeof setLatencySeriesConfig)[number]['key']
 
 const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
   'total_latency_us',
@@ -2996,8 +3224,7 @@ const buildLatencyBreakdownSegments = (
 
   return configs.map((config, index) => {
     const rawValue = values[index] ?? null
-    const value =
-      config.unit === 'us' && typeof rawValue === 'number' ? rawValue / 1000 : rawValue
+    const value = config.unit === 'us' && typeof rawValue === 'number' ? rawValue / 1000 : rawValue
     const width =
       typeof rawValue === 'number' && rawValue > 0 && scale > 0
         ? Math.min(100, (rawValue / scale) * 100)
@@ -3010,16 +3237,14 @@ const buildLatencyBreakdownSegments = (
       value,
       width,
       abnormal:
-        config.unit === 'us' &&
-        isLatencyMetricAbnormal(config.key as AggregatedLatencyKey, value),
+        config.unit === 'us' && isLatencyMetricAbnormal(config.key as AggregatedLatencyKey, value),
       unit: config.unit === 'us' ? 'ms' : config.unit,
     }
   })
 }
 
 const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) => {
-  const raw =
-    row.raw && typeof row.raw === 'object' ? (row.raw as Record<string, unknown>) : row
+  const raw = row.raw && typeof row.raw === 'object' ? (row.raw as Record<string, unknown>) : row
   const yuanrongSegments = buildLatencyBreakdownSegments(
     getNullableFiniteNumber(raw, 'total_latency_us'),
     (key) => getNullableFiniteNumber(raw, key),
@@ -3050,8 +3275,7 @@ const LatencyBreakdownBar = defineComponent({
     return () => {
       const visibleSegments = props.segments.filter((segment) => segment.width > 0)
       const parsedSegments = props.segments.filter((segment) => segment.value !== null)
-      const displayedValueSegments =
-        visibleSegments.length > 0 ? visibleSegments : parsedSegments
+      const displayedValueSegments = visibleSegments.length > 0 ? visibleSegments : parsedSegments
       const summary =
         parsedSegments.length > 0
           ? parsedSegments.map(getLatencyBreakdownTooltip).join('；')
@@ -3167,7 +3391,13 @@ const traceDelayColumns = [
   { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'remoteWorkerRpc', label: '远端Worker RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'masterProcess', label: 'Master处理时延 (ms)', threshold: 1.5, unit: 'ms' },
-  { key: 'masterRpcTotal', label: 'Master RPC总时延 (ms)', metric: 'master_rpc_total', threshold: 150, unit: 'ms' },
+  {
+    key: 'masterRpcTotal',
+    label: 'Master RPC总时延 (ms)',
+    metric: 'master_rpc_total',
+    threshold: 150,
+    unit: 'ms',
+  },
 ] as const satisfies readonly {
   key: TraceDelayKey
   label: string
@@ -3210,6 +3440,11 @@ const createEmptyLatencyMetricBuckets = (): Record<LatencyMetricKey, number[]> =
     {} as Record<LatencyMetricKey, number[]>,
   )
 
+const getFiniteMetricValue = (record: Record<string, unknown>, key: string): number | null => {
+  const value = record[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 const parseDateAsLocal = (raw: string): Date | null => {
   if (!raw) return null
   const cleaned = raw.trim()
@@ -3224,12 +3459,16 @@ const parseDateAsLocal = (raw: string): Date | null => {
   // This avoids the ECMAScript rule that "T"-separated
   // datetime strings without timezone are parsed as UTC.
   const normalized = cleaned.replace('T', ' ').replace(/Z$/i, '')
-  const match = normalized.match(
-    /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/,
-  )
+  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/)
   if (match) {
-    const [, y, m, d, h, min, s] = match
-    const parsed = new Date(+y, +m - 1, +d, +h, +min, +s)
+    const parsed = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      Number(match[6]),
+    )
     if (!Number.isNaN(parsed.getTime())) return parsed
   }
   // Last resort — try direct constructor
@@ -3475,14 +3714,14 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     const bucket = buckets.get(bucketStart) ?? createEmptyLatencyMetricBuckets()
 
     latencySeriesConfig.value.forEach((series) => {
-      let value = result[series.key]
-      if (typeof value === 'number' && Number.isFinite(value)) {
+      let value = getFiniteMetricValue(result, series.key)
+      if (value !== null) {
         // _us 后缀字段单位是微秒（来自 yuanrong compute），折线图 Y 轴标 ms
         // master_rpc_total 同理（rpro_e2e_us）
-        if (typeof series.key === 'string' && (series.key.endsWith('_us') || series.key === 'master_rpc_total')) {
+        if (typeof series.key === 'string' && series.key.endsWith('_us')) {
           value = value / 1000
         }
-        bucket[series.key].push(value)
+        ;(bucket[series.key] ??= []).push(value)
       }
     })
 
@@ -3493,10 +3732,11 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
   for (let time = firstBucketStart; time <= lastBucketStart; time += bucketMs) {
     const groupedValues = buckets.get(time) ?? createEmptyLatencyMetricBuckets()
 
-    const reduceFn = selectedLatencyPercentile.value === 'ave' ? avgBucketMetricValue : maxBucketMetricValue
+    const reduceFn =
+      selectedLatencyPercentile.value === 'ave' ? avgBucketMetricValue : maxBucketMetricValue
     const values = latencySeriesConfig.value.reduce(
       (acc, series) => {
-        acc[series.key] = reduceFn(groupedValues[series.key])
+        acc[series.key] = reduceFn(groupedValues[series.key] ?? [])
         return acc
       },
       {} as Record<LatencyMetricKey, number | null>,
@@ -3521,11 +3761,8 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 
       const values = latencySeriesConfig.value.reduce(
         (acc, series) => {
-          let value = metric[series.key]
-          if (typeof value === 'number' && Number.isFinite(value)) {
-            if (series.key === 'master_rpc_total') {
-              value = value / 1000
-            }
+          const value = getFiniteMetricValue(metric, series.key)
+          if (value !== null) {
             acc[series.key] = value
           } else {
             acc[series.key] = null
@@ -3547,8 +3784,10 @@ const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
 )
 
 const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
-  const operation = selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
-  const segmentConfig = operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
+  const operation =
+    selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
+  const segmentConfig =
+    operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
 
   return allDetailParseResults.value
     .map((result) => {
@@ -3603,10 +3842,7 @@ const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   return ranges
 }
 
-const estimateLatencyLegendRows = (
-  series: Array<{ label: string }>,
-  availableWidth: number,
-) => {
+const estimateLatencyLegendRows = (series: Array<{ label: string }>, availableWidth: number) => {
   let rows = 1
   let currentWidth = 0
   series.forEach(({ label }) => {
@@ -3953,8 +4189,10 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
 }
 
 const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
-  const operation = selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
-  const segmentConfig = operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
+  const operation =
+    selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
+  const segmentConfig =
+    operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
   const labels = rows.map((row) => row.timestampLabel)
   const initialEnd = Math.min(100, (50 / rows.length) * 100)
   const hasOtherLatency = rows.some((row) => row.otherLatency > 0)
@@ -4241,6 +4479,12 @@ const resizeLatencyCharts = () => {
   faultChartInstance?.resize()
   faultDetailChartInstance?.resize()
   topSlowChartInstance?.resize()
+  brpcSuccessChartInstance?.resize()
+  brpcSingleChartInstance?.resize()
+  brpcLatencyChartInstance?.resize()
+  resizeBrpcFaultTimelineChart()
+  resizeBrpcEventDetailTimelineChart()
+  brpcThreadFailureGraphInstance?.resize()
   syncLatencyTraceRowHeights()
   syncDetailLatencyTraceRowHeights()
   syncFaultTraceRowHeights()
@@ -4786,7 +5030,8 @@ const getLogDisplayReason = (record: Record<string, unknown>) => {
 const normalizeTraceOperation = (operation: string) => {
   const normalized = operation.trim().toUpperCase()
   if (normalized.includes('GET')) return 'GET'
-  if (normalized.includes('SET') || normalized.includes('CREATE') || normalized.includes('PUBLISH')) return 'SET'
+  if (normalized.includes('SET') || normalized.includes('CREATE') || normalized.includes('PUBLISH'))
+    return 'SET'
   return '-'
 }
 
@@ -5627,13 +5872,14 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
     return
   }
 
+  const assetId = selectedAssetId.value
   const detailKey = `${detail.eventRow.id}-${detail.podRow.id}`
   isFaultDetailTraceEventsLoading.value = true
   faultDetailTraceEventsError.value = ''
 
   try {
     const requestBody: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       src_ip: detail.podRow.srcIp,
       dst_ip: detail.podRow.dstIp,
       is_anomalous: true,
@@ -5656,8 +5902,9 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
     })
 
     if (
+      selectedAssetId.value !== assetId ||
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` !==
-      detailKey
+        detailKey
     ) {
       return
     }
@@ -5678,8 +5925,9 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
     await Promise.all(failureModeIds.map((failureModeId) => loadFailureModeDetail(failureModeId)))
 
     if (
+      selectedAssetId.value === assetId &&
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
-      detailKey
+        detailKey
     ) {
       faultDetailTraceRows.value = events.map(toFaultTraceTableRow)
       faultDetailTraceEventsTotal.value = total
@@ -5690,8 +5938,9 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
     }
   } catch (error) {
     if (
+      selectedAssetId.value === assetId &&
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
-      detailKey
+        detailKey
     ) {
       faultDetailTraceRows.value = []
       faultDetailTraceEventsTotal.value = 0
@@ -5701,8 +5950,9 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
     }
   } finally {
     if (
+      selectedAssetId.value === assetId &&
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
-      detailKey
+        detailKey
     ) {
       isFaultDetailTraceEventsLoading.value = false
     }
@@ -5725,6 +5975,7 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
     return
   }
 
+  const assetId = selectedAssetId.value
   const detailKey = `${detail.eventRow.id}-${detail.podRow.id}`
   isFaultDetailChartLoading.value = true
   faultDetailChartError.value = ''
@@ -5737,7 +5988,7 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
     }>('/log_failure_event_result/metrics/err_code', {
       method: 'POST',
       body: JSON.stringify({
-        kb_id: selectedAssetId.value,
+        kb_id: assetId,
         err_codes: errCodes,
         src_ip: detail.podRow.srcIp,
         dst_ip: detail.podRow.dstIp,
@@ -5749,15 +6000,17 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
     })
 
     if (
+      selectedAssetId.value === assetId &&
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
-      detailKey
+        detailKey
     ) {
       faultDetailChartMetrics.value = result.metrics ?? {}
     }
   } catch (error) {
     if (
+      selectedAssetId.value === assetId &&
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
-      detailKey
+        detailKey
     ) {
       faultDetailChartMetrics.value = {}
       faultDetailChartError.value =
@@ -5765,8 +6018,9 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
     }
   } finally {
     if (
+      selectedAssetId.value === assetId &&
       `${selectedFaultAggregatedEventDetail.value?.eventRow.id}-${selectedFaultAggregatedEventDetail.value?.podRow.id}` ===
-      detailKey
+        detailKey
     ) {
       isFaultDetailChartLoading.value = false
     }
@@ -5992,6 +6246,9 @@ const applyGlobalFilters = () => {
   void loadFaultChart()
   void loadFaultAggregatedEvents(faultAggregatedEventPage.value)
   void loadFaultTraceEvents(faultTraceEventsPage.value)
+  void loadBrpcFaultTimeline()
+  void loadBrpcAggregatedEvents(1)
+  void loadBrpcAbnormalThreads(1)
 }
 
 const setActiveAggregateTab = (tab: 'event' | 'trace') => {
@@ -6126,6 +6383,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     return
   }
 
+  const assetId = selectedAssetId.value
   isFaultTraceEventsLoadingMap[scale] = true
   faultTraceEventsErrorMap[scale] = ''
 
@@ -6133,7 +6391,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     const filters = appliedFilters.value
     const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       is_anomalous: true,
       page_cnt: faultTraceEventsPageSize,
       page_num: pageNum,
@@ -6178,6 +6436,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     })
 
     const events = result.trace_failure_event_results ?? []
+    if (selectedAssetId.value !== assetId) return
     const total = result.total ?? 0
     const pageCount = Math.max(1, Math.ceil(total / faultTraceEventsPageSize))
 
@@ -6192,6 +6451,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     ]
 
     await Promise.all(failureModeIds.map((failureModeId) => loadFailureModeDetail(failureModeId)))
+    if (selectedAssetId.value !== assetId) return
 
     faultTraceRowsMap[scale] = events.map(toFaultTraceTableRow)
     faultTraceEventsTotalMap[scale] = total
@@ -6200,6 +6460,7 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
     const traceIds = events.map((e) => e.trace_id).filter((id): id is string => !!id)
     await checkFaultTracesForLatency(traceIds)
   } catch (error) {
+    if (selectedAssetId.value !== assetId) return
     faultTraceRowsMap[scale] = []
     faultTraceEventsTotalMap[scale] = 0
     faultTraceEventsPageMap[scale] = 1
@@ -6207,8 +6468,10 @@ const loadFaultTraceEvents = async (pageNum = faultTraceEventsPage.value) => {
       error instanceof Error ? error.message : '加载错误日志列表失败'
     faultTraceIdsWithLatency.value = new Set()
   } finally {
-    isFaultTraceEventsLoadingMap[scale] = false
-    syncFaultTraceRowHeights()
+    if (selectedAssetId.value === assetId) {
+      isFaultTraceEventsLoadingMap[scale] = false
+      syncFaultTraceRowHeights()
+    }
   }
 }
 
@@ -6220,6 +6483,7 @@ const loadFaultChart = async () => {
     return
   }
 
+  const assetId = selectedAssetId.value
   isFaultChartLoading.value = true
   faultChartError.value = ''
 
@@ -6227,7 +6491,7 @@ const loadFaultChart = async () => {
     const filters = appliedFilters.value
     const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       max_points: 1000,
     }
 
@@ -6266,16 +6530,21 @@ const loadFaultChart = async () => {
       body: JSON.stringify(requestBody),
     })
 
+    if (selectedAssetId.value !== assetId) return
+
     faultChartMetrics.value = result.metrics ?? {}
     const codes = Object.keys(result.metrics ?? {})
     if (codes.length > 0) {
       knownFaultCodes.value = codes.sort((a, b) => a.localeCompare(b))
     }
   } catch (error) {
+    if (selectedAssetId.value !== assetId) return
     faultChartMetrics.value = {}
     faultChartError.value = error instanceof Error ? error.message : '加载故障码计数时序分布失败'
   } finally {
-    isFaultChartLoading.value = false
+    if (selectedAssetId.value === assetId) {
+      isFaultChartLoading.value = false
+    }
   }
 }
 
@@ -6356,13 +6625,17 @@ const loadLatencyChart = async () => {
     range && selectedLatencyScale.value > 0
       ? Math.min(
           5000,
-          Math.max(100, Math.ceil((range.endTime - range.startTime) / (selectedLatencyScale.value * 1000))),
+          Math.max(
+            100,
+            Math.ceil((range.endTime - range.startTime) / (selectedLatencyScale.value * 1000)),
+          ),
         )
       : 1000
 
   try {
     const filters = appliedFilters.value
-    const logId = selectedLogFileId.value ?? (logFiles.value[0] ? getLogFileId(logFiles.value[0]) : undefined)
+    const logId =
+      selectedLogFileId.value ?? (logFiles.value[0] ? getLogFileId(logFiles.value[0]) : undefined)
     const body: Record<string, unknown> = {
       kb_id: assetId,
       max_points: maxPoints,
@@ -6407,12 +6680,16 @@ const loadLatencyChart = async () => {
       },
     )
 
+    if (selectedAssetId.value !== assetId) return
     latencyMetricsByPercentile[percentile] = result.metrics ?? []
   } catch (error) {
+    if (selectedAssetId.value !== assetId) return
     latencyMetricsByPercentile[percentile] = []
     latencyChartError.value = error instanceof Error ? error.message : '加载延迟趋势失败'
   } finally {
-    isLatencyChartLoading.value = false
+    if (selectedAssetId.value === assetId) {
+      isLatencyChartLoading.value = false
+    }
   }
 }
 
@@ -6447,6 +6724,7 @@ const loadTopSlowChart = async () => {
     return
   }
 
+  const assetId = selectedAssetId.value
   isTopSlowChartLoading.value = true
   topSlowChartError.value = ''
 
@@ -6454,7 +6732,7 @@ const loadTopSlowChart = async () => {
     const filters = appliedFilters.value
     const range = latencyChartRange.value
     const body: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       page_num: 1,
       page_cnt: topSlowRequestLimit,
       sort_fields: [
@@ -6485,14 +6763,18 @@ const loadTopSlowChart = async () => {
       body: JSON.stringify(body),
     })
 
+    if (selectedAssetId.value !== assetId) return
     topSlowRequestsTotal.value = Math.min(result.total ?? 0, topSlowRequestLimit)
     topSlowRequests.value = result.log_parse_results ?? []
   } catch (error) {
+    if (selectedAssetId.value !== assetId) return
     topSlowRequests.value = []
     topSlowRequestsTotal.value = 0
     topSlowChartError.value = error instanceof Error ? error.message : '加载最慢请求失败'
   } finally {
-    isTopSlowChartLoading.value = false
+    if (selectedAssetId.value === assetId) {
+      isTopSlowChartLoading.value = false
+    }
   }
 }
 
@@ -6533,17 +6815,17 @@ const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
         body: JSON.stringify(requestBody),
       },
     )
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       detailLatencyMetrics.value = result.metrics ?? []
     }
   } catch (error) {
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       detailLatencyMetrics.value = []
       detailLatencyChartError.value =
         error instanceof Error ? error.message : '加载明细延迟趋势失败'
     }
   } finally {
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       isDetailLatencyChartLoading.value = false
     }
   }
@@ -6595,7 +6877,7 @@ const loadDetailParseResults = async (
       },
     )
 
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       detailParseResults.value = result.log_parse_results ?? []
       detailParseResultsTotal.value = result.total ?? detailParseResults.value.length
       detailParseResultsPage.value = pageNum
@@ -6610,7 +6892,7 @@ const loadDetailParseResults = async (
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       detailParseResults.value = []
       detailParseResultsTotal.value = 0
       detailParseResultsPage.value = pageNum
@@ -6618,7 +6900,7 @@ const loadDetailParseResults = async (
       latencyTraceIdsWithFault.value = new Set()
     }
   } finally {
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       isDetailParseResultsLoading.value = false
     }
     detailParseResultSort.releaseSortLock()
@@ -6656,11 +6938,11 @@ const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
       },
     )
 
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = result.log_parse_results ?? []
     }
   } catch (error) {
-    if (selectedAggregatedEvent.value?.id === row.id) {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = []
     }
   }
@@ -6784,6 +7066,7 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
       'items',
       'list',
     ])
+    if (selectedAssetId.value !== assetId) return
     const total =
       result && typeof result === 'object'
         ? ((result as Record<string, unknown>).total as number | undefined)
@@ -6806,13 +7089,16 @@ const loadLatencyDetail = async (pageNum = aggregateEventPage.value) => {
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
+    if (selectedAssetId.value !== assetId) return
     aggregatedEvents.value = []
     aggregateEventTotal.value = 0
     aggregateEventPage.value = 1
     latencyDetailError.value = error instanceof Error ? error.message : '加载聚合事件失败'
   } finally {
-    isLatencyDetailLoading.value = false
-    aggregateEventSort.releaseSortLock()
+    if (selectedAssetId.value === assetId) {
+      isLatencyDetailLoading.value = false
+      aggregateEventSort.releaseSortLock()
+    }
   }
 }
 
@@ -6885,6 +7171,7 @@ const loadTimeWindowAggregatedEvents = async (
       'list',
       'time_window_events',
     ])
+    if (selectedAssetId.value !== assetId) return
     const total =
       result && typeof result === 'object'
         ? ((result as Record<string, unknown>).total as number | undefined)
@@ -6905,12 +7192,15 @@ const loadTimeWindowAggregatedEvents = async (
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
+    if (selectedAssetId.value !== assetId) return
     timeWindowAggregatedEvents.value = []
     timeWindowTotal.value = 0
     timeWindowPage.value = 1
     timeWindowError.value = error instanceof Error ? error.message : '加载时间窗口聚合事件失败'
   } finally {
-    isTimeWindowLoading.value = false
+    if (selectedAssetId.value === assetId) {
+      isTimeWindowLoading.value = false
+    }
   }
 }
 
@@ -6976,9 +7266,7 @@ const handleIpPairSort = (sortBy: string) => {
 }
 
 const getSortedIpPairs = (event: TimeWindowAggregatedEvent): TimeWindowAggregatedIpPair[] => {
-  const pairs = [...event.ip_pairs].filter(
-    (pair) => pair.anomaly_log_parse_result_cnt > 0,
-  )
+  const pairs = [...event.ip_pairs].filter((pair) => pair.anomaly_log_parse_result_cnt > 0)
   const sortFields = timeWindowIpPairSortFields.value
   if (sortFields.length === 0) return pairs
   const getValue = (pair: TimeWindowAggregatedIpPair, key: string): number => {
@@ -7254,6 +7542,7 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
         signal: abnormalTraceSort.getAbortSignal(),
       },
     )
+    if (selectedAssetId.value !== assetId) return
     const total = result.total ?? 0
     const pageCount = Math.max(1, Math.ceil(total / abnormalTracesPageSize))
 
@@ -7277,15 +7566,18 @@ const loadAbnormalTraces = async (pageNum = abnormalTracesPage.value) => {
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
+    if (selectedAssetId.value !== assetId) return
     abnormalTraceRowsMap[scale] = []
     abnormalTracesTotalMap[scale] = 0
     abnormalTracesPageMap[scale] = 1
     abnormalTracesErrorMap[scale] = error instanceof Error ? error.message : '加载时延异常列表失败'
     latencyTraceIdsWithFault.value = new Set()
   } finally {
-    isAbnormalTracesLoadingMap[scale] = false
-    abnormalTraceSort.releaseSortLock()
-    syncAbnormalTraceRowHeights()
+    if (selectedAssetId.value === assetId) {
+      isAbnormalTracesLoadingMap[scale] = false
+      abnormalTraceSort.releaseSortLock()
+      syncAbnormalTraceRowHeights()
+    }
   }
 }
 
@@ -7499,6 +7791,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     return
   }
 
+  const assetId = selectedAssetId.value
   isFaultAggregatedEventsLoading.value = true
   faultAggregatedEventsError.value = ''
   applyFaultAggregatedEventResult(
@@ -7515,7 +7808,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     const sortFields = faultAggregatedEventSort.getSortFields.value
     const chartRange = faultChartRange.value
     const requestBody: Record<string, unknown> = {
-      kb_id: selectedAssetId.value,
+      kb_id: assetId,
       interval: selectedFaultAggregateInterval.value,
       cluster_name: getLogParseFilterValue(filters.clusters),
       host: getLogParseFilterValue(filters.hosts),
@@ -7550,6 +7843,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
         signal: faultAggregatedEventSort.getAbortSignal(),
       },
     )
+    if (selectedAssetId.value !== assetId) return
     const nextTotal = result.total ?? 0
     if (nextTotal === 0 || (result.events ?? []).length === 0) {
       applyFaultAggregatedEventResult(
@@ -7577,6 +7871,7 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
     if (error instanceof DOMException && error.name === 'AbortError') {
       return
     }
+    if (selectedAssetId.value !== assetId) return
     faultAggregatedEventsError.value = error instanceof Error ? error.message : '加载聚合事件失败'
     applyFaultAggregatedEventResult(
       {
@@ -7587,8 +7882,10 @@ const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.valu
       1,
     )
   } finally {
-    isFaultAggregatedEventsLoading.value = false
-    faultAggregatedEventSort.releaseSortLock()
+    if (selectedAssetId.value === assetId) {
+      isFaultAggregatedEventsLoading.value = false
+      faultAggregatedEventSort.releaseSortLock()
+    }
   }
 }
 
@@ -7687,9 +7984,12 @@ const loadAssetDetail = async (assetId: string) => {
     }
   }
 
-  // Switch to new asset
+  // Switch to new asset. Invalidate every in-flight asset-scoped response before
+  // clearing the previous asset's monitor data.
+  const requestSequence = ++assetSelectionRequestSequence
   activePage.value = 'asset'
   selectedAssetId.value = assetId
+  logType.value = getStoredLogType(assetId)
 
   // Restore or initialize asset state
   const savedState = assetStates.value[assetId] || createEmptyAssetState()
@@ -7701,6 +8001,8 @@ const loadAssetDetail = async (assetId: string) => {
   selectedFaultScale.value = savedState.selectedFaultScale
   logSourceInput.value = savedState.logSourceInput
   uploadLogError.value = savedState.uploadLogError
+
+  resetAssetScopedMonitorData()
 
   selectedAsset.value = null
   selectedTrace.value = null
@@ -7725,12 +8027,20 @@ const loadAssetDetail = async (assetId: string) => {
 
   try {
     const result = await request<{ kb: LogKnowledge | null }>(`/log_kb/${assetId}`)
+    if (requestSequence !== assetSelectionRequestSequence || selectedAssetId.value !== assetId) {
+      return
+    }
     selectedAsset.value = result.kb
     await loadLogFiles(assetId, 1)
   } catch (error) {
+    if (requestSequence !== assetSelectionRequestSequence || selectedAssetId.value !== assetId) {
+      return
+    }
     errorMessage.value = error instanceof Error ? error.message : '资产库详情加载失败'
   } finally {
-    isDetailLoading.value = false
+    if (requestSequence === assetSelectionRequestSequence && selectedAssetId.value === assetId) {
+      isDetailLoading.value = false
+    }
   }
 }
 
@@ -8039,10 +8349,11 @@ const humanizeLogFileProgressMessage = (message: string): string => {
 
   // 1) [polars][<stage>] progress=<x>% [detail] → 中文阶段描述（可附带原始 detail）
   const stageMatch = trimmed.match(
-    /^\[polars\]\[([\w-]+)\](?:\s+progress=\d+(?:\.\d+)?%)?(?:\s+(.*))?$/
+    /^\[polars\]\[([\w-]+)\](?:\s+progress=\d+(?:\.\d+)?%)?(?:\s+(.*))?$/,
   )
   if (stageMatch) {
-    const stageLabel = logFileProgressStageLabels[stageMatch[1]] ?? `正在解析（${stageMatch[1]}）`
+    const stageKey = stageMatch[1] ?? 'unknown'
+    const stageLabel = logFileProgressStageLabels[stageKey] ?? `正在解析（${stageKey}）`
     const detail = (stageMatch[2] ?? '').trim()
     return detail ? `${stageLabel}: ${detail}` : stageLabel
   }
@@ -8103,10 +8414,23 @@ const isSuccessfulLogFileTask = (file: LogFileModel) =>
 const isLogFileDetailLoaded = (file: LogFileModel) =>
   loadedAnomalyLogFileIds.value.has(getLogFileId(file))
 
+const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
+
+const isBrpcProfilingLogFile = (file: LogFileModel) =>
+  getLogFileTaskType(file) === 'brpc_log_parse_worker'
+
+const isBrpcDiagnosisLogFile = (file: LogFileModel) =>
+  getLogFileTaskType(file) === 'brpc_log_diagnosis_worker'
+
+const shouldShowLogFileLatencyAnomalyCount = (file: LogFileModel) => !isBrpcDiagnosisLogFile(file)
+
+const shouldShowLogFileConnectionAnomalyCount = (file: LogFileModel) =>
+  !isBrpcProfilingLogFile(file)
+
 const getLogFileAnomalyCountText = (file: LogFileModel) => `时延异常数：${file.anomaly_cnt}`
 
 const getLogFileTraceFailureEventCountText = (file: LogFileModel) =>
-  `通断故障数：${file.trace_failure_event_cnt ?? 0}`
+  `通断异常数：${file.trace_failure_event_cnt ?? 0}`
 
 const getLogFileAnomalyCountClass = (file: LogFileModel) => {
   if (!isLogFileDetailLoaded(file)) return ''
@@ -8139,17 +8463,29 @@ const loadLogFileAnomalyCount = async (file: LogFileModel) => {
   try {
     const result = await request<GetLogFileResult>(`/log_file/${logFileId}`)
     if (result.log_file) {
+      let traceFailureEventCount = result.log_file.trace_failure_event_cnt ?? 0
+      const task = getDetailedLogFileTask(file)
+      if (task?.id && task.task_type === 'brpc_log_diagnosis_worker') {
+        const batchResult = await request<{ task_id: string; batch_id: string }>(
+          `/brpc-diagnosis/task/${encodeURIComponent(task.id)}/batch`,
+        )
+        const metadataResult = await request<{ batch: BrpcDiagnosisBatch }>(
+          `/brpc-diagnosis/batch/${encodeURIComponent(batchResult.batch_id)}`,
+        )
+        traceFailureEventCount = metadataResult.batch.hit_count
+      }
       logFileAnomalyCntById.value = {
         ...logFileAnomalyCntById.value,
         [logFileId]: result.log_file.anomaly_cnt,
       }
       logFileTraceFailureEventCntById.value = {
         ...logFileTraceFailureEventCntById.value,
-        [logFileId]: result.log_file.trace_failure_event_cnt ?? 0,
+        [logFileId]: traceFailureEventCount,
       }
       updateLogFileInList({
         ...result.log_file,
         log_file_id: logFileId,
+        trace_failure_event_cnt: traceFailureEventCount,
       })
       loadedAnomalyLogFileIds.value = new Set(loadedAnomalyLogFileIds.value).add(logFileId)
     }
@@ -8231,6 +8567,7 @@ const loadLogFiles = async (
         }),
       },
     )
+    if (selectedAssetId.value !== kbId) return
     const nextTotal = result.total ?? 0
     const nextPageCount = Math.max(1, Math.ceil(nextTotal / logFilesPageSize))
 
@@ -8263,13 +8600,14 @@ const loadLogFiles = async (
     loadTaskDetailsForLogFiles(nextLogFiles)
     loadSuccessfulLogFileAnomalyCounts(nextLogFiles)
   } catch {
+    if (selectedAssetId.value !== kbId) return
     if (!options.silent) {
       logFiles.value = []
       logFilesTotal.value = 0
       logFilesPage.value = 1
     }
   } finally {
-    if (!options.silent) {
+    if (!options.silent && selectedAssetId.value === kbId) {
       isLogFilesLoading.value = false
     }
   }
@@ -8350,8 +8688,7 @@ const deleteLogFile = async (logFileId: string) => {
     }
     // 若删除的是当前选中 log，回退到列表首项（或清空）
     if (selectedLogFileId.value === logFileId) {
-      selectedLogFileId.value =
-        logFiles.value.length > 0 ? getLogFileId(logFiles.value[0]!) : null
+      selectedLogFileId.value = logFiles.value.length > 0 ? getLogFileId(logFiles.value[0]!) : null
     }
   } catch (error) {
     console.error('删除日志文件失败:', error)
@@ -8447,7 +8784,20 @@ const loadFaultPage = async () => {
 // ============================================================
 // BRPC 接口监控
 // ============================================================
-const brpcLogFiles = ref<{ id: string; name: string }[]>([])
+type BrpcLogFileOption = {
+  id: string
+  name: string
+  taskId: string
+  taskType: string
+}
+
+const brpcLogFiles = ref<BrpcLogFileOption[]>([])
+const brpcProfilingLogFiles = computed(() =>
+  brpcLogFiles.value.filter((file) => file.taskType === 'brpc_log_parse_worker'),
+)
+const brpcDiagnosisLogFiles = computed(() =>
+  brpcLogFiles.value.filter((file) => file.taskType === 'brpc_log_diagnosis_worker'),
+)
 const brpcSelectedLogId = ref('')
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
@@ -8489,21 +8839,992 @@ const brpcLatencySelectedIfaces = ref<string[]>([])
 const brpcLatencyChartRef = ref<HTMLDivElement | null>(null)
 let brpcLatencyChartInstance: echarts.ECharts | null = null
 
+// BRPC 通断故障监控：接口故障数时序分布
+const brpcFaultSelectedLogId = ref('')
+const selectedBrpcFaultScale = ref<number>(60)
+const brpcFaultChartCenterTime = ref<number | null>(null)
+const brpcFaultTimelineRef = ref<HTMLDivElement | null>(null)
+const brpcFaultTimelineSeries = ref<BrpcInterfaceTimelineSeries[]>([])
+const visibleBrpcFaultSeriesIds = ref<Set<string>>(new Set())
+const isBrpcFaultTimelineLoading = ref(false)
+const brpcFaultTimelineError = ref('')
+const brpcFaultBatch = ref<BrpcDiagnosisBatch | null>(null)
+const brpcFaultResolvedLogId = ref('')
+let brpcFaultTimelineChartInstance: echarts.ECharts | null = null
+let brpcFaultTimelineRequestSequence = 0
+
+// BRPC 聚合事件列表
+const activeBrpcFaultTab = ref<'event' | 'thread'>('event')
+const brpcEventAggregation = ref<'pod' | 'thread'>('pod')
+const selectedBrpcEventInterval = ref<'1h' | '1m' | '1s'>('1m')
+const brpcAggregatedEventStartTimeSortOrder = ref<SortField['order']>('asc')
+const brpcAggregatedEventMetricSort = useTableSort([], () => {
+  brpcAggregatedEventPage.value = 1
+  void loadBrpcAggregatedEvents(1)
+})
+const brpcAggregatedEvents = ref<BrpcAggregatedEvent[]>([])
+const brpcAggregatedEventTotal = ref(0)
+const brpcAggregatedEventPage = ref(1)
+const isBrpcAggregatedEventsLoading = ref(false)
+const brpcAggregatedEventsError = ref('')
+const expandedBrpcEventWindows = ref<Set<string>>(new Set())
+const hoveredBrpcEventRowKey = ref('')
+let brpcAggregatedEventsRequestSequence = 0
+
+const brpcAbnormalThreads = ref<BrpcAbnormalThread[]>([])
+const brpcAbnormalThreadTotal = ref(0)
+const brpcAbnormalThreadPage = ref(1)
+const brpcAbnormalThreadSearchInput = ref('')
+const brpcAbnormalThreadSearchQuery = ref('')
+const brpcAbnormalThreadMetricSort = useTableSort([], () => {
+  brpcAbnormalThreadPage.value = 1
+  void loadBrpcAbnormalThreads(1)
+})
+const isBrpcAbnormalThreadsLoading = ref(false)
+const brpcAbnormalThreadsError = ref('')
+let brpcAbnormalThreadsRequestSequence = 0
+const brpcInterfaceMetadataById = ref<Map<string, BrpcInterfaceHit>>(new Map())
+
+const isBrpcAbnormalThreadDetailOpen = ref(false)
+const isBrpcAbnormalThreadDetailLoading = ref(false)
+const brpcAbnormalThreadDetailError = ref('')
+const activeBrpcAbnormalThread = ref<BrpcAbnormalThread | null>(null)
+const selectedBrpcAbnormalThreadDetail = ref<BrpcAbnormalThreadDetail | null>(null)
+const brpcAbnormalThreadHits = ref<BrpcDiagHitLog[]>([])
+const isBrpcAbnormalThreadHitsLoading = ref(false)
+const brpcAbnormalThreadHitsError = ref('')
+const selectedBrpcThreadGraphNodeId = ref('')
+const selectedBrpcThreadChildFailureModeId = ref('')
+const brpcThreadFailureGraphRef = ref<HTMLDivElement | null>(null)
+const brpcThreadFailureModeDetailRef = ref<HTMLElement | null>(null)
+let brpcThreadFailureGraphInstance: echarts.ECharts | null = null
+let brpcAbnormalThreadDetailRequestSequence = 0
+
+const isBrpcEventDetailOpen = ref(false)
+const isBrpcEventDetailLoading = ref(false)
+const brpcEventDetailError = ref('')
+const activeBrpcEventDetail = ref<BrpcAggregatedEvent | null>(null)
+const selectedBrpcEventDetail = ref<BrpcAggregatedEventDetail | null>(null)
+const brpcEventDetailTimeline = ref<BrpcInterfaceTimelineSeries[]>([])
+const brpcEventDetailThreads = ref<BrpcAbnormalThread[]>([])
+const brpcEventDetailTimelineRef = ref<HTMLDivElement | null>(null)
+let brpcEventDetailTimelineChartInstance: echarts.ECharts | null = null
+let brpcEventDetailRequestSequence = 0
+
+let brpcProfilingRequestSequence = 0
+
+const resetAssetScopedMonitorData = () => {
+  aggregateEventSort.releaseSortLock()
+  abnormalTraceSort.releaseSortLock()
+  faultAggregatedEventSort.releaseSortLock()
+  detailParseResultSort.releaseSortLock()
+  brpcAggregatedEventMetricSort.releaseSortLock()
+  brpcAbnormalThreadMetricSort.releaseSortLock()
+
+  // KVCache monitor state must never survive a knowledge-base switch.
+  for (const percentile of Object.keys(latencyMetricsByPercentile) as LatencyPercentileValue[]) {
+    latencyMetricsByPercentile[percentile] = []
+  }
+  isLatencyChartLoading.value = false
+  latencyChartError.value = ''
+  topSlowRequests.value = []
+  topSlowRequestsTotal.value = 0
+  isTopSlowChartLoading.value = false
+  topSlowChartError.value = ''
+  aggregatedEvents.value = []
+  aggregateEventTotal.value = 0
+  aggregateEventPage.value = 1
+  isLatencyDetailLoading.value = false
+  latencyDetailError.value = ''
+  timeWindowAggregatedEvents.value = []
+  timeWindowTotal.value = 0
+  timeWindowPage.value = 1
+  timeWindowChartRange.value = null
+  timeWindowPageInput.value = ''
+  expandedTimeWindowIds.value = new Set()
+  timeWindowIpPairPageMap.value = {}
+  isTimeWindowLoading.value = false
+  timeWindowError.value = ''
+
+  Object.keys(abnormalTraceRowsMap).forEach((key) => {
+    const scale = Number(key)
+    abnormalTraceRowsMap[scale] = []
+    abnormalTracesTotalMap[scale] = 0
+    abnormalTracesPageMap[scale] = 1
+    isAbnormalTracesLoadingMap[scale] = false
+    abnormalTracesErrorMap[scale] = ''
+  })
+  abnormalTracesPageInput.value = ''
+  abnormalTraceIdInput.value = ''
+  abnormalTraceIdQuery.value = ''
+
+  faultChartMetrics.value = {}
+  knownFaultCodes.value = []
+  isFaultChartLoading.value = false
+  faultChartError.value = ''
+  applyFaultAggregatedEventResult({ total: 0, err_codes: [], events: [] }, 1)
+  isFaultAggregatedEventsLoading.value = false
+  faultAggregatedEventsError.value = ''
+  faultAggregatedEventPageInput.value = ''
+  Object.keys(faultTraceRowsMap).forEach((key) => {
+    const scale = Number(key)
+    faultTraceRowsMap[scale] = []
+    faultTraceEventsTotalMap[scale] = 0
+    faultTraceEventsPageMap[scale] = 1
+    isFaultTraceEventsLoadingMap[scale] = false
+    faultTraceEventsErrorMap[scale] = ''
+  })
+  faultTraceEventsPageInput.value = ''
+  faultTraceIdInput.value = ''
+  faultTraceIdQuery.value = ''
+  faultTraceIdsWithLatency.value = new Set()
+  latencyTraceIdsWithFault.value = new Set()
+
+  selectedAggregatedEvent.value = null
+  selectedFaultAggregatedEventDetail.value = null
+  selectedTrace.value = null
+  selectedFaultTrace.value = null
+  detailLatencyMetrics.value = []
+  isDetailLatencyChartLoading.value = false
+  detailLatencyChartError.value = ''
+  detailParseResults.value = []
+  allDetailParseResults.value = []
+  detailParseResultsTotal.value = 0
+  detailParseResultsPage.value = 1
+  isDetailParseResultsLoading.value = false
+  detailParseResultsError.value = ''
+  faultDetailTraceRows.value = []
+  faultDetailTraceEventsTotal.value = 0
+  faultDetailTraceEventsPage.value = 1
+  isFaultDetailTraceEventsLoading.value = false
+  faultDetailTraceEventsError.value = ''
+  faultDetailChartMetrics.value = {}
+  isFaultDetailChartLoading.value = false
+  faultDetailChartError.value = ''
+  selectedLogFileId.value = null
+
+  // BRPC profiling and diagnosis use different endpoints, but both selections
+  // and all derived data are scoped to the currently selected knowledge base.
+  brpcProfilingRequestSequence += 1
+  brpcFaultTimelineRequestSequence += 1
+  brpcAggregatedEventsRequestSequence += 1
+  brpcAbnormalThreadsRequestSequence += 1
+  brpcAbnormalThreadDetailRequestSequence += 1
+  brpcEventDetailRequestSequence += 1
+  brpcLogFiles.value = []
+  brpcSelectedLogId.value = ''
+  brpcDataLoading.value = false
+  brpcInterfaceNames.value = []
+  brpcAllRows.value = []
+  brpcSuccessSelectedIfaces.value = []
+  brpcLatencySelectedIfaces.value = []
+  brpcSingleIface.value = ''
+  brpcFaultSelectedLogId.value = ''
+  brpcFaultChartCenterTime.value = null
+  brpcFaultTimelineSeries.value = []
+  visibleBrpcFaultSeriesIds.value = new Set()
+  isBrpcFaultTimelineLoading.value = false
+  brpcFaultTimelineError.value = ''
+  brpcFaultBatch.value = null
+  brpcFaultResolvedLogId.value = ''
+  brpcAggregatedEvents.value = []
+  brpcAggregatedEventTotal.value = 0
+  brpcAggregatedEventPage.value = 1
+  isBrpcAggregatedEventsLoading.value = false
+  brpcAggregatedEventsError.value = ''
+  brpcAggregatedEventStartTimeSortOrder.value = 'asc'
+  brpcAggregatedEventMetricSort.setSortFields([])
+  expandedBrpcEventWindows.value = new Set()
+  brpcAbnormalThreads.value = []
+  brpcAbnormalThreadTotal.value = 0
+  brpcAbnormalThreadPage.value = 1
+  brpcAbnormalThreadSearchInput.value = ''
+  brpcAbnormalThreadSearchQuery.value = ''
+  brpcAbnormalThreadMetricSort.setSortFields([])
+  brpcInterfaceMetadataById.value = new Map()
+  isBrpcAbnormalThreadsLoading.value = false
+  brpcAbnormalThreadsError.value = ''
+  isBrpcAbnormalThreadDetailOpen.value = false
+  isBrpcAbnormalThreadDetailLoading.value = false
+  brpcAbnormalThreadDetailError.value = ''
+  activeBrpcAbnormalThread.value = null
+  selectedBrpcAbnormalThreadDetail.value = null
+  brpcAbnormalThreadHits.value = []
+  isBrpcAbnormalThreadHitsLoading.value = false
+  brpcAbnormalThreadHitsError.value = ''
+  selectedBrpcThreadGraphNodeId.value = ''
+  selectedBrpcThreadChildFailureModeId.value = ''
+  isBrpcEventDetailOpen.value = false
+  isBrpcEventDetailLoading.value = false
+  brpcEventDetailError.value = ''
+  activeBrpcEventDetail.value = null
+  selectedBrpcEventDetail.value = null
+  brpcEventDetailTimeline.value = []
+  brpcEventDetailThreads.value = []
+
+  latencyChartInstance?.clear()
+  topSlowChartInstance?.clear()
+  detailLatencyChartInstance?.clear()
+  faultChartInstance?.clear()
+  faultDetailChartInstance?.clear()
+  brpcSuccessChartInstance?.clear()
+  brpcSingleChartInstance?.clear()
+  brpcLatencyChartInstance?.clear()
+  brpcFaultTimelineChartInstance?.clear()
+  brpcEventDetailTimelineChartInstance?.clear()
+  brpcThreadFailureGraphInstance?.clear()
+}
+
+const brpcFaultChartRange = computed<LatencyChartRange | null>(() => {
+  const centerTime = brpcFaultChartCenterTime.value
+  if (centerTime === null) return null
+  const scaleSeconds = selectedBrpcFaultScale.value || 10
+  const halfSpan = (faultChartHalfSpanMultiplier[scaleSeconds] ?? 60) * scaleSeconds * secondMs
+  return {
+    centerTime,
+    startTime: centerTime - halfSpan,
+    endTime: centerTime + halfSpan,
+    label: formatFullTimeLabel(new Date(centerTime)),
+  }
+})
+
+const displayableBrpcFaultTimelineSeries = computed(() =>
+  brpcFaultTimelineSeries.value
+    .map((timeline, index) => ({ timeline, index }))
+    .filter(({ timeline }) => timeline.points.some((point) => point.interface_hit_count > 0)),
+)
+
+const hasBrpcFaultTimelineData = computed(() =>
+  displayableBrpcFaultTimelineSeries.value.some(({ timeline }) => timeline.points.length > 0),
+)
+
+const visibleBrpcEventDetailTimeline = computed(() =>
+  brpcEventDetailTimeline.value.filter((series) =>
+    series.points.some((point) => point.interface_hit_count > 0),
+  ),
+)
+
+const hasBrpcEventDetailTimelineData = computed(
+  () => visibleBrpcEventDetailTimeline.value.length > 0,
+)
+
+const brpcEventDetailDescription = computed(() => {
+  const event = activeBrpcEventDetail.value
+  if (!event) return ''
+  const podDescription = `Pod IP：${event.pod_ip} | Pod 名称：${event.pod_name || '-'}`
+  return typeof event.thread_id === 'number'
+    ? `线程 ID：${event.thread_id} | ${podDescription}`
+    : podDescription
+})
+
+const brpcEventDetailComponentCounts = computed(() => {
+  const detail = selectedBrpcEventDetail.value
+  const componentCounts = { ubsocket: 0, umq: 0, urma: 0 }
+  detail?.failure_modes.forEach((mode) => {
+    const component = mode.component.toLowerCase() as keyof typeof componentCounts
+    if (component in componentCounts) {
+      componentCounts[component] = (componentCounts[component] ?? 0) + mode.hit_count
+    }
+  })
+  return [
+    { key: 'all', label: '故障总数', count: detail?.hit_total ?? 0 },
+    { key: 'ubsocket', label: 'UBSOCKET故障数', count: componentCounts.ubsocket },
+    { key: 'umq', label: 'UMQ故障数', count: componentCounts.umq },
+    { key: 'urma', label: 'URMA故障数', count: componentCounts.urma },
+  ]
+})
+
+const brpcAggregatedEventPageCount = computed(() =>
+  Math.max(1, Math.ceil(brpcAggregatedEventTotal.value / brpcAggregatedEventPageSize)),
+)
+const brpcAggregatedEventPageWindow = computed(() =>
+  getPageWindow(brpcAggregatedEventPage.value, brpcAggregatedEventPageCount.value),
+)
+const brpcAbnormalThreadPageCount = computed(() =>
+  Math.max(1, Math.ceil(brpcAbnormalThreadTotal.value / brpcAbnormalThreadPageSize)),
+)
+const brpcAbnormalThreadPageWindow = computed(() =>
+  getPageWindow(brpcAbnormalThreadPage.value, brpcAbnormalThreadPageCount.value),
+)
+
+const brpcAbnormalThreadInterfaceColumns = computed(() => {
+  const columns = new Map<string, BrpcInterfaceHit>()
+  brpcAbnormalThreads.value.forEach((thread) => {
+    thread.interface_hits?.forEach((hit) => {
+      if (hit.interface_hit_count > 0) columns.set(hit.interface_id, hit)
+    })
+  })
+  brpcAbnormalThreadMetricSort.getSortFields.value.forEach((sortField) => {
+    if (sortField.field === BRPC_TOTAL_SORT_FIELD || columns.has(sortField.field)) return
+    const metadata = brpcInterfaceMetadataById.value.get(sortField.field)
+    if (metadata) columns.set(sortField.field, metadata)
+  })
+  return sortBrpcInterfaceColumns([...columns.values()])
+})
+
+const brpcAbnormalThreadInterfaceGridStyle = computed(() => {
+  const columnCount = brpcAbnormalThreadInterfaceColumns.value.length
+  const width = columnCount * BRPC_INTERFACE_COLUMN_WIDTH
+  return {
+    gridTemplateColumns:
+      columnCount > 0 ? `repeat(${columnCount}, ${BRPC_INTERFACE_COLUMN_WIDTH}px)` : 'none',
+    width: `${width}px`,
+    minWidth: `${width}px`,
+  }
+})
+
+const sortedBrpcAbnormalThreadHits = computed(() =>
+  [...brpcAbnormalThreadHits.value].sort(
+    (first, second) =>
+      first.time.localeCompare(second.time) || first.hit_id.localeCompare(second.hit_id),
+  ),
+)
+
+const selectedBrpcThreadGraphNode = computed(() => {
+  const selectedId = selectedBrpcThreadGraphNodeId.value
+  if (!selectedId) return null
+  return (
+    selectedBrpcAbnormalThreadDetail.value?.failure_graph.nodes.find(
+      (node) => node.node_id === selectedId,
+    ) ?? null
+  )
+})
+
+const selectedBrpcThreadChildFailureModes = computed<BrpcFailureGraphNode[]>(() => {
+  const detail = selectedBrpcAbnormalThreadDetail.value
+  const selectedId = selectedBrpcThreadGraphNodeId.value
+  if (!detail || !selectedId) return []
+
+  const nodesById = new Map(detail.failure_graph.nodes.map((node) => [node.node_id, node]))
+  const targetsBySource = new Map<string, string[]>()
+  detail.failure_graph.edges.forEach((edge) => {
+    const targets = targetsBySource.get(edge.source_node_id) ?? []
+    targets.push(edge.target_node_id)
+    targetsBySource.set(edge.source_node_id, targets)
+  })
+
+  const childModes: BrpcFailureGraphNode[] = []
+  const visited = new Set([selectedId])
+  const pending = [...(targetsBySource.get(selectedId) ?? [])]
+  while (pending.length > 0) {
+    const nodeId = pending.shift()
+    if (!nodeId || visited.has(nodeId)) continue
+    visited.add(nodeId)
+    const node = nodesById.get(nodeId)
+    if (!node) continue
+    if (node.node_type === 'failure_mode') {
+      childModes.push(node)
+      continue
+    }
+    pending.push(...(targetsBySource.get(nodeId) ?? []))
+  }
+  return childModes.sort((first, second) => first.node_id.localeCompare(second.node_id))
+})
+
+const selectedBrpcThreadChildFailureMode = computed(
+  () =>
+    selectedBrpcThreadChildFailureModes.value.find(
+      (node) => node.node_id === selectedBrpcThreadChildFailureModeId.value,
+    ) ?? null,
+)
+
+const getBrpcThreadFailureModeLabel = (failureModeId: string) =>
+  selectedBrpcAbnormalThreadDetail.value?.failure_graph.nodes.find(
+    (node) => node.node_type === 'failure_mode' && node.node_id === failureModeId,
+  )?.name ||
+  selectedBrpcAbnormalThreadDetail.value?.failure_modes.find(
+    (mode) => mode.failure_mode_id === failureModeId,
+  )?.failure_mode_name ||
+  failureModeId
+
+const selectBrpcThreadGraphNode = (nodeId: string) => {
+  selectedBrpcThreadGraphNodeId.value = nodeId
+  selectedBrpcThreadChildFailureModeId.value = ''
+  void nextTick(() => {
+    brpcThreadFailureModeDetailRef.value?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  })
+}
+
+const getBrpcThreadGraphNodeHitCount = (node: BrpcFailureGraphNode) => {
+  if (node.node_type === 'failure_mode') return node.hit_count
+  const interfaceHit = selectedBrpcAbnormalThreadDetail.value?.thread.interface_hits.find(
+    (hit) => hit.interface_id === node.node_id,
+  )
+  return interfaceHit?.interface_hit_count ?? 0
+}
+
+const getBrpcThreadGraphNodeInterfaceNames = (node: BrpcFailureGraphNode) => {
+  if (node.node_type === 'interface') {
+    return getBrpcInterfaceDisplayName({
+      interface_name: node.name || '-',
+      function_name: node.function_name,
+    })
+  }
+
+  const graph = selectedBrpcAbnormalThreadDetail.value?.failure_graph
+  if (!graph) return '-'
+
+  const nodesById = new Map(graph.nodes.map((graphNode) => [graphNode.node_id, graphNode]))
+  const sourcesByTarget = new Map<string, string[]>()
+  graph.edges.forEach((edge) => {
+    const sources = sourcesByTarget.get(edge.target_node_id) ?? []
+    sources.push(edge.source_node_id)
+    sourcesByTarget.set(edge.target_node_id, sources)
+  })
+
+  const interfaceNames = new Set<string>()
+  const visited = new Set([node.node_id])
+  const pending = [...(sourcesByTarget.get(node.node_id) ?? [])]
+  while (pending.length > 0) {
+    const nodeId = pending.shift()
+    if (!nodeId || visited.has(nodeId)) continue
+    visited.add(nodeId)
+    const sourceNode = nodesById.get(nodeId)
+    if (!sourceNode) continue
+    if (sourceNode.node_type === 'interface') {
+      if (sourceNode.name) {
+        interfaceNames.add(
+          getBrpcInterfaceDisplayName({
+            interface_name: sourceNode.name,
+            function_name: sourceNode.function_name,
+          }),
+        )
+      }
+      continue
+    }
+    pending.push(...(sourcesByTarget.get(nodeId) ?? []))
+  }
+
+  if (interfaceNames.size === 0) {
+    graph.nodes.forEach((graphNode) => {
+      if (
+        graphNode.node_type === 'interface' &&
+        graphNode.component === node.component &&
+        graphNode.name
+      ) {
+        interfaceNames.add(
+          getBrpcInterfaceDisplayName({
+            interface_name: graphNode.name,
+            function_name: graphNode.function_name,
+          }),
+        )
+      }
+    })
+  }
+
+  return [...interfaceNames].join('、') || '-'
+}
+
+const getBrpcThreadFailureGraphLevels = (graph: BrpcFailureGraph) => {
+  const nodeIds = new Set(graph.nodes.map((node) => node.node_id))
+  const incomingCount = new Map(graph.nodes.map((node) => [node.node_id, 0]))
+  const targetsBySource = new Map<string, string[]>()
+
+  graph.edges.forEach((edge) => {
+    if (!nodeIds.has(edge.source_node_id) || !nodeIds.has(edge.target_node_id)) return
+    incomingCount.set(edge.target_node_id, (incomingCount.get(edge.target_node_id) ?? 0) + 1)
+    const targets = targetsBySource.get(edge.source_node_id) ?? []
+    targets.push(edge.target_node_id)
+    targetsBySource.set(edge.source_node_id, targets)
+  })
+
+  const ranks = new Map(graph.nodes.map((node) => [node.node_id, 0]))
+  const pending = graph.nodes
+    .filter((node) => incomingCount.get(node.node_id) === 0)
+    .map((node) => node.node_id)
+    .sort()
+  const visited = new Set<string>()
+
+  while (pending.length > 0) {
+    const nodeId = pending.shift()
+    if (!nodeId || visited.has(nodeId)) continue
+    visited.add(nodeId)
+    ;(targetsBySource.get(nodeId) ?? []).forEach((targetId) => {
+      ranks.set(targetId, Math.max(ranks.get(targetId) ?? 0, (ranks.get(nodeId) ?? 0) + 1))
+      const nextIncomingCount = (incomingCount.get(targetId) ?? 1) - 1
+      incomingCount.set(targetId, nextIncomingCount)
+      if (nextIncomingCount === 0) pending.push(targetId)
+    })
+    pending.sort()
+  }
+
+  // The schema is validated as a DAG. Keeping any malformed/cyclic nodes in a
+  // final column still gives the user a useful view if older data slips through.
+  const finalRank = Math.max(0, ...ranks.values()) + 1
+  graph.nodes.forEach((node) => {
+    if (!visited.has(node.node_id)) ranks.set(node.node_id, finalRank)
+  })
+
+  const levels = new Map<number, BrpcFailureGraphNode[]>()
+  graph.nodes.forEach((node) => {
+    const rank = ranks.get(node.node_id) ?? 0
+    const level = levels.get(rank) ?? []
+    level.push(node)
+    levels.set(rank, level)
+  })
+  levels.forEach((nodes) =>
+    nodes.sort((first, second) => first.node_id.localeCompare(second.node_id)),
+  )
+  return [...levels.entries()].sort(([first], [second]) => first - second)
+}
+
+const BRPC_THREAD_GRAPH_NODE_WIDTH = 200
+const BRPC_THREAD_GRAPH_NODE_PADDING_X = 14
+const BRPC_THREAD_GRAPH_NAME_MAX_WIDTH =
+  BRPC_THREAD_GRAPH_NODE_WIDTH - BRPC_THREAD_GRAPH_NODE_PADDING_X * 2
+const BRPC_THREAD_GRAPH_LEVEL_GAP = 88
+const BRPC_THREAD_GRAPH_NODE_GAP = 28
+const BRPC_THREAD_GRAPH_OUTER_GAP = 32
+const BRPC_THREAD_GRAPH_EDGE_CURVE_GAP = 36
+const BRPC_THREAD_GRAPH_EDGE_LANE_GAP = 24
+
+const wrapBrpcThreadGraphText = (value: string, font: string) => {
+  const lines: string[] = []
+  String(value || '-')
+    .split(/\r?\n/)
+    .forEach((paragraph) => {
+      if (!paragraph) {
+        lines.push('')
+        return
+      }
+      let line = ''
+      Array.from(paragraph).forEach((character) => {
+        const candidate = `${line}${character}`
+        if (
+          line &&
+          echarts.format.getTextRect(candidate, font).width > BRPC_THREAD_GRAPH_NAME_MAX_WIDTH
+        ) {
+          lines.push(line.trimEnd())
+          line = character.trimStart()
+        } else {
+          line = candidate
+        }
+      })
+      lines.push(line || '-')
+    })
+  return lines.length > 0 ? lines : ['-']
+}
+
+const getBrpcThreadFailureGraphNodeMetrics = (node: BrpcFailureGraphNode) => {
+  const idLines = wrapBrpcThreadGraphText(node.node_id, '700 12px sans-serif')
+  const displayName =
+    node.node_type === 'interface'
+      ? getBrpcInterfaceDisplayName({
+          interface_name: node.name || '-',
+          function_name: node.function_name,
+        })
+      : node.name || '-'
+  const nameLines = wrapBrpcThreadGraphText(displayName, '600 13px sans-serif')
+  const height = 18 + idLines.length * 18 + nameLines.length * 18 + 18
+  return { width: BRPC_THREAD_GRAPH_NODE_WIDTH, height, idLines, nameLines }
+}
+
+const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
+  const levels = getBrpcThreadFailureGraphLevels(graph)
+  const levelIndexes = new Map<string, number>()
+  const nodeLayouts = new Map(
+    graph.nodes.map((node) => [
+      node.node_id,
+      { ...getBrpcThreadFailureGraphNodeMetrics(node), x: 0, y: 0 },
+    ]),
+  )
+  const levelCenters = levels.map(
+    (_, levelIndex) => levelIndex * (BRPC_THREAD_GRAPH_NODE_WIDTH + BRPC_THREAD_GRAPH_LEVEL_GAP),
+  )
+
+  levels.forEach(([, nodes], levelIndex) => {
+    const levelHeight =
+      nodes.reduce((height, node) => height + (nodeLayouts.get(node.node_id)?.height ?? 0), 0) +
+      Math.max(0, nodes.length - 1) * BRPC_THREAD_GRAPH_NODE_GAP
+    let top = -levelHeight / 2
+    nodes.forEach((node) => {
+      const nodeLayout = nodeLayouts.get(node.node_id)
+      if (!nodeLayout) return
+      levelIndexes.set(node.node_id, levelIndex)
+      nodeLayout.x = levelCenters[levelIndex] ?? 0
+      nodeLayout.y = top + nodeLayout.height / 2
+      top += nodeLayout.height + BRPC_THREAD_GRAPH_NODE_GAP
+    })
+  })
+
+  const layouts = [...nodeLayouts.values()]
+  const minX = Math.min(...layouts.map((layout) => layout.x))
+  const maxX = Math.max(...layouts.map((layout) => layout.x))
+  const minNodeTop = Math.min(...layouts.map((layout) => layout.y - layout.height / 2))
+  const maxNodeBottom = Math.max(...layouts.map((layout) => layout.y + layout.height / 2))
+  const edgeCurveness = new Map<number, number>()
+  const curveYExtents: number[] = []
+  let topLaneCount = 0
+  let bottomLaneCount = 0
+
+  const getCurvePoint = (
+    sourceLayout: (typeof layouts)[number],
+    targetLayout: (typeof layouts)[number],
+    curveness: number,
+    progress: number,
+  ) => {
+    const controlX = (sourceLayout.x + targetLayout.x) / 2
+    const controlY =
+      (sourceLayout.y + targetLayout.y) / 2 - (targetLayout.x - sourceLayout.x) * curveness
+    const remaining = 1 - progress
+    return {
+      x:
+        remaining * remaining * sourceLayout.x +
+        2 * remaining * progress * controlX +
+        progress * progress * targetLayout.x,
+      y:
+        remaining * remaining * sourceLayout.y +
+        2 * remaining * progress * controlY +
+        progress * progress * targetLayout.y,
+    }
+  }
+
+  const curveAvoidsNodes = (
+    edge: BrpcFailureGraphEdge,
+    sourceLayout: (typeof layouts)[number],
+    targetLayout: (typeof layouts)[number],
+    curveness: number,
+  ) => {
+    const obstacleLayouts = graph.nodes
+      .filter(
+        (node) => node.node_id !== edge.source_node_id && node.node_id !== edge.target_node_id,
+      )
+      .map((node) => nodeLayouts.get(node.node_id))
+      .filter((layout) => layout !== undefined)
+    const clearance = 10
+    for (let step = 1; step < 60; step += 1) {
+      const point = getCurvePoint(sourceLayout, targetLayout, curveness, step / 60)
+      if (
+        obstacleLayouts.some(
+          (layout) =>
+            point.x >= layout.x - layout.width / 2 - clearance &&
+            point.x <= layout.x + layout.width / 2 + clearance &&
+            point.y >= layout.y - layout.height / 2 - clearance &&
+            point.y <= layout.y + layout.height / 2 + clearance,
+        )
+      ) {
+        return false
+      }
+    }
+    return true
+  }
+
+  graph.edges.forEach((edge, edgeIndex) => {
+    const sourceLevelIndex = levelIndexes.get(edge.source_node_id)
+    const targetLevelIndex = levelIndexes.get(edge.target_node_id)
+    const sourceLayout = nodeLayouts.get(edge.source_node_id)
+    const targetLayout = nodeLayouts.get(edge.target_node_id)
+    if (
+      sourceLevelIndex === undefined ||
+      targetLevelIndex === undefined ||
+      !sourceLayout ||
+      !targetLayout ||
+      targetLevelIndex - sourceLevelIndex <= 1
+    ) {
+      return
+    }
+
+    const horizontalDistance = targetLayout.x - sourceLayout.x
+    const midpointY = (sourceLayout.y + targetLayout.y) / 2
+    const findClearCurveness = (side: 'top' | 'bottom', laneIndex: number) => {
+      let curveness = 0
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const laneOffset = (laneIndex + attempt) * BRPC_THREAD_GRAPH_EDGE_LANE_GAP
+        const curveMidpointY =
+          side === 'top'
+            ? minNodeTop - BRPC_THREAD_GRAPH_EDGE_CURVE_GAP - laneOffset
+            : maxNodeBottom + BRPC_THREAD_GRAPH_EDGE_CURVE_GAP + laneOffset
+        curveness = ((midpointY - curveMidpointY) * 2) / horizontalDistance
+        if (curveAvoidsNodes(edge, sourceLayout, targetLayout, curveness)) break
+      }
+      return curveness
+    }
+
+    const topCurveness = findClearCurveness('top', topLaneCount)
+    const bottomCurveness = findClearCurveness('bottom', bottomLaneCount)
+    const curveness =
+      Math.abs(topCurveness) <= Math.abs(bottomCurveness) ? topCurveness : bottomCurveness
+    if (curveness === topCurveness) topLaneCount += 1
+    else bottomLaneCount += 1
+    edgeCurveness.set(edgeIndex, curveness)
+
+    for (let step = 0; step <= 40; step += 1) {
+      curveYExtents.push(getCurvePoint(sourceLayout, targetLayout, curveness, step / 40).y)
+    }
+  })
+
+  const minY = Math.min(...layouts.map((layout) => layout.y), ...curveYExtents)
+  const maxY = Math.max(...layouts.map((layout) => layout.y), ...curveYExtents)
+  const dataWidth = Math.max(2, maxX - minX)
+  const dataHeight = Math.max(2, maxY - minY)
+  const horizontalOuterGap =
+    Math.max(...layouts.map((layout) => layout.width / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
+  const verticalOuterGap =
+    Math.max(...layouts.map((layout) => layout.height / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
+
+  return {
+    nodeLayouts,
+    edgeCurveness,
+    bounds: { minX, maxX, minY, maxY },
+    dataWidth,
+    dataHeight,
+    width: Math.max(720, Math.ceil(dataWidth + horizontalOuterGap * 2)),
+    height: Math.max(320, Math.ceil(dataHeight + verticalOuterGap * 2)),
+  }
+}
+
+const brpcThreadFailureGraphLayout = computed(() => {
+  const graph = selectedBrpcAbnormalThreadDetail.value?.failure_graph
+  return graph?.nodes.length ? getBrpcThreadFailureGraphLayout(graph) : null
+})
+
+const brpcThreadFailureGraphWidth = computed(() => brpcThreadFailureGraphLayout.value?.width ?? 720)
+
+const brpcThreadFailureGraphHeight = computed(
+  () => brpcThreadFailureGraphLayout.value?.height ?? 320,
+)
+
+const renderBrpcThreadFailureGraph = () => {
+  const graph = selectedBrpcAbnormalThreadDetail.value?.failure_graph
+  const element = brpcThreadFailureGraphRef.value
+  if (
+    !isBrpcAbnormalThreadDetailOpen.value ||
+    isBrpcAbnormalThreadDetailLoading.value ||
+    brpcAbnormalThreadDetailError.value ||
+    !graph ||
+    graph.nodes.length === 0 ||
+    !element
+  ) {
+    return
+  }
+
+  if (brpcThreadFailureGraphInstance && brpcThreadFailureGraphInstance.getDom() !== element) {
+    brpcThreadFailureGraphInstance.dispose()
+    brpcThreadFailureGraphInstance = null
+  }
+  brpcThreadFailureGraphInstance ??= echarts.init(element)
+
+  const layout = getBrpcThreadFailureGraphLayout(graph)
+  const chartNodes = graph.nodes
+    .map((node) => {
+      const nodeLayout = layout.nodeLayouts.get(node.node_id)
+      const nodeAccentColor = node.node_type === 'interface' ? '#2563eb' : '#dc2626'
+      if (!nodeLayout) return null
+      const labelLines = [
+        ...nodeLayout.idLines.map((line) => `{code|${line}}`),
+        ...nodeLayout.nameLines.map((line) => `{name|${line}}`),
+        `{count|命中 ${getBrpcThreadGraphNodeHitCount(node)}}`,
+      ]
+      return {
+        id: node.node_id,
+        name: node.node_id,
+        nodeId: node.node_id,
+        nodeType: node.node_type,
+        x: nodeLayout.x,
+        y: nodeLayout.y,
+        symbol: 'roundRect',
+        symbolSize: [nodeLayout.width, nodeLayout.height],
+        itemStyle: {
+          color: 'rgba(255, 255, 255, 0.96)',
+          borderColor: nodeAccentColor,
+          borderWidth: node.directly_hit ? 2.4 : 1.4,
+          shadowBlur: 8,
+          shadowOffsetY: 5,
+          shadowColor: 'rgba(15, 23, 42, 0.12)',
+        },
+        label: {
+          show: true,
+          formatter: labelLines.join('\n'),
+          rich: {
+            code: { color: nodeAccentColor, fontSize: 12, fontWeight: 700, lineHeight: 20 },
+            name: { color: '#172033', fontSize: 13, fontWeight: 600, lineHeight: 19 },
+            count: {
+              color: '#667085',
+              fontSize: 12,
+              fontWeight: 500,
+              lineHeight: 18,
+            },
+          },
+        },
+      }
+    })
+    .filter((node) => node !== null)
+
+  const chartLinks = graph.edges.map((edge, edgeIndex) => ({
+    source: edge.source_node_id,
+    target: edge.target_node_id,
+    symbol: ['none', 'arrow'],
+    symbolSize: [0, 9],
+    lineStyle: {
+      color: '#9aa8bb',
+      width: 1.6,
+      type: edge.edge_type === 'cross_component' ? 'dashed' : 'solid',
+      curveness: layout.edgeCurveness.get(edgeIndex) ?? 0.04,
+    },
+  }))
+  const chartBoundaryNodes = [
+    { id: '__brpc_thread_graph_bounds_min', x: layout.bounds.minX, y: layout.bounds.minY },
+    { id: '__brpc_thread_graph_bounds_max', x: layout.bounds.maxX, y: layout.bounds.maxY },
+  ].map((node) => ({
+    ...node,
+    name: node.id,
+    symbol: 'circle',
+    symbolSize: 0,
+    itemStyle: { opacity: 0 },
+    label: { show: false },
+    tooltip: { show: false },
+    cursor: 'default',
+  }))
+
+  brpcThreadFailureGraphInstance.setOption(
+    {
+      animationDurationUpdate: 250,
+      tooltip: {
+        trigger: 'item',
+        appendToBody: true,
+        formatter: (params: unknown) => {
+          const datum = (params as { data?: { nodeId?: string } }).data
+          const node = graph.nodes.find((item) => item.node_id === datum?.nodeId)
+          if (!node) return ''
+          const typeLabel = node.node_type === 'interface' ? '接口节点' : '故障模式'
+          return [
+            `<strong>${echarts.format.encodeHTML(node.node_id)}</strong>`,
+            echarts.format.encodeHTML(
+              node.node_type === 'interface'
+                ? getBrpcInterfaceDisplayName({
+                    interface_name: node.name || '-',
+                    function_name: node.function_name,
+                  })
+                : node.name || '-',
+            ),
+            `${typeLabel} · 命中 ${getBrpcThreadGraphNodeHitCount(node)}`,
+          ].join('<br>')
+        },
+      },
+      series: [
+        {
+          type: 'graph',
+          layout: 'none',
+          data: [...chartNodes, ...chartBoundaryNodes],
+          links: chartLinks,
+          left: 'center',
+          top: 'middle',
+          width: layout.dataWidth,
+          height: layout.dataHeight,
+          preserveAspect: false,
+          roam: true,
+          roamTrigger: 'global',
+          scaleLimit: { min: 0.55, max: 2 },
+          edgeSymbol: ['none', 'arrow'],
+          edgeSymbolSize: [0, 9],
+          lineStyle: { opacity: 1 },
+          emphasis: { scale: 1.04, lineStyle: { width: 2.4 } },
+          cursor: 'pointer',
+        },
+      ],
+    },
+    true,
+  )
+  brpcThreadFailureGraphInstance.off('click')
+  brpcThreadFailureGraphInstance.on('click', (params: unknown) => {
+    const nodeId = (params as { dataType?: string; data?: { nodeId?: string } }).data?.nodeId
+    if (!nodeId) return
+    selectBrpcThreadGraphNode(nodeId)
+  })
+  brpcThreadFailureGraphInstance.resize()
+}
+
+const brpcEventWindows = computed<BrpcEventWindow[]>(() => {
+  const windows = new Map<string, BrpcEventWindow>()
+  brpcAggregatedEvents.value.forEach((event) => {
+    const key = `${event.window_start_time}|${event.window_end_time}`
+    const window = windows.get(key) ?? {
+      key,
+      startTime: event.window_start_time,
+      endTime: event.window_end_time,
+      events: [],
+    }
+    window.events.push(event)
+    windows.set(key, window)
+  })
+  return [...windows.values()]
+})
+
+const brpcEventInterfaceColumns = computed(() => {
+  const columns = new Map<string, BrpcInterfaceHit>()
+  brpcAggregatedEvents.value.forEach((event) => {
+    event.interface_hits.forEach((hit) => {
+      if (hit.interface_hit_count > 0) columns.set(hit.interface_id, hit)
+    })
+  })
+  brpcAggregatedEventMetricSort.getSortFields.value.forEach((sortField) => {
+    if (sortField.field === BRPC_TOTAL_SORT_FIELD || columns.has(sortField.field)) return
+    const metadata = brpcInterfaceMetadataById.value.get(sortField.field)
+    if (metadata) columns.set(sortField.field, metadata)
+  })
+  return sortBrpcInterfaceColumns([...columns.values()])
+})
+
+const brpcEventInterfaceGridStyle = computed(() => {
+  const columnCount = Math.max(1, brpcEventInterfaceColumns.value.length)
+  const width = columnCount * BRPC_INTERFACE_COLUMN_WIDTH
+  return {
+    gridTemplateColumns: `repeat(${columnCount}, ${BRPC_INTERFACE_COLUMN_WIDTH}px)`,
+    width: `${width}px`,
+    minWidth: `${width}px`,
+  }
+})
+
 const loadBrpcLogFiles = async () => {
   if (!selectedAssetId.value) return
+  const assetId = selectedAssetId.value
   try {
     const result = await request<{
       total: number
-      log_files: { id: string; name: string; log_type: string; parse_status: string }[]
-    }>(`/log_file/list/${selectedAssetId.value}`, {
+      log_files: Array<{
+        id: string
+        name: string
+        log_type: string
+        parse_status: string
+        task?: TaskModel | null
+      }>
+    }>(`/log_file/list/${assetId}`, {
       method: 'POST',
       body: JSON.stringify({ page_num: 1, page_cnt: 200 }),
     })
-    brpcLogFiles.value = (result.log_files ?? []).filter(
-      (f: any) => f.log_type === 'brpc' && f.parse_status === 'successful',
-    )
+    if (selectedAssetId.value !== assetId) return
+    brpcLogFiles.value = (result.log_files ?? [])
+      .filter((file) => file.log_type === 'brpc' && file.parse_status === 'successful')
+      .map((file) => ({
+        id: file.id,
+        name: file.name,
+        taskId: file.task?.id ?? '',
+        taskType: file.task?.task_type ?? '',
+      }))
+
+    if (!brpcProfilingLogFiles.value.some((file) => file.id === brpcSelectedLogId.value)) {
+      brpcSelectedLogId.value = ''
+    }
+    if (!brpcDiagnosisLogFiles.value.some((file) => file.id === brpcFaultSelectedLogId.value)) {
+      brpcFaultTimelineRequestSequence += 1
+      brpcAggregatedEventsRequestSequence += 1
+      brpcAbnormalThreadsRequestSequence += 1
+      brpcFaultSelectedLogId.value = ''
+      brpcFaultResolvedLogId.value = ''
+      brpcFaultBatch.value = null
+      brpcFaultTimelineSeries.value = []
+      brpcAggregatedEvents.value = []
+      brpcAggregatedEventTotal.value = 0
+      brpcAbnormalThreads.value = []
+      brpcAbnormalThreadTotal.value = 0
+    }
   } catch {
-    brpcLogFiles.value = []
+    if (selectedAssetId.value === assetId) {
+      brpcLogFiles.value = []
+    }
   }
 }
 
@@ -8513,12 +9834,23 @@ const onBrpcLogChange = async () => {
 
 const loadBrpcMonitorData = async () => {
   if (!brpcSelectedLogId.value) return
+  const assetId = selectedAssetId.value
+  const selectedLogId = brpcSelectedLogId.value
+  const requestSequence = ++brpcProfilingRequestSequence
   brpcDataLoading.value = true
   try {
     const result = await request<{
       interface_names: string[]
       rows: Record<string, any>[]
-    }>(`/brpc_profiling/${brpcSelectedLogId.value}`)
+    }>(`/brpc_profiling/${selectedLogId}`)
+
+    if (
+      requestSequence !== brpcProfilingRequestSequence ||
+      selectedAssetId.value !== assetId ||
+      brpcSelectedLogId.value !== selectedLogId
+    ) {
+      return
+    }
 
     brpcInterfaceNames.value = result.interface_names ?? []
     brpcAllRows.value = result.rows ?? []
@@ -8530,8 +9862,9 @@ const loadBrpcMonitorData = async () => {
     if (brpcLatencySelectedIfaces.value.length === 0) {
       brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
     }
-    if (!brpcSingleIface.value && brpcInterfaceNames.value.length > 0) {
-      brpcSingleIface.value = brpcInterfaceNames.value[0]
+    const firstInterface = brpcInterfaceNames.value.at(0)
+    if (!brpcSingleIface.value && firstInterface) {
+      brpcSingleIface.value = firstInterface
     }
 
     await nextTick()
@@ -8539,10 +9872,18 @@ const loadBrpcMonitorData = async () => {
     renderBrpcSingleChart()
     renderBrpcLatencyChart()
   } catch {
-    brpcInterfaceNames.value = []
-    brpcAllRows.value = []
+    if (
+      requestSequence === brpcProfilingRequestSequence &&
+      selectedAssetId.value === assetId &&
+      brpcSelectedLogId.value === selectedLogId
+    ) {
+      brpcInterfaceNames.value = []
+      brpcAllRows.value = []
+    }
   } finally {
-    brpcDataLoading.value = false
+    if (requestSequence === brpcProfilingRequestSequence) {
+      brpcDataLoading.value = false
+    }
   }
 }
 
@@ -8578,7 +9919,10 @@ const calcFailureRate = (success: number, failure: number): number => {
   return total > 0 ? (failure / total) * 100 : 0
 }
 
-const getBrpcMetricValue = (row: Record<string, any> | undefined, metric: string): number | null => {
+const getBrpcMetricValue = (
+  row: Record<string, any> | undefined,
+  metric: string,
+): number | null => {
   if (!row) return null
   switch (metric) {
     case 'successRate':
@@ -8610,7 +9954,7 @@ const getBrpcMetricValue = (row: Record<string, any> | undefined, metric: string
 // 格式化 brpc 时间戳为 HH:mm:ss
 const formatBrpcTimestamp = (ts: string): string => {
   const match = ts.match(/[T ](\d{2}:\d{2}:\d{2})/)
-  return match ? match[1] : ts
+  return match?.[1] ?? ts
 }
 
 // brpc 图表公共图例样式（与 kv-cache 时延监控统一）
@@ -8656,17 +10000,33 @@ const brpcXAxisStyle = {
 
 // brpc 接口颜色调色板
 const BRPC_INTERFACE_COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b8d0',
-  '#f6a25c', '#6f7bd7', '#c15c5c', '#6aa0d8', '#b5c46b',
-  '#d48265', '#91c7ae', '#749f83', '#ca8622', '#bda29a',
+  '#5470c6',
+  '#91cc75',
+  '#fac858',
+  '#ee6666',
+  '#73c0de',
+  '#3ba272',
+  '#fc8452',
+  '#9a60b4',
+  '#ea7ccc',
+  '#48b8d0',
+  '#f6a25c',
+  '#6f7bd7',
+  '#c15c5c',
+  '#6aa0d8',
+  '#b5c46b',
+  '#d48265',
+  '#91c7ae',
+  '#749f83',
+  '#ca8622',
+  '#bda29a',
   '#6e7074',
 ]
 
 const getBrpcInterfaceColor = (iface: string): string => {
   const idx = brpcInterfaceNames.value.indexOf(iface)
   return idx >= 0
-    ? BRPC_INTERFACE_COLORS[idx % BRPC_INTERFACE_COLORS.length]
+    ? (BRPC_INTERFACE_COLORS[idx % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8')
     : '#94a3b8'
 }
 
@@ -8690,6 +10050,891 @@ const estimateBrpcLegendRows = (labels: string[], availableWidth: number): numbe
   return rows
 }
 
+const getBrpcFaultSeriesLabel = (series: BrpcInterfaceTimelineSeries) =>
+  series.interface_id === BRPC_UNRESOLVED_INTERFACE_ID
+    ? series.interface_name
+    : `${series.component} / ${getBrpcInterfaceDisplayName(series)}`
+
+const brpcFaultSeriesOptions = computed(() =>
+  displayableBrpcFaultTimelineSeries.value.map(({ timeline, index }) => ({
+    id: timeline.interface_id,
+    label: getBrpcFaultSeriesLabel(timeline),
+    color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8',
+  })),
+)
+
+const selectedBrpcFaultSeriesCount = computed(
+  () =>
+    brpcFaultSeriesOptions.value.filter((series) => visibleBrpcFaultSeriesIds.value.has(series.id))
+      .length,
+)
+
+const isBrpcFaultSeriesVisible = (seriesId: string) => visibleBrpcFaultSeriesIds.value.has(seriesId)
+
+const syncVisibleBrpcFaultSeries = (series: BrpcInterfaceTimelineSeries[]) => {
+  const availableIds = new Set(series.map((item) => item.interface_id))
+  const retainedIds = [...visibleBrpcFaultSeriesIds.value].filter((id) => availableIds.has(id))
+  if (retainedIds.length > 0) {
+    visibleBrpcFaultSeriesIds.value = new Set(retainedIds)
+    return
+  }
+
+  const defaultIds = series
+    .filter((item) => item.component.toLowerCase() === 'ubsocket')
+    .map((item) => item.interface_id)
+  visibleBrpcFaultSeriesIds.value = new Set(
+    defaultIds.length > 0 ? defaultIds : series.slice(0, 1).map((item) => item.interface_id),
+  )
+}
+
+const toggleBrpcFaultSeriesVisibility = (seriesId: string) => {
+  const next = new Set(visibleBrpcFaultSeriesIds.value)
+  if (next.has(seriesId)) {
+    if (next.size > 1) next.delete(seriesId)
+  } else {
+    next.add(seriesId)
+  }
+  visibleBrpcFaultSeriesIds.value = next
+  renderBrpcFaultTimelineChart()
+}
+
+const selectAllBrpcFaultSeries = () => {
+  visibleBrpcFaultSeriesIds.value = new Set(brpcFaultSeriesOptions.value.map((series) => series.id))
+  renderBrpcFaultTimelineChart()
+}
+
+const deselectAllBrpcFaultSeries = () => {
+  visibleBrpcFaultSeriesIds.value = new Set()
+  renderBrpcFaultTimelineChart()
+}
+
+const renderBrpcFaultTimelineChart = () => {
+  if (
+    !isAbnormalMonitorPage.value ||
+    isBrpcFaultTimelineLoading.value ||
+    brpcFaultTimelineError.value
+  )
+    return
+
+  const element = brpcFaultTimelineRef.value
+  if (!element || !hasBrpcFaultTimelineData.value) return
+
+  if (brpcFaultTimelineChartInstance && brpcFaultTimelineChartInstance.getDom() !== element) {
+    brpcFaultTimelineChartInstance.dispose()
+    brpcFaultTimelineChartInstance = null
+  }
+  brpcFaultTimelineChartInstance ??= echarts.init(element)
+
+  const timestamps = [
+    ...new Set(
+      brpcFaultTimelineSeries.value.flatMap((series) =>
+        series.points.map((point) => point.window_start_time),
+      ),
+    ),
+  ].sort((first, second) => {
+    const firstTime = parseDateAsLocal(first)?.getTime() ?? 0
+    const secondTime = parseDateAsLocal(second)?.getTime() ?? 0
+    return firstTime - secondTime
+  })
+  const labels = timestamps.map((timestamp) => {
+    const date = parseDateAsLocal(timestamp)
+    return date ? formatFullTimeLabel(date) : timestamp
+  })
+  const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
+  const visibleSeries = displayableBrpcFaultTimelineSeries.value.filter(({ timeline }) =>
+    isBrpcFaultSeriesVisible(timeline.interface_id),
+  )
+  const seriesLabels = visibleSeries.map(({ timeline }) => getBrpcFaultSeriesLabel(timeline))
+  const legendWidth = Math.max(1, element.clientWidth - 88)
+  const legendRows = estimateBrpcLegendRows(seriesLabels, legendWidth)
+  const gridTop = 38 + legendRows * 25
+  element.style.height = `${Math.max(440, gridTop + 320)}px`
+
+  brpcFaultTimelineChartInstance.setOption(
+    {
+      tooltip: { trigger: 'axis', appendToBody: true },
+      legend: {
+        ...brpcLegendStyle,
+        data: seriesLabels,
+        width: legendWidth,
+      },
+      grid: { top: gridTop, right: 68, bottom: 15, left: 96, containLabel: true },
+      xAxis: {
+        ...brpcXAxisStyle,
+        data: labels,
+        name: '时间',
+        axisLabel: {
+          ...brpcXAxisStyle.axisLabel,
+          interval: (index: number) =>
+            labels.length <= 10 ||
+            index === 0 ||
+            index === labels.length - 1 ||
+            index % xAxisLabelStep === 0,
+        },
+      },
+      yAxis: {
+        type: 'value',
+        name: '接口故障数',
+        minInterval: 1,
+        axisLabel: {
+          margin: 10,
+          formatter: (value: number) => String(Math.trunc(value)),
+        },
+      },
+      series: visibleSeries.map(({ timeline, index }) => {
+        const pointsByTime = new Map(
+          timeline.points.map((point) => [point.window_start_time, point.interface_hit_count]),
+        )
+        return {
+          name: getBrpcFaultSeriesLabel(timeline),
+          type: 'line' as const,
+          data: timestamps.map((timestamp) => pointsByTime.get(timestamp) ?? 0),
+          smooth: true,
+          itemStyle: { color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] },
+        }
+      }),
+    },
+    true,
+  )
+
+  brpcFaultTimelineChartInstance.off('click')
+  brpcFaultTimelineChartInstance.on('click', (params: unknown) => {
+    const event = params as { componentType?: string; dataIndex?: number }
+    if (event.componentType !== 'series' || typeof event.dataIndex !== 'number') return
+    const timestamp = timestamps[event.dataIndex]
+    const centerTime = timestamp ? parseDateAsLocal(timestamp)?.getTime() : null
+    if (typeof centerTime === 'number') {
+      brpcFaultChartCenterTime.value = centerTime
+      void loadBrpcFaultTimeline()
+      void loadBrpcAggregatedEvents(1)
+      void loadBrpcAbnormalThreads(1)
+    }
+  })
+  brpcFaultTimelineChartInstance.resize()
+}
+
+const renderBrpcEventDetailTimelineChart = () => {
+  const element = brpcEventDetailTimelineRef.value
+  if (
+    !element ||
+    !isBrpcEventDetailOpen.value ||
+    isBrpcEventDetailLoading.value ||
+    brpcEventDetailError.value ||
+    !hasBrpcEventDetailTimelineData.value
+  )
+    return
+
+  if (
+    brpcEventDetailTimelineChartInstance &&
+    brpcEventDetailTimelineChartInstance.getDom() !== element
+  ) {
+    brpcEventDetailTimelineChartInstance.dispose()
+    brpcEventDetailTimelineChartInstance = null
+  }
+  brpcEventDetailTimelineChartInstance ??= echarts.init(element)
+
+  const timestamps = [
+    ...new Set(
+      visibleBrpcEventDetailTimeline.value.flatMap((series) =>
+        series.points.map((point) => point.window_start_time),
+      ),
+    ),
+  ].sort((first, second) => {
+    const firstTime = parseDateAsLocal(first)?.getTime() ?? 0
+    const secondTime = parseDateAsLocal(second)?.getTime() ?? 0
+    return firstTime - secondTime
+  })
+  const labels = timestamps.map((timestamp) => formatBrpcTimestamp(timestamp))
+  const seriesLabels = visibleBrpcEventDetailTimeline.value.map(getBrpcFaultSeriesLabel)
+  const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
+  const legendWidth = Math.max(1, element.clientWidth - 72)
+  const legendRows = estimateBrpcLegendRows(seriesLabels, legendWidth)
+  const gridTop = 38 + legendRows * 25
+  element.style.height = `${Math.max(310, gridTop + 240)}px`
+
+  brpcEventDetailTimelineChartInstance.setOption(
+    {
+      tooltip: { trigger: 'axis', appendToBody: true },
+      legend: {
+        ...brpcLegendStyle,
+        data: seriesLabels,
+        width: legendWidth,
+      },
+      grid: { top: gridTop, right: 34, bottom: 18, left: 58, containLabel: true },
+      xAxis: {
+        ...brpcXAxisStyle,
+        data: labels,
+        axisLabel: {
+          ...brpcXAxisStyle.axisLabel,
+          rotate: 0,
+          interval: (index: number) =>
+            labels.length <= 10 ||
+            index === 0 ||
+            index === labels.length - 1 ||
+            index % xAxisLabelStep === 0,
+        },
+      },
+      yAxis: {
+        type: 'value',
+        name: '故障数',
+        minInterval: 1,
+        axisLabel: { formatter: (value: number) => String(Math.trunc(value)) },
+      },
+      series: visibleBrpcEventDetailTimeline.value.map((timeline, index) => {
+        const pointsByTime = new Map(
+          timeline.points.map((point) => [point.window_start_time, point.interface_hit_count]),
+        )
+        return {
+          name: getBrpcFaultSeriesLabel(timeline),
+          type: 'line' as const,
+          data: timestamps.map((timestamp) => pointsByTime.get(timestamp) ?? 0),
+          smooth: true,
+          symbolSize: 7,
+          itemStyle: { color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] },
+          lineStyle: { width: 2 },
+        }
+      }),
+    },
+    true,
+  )
+  brpcEventDetailTimelineChartInstance.resize()
+}
+
+const resizeBrpcFaultTimelineChart = () => {
+  const element = brpcFaultTimelineRef.value
+  if (!element || !brpcFaultTimelineChartInstance) return
+
+  const seriesLabels = displayableBrpcFaultTimelineSeries.value
+    .filter(({ timeline }) => isBrpcFaultSeriesVisible(timeline.interface_id))
+    .map(({ timeline }) => getBrpcFaultSeriesLabel(timeline))
+  const legendWidth = Math.max(1, element.clientWidth - 88)
+  const legendRows = estimateBrpcLegendRows(seriesLabels, legendWidth)
+  const gridTop = 38 + legendRows * 25
+  element.style.height = `${Math.max(440, gridTop + 320)}px`
+  brpcFaultTimelineChartInstance.setOption({
+    legend: { width: legendWidth },
+    grid: { top: gridTop },
+  })
+  brpcFaultTimelineChartInstance.resize()
+}
+
+const resizeBrpcEventDetailTimelineChart = () => {
+  const element = brpcEventDetailTimelineRef.value
+  if (!element || !brpcEventDetailTimelineChartInstance) return
+
+  const seriesLabels = visibleBrpcEventDetailTimeline.value.map(getBrpcFaultSeriesLabel)
+  const legendWidth = Math.max(1, element.clientWidth - 72)
+  const legendRows = estimateBrpcLegendRows(seriesLabels, legendWidth)
+  const gridTop = 38 + legendRows * 25
+  element.style.height = `${Math.max(310, gridTop + 240)}px`
+  brpcEventDetailTimelineChartInstance.setOption({
+    legend: { width: legendWidth },
+    grid: { top: gridTop },
+  })
+  brpcEventDetailTimelineChartInstance.resize()
+}
+
+const resolveBrpcFaultBatch = async (selectedLogId: string) => {
+  if (brpcFaultResolvedLogId.value === selectedLogId && brpcFaultBatch.value) {
+    return brpcFaultBatch.value
+  }
+  const selectedLog = brpcDiagnosisLogFiles.value.find((file) => file.id === selectedLogId)
+  if (!selectedLog?.taskId) throw new Error('所选日志暂无可用的 BRPC 诊断任务')
+
+  const batchResult = await request<{ task_id: string; batch_id: string }>(
+    `/brpc-diagnosis/task/${encodeURIComponent(selectedLog.taskId)}/batch`,
+  )
+  const metadataResult = await request<{ batch: BrpcDiagnosisBatch }>(
+    `/brpc-diagnosis/batch/${encodeURIComponent(batchResult.batch_id)}`,
+  )
+  if (brpcFaultSelectedLogId.value === selectedLogId) {
+    brpcFaultBatch.value = metadataResult.batch
+    brpcFaultResolvedLogId.value = selectedLogId
+  }
+  return metadataResult.batch
+}
+
+const getBrpcFaultQueryRange = (batch: BrpcDiagnosisBatch) => {
+  const filters = appliedFilters.value
+  const chartRange = brpcFaultChartRange.value
+  const batchStart = parseDateAsLocal(batch.start_time)
+  const batchEnd = parseDateAsLocal(batch.end_time)
+  const filterStart = filters.startTime ? parseDateAsLocal(filters.startTime) : null
+  const filterEnd = filters.endTime ? parseDateAsLocal(filters.endTime) : null
+  const startDate = chartRange ? new Date(chartRange.startTime) : (filterStart ?? batchStart)
+  let endDate = chartRange ? new Date(chartRange.endTime) : (filterEnd ?? batchEnd)
+
+  if (!startDate || !endDate) throw new Error('BRPC 诊断批次时间范围无效')
+  if (endDate.getTime() <= startDate.getTime()) {
+    endDate = new Date(startDate.getTime() + selectedBrpcFaultScale.value * secondMs)
+  }
+  return { startDate, endDate }
+}
+
+const loadBrpcFaultTimeline = async () => {
+  const selectedLogId = brpcFaultSelectedLogId.value
+  if (!selectedLogId) {
+    brpcFaultTimelineRequestSequence += 1
+    brpcFaultTimelineSeries.value = []
+    brpcFaultTimelineError.value = ''
+    isBrpcFaultTimelineLoading.value = false
+    return
+  }
+
+  const requestSequence = ++brpcFaultTimelineRequestSequence
+  isBrpcFaultTimelineLoading.value = true
+  brpcFaultTimelineError.value = ''
+
+  try {
+    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    if (requestSequence !== brpcFaultTimelineRequestSequence) return
+    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+
+    const windowSizeByScale: Record<number, string> = {
+      10: '10s',
+      60: '1m',
+      600: '10m',
+      3600: '1h',
+    }
+    const query = new URLSearchParams({
+      start_time: formatFullTimeLabel(startDate),
+      end_time: formatFullTimeLabel(endDate),
+      window_size: windowSizeByScale[selectedBrpcFaultScale.value] ?? '1m',
+    })
+    const podIp = appliedFilters.value.podIps.at(-1)
+    if (podIp) query.set('pod_ip', podIp)
+    const result = await request<{ series: BrpcInterfaceTimelineSeries[] }>(
+      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${query.toString()}`,
+    )
+    if (requestSequence !== brpcFaultTimelineRequestSequence) return
+    brpcFaultTimelineSeries.value = result.series ?? []
+    syncVisibleBrpcFaultSeries(
+      displayableBrpcFaultTimelineSeries.value.map(({ timeline }) => timeline),
+    )
+  } catch (error) {
+    if (requestSequence !== brpcFaultTimelineRequestSequence) return
+    brpcFaultTimelineSeries.value = []
+    brpcFaultTimelineError.value =
+      error instanceof Error ? error.message : '加载 BRPC 接口故障数时序分布失败'
+  } finally {
+    if (requestSequence === brpcFaultTimelineRequestSequence) {
+      isBrpcFaultTimelineLoading.value = false
+    }
+  }
+}
+
+const resetBrpcFaultChartRange = () => {
+  brpcFaultChartCenterTime.value = null
+  void loadBrpcFaultTimeline()
+  void loadBrpcAggregatedEvents(1)
+  void loadBrpcAbnormalThreads(1)
+}
+
+const getBrpcEventInterfaceCount = (event: BrpcAggregatedEvent, interfaceId: string) =>
+  event.interface_hits.find((hit) => hit.interface_id === interfaceId)?.interface_hit_count ?? 0
+
+const rememberBrpcInterfaceMetadata = (rows: Array<{ interface_hits?: BrpcInterfaceHit[] }>) => {
+  const next = new Map(brpcInterfaceMetadataById.value)
+  rows.forEach((row) => {
+    row.interface_hits?.forEach((hit) => next.set(hit.interface_id, hit))
+  })
+  brpcInterfaceMetadataById.value = next
+}
+
+const appendBrpcMetricSortQuery = (query: URLSearchParams, sortFields: SortField[]) => {
+  sortFields.forEach((sortField) => {
+    query.append('sort_field', sortField.field)
+    query.append('sort_direction', sortField.order)
+  })
+}
+
+const getBrpcMetricSortPriority = (sortFields: SortField[], field: string) => {
+  const index = sortFields.findIndex((sortField) => sortField.field === field)
+  return index === -1 ? null : index + 1
+}
+
+const getBrpcAggregatedEventMetricSortPriority = (field: string) =>
+  getBrpcMetricSortPriority(brpcAggregatedEventMetricSort.getSortFields.value, field)
+
+const getBrpcAbnormalThreadMetricSortPriority = (field: string) =>
+  getBrpcMetricSortPriority(brpcAbnormalThreadMetricSort.getSortFields.value, field)
+
+const getBrpcAbnormalThreadInterfaceCount = (thread: BrpcAbnormalThread, interfaceId: string) =>
+  thread.interface_hits?.find((hit) => hit.interface_id === interfaceId)?.interface_hit_count ?? 0
+
+const getBrpcEventFaultTotal = (event: BrpcAggregatedEvent) =>
+  event.interface_hits.reduce((total, hit) => total + hit.interface_hit_count, 0)
+
+const getBrpcEventWindowFaultTotal = (window: BrpcEventWindow) =>
+  window.events.reduce((total, event) => total + getBrpcEventFaultTotal(event), 0)
+
+const getBrpcEventWindowInterfaceCount = (window: BrpcEventWindow, interfaceId: string) =>
+  window.events.reduce((total, event) => total + getBrpcEventInterfaceCount(event, interfaceId), 0)
+
+const isBrpcEventWindowExpanded = (key: string) => expandedBrpcEventWindows.value.has(key)
+
+const toggleBrpcEventWindow = (key: string) => {
+  const next = new Set(expandedBrpcEventWindows.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedBrpcEventWindows.value = next
+}
+
+const setBrpcAggregatedEventStartTimeSort = (sortOrder: SortField['order']) => {
+  brpcAggregatedEventStartTimeSortOrder.value = sortOrder
+  brpcAggregatedEventPage.value = 1
+  void loadBrpcAggregatedEvents(1)
+}
+
+const toggleBrpcAggregatedEventStartTimeSort = () => {
+  setBrpcAggregatedEventStartTimeSort(
+    brpcAggregatedEventStartTimeSortOrder.value === 'asc' ? 'desc' : 'asc',
+  )
+}
+
+const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value) => {
+  const selectedLogId = brpcFaultSelectedLogId.value
+  if (!selectedLogId) {
+    brpcAggregatedEventsRequestSequence += 1
+    brpcAggregatedEvents.value = []
+    brpcAggregatedEventTotal.value = 0
+    brpcAggregatedEventPage.value = 1
+    brpcAggregatedEventsError.value = ''
+    isBrpcAggregatedEventsLoading.value = false
+    brpcAggregatedEventMetricSort.releaseSortLock()
+    return
+  }
+
+  const requestSequence = ++brpcAggregatedEventsRequestSequence
+  brpcAggregatedEvents.value = []
+  brpcAggregatedEventTotal.value = 0
+  brpcAggregatedEventPage.value = pageNum
+  expandedBrpcEventWindows.value = new Set()
+  hoveredBrpcEventRowKey.value = ''
+  isBrpcAggregatedEventsLoading.value = true
+  brpcAggregatedEventsError.value = ''
+
+  try {
+    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    if (requestSequence !== brpcAggregatedEventsRequestSequence) return
+    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const filters = appliedFilters.value
+    const query = new URLSearchParams({
+      start_time: formatFullTimeLabel(startDate),
+      end_time: formatFullTimeLabel(endDate),
+      window_size: selectedBrpcEventInterval.value,
+      sort_order: brpcAggregatedEventStartTimeSortOrder.value,
+      page_num: String(pageNum),
+      page_cnt: String(brpcAggregatedEventPageSize),
+    })
+    const podIp = filters.podIps.at(-1)
+    if (podIp) query.set('pod_ip', podIp)
+    appendBrpcMetricSortQuery(query, brpcAggregatedEventMetricSort.getSortFields.value)
+
+    const endpoint = brpcEventAggregation.value === 'pod' ? 'pod-events' : 'thread-events'
+    const result = await request<{ total: number; events: BrpcAggregatedEvent[] }>(
+      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/${endpoint}?${query.toString()}`,
+    )
+    if (requestSequence !== brpcAggregatedEventsRequestSequence) return
+
+    const total = result.total ?? 0
+    const pageCount = Math.max(1, Math.ceil(total / brpcAggregatedEventPageSize))
+    if (pageNum > pageCount) {
+      isBrpcAggregatedEventsLoading.value = false
+      await loadBrpcAggregatedEvents(pageCount)
+      return
+    }
+    const events = result.events ?? []
+    rememberBrpcInterfaceMetadata(events)
+    brpcAggregatedEvents.value = events
+    brpcAggregatedEventTotal.value = total
+    brpcAggregatedEventPage.value = pageNum
+  } catch (error) {
+    if (requestSequence !== brpcAggregatedEventsRequestSequence) return
+    brpcAggregatedEvents.value = []
+    brpcAggregatedEventTotal.value = 0
+    brpcAggregatedEventPage.value = 1
+    brpcAggregatedEventsError.value =
+      error instanceof Error ? error.message : '加载 BRPC 聚合事件列表失败'
+  } finally {
+    if (requestSequence === brpcAggregatedEventsRequestSequence) {
+      isBrpcAggregatedEventsLoading.value = false
+      brpcAggregatedEventMetricSort.releaseSortLock()
+    }
+  }
+}
+
+const setActiveBrpcFaultTab = (tab: 'event' | 'thread') => {
+  activeBrpcFaultTab.value = tab
+  if (tab === 'event' && brpcAggregatedEvents.value.length === 0) {
+    void loadBrpcAggregatedEvents(1)
+  } else if (tab === 'thread' && brpcAbnormalThreads.value.length === 0) {
+    void loadBrpcAbnormalThreads(1)
+  }
+}
+
+const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) => {
+  const selectedLogId = brpcFaultSelectedLogId.value
+  if (!selectedLogId) {
+    brpcAbnormalThreadsRequestSequence += 1
+    brpcAbnormalThreads.value = []
+    brpcAbnormalThreadTotal.value = 0
+    brpcAbnormalThreadPage.value = 1
+    brpcAbnormalThreadsError.value = ''
+    isBrpcAbnormalThreadsLoading.value = false
+    brpcAbnormalThreadMetricSort.releaseSortLock()
+    return
+  }
+
+  const requestSequence = ++brpcAbnormalThreadsRequestSequence
+  brpcAbnormalThreads.value = []
+  brpcAbnormalThreadTotal.value = 0
+  brpcAbnormalThreadPage.value = pageNum
+  isBrpcAbnormalThreadsLoading.value = true
+  brpcAbnormalThreadsError.value = ''
+  try {
+    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
+    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const query = new URLSearchParams({
+      start_time: formatFullTimeLabel(startDate),
+      end_time: formatFullTimeLabel(endDate),
+      page_num: String(pageNum),
+      page_cnt: String(brpcAbnormalThreadPageSize),
+    })
+    const podIp = appliedFilters.value.podIps.at(-1)
+    if (podIp) query.set('pod_ip', podIp)
+    if (brpcAbnormalThreadSearchQuery.value) {
+      query.set('search', brpcAbnormalThreadSearchQuery.value)
+    }
+    appendBrpcMetricSortQuery(query, brpcAbnormalThreadMetricSort.getSortFields.value)
+    const result = await request<{ total: number; threads: BrpcAbnormalThread[] }>(
+      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads?${query.toString()}`,
+    )
+    if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
+    const total = result.total ?? 0
+    const pageCount = Math.max(1, Math.ceil(total / brpcAbnormalThreadPageSize))
+    if (pageNum > pageCount) {
+      isBrpcAbnormalThreadsLoading.value = false
+      await loadBrpcAbnormalThreads(pageCount)
+      return
+    }
+    const threads = result.threads ?? []
+    rememberBrpcInterfaceMetadata(threads)
+    brpcAbnormalThreads.value = threads
+    brpcAbnormalThreadTotal.value = total
+    brpcAbnormalThreadPage.value = pageNum
+  } catch (error) {
+    if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
+    brpcAbnormalThreads.value = []
+    brpcAbnormalThreadTotal.value = 0
+    brpcAbnormalThreadPage.value = 1
+    brpcAbnormalThreadsError.value =
+      error instanceof Error ? error.message : '加载异常 Thread 列表失败'
+  } finally {
+    if (requestSequence === brpcAbnormalThreadsRequestSequence) {
+      isBrpcAbnormalThreadsLoading.value = false
+      brpcAbnormalThreadMetricSort.releaseSortLock()
+    }
+  }
+}
+
+const changeBrpcEventAggregation = () => {
+  brpcAggregatedEventPage.value = 1
+  void loadBrpcAggregatedEvents(1)
+}
+
+const changeBrpcEventInterval = () => {
+  brpcAggregatedEventPage.value = 1
+  void loadBrpcAggregatedEvents(1)
+}
+
+const submitBrpcAbnormalThreadSearch = () => {
+  brpcAbnormalThreadSearchQuery.value = brpcAbnormalThreadSearchInput.value.trim()
+  brpcAbnormalThreadPage.value = 1
+  void loadBrpcAbnormalThreads(1)
+}
+
+const clearBrpcAbnormalThreadSearch = () => {
+  const hadActiveSearch = !!brpcAbnormalThreadSearchQuery.value
+  brpcAbnormalThreadSearchInput.value = ''
+  brpcAbnormalThreadSearchQuery.value = ''
+  brpcAbnormalThreadPage.value = 1
+  if (hadActiveSearch) void loadBrpcAbnormalThreads(1)
+}
+
+const goBrpcAggregatedEventPage = (pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), brpcAggregatedEventPageCount.value)
+  if (nextPage === brpcAggregatedEventPage.value || isBrpcAggregatedEventsLoading.value) return
+  void loadBrpcAggregatedEvents(nextPage)
+}
+
+const goBrpcAbnormalThreadPage = (pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), brpcAbnormalThreadPageCount.value)
+  if (nextPage === brpcAbnormalThreadPage.value || isBrpcAbnormalThreadsLoading.value) return
+  void loadBrpcAbnormalThreads(nextPage)
+}
+
+const openBrpcFilterDialog = (target: BrpcAggregatedEvent | BrpcAbnormalThread) => {
+  brpcFilterDialog.target = target
+  brpcFilterDialog.addPodIp = false
+  brpcFilterDialog.open = true
+}
+
+const closeBrpcFilterDialog = () => {
+  brpcFilterDialog.open = false
+  brpcFilterDialog.target = null
+}
+
+const confirmBrpcFilterDialog = () => {
+  const target = brpcFilterDialog.target
+  if (!target) return
+
+  if (brpcFilterDialog.addPodIp && isTraceFilterValueAvailable(target.pod_ip)) {
+    replaceFilterItem('podIp', target.pod_ip)
+  }
+
+  closeBrpcFilterDialog()
+}
+
+const closeBrpcEventDetail = () => {
+  brpcEventDetailRequestSequence += 1
+  isBrpcEventDetailOpen.value = false
+  activeBrpcEventDetail.value = null
+  selectedBrpcEventDetail.value = null
+  brpcEventDetailTimeline.value = []
+  brpcEventDetailThreads.value = []
+  brpcEventDetailError.value = ''
+  brpcEventDetailTimelineChartInstance?.dispose()
+  brpcEventDetailTimelineChartInstance = null
+}
+
+const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
+  const batch = brpcFaultBatch.value
+  if (!batch) return
+  const requestSequence = ++brpcEventDetailRequestSequence
+  isBrpcEventDetailOpen.value = true
+  isBrpcEventDetailLoading.value = true
+  brpcEventDetailError.value = ''
+  activeBrpcEventDetail.value = event
+  selectedBrpcEventDetail.value = null
+  brpcEventDetailTimeline.value = []
+  brpcEventDetailThreads.value = []
+
+  try {
+    const detailQuery = new URLSearchParams({
+      window_start_time: event.window_start_time,
+      window_end_time: event.window_end_time,
+      pod_ip: event.pod_ip,
+      page_num: '1',
+      page_cnt: '100',
+    })
+    if (event.pod_name) detailQuery.set('pod_name', event.pod_name)
+    if (typeof event.thread_id === 'number') {
+      detailQuery.set('thread_id', String(event.thread_id))
+    }
+    const endpoint = typeof event.thread_id === 'number' ? 'thread-events' : 'pod-events'
+
+    const threadQuery = new URLSearchParams({
+      start_time: event.window_start_time,
+      end_time: event.window_end_time,
+      pod_ip: event.pod_ip,
+      page_num: '1',
+      page_cnt: '1000',
+    })
+    if (event.pod_name) threadQuery.set('pod_name', event.pod_name)
+
+    const detailPromise = request<BrpcAggregatedEventDetail>(
+      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/${endpoint}/${encodeURIComponent(event.event_id)}?${detailQuery.toString()}`,
+    )
+    const threadsPromise = request<{ total: number; threads: BrpcAbnormalThread[] }>(
+      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads?${threadQuery.toString()}`,
+    )
+
+    const timelineWindowSize =
+      selectedBrpcEventInterval.value === '1h'
+        ? '10m'
+        : selectedBrpcEventInterval.value === '1m'
+          ? '10s'
+          : '10s'
+
+    const [detail, threadResult] = await Promise.all([detailPromise, threadsPromise])
+    if (requestSequence !== brpcEventDetailRequestSequence) return
+
+    const threads = (threadResult.threads ?? []).filter(
+      (thread) => typeof event.thread_id !== 'number' || thread.thread_id === event.thread_id,
+    )
+
+    let timeline: BrpcInterfaceTimelineSeries[] = []
+    if (typeof event.thread_id === 'number') {
+      const selectedThread = threads[0]
+      if (selectedThread) {
+        const timelineQuery = new URLSearchParams({
+          pod_ip: event.pod_ip,
+          thread_id: String(event.thread_id),
+          start_time: event.window_start_time,
+          end_time: event.window_end_time,
+          window_size: timelineWindowSize,
+          page_num: '1',
+          page_cnt: '100',
+        })
+        if (event.pod_name) timelineQuery.set('pod_name', event.pod_name)
+        const threadDetail = await request<BrpcAbnormalThreadDetail>(
+          `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads/${encodeURIComponent(selectedThread.thread_key)}?${timelineQuery.toString()}`,
+        )
+        timeline = threadDetail.interface_timeline ?? []
+      }
+    } else {
+      const timelineQuery = new URLSearchParams({
+        start_time: event.window_start_time,
+        end_time: event.window_end_time,
+        window_size: timelineWindowSize,
+        pod_ip: event.pod_ip,
+      })
+      if (event.pod_name) timelineQuery.set('pod_name', event.pod_name)
+      const timelineResult = await request<BrpcInterfaceTimelineResult>(
+        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${timelineQuery.toString()}`,
+      )
+      timeline = timelineResult.series ?? []
+    }
+
+    if (requestSequence !== brpcEventDetailRequestSequence) return
+    selectedBrpcEventDetail.value = detail
+    brpcEventDetailThreads.value = threads
+    brpcEventDetailTimeline.value = timeline
+  } catch (error) {
+    if (requestSequence !== brpcEventDetailRequestSequence) return
+    brpcEventDetailError.value =
+      error instanceof Error ? error.message : '加载 BRPC 聚合事件详情失败'
+  } finally {
+    if (requestSequence === brpcEventDetailRequestSequence) {
+      isBrpcEventDetailLoading.value = false
+    }
+  }
+}
+
+const closeBrpcAbnormalThreadDetail = () => {
+  brpcAbnormalThreadDetailRequestSequence += 1
+  isBrpcAbnormalThreadDetailOpen.value = false
+  activeBrpcAbnormalThread.value = null
+  selectedBrpcAbnormalThreadDetail.value = null
+  brpcAbnormalThreadHits.value = []
+  brpcAbnormalThreadDetailError.value = ''
+  brpcAbnormalThreadHitsError.value = ''
+  selectedBrpcThreadGraphNodeId.value = ''
+  selectedBrpcThreadChildFailureModeId.value = ''
+  brpcThreadFailureGraphInstance?.dispose()
+  brpcThreadFailureGraphInstance = null
+}
+
+const loadBrpcAbnormalThreadHits = async (
+  batch: BrpcDiagnosisBatch,
+  thread: BrpcAbnormalThread,
+  startTime: string,
+  endTime: string,
+  requestSequence: number,
+) => {
+  isBrpcAbnormalThreadHitsLoading.value = true
+  brpcAbnormalThreadHitsError.value = ''
+  brpcAbnormalThreadHits.value = []
+  try {
+    const pageSize = 1000
+    const buildHitsQuery = (pageNum: number) => {
+      const query = new URLSearchParams({
+        pod_ip: thread.pod_ip,
+        thread_id: String(thread.thread_id),
+        start_time: startTime,
+        end_time: endTime,
+        page_num: String(pageNum),
+        page_cnt: String(pageSize),
+      })
+      if (thread.pod_name) query.set('pod_name', thread.pod_name)
+      return query
+    }
+    const loadPage = (pageNum: number) =>
+      request<{ total: number; hits: BrpcDiagHitLog[] }>(
+        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/hits?${buildHitsQuery(pageNum).toString()}`,
+      )
+
+    const firstPage = await loadPage(1)
+    if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
+    const pageCount = Math.ceil((firstPage.total ?? 0) / pageSize)
+    const remainingPages = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => loadPage(index + 2)),
+    )
+    if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
+    brpcAbnormalThreadHits.value = [
+      ...(firstPage.hits ?? []),
+      ...remainingPages.flatMap((page) => page.hits ?? []),
+    ]
+  } catch (error) {
+    if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
+    brpcAbnormalThreadHitsError.value =
+      error instanceof Error ? error.message : '加载线程运行日志失败'
+  } finally {
+    if (requestSequence === brpcAbnormalThreadDetailRequestSequence) {
+      isBrpcAbnormalThreadHitsLoading.value = false
+    }
+  }
+}
+
+const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
+  const batch = brpcFaultBatch.value
+  if (!batch) return
+  const requestSequence = ++brpcAbnormalThreadDetailRequestSequence
+  isBrpcAbnormalThreadDetailOpen.value = true
+  isBrpcAbnormalThreadDetailLoading.value = true
+  brpcAbnormalThreadDetailError.value = ''
+  activeBrpcAbnormalThread.value = thread
+  selectedBrpcAbnormalThreadDetail.value = null
+  selectedBrpcThreadGraphNodeId.value = ''
+  selectedBrpcThreadChildFailureModeId.value = ''
+
+  const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+  const startTime = formatFullTimeLabel(startDate)
+  const endTime = formatFullTimeLabel(endDate)
+  const windowSizeByScale: Record<number, string> = {
+    10: '10s',
+    60: '1m',
+    600: '10m',
+    3600: '1h',
+  }
+  const query = new URLSearchParams({
+    pod_ip: thread.pod_ip,
+    thread_id: String(thread.thread_id),
+    start_time: startTime,
+    end_time: endTime,
+    window_size: windowSizeByScale[selectedBrpcFaultScale.value] ?? '1m',
+    page_num: '1',
+    page_cnt: '1',
+  })
+  if (thread.pod_name) query.set('pod_name', thread.pod_name)
+
+  const detailPromise = (async () => {
+    try {
+      const detail = await request<BrpcAbnormalThreadDetail>(
+        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads/${encodeURIComponent(thread.thread_key)}?${query.toString()}`,
+      )
+      if (requestSequence === brpcAbnormalThreadDetailRequestSequence) {
+        selectedBrpcAbnormalThreadDetail.value = detail
+      }
+    } catch (error) {
+      if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
+      brpcAbnormalThreadDetailError.value =
+        error instanceof Error ? error.message : '加载异常 Thread 详情失败'
+    } finally {
+      if (requestSequence === brpcAbnormalThreadDetailRequestSequence) {
+        isBrpcAbnormalThreadDetailLoading.value = false
+      }
+    }
+  })()
+
+  await Promise.all([
+    detailPromise,
+    loadBrpcAbnormalThreadHits(batch, thread, startTime, endTime, requestSequence),
+  ])
+}
+
 const renderBrpcSuccessChart = () => {
   const el = brpcSuccessChartRef.value
   if (!el || brpcInterfaceNames.value.length === 0) return
@@ -8702,9 +10947,10 @@ const renderBrpcSuccessChart = () => {
   const dataMap = buildBrpcDataMap()
   const timestamps = getBrpcTimestamps()
   const labels = timestamps.map(formatBrpcTimestamp)
-  const selectedIfaces = brpcSuccessSelectedIfaces.value.length > 0
-    ? brpcSuccessSelectedIfaces.value
-    : brpcInterfaceNames.value
+  const selectedIfaces =
+    brpcSuccessSelectedIfaces.value.length > 0
+      ? brpcSuccessSelectedIfaces.value
+      : brpcInterfaceNames.value
 
   const metricLabelMap: Record<string, string> = {
     successRate: '成功率(%)',
@@ -8743,7 +10989,10 @@ const renderBrpcSuccessChart = () => {
       },
       grid: { left: 60, right: 20, top: gridTop, bottom: 15, containLabel: true },
       xAxis: { ...brpcXAxisStyle, data: labels },
-      yAxis: { type: 'value', name: metricLabelMap[brpcSuccessMetric.value] || brpcSuccessMetric.value },
+      yAxis: {
+        type: 'value',
+        name: metricLabelMap[brpcSuccessMetric.value] || brpcSuccessMetric.value,
+      },
       series,
     },
     true,
@@ -8764,9 +11013,10 @@ const renderBrpcSingleChart = () => {
   const timestamps = getBrpcTimestamps()
   const labels = timestamps.map(formatBrpcTimestamp)
   const ifaceData = dataMap.get(brpcSingleIface.value)
-  const selectedMetrics = brpcSingleSelectedMetrics.value.length > 0
-    ? brpcSingleSelectedMetrics.value
-    : ['requestCount', 'successRate', 'failureRate']
+  const selectedMetrics =
+    brpcSingleSelectedMetrics.value.length > 0
+      ? brpcSingleSelectedMetrics.value
+      : ['requestCount', 'successRate', 'failureRate']
 
   const metricLabelMap: Record<string, string> = {
     requestCount: '请求数',
@@ -8830,9 +11080,10 @@ const renderBrpcLatencyChart = () => {
   const dataMap = buildBrpcDataMap()
   const timestamps = getBrpcTimestamps()
   const labels = timestamps.map(formatBrpcTimestamp)
-  const selectedIfaces = brpcLatencySelectedIfaces.value.length > 0
-    ? brpcLatencySelectedIfaces.value
-    : brpcInterfaceNames.value
+  const selectedIfaces =
+    brpcLatencySelectedIfaces.value.length > 0
+      ? brpcLatencySelectedIfaces.value
+      : brpcInterfaceNames.value
 
   const series = selectedIfaces.map((iface) => {
     const ifaceData = dataMap.get(iface)
@@ -8846,7 +11097,8 @@ const renderBrpcLatencyChart = () => {
     }
   })
 
-  const metricLabel = brpcLatencyMetrics.find((m) => m.value === brpcLatencyMetric.value)?.label ?? ''
+  const metricLabel =
+    brpcLatencyMetrics.find((m) => m.value === brpcLatencyMetric.value)?.label ?? ''
   const legendWidth = Math.max(320, el.clientWidth - 88)
   const legendRows = estimateBrpcLegendRows(selectedIfaces, legendWidth)
   const gridTop = 38 + legendRows * 25
@@ -8856,7 +11108,7 @@ const renderBrpcLatencyChart = () => {
       tooltip: {
         trigger: 'axis',
         appendToBody: true,
-        valueFormatter: (value) =>
+        valueFormatter: (value: unknown) =>
           typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
       },
       legend: {
@@ -8936,25 +11188,47 @@ const loadAbnormalMonitorPage = async () => {
   await loadLatencyPage()
 }
 
-const openMonitorPage = async (section: 'latency' | 'fault' | 'brpc' = 'latency') => {
+const openMonitorPage = async (section: MonitorSection = 'latency') => {
   if (!selectedAssetId.value) return
-  if (section === 'brpc') {
-    activePage.value = 'abnormal'
-    await nextTick()
-    document.getElementById('brpc-monitor')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
+  const previousProduct = activeMonitorProduct.value
+  activeMonitorSection.value = section
+  const targetProduct = activeMonitorProduct.value
+  const isEnteringMonitor = activePage.value !== 'abnormal'
+  activePage.value = 'abnormal'
+
+  if (targetProduct === 'brpc') {
     await loadBrpcLogFiles()
+    if (section === 'brpc-fault' && !brpcFaultSelectedLogId.value) {
+      brpcFaultSelectedLogId.value = brpcDiagnosisLogFiles.value[0]?.id ?? ''
+    }
+    await nextTick()
+    if (brpcAllRows.value.length > 0) {
+      renderBrpcSuccessChart()
+      renderBrpcSingleChart()
+      renderBrpcLatencyChart()
+    }
+    document
+      .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
+      ?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    if (section === 'brpc-fault') {
+      const loadActiveBrpcFaultList =
+        activeBrpcFaultTab.value === 'thread'
+          ? loadBrpcAbnormalThreads(1)
+          : loadBrpcAggregatedEvents(1)
+      await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
+    }
     return
   }
+
   const targetSection = isFaultCodeFeatureEnabled ? section : 'latency'
-  const shouldLoadMonitorData = !isAbnormalMonitorPage.value
+  const shouldLoadMonitorData = isEnteringMonitor || previousProduct !== targetProduct
 
   if (shouldLoadMonitorData) {
     clearFilterApplyMessage()
   }
-  activePage.value = 'abnormal'
 
   if (shouldLoadMonitorData) {
     await loadAbnormalMonitorPage()
@@ -9038,6 +11312,30 @@ const syncAggregateLatencyScroll = (event: Event) => {
   })
 }
 
+const syncBrpcEventInterfaceScroll = (event: Event) => {
+  const source = event.currentTarget as HTMLElement | null
+  const panel = source?.closest<HTMLElement>('.brpc-event-interface-scroll')
+  if (!source || !panel) return
+
+  panel.querySelectorAll<HTMLElement>('.brpc-event-interface-sync').forEach((target) => {
+    if (target !== source && target.scrollLeft !== source.scrollLeft) {
+      target.scrollLeft = source.scrollLeft
+    }
+  })
+}
+
+const syncBrpcAbnormalThreadInterfaceScroll = (event: Event) => {
+  const source = event.currentTarget as HTMLElement | null
+  const panel = source?.closest<HTMLElement>('.brpc-abnormal-thread-interface-scroll')
+  if (!source || !panel) return
+
+  panel.querySelectorAll<HTMLElement>('.brpc-abnormal-thread-interface-sync').forEach((target) => {
+    if (target !== source && target.scrollLeft !== source.scrollLeft) {
+      target.scrollLeft = source.scrollLeft
+    }
+  })
+}
+
 watch(
   [latencyChartBuckets, isLatencyChartLoading, latencyChartError, activePage, visibleLatencyKeys],
   () => {
@@ -9071,6 +11369,35 @@ watch(
   [faultChartBuckets, faultCodes, isFaultChartLoading, faultChartError, activePage],
   () => {
     void nextTick(renderFaultEchart)
+  },
+  { deep: true },
+)
+
+watch(
+  [brpcFaultTimelineSeries, isBrpcFaultTimelineLoading, brpcFaultTimelineError, activePage],
+  () => {
+    void nextTick(renderBrpcFaultTimelineChart)
+  },
+  { deep: true },
+)
+
+watch(
+  [brpcEventDetailTimeline, isBrpcEventDetailLoading, brpcEventDetailError, isBrpcEventDetailOpen],
+  () => {
+    void nextTick(renderBrpcEventDetailTimelineChart)
+  },
+  { deep: true },
+)
+
+watch(
+  [
+    selectedBrpcAbnormalThreadDetail,
+    isBrpcAbnormalThreadDetailLoading,
+    brpcAbnormalThreadDetailError,
+    isBrpcAbnormalThreadDetailOpen,
+  ],
+  () => {
+    void nextTick(renderBrpcThreadFailureGraph)
   },
   { deep: true },
 )
@@ -9126,6 +11453,10 @@ watch(selectedFaultScale, (newVal) => {
   }
 })
 
+watch(selectedBrpcFaultScale, () => {
+  void loadBrpcFaultTimeline()
+})
+
 onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
@@ -9153,6 +11484,12 @@ onBeforeUnmount(() => {
   detailLatencyChartInstance?.dispose()
   faultChartInstance?.dispose()
   faultDetailChartInstance?.dispose()
+  brpcSuccessChartInstance?.dispose()
+  brpcSingleChartInstance?.dispose()
+  brpcLatencyChartInstance?.dispose()
+  brpcFaultTimelineChartInstance?.dispose()
+  brpcEventDetailTimelineChartInstance?.dispose()
+  brpcThreadFailureGraphInstance?.dispose()
 })
 </script>
 
@@ -9296,34 +11633,65 @@ onBeforeUnmount(() => {
       <section class="nav-section monitor-nav-section">
         <div class="nav-title">章节导航</div>
         <div class="monitor-nav-list">
-          <button
-            v-if="isFaultCodeFeatureEnabled"
-            class="monitor-nav-item"
-            :class="{ disabled: !selectedAssetId }"
-            type="button"
-            :disabled="!selectedAssetId"
-            @click="openMonitorPage('latency')"
-          >
-            📊 时延故障监控
-          </button>
-          <button
-            class="monitor-nav-item"
-            :class="{ disabled: !selectedAssetId }"
-            type="button"
-            :disabled="!selectedAssetId"
-            @click="openMonitorPage('fault')"
-          >
-            ⚠️ 通断故障监控
-          </button>
-          <button
-            class="monitor-nav-item"
-            :class="{ disabled: !selectedAssetId }"
-            type="button"
-            :disabled="!selectedAssetId"
-            @click="openMonitorPage('brpc')"
-          >
-            🔧 BRPC接口监控
-          </button>
+          <div class="monitor-nav-group">
+            <div class="monitor-nav-group-title">KVCache</div>
+            <div class="monitor-nav-sublist">
+              <button
+                class="monitor-nav-item"
+                :class="{
+                  active: activePage === 'abnormal' && activeMonitorSection === 'latency',
+                  disabled: !selectedAssetId,
+                }"
+                type="button"
+                :disabled="!selectedAssetId"
+                @click="openMonitorPage('latency')"
+              >
+                📊 时延故障监控
+              </button>
+              <button
+                v-if="isFaultCodeFeatureEnabled"
+                class="monitor-nav-item"
+                :class="{
+                  active: activePage === 'abnormal' && activeMonitorSection === 'fault',
+                  disabled: !selectedAssetId,
+                }"
+                type="button"
+                :disabled="!selectedAssetId"
+                @click="openMonitorPage('fault')"
+              >
+                ⚠️ 通断故障监控
+              </button>
+            </div>
+          </div>
+          <div class="monitor-nav-group">
+            <div class="monitor-nav-group-title">BRPC</div>
+            <div class="monitor-nav-sublist">
+              <button
+                class="monitor-nav-item"
+                :class="{
+                  active: activePage === 'abnormal' && activeMonitorSection === 'brpc',
+                  disabled: !selectedAssetId,
+                }"
+                type="button"
+                :disabled="!selectedAssetId"
+                @click="openMonitorPage('brpc')"
+              >
+                🔧 接口监控
+              </button>
+              <button
+                class="monitor-nav-item"
+                :class="{
+                  active: activePage === 'abnormal' && activeMonitorSection === 'brpc-fault',
+                  disabled: !selectedAssetId,
+                }"
+                type="button"
+                :disabled="!selectedAssetId"
+                @click="openMonitorPage('brpc-fault')"
+              >
+                ⚠️ 通断故障监控
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -9585,7 +11953,7 @@ onBeforeUnmount(() => {
       <div v-if="errorMessage" class="error-banner">{{ errorMessage }}</div>
 
       <div v-if="activePage === 'abnormal'" class="monitor-page">
-        <section id="kv-latency" class="monitor-section">
+        <section v-if="activeMonitorProduct === 'kvcache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>时延故障监控</h1>
@@ -9608,9 +11976,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <p class="monitor-sub">
-            24 项指标与总时延曲线，可交互选择展示
-            </p>
+            <p class="monitor-sub">24 项指标与总时延曲线，可交互选择展示</p>
           </header>
 
           <div class="monitor-grid">
@@ -10461,7 +12827,9 @@ onBeforeUnmount(() => {
                           </span>
                         </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id"><span class="trace-id-text">{{ row.traceId }}</span></div>
+                        <div class="aggregate-cell trace-id">
+                          <span class="trace-id-text">{{ row.traceId }}</span>
+                        </div>
                         <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
@@ -10700,7 +13068,11 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-if="isFaultCodeFeatureEnabled" id="kv-fault" class="monitor-section">
+        <section
+          v-if="isFaultCodeFeatureEnabled && activeMonitorProduct === 'kvcache'"
+          id="kv-fault"
+          class="monitor-section"
+        >
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>通断故障监控</h1>
@@ -11803,10 +14175,12 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section id="brpc-monitor" class="monitor-section">
+        <section v-if="activeMonitorProduct === 'brpc'" id="brpc-monitor" class="monitor-section">
           <header class="monitor-header">
-            <h1>BRPC接口监控</h1>
-            <p class="monitor-sub">监控 BRPC profiling 日志中 21 个接口的请求成功率、失败率、时延等指标</p>
+            <h1>接口监控</h1>
+            <p class="monitor-sub">
+              监控 BRPC profiling 日志中 21 个接口的请求成功率、失败率、时延等指标
+            </p>
           </header>
 
           <!-- 日志文件选择器 -->
@@ -11814,12 +14188,14 @@ onBeforeUnmount(() => {
             <span class="brpc-log-label">选择日志文件：</span>
             <select v-model="brpcSelectedLogId" class="brpc-log-select" @change="onBrpcLogChange">
               <option value="">-- 请选择 BRPC 日志文件 --</option>
-              <option v-for="log in brpcLogFiles" :key="log.id" :value="log.id">
+              <option v-for="log in brpcProfilingLogFiles" :key="log.id" :value="log.id">
                 {{ log.name }}
               </option>
             </select>
             <span v-if="brpcDataLoading" class="brpc-loading">加载中...</span>
-            <span class="brpc-log-hint">（每个 BRPC profiling 文件独立解析，以文件名区分；选择要呈现的解析结果）</span>
+            <span class="brpc-log-hint"
+              >（每个 BRPC profiling 文件独立解析，以文件名区分；选择要呈现的解析结果）</span
+            >
           </div>
 
           <!-- 图表1：接口成功率总览 -->
@@ -11829,7 +14205,11 @@ onBeforeUnmount(() => {
                 <span>📈 接口成功率总览</span>
                 <div class="chart-title-actions">
                   <span class="scale-label">指标：</span>
-                  <select v-model="brpcSuccessMetric" class="brpc-metric-select" @change="renderBrpcSuccessChart">
+                  <select
+                    v-model="brpcSuccessMetric"
+                    class="brpc-metric-select"
+                    @change="renderBrpcSuccessChart"
+                  >
                     <option value="successRate">成功率</option>
                     <option value="failureRate">失败率</option>
                     <option value="requestCount">请求数</option>
@@ -11885,8 +14265,14 @@ onBeforeUnmount(() => {
                 <span>📉 单接口成功率监控</span>
                 <div class="chart-title-actions">
                   <span class="scale-label">接口：</span>
-                  <select v-model="brpcSingleIface" class="brpc-metric-select" @change="renderBrpcSingleChart">
-                    <option v-for="iface in brpcInterfaceNames" :key="iface" :value="iface">{{ iface }}</option>
+                  <select
+                    v-model="brpcSingleIface"
+                    class="brpc-metric-select"
+                    @change="renderBrpcSingleChart"
+                  >
+                    <option v-for="iface in brpcInterfaceNames" :key="iface" :value="iface">
+                      {{ iface }}
+                    </option>
                   </select>
                 </div>
               </div>
@@ -11933,8 +14319,14 @@ onBeforeUnmount(() => {
                 <span>⏱️ 时延监控 (µs)</span>
                 <div class="chart-title-actions">
                   <span class="scale-label">指标：</span>
-                  <select v-model="brpcLatencyMetric" class="brpc-metric-select" @change="renderBrpcLatencyChart">
-                    <option v-for="m in brpcLatencyMetrics" :key="m.value" :value="m.value">{{ m.label }}</option>
+                  <select
+                    v-model="brpcLatencyMetric"
+                    class="brpc-metric-select"
+                    @change="renderBrpcLatencyChart"
+                  >
+                    <option v-for="m in brpcLatencyMetrics" :key="m.value" :value="m.value">
+                      {{ m.label }}
+                    </option>
                   </select>
                 </div>
               </div>
@@ -11977,6 +14369,813 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div ref="brpcLatencyChartRef" class="chart-box"></div>
+            </article>
+          </div>
+        </section>
+
+        <section
+          v-if="activeMonitorProduct === 'brpc'"
+          id="brpc-fault-monitor"
+          class="monitor-section"
+        >
+          <header class="monitor-header">
+            <h1>通断故障监控</h1>
+            <p class="monitor-sub">UBSOCKET -> UMQ -> URMA 公共API通断故障</p>
+          </header>
+
+          <div class="monitor-grid">
+            <article class="monitor-card chart-slot">
+              <div class="monitor-card-title">
+                <span>📈 BRPC 公共API故障时序分布</span>
+                <div class="chart-title-actions brpc-fault-chart-actions">
+                  <button
+                    v-if="brpcFaultChartRange"
+                    class="chart-reset-btn"
+                    type="button"
+                    @click="resetBrpcFaultChartRange"
+                  >
+                    重置
+                  </button>
+                  <span class="scale-label">时间尺度：</span>
+                  <label class="latency-percentile-select">
+                    <select v-model="selectedBrpcFaultScale" aria-label="BRPC 故障时间尺度">
+                      <option
+                        v-for="option in latencyScaleOptions"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div v-if="brpcFaultSeriesOptions.length > 0" class="latency-series-toggle">
+                <span class="latency-series-toggle-label">曲线选择：</span>
+                <span class="latency-series-toggle-count">
+                  已选 {{ selectedBrpcFaultSeriesCount }}/{{ brpcFaultSeriesOptions.length }}
+                </span>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-all"
+                  type="button"
+                  @click="selectAllBrpcFaultSeries"
+                >
+                  全选
+                </button>
+                <button
+                  class="latency-series-toggle-btn latency-series-toggle-none"
+                  type="button"
+                  @click="deselectAllBrpcFaultSeries"
+                >
+                  清空
+                </button>
+                <div class="latency-series-options" aria-label="BRPC 公共 API 曲线选择">
+                  <label
+                    v-for="series in brpcFaultSeriesOptions"
+                    :key="series.id"
+                    class="latency-series-checkbox"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isBrpcFaultSeriesVisible(series.id)"
+                      @change="toggleBrpcFaultSeriesVisibility(series.id)"
+                    />
+                    <span
+                      class="latency-series-color-dot"
+                      :style="{ backgroundColor: series.color }"
+                    ></span>
+                    {{ series.label }}
+                  </label>
+                </div>
+              </div>
+              <div class="latency-chart-panel">
+                <div v-if="isBrpcFaultTimelineLoading" class="chart-state">
+                  正在加载 BRPC 公共API故障时序分布...
+                </div>
+                <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
+                  {{ brpcFaultTimelineError }}
+                </div>
+                <div v-else-if="brpcDiagnosisLogFiles.length === 0" class="chart-state">
+                  暂无 BRPC 接口故障数据
+                </div>
+                <div v-else-if="!brpcFaultSelectedLogId" class="chart-state">
+                  请选择 BRPC 日志文件
+                </div>
+                <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
+                  暂无 BRPC 接口故障数时序数据
+                </div>
+                <div
+                  v-else
+                  ref="brpcFaultTimelineRef"
+                  class="echarts-latency-chart"
+                  aria-label="BRPC 公共API故障时序分布"
+                ></div>
+              </div>
+            </article>
+
+            <article class="monitor-card host-slot brpc-event-card">
+              <div class="monitor-card-title aggregate-title">
+                <div class="aggregate-tab-list">
+                  <button
+                    class="aggregate-tab-item"
+                    :class="{ active: activeBrpcFaultTab === 'event' }"
+                    type="button"
+                    @click="setActiveBrpcFaultTab('event')"
+                  >
+                    聚合事件列表
+                  </button>
+                  <button
+                    class="aggregate-tab-item"
+                    :class="{ active: activeBrpcFaultTab === 'thread' }"
+                    type="button"
+                    @click="setActiveBrpcFaultTab('thread')"
+                  >
+                    异常 Thread 列表
+                  </button>
+                </div>
+                <div v-if="activeBrpcFaultTab === 'event'" class="brpc-event-controls">
+                  <label class="latency-stat-select">
+                    <span>聚合指标</span>
+                    <select v-model="brpcEventAggregation" @change="changeBrpcEventAggregation">
+                      <option value="pod">Pod IP</option>
+                      <option value="thread">线程 ID</option>
+                    </select>
+                  </label>
+                  <label class="latency-stat-select">
+                    <span>时间间隔</span>
+                    <select v-model="selectedBrpcEventInterval" @change="changeBrpcEventInterval">
+                      <option value="1h">时</option>
+                      <option value="1m">分</option>
+                      <option value="1s">秒</option>
+                    </select>
+                  </label>
+                </div>
+                <form
+                  v-else
+                  class="brpc-abnormal-thread-search"
+                  role="search"
+                  @submit.prevent="submitBrpcAbnormalThreadSearch"
+                >
+                  <input
+                    v-model="brpcAbnormalThreadSearchInput"
+                    type="search"
+                    maxlength="200"
+                    autocomplete="off"
+                    aria-label="搜索异常 Thread"
+                    placeholder="搜索线程 ID、Pod IP、Pod 名称"
+                  />
+                  <button
+                    class="brpc-abnormal-thread-search-submit"
+                    type="submit"
+                    :disabled="isBrpcAbnormalThreadsLoading"
+                  >
+                    搜索
+                  </button>
+                  <button
+                    v-if="brpcAbnormalThreadSearchInput || brpcAbnormalThreadSearchQuery"
+                    class="brpc-abnormal-thread-search-clear"
+                    type="button"
+                    :disabled="isBrpcAbnormalThreadsLoading"
+                    @click="clearBrpcAbnormalThreadSearch"
+                  >
+                    清空
+                  </button>
+                </form>
+              </div>
+
+              <div v-if="activeBrpcFaultTab === 'event'">
+                <div
+                  class="brpc-aggregate-table-frame"
+                  :class="{
+                    'brpc-aggregate-table-empty':
+                      isBrpcAggregatedEventsLoading ||
+                      !!brpcAggregatedEventsError ||
+                      brpcAggregatedEvents.length === 0,
+                  }"
+                >
+                  <div class="brpc-event-fixed-left">
+                    <div class="brpc-event-primary-left-grid brpc-event-table-header">
+                      <div class="aggregate-cell fault-expand-cell"></div>
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="toggleBrpcAggregatedEventStartTimeSort"
+                      >
+                        <span class="sort-header-content">
+                          开始时间
+                          <span class="sort-icons">
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active': brpcAggregatedEventStartTimeSortOrder === 'asc',
+                              }"
+                              @click.stop="setBrpcAggregatedEventStartTimeSort('asc')"
+                            >
+                              ▲
+                            </span>
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAggregatedEventStartTimeSortOrder === 'desc',
+                              }"
+                              @click.stop="setBrpcAggregatedEventStartTimeSort('desc')"
+                            >
+                              ▼
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="aggregate-cell">结束时间</div>
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="
+                          brpcAggregatedEventMetricSort.handleHeaderClick(BRPC_TOTAL_SORT_FIELD)
+                        "
+                      >
+                        <span class="sort-header-content">
+                          故障总数
+                          <span class="sort-icons">
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAggregatedEventMetricSort.getSortOrder(
+                                    BRPC_TOTAL_SORT_FIELD,
+                                  ) === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAggregatedEventMetricSort.getSortOrder(
+                                    BRPC_TOTAL_SORT_FIELD,
+                                  ) === 'desc',
+                              }"
+                              >▼</span
+                            >
+                            <span
+                              v-if="getBrpcAggregatedEventMetricSortPriority(BRPC_TOTAL_SORT_FIELD)"
+                              class="sort-priority-badge"
+                            >
+                              {{ getBrpcAggregatedEventMetricSortPriority(BRPC_TOTAL_SORT_FIELD) }}
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="brpc-event-scrollbar-offset"></div>
+                    <template v-for="window in brpcEventWindows" :key="`left-${window.key}`">
+                      <div
+                        class="brpc-event-primary-left-grid brpc-event-window-row"
+                        :class="{ 'shared-row-hover': hoveredBrpcEventRowKey === window.key }"
+                        @click="toggleBrpcEventWindow(window.key)"
+                        @mouseenter="hoveredBrpcEventRowKey = window.key"
+                        @mouseleave="hoveredBrpcEventRowKey = ''"
+                      >
+                        <div class="aggregate-cell fault-expand-cell">
+                          <span class="brpc-event-expand-icon">
+                            {{ isBrpcEventWindowExpanded(window.key) ? '🔽' : '▶️' }}
+                          </span>
+                        </div>
+                        <div class="aggregate-cell">{{ window.startTime }}</div>
+                        <div class="aggregate-cell">{{ window.endTime }}</div>
+                        <div class="aggregate-cell count-cell brpc-event-fault-total">
+                          {{ getBrpcEventWindowFaultTotal(window) }}
+                        </div>
+                      </div>
+                      <template v-if="isBrpcEventWindowExpanded(window.key)">
+                        <div
+                          class="brpc-event-secondary-left-grid brpc-event-sub-header"
+                          :class="`brpc-event-secondary-${brpcEventAggregation}`"
+                        >
+                          <div class="aggregate-cell fault-expand-cell"></div>
+                          <div v-if="brpcEventAggregation === 'thread'" class="aggregate-cell">
+                            线程 ID
+                          </div>
+                          <div class="aggregate-cell">Pod IP</div>
+                          <div class="aggregate-cell">Pod 名称</div>
+                          <div class="aggregate-cell">故障总数</div>
+                        </div>
+                        <div
+                          v-for="event in window.events"
+                          :key="`left-${event.event_id}`"
+                          class="brpc-event-secondary-left-grid brpc-event-body-row"
+                          :class="{
+                            [`brpc-event-secondary-${brpcEventAggregation}`]: true,
+                            'shared-row-hover': hoveredBrpcEventRowKey === event.event_id,
+                          }"
+                          @mouseenter="hoveredBrpcEventRowKey = event.event_id"
+                          @mouseleave="hoveredBrpcEventRowKey = ''"
+                        >
+                          <div class="aggregate-cell fault-expand-cell"></div>
+                          <div
+                            v-if="brpcEventAggregation === 'thread'"
+                            class="aggregate-cell count-cell"
+                          >
+                            {{ event.thread_id ?? '-' }}
+                          </div>
+                          <div class="aggregate-cell" :title="event.pod_ip">{{ event.pod_ip }}</div>
+                          <div class="aggregate-cell" :title="event.pod_name || '-'">
+                            {{ event.pod_name || '-' }}
+                          </div>
+                          <div class="aggregate-cell count-cell brpc-event-fault-total">
+                            {{ getBrpcEventFaultTotal(event) }}
+                          </div>
+                        </div>
+                      </template>
+                    </template>
+                  </div>
+
+                  <div
+                    v-if="brpcEventInterfaceColumns.length > 0"
+                    class="brpc-event-interface-scroll"
+                  >
+                    <div
+                      class="brpc-event-interface-head brpc-event-interface-sync"
+                      @scroll="syncBrpcEventInterfaceScroll"
+                    >
+                      <div
+                        class="brpc-event-interface-grid brpc-event-table-header"
+                        :style="brpcEventInterfaceGridStyle"
+                      >
+                        <div
+                          v-for="column in brpcEventInterfaceColumns"
+                          :key="column.interface_id"
+                          class="aggregate-cell brpc-interface-header-cell brpc-interface-sortable-cell aggregate-sortable-cell"
+                          :title="`${column.component} / ${getBrpcInterfaceDisplayName(column)}`"
+                          @click.stop="
+                            brpcAggregatedEventMetricSort.handleHeaderClick(column.interface_id)
+                          "
+                        >
+                          <template v-if="column.interface_id !== BRPC_UNRESOLVED_INTERFACE_ID">
+                            <small class="brpc-interface-header-component">
+                              {{ column.component }}
+                            </small>
+                            <span class="brpc-interface-header-name">
+                              {{ column.interface_name }}
+                            </span>
+                            <code class="brpc-interface-header-function">
+                              {{ column.function_name }}
+                            </code>
+                          </template>
+                          <span v-else>{{ column.interface_name }}</span>
+                          <span class="sort-icons">
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAggregatedEventMetricSort.getSortOrder(
+                                    column.interface_id,
+                                  ) === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAggregatedEventMetricSort.getSortOrder(
+                                    column.interface_id,
+                                  ) === 'desc',
+                              }"
+                              >▼</span
+                            >
+                            <span
+                              v-if="getBrpcAggregatedEventMetricSortPriority(column.interface_id)"
+                              class="sort-priority-badge"
+                            >
+                              {{ getBrpcAggregatedEventMetricSortPriority(column.interface_id) }}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      class="brpc-event-interface-scrollbar brpc-event-interface-sync"
+                      @scroll="syncBrpcEventInterfaceScroll"
+                    >
+                      <div
+                        class="brpc-event-interface-scrollbar-spacer"
+                        :style="{ width: brpcEventInterfaceGridStyle.width }"
+                      ></div>
+                    </div>
+                    <div
+                      class="brpc-event-interface-body brpc-event-interface-sync"
+                      @scroll="syncBrpcEventInterfaceScroll"
+                    >
+                      <template v-for="window in brpcEventWindows" :key="`interface-${window.key}`">
+                        <div
+                          class="brpc-event-interface-grid brpc-event-body-row brpc-event-scroll-window-row"
+                          :class="{ 'shared-row-hover': hoveredBrpcEventRowKey === window.key }"
+                          :style="brpcEventInterfaceGridStyle"
+                          @click="toggleBrpcEventWindow(window.key)"
+                          @mouseenter="hoveredBrpcEventRowKey = window.key"
+                          @mouseleave="hoveredBrpcEventRowKey = ''"
+                        >
+                          <div
+                            v-for="column in brpcEventInterfaceColumns"
+                            :key="`window-${window.key}-${column.interface_id}`"
+                            class="aggregate-cell count-cell"
+                            :class="{
+                              'anomaly-count':
+                                getBrpcEventWindowInterfaceCount(window, column.interface_id) > 0,
+                            }"
+                          >
+                            {{ getBrpcEventWindowInterfaceCount(window, column.interface_id) }}
+                          </div>
+                        </div>
+                        <template v-if="isBrpcEventWindowExpanded(window.key)">
+                          <div
+                            class="brpc-event-interface-grid brpc-event-sub-header"
+                            :style="brpcEventInterfaceGridStyle"
+                          >
+                            <div
+                              v-for="column in brpcEventInterfaceColumns"
+                              :key="`sub-${window.key}-${column.interface_id}`"
+                              class="aggregate-cell"
+                            >
+                              {{ column.function_name || column.interface_name }}
+                            </div>
+                          </div>
+                          <div
+                            v-for="event in window.events"
+                            :key="`interface-${event.event_id}`"
+                            class="brpc-event-interface-grid brpc-event-body-row"
+                            :class="{
+                              'shared-row-hover': hoveredBrpcEventRowKey === event.event_id,
+                            }"
+                            :style="brpcEventInterfaceGridStyle"
+                            @mouseenter="hoveredBrpcEventRowKey = event.event_id"
+                            @mouseleave="hoveredBrpcEventRowKey = ''"
+                          >
+                            <div
+                              v-for="column in brpcEventInterfaceColumns"
+                              :key="`${event.event_id}-${column.interface_id}`"
+                              class="aggregate-cell count-cell"
+                              :class="{
+                                'anomaly-count':
+                                  getBrpcEventInterfaceCount(event, column.interface_id) > 0,
+                              }"
+                            >
+                              {{ getBrpcEventInterfaceCount(event, column.interface_id) }}
+                            </div>
+                          </div>
+                        </template>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="brpc-event-fixed-actions">
+                    <div class="aggregate-cell brpc-event-table-header">聚合事件分析</div>
+                    <div class="brpc-event-scrollbar-offset"></div>
+                    <template v-for="window in brpcEventWindows" :key="`action-${window.key}`">
+                      <div
+                        class="aggregate-cell brpc-event-action-window-row"
+                        :class="{ 'shared-row-hover': hoveredBrpcEventRowKey === window.key }"
+                        @click="toggleBrpcEventWindow(window.key)"
+                        @mouseenter="hoveredBrpcEventRowKey = window.key"
+                        @mouseleave="hoveredBrpcEventRowKey = ''"
+                      >
+                        <span class="metric-action-hint">展开查看事件</span>
+                      </div>
+                      <template v-if="isBrpcEventWindowExpanded(window.key)">
+                        <div class="aggregate-cell brpc-event-sub-header">操作</div>
+                        <div
+                          v-for="event in window.events"
+                          :key="`action-${event.event_id}`"
+                          class="aggregate-cell brpc-event-action-row"
+                          :class="{
+                            'shared-row-hover': hoveredBrpcEventRowKey === event.event_id,
+                          }"
+                          @mouseenter="hoveredBrpcEventRowKey = event.event_id"
+                          @mouseleave="hoveredBrpcEventRowKey = ''"
+                        >
+                          <button
+                            class="metric-action-btn detail-action-btn"
+                            type="button"
+                            @click="openBrpcEventDetail(event)"
+                          >
+                            📄详情
+                          </button>
+                          <button
+                            class="metric-action-btn"
+                            type="button"
+                            @click="openBrpcFilterDialog(event)"
+                          >
+                            ➕筛选
+                          </button>
+                        </div>
+                      </template>
+                    </template>
+                  </div>
+
+                  <div v-if="isBrpcAggregatedEventsLoading" class="brpc-event-table-state">
+                    正在加载 BRPC 聚合事件列表...
+                  </div>
+                  <div
+                    v-else-if="brpcAggregatedEventsError"
+                    class="brpc-event-table-state chart-error"
+                  >
+                    {{ brpcAggregatedEventsError }}
+                  </div>
+                  <div v-else-if="brpcAggregatedEvents.length === 0" class="brpc-event-table-state">
+                    暂无聚合事件数据
+                  </div>
+                </div>
+
+                <div v-if="brpcAggregatedEventTotal > 0" class="aggregate-pagination">
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="brpcAggregatedEventPage <= 1 || isBrpcAggregatedEventsLoading"
+                    @click="goBrpcAggregatedEventPage(brpcAggregatedEventPage - 1)"
+                  >
+                    上一页
+                  </button>
+                  <span class="pagination-pages" aria-label="BRPC 聚合事件页码">
+                    <button
+                      v-for="pageNum in brpcAggregatedEventPageWindow"
+                      :key="`brpc-event-page-${pageNum}`"
+                      class="pagination-page-btn"
+                      :class="{
+                        active: pageNum === brpcAggregatedEventPage,
+                        ellipsis: pageNum < 0,
+                      }"
+                      type="button"
+                      :disabled="
+                        pageNum < 0 ||
+                        pageNum === brpcAggregatedEventPage ||
+                        isBrpcAggregatedEventsLoading
+                      "
+                      @click="pageNum > 0 && goBrpcAggregatedEventPage(pageNum)"
+                    >
+                      {{ pageNum < 0 ? '…' : pageNum }}
+                    </button>
+                  </span>
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="
+                      brpcAggregatedEventPage >= brpcAggregatedEventPageCount ||
+                      isBrpcAggregatedEventsLoading
+                    "
+                    @click="goBrpcAggregatedEventPage(brpcAggregatedEventPage + 1)"
+                  >
+                    下一页
+                  </button>
+                  <span class="pagination-summary">
+                    共 {{ brpcAggregatedEventTotal }} 条，第 {{ brpcAggregatedEventPage }} /
+                    {{ brpcAggregatedEventPageCount }} 页
+                  </span>
+                </div>
+              </div>
+
+              <div v-else>
+                <div
+                  class="brpc-abnormal-thread-table"
+                  :class="{
+                    'brpc-abnormal-thread-table-empty':
+                      isBrpcAbnormalThreadsLoading ||
+                      !!brpcAbnormalThreadsError ||
+                      brpcAbnormalThreads.length === 0,
+                  }"
+                >
+                  <div class="brpc-abnormal-thread-fixed-left">
+                    <div class="brpc-abnormal-thread-grid brpc-event-table-header">
+                      <div class="aggregate-cell">线程 ID</div>
+                      <div class="aggregate-cell">Pod IP</div>
+                      <div class="aggregate-cell">Pod 名称</div>
+                      <div
+                        class="aggregate-cell aggregate-sortable-cell"
+                        @click="
+                          brpcAbnormalThreadMetricSort.handleHeaderClick(BRPC_TOTAL_SORT_FIELD)
+                        "
+                      >
+                        <span class="sort-header-content">
+                          故障总数
+                          <span class="sort-icons">
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAbnormalThreadMetricSort.getSortOrder(
+                                    BRPC_TOTAL_SORT_FIELD,
+                                  ) === 'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAbnormalThreadMetricSort.getSortOrder(
+                                    BRPC_TOTAL_SORT_FIELD,
+                                  ) === 'desc',
+                              }"
+                              >▼</span
+                            >
+                            <span
+                              v-if="getBrpcAbnormalThreadMetricSortPriority(BRPC_TOTAL_SORT_FIELD)"
+                              class="sort-priority-badge"
+                            >
+                              {{ getBrpcAbnormalThreadMetricSortPriority(BRPC_TOTAL_SORT_FIELD) }}
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="brpc-event-scrollbar-offset"></div>
+                    <div
+                      v-for="thread in brpcAbnormalThreads"
+                      :key="thread.thread_key"
+                      class="brpc-abnormal-thread-grid brpc-event-body-row"
+                    >
+                      <div class="aggregate-cell count-cell">
+                        <span class="brpc-detail-thread-id">{{ thread.thread_id }}</span>
+                      </div>
+                      <div class="aggregate-cell" :title="thread.pod_ip">{{ thread.pod_ip }}</div>
+                      <div class="aggregate-cell" :title="thread.pod_name || '-'">
+                        {{ thread.pod_name || '-' }}
+                      </div>
+                      <div class="aggregate-cell count-cell brpc-abnormal-thread-total">
+                        {{ thread.total_interface_hit_count }}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    v-if="brpcAbnormalThreadInterfaceColumns.length > 0"
+                    class="brpc-abnormal-thread-interface-scroll"
+                  >
+                    <div
+                      class="brpc-abnormal-thread-interface-head brpc-abnormal-thread-interface-sync"
+                      @scroll="syncBrpcAbnormalThreadInterfaceScroll"
+                    >
+                      <div
+                        class="brpc-abnormal-thread-interface-grid brpc-event-table-header"
+                        :style="brpcAbnormalThreadInterfaceGridStyle"
+                      >
+                        <div
+                          v-for="column in brpcAbnormalThreadInterfaceColumns"
+                          :key="column.interface_id"
+                          class="aggregate-cell brpc-interface-header-cell brpc-interface-sortable-cell aggregate-sortable-cell"
+                          :title="`${column.component} / ${getBrpcInterfaceDisplayName(column)}`"
+                          @click.stop="
+                            brpcAbnormalThreadMetricSort.handleHeaderClick(column.interface_id)
+                          "
+                        >
+                          <template v-if="column.interface_id !== BRPC_UNRESOLVED_INTERFACE_ID">
+                            <small class="brpc-interface-header-component">
+                              {{ column.component }}
+                            </small>
+                            <span class="brpc-interface-header-name">
+                              {{ column.interface_name }}
+                            </span>
+                            <code class="brpc-interface-header-function">
+                              {{ column.function_name }}
+                            </code>
+                          </template>
+                          <span v-else>{{ column.interface_name }}</span>
+                          <span class="sort-icons">
+                            <span
+                              class="sort-icon-up"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAbnormalThreadMetricSort.getSortOrder(column.interface_id) ===
+                                  'asc',
+                              }"
+                              >▲</span
+                            >
+                            <span
+                              class="sort-icon-down"
+                              :class="{
+                                'sort-icon-active':
+                                  brpcAbnormalThreadMetricSort.getSortOrder(column.interface_id) ===
+                                  'desc',
+                              }"
+                              >▼</span
+                            >
+                            <span
+                              v-if="getBrpcAbnormalThreadMetricSortPriority(column.interface_id)"
+                              class="sort-priority-badge"
+                            >
+                              {{ getBrpcAbnormalThreadMetricSortPriority(column.interface_id) }}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      class="brpc-event-interface-scrollbar brpc-abnormal-thread-interface-sync"
+                      @scroll="syncBrpcAbnormalThreadInterfaceScroll"
+                    >
+                      <div
+                        class="brpc-event-interface-scrollbar-spacer"
+                        :style="{ width: brpcAbnormalThreadInterfaceGridStyle.width }"
+                      ></div>
+                    </div>
+                    <div
+                      class="brpc-abnormal-thread-interface-body brpc-abnormal-thread-interface-sync"
+                      @scroll="syncBrpcAbnormalThreadInterfaceScroll"
+                    >
+                      <div
+                        v-for="thread in brpcAbnormalThreads"
+                        :key="`interface-${thread.thread_key}`"
+                        class="brpc-abnormal-thread-interface-grid brpc-event-body-row"
+                        :style="brpcAbnormalThreadInterfaceGridStyle"
+                      >
+                        <div
+                          v-for="column in brpcAbnormalThreadInterfaceColumns"
+                          :key="`${thread.thread_key}-${column.interface_id}`"
+                          class="aggregate-cell count-cell"
+                          :class="{
+                            'brpc-abnormal-thread-positive-count':
+                              getBrpcAbnormalThreadInterfaceCount(thread, column.interface_id) > 0,
+                          }"
+                        >
+                          {{ getBrpcAbnormalThreadInterfaceCount(thread, column.interface_id) }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="brpc-abnormal-thread-fixed-actions">
+                    <div class="aggregate-cell brpc-event-table-header">Thread分析</div>
+                    <div class="brpc-event-scrollbar-offset"></div>
+                    <div
+                      v-for="thread in brpcAbnormalThreads"
+                      :key="`action-${thread.thread_key}`"
+                      class="aggregate-cell brpc-abnormal-thread-actions"
+                    >
+                      <button
+                        class="metric-action-btn detail-action-btn"
+                        type="button"
+                        @click="openBrpcAbnormalThreadDetail(thread)"
+                      >
+                        📄详情
+                      </button>
+                      <button
+                        class="metric-action-btn"
+                        type="button"
+                        @click="openBrpcFilterDialog(thread)"
+                      >
+                        ➕筛选
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="isBrpcAbnormalThreadsLoading" class="brpc-event-table-state">
+                    正在加载异常 Thread 列表...
+                  </div>
+                  <div
+                    v-else-if="brpcAbnormalThreadsError"
+                    class="brpc-event-table-state chart-error"
+                  >
+                    {{ brpcAbnormalThreadsError }}
+                  </div>
+                  <div v-else-if="brpcAbnormalThreads.length === 0" class="brpc-event-table-state">
+                    暂无异常 Thread 数据
+                  </div>
+                </div>
+                <div v-if="brpcAbnormalThreadTotal > 0" class="aggregate-pagination">
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="brpcAbnormalThreadPage <= 1 || isBrpcAbnormalThreadsLoading"
+                    @click="goBrpcAbnormalThreadPage(brpcAbnormalThreadPage - 1)"
+                  >
+                    上一页
+                  </button>
+                  <span class="pagination-pages" aria-label="异常 Thread 页码">
+                    <button
+                      v-for="pageNum in brpcAbnormalThreadPageWindow"
+                      :key="`brpc-thread-page-${pageNum}`"
+                      class="pagination-page-btn"
+                      :class="{ active: pageNum === brpcAbnormalThreadPage, ellipsis: pageNum < 0 }"
+                      type="button"
+                      :disabled="
+                        pageNum < 0 ||
+                        pageNum === brpcAbnormalThreadPage ||
+                        isBrpcAbnormalThreadsLoading
+                      "
+                      @click="pageNum > 0 && goBrpcAbnormalThreadPage(pageNum)"
+                    >
+                      {{ pageNum < 0 ? '…' : pageNum }}
+                    </button>
+                  </span>
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="
+                      brpcAbnormalThreadPage >= brpcAbnormalThreadPageCount ||
+                      isBrpcAbnormalThreadsLoading
+                    "
+                    @click="goBrpcAbnormalThreadPage(brpcAbnormalThreadPage + 1)"
+                  >
+                    下一页
+                  </button>
+                  <span class="pagination-summary">共 {{ brpcAbnormalThreadTotal }} 条</span>
+                </div>
+              </div>
             </article>
           </div>
         </section>
@@ -12057,21 +15256,11 @@ onBeforeUnmount(() => {
             <div class="log-type-selector">
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
-                <input
-                  type="radio"
-                  v-model="logType"
-                  value="kv-cache"
-                  :disabled="isUploadingLog"
-                />
+                <input type="radio" v-model="logType" value="kv-cache" :disabled="isUploadingLog" />
                 <span>kv-cache</span>
               </label>
               <label class="log-type-option">
-                <input
-                  type="radio"
-                  v-model="logType"
-                  value="brpc"
-                  :disabled="isUploadingLog"
-                />
+                <input type="radio" v-model="logType" value="brpc" :disabled="isUploadingLog" />
                 <span>brpc</span>
               </label>
             </div>
@@ -12119,20 +15308,30 @@ onBeforeUnmount(() => {
                 <div class="log-file-summary">
                   <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
                   <span class="log-file-meta">
-                    <span class="log-file-time">创建时间：{{ displayLocalTime(file.created_at) }}</span>
+                    <span class="log-file-time"
+                      >创建时间：{{ displayLocalTime(file.created_at) }}</span
+                    >
                     <span
                       class="status-badge"
                       :class="statusBadgeClass(getLogFileTaskStatus(file))"
                       >{{ statusLabel(getLogFileTaskStatus(file)) }}</span
                     >
                     <span
-                      v-if="isSuccessfulLogFileTask(file) && isLogFileDetailLoaded(file)"
+                      v-if="
+                        isSuccessfulLogFileTask(file) &&
+                        isLogFileDetailLoaded(file) &&
+                        shouldShowLogFileLatencyAnomalyCount(file)
+                      "
                       class="anomaly-badge"
                       :class="getLogFileAnomalyCountClass(file)"
                       >{{ getLogFileAnomalyCountText(file) }}</span
                     >
                     <span
-                      v-if="isSuccessfulLogFileTask(file) && isLogFileDetailLoaded(file)"
+                      v-if="
+                        isSuccessfulLogFileTask(file) &&
+                        isLogFileDetailLoaded(file) &&
+                        shouldShowLogFileConnectionAnomalyCount(file)
+                      "
                       class="anomaly-badge"
                       :class="getLogFileTraceFailureEventCountClass(file)"
                       >{{ getLogFileTraceFailureEventCountText(file) }}</span
@@ -12255,6 +15454,405 @@ onBeforeUnmount(() => {
 
       <div v-else class="empty-detail empty-detail-prompt">请添加资产库，上传路径进行日志解析</div>
     </main>
+
+    <div
+      v-if="isBrpcEventDetailOpen"
+      class="side-drawer-mask"
+      role="dialog"
+      aria-modal="true"
+      aria-label="聚合事件详情"
+      @click.self="closeBrpcEventDetail"
+    >
+      <aside class="side-drawer aggregate-event-detail-drawer brpc-event-detail-drawer">
+        <header class="side-drawer-header">
+          <div class="side-drawer-title">
+            <h2>聚合事件详情</h2>
+            <span>{{ brpcEventDetailDescription }}</span>
+          </div>
+          <button class="close-modal" type="button" title="关闭" @click="closeBrpcEventDetail">
+            x
+          </button>
+        </header>
+        <div class="side-drawer-body">
+          <div v-if="isBrpcEventDetailLoading" class="brpc-detail-loading">
+            正在加载聚合事件详情...
+          </div>
+          <div v-else-if="brpcEventDetailError" class="dialog-error">
+            {{ brpcEventDetailError }}
+          </div>
+          <template v-else-if="selectedBrpcEventDetail">
+            <section class="brpc-detail-total-section">
+              <div class="aggregate-detail-metrics brpc-detail-metrics">
+                <div
+                  v-for="item in brpcEventDetailComponentCounts"
+                  :key="`brpc-detail-metric-${item.key}`"
+                  class="aggregate-detail-metric"
+                >
+                  <span>{{ item.label }}</span>
+                  <span
+                    class="metric-number"
+                    :class="item.key === 'all' ? 'metric-number-red' : 'metric-number-blue'"
+                  >
+                    {{ item.count }}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <section class="brpc-detail-section">
+              <div class="brpc-detail-section-heading">
+                <div>
+                  <h3>BRPC 公共API故障时序分布</h3>
+                </div>
+              </div>
+              <div class="brpc-detail-chart-panel">
+                <div v-if="!hasBrpcEventDetailTimelineData" class="brpc-detail-empty">
+                  暂无接口故障时序数据
+                </div>
+                <div
+                  v-else
+                  ref="brpcEventDetailTimelineRef"
+                  class="brpc-detail-timeline-chart"
+                  role="img"
+                  aria-label="BRPC 公共API故障时序分布"
+                ></div>
+              </div>
+            </section>
+
+            <section class="brpc-detail-section">
+              <div class="brpc-detail-section-heading">
+                <div>
+                  <h3>异常 Thread 列表</h3>
+                  <span class="brpc-detail-count">{{ brpcEventDetailThreads.length }} 条</span>
+                </div>
+              </div>
+              <div class="brpc-detail-thread-table-wrap">
+                <table class="brpc-detail-thread-table">
+                  <thead>
+                    <tr>
+                      <th>线程 ID</th>
+                      <th>Pod IP</th>
+                      <th>Pod 名称</th>
+                      <th>故障数</th>
+                      <th class="brpc-detail-thread-action">Thread分析</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="thread in brpcEventDetailThreads" :key="thread.thread_key">
+                      <td>
+                        <span class="brpc-detail-thread-id">{{ thread.thread_id }}</span>
+                      </td>
+                      <td>{{ thread.pod_ip }}</td>
+                      <td>{{ thread.pod_name || '-' }}</td>
+                      <td class="brpc-detail-thread-count">
+                        {{ thread.total_interface_hit_count }}
+                      </td>
+                      <td class="brpc-detail-thread-action">
+                        <button
+                          class="metric-action-btn detail-action-btn"
+                          type="button"
+                          @click="openBrpcAbnormalThreadDetail(thread)"
+                        >
+                          📄详情
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="brpcEventDetailThreads.length === 0">
+                      <td colspan="5" class="brpc-detail-table-empty">暂无异常 Thread</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </template>
+        </div>
+      </aside>
+    </div>
+
+    <div
+      v-if="isBrpcAbnormalThreadDetailOpen"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="异常 Thread 详情"
+    >
+      <section class="modal-content trace-modal-content brpc-thread-detail-modal">
+        <header class="modal-header">
+          <h2>🧵 线程 ID：{{ activeBrpcAbnormalThread?.thread_id }}</h2>
+          <button
+            class="close-modal"
+            type="button"
+            title="关闭"
+            @click="closeBrpcAbnormalThreadDetail"
+          >
+            x
+          </button>
+        </header>
+        <div class="modal-body trace-modal-body">
+          <section>
+            <h3 class="trace-section-title">📋 运行日志</h3>
+            <div class="trace-log-list">
+              <div v-if="isBrpcAbnormalThreadHitsLoading" class="trace-empty">
+                正在加载运行日志...
+              </div>
+              <div v-else-if="brpcAbnormalThreadHitsError" class="trace-empty metric-table-error">
+                {{ brpcAbnormalThreadHitsError }}
+              </div>
+              <div v-else-if="sortedBrpcAbnormalThreadHits.length === 0" class="trace-empty">
+                暂无运行日志
+              </div>
+              <div v-else class="trace-raw-log-table-wrapper">
+                <table class="trace-raw-log-table brpc-thread-log-table">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>Pod IP</th>
+                      <th>Pod 名称</th>
+                      <th>组件</th>
+                      <th>文件</th>
+                      <th>函数</th>
+                      <th>行号</th>
+                      <th>日志正文</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="hit in sortedBrpcAbnormalThreadHits"
+                      :key="hit.hit_id"
+                      :class="{ 'log-failure-mode': !!hit.failure_mode_id }"
+                    >
+                      <td :title="hit.time">{{ hit.time }}</td>
+                      <td :title="hit.pod_ip || '-'">{{ hit.pod_ip || '-' }}</td>
+                      <td :title="hit.pod_name || '-'">{{ hit.pod_name || '-' }}</td>
+                      <td :title="hit.component || '-'">{{ hit.component || '-' }}</td>
+                      <td :title="hit.filename || '-'">{{ hit.filename || '-' }}</td>
+                      <td :title="hit.function_name || '-'">{{ hit.function_name || '-' }}</td>
+                      <td>{{ hit.line_number ?? '-' }}</td>
+                      <td class="brpc-thread-log-message" :title="hit.message">
+                        {{ hit.message || '-' }}
+                        <button
+                          v-if="hit.failure_mode_id"
+                          type="button"
+                          class="failure-mode-tag trace-message-failure-mode"
+                          :class="{
+                            active: selectedBrpcThreadGraphNodeId === hit.failure_mode_id,
+                          }"
+                          @click="selectBrpcThreadGraphNode(hit.failure_mode_id)"
+                        >
+                          🔴 {{ getBrpcThreadFailureModeLabel(hit.failure_mode_id) }}
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="brpc-thread-failure-graph-section">
+            <div class="brpc-thread-failure-graph-heading">
+              <h3 class="trace-section-title">🕸️ 故障模式视图</h3>
+              <div class="brpc-thread-failure-graph-legend" aria-label="故障模式视图图例">
+                <span><i class="interface"></i>接口节点</span>
+                <span><i class="failure-mode"></i>故障模式节点</span>
+                <span><i class="edge"></i>组件内关系</span>
+                <span><i class="edge cross-component"></i>跨组件关系</span>
+                <span class="brpc-thread-failure-graph-hint">可拖拽、缩放，点击节点查看详情</span>
+              </div>
+            </div>
+            <div v-if="isBrpcAbnormalThreadDetailLoading" class="brpc-thread-failure-graph-state">
+              正在加载故障模式视图...
+            </div>
+            <div
+              v-else-if="brpcAbnormalThreadDetailError"
+              class="brpc-thread-failure-graph-state error"
+            >
+              {{ brpcAbnormalThreadDetailError }}
+            </div>
+            <div
+              v-else-if="!selectedBrpcAbnormalThreadDetail?.failure_graph.nodes.length"
+              class="brpc-thread-failure-graph-state"
+            >
+              当前 Thread 暂无命中的故障模式子图
+            </div>
+            <div v-else class="brpc-thread-failure-graph-viewport">
+              <div
+                ref="brpcThreadFailureGraphRef"
+                class="brpc-thread-failure-graph"
+                :style="{
+                  width: `max(100%, ${brpcThreadFailureGraphWidth}px)`,
+                  height: `${brpcThreadFailureGraphHeight}px`,
+                }"
+                role="img"
+                aria-label="当前 Thread 命中的故障模式 DAG 子图"
+              ></div>
+            </div>
+          </section>
+
+          <section
+            ref="brpcThreadFailureModeDetailRef"
+            class="brpc-thread-failure-mode-detail-section"
+          >
+            <h3 class="trace-section-title">🗃️ 故障模式详情</h3>
+            <div v-if="isBrpcAbnormalThreadDetailLoading" class="trace-fault-detail-list">
+              <div class="trace-fault-detail-item trace-fault-detail-wide">
+                <span class="trace-fault-detail-value">正在加载故障模式信息...</span>
+              </div>
+            </div>
+            <div v-else-if="brpcAbnormalThreadDetailError" class="dialog-error">
+              {{ brpcAbnormalThreadDetailError }}
+            </div>
+            <div v-else-if="!selectedBrpcThreadGraphNode" class="failure-mode-chain-list">
+              <div class="failure-mode-chain-item">
+                <div class="failure-mode-chain-detail">
+                  <span class="trace-fault-detail-value">
+                    点击上方故障模式视图节点或运行日志中的故障模式标签查看详情
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="failure-mode-chain-list">
+              <div class="failure-mode-chain-item">
+                <div class="failure-mode-chain-header">
+                  <span class="failure-mode-chain-id">
+                    {{ selectedBrpcThreadGraphNode.node_id }}
+                  </span>
+                  <span
+                    class="brpc-thread-node-type"
+                    :class="selectedBrpcThreadGraphNode.node_type"
+                  >
+                    {{
+                      selectedBrpcThreadGraphNode.node_type === 'interface'
+                        ? '接口节点'
+                        : '故障模式'
+                    }}
+                  </span>
+                  <span class="failure-mode-chain-name">
+                    {{ selectedBrpcThreadGraphNode.name || '-' }}
+                  </span>
+                  <span class="brpc-failure-error-code">
+                    错误码：{{ selectedBrpcThreadGraphNode.error_code ?? '-' }}
+                  </span>
+                </div>
+                <div class="failure-mode-chain-detail">
+                  <div class="trace-fault-detail-list">
+                    <div class="trace-fault-detail-item">
+                      <span class="trace-fault-detail-label">函数名</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedBrpcThreadGraphNode.function_name || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item">
+                      <span class="trace-fault-detail-label">对应接口名</span>
+                      <span class="trace-fault-detail-value">
+                        {{ getBrpcThreadGraphNodeInterfaceNames(selectedBrpcThreadGraphNode) }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">故障表现</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedBrpcThreadGraphNode.phenomenon || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">故障根因</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedBrpcThreadGraphNode.cause || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">解决方法</span>
+                      <span class="trace-fault-detail-value">
+                        {{ selectedBrpcThreadGraphNode.solution || '-' }}
+                      </span>
+                    </div>
+                    <div class="trace-fault-detail-item trace-fault-detail-wide">
+                      <span class="trace-fault-detail-label">子故障</span>
+                      <span
+                        v-if="selectedBrpcThreadChildFailureModes.length === 0"
+                        class="trace-fault-detail-value"
+                      >
+                        -
+                      </span>
+                      <div v-else class="trace-sub-fault-block">
+                        <div class="trace-sub-fault-list">
+                          <button
+                            v-for="child in selectedBrpcThreadChildFailureModes"
+                            :key="child.node_id"
+                            type="button"
+                            class="trace-sub-fault"
+                            :class="{
+                              active: selectedBrpcThreadChildFailureModeId === child.node_id,
+                            }"
+                            @click="selectedBrpcThreadChildFailureModeId = child.node_id"
+                          >
+                            {{ child.name || child.node_id }}
+                          </button>
+                        </div>
+                        <div
+                          v-if="selectedBrpcThreadChildFailureMode"
+                          class="trace-sub-fault-detail"
+                        >
+                          <div class="trace-fault-detail-list">
+                            <div
+                              class="trace-fault-detail-item trace-fault-detail-wide brpc-child-fault-name-row"
+                            >
+                              <div>
+                                <span class="trace-fault-detail-label">故障名称</span>
+                                <span class="trace-fault-detail-value">
+                                  {{ selectedBrpcThreadChildFailureMode.name || '-' }}
+                                </span>
+                              </div>
+                              <span class="brpc-failure-error-code">
+                                错误码：{{ selectedBrpcThreadChildFailureMode.error_code ?? '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item">
+                              <span class="trace-fault-detail-label">函数名</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedBrpcThreadChildFailureMode.function_name || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item">
+                              <span class="trace-fault-detail-label">对应接口名</span>
+                              <span class="trace-fault-detail-value">
+                                {{
+                                  getBrpcThreadGraphNodeInterfaceNames(
+                                    selectedBrpcThreadChildFailureMode,
+                                  )
+                                }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item trace-fault-detail-wide">
+                              <span class="trace-fault-detail-label">故障表现</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedBrpcThreadChildFailureMode.phenomenon || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item trace-fault-detail-wide">
+                              <span class="trace-fault-detail-label">故障根因</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedBrpcThreadChildFailureMode.cause || '-' }}
+                              </span>
+                            </div>
+                            <div class="trace-fault-detail-item trace-fault-detail-wide">
+                              <span class="trace-fault-detail-label">解决方法</span>
+                              <span class="trace-fault-detail-value">
+                                {{ selectedBrpcThreadChildFailureMode.solution || '-' }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
 
     <div v-if="dialog.open" class="modal" role="dialog" aria-modal="true">
       <form class="modal-content" @submit.prevent="saveDialog">
@@ -12672,6 +16270,45 @@ onBeforeUnmount(() => {
           <button class="save-btn" type="button" @click="confirmFaultAggregatedPodIpFilterDialog">
             确定
           </button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="brpcFilterDialog.open" class="modal" role="dialog" aria-modal="true">
+      <section class="modal-content filter-modal">
+        <header class="modal-header">
+          <h2>🔍 添加筛选条件</h2>
+          <button class="close-modal" type="button" title="关闭" @click="closeBrpcFilterDialog">
+            x
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <div class="filter-bar-list">
+            <div class="filter-bar">
+              <div class="filter-bar-info">
+                <span class="filter-bar-label">Pod IP</span>
+                <span class="filter-bar-value">{{
+                  brpcFilterDialog.target?.pod_ip || 'null'
+                }}</span>
+              </div>
+              <div class="filter-bar-options">
+                <label class="trace-filter-option">
+                  <input
+                    v-model="brpcFilterDialog.addPodIp"
+                    type="checkbox"
+                    :disabled="!isTraceFilterValueAvailable(brpcFilterDialog.target?.pod_ip)"
+                  />
+                  <span>添加到Pod IP</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="modal-actions">
+          <button class="ghost-btn" type="button" @click="closeBrpcFilterDialog">取消</button>
+          <button class="save-btn" type="button" @click="confirmBrpcFilterDialog">确定</button>
         </footer>
       </section>
     </div>
@@ -13937,222 +17574,227 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="side-drawer-body parse-config-drawer-body">
-          <div v-if="diagnosisConfigError" class="diagnosis-config-error" role="alert">
-            {{ diagnosisConfigError }}
+          <div v-if="logType === 'brpc'" class="parse-config-unsupported" role="status">
+            BRPC 暂时不支持解析配置
           </div>
-          <div v-if="isDiagnosisConfigLoading" class="diagnosis-config-loading">
-            正在读取当前配置...
-          </div>
-
-          <section v-show="!isDiagnosisConfigLoading" class="config-import-section">
-            <div class="config-import-copy">
-              <strong>导入其他资产库配置</strong>
-              <span>导入后仅填充当前表单，点击“保存配置”后才会应用到当前资产库。</span>
+          <template v-else>
+            <div v-if="diagnosisConfigError" class="diagnosis-config-error" role="alert">
+              {{ diagnosisConfigError }}
             </div>
-            <div class="config-import-controls">
-              <select
-                v-model="diagnosisConfigImportAssetId"
-                :disabled="
-                  isDiagnosisConfigImportListLoading ||
-                  isDiagnosisConfigImporting ||
-                  diagnosisConfigImportAssets.length === 0
-                "
-                aria-label="选择要导入配置的资产库"
-              >
-                <option value="">
-                  {{
-                    isDiagnosisConfigImportListLoading
-                      ? '正在加载资产库...'
-                      : diagnosisConfigImportAssets.length
-                        ? '选择资产库'
-                        : '暂无其他资产库'
-                  }}
-                </option>
-                <option
-                  v-for="asset in diagnosisConfigImportAssets"
-                  :key="asset.id"
-                  :value="asset.id"
+            <div v-if="isDiagnosisConfigLoading" class="diagnosis-config-loading">
+              正在读取当前配置...
+            </div>
+
+            <section v-show="!isDiagnosisConfigLoading" class="config-import-section">
+              <div class="config-import-copy">
+                <strong>导入其他资产库配置</strong>
+                <span>导入后仅填充当前表单，点击“保存配置”后才会应用到当前资产库。</span>
+              </div>
+              <div class="config-import-controls">
+                <select
+                  v-model="diagnosisConfigImportAssetId"
+                  :disabled="
+                    isDiagnosisConfigImportListLoading ||
+                    isDiagnosisConfigImporting ||
+                    diagnosisConfigImportAssets.length === 0
+                  "
+                  aria-label="选择要导入配置的资产库"
                 >
-                  {{ asset.name }}
-                </option>
-              </select>
-              <button
-                type="button"
-                :disabled="!diagnosisConfigImportAssetId || isDiagnosisConfigImporting"
-                @click="importDiagnosisConfigFromAsset"
-              >
-                {{ isDiagnosisConfigImporting ? '导入中...' : '导入配置' }}
-              </button>
-            </div>
-            <span v-if="diagnosisConfigImportMessage" class="config-import-message">
-              {{ diagnosisConfigImportMessage }}
-            </span>
-          </section>
-
-          <section
-            v-show="!isDiagnosisConfigLoading"
-            class="parse-config-section pattern-config-section"
-          >
-            <div class="parse-config-section-heading">
-              <div>
-                <h3>日志文件名 Pattern</h3>
-                <p>
-                  使用
-                  <strong>glob 模式</strong>识别不同类型的日志文件。可添加自定义规则，点击标签上的 ×
-                  可删除。
-                </p>
-              </div>
-            </div>
-
-            <div class="pattern-type-list">
-              <article
-                v-for="option in patternTypeOptions"
-                :key="option.key"
-                class="pattern-type-item"
-              >
-                <div class="pattern-type-heading">
-                  <div>
-                    <strong>{{ option.label }}</strong>
-                    <span>{{ option.description }}</span>
-                  </div>
-                  <span class="pattern-count">
-                    {{ diagnosisConfigDraft.logFilenamePattern[option.key].length }} 个
-                  </span>
-                </div>
-                <div
-                  v-if="diagnosisConfigDraft.logFilenamePattern[option.key].length"
-                  class="pattern-chip-list"
-                >
-                  <span
-                    v-for="(pattern, patternIndex) in diagnosisConfigDraft.logFilenamePattern[
-                      option.key
-                    ]"
-                    :key="`${option.key}-${pattern}-${patternIndex}`"
-                    class="pattern-chip"
+                  <option value="">
+                    {{
+                      isDiagnosisConfigImportListLoading
+                        ? '正在加载资产库...'
+                        : diagnosisConfigImportAssets.length
+                          ? '选择资产库'
+                          : '暂无其他资产库'
+                    }}
+                  </option>
+                  <option
+                    v-for="asset in diagnosisConfigImportAssets"
+                    :key="asset.id"
+                    :value="asset.id"
                   >
-                    <code>{{ pattern }}</code>
-                    <button
-                      type="button"
-                      :aria-label="`删除 ${pattern}`"
-                      @click="removeFilenamePattern(option.key, patternIndex)"
-                    >
-                      ×
-                    </button>
-                  </span>
-                </div>
-                <div v-else class="pattern-empty">暂无 Pattern，请至少添加一项</div>
-                <div class="pattern-add-row">
-                  <input
-                    v-model="patternInputs[option.key]"
-                    type="text"
-                    placeholder="输入 Pattern"
-                    @keydown.enter.prevent="addFilenamePattern(option.key)"
-                  />
-                  <button
-                    type="button"
-                    :disabled="!patternInputs[option.key].trim()"
-                    @click="addFilenamePattern(option.key)"
-                  >
-                    添加
-                  </button>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section
-            v-show="!isDiagnosisConfigLoading"
-            class="parse-config-section analyzer-config-section"
-          >
-            <div class="parse-config-section-heading">
-              <div>
-                <h3>日志分析参数</h3>
-                <p>调整异常检测使用的时延阈值、滑动窗口以及区间异常密度。</p>
-              </div>
-            </div>
-
-            <h4 class="analyzer-group-title">时延阈值</h4>
-            <div class="analyzer-threshold-grid">
-              <label
-                v-for="option in analyzerThresholdOptions"
-                :key="option.key"
-                class="analyzer-threshold-field"
-              >
-                <span class="analyzer-field-name">{{ option.label }}</span>
-                <span class="analyzer-field-description">{{ option.description }}</span>
-                <span class="parse-config-input-suffix">
-                  <input
-                    v-model.number="diagnosisConfigDraft.logAnalyzerParams[option.key]"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                  />
-                  <em>ms</em>
-                </span>
-              </label>
-            </div>
-
-            <div class="analyzer-divider"></div>
-            <div class="analyzer-group-heading">
-              <div>
-                <h4 class="analyzer-group-title">滑动窗口</h4>
-                <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
-              </div>
-              <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
-                + 添加窗口
-              </button>
-            </div>
-            <div class="window-pair-list">
-              <div
-                v-for="(windowPair, index) in diagnosisConfigDraft.logAnalyzerParams
-                  .slidingWindowPairs"
-                :key="index"
-                class="window-pair-row"
-              >
-                <span class="window-index">{{ index + 1 }}</span>
-                <label>
-                  <span>窗口大小</span>
-                  <input v-model.number="windowPair.size" type="number" min="1" step="1" />
-                </label>
-                <label>
-                  <span>窗口步长</span>
-                  <input v-model.number="windowPair.step" type="number" min="1" step="1" />
-                </label>
+                    {{ asset.name }}
+                  </option>
+                </select>
                 <button
                   type="button"
-                  class="window-remove-btn"
-                  title="删除该窗口"
-                  aria-label="删除该窗口"
-                  @click="removeSlidingWindowPair(index)"
+                  :disabled="!diagnosisConfigImportAssetId || isDiagnosisConfigImporting"
+                  @click="importDiagnosisConfigFromAsset"
                 >
-                  ×
+                  {{ isDiagnosisConfigImporting ? '导入中...' : '导入配置' }}
                 </button>
               </div>
-            </div>
+              <span v-if="diagnosisConfigImportMessage" class="config-import-message">
+                {{ diagnosisConfigImportMessage }}
+              </span>
+            </section>
 
-            <div class="analyzer-divider"></div>
-            <label class="density-field">
-              <span>
-                <strong>区间异常密度阈值</strong>
-                <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
-              </span>
-              <span class="density-input">
-                <input
-                  v-model.number="
-                    diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
-                  "
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                />
-                <em>0–1</em>
-              </span>
-            </label>
-          </section>
+            <section
+              v-show="!isDiagnosisConfigLoading"
+              class="parse-config-section pattern-config-section"
+            >
+              <div class="parse-config-section-heading">
+                <div>
+                  <h3>日志文件名 Pattern</h3>
+                  <p>
+                    使用
+                    <strong>glob 模式</strong>识别不同类型的日志文件。可添加自定义规则，点击标签上的
+                    × 可删除。
+                  </p>
+                </div>
+              </div>
+
+              <div class="pattern-type-list">
+                <article
+                  v-for="option in patternTypeOptions"
+                  :key="option.key"
+                  class="pattern-type-item"
+                >
+                  <div class="pattern-type-heading">
+                    <div>
+                      <strong>{{ option.label }}</strong>
+                      <span>{{ option.description }}</span>
+                    </div>
+                    <span class="pattern-count">
+                      {{ diagnosisConfigDraft.logFilenamePattern[option.key].length }} 个
+                    </span>
+                  </div>
+                  <div
+                    v-if="diagnosisConfigDraft.logFilenamePattern[option.key].length"
+                    class="pattern-chip-list"
+                  >
+                    <span
+                      v-for="(pattern, patternIndex) in diagnosisConfigDraft.logFilenamePattern[
+                        option.key
+                      ]"
+                      :key="`${option.key}-${pattern}-${patternIndex}`"
+                      class="pattern-chip"
+                    >
+                      <code>{{ pattern }}</code>
+                      <button
+                        type="button"
+                        :aria-label="`删除 ${pattern}`"
+                        @click="removeFilenamePattern(option.key, patternIndex)"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </div>
+                  <div v-else class="pattern-empty">暂无 Pattern，请至少添加一项</div>
+                  <div class="pattern-add-row">
+                    <input
+                      v-model="patternInputs[option.key]"
+                      type="text"
+                      placeholder="输入 Pattern"
+                      @keydown.enter.prevent="addFilenamePattern(option.key)"
+                    />
+                    <button
+                      type="button"
+                      :disabled="!patternInputs[option.key].trim()"
+                      @click="addFilenamePattern(option.key)"
+                    >
+                      添加
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section
+              v-show="!isDiagnosisConfigLoading"
+              class="parse-config-section analyzer-config-section"
+            >
+              <div class="parse-config-section-heading">
+                <div>
+                  <h3>日志分析参数</h3>
+                  <p>调整异常检测使用的时延阈值、滑动窗口以及区间异常密度。</p>
+                </div>
+              </div>
+
+              <h4 class="analyzer-group-title">时延阈值</h4>
+              <div class="analyzer-threshold-grid">
+                <label
+                  v-for="option in analyzerThresholdOptions"
+                  :key="option.key"
+                  class="analyzer-threshold-field"
+                >
+                  <span class="analyzer-field-name">{{ option.label }}</span>
+                  <span class="analyzer-field-description">{{ option.description }}</span>
+                  <span class="parse-config-input-suffix">
+                    <input
+                      v-model.number="diagnosisConfigDraft.logAnalyzerParams[option.key]"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                    />
+                    <em>ms</em>
+                  </span>
+                </label>
+              </div>
+
+              <div class="analyzer-divider"></div>
+              <div class="analyzer-group-heading">
+                <div>
+                  <h4 class="analyzer-group-title">滑动窗口</h4>
+                  <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
+                </div>
+                <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
+                  + 添加窗口
+                </button>
+              </div>
+              <div class="window-pair-list">
+                <div
+                  v-for="(windowPair, index) in diagnosisConfigDraft.logAnalyzerParams
+                    .slidingWindowPairs"
+                  :key="index"
+                  class="window-pair-row"
+                >
+                  <span class="window-index">{{ index + 1 }}</span>
+                  <label>
+                    <span>窗口大小</span>
+                    <input v-model.number="windowPair.size" type="number" min="1" step="1" />
+                  </label>
+                  <label>
+                    <span>窗口步长</span>
+                    <input v-model.number="windowPair.step" type="number" min="1" step="1" />
+                  </label>
+                  <button
+                    type="button"
+                    class="window-remove-btn"
+                    title="删除该窗口"
+                    aria-label="删除该窗口"
+                    @click="removeSlidingWindowPair(index)"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              <div class="analyzer-divider"></div>
+              <label class="density-field">
+                <span>
+                  <strong>区间异常密度阈值</strong>
+                  <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
+                </span>
+                <span class="density-input">
+                  <input
+                    v-model.number="
+                      diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
+                    "
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                  />
+                  <em>0–1</em>
+                </span>
+              </label>
+            </section>
+          </template>
         </div>
 
-        <footer class="parse-config-drawer-footer">
+        <footer v-if="logType !== 'brpc'" class="parse-config-drawer-footer">
           <button
             class="parse-config-reset-btn"
             type="button"
@@ -14311,8 +17953,8 @@ onBeforeUnmount(() => {
             <button
               type="button"
               @click="
-                expandedProviderId = expandedProviderId === provider.id ? '' : provider.id;
-                providerApiKey = ''
+                ((expandedProviderId = expandedProviderId === provider.id ? '' : provider.id),
+                (providerApiKey = ''))
               "
             >
               <span>{{ provider.name }}</span

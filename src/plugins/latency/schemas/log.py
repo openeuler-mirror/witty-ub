@@ -60,7 +60,10 @@ class LogFileModel(BaseModel):
         default=0.0,
         ge=0.0,
         le=100.0,
-        description="日志解析、故障定界和 trace 上下文落库三个任务的综合平均进度",
+        description=(
+            "KVCache 日志解析、故障定界和 trace 上下文落库的综合进度；"
+            "BRPC 为日志解析与诊断两个 worker 的平均进度"
+        ),
     )
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"

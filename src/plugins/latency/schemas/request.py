@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Any, List, Union
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
@@ -42,6 +44,24 @@ class ParseConfig(BaseModel):
     def is_elapsed_filter_enabled(self) -> bool:
         """判断是否启用了耗时过滤"""
         return self.min_elapsed_ms is not None
+
+
+class RunBrpcDiagnosisRequest(BaseModel):
+    start_time: str = Field(
+        ...,
+        description="BRPC 日志扫描开始时间，UTC+8，格式 YYYY-MM-DD HH:MM:SS",
+    )
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except ValueError as exc:
+            raise ValueError("start_time 必须使用 YYYY-MM-DD HH:MM:SS 格式") from exc
+        if parsed.strftime("%Y-%m-%d %H:%M:%S") != value:
+            raise ValueError("start_time 必须使用 YYYY-MM-DD HH:MM:SS 格式")
+        return value
 
 
 class CreateLogKnowledgeRequest(BaseModel):

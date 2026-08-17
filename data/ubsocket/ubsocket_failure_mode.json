@@ -1,0 +1,2144 @@
+[
+  {
+    "故障编号": "ubsocket_001",
+    "故障名称": "连接发送失败",
+    "故障现象": "向下级匹配",
+    "故障原因": "向下级匹配",
+    "解决办法": "向下级匹配",
+    "函数名": "Connect",
+    "文件名": "ubsocket_socket.h"
+  },
+  {
+    "故障编号": "ubsocket_002",
+    "故障名称": "连接接收失败",
+    "故障现象": "向下级匹配",
+    "故障原因": "向下级匹配",
+    "解决办法": "向下级匹配",
+    "函数名": "Accept",
+    "文件名": "ubsocket_socket.h"
+  },
+  {
+    "故障编号": "ubsocket_003",
+    "故障名称": "数据读取失败",
+    "故障现象": "向下级匹配",
+    "故障原因": "向下级匹配",
+    "解决办法": "向下级匹配",
+    "函数名": "ReadV",
+    "文件名": "ubsocket_socket.h"
+  },
+  {
+    "故障编号": "ubsocket_004",
+    "故障名称": "数据写入失败",
+    "故障现象": "向下级匹配",
+    "故障原因": "向下级匹配",
+    "解决办法": "向下级匹配",
+    "函数名": "WriteV",
+    "文件名": "ubsocket_socket.h"
+  },
+  {
+    "故障编号": "ubsocket_005",
+    "故障名称": "弹出乱序接收元素时堆对象为空",
+    "故障现象": "依次匹配`Failed to pop heap, reason: heap is null`",
+    "故障原因": "弹出乱序接收元素时内部堆指针为null，无法访问或调整堆中的缓冲对象",
+    "解决办法": "无",
+    "函数名": "Pop",
+    "文件名": "ubsocket_fast_heap.h"
+  },
+  {
+    "故障编号": "ubsocket_006",
+    "故障名称": "初始化乱序接收堆时内存分配失败",
+    "故障现象": "依次匹配`Failed to init heap caused by malloc len:`、`, errno:`",
+    "故障原因": "按请求容量计算堆内存长度后调用malloc返回null，乱序接收堆无法建立",
+    "解决办法": "无",
+    "函数名": "InitHeap",
+    "文件名": "ubsocket_fast_heap.h"
+  },
+  {
+    "故障编号": "ubsocket_007",
+    "故障名称": "压入乱序接收元素时堆对象为空",
+    "故障现象": "依次匹配`Failed to push element into heap, reason: heap is null`",
+    "故障原因": "向乱序接收堆压入缓冲对象时内部堆指针为null，元素无法入堆",
+    "解决办法": "无",
+    "函数名": "PushImpl",
+    "文件名": "ubsocket_fast_heap.h"
+  },
+  {
+    "故障编号": "ubsocket_008",
+    "故障名称": "乱序接收堆已满时扩容失败",
+    "故障现象": "依次匹配`Failed to push element to heap, reason: heap is full and resize failed.`",
+    "故障原因": "乱序接收堆元素数达到容量上限，按两倍容量调用扩容操作返回失败，当前元素无法入堆",
+    "解决办法": "无",
+    "函数名": "PushImpl",
+    "文件名": "ubsocket_fast_heap.h"
+  },
+  {
+    "故障编号": "ubsocket_009",
+    "故障名称": "扩容乱序接收堆时容量未增长",
+    "故障现象": "依次匹配`Failed to resize heap, new capacity is equal to old capacity:`",
+    "故障原因": "目标容量经最大容量限制后与当前容量相同，无法为已满的乱序接收堆提供新空间",
+    "解决办法": "无",
+    "函数名": "Reserve",
+    "文件名": "ubsocket_fast_heap.h"
+  },
+  {
+    "故障编号": "ubsocket_010",
+    "故障名称": "扩容乱序接收堆时新堆分配失败",
+    "故障现象": "依次匹配`Failed to init heap.`",
+    "故障原因": "扩容操作调用堆内存初始化返回null，旧堆内容无法迁移到新的容量空间",
+    "解决办法": "无",
+    "函数名": "Reserve",
+    "文件名": "ubsocket_fast_heap.h"
+  },
+  {
+    "故障编号": "ubsocket_011",
+    "故障名称": "启动异步接收线程池时线程数为零",
+    "故障现象": "依次匹配`set thread pool size is zero`",
+    "故障原因": "异步Accept线程池读取到UBS_THREAD_POOL_SIZE配置值为0，因此拒绝启动任何工作线程",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_thread_pool.cpp"
+  },
+  {
+    "故障编号": "ubsocket_012",
+    "故障名称": "启动异步接收线程池时工作线程创建失败",
+    "故障现象": "依次匹配`Failed to create executor thread`",
+    "故障原因": "为指定下标分配std::thread对象时new返回null，线程池清理已创建线程并返回启动失败",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_thread_pool.cpp"
+  },
+  {
+    "故障编号": "ubsocket_013",
+    "故障名称": "执行异步接收任务时抛出运行时异常",
+    "故障现象": "依次匹配`Caught error when execute a task, continue`",
+    "故障原因": "异步Accept任务执行过程中抛出std::runtime_error并被工作线程捕获；异常点后的ready_queue入队、唤醒或计数递减可能未执行",
+    "解决办法": "无",
+    "函数名": "DoRunnable",
+    "文件名": "ubsocket_thread_pool.cpp"
+  },
+  {
+    "故障编号": "ubsocket_014",
+    "故障名称": "执行异步接收任务时抛出未知异常",
+    "故障现象": "依次匹配`Caught unknown error when execute a task, continue`",
+    "故障原因": "异步Accept任务执行过程中抛出非std::runtime_error异常并被兜底捕获；当前任务被中止但工作线程继续运行",
+    "解决办法": "无",
+    "函数名": "DoRunnable",
+    "文件名": "ubsocket_thread_pool.cpp"
+  },
+  {
+    "故障编号": "ubsocket_015",
+    "故障名称": "写入接收数据时无法定位输出数据块",
+    "故障现象": "依次匹配`ReadV failed to locate brpc block for data`、`, fd:`",
+    "故障原因": "将ReadV首个输出地址转换为brpc Block时DataToBlock返回null，接收缓存无法写入调用方数据块",
+    "解决办法": "无",
+    "函数名": "RxDataSet",
+    "文件名": "ubsocket_data_rx.cpp"
+  },
+  {
+    "故障编号": "ubsocket_016",
+    "故障名称": "读取无缓存数据时接收中断重置失败",
+    "故障现象": "依次匹配`ReadV RearmRxInterrupt() failed, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "接收缓存为空且套接字未关闭时调用RearmRxInterrupt返回负值，ReadV设置EIO并返回失败",
+    "解决办法": "无",
+    "函数名": "RxDataSet",
+    "文件名": "ubsocket_data_rx.cpp"
+  },
+  {
+    "故障编号": "ubsocket_017",
+    "故障名称": "提交写请求时参数无效",
+    "故障现象": "依次匹配`WriteV invalid argument, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "WriteV收到空iovec指针或iovcnt等于0，设置EINVAL后直接返回失败",
+    "解决办法": "无",
+    "函数名": "WriteV",
+    "文件名": "ubsocket_data_tx.cpp"
+  },
+  {
+    "故障编号": "ubsocket_018",
+    "故障名称": "提交写请求时套接字已关闭",
+    "故障现象": "依次匹配`WriteV socket is closed, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "WriteV读取到SOCK_STAT_CLOSE；该状态可由已处理的TX错误CQE或RX错误CQE写入，因此设置EPIPE并拒绝发送",
+    "解决办法": "无",
+    "函数名": "WriteV",
+    "文件名": "ubsocket_data_tx.cpp"
+  },
+  {
+    "故障编号": "ubsocket_019",
+    "故障名称": "启动共享事件执行器时外部轮询接口无效",
+    "故障现象": "依次匹配`async_epoll external poller ops is invalid`",
+    "故障原因": "配置了外部poller后端，但poller操作表、add_consumer或remove_consumer任一指针为null，执行器无法注册消费者",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_020",
+    "故障名称": "启动共享事件执行器时注册外部消费者失败",
+    "故障现象": "依次匹配`async_epoll external poller add consumer failed:`、`:`",
+    "故障原因": "外部poller的add_consumer对当前epoll fd返回非0，执行器后端启动失败",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_021",
+    "故障名称": "启动共享事件执行器时互斥锁创建失败",
+    "故障现象": "依次匹配`async_epoll g_external_lock_ops.create(LT_EXCLUSIVE) failed.`",
+    "故障原因": "EpollRunner首次启动时独占锁创建接口返回null，无法保护runner事件数据",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_022",
+    "故障名称": "启动共享事件执行器时epoll实例创建失败",
+    "故障现象": "依次匹配`async_epoll epoll_create1() failed :`、`:`",
+    "故障原因": "EpollRunner调用epoll_create1返回负值，随后销毁已创建的互斥锁并终止启动",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_023",
+    "故障名称": "启动共享事件执行器时退出通知描述符创建失败",
+    "故障现象": "依次匹配`async_epoll eventfd() failed :`、`:`",
+    "故障原因": "为停止runner创建eventfd时返回负值，执行器关闭epoll fd并终止启动",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_024",
+    "故障名称": "启动共享事件执行器时退出事件注册失败",
+    "故障现象": "依次匹配`async_epoll epoll_ctl(ADD) failed :`、`:`",
+    "故障原因": "将退出eventfd加入runner的epoll实例时epoll_ctl返回-1，已创建的eventfd、epoll fd和锁被清理",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_025",
+    "故障名称": "启动共享事件执行器时后端启动失败",
+    "故障现象": "依次匹配`async_epoll runner backend start failed`",
+    "故障原因": "runner后端对象创建为null，或选定的pthread/外部poller后端Start返回非0，EpollRunner无法开始消费事件",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_026",
+    "故障名称": "注册接收事件到执行器时下层注册失败",
+    "故障现象": "依次匹配`add rx event to runner failed, ret:`",
+    "故障原因": "EpollRunner调用具体runner操作的AddEventToRunner返回非0，主UMQ或子UMQ接收事件未加入执行器",
+    "解决办法": "无",
+    "函数名": "AddEpollEvent",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_027",
+    "故障名称": "注销执行器事件时文件描述符无效",
+    "故障现象": "依次匹配`async_epoll AddEvent invalid args efd:`",
+    "故障原因": "调用runner删除事件时传入fd小于0，删除操作在进入具体epoll处理前失败",
+    "解决办法": "无",
+    "函数名": "DelEpollEvent",
+    "文件名": "ubsocket_event_epoll.cpp"
+  },
+  {
+    "故障编号": "ubsocket_028",
+    "故障名称": "注销执行器事件时执行器类型未实现",
+    "故障现象": "依次匹配`EpollRunner EpollRunType Not Specified.`",
+    "故障原因": "当前EpollRunner使用基础操作对象而未绑定具体runner类型，基础DelEpollEvent只能返回失败",
+    "解决办法": "无",
+    "函数名": "DelEpollEvent",
+    "文件名": "ubsocket_event_epoll.h"
+  },
+  {
+    "故障编号": "ubsocket_029",
+    "故障名称": "通知套接字可读时意外附带可写事件",
+    "故障现象": "依次匹配`An EPOLLOUT event generated even if the socket(fd=`、`) is not interested in EPOLLOUT`",
+    "故障原因": "调用NotifyReadable时要求同时上报EPOLLOUT，但该套接字当前关注事件集合不含EPOLLOUT，通知意图与注册状态不一致",
+    "解决办法": "无",
+    "函数名": "NotifyReadable",
+    "文件名": "ubsocket_socket.h"
+  },
+  {
+    "故障编号": "ubsocket_030",
+    "故障名称": "接收TCP连接时系统调用失败",
+    "故障现象": "依次匹配`accept() failed, Peer IP:`、`, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "底层accept返回负值且errno既不是EAGAIN也不是EWOULDBLOCK，属于非阻塞重试之外的接收错误",
+    "解决办法": "无",
+    "函数名": "Accept",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_031",
+    "故障名称": "校验接收连接协议时协商标识不匹配",
+    "故障现象": "依次匹配`Protocol dismatch,Peer IP:`、`, fd:`",
+    "故障原因": "ValidateProtocol已接收到正长度数据，但长度或CONTROL_PLANE_PROTOCOL_NEGOTIATION魔数不匹配，连接被关闭",
+    "解决办法": "无",
+    "函数名": "ProcessUBConnection",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_032",
+    "故障名称": "创建接收连接通知描述符时失败",
+    "故障现象": "依次匹配`eventfd() failed, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "为新接收socket创建非阻塞eventfd返回负值，无法建立该连接的数据通知通道",
+    "解决办法": "无",
+    "函数名": "DoAccept",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_033",
+    "故障名称": "初始化异步接收唤醒时线程池启动失败",
+    "故障现象": "依次匹配`Failed to start ExecutorService for async accept`",
+    "故障原因": "ExecutorService::Start因线程数为0或工作线程创建失败返回false；初始化函数记录错误但继续后续流程",
+    "解决办法": "无",
+    "函数名": "InitWakeupEvent",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_034",
+    "故障名称": "初始化异步接收唤醒时找不到监听映射",
+    "故障现象": "依次匹配`async accept: mapper==nullptr, fd=`",
+    "故障原因": "根据监听socket fd查询EpollMapper返回null，无法确定应注册ready event的epoll实例",
+    "解决办法": "无",
+    "函数名": "InitWakeupEvent",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_035",
+    "故障名称": "初始化异步接收唤醒时没有可用epoll实例",
+    "故障现象": "依次匹配`async accept: epoll_fd<0, fd=`",
+    "故障原因": "监听socket的EpollMapper存在，但QueryFirst返回负值，ready event没有注册目标",
+    "解决办法": "无",
+    "函数名": "InitWakeupEvent",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_036",
+    "故障名称": "初始化异步接收回调时epoll对象不存在",
+    "故障现象": "依次匹配`async accept: failed to get AsyncEventPoll for epoll_fd:`",
+    "故障原因": "已取得epoll fd，但ArraySet中没有对应AsyncEventPoll对象，无法安装ready event回调",
+    "解决办法": "无",
+    "函数名": "InitWakeupEvent",
+    "文件名": "ubsocket_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_037",
+    "故障名称": "建立UB连接时协商或资源创建失败",
+    "故障现象": "依次匹配`Failed to establish UB connection, fd:`",
+    "故障原因": "连接准备完成后，Negotiate或CreateSocketResources返回非成功且不可降级错误，最终UB连接建立失败",
+    "解决办法": "无",
+    "函数名": "Connect",
+    "文件名": "ubsocket_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_038",
+    "故障名称": "发送控制平面数据时系统调用失败",
+    "故障现象": "依次匹配`send() failed, ret:`、`, errno:`、`, errmsg:`、`, sent:`",
+    "故障原因": "SendSocketData循环中send返回非正值或同时留下非0 errno，尚未发送完的控制数据无法继续传输",
+    "解决办法": "无",
+    "函数名": "SendSocketData",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_039",
+    "故障名称": "等待控制平面接收数据时轮询失败",
+    "故障现象": "依次匹配`poll() failed, ret:`、`, errno:`、`, errmsg:`、`, fd:`",
+    "故障原因": "RecvSocketData遇到EAGAIN后调用poll等待POLLIN，poll返回负值且errno不是EINTR",
+    "解决办法": "无",
+    "函数名": "RecvSocketData",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_040",
+    "故障名称": "接收控制平面数据时系统调用失败",
+    "故障现象": "依次匹配`recv() failed, ret:`、`, errno:`、`, errmsg:`、`, received:`、`, fd:`",
+    "故障原因": "RecvSocketData中的recv返回负值，errno不是EAGAIN、EWOULDBLOCK或EINTR，控制数据接收中止",
+    "解决办法": "无",
+    "函数名": "RecvSocketData",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_041",
+    "故障名称": "发送定长前缀控制消息时数据未发完整",
+    "故障现象": "依次匹配`SendLengthPrefixed failed, fd=`、`, wire_size=`、`, send_ret=`、`, errno=`、`(`、`)`",
+    "故障原因": "SendLengthPrefixed调用SendSocketData后的返回长度不等于前缀与消息体总长度，控制消息不完整",
+    "解决办法": "无",
+    "函数名": "SendLengthPrefixed",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_042",
+    "故障名称": "接收定长前缀控制消息时前缀读取失败",
+    "故障现象": "依次匹配`RecvLengthPrefixed failed to read prefix, fd=`、`, errno=`、`(`、`)`",
+    "故障原因": "读取四字节消息体长度的返回值不等于前缀长度，无法确定后续控制消息体大小",
+    "解决办法": "无",
+    "函数名": "RecvLengthPrefixed",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_043",
+    "故障名称": "接收定长前缀控制消息时消息体读取失败",
+    "故障现象": "依次匹配`RecvLengthPrefixed failed to read body, fd=`、`, body_len=`、`, read_len=`、`, errno=`、`(`、`)`",
+    "故障原因": "按前缀确定的read_len接收消息体时返回长度不足，控制消息体不完整",
+    "解决办法": "无",
+    "函数名": "RecvLengthPrefixed",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_044",
+    "故障名称": "接收定长前缀控制消息时消息体过大",
+    "故障现象": "依次匹配`RecvLengthPrefixed body_len overflow, fd=`、`, body_len=`、`, obj_size=`、`, excess=`",
+    "故障原因": "对端声明的body_len超过本地对象大小且超出部分大于64KiB安全上限，拒绝分配并丢弃该消息",
+    "解决办法": "无",
+    "函数名": "RecvLengthPrefixed",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_045",
+    "故障名称": "丢弃超长控制消息剩余数据时失败",
+    "故障现象": "依次匹配`RecvLengthPrefixed failed to discard excess, fd=`、`, discard_len=`、`, errno=`、`(`、`)`",
+    "故障原因": "消息体超过本地对象大小后，接收并丢弃超出字节的返回长度不足，TCP控制流无法重新对齐",
+    "解决办法": "无",
+    "函数名": "RecvLengthPrefixed",
+    "文件名": "ubsocket_socket_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_046",
+    "故障名称": "启动发送完成轮询器时互斥锁创建失败",
+    "故障现象": "依次匹配`TxCqePoller mutex create failed.`",
+    "故障原因": "TX CQE定时轮询器创建独占锁返回null，无法安全维护待轮询socket集合",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_tx_cqe_poller.cpp"
+  },
+  {
+    "故障编号": "ubsocket_047",
+    "故障名称": "启动发送完成轮询器时epoll实例创建失败",
+    "故障现象": "依次匹配`TxCqePoller epoll_create1 failed:`、`.`",
+    "故障原因": "TX CQE定时轮询器调用epoll_create1返回负值，轮询线程无法等待定时事件",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_tx_cqe_poller.cpp"
+  },
+  {
+    "故障编号": "ubsocket_048",
+    "故障名称": "启动发送完成轮询器时定时描述符创建失败",
+    "故障现象": "依次匹配`TxCqePoller timerfd_create failed:`、`.`",
+    "故障原因": "调用timerfd_create创建100ms轮询定时器时返回负值，无法周期触发TX CQ轮询",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_tx_cqe_poller.cpp"
+  },
+  {
+    "故障编号": "ubsocket_049",
+    "故障名称": "启动发送完成轮询器时定时事件注册失败",
+    "故障现象": "依次匹配`TxCqePoller epoll_ctl add timerfd failed:`、`.`",
+    "故障原因": "将timerfd加入TX轮询器epoll实例时epoll_ctl返回负值，定时器不能唤醒轮询线程",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_tx_cqe_poller.cpp"
+  },
+  {
+    "故障编号": "ubsocket_050",
+    "故障名称": "启动发送完成轮询器时定时周期设置失败",
+    "故障现象": "依次匹配`TxCqePoller timerfd_settime failed:`、`.`",
+    "故障原因": "调用timerfd_settime设置100ms初始值和周期时返回负值，TX CQE轮询周期未生效",
+    "解决办法": "无",
+    "函数名": "Start",
+    "文件名": "ubsocket_tx_cqe_poller.cpp"
+  },
+  {
+    "故障编号": "ubsocket_051",
+    "故障名称": "初始化异步接收就绪通知时eventfd创建失败",
+    "故障现象": "依次匹配`UbsocketWakeupEvent: create ready event fd failed:`、`:`",
+    "故障原因": "UbsocketWakeupEvent创建ready eventfd返回负值，异步worker完成后无法通知监听epoll",
+    "解决办法": "无",
+    "函数名": "Initialize",
+    "文件名": "ubsocket_wakeup_event.cpp"
+  },
+  {
+    "故障编号": "ubsocket_052",
+    "故障名称": "初始化异步接收就绪通知时epoll注册失败",
+    "故障现象": "依次匹配`UbsocketWakeupEvent: epoll_ctl add ready event fd failed:`、`:`",
+    "故障原因": "将新建ready eventfd加入监听epoll时epoll_ctl返回负值，随后关闭该eventfd",
+    "解决办法": "无",
+    "函数名": "Initialize",
+    "文件名": "ubsocket_wakeup_event.cpp"
+  },
+  {
+    "故障编号": "ubsocket_053",
+    "故障名称": "异步接收任务完成时写就绪通知失败",
+    "故障现象": "依次匹配`UbsocketWakeupEvent: WakeUpReadyEventFd eventfd_write failed.`",
+    "故障原因": "worker已将处理后的fd放入ready_queue，但eventfd_write返回负值，等待Accept的epoll可能不能及时唤醒",
+    "解决办法": "无",
+    "函数名": "WakeUpReadyEventFd",
+    "文件名": "ubsocket_wakeup_event.cpp"
+  },
+  {
+    "故障编号": "ubsocket_054",
+    "故障名称": "消费异步接收就绪通知时读取失败",
+    "故障现象": "依次匹配`UbsocketWakeupEvent: ProcessReadyEvents read failed`",
+    "故障原因": "ready event回调读取eventfd时返回字节数不等于uint64_t大小；回调仍继续尝试恢复监听事件",
+    "解决办法": "无",
+    "函数名": "ProcessReadyEvents",
+    "文件名": "ubsocket_wakeup_event.cpp"
+  },
+  {
+    "故障编号": "ubsocket_055",
+    "故障名称": "恢复异步接收监听事件时找不到监听fd",
+    "故障现象": "依次匹配`UbsocketWakeupEvent: listen_fd_=`、`not found in socket_data`",
+    "故障原因": "ready event已消费，但socket_data映射中不存在listen_fd_，无法向本轮epoll结果写回监听socket事件",
+    "解决办法": "无",
+    "函数名": "ProcessReadyEvents",
+    "文件名": "ubsocket_wakeup_event.cpp"
+  },
+  {
+    "故障编号": "ubsocket_056",
+    "故障名称": "普通接收缓冲入队时队列已满",
+    "故障现象": "依次匹配`Receive queue is full (No buffer space available).`",
+    "故障原因": "共享JFR把普通、流控或探测qbuf压入SPSC接收队列时Push返回false，qbuf被释放并设置QUEUE_FULL待处理错误",
+    "解决办法": "无",
+    "函数名": "Enqueue",
+    "文件名": "umq_buffer_receive_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_057",
+    "故障名称": "顺序接收缓冲入队时队列已满",
+    "故障现象": "依次匹配`Receive queue is full (No buffer space available).`",
+    "故障原因": "O3模式下无需重排的qbuf压入接收队列时Push返回false，缓冲被释放并记录QUEUE_FULL状态",
+    "解决办法": "无",
+    "函数名": "EnqueueInOrder",
+    "文件名": "umq_buffer_receive_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_058",
+    "故障名称": "乱序接收缓冲入堆时容量已满",
+    "故障现象": "依次匹配`Out-Of-Order receive queue is full (No buffer space available).`",
+    "故障原因": "O3模式下序号尚未到期望值的qbuf压入乱序堆时失败，缓冲被释放并设置QUEUE_FULL状态",
+    "解决办法": "无",
+    "函数名": "EnqueueInOrder",
+    "文件名": "umq_buffer_receive_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_059",
+    "故障名称": "检查乱序接收窗口时序号间隔超限",
+    "故障现象": "依次匹配`Out-of-order gap exceeded threshold! Gap:`、`, Max:`、`. Forcing forward migration.`",
+    "故障原因": "新到qbuf序号与期望序号的环形距离大于m_max_ooo_gap，触发强制迁移乱序缓冲",
+    "解决办法": "无",
+    "函数名": "CheckAndTriggerMeltdown",
+    "文件名": "umq_buffer_receive_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_060",
+    "故障名称": "检查乱序接收窗口时等待报文超时",
+    "故障现象": "依次匹配`Packet loss timeout! Expect SN:`、`stalled for`、`ns. Forcing forward migration.`",
+    "故障原因": "乱序堆非空且当前时间减去首个乱序等待时间超过m_ooo_timeout_ns，判定期望序号报文丢失并强制迁移",
+    "解决办法": "无",
+    "函数名": "CheckAndTriggerMeltdown",
+    "文件名": "umq_buffer_receive_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_061",
+    "故障名称": "迁移乱序接收缓冲时接收队列溢出",
+    "故障现象": "依次匹配`Receive queue overflow during meltdown flush! Dropping remaining OOO packets.`",
+    "故障原因": "把乱序堆剩余qbuf迁移到接收队列时Push失败，代码丢弃其余乱序包并设置QUEUE_FULL",
+    "解决办法": "无",
+    "函数名": "FlushOooQueueToReceiveQueueInternal",
+    "文件名": "umq_buffer_receive_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_062",
+    "故障名称": "预填充接收缓冲时可投递窗口为零",
+    "故障现象": "依次匹配`Failed to set rx window capacity`",
+    "故障原因": "GetLeftPostRxNum返回0；来源包括umq_cfg_get失败，或配置中的rqe_post_factor与rx_depth乘积为0",
+    "解决办法": "无",
+    "函数名": "PrefillRx",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_063",
+    "故障名称": "预填充接收缓冲时qbuf分配失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_buf_alloc() failed, RX depth:`、`, ret:`",
+    "故障原因": "按当前批次和IO缓冲大小调用umq_buf_alloc返回null，连接建立阶段无法补足RX窗口",
+    "解决办法": "无",
+    "函数名": "PrefillRx",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_064",
+    "故障名称": "预填充接收缓冲时qbuf投递失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_post() failed, RX depth:`、`, ret:`、`, mapped:`、`(`、`), original:`",
+    "故障原因": "连接建立阶段调用umq_post投递RX qbuf返回非UMQ_SUCCESS，预填充操作直接返回失败",
+    "解决办法": "无",
+    "函数名": "PrefillRx",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_065",
+    "故障名称": "计算接收窗口时读取UMQ配置失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_cfg_get() failed, umq handle:`、`, ret:`",
+    "故障原因": "调用umq_cfg_get读取指定UMQ的rqe_post_factor和rx_depth返回非0，可投递RX数量保持为0",
+    "解决办法": "无",
+    "函数名": "GetLeftPostRxNum",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_066",
+    "故障名称": "生成UMQ配置时传输模式不受支持",
+    "故障现象": "依次匹配`Unsupported trans mode:`",
+    "故障原因": "传入模式不是RC_TP、RM_TP、RM_CTP或RC_CTP，无法映射为UMQ tp_mode和tp_type",
+    "解决办法": "无",
+    "函数名": "GetTpInfo",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_067",
+    "故障名称": "查询设备路由时传输拓扑解析失败",
+    "故障现象": "依次匹配`Failed to get urma topo info.`",
+    "故障原因": "为路由键生成tp_type时GetTpInfo返回失败，因此尚未调用底层路由查询",
+    "解决办法": "无",
+    "函数名": "GetRouteList",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_068",
+    "故障名称": "查询设备路由列表时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_get_route_list() failed, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "调用umq_get_route_list返回非0，连接选路无法取得本端到对端EID的候选路径",
+    "解决办法": "无",
+    "函数名": "GetRouteList",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_069",
+    "故障名称": "查询设备路由列表时结果为空",
+    "故障现象": "依次匹配`Route list is empty.`",
+    "故障原因": "umq_get_route_list返回成功但route_num等于0，没有可供连接选择的路由",
+    "解决办法": "无",
+    "函数名": "GetRouteList",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_070",
+    "故障名称": "注册共享接收轮询时中断fd获取失败",
+    "故障现象": "依次匹配`[UMQ_API] Failed to get share jfr RX interrupt fd, main umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "为main UMQ调用umq_interrupt_fd_get获取RX IO中断fd返回负值，共享JFR事件无法注册",
+    "解决办法": "无",
+    "函数名": "RegisterSharedJfrForRead",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_071",
+    "故障名称": "注册共享接收轮询事件时epoll添加失败",
+    "故障现象": "依次匹配`async_epoll epoll_ctl(ADD) share jfr event failed:`、`:`",
+    "故障原因": "将main UMQ的RX中断fd加入共享JFR runner时AddEpollEvent返回非0，接收完成事件没有消费者",
+    "解决办法": "无",
+    "函数名": "RegisterSharedJfrForRead",
+    "文件名": "umq_conn_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_072",
+    "故障名称": "处理读取中断事件时获取并确认事件失败",
+    "故障现象": "依次匹配`ReadV GetAndAckEvent() failed, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "非共享JFR模式下get_and_ack_event_为true，GetAndAckEvent因umq_get_cq_event返回负值而失败",
+    "解决办法": "无",
+    "函数名": "PollRx",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_073",
+    "故障名称": "读取接收队列时获取qbuf失败",
+    "故障现象": "依次匹配`ReadV GetQbuf() failed, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "PollRx调用GetQbuf返回负值；共享模式来源为socket接收队列为空对象、已关闭或保留的QUEUE_FULL错误",
+    "解决办法": "无",
+    "函数名": "PollRx",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_074",
+    "故障名称": "从共享接收队列取qbuf时失败",
+    "故障现象": "依次匹配`GetQbuf failed, fd:`、`, ret:`",
+    "故障原因": "UmqSocket::GetAndPopQbuf返回负值，表示接收队列对象不存在或队列保留了满队列错误",
+    "解决办法": "无",
+    "函数名": "GetQbuf",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_075",
+    "故障名称": "轮询独立接收完成队列时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_poll() failed, local umq:`、`, ret:`、`, mapped:`、`(`、`), original:`",
+    "故障原因": "非共享JFR模式调用umq_poll获取RX CQE返回负值，错误码转换后ReadV终止",
+    "解决办法": "无",
+    "函数名": "UmqPollAndRefillRx",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_076",
+    "故障名称": "补充独立接收qbuf时全部投递失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_post() prefill failed, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "RX补充调用umq_post失败，且HandleBadQBuf统计后可用RX队列数量仍为0，无法继续接收",
+    "解决办法": "无",
+    "函数名": "UmqPollAndRefillRx",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_077",
+    "故障名称": "处理接收中断时获取完成事件失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_get_cq_event() failed, local umq:`、`, ret:`、`, mapped:`、`(`、`), original:`",
+    "故障原因": "RX GetAndAckEvent调用umq_get_cq_event返回负值，无法取得待确认的接收中断事件数",
+    "解决办法": "无",
+    "函数名": "GetAndAckEvent",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_078",
+    "故障名称": "处理接收完成事件时CQE状态非成功",
+    "故障现象": "依次匹配`cqe error: buf status`、`, mapped errno:`、`, desc:`",
+    "故障原因": "接收qbuf的status不为0并进入错误处理，状态被转换为ReadV errno和描述后记录；随后接收端会关闭socket读方向",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_079",
+    "故障名称": "处理接收CQE时流控操作失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: flow control failed`",
+    "故障原因": "接收CQE status等于UMQ_FAKE_BUF_FC_ERR，表示流控消息处理失败",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_080",
+    "故障名称": "处理接收CQE时操作码不受支持",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: unsupported opcode`",
+    "故障原因": "接收CQE status等于UMQ_BUF_UNSUPPORTED_OPCODE_ERR，底层不支持该缓冲操作码",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_081",
+    "故障名称": "处理接收CQE时本地数据长度超限",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: local length too long`",
+    "故障原因": "接收CQE status等于UMQ_BUF_LOC_LEN_ERR，本地缓冲长度不满足底层操作要求",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_082",
+    "故障名称": "处理接收CQE时本地操作失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: local op err`",
+    "故障原因": "接收CQE status等于UMQ_BUF_LOC_OPERATION_ERR，本地jetty无法完成请求操作",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_083",
+    "故障名称": "处理接收CQE时本地内存访问失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: access to local memory error`",
+    "故障原因": "接收CQE status等于UMQ_BUF_LOC_ACCESS_ERR，本地内存区域不可访问",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_084",
+    "故障名称": "处理接收CQE时远端接收缓冲长度错误",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote rx buffer length error`",
+    "故障原因": "接收CQE status等于UMQ_BUF_REM_RESP_LEN_ERR，远端RX缓冲长度不足或不匹配",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_085",
+    "故障名称": "处理接收CQE时远端请求不受支持",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote does not support req`",
+    "故障原因": "接收CQE status等于UMQ_BUF_REM_UNSUPPORTED_REQ_ERR，远端不支持该请求",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_086",
+    "故障名称": "处理接收CQE时远端jetty操作失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty can not complete op`",
+    "故障原因": "接收CQE status等于UMQ_BUF_REM_OPERATION_ERR，远端jetty无法完成操作",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_087",
+    "故障名称": "处理接收CQE时远端内存访问中止",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty access memory error`",
+    "故障原因": "接收CQE status等于UMQ_BUF_REM_ACCESS_ABORT_ERR，远端访问内存时发生错误",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_088",
+    "故障名称": "处理接收CQE时远端确认超时",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty does not send ack`",
+    "故障原因": "接收CQE status等于UMQ_BUF_ACK_TIMEOUT_ERR，远端jetty未在期限内发送ACK",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_089",
+    "故障名称": "处理接收CQE时远端接收项不足",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty has no enough RQE`",
+    "故障原因": "接收CQE status等于UMQ_BUF_RNR_RETRY_CNT_EXC_ERR，远端没有足够RQE且重试次数已耗尽",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_090",
+    "故障名称": "处理接收CQE时写请求暂停完成",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: suspend done`",
+    "故障原因": "接收CQE status等于UMQ_BUF_WR_SUSPEND_DONE，收到非正常业务完成状态",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_091",
+    "故障名称": "处理接收CQE时刷新错误处理完成",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: flush err done`",
+    "故障原因": "接收CQE status等于UMQ_BUF_WR_FLUSH_ERR_DONE，底层报告刷新错误完成状态",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_092",
+    "故障名称": "处理接收CQE时出现未处理写请求状态",
+    "故障现象": "依次匹配`[UMQ_CQE] It wont be here.`",
+    "故障原因": "接收CQE status等于UMQ_BUF_WR_UNHANDLED；按当前刷新序列设计该状态不应到达适配层",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_093",
+    "故障名称": "处理接收CQE时数据毒化状态暂不支持",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: not supported yet`",
+    "故障原因": "接收CQE status为UMQ_BUF_LOC_DATA_POISON或UMQ_BUF_REM_DATA_POISON，适配层尚未支持数据毒化处理",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_094",
+    "故障名称": "处理接收CQE时流控更新进入错误分支",
+    "故障现象": "依次匹配`[UMQ_CQE] You should handle flow control message manually`",
+    "故障原因": "接收CQE status等于UMQ_FAKE_BUF_FC_UPDATE，但该状态应在共享JFR流控路径提前处理，不应进入错误处理函数",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_095",
+    "故障名称": "处理接收CQE时收到内存池更新状态",
+    "故障现象": "依次匹配`[UMQ_CQE] Something went wrong. brpc-adaptor ONLY uses UB send/recv`",
+    "故障原因": "接收CQE status为UMQ_MEMPOOL_UPDATE_SUCCESS或UMQ_MEMPOOL_UPDATE_FAILED，而该适配层仅使用UB send/recv操作",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_096",
+    "故障名称": "处理接收CQE时状态码未知",
+    "故障现象": "依次匹配`[UMQ_CQE] unreachable! status=`",
+    "故障原因": "接收CQE status未匹配任何已定义缓冲状态，进入switch默认分支",
+    "解决办法": "无",
+    "函数名": "HandleErrorRxCqe",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_097",
+    "故障名称": "重新使能接收中断时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_rearm_interrupt() failed for RX, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "非POOL模式调用umq_rearm_interrupt重新使能RX中断返回负值，ReadV无法等待后续接收事件",
+    "解决办法": "无",
+    "函数名": "RearmRxInterrupt",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_098",
+    "故障名称": "重试清理接收队列时轮询失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_poll() failed for RX flush, local umq:`、`, ret:`",
+    "故障原因": "连接重试或销毁阶段FlushRx调用umq_poll回收RX qbuf返回负值，清理循环提前结束",
+    "解决办法": "无",
+    "函数名": "FlushRx",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_099",
+    "故障名称": "清理接收流控消息时可读通知失败",
+    "故障现象": "依次匹配`eventfd_write() failed, event fd:`、`, errno:`、`, errmsg:`",
+    "故障原因": "FlushRx消费到UMQ_FAKE_BUF_FC_UPDATE后调用NotifyReadable返回-1，无法通过socket eventfd通知上层",
+    "解决办法": "无",
+    "函数名": "FlushRx",
+    "文件名": "umq_data_rx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_100",
+    "故障名称": "分配发送qbuf时底层接口返回空",
+    "故障现象": "依次匹配`[UMQ_API] umq_buf_alloc() failed for TX, local umq:`、`, ret:`",
+    "故障原因": "WriteV按待发送块数调用umq_buf_alloc返回null，发送数据没有可用TX qbuf",
+    "解决办法": "无",
+    "函数名": "AllocTxBuf",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_101",
+    "故障名称": "填充发送qbuf时无法定位数据块",
+    "故障现象": "依次匹配`failed to locate brpc block for TX data`、`, fd:`",
+    "故障原因": "把TX qbuf的buf_data转换为brpc Block时返回null，无法增加原始发送数据块引用",
+    "解决办法": "无",
+    "函数名": "PostSend",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_102",
+    "故障名称": "投递发送qbuf时底层接口异常失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_post() failed for TX, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "umq_post返回失败并给出bad_qbuf，且错误不属于已处理的EAGAIN、超时、流控、EMLINK或ENOBUFS分支",
+    "解决办法": "无",
+    "函数名": "PostSend",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_103",
+    "故障名称": "回收投递失败的发送qbuf时无法定位数据块",
+    "故障现象": "依次匹配`failed to locate brpc block for bad TX data`、`, fd:`",
+    "故障原因": "遍历bad_qbuf链释放发送数据引用时DataToBlock返回null，该qbuf对应的brpc引用无法正常递减",
+    "解决办法": "无",
+    "函数名": "QBUF_LIST_FOR_EACH",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_104",
+    "故障名称": "发送qbuf投递异常后终止UB写入",
+    "故障现象": "依次匹配`write failed, destroy UB`",
+    "故障原因": "umq_post命中未分类错误并已记录底层失败，flagEIO被置位，当前写入返回-1",
+    "解决办法": "无",
+    "函数名": "PostSend",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_105",
+    "故障名称": "投递发送qbuf失败且未返回坏缓冲",
+    "故障现象": "依次匹配`[UMQ_API] umq_post() failed for TX without bad_qbuf, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "umq_post返回非成功，但bad_qbuf仍为null，调用方无法区分已成功和未成功投递的qbuf",
+    "解决办法": "无",
+    "函数名": "PostSend",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_106",
+    "故障名称": "处理发送中断事件时获取并确认失败",
+    "故障现象": "依次匹配`WriteV GetAndAckEvent() failed, fd:`、`, ret:`、`, errno:`、`, errmsg:`",
+    "故障原因": "TX get_and_ack_event_为true时GetAndAckEvent返回负值，PollTx无法继续消费发送CQE",
+    "解决办法": "无",
+    "函数名": "PollTx",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_107",
+    "故障名称": "获取发送完成中断事件时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_get_cq_event() failed, local umq:`、`, ret:`、`, mapped:`、`(`、`), original:`",
+    "故障原因": "TX GetAndAckEvent调用umq_get_cq_event返回负值，错误按WriteV操作转换后向PollTx返回失败",
+    "解决办法": "无",
+    "函数名": "GetAndAckEvent",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_108",
+    "故障名称": "流控恢复后唤醒写端时eventfd写失败",
+    "故障现象": "依次匹配`eventfd_write() failed, event fd:`、`, raw sock fd`、`: errno:`、`, errmsg:`",
+    "故障原因": "need_fc_awake_原子状态为true，但向该socket的event_fd写入通知返回-1，等待写端可能不能被唤醒",
+    "解决办法": "无",
+    "函数名": "WakeUpTx",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_109",
+    "故障名称": "发送缓冲不足后重新使能中断失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_rearm_interrupt() failed for TX, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "调用umq_rearm_interrupt重新使能TX IO中断返回非0，无法通过中断等待发送资源恢复",
+    "解决办法": "无",
+    "函数名": "DpRearmTxInterrupt",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_110",
+    "故障名称": "重试清理缓存发送qbuf时无法定位数据块",
+    "故障现象": "依次匹配`failed to locate brpc block for cached TX data`、`, fd:`",
+    "故障原因": "FlushTx释放未产生CQE的缓存WR时DataToBlock返回null，对应brpc发送块引用无法正常递减",
+    "解决办法": "无",
+    "函数名": "FlushTx",
+    "文件名": "umq_data_tx_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_111",
+    "故障名称": "处理子UMQ接收事件时轮询失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_poll() failed for sub umq RX, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "子UMQ RX事件携带具体socket对象，但对其UMQ调用umq_poll返回负值；随后仍尝试重新使能接收中断",
+    "解决办法": "无",
+    "函数名": "ProcessOneEvent",
+    "文件名": "umq_share_jfr_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_112",
+    "故障名称": "子UMQ轮询失败后重新使能接收中断失败",
+    "故障现象": "依次匹配`Rearm sub umq failed, socket fd:`",
+    "故障原因": "子UMQ本轮poll无有效CQE后调用该socket的RearmRxInterrupt返回负值",
+    "解决办法": "无",
+    "函数名": "ProcessOneEvent",
+    "文件名": "umq_share_jfr_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_113",
+    "故障名称": "共享接收线程轮询main UMQ时失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_poll() failed for share jfr RX, main umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "共享JFR runner对main UMQ调用umq_poll返回负值，本轮无法取得任何socket的RX qbuf",
+    "解决办法": "无",
+    "函数名": "ProcessShareJfrEvent",
+    "文件名": "umq_share_jfr_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_114",
+    "故障名称": "共享接收线程补充main UMQ缓冲时投递失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_post() failed for share jfr RX refill, main umq:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "消费RX CQE后为main UMQ分配了补充qbuf，但umq_post返回非成功；坏qbuf被释放，已收数据仍继续分发",
+    "解决办法": "无",
+    "函数名": "ProcessShareJfrEvent",
+    "文件名": "umq_share_jfr_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_115",
+    "故障名称": "共享接收线程获取main UMQ中断事件失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_get_cq_event() failed for share jfr RX, main umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "重新使能main UMQ前调用umq_get_cq_event返回负值，本轮共享JFR事件处理直接失败",
+    "解决办法": "无",
+    "函数名": "ProcessMainUmqRearm",
+    "文件名": "umq_share_jfr_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_116",
+    "故障名称": "共享接收线程重新使能main UMQ中断失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_rearm_interrupt() failed for share jfr RX rearm, main umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "main UMQ已有完成事件时调用umq_rearm_interrupt返回负值；代码仍累计并可能确认已有事件",
+    "解决办法": "无",
+    "函数名": "ProcessMainUmqRearm",
+    "文件名": "umq_share_jfr_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_117",
+    "故障名称": "创建本地UMQ时对象已有有效句柄",
+    "故障现象": "依次匹配`Create umq on a created umq.`",
+    "故障原因": "CreateLocalUmq发现umq_handle_不是UMQ_INVALID_HANDLE，拒绝在已创建对象上重复创建UMQ",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_118",
+    "故障名称": "创建本地UMQ时队列名称格式化失败",
+    "故障现象": "依次匹配`Failed to set umq name`",
+    "故障原因": "snprintf返回负值或结果长度超过UMQ_NAME_MAX_LEN减一，队列名称无法完整写入配置",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_119",
+    "故障名称": "创建本地UMQ时配置了不支持的IP指定方式",
+    "故障现象": "依次匹配`Unsupported to set umq ip address`",
+    "故障原因": "UMQ_DEV_IP配置非空，但当前实现没有可用的IP地址设备分配逻辑，仍进入未支持分支",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_120",
+    "故障名称": "创建本地UMQ时设备名称复制失败",
+    "故障现象": "依次匹配`Failed to strcpy device name`",
+    "故障原因": "把配置的UMQ_DEV_NAME复制到UMQ创建选项时strcpy返回null，设备信息无效",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_121",
+    "故障名称": "创建本地UMQ时默认设备名称复制失败",
+    "故障现象": "依次匹配`Failed to strcpy device name, errno:`",
+    "故障原因": "未配置设备名称时复制默认bonding设备名返回null，无法形成创建选项",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_122",
+    "故障名称": "创建本地UMQ时子UMQ创建失败",
+    "故障现象": "依次匹配`CreateSubUmq() failed, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "CreateSubUmq返回UMQ_INVALID_HANDLE，错误转换后作为可重试且可降级的UMQ创建失败返回",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_123",
+    "故障名称": "创建本地UMQ时接收队列对象分配失败",
+    "故障现象": "依次匹配`Failed to init share jfr rx queue for fd:`",
+    "故障原因": "为该socket使用new(nothrow)创建UmqBufferReceiveQueue返回null，共享JFR qbuf没有socket级消费队列",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_124",
+    "故障名称": "创建单实例UMQ时发送中断fd获取失败",
+    "故障现象": "依次匹配`[UMQ_API] Failed to get TX interrupt fd, local umq:`",
+    "故障原因": "SINGLE TP模式下调用umq_interrupt_fd_get获取TX IO中断fd返回负值，无法配置solicited发送模式",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_125",
+    "故障名称": "创建单实例UMQ时solicited模式使能失败",
+    "故障现象": "依次匹配`[UMQ_API] Failed to enable solicited mode for umq:`",
+    "故障原因": "SINGLE TP模式调用umq_rearm_interrupt并请求solicited TX通知时返回负值",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_126",
+    "故障名称": "保存连接使用端口时内存分配失败",
+    "故障现象": "依次匹配`Failed to init used_ports for fd:`",
+    "故障原因": "按used_ports.num分配端口数组时new(nothrow)返回null，无法保存异常CQE所需的端口关联",
+    "解决办法": "无",
+    "函数名": "CreateLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_127",
+    "故障名称": "创建共享子UMQ时main UMQ获取失败",
+    "故障现象": "依次匹配`GetOrCreateMainUmq() failed, ret:`",
+    "故障原因": "GetOrCreateMainUmq返回UMQ_INVALID_HANDLE，子UMQ无法关联共享接收队列",
+    "解决办法": "无",
+    "函数名": "CreateSubUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_128",
+    "故障名称": "创建共享子UMQ时底层创建接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_create() failed for sub umq, ret:`",
+    "故障原因": "配置共享RQ后调用umq_create返回UMQ_INVALID_HANDLE，逻辑子UMQ未创建",
+    "解决办法": "无",
+    "函数名": "CreateSubUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_129",
+    "故障名称": "复用main UMQ时注册表状态为空",
+    "故障现象": "依次匹配`Main umq list is empty, local eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, ret:`",
+    "故障原因": "EID表查询命中指定EID和传输模式，但返回的main_umqs向量为空，无法取得可复用句柄",
+    "解决办法": "无",
+    "函数名": "GetOrCreateMainUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_130",
+    "故障名称": "完成建链资源创建时UMQ未进入就绪态",
+    "故障现象": "依次匹配`[UMQ_API] umq_state_get() failed to reach ready, state:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "调用umq_state_get得到的状态不是QUEUE_STATE_READY，RX可用队列深度不能初始化",
+    "解决办法": "无",
+    "函数名": "UpdateRxQueueAvailNum",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_131",
+    "故障名称": "重试清理UMQ时发送事件fd获取失败",
+    "故障现象": "依次匹配`[UMQ_API] Failed to get TX interrupt fd for destroy, local umq:`",
+    "故障原因": "流控开启的解绑清理中，获取该UMQ的TX EVENT中断fd返回负值；事件注销被跳过但清理继续",
+    "解决办法": "无",
+    "函数名": "UnbindAndFlushRemoteUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_132",
+    "故障名称": "重试清理UMQ时解绑远端失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_unbind() failed, local umq:`、`, ret:`",
+    "故障原因": "调用umq_unbind返回非UMQ_SUCCESS；代码仍清除bind标记并继续刷新TX/RX资源",
+    "解决办法": "无",
+    "函数名": "UnbindAndFlushRemoteUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_133",
+    "故障名称": "重试清理UMQ时销毁本地句柄失败",
+    "故障现象": "依次匹配`umq_destroy() failed, local umq:`、`, ret:`",
+    "故障原因": "调用umq_destroy返回非UMQ_SUCCESS；代码记录错误后仍把本地umq_handle_置为无效",
+    "解决办法": "无",
+    "函数名": "DestroyLocalUmq",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_134",
+    "故障名称": "异步接收qbuf入队时socket队列不存在",
+    "故障现象": "依次匹配`AddQbuf failed, fd:`、`, reason: rxQueue is null`",
+    "故障原因": "共享JFR已用qbuf_ext.umq_ctx定位具体socket，但该socket的rxQueue指针为null，qbuf无法进入ReadV消费链",
+    "解决办法": "无",
+    "函数名": "AddQbuf",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_135",
+    "故障名称": "读取共享接收qbuf时socket队列不存在",
+    "故障现象": "依次匹配`GetAndPopQbuf failed, rx queue is null, fd:`、`, ret:`",
+    "故障原因": "ReadV共享队列路径调用GetAndPopQbuf时rxQueue为null，无法取得任何接收缓冲",
+    "解决办法": "无",
+    "函数名": "GetAndPopQbuf",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_136",
+    "故障名称": "读取共享接收qbuf时队列已关闭",
+    "故障现象": "依次匹配`GetAndPopQbuf failed, fd:`、`, ret:`",
+    "故障原因": "DequeueBatch返回ERROR；ReadV传入参数固定有效，因此实际可达来源是连接清理已将rxQueue置为shutdown",
+    "解决办法": "无",
+    "函数名": "GetAndPopQbuf",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_137",
+    "故障名称": "连接选路后添加UMQ设备失败",
+    "故障现象": "依次匹配`umq_dev_add() failed, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "目标EID尚未注册，调用umq_dev_add返回非0且不是UMQ_ERR_EEXIST，设备不能用于后续绑定",
+    "解决办法": "无",
+    "函数名": "CheckDevAdd",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_138",
+    "故障名称": "注册流控发送事件时中断fd获取失败",
+    "故障现象": "依次匹配`[UMQ_API] Failed to get TX interrupt fd, local umq:`",
+    "故障原因": "流控开启且UMQ句柄有效，但获取TX EVENT类型中断fd返回负值，无法监听流控信令归还",
+    "解决办法": "无",
+    "函数名": "RegisterFcTxEvent",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_139",
+    "故障名称": "注册流控发送事件时epoll添加失败",
+    "故障现象": "依次匹配`async_epoll epoll_ctl(ADD) tp tx event failed:`、`:`",
+    "故障原因": "把FC TX事件加入TRANSPORT_POOL_TX_RUNNER返回非0，流控返回CQE没有事件消费者",
+    "解决办法": "无",
+    "函数名": "RegisterFcTxEvent",
+    "文件名": "umq_socket.cpp"
+  },
+  {
+    "故障编号": "ubsocket_140",
+    "故障名称": "接收端协商连接参数时失败",
+    "故障现象": "依次匹配`Failed to negotiate in accept,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "AcceptNegotiate返回非成功且错误不带可降级标记；来源包括版本、请求体、响应或路由交换失败",
+    "解决办法": "无",
+    "函数名": "Negotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_141",
+    "故障名称": "接收端建链前添加主路设备失败",
+    "故障现象": "依次匹配`Failed to check main dev add in accept, target eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "非裸设备和非备份策略下，按协商主路EID调用CheckDevAdd返回非0",
+    "解决办法": "无",
+    "函数名": "CheckRouteDevAddForAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_142",
+    "故障名称": "接收端首轮创建并绑定UMQ时失败",
+    "故障现象": "依次匹配`Failed to finish ub bind in accept, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "CheckRouteDevAddForAccept或DoUbAccept使ackRet非成功；禁用降级时还会移除其可降级标记",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_143",
+    "故障名称": "接收端首轮等待对端建链结果时失败",
+    "故障现象": "依次匹配`Failed to receive peer ack ret, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "从控制TCP连接接收peerRet的字节数不等于Result大小，双方首轮建链结果无法同步",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_144",
+    "故障名称": "接收端首轮发送本端建链结果时失败",
+    "故障现象": "依次匹配`Failed to send ack ret, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "向对端发送ackRet的字节数不等于Result大小，服务端建链结果未完整送达",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_145",
+    "故障名称": "接收端执行备用路径重试时失败",
+    "故障现象": "依次匹配`Failed to retry accept, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`、`, err:`",
+    "故障原因": "DoUbAcceptRetry返回非UBS_OK，来源为重试控制消息接收或ack/peer结果交换失败",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_146",
+    "故障名称": "接收端连接重试状态机进入最终失败",
+    "故障现象": "依次匹配`Failed to get new connect in accept,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "ackRet和peerRet均未形成成功组合，且当前错误既不可继续重试也不可降级，状态转为kFAILED",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_147",
+    "故障名称": "接收端创建连接UMQ资源时失败",
+    "故障现象": "依次匹配`Failed to create umq`",
+    "故障原因": "CreateLocalUmq返回失败，或随后GenerateSocketCommOps不能为该socket创建TX/RX操作对象",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_148",
+    "故障名称": "接收端获取本地UMQ绑定信息时失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_bind_info_get() failed, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "umq_bind_info_get返回的绑定信息长度为0，无法向连接对端发送本地队列绑定参数",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_149",
+    "故障名称": "接收端发送本地绑定控制消息时失败",
+    "故障现象": "依次匹配`Failed to send local control message, fd:`",
+    "故障原因": "通过长度前缀控制消息发送本地CpMsg返回负值，远端无法获得本端绑定信息",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_150",
+    "故障名称": "接收端读取远端绑定控制消息时失败",
+    "故障现象": "依次匹配`Failed to receive remote control message, fd:`",
+    "故障原因": "通过长度前缀控制消息接收远端CpMsg返回负值，本端无法执行UMQ绑定",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_151",
+    "故障名称": "接收端收到的远端绑定信息长度非法",
+    "故障现象": "依次匹配`Receive remote invalid control message, fd:`",
+    "故障原因": "远端CpMsg中的queue_bind_info_size大于UMQ_BIND_INFO_SIZE_MAX，拒绝使用越界绑定数据",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_152",
+    "故障名称": "接收端绑定远端UMQ时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_bind() failed, ret:`、`, mapped errno:`、`(`、`), original errno:`、`, operation duration:`、`ms.`",
+    "故障原因": "使用远端绑定信息调用umq_bind返回非UMQ_SUCCESS，错误被标记为可重试且可降级",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_153",
+    "故障名称": "接收端绑定后main UMQ被并发移除",
+    "故障现象": "依次匹配`The main umq state is removed by other thread.`",
+    "故障原因": "绑定成功后按连接EID和传输模式查询UmqEidTable返回null，main UMQ状态已被其他线程删除",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_154",
+    "故障名称": "接收端建链时预填充共享接收缓冲失败",
+    "故障现象": "依次匹配`Failed to fill rx buffer to umq`",
+    "故障原因": "main UMQ的EnsurePrefilled回调中PrefillRx返回失败，连接没有建立完整RX窗口",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_155",
+    "故障名称": "接收端建链时共享接收事件注册失败",
+    "故障现象": "依次匹配`Failed to register shared jfr to epoll`",
+    "故障原因": "main UMQ预填充后RegisterSharedJfrForRead返回失败，共享RX完成事件无法被后台runner消费",
+    "解决办法": "无",
+    "函数名": "DoUbAccept",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_156",
+    "故障名称": "接收端重试时对端CPU亲和策略禁止换路",
+    "故障现象": "依次匹配`CPU_AFFINITY:`、`failed, accept no need to retry,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "peer_schedule_policy_等于CPU_AFFINITY，服务端不尝试其他路由并按degradable_选择降级或最终失败",
+    "解决办法": "无",
+    "函数名": "DoUbAcceptRetry",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_157",
+    "故障名称": "接收端备用路径重试时设备添加失败",
+    "故障现象": "依次匹配`Failed to add dev in retry accept,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "按对端提供的备用路由EID调用CheckDevAdd返回非0，ack_ret被设置为可降级的设备错误",
+    "解决办法": "无",
+    "函数名": "DoUbAcceptRetry",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_158",
+    "故障名称": "接收端备用路径创建并绑定UMQ时失败",
+    "故障现象": "依次匹配`Failed to finish ub bind in accept, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "重试阶段保留设备检查结果并合并DoUbAccept返回值后ack_ret仍非成功",
+    "解决办法": "无",
+    "函数名": "DoUbAcceptRetry",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_159",
+    "故障名称": "接收端重试时读取对端结果失败",
+    "故障现象": "依次匹配`Failed to recv peer ret message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`、`, peer_ret:`",
+    "故障原因": "备用路径处理后接收peer_ret的字节数不足Result大小，重试结果交换中止",
+    "解决办法": "无",
+    "函数名": "DoUbAcceptRetry",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_160",
+    "故障名称": "接收端重试时发送本端结果失败",
+    "故障现象": "依次匹配`Failed to send ack ret message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`、`, ack_ret:`",
+    "故障原因": "备用路径处理后发送ack_ret的字节数不足Result大小，对端无法完成重试状态转换",
+    "解决办法": "无",
+    "函数名": "DoUbAcceptRetry",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_161",
+    "故障名称": "接收端读取协议协商标识时失败",
+    "故障现象": "依次匹配`Validate protocol failed, fd:`、`, ret:`",
+    "故障原因": "RecvSocketData返回值小于等于0，未读取到完整CONTROL_PLANE_PROTOCOL_NEGOTIATION字段",
+    "解决办法": "无",
+    "函数名": "ValidateProtocol",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_162",
+    "故障名称": "接收端校验协议协商标识时不匹配",
+    "故障现象": "依次匹配`Validate protocol mismatch, fd:`、`, ret:`",
+    "故障原因": "收到的协议字段长度不是uint64_t大小，或字段值不是CONTROL_PLANE_PROTOCOL_NEGOTIATION",
+    "解决办法": "无",
+    "函数名": "ValidateProtocol",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_163",
+    "故障名称": "接收端读取对端协议版本时失败",
+    "故障现象": "依次匹配`ValidateVersion: failed to recv version, fd:`",
+    "故障原因": "读取四字节peer_version的返回长度不足，版本协商返回kRecvFailed",
+    "解决办法": "无",
+    "函数名": "ValidateVersion",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_164",
+    "故障名称": "构造接收端协商响应时本地socket编号无效",
+    "故障现象": "依次匹配`Invalid local socket ids, size`、`, Peer IP:`",
+    "故障原因": "UMQ_ALL_SOCKET_IDS为空或数量超过NEGOTIATE_SOCKET_ID_MAX_NUM；BuildNegotiateRsp忽略该返回值并继续构造响应",
+    "解决办法": "无",
+    "函数名": "FillLocalSocketIdsForNegotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_165",
+    "故障名称": "接收端读取协商请求体时失败",
+    "故障现象": "依次匹配`Failed to receive negotiate request in accept, fd:`",
+    "故障原因": "ValidateVersion成功后，RecvLengthPrefixed读取NegotiateReq返回负值",
+    "解决办法": "无",
+    "函数名": "AcceptNegotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_166",
+    "故障名称": "接收端发送协商版本时失败",
+    "故障现象": "依次匹配`Failed to send negotiated version in accept, fd:`",
+    "故障原因": "向对端发送negotiated_version的返回字节数不足uint32_t大小",
+    "解决办法": "无",
+    "函数名": "AcceptNegotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_167",
+    "故障名称": "接收端协商时两端bonding模式不一致",
+    "故障现象": "依次匹配`client bonding mode is not equal to server bonding mode, client:`、`, server:`",
+    "故障原因": "请求中的is_bonding与本地UMQ_IS_BONDING不相等，响应ret_code被设置为失败",
+    "解决办法": "无",
+    "函数名": "AcceptNegotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_168",
+    "故障名称": "接收端发送协商响应体时失败",
+    "故障现象": "依次匹配`Failed to send negotiate response in accept, fd:`",
+    "故障原因": "发送NegotiateRsp的长度前缀消息失败；可能发生在模式不一致或非bonding的提前响应，也可能发生在最终响应",
+    "解决办法": "无",
+    "函数名": "AcceptNegotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_169",
+    "故障名称": "接收端读取对端协商路由时失败",
+    "故障现象": "依次匹配`Failed to receive negotiate route in accept, Peer IP:`、`, fd:`",
+    "故障原因": "非裸设备策略下读取NegotiateRoute长度前缀消息返回负值，无法取得主路和备路",
+    "解决办法": "无",
+    "函数名": "AcceptNegotiate",
+    "文件名": "umq_socket_acceptor.cpp"
+  },
+  {
+    "故障编号": "ubsocket_170",
+    "故障名称": "TFO首次携带协商请求建连时发送失败",
+    "故障现象": "依次匹配`TFO sendto[1] failed, ret:`、`, errno`、`, err msg:`",
+    "故障原因": "在原socket上以MSG_FASTOPEN发送协商请求返回负值且errno非0；代码随后检查是否需要创建临时socket重试",
+    "解决办法": "无",
+    "函数名": "ConnectViaTfo",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_171",
+    "故障名称": "TFO临时socket重试发送协商请求时失败",
+    "故障现象": "依次匹配`TFO sendto[2] failed, ret:`、`, errno`、`, err msg:`",
+    "故障原因": "原连接未识别为UB连接后，新建临时socket再次以MSG_FASTOPEN发送协商请求仍返回负值",
+    "解决办法": "无",
+    "函数名": "ConnectViaTfo",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_172",
+    "故障名称": "TFO重试后替换原socket描述符时失败",
+    "故障现象": "依次匹配`dup3 failed, ret:`、`, errno`、`, err msg:`",
+    "故障原因": "临时socket完成发送后调用dup3覆盖原fd返回负值，临时socket被关闭且连接准备失败",
+    "解决办法": "无",
+    "函数名": "ConnectViaTfo",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_173",
+    "故障名称": "发起TCP连接时出现不可重试错误",
+    "故障现象": "依次匹配`connect() failed, ret:`、`, errno:`、`, errmsg:`、`, fd:`",
+    "故障原因": "connect返回失败，errno不是EINPROGRESS、EALREADY或EISCONN，不能进入后续UB协商",
+    "解决办法": "无",
+    "函数名": "PrepareConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_174",
+    "故障名称": "连接端协商连接参数时失败",
+    "故障现象": "依次匹配`Failed to negotiate in connect,Peer IP:`、`, fd:`",
+    "故障原因": "ConnectNegotiate返回非成功且不可降级，来源包括版本、响应、socket编号、路由获取或路由发送失败",
+    "解决办法": "无",
+    "函数名": "Negotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_175",
+    "故障名称": "连接端首轮创建并绑定UMQ时失败",
+    "故障现象": "依次匹配`Failed to finish ub bind in connect, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "CheckRouteDevAddForConnect或DoUbConnect使ack_ret非成功，仍会把该结果发送给对端决定重试或降级",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_176",
+    "故障名称": "连接端首轮发送本端建链结果时失败",
+    "故障现象": "依次匹配`Failed to send ack ret, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "向接收端发送ack_ret的字节数不足Result大小，首轮状态交换返回UBS_TCP_EXCHANGE",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_177",
+    "故障名称": "连接端首轮读取对端建链结果时失败",
+    "故障现象": "依次匹配`Failed to receive peer ack ret, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "从接收端读取peer_ret的字节数不足Result大小，无法决定成功、重试或降级状态",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_178",
+    "故障名称": "连接端执行备用路径重试时失败",
+    "故障现象": "依次匹配`Failed to retry connect, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`、`, err:`",
+    "故障原因": "DoUbConnectRetry返回非UBS_OK，具体来源为重试路由通知、ack发送或peer结果接收失败",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_179",
+    "故障名称": "连接端通知备用路由检查失败状态时发送失败",
+    "故障现象": "依次匹配`Failed to send connect eid message in retry connect,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "状态机处于kRETRY_FAILED_CHECK_OTHER_ROUTE时发送OtherRouteMessage返回负值；该返回值未终止状态机，随后仍选择降级或失败",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_180",
+    "故障名称": "连接端连接重试状态机进入最终失败",
+    "故障现象": "依次匹配`Failed to get new connect in connect, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "ack_ret和peer_ret未成功，且当前结果不可降级或重试已结束，状态转为kFAILED并返回连接重试失败",
+    "解决办法": "无",
+    "函数名": "CreateSocketResources",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_181",
+    "故障名称": "连接端发送协商请求时失败",
+    "故障现象": "依次匹配`Failed to send negotiate request, Peer IP:`、`, fd:`",
+    "故障原因": "UB socket option握手模式下发送预构造的协商请求字节数不足完整请求长度",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_182",
+    "故障名称": "连接端读取协商版本时失败",
+    "故障现象": "依次匹配`Failed to receive negotiated version in connect, Peer IP:`、`, fd:`",
+    "故障原因": "接收negotiated_version的返回字节数不足uint32_t大小",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_183",
+    "故障名称": "连接端读取协商响应体时失败",
+    "故障现象": "依次匹配`Failed to receive negotiate response in connect,Peer IP:`、`, fd:`",
+    "故障原因": "RecvLengthPrefixed读取NegotiateRsp返回负值，无法取得对端传输模式、EID和socket编号",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_184",
+    "故障名称": "连接端收到对端协商失败结果",
+    "故障现象": "依次匹配`Failed to negotiate in connect, peer ret`、`, Peer IP:`、`, fd:`",
+    "故障原因": "NegotiateRsp中的ret_code不为0，表示对端拒绝当前协商参数",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_185",
+    "故障名称": "连接端收到的对端socket编号数量非法",
+    "故障现象": "依次匹配`Invalid peer socket count, fd:`",
+    "故障原因": "响应socket_id_count等于0或超过NEGOTIATE_SOCKET_ID_MAX_NUM，不能建立CPU亲和映射",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_186",
+    "故障名称": "连接端为协商EID选择路由时失败",
+    "故障现象": "依次匹配`Failed to get route list in connect, fd:`",
+    "故障原因": "DoRoute返回非0；下游可能是路由列表查询、连接EID选择或CPU亲和路由选择失败",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_187",
+    "故障名称": "连接端发送协商路由信息时失败",
+    "故障现象": "依次匹配`Failed to send negotiate route info in connect, fd:`",
+    "故障原因": "已选出主路和备路后，发送NegotiateRoute长度前缀消息返回负值",
+    "解决办法": "无",
+    "函数名": "ConnectNegotiate",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_188",
+    "故障名称": "连接端获取设备路由列表时失败",
+    "故障现象": "依次匹配`Failed to get dev route list`",
+    "故障原因": "GetDevRouteList未能从缓存或UmqConnHelper取得有效路由列表，DoRoute无法继续",
+    "解决办法": "无",
+    "函数名": "DoRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_189",
+    "故障名称": "连接端从电组网路由中选择通信EID时失败",
+    "故障现象": "依次匹配`Failed to get connect eid`",
+    "故障原因": "FULLMESH_1D拓扑下GetConnEid返回非0，没有选出符合调度策略的源设备",
+    "解决办法": "无",
+    "函数名": "DoRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_190",
+    "故障名称": "连接端从光组网路由中选择CPU亲和路径时失败",
+    "故障现象": "依次匹配`Failed to get cpu affinity umq route`",
+    "故障原因": "CLOS拓扑下GetCpuAffinityUmqRoute返回非0，无法同时形成所需亲和与非亲和路由集合",
+    "解决办法": "无",
+    "函数名": "DoRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_191",
+    "故障名称": "连接端创建本地UMQ及数据操作对象时失败",
+    "故障现象": "依次匹配`Failed to create umq,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "CreateLocalUmq返回失败，或GenerateSocketCommOps不能为连接socket创建发送和接收操作对象",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_192",
+    "故障名称": "连接端获取本地UMQ绑定信息时失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_bind_info_get() failed, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "umq_bind_info_get返回长度0，无法向接收端提供本地队列绑定参数",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_193",
+    "故障名称": "连接端发送本地绑定控制消息时失败",
+    "故障现象": "依次匹配`Failed to send local control message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "SendLengthPrefixed发送本地CpMsg返回负值，对端无法取得连接端绑定信息",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_194",
+    "故障名称": "连接端读取远端绑定控制消息时失败",
+    "故障现象": "依次匹配`Failed to receive remote control message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "RecvLengthPrefixed读取远端CpMsg返回负值，本端无法调用umq_bind",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_195",
+    "故障名称": "连接端收到的远端绑定信息长度非法",
+    "故障现象": "依次匹配`Receive remote invalid control message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "远端queue_bind_info_size超过UMQ_BIND_INFO_SIZE_MAX，拒绝使用该控制消息",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_196",
+    "故障名称": "连接端绑定远端UMQ时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_bind() failed, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`、`, operation duration:`、`ms.`",
+    "故障原因": "调用umq_bind返回非0，错误被转换为Connect操作错误并标记为可重试、可降级",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_197",
+    "故障名称": "连接端绑定后main UMQ被并发移除",
+    "故障现象": "依次匹配`The main umq state is removed by other thread.`",
+    "故障原因": "绑定成功后按连接EID与传输模式查询main UMQ返回null，状态已被其他线程删除",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_198",
+    "故障名称": "连接端建链时预填充共享接收缓冲失败",
+    "故障现象": "依次匹配`Failed to fill rx buffer to umq`",
+    "故障原因": "EnsurePrefilled回调调用PrefillRx返回失败，连接端没有完整RX窗口",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_199",
+    "故障名称": "连接端建链时共享接收事件注册失败",
+    "故障现象": "依次匹配`Failed to register shared jfr to epoll`",
+    "故障原因": "预填充完成后RegisterSharedJfrForRead返回失败，共享JFR后台线程不能接收该main UMQ事件",
+    "解决办法": "无",
+    "函数名": "DoUbConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_200",
+    "故障名称": "连接端重试时本地CPU亲和策略禁止换路",
+    "故障现象": "依次匹配`CPU_AFFINITY:`、`failed, connect no need to retry,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "UMQ_DEV_SCHEDULE_POLICY等于CPU_AFFINITY，连接端不选择备用路由并按degradable_转为降级或失败",
+    "解决办法": "无",
+    "函数名": "DoUbConnectRetry",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_201",
+    "故障名称": "连接端重试时未取得可用备用路由",
+    "故障现象": "依次匹配`Failed to get other route in retry,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`",
+    "故障原因": "CheckOtherRoute或CheckOtherRouteForClos返回非0，状态转为kRETRY_FAILED_CHECK_OTHER_ROUTE",
+    "解决办法": "无",
+    "函数名": "DoUbConnectRetry",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_202",
+    "故障名称": "连接端备用路径创建并绑定UMQ时失败",
+    "故障现象": "依次匹配`Failed to finish ub bind in retry connect, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "备用路由上的DoUbConnect返回非成功并写入ack_ret，后续仍向对端交换该结果",
+    "解决办法": "无",
+    "函数名": "DoUbConnectRetry",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_203",
+    "故障名称": "连接端重试时发送本端结果失败",
+    "故障现象": "依次匹配`Failed to send ack ret message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`、`, ack_ret:`",
+    "故障原因": "备用路径处理后发送ack_ret的字节数不足Result大小，返回UBS_TCP_EXCHANGE",
+    "解决办法": "无",
+    "函数名": "DoUbConnectRetry",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_204",
+    "故障名称": "连接端重试时读取对端结果失败",
+    "故障现象": "依次匹配`Failed to recv peer ret message,Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`,Peer IP:`、`, fd:`、`, peer_ret:`",
+    "故障原因": "备用路径处理后读取peer_ret的字节数不足Result大小，返回UBS_TCP_EXCHANGE",
+    "解决办法": "无",
+    "函数名": "DoUbConnectRetry",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_205",
+    "故障名称": "连接端刷新路由缓存时底层查询失败",
+    "故障现象": "依次匹配`Failed to get urma route info.`",
+    "故障原因": "路由缓存未命中或为空后，UmqConnHelper::GetRouteList返回失败，新的路由列表无法登记",
+    "解决办法": "无",
+    "函数名": "GetDevRouteList",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_206",
+    "故障名称": "按CPU亲和芯片选择UMQ设备时未找到匹配项",
+    "故障现象": "依次匹配`Failed to find umq dev`",
+    "故障原因": "已计算目标chip id，但遍历路由列表没有任何src_port.chip_id与其匹配",
+    "解决办法": "无",
+    "函数名": "GetConnEid",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_207",
+    "故障名称": "轮询选择UMQ设备时未选出路由",
+    "故障现象": "依次匹配`Failed to find umq dev`",
+    "故障原因": "轮询路由选择结束后found仍为false；按当前非空route_num循环通常会选择首个元素，该日志是防御分支",
+    "解决办法": "无",
+    "函数名": "GetRoundRobinConnEid",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_208",
+    "故障名称": "选择CPU亲和UMQ路由时候选集合不足",
+    "故障现象": "依次匹配`Failed to find umq route`",
+    "故障原因": "主、备路由按本端和对端chip id筛选及回退后仍不能同时得到非空亲和组和非亲和组",
+    "解决办法": "无",
+    "函数名": "GetCpuAffinityUmqRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_209",
+    "故障名称": "连接端建链前添加主路设备失败",
+    "故障现象": "依次匹配`Failed to check main dev add in connect, target eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "非裸设备和非备份策略下，按主路conn_eid调用CheckDevAdd返回非0",
+    "解决办法": "无",
+    "函数名": "CheckRouteDevAddForConnect",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_210",
+    "故障名称": "连接端重试时路由缓存不存在",
+    "故障现象": "依次匹配`Failed to check other route to connect, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "RouteListRegistry中没有登记peer_bonding_eid对应路由列表，无法检查其他路径",
+    "解决办法": "无",
+    "函数名": "CheckOtherRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_211",
+    "故障名称": "连接端重试时读取路由缓存失败",
+    "故障现象": "依次匹配`Failed to get route list in map, Peer eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, Peer IP:`、`, fd:`",
+    "故障原因": "路由EID已登记，但GetRouteList仍返回false，无法从缓存构造备用路径",
+    "解决办法": "无",
+    "函数名": "CheckOtherRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_212",
+    "故障名称": "连接端重试时添加备用路由设备失败",
+    "故障现象": "依次匹配`CheckDevAdd() failed in CheckOtherRoute, src eid:`、`:`、`:`、`:`、`:`、`:`、`:`、`:`、`, ret:`",
+    "故障原因": "已找到other_conn_route，但按其源EID调用CheckDevAdd返回非0",
+    "解决办法": "无",
+    "函数名": "CheckOtherRoute",
+    "文件名": "umq_socket_connector.cpp"
+  },
+  {
+    "故障编号": "ubsocket_213",
+    "故障名称": "处理共享发送中断时获取完成事件失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_get_cq_event() failed for share jfr TX, main umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "TP TX事件对应具体main UMQ和tp_idx，但umq_get_cq_event返回负值，本轮不能消费该传输路径的TX CQE",
+    "解决办法": "无",
+    "函数名": "ProcessOneEvent",
+    "文件名": "umq_tp_tx_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_214",
+    "故障名称": "处理共享发送CQE后重新使能中断失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_rearm_interrupt() failed for TX, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "TP TX CQE轮询结束后调用umq_rearm_interrupt返回负值，后续发送完成事件可能不能再次触发",
+    "解决办法": "无",
+    "函数名": "ProcessOneEvent",
+    "文件名": "umq_tp_tx_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_215",
+    "故障名称": "重试清理流控发送事件时epoll删除失败",
+    "故障现象": "依次匹配`async_epoll del pure event for socket:`、`failed:`、`:`",
+    "故障原因": "连接重试注销FC TX事件时epoll_ctl(DEL)返回负值，对应事件数据未从runner映射中移除",
+    "解决办法": "无",
+    "函数名": "DelEpollEvent",
+    "文件名": "umq_tp_tx_epoll_runner_ops.cpp"
+  },
+  {
+    "故障编号": "ubsocket_216",
+    "故障名称": "发送资源恢复时等待socket出队失败",
+    "故障现象": "依次匹配`Failed to wake up socket for available jetty.`",
+    "故障原因": "TP等待队列在Empty检查后Pop仍返回false，可能发生并发消费或队列状态异常，无法唤醒一个等待jetty的socket",
+    "解决办法": "无",
+    "函数名": "TryWakeupOne",
+    "文件名": "umq_tp_wait_queue.cpp"
+  },
+  {
+    "故障编号": "ubsocket_217",
+    "故障名称": "FC返回路径轮询发送CQE时底层接口失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_poll() failed for TX, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "POOL模式把silent_poll_err置为true后，PollUmqTxInternal调用umq_poll返回负值并记录该错误",
+    "解决办法": "无",
+    "函数名": "PollUmqTxInternal",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_218",
+    "故障名称": "释放正常发送CQE数据时无法定位数据块",
+    "故障现象": "依次匹配`failed to locate brpc block for TX CQE data`",
+    "故障原因": "沿CQE user_ctx指向的TX qbuf链释放brpc引用时DataToBlock返回null",
+    "解决办法": "无",
+    "函数名": "ProcessTxCqe",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_219",
+    "故障名称": "处理正常发送CQE时用户上下文链表错误",
+    "故障现象": "依次匹配`TX umq buffer list is in error, TX user context does not contain the right list`",
+    "故障原因": "从CQE的user_ctx开始遍历后wr_first_buf为null，CQE没有指向预期的已提交TX qbuf链",
+    "解决办法": "无",
+    "函数名": "ProcessTxCqe",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_220",
+    "故障名称": "处理发送完成事件时CQE状态非成功",
+    "故障现象": "依次匹配`cqe error: buf status`、`, mapped errno:`、`, desc:`",
+    "故障原因": "TX轮询得到的qbuf status不为0并进入错误分支，状态被转换为WriteV errno；随后释放qbuf并把关联socket置为关闭",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_221",
+    "故障名称": "处理发送CQE时流控操作失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: flow control failed`",
+    "故障原因": "发送CQE status等于UMQ_FAKE_BUF_FC_ERR，流控请求或返回处理失败",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_222",
+    "故障名称": "处理发送CQE时操作码不受支持",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: unsupported opcode`",
+    "故障原因": "发送CQE status等于UMQ_BUF_UNSUPPORTED_OPCODE_ERR，底层不支持该发送操作码",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_223",
+    "故障名称": "处理发送CQE时本地数据长度超限",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: local length too long`",
+    "故障原因": "发送CQE status等于UMQ_BUF_LOC_LEN_ERR，本地发送缓冲长度不满足底层要求",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_224",
+    "故障名称": "处理发送CQE时本地操作失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: local op err`",
+    "故障原因": "发送CQE status等于UMQ_BUF_LOC_OPERATION_ERR，本地jetty无法完成发送操作",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_225",
+    "故障名称": "处理发送CQE时本地内存访问失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: access to local memory error`",
+    "故障原因": "发送CQE status等于UMQ_BUF_LOC_ACCESS_ERR，本地发送内存区域不可访问",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_226",
+    "故障名称": "处理发送CQE时远端接收缓冲长度错误",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote rx buffer length error`",
+    "故障原因": "发送CQE status等于UMQ_BUF_REM_RESP_LEN_ERR，远端RX缓冲长度不足或不匹配",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_227",
+    "故障名称": "处理发送CQE时远端请求不受支持",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote does not support req`",
+    "故障原因": "发送CQE status等于UMQ_BUF_REM_UNSUPPORTED_REQ_ERR，远端不支持该发送请求",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_228",
+    "故障名称": "处理发送CQE时远端jetty操作失败",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty can not complete op`",
+    "故障原因": "发送CQE status等于UMQ_BUF_REM_OPERATION_ERR，远端jetty无法完成请求",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_229",
+    "故障名称": "处理发送CQE时远端内存访问中止",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty access memory error`",
+    "故障原因": "发送CQE status等于UMQ_BUF_REM_ACCESS_ABORT_ERR，远端访问接收内存时发生错误",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_230",
+    "故障名称": "处理发送CQE时远端确认超时",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty does not send ack`",
+    "故障原因": "发送CQE status等于UMQ_BUF_ACK_TIMEOUT_ERR，远端jetty未在期限内返回ACK",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_231",
+    "故障名称": "处理发送CQE时远端接收项不足",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: remote jetty has no enough RQE`",
+    "故障原因": "发送CQE status等于UMQ_BUF_RNR_RETRY_CNT_EXC_ERR，远端RQE不足且发送重试次数已耗尽",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_232",
+    "故障名称": "处理发送CQE时写请求暂停完成",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: suspend done`",
+    "故障原因": "发送CQE status等于UMQ_BUF_WR_SUSPEND_DONE，收到非正常业务完成状态",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_233",
+    "故障名称": "处理发送CQE时刷新错误处理完成",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: flush err done`",
+    "故障原因": "发送CQE status等于UMQ_BUF_WR_FLUSH_ERR_DONE，底层报告刷新错误完成状态",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_234",
+    "故障名称": "处理发送CQE时出现未处理写请求状态",
+    "故障现象": "依次匹配`[UMQ_CQE] It wont be here.`",
+    "故障原因": "发送CQE status等于UMQ_BUF_WR_UNHANDLED；按当前umq_ub_flush_seq设计该状态不应到达",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_235",
+    "故障名称": "处理发送CQE时数据毒化状态暂不支持",
+    "故障现象": "依次匹配`[UMQ_CQE] cqe error: not supported yet`",
+    "故障原因": "发送CQE status为UMQ_BUF_LOC_DATA_POISON或UMQ_BUF_REM_DATA_POISON，适配层尚未实现该状态处理",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_236",
+    "故障名称": "处理发送CQE时状态码未知",
+    "故障现象": "依次匹配`[UMQ_CQE] unreachable! status=`",
+    "故障原因": "发送CQE status未匹配任何已定义缓冲状态，进入switch默认分支",
+    "解决办法": "无",
+    "函数名": "LogTxCqeErrorMsg",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_237",
+    "故障名称": "释放错误发送CQE数据时无法定位数据块",
+    "故障现象": "依次匹配`failed to locate brpc block for error TX CQE data`",
+    "故障原因": "错误CQE处理沿qbuf链递减brpc引用时DataToBlock返回null，该发送块引用无法正常释放",
+    "解决办法": "无",
+    "函数名": "ProcessErrorTxCqe",
+    "文件名": "umq_tx_helper.cpp"
+  },
+  {
+    "故障编号": "ubsocket_238",
+    "故障名称": "FC返回路径轮询发送CQE失败",
+    "故障现象": "依次匹配`[UMQ_API] umq_poll() failed for fc tx, local umq:`、`, ret:`、`, mapped errno:`、`(`、`), original errno:`",
+    "故障原因": "POOL模式的FC TX事件或等待队列唤醒调用PollUmqTxForFcReturn，内部poll返回负值且映射errno不是EMLINK",
+    "解决办法": "无",
+    "函数名": "PollUmqTxForFcReturn",
+    "文件名": "umq_tx_helper.cpp"
+  }
+]

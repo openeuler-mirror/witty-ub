@@ -4,7 +4,10 @@ from pytest import approx
 
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.common.stage_progress import StageProgress
-from latency.task.progress import parallel_overall_progress, task_progress
+from latency.task.progress import (
+    parallel_overall_progress,
+    task_progress,
+)
 
 
 def _task(

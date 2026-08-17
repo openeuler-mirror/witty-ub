@@ -105,6 +105,14 @@ class RunOrStopLogParseResponse(ResponseBase):
     result: RunOrStopLogParseMsg = Field(..., description="运行或停止日志解析响应结果")
 
 
+class RunBrpcDiagnosisMsg(BaseModel):
+    task_id: str = Field(..., description="BRPC 诊断任务 ID")
+
+
+class RunBrpcDiagnosisResponse(ResponseBase):
+    result: RunBrpcDiagnosisMsg = Field(..., description="BRPC 诊断任务创建结果")
+
+
 class UpdateLogFileMsg(BaseModel):
     log_file_id: Optional[str] = Field(default=None, description="更新的日志文件ID")
 
