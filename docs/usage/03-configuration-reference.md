@@ -142,18 +142,31 @@ server {
 
 ### 配置文件位置
 
-- **宿主机**：`~/.config/opencode/config.yaml`
-- **容器内**：`/root/.config/opencode/config.yaml`
+- **宿主机**：`~/.config/opencode/opencode.jsonc`
+- **容器内**：`/root/.config/opencode/opencode.jsonc`
 
 ### 配置示例
 
-```yaml
-provider:
-  my-provider:
-    type: custom
-    apiKey: "your-api-key"
-    baseURL: "your-base-url"
-model: "my-provider/model-name"
+```jsonc
+{
+  	"$schema": "https://opencode.ai/config.json",
+  	"provider": {
+        "provider-ID": {
+            "name": "provider-name",
+            "npm": "@ai-sdk/openai-compatible",
+            "options": {
+                "apiKey": "your-api-key",
+                "baseURL": "your-base-url",
+                "setCacheKey": true
+            },
+            "models": {
+                "model-name": {
+                    "name": "model-name"
+                }
+            }
+        }
+    }
+}
 ```
 
 ### 启动命令
@@ -162,6 +175,12 @@ model: "my-provider/model-name"
 # 启动 OpenCode 后台服务
 bash /var/witty-ub/latency/deploy/run_opencode.sh
 ```
+
+### 配置注意事项
+
+> **API-key 仅支持直接修改配置文件时**：如果用户的 API-key 只支持直接修改 opencode 的配置文件（即无法通过前端页面配置），此时无需在前端页面进行配置，直接在本机的 opencode 配置文件（通常是 `~/.config/opencode/opencode.jsonc`）按照 API-key 提供方给出的教程进行配置即可，平台会自动识别大模型。
+
+> **Docker 部署修改 opencode 配置**：docker 部署时，如果需要修改 opencode 配置文件，请在宿主机上进行操作。部署时会将宿主机的 opencode 配置目录（`~/.config/opencode/`）映射到容器中（`/root/.config/opencode/`），在容器内直接修改不会持久化。
 
 ---
 

@@ -49,7 +49,6 @@ EOF
 
 ```bash
 sudo yum install -y witty-ub
-sudo yum install -y opencode
 ```
 
 ---
@@ -57,18 +56,14 @@ sudo yum install -y opencode
 ## 配置 OpenCode
 
 ```bash
-mkdir -p ~/.config/opencode
-cat > ~/.config/opencode/config.yaml << 'EOF'
-provider:
-  my-provider:
-    type: custom
-    apiKey: "your-api-key"
-    baseURL: "your-base-url"
-model: "my-provider/model-name"
-EOF
+# RPM 安装
+npm i -g opencode-ai # 或按照 [opencode 官方文档](https://opencode.ai/zh/download) 安装
+
+# 修改配置，参考 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)
+vi ~/.config/opencode/opencode.jsonc
 
 # 启动后台服务
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+bash ./src/plugins/latency/deploy/run_opencode.sh
 ```
 
 ---
