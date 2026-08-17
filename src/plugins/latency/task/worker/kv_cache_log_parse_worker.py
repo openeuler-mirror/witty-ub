@@ -813,10 +813,11 @@ class KVCacheLogParseWorker(BaseWorker):
         31 TRACE_COLUMNS, one row/trace); no spawn/pickle/sharding.
 
         Semantics:
-        - 先计算 anomalous_tids（完整异常：时延异常 + 状态码异常）
+        - 先计算 anomalous_tids（仅包含时延异常：total_ms >= threshold_ms）
         - 再在 df_trace 中添加 is_anomalous_int 列（标记每个trace是否在 anomalous_tids 中）
         - 聚合时统计 is_anomalous_int.sum()（确保 anomaly_cnt 与实际异常trace数量一致）
         - ``anomaly_cnt`` 总和 = ``len(anomalous_tids)``（严格等于）
+        - 注意：状态码异常在通断故障部分处理，不影响时延故障部分
         - ``op_key`` 直接消费 df_trace 的 ``op_key`` 列（T1 列式投影已按
           ``"GET" if "GET" in op.upper() else "SET"`` 计算）。
         - ``bucket_str`` 复刻 ``_format_bucket_epoch``（10s-aligned epoch →
@@ -834,16 +835,12 @@ class KVCacheLogParseWorker(BaseWorker):
         import polars as pl
 
         # ── anomaly mask（单 trace 阈值, 与旧 worker 首遍一致）─────────
-        # 时延异常（仅用于统计 anomaly_cnt）
+        # 时延异常（仅用于时延故障部分）
         latency_anomaly = (pl.col("total_ms") >= threshold_ms)
-        
-        # 完整异常（用于 anomalous_tids，包含时延异常和状态码异常）
-        anomaly = latency_anomaly | (
-            pl.col("status_code").is_not_null() & (pl.col("status_code") != 0)
-        )
 
-        # 先计算 anomalous_tids，用于后续聚合
-        anomalous_tids: set[str] = set(df_trace.filter(anomaly)["tid"].to_list())
+        # anomalous_tids 只包含时延超过阈值的 trace（用于时延故障部分）
+        # 状态码异常在通断故障部分处理，不影响时延故障部分
+        anomalous_tids: set[str] = set(df_trace.filter(latency_anomaly)["tid"].to_list())
         
         # 在 df_trace 中添加 is_anomalous 列，用于聚合统计
         df_trace = df_trace.with_columns(
@@ -1037,7 +1034,8 @@ class KVCacheLogParseWorker(BaseWorker):
             # 拷贝 yuanrong 字段（df_trace 已含全量 26 列）
             from latency.schemas.log import YUANRONG_METRIC_FIELDS
             yuanrong_fields = list(YUANRONG_METRIC_FIELDS)
-            for flat in frame.to_dicts():
+            # 使用 iter_rows() 代替 to_dicts()，减少内存占用
+            for flat in frame.iter_rows(named=True):
                 row = KVCacheLogParseWorker._make_field_row(
                     flat,
                     log_file_id,
@@ -1326,9 +1324,11 @@ class KVCacheLogParseWorker(BaseWorker):
 
             top1000_tids: set[str] = set()
             try:
+                # 使用 top_k 代替 sort + head，避免对整个 DataFrame 排序
+                # top_k 使用堆排序，内存占用更小，性能更好
+                # 注意：top_k 的正确用法是 top_k(k=..., by=...)
                 top1000_tids = set(
-                    trace_index.sort("total_latency", descending=True)
-                    .head(1000)["tid"]
+                    trace_index.top_k(k=1000, by="total_latency")["tid"]
                     .to_list()
                 )
             except Exception:
@@ -1365,13 +1365,16 @@ class KVCacheLogParseWorker(BaseWorker):
 
                 yuanrong_fields = list(YUANRONG_METRIC_FIELDS)
                 try:
+                    # 保持原有的排序逻辑，确保业务逻辑一致
+                    # top1000_df 按 total_latency 降序排序
                     top1000_df = detail_subset.filter(
                         pl.col("tid").is_in(top1000_tids)
                     ).sort("total_latency", descending=True)
                     if top1000_df.height > 0:
                         created_at = _utc_now_str()
                         top1000_rows = []
-                        for flat in top1000_df.to_dicts():
+                        # 使用 iter_rows() 代替 to_dicts()，减少内存占用
+                        for flat in top1000_df.iter_rows(named=True):
                             row = KVCacheLogParseWorker._make_field_row(
                                 flat, log_file_id=log_file_id, created_at=created_at,
                                 is_anomalous=flat["tid"] in anomalous_tids,
