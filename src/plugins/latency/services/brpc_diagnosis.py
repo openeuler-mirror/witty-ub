@@ -797,22 +797,73 @@ class BrpcDiagnosisService:
             mapping.failure_mode_id: mapping
             for mapping in schema.failure_interface_mappings
         }
-        # Retain only interfaces to which hits were uniquely attributed. Hits
-        # with interface_id=NULL stay as an interface-less tree; never expand
-        # all static candidates or contextual subgraph endpoints. Edges remain
-        # strictly schema-backed; do not synthesize interface-to-failure links.
+        # Retain interfaces for each directly-hit failure mode.  When the
+        # diagnosis engine uniquely attributed the hit to an interface, only
+        # that resolved interface is kept.  When the hit is unresolved
+        # (interface_id=NULL, e.g. singleton hit with multiple candidates and
+        # no cross-component anchor), ALL candidate interfaces from the schema
+        # mapping are kept so the failure mode always has an interface root —
+        # never a standalone rootless failure-mode node.  Edges remain strictly
+        # schema-backed; do not synthesize interface-to-failure links.
         retained = set(directly_hit)
         for failure_mode_id in directly_hit:
             mapping = mappings_by_failure[failure_mode_id]
             resolved_interface_ids = resolved_interfaces_by_failure.get(
                 failure_mode_id, set()
             ).intersection(mapping.interface_ids)
-            retained.update(resolved_interface_ids)
+            if resolved_interface_ids:
+                retained.update(resolved_interface_ids)
+            else:
+                retained.update(mapping.interface_ids)
+        # Bridge cross-component interface endpoints that lie on a schema path
+        # between two retained nodes. Without this, a per-Thread graph whose
+        # hits span UBSocket -> UMQ -> URMA splits into one island per
+        # component because the bridge interface (e.g. umq_070) is neither
+        # directly hit nor a resolved interface, so the cross-component edges
+        # touching it get pruned for lacking a retained endpoint. The rule is
+        # symmetric: a non-retained interface is added only when it is both
+        # forward-reachable from a retained node AND can still reach another
+        # retained node via cross-component edges. Failure modes are never
+        # added this way — they must still be directly hit to appear.
+        node_type_by_id = {node.node_id: node.node_type for node in schema.nodes}
+        cross_out: dict[str, list[str]] = {}
+        cross_in: dict[str, list[str]] = {}
+        for edge in schema.edges:
+            if edge.edge_type != "cross_component":
+                continue
+            cross_out.setdefault(edge.source_node_id, []).append(edge.target_node_id)
+            cross_in.setdefault(edge.target_node_id, []).append(edge.source_node_id)
+        forward_reachable = set(retained)
+        pending_forward = list(retained)
+        while pending_forward:
+            current = pending_forward.pop()
+            for nxt in cross_out.get(current, ()):
+                if nxt not in forward_reachable:
+                    forward_reachable.add(nxt)
+                    pending_forward.append(nxt)
+        backward_reachable = set(retained)
+        pending_backward = list(retained)
+        while pending_backward:
+            current = pending_backward.pop()
+            for prev in cross_in.get(current, ()):
+                if prev not in backward_reachable:
+                    backward_reachable.add(prev)
+                    pending_backward.append(prev)
+        bridges = {
+            node_id
+            for node_id in forward_reachable & backward_reachable
+            if node_id not in retained and node_type_by_id.get(node_id) == "interface"
+        }
+        retained.update(bridges)
         nodes = [
             BrpcFailureGraphNode(
                 **node.model_dump(),
                 directly_hit=node.node_id in directly_hit,
-                hit_count=hit_counts.get(node.node_id, 0),
+                hit_count=(
+                    hit_counts.get(node.node_id, 0)
+                    if node.node_type == "failure_mode"
+                    else 0
+                ),
             )
             for node in sorted(schema.nodes, key=lambda item: item.node_id)
             if node.node_id in retained
@@ -829,6 +880,50 @@ class BrpcDiagnosisService:
             )
             if edge.source_node_id in retained
             and edge.target_node_id in retained
+        ]
+        # Suppress shortcut edges: if edge X→Y coexists with a longer path
+        # X→…→Y through other retained nodes, the direct edge is a schema
+        # shortcut that visually duplicates the real causal chain.  Remove
+        # it so the graph shows a single coherent path instead of parallel
+        # arcs that make the view look disconnected.
+        forward_adj: dict[str, list[str]] = {}
+        reverse_adj: dict[str, list[str]] = {}
+        for edge in edges:
+            forward_adj.setdefault(edge.source_node_id, []).append(
+                edge.target_node_id
+            )
+            reverse_adj.setdefault(edge.target_node_id, []).append(
+                edge.source_node_id
+            )
+
+        def _has_alternative_path(source: str, target: str) -> bool:
+            """True if `target` is reachable from `source` via a path of
+            length ≥ 2 (excluding the direct edge)."""
+            other_parents = [
+                p for p in reverse_adj.get(target, []) if p != source
+            ]
+            if not other_parents:
+                return False
+            visited = {source}
+            queue = [source]
+            while queue:
+                node = queue.pop(0)
+                for nxt in forward_adj.get(node, []):
+                    if node == source and nxt == target:
+                        continue
+                    if nxt in other_parents:
+                        return True
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        queue.append(nxt)
+            return False
+
+        edges = [
+            edge
+            for edge in edges
+            if not _has_alternative_path(
+                edge.source_node_id, edge.target_node_id
+            )
         ]
         return BrpcFailureGraph(nodes=nodes, edges=edges)
 
