@@ -12,22 +12,24 @@
 
 #pragma once
 
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <string>
 #include "rack_error.h"
 #include "rack_module.h"
 #include "diagnosis_engine.h"
-#include "diagnosis_result.h"
 #include "log_collector.h"
 
 namespace brpc {
-using namespace rack::module;
 
 // 诊断模块，继承RackModule，集成日志收集、诊断分析和结果输出的完整诊断流程
-class DiagnosisModule final : public RackModule {
+class DiagnosisModule final : public rack::module::RackModule {
 public:
     DiagnosisModule();
     ~DiagnosisModule() override = default;
 
-    // 初始化模块：解析命令行参数（brpc-log、timestamp、system-log），创建日志收集器和诊断引擎
+    // 初始化模块：解析命令行参数（brpc-log、可选 timestamp、task-id），创建日志收集器和诊断引擎
     RackResult Initialize() override;
     // 反初始化模块
     void UnInitialize() override;
@@ -37,9 +39,11 @@ public:
     void Stop() override;
 
 private:
-    std::shared_ptr<LogCollector> collector_; // 日志收集器
-    std::shared_ptr<DiagnosisEngine> engine_; // 诊断引擎
-    int64_t timestamp_;                       // 时间戳参数，用于日志筛选
+    std::unique_ptr<LogCollector> collector_;
+    std::unique_ptr<DiagnosisEngine> engine_;
+    std::filesystem::path outputPath_;
+    std::string taskId_;
+    std::int64_t timestamp_ = 0;
 };
 
 } // namespace brpc

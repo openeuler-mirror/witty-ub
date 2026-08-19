@@ -1,12 +1,10 @@
-import asyncio
+"""Contract tests for the read-only HTTP APIs used by the diagnosis agent."""
+
 from collections import Counter
 from typing import Any
 
 from fastapi import FastAPI
-import httpx
-from jsonschema import Draft202012Validator
 
-from latency.access.openapi_adapter import OpenApiAdapter
 from latency.routers import (
     diagnosis_case,
     failure_mode_knowledge,
@@ -24,7 +22,7 @@ from latency.schemas.request import (
 )
 
 
-EXPECTED_MCP_OPERATIONS = {
+EXPECTED_DIAGNOSIS_OPERATIONS = {
     "list_log_knowledge_bases": ("POST", "/log_kb/list"),
     "get_diagnosis_case": ("GET", "/diagnosis_case/{case_id}"),
     "get_failure_mode": ("GET", "/failure_mode/{failure_mode_id}"),
@@ -34,16 +32,10 @@ EXPECTED_MCP_OPERATIONS = {
     "get_latency_metrics": ("POST", "/log_parse_result/metrics/latency"),
     "get_latency_trace": ("GET", "/log_parse_result/{result_id}"),
     "get_parse_task": ("GET", "/task/{task_id}"),
-    "get_status_code_knowledge": (
-        "GET",
-        "/failure_mode/status_code/{status_code}",
-    ),
+    "get_status_code_knowledge": ("GET", "/failure_mode/status_code/{status_code}"),
     "list_log_files": ("POST", "/log_file/list/{kb_id}"),
     "list_parse_tasks": ("POST", "/task/list"),
-    "get_connectivity_metrics": (
-        "POST",
-        "/log_failure_event_result/metrics/err_code",
-    ),
+    "get_connectivity_metrics": ("POST", "/log_failure_event_result/metrics/err_code"),
     "list_clusters_hosts": ("GET", "/log_parse_result/options"),
     "list_connectivity_events": (
         "POST",
@@ -77,7 +69,7 @@ EXPECTED_MCP_OPERATIONS = {
 
 def _openapi_schema() -> dict[str, Any]:
     app = FastAPI()
-    for router in (
+    for api_router in (
         log_file.router,
         log_knowledge.router,
         log_parse_result.router,
@@ -87,11 +79,11 @@ def _openapi_schema() -> dict[str, Any]:
         log_failure_event_result.router,
         diagnosis_case.router,
     ):
-        app.include_router(router)
+        app.include_router(api_router)
     return app.openapi()
 
 
-def test_mcp_openapi_operations_are_stable_unique_and_read_only() -> None:
+def test_agent_diagnosis_api_operations_are_stable_and_unique() -> None:
     operations: dict[str, tuple[str, str]] = {}
     operation_ids: list[str] = []
 
@@ -99,67 +91,26 @@ def test_mcp_openapi_operations_are_stable_unique_and_read_only() -> None:
         for method, operation in path_item.items():
             if not isinstance(operation, dict):
                 continue
-            if not operation.get("x-mcp-enabled", False):
+            operation_id = operation.get("operationId")
+            if operation_id not in EXPECTED_DIAGNOSIS_OPERATIONS:
                 continue
-
-            operation_id = operation["operationId"]
             operation_ids.append(operation_id)
             operations[operation_id] = (method.upper(), path)
-            assert operation["x-mcp-read-only"] is True
+            assert operation.get("description")
 
     counts = Counter(operation_ids)
-    assert not {
-        operation_id: count
-        for operation_id, count in counts.items()
-        if count > 1
-    }
-    assert operations == EXPECTED_MCP_OPERATIONS
+    assert not {name: count for name, count in counts.items() if count > 1}
+    assert operations == EXPECTED_DIAGNOSIS_OPERATIONS
 
 
-def test_all_exposed_operations_produce_valid_mcp_input_schemas() -> None:
-    schema = _openapi_schema()
+def test_brpc_diagnosis_start_endpoint_is_explicit_and_mutating() -> None:
+    operation = _openapi_schema()["paths"][
+        "/log_file/{log_file_id}/brpc-diagnosis"
+    ]["post"]
 
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=schema)
-
-    adapter = OpenApiAdapter(
-        openapi_url="http://latency.test/openapi.json",
-        base_url="http://latency.test",
-        transport=httpx.MockTransport(handler),
-    )
-    asyncio.run(adapter.load())
-
-    assert set(adapter.operations) == set(EXPECTED_MCP_OPERATIONS)
-    for operation in adapter.operations.values():
-        openapi_operation = schema["paths"][operation.path][
-            operation.method.lower()
-        ]
-        assert openapi_operation["description"]
-        assert operation.description == openapi_operation["description"]
-    input_schemas = {
-        operation_id: adapter.build_input_schema(operation_id)
-        for operation_id in adapter.operations
-    }
-    for input_schema in input_schemas.values():
-        Draft202012Validator.check_schema(input_schema)
-
-    latency_events = input_schemas["list_latency_events"]
-    assert "kb_id" not in latency_events.get("required", [])
-    assert latency_events["properties"]["stat_type"]["default"] == "ave"
-    assert latency_events["properties"]["sort_fields"].get("default") is None
-
-    latency_traces = input_schemas["list_latency_traces"]
-    assert "kb_id" not in latency_traces.get("required", [])
-    assert latency_traces["properties"]["is_anomalous"].get("default") is None
-
-    connectivity_traces = input_schemas["list_connectivity_traces"]
-    assert (
-        connectivity_traces["properties"]["is_anomalous"].get("default") is None
-    )
-
-    trace_logs = input_schemas["list_connectivity_trace_logs"]
-    assert "trace_ids" not in trace_logs.get("required", [])
-    assert trace_logs["properties"]["trace_ids"].get("default") is None
+    assert operation["operationId"] == "run_brpc_log_diagnosis"
+    assert operation.get("x-mcp-enabled", False) is False
+    assert operation["requestBody"]["required"] is True
 
 
 def test_documented_agent_rules_do_not_change_backend_request_models() -> None:

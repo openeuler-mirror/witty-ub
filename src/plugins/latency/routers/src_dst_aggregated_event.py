@@ -25,7 +25,6 @@ router = APIRouter(prefix="/aggregated_event", tags=["aggregated_event"])
         "with high latency or anomalous requests before drilling into traces. "
         "Supports operation, log-event time, topology and multi-column filters."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_aggregated_events(
     req: Annotated[ListSrcDstAggregatedEventRequest, Body()],
@@ -42,7 +41,6 @@ async def list_aggregated_events(
         "Get one source/destination latency aggregate by ID. Use it to inspect the "
         "selected path and aggregate latency components before trace drill-down."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_aggregated_event_by_id(
     event_id: Annotated[str, Path()],
@@ -60,7 +58,6 @@ async def get_aggregated_event_by_id(
         "when latency increased and compare source/destination IP pairs within the "
         "same interval."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_time_window_aggregated_events(
     req: Annotated[ListTimeWindowAggregatedEventRequest, Body()],

@@ -90,17 +90,18 @@ class ModelConfig(BaseModel):
 
 
 class DSLogAnalyzerConfig(BaseModel):
-    # 多窗口配置（每个指标都会使用所有窗口检测）
     sliding_window_sizes: list[int] = Field(default=[100, 200, 300, 500], description="滑动窗口大小列表")
     sliding_window_steps: list[int] = Field(default=[20, 30, 40, 50], description="滑动窗口步长列表，与窗口大小一一对应")
     zone_anomaly_density_threshold: float = Field(default=0.9999, description="区间异常密度阈值，超过此比例则整个区间标记为异常")
 
-    # 各指标阈值配置
     total_p99_threshold_ms: float = Field(default=5.0, description="总时延P99阈值，单位毫秒")
     c2w_p99_threshold_ms: float = Field(default=1.0, description="C2W时延P99阈值，单位毫秒")
     w2w_p99_threshold_ms: float = Field(default=1.0, description="W2W时延P99阈值，单位毫秒")
     urma_link_p99_threshold_ms: float = Field(default=1.0, description="URMA建链时延P99阈值，单位毫秒")
     query_meta_p99_threshold_ms: float = Field(default=1.0, description="Worker QueryMeta时延P99阈值，单位毫秒")
+    total_p9999_threshold_ms: float = Field(default=5.0, description="总时延P9999阈值，单位毫秒")
+    total_pmax_threshold_ms: float = Field(default=5.0, description="总时延Pmax阈值，单位毫秒")
+    total_ave_threshold_ms: float = Field(default=5.0, description="总时延均值阈值，单位毫秒")
 
 
 class LogFilenamePatternConfig(BaseModel):
@@ -109,6 +110,10 @@ class LogFilenamePatternConfig(BaseModel):
     ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker接口日志文件匹配模式")
     ds_worker_info_log_file: list[str] = Field(default_factory=list, description="Worker信息日志文件匹配模式")
     resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
+    brpc_log_file_patterns: list[str] = Field(
+        default_factory=lambda: ["brpc.log", "brpc.log.*", "*brpc*.log"],
+        description="BRPC 诊断日志文件匹配模式",
+    )
 
 
 class DiagnosisRuntimeConfig(BaseModel):

@@ -4,6 +4,7 @@ import aiofiles
 import aiohttp
 import logging
 import shutil
+from pathlib import Path
 from fastapi import UploadFile
 from sqlalchemy import select
 from latency.database.engine import PGManager
@@ -14,12 +15,15 @@ from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.anomalous_event import AnomalousEventPGManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
+from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
 from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventPGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.log import LogFileModel
 from latency.ENUM.general import FilePath
 from latency.ENUM.general import SourceType
 from latency.schemas.request import (
+    ParseConfig,
+    RunBrpcDiagnosisRequest,
     UpLoadLogFileConfig,
     UpLoadLogFilesRequest,
     UpdateLogFileRequest,
@@ -30,16 +34,22 @@ from latency.schemas.response import (
     DeleteLogFilesMsg,
     UpdateLogFileMsg,
     RunOrStopLogParseMsg,
+    RunBrpcDiagnosisMsg,
     ListLogFilesMsg,
     GetLogFileMsg,
 )
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
-from latency.task.progress import parallel_overall_progress
+from latency.task.progress import parallel_overall_progress, task_progress
 from latency.task.worker.base import BaseWorker
+from latency.task.worker.brpc_log_diagnosis_worker import BrpcLogDiagnosisWorker
 from latency.task.log_preprocessor import cleanup_preprocess_dir, WITTY_DIR_DEFAULT
 from latency.common.zip_handler import ZipHandler
-from latency.exceptions import NotFoundBizException, BadRequestBizException
+from latency.exceptions import (
+    BadRequestBizException,
+    ConflictBizException,
+    NotFoundBizException,
+)
 
 logger = logging.getLogger(__name__)
 witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
@@ -83,6 +93,47 @@ class LogFileService:
         return diagnosis_task
 
     @staticmethod
+    def _select_brpc_visible_task(parse_task, diagnosis_task):
+        """Select UI detail without letting one failed BRPC task hide active work."""
+        tasks = [task for task in (parse_task, diagnosis_task) if task]
+        for status in (TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING):
+            for task in tasks:
+                if task.status == status:
+                    return task
+        for task in tasks:
+            if task.status in {
+                TaskStatusEnum.FAILED,
+                TaskStatusEnum.FAILED_PENDING_REMOVE,
+                TaskStatusEnum.CANCELLED,
+            }:
+                return task
+        return diagnosis_task or parse_task
+
+    @staticmethod
+    async def _delete_brpc_diagnosis_results(tasks) -> None:
+        """Delete BRPC batches for the supplied tasks; batch deletion cascades hits."""
+        brpc_task_ids = [
+            task.id
+            for task in tasks
+            if task.task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value
+        ]
+        if not brpc_task_ids:
+            return
+
+        async with PGManager.session() as session:
+            for task_id in brpc_task_ids:
+                batch_id = await BrpcDiagnosisPGManager.delete_batch_by_task_id(
+                    session,
+                    task_id,
+                )
+                if batch_id:
+                    logger.warning(
+                        "已删除 BRPC 诊断 batch %s (task=%s)",
+                        batch_id,
+                        task_id,
+                    )
+
+    @staticmethod
     def get_upload_path(*paths: str) -> str:
         latency_dir = os.path.dirname(os.path.dirname(__file__))
         full_path = os.path.join(latency_dir, FilePath.FILE_UPLOAD_PATH.value, *paths)
@@ -107,8 +158,10 @@ class LogFileService:
         kb_id: str, req: UpLoadLogFilesRequest
     ) -> UploadLogFilesMsg:
         log_file_models = []
+        log_file_task_types: dict[str, TaskTypeEnum] = {}
         for upload_log_file_config in req.upload_log_file_configs:
-            log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name)
+            log_type = (upload_log_file_config.log_type or "kv-cache").strip().lower()
+            log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name, log_type=log_type)
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 source_path = upload_log_file_config.source
                 source = os.path.abspath(source_path)
@@ -185,49 +238,119 @@ class LogFileService:
                     )
                     continue
                 if not ZipHandler.is_zip_file(local_zip_file_path):
-                    logger.error(
-                        f"上传的日志文件不是有效的ZIP文件，文件名: {uploaded_file.filename}"
+                    if log_type == "brpc":
+                        # brpc 日志可能是纯文本文件，直接使用
+                        log_file_model.file_path = local_zip_file_path
+                        log_file_model.file_size = (
+                            os.path.getsize(local_zip_file_path)
+                            if os.path.exists(local_zip_file_path)
+                            else 0
+                        )
+                    else:
+                        logger.error(
+                            f"上传的日志文件不是有效的ZIP文件，文件名: {uploaded_file.filename}"
+                        )
+                        continue
+                else:
+                    extracted_file_path = LogFileService.get_upload_path(
+                        log_file_model.id, ""
                     )
-                    continue
-                extracted_file_path = LogFileService.get_upload_path(
-                    log_file_model.id, ""
-                )
-                try:
-                    await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
-                    log_file_model.file_path = extracted_file_path
-                    log_file_model.file_size = (
-                        await LogFileService.get_readable_dir_size(extracted_file_path)
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"解压上传的日志文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
-                    )
-                if os.path.exists(local_zip_file_path):
                     try:
-                        os.remove(local_zip_file_path)
+                        await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
+                        log_file_model.file_path = extracted_file_path
+                        log_file_model.file_size = (
+                            await LogFileService.get_readable_dir_size(extracted_file_path)
+                        )
                     except Exception as e:
                         logger.error(
-                            f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
+                            f"解压上传的日志文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
                         )
+                    if os.path.exists(local_zip_file_path):
+                        try:
+                            os.remove(local_zip_file_path)
+                        except Exception as e:
+                            logger.error(
+                                f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
+                            )
+            if log_type == "brpc":
+                source_path = log_file_model.file_path
+                source = Path(source_path)
+                source_files = (
+                    sorted(path for path in source.rglob("*") if path.is_file())
+                    if source.is_dir()
+                    else [source]
+                )
+                profiling_files = [
+                    path
+                    for path in source_files
+                    if "ubsocket_profiling" in path.name.lower()
+                    and path.name.endswith(".txt")
+                ]
+                patterns = await BrpcLogDiagnosisWorker._load_brpc_patterns(kb_id)
+                diagnosis_files = BrpcLogDiagnosisWorker.find_brpc_logs(
+                    source_path,
+                    patterns,
+                )
+
+                for path, task_type in [
+                    *(
+                        (path, TaskTypeEnum.BRPC_LOG_PARSE_WORKER)
+                        for path in profiling_files
+                    ),
+                    *(
+                        (path, TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER)
+                        for path in diagnosis_files
+                    ),
+                ]:
+                    matched_model = LogFileModel(
+                        kb_id=kb_id,
+                        name=path.name,
+                        log_type=log_type,
+                        file_path=str(path),
+                        file_size=path.stat().st_size,
+                    )
+                    log_file_models.append(matched_model)
+                    log_file_task_types[matched_model.id] = task_type
+
+                if profiling_files or diagnosis_files:
+                    continue
+
             log_file_models.append(log_file_model)
+            log_file_task_types[log_file_model.id] = (
+                TaskTypeEnum.BRPC_LOG_PARSE_WORKER
+                if log_type == "brpc"
+                else TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
+            )
         log_file_ids = await LogFilePGManager.add_log_files(log_file_models)
-        
+
         for log_file_id in log_file_ids:
-            await TaskHandler.init_task(
-                task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-                op_id=log_file_id,
-                parse_config=req.parse_config,
-            )
-            await TaskHandler.init_task(  
-                  task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,  
-                  op_id=log_file_id,
-                  parse_config=req.parse_config
-            )
-            await TaskHandler.init_task(
-                task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
-                op_id=log_file_id,
-                parse_config=req.parse_config,
-            )
+            task_type = log_file_task_types[log_file_id]
+
+            if task_type in {
+                TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+                TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+            }:
+                await TaskHandler.init_task(
+                    task_type=task_type,
+                    op_id=log_file_id,
+                    parse_config=req.parse_config,
+                )
+            else:
+                await TaskHandler.init_task(
+                    task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+                    op_id=log_file_id,
+                    parse_config=req.parse_config,
+                )
+                await TaskHandler.init_task(  
+                    task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,  
+                    op_id=log_file_id,
+                    parse_config=req.parse_config
+                )
+                await TaskHandler.init_task(
+                    task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+                    op_id=log_file_id,
+                    parse_config=req.parse_config,
+                )
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod
@@ -250,6 +373,9 @@ class LogFileService:
                 logger.warning(f"正在停止任务 {task.id}")
                 await BaseWorker.stop(task.id)
                 logger.warning(f"已停止任务 {task.id}")
+
+        # BRPC batch 必须在 task 之前删除；hit 由 batch 外键级联删除。
+        await LogFileService._delete_brpc_diagnosis_results(tasks)
         
         # 删除日志文件（硬删除）
         await LogFilePGManager.delete_log_file_by_log_file_id(log_file_id)
@@ -261,6 +387,8 @@ class LogFileService:
         await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_file_id)
         await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_file_id)
         await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_file_id)
+        from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
+        await BrpcProfilingResultPGManager.delete_by_log_id(log_file_id)
         
         # 删除任务报告和任务
         task_ids = [t.id for t in tasks]
@@ -312,8 +440,22 @@ class LogFileService:
         if not log_file_model:
             return RunOrStopLogParseMsg(task_id=None)
         if run:
+            log_type = getattr(log_file_model, "log_type", "kv-cache") or "kv-cache"
+            task_type = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
+            if log_type == "brpc":
+                current_task = await TaskPGManager.get_current_task_by_op_id(log_file_id)
+                task_type = (
+                    current_task.task_type
+                    if current_task
+                    and current_task.task_type
+                    in {
+                        TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+                        TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+                    }
+                    else TaskTypeEnum.BRPC_LOG_PARSE_WORKER
+                )
             task_id = await TaskHandler.init_task(
-                task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+                task_type=task_type,
                 op_id=log_file_id,
             )
             return RunOrStopLogParseMsg(task_id=task_id)
@@ -325,12 +467,51 @@ class LogFileService:
             return RunOrStopLogParseMsg(task_id=None)
 
     @staticmethod
+    async def run_brpc_diagnosis_by_log_file_id(
+        log_file_id: str,
+        req: RunBrpcDiagnosisRequest,
+    ) -> RunBrpcDiagnosisMsg:
+        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(
+            log_file_id
+        )
+        if not log_file_model:
+            raise NotFoundBizException(resource="日志文件")
+
+        current_task = await TaskPGManager.get_current_task_by_op_id(
+            log_file_id,
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+        )
+        if current_task and current_task.status in {
+            TaskStatusEnum.PENDING,
+            TaskStatusEnum.RUNNING,
+            TaskStatusEnum.FAILED_PENDING_REMOVE,
+        }:
+            raise ConflictBizException(message="BRPC 诊断任务尚未结束")
+
+        task_id = await TaskHandler.init_task(
+            task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+            op_id=log_file_id,
+            parse_config=ParseConfig(start_time=req.start_time),
+        )
+        if not task_id:
+            raise BadRequestBizException(message="创建 BRPC 诊断任务失败")
+        return RunBrpcDiagnosisMsg(task_id=task_id)
+
+    @staticmethod
     async def list_log_files(kb_id: str, req: ListLogFilesRequest) -> ListLogFilesMsg:
         total, log_file_models = await LogFilePGManager.list_log_files(kb_id, req)
         log_file_model_ids = [log_file_model.id for log_file_model in log_file_models]
         parse_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
             log_file_model_ids,
             TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        )
+        brpc_parse_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
+            log_file_model_ids,
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+        )
+        brpc_diagnosis_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
+            log_file_model_ids,
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
         )
         diagnosis_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
             log_file_model_ids,
@@ -341,9 +522,19 @@ class LogFileService:
             TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
         )
         parse_task_dict = {task.op_id: task for task in parse_tasks}
+        brpc_parse_task_dict = {task.op_id: task for task in brpc_parse_tasks}
+        brpc_diagnosis_task_dict = {
+            task.op_id: task for task in brpc_diagnosis_tasks
+        }
         diagnosis_task_dict = {task.op_id: task for task in diagnosis_tasks}
         store_task_dict = {task.op_id: task for task in store_tasks}
-        task_op_ids = set(parse_task_dict) | set(diagnosis_task_dict) | set(store_task_dict)
+        task_op_ids = (
+            set(parse_task_dict)
+            | set(brpc_parse_task_dict)
+            | set(brpc_diagnosis_task_dict)
+            | set(diagnosis_task_dict)
+            | set(store_task_dict)
+        )
         fallback_op_ids = [
             log_file_model_id
             for log_file_model_id in log_file_model_ids
@@ -355,20 +546,30 @@ class LogFileService:
                 task.op_id: task
                 for task in await TaskPGManager.list_current_tasks_by_op_ids(fallback_op_ids)
             }
-        task_dict = {
-            log_file_model_id: LogFileService._select_visible_task(
-                parse_task_dict.get(log_file_model_id),
-                diagnosis_task_dict.get(log_file_model_id),
-                store_task_dict.get(log_file_model_id),
+        task_dict = {}
+        for log_file_model in log_file_models:
+            log_file_model_id = log_file_model.id
+            if log_file_model.log_type == "brpc":
+                visible_task = LogFileService._select_brpc_visible_task(
+                    brpc_parse_task_dict.get(log_file_model_id),
+                    brpc_diagnosis_task_dict.get(log_file_model_id),
+                )
+            else:
+                visible_task = LogFileService._select_visible_task(
+                    parse_task_dict.get(log_file_model_id),
+                    diagnosis_task_dict.get(log_file_model_id),
+                    store_task_dict.get(log_file_model_id),
+                )
+            task_dict[log_file_model_id] = (
+                visible_task or fallback_task_dict.get(log_file_model_id)
             )
-            or fallback_task_dict.get(log_file_model_id)
-            for log_file_model_id in log_file_model_ids
-        }
-        # 收集所有三个类型任务的ID，一次性查询reports
+        # 收集所有类型任务的ID，一次性查询reports
         all_type_task_ids = [
             task.id
             for task in (
                 list(parse_task_dict.values())
+                + list(brpc_parse_task_dict.values())
+                + list(brpc_diagnosis_task_dict.values())
                 + list(diagnosis_task_dict.values())
                 + list(store_task_dict.values())
             )
@@ -391,23 +592,32 @@ class LogFileService:
             visible_task_report_dict[task_report.task_id].append(task_report)
         for log_file_model in log_file_models:
             parse_task = parse_task_dict.get(log_file_model.id)
-            diagnosis_task = diagnosis_task_dict.get(log_file_model.id)
+            brpc_parse_task = brpc_parse_task_dict.get(log_file_model.id)
+            if log_file_model.log_type == "brpc":
+                diagnosis_task = brpc_diagnosis_task_dict.get(log_file_model.id)
+            else:
+                diagnosis_task = diagnosis_task_dict.get(log_file_model.id)
             store_task = store_task_dict.get(log_file_model.id)
-            # 和get_log_file_by_log_file_id完全一致：分别挂载三个任务的reports
+            visible_task = task_dict.get(log_file_model.id)
+            # 和get_log_file_by_log_file_id完全一致：分别挂载任务的reports
             if parse_task:
                 parse_task.task_reports = type_task_report_dict.get(parse_task.id, [])
+            if brpc_parse_task:
+                brpc_parse_task.task_reports = type_task_report_dict.get(brpc_parse_task.id, [])
             if diagnosis_task:
                 diagnosis_task.task_reports = type_task_report_dict.get(diagnosis_task.id, [])
             if store_task:
                 store_task.task_reports = type_task_report_dict.get(store_task.id, [])
 
-            log_file_model.overall_progress = parallel_overall_progress(
-                parse_task,
-                diagnosis_task,
-                store_task,
-            )
+            if log_file_model.log_type == "brpc":
+                log_file_model.overall_progress = task_progress(visible_task)
+            else:
+                log_file_model.overall_progress = parallel_overall_progress(
+                    parse_task,
+                    diagnosis_task,
+                    store_task,
+                )
             # 和get_log_file_by_log_file_id完全一致：单独查询可见任务的reports并排序
-            visible_task = task_dict.get(log_file_model.id)
             log_file_model.task = visible_task
             if visible_task:
                 visible_task.task_reports = visible_task_report_dict.get(visible_task.id, [])
@@ -421,21 +631,39 @@ class LogFileService:
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model:
             raise NotFoundBizException(resource="日志文件")
-        parse_task = await TaskPGManager.get_current_task_by_op_id(
-            log_file_id,
-            TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-        )
-        diagnosis_task = await TaskPGManager.get_current_task_by_op_id(
-            log_file_id,
-            TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-        )
-        store_task = await TaskPGManager.get_current_task_by_op_id(
-            log_file_id,
-            TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
-        )
-        task_model = LogFileService._select_visible_task(
-            parse_task, diagnosis_task, store_task
-        )
+        log_type = getattr(log_file_model, "log_type", "kv-cache") or "kv-cache"
+        if log_type == "brpc":
+            parse_task = await TaskPGManager.get_current_task_by_op_id(
+                log_file_id,
+                TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+            )
+            diagnosis_task = await TaskPGManager.get_current_task_by_op_id(
+                log_file_id,
+                TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+            )
+            store_task = None
+        else:
+            parse_task = await TaskPGManager.get_current_task_by_op_id(
+                log_file_id,
+                TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+            )
+            diagnosis_task = await TaskPGManager.get_current_task_by_op_id(
+                log_file_id,
+                TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
+            )
+            store_task = await TaskPGManager.get_current_task_by_op_id(
+                log_file_id,
+                TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+            )
+        if log_type == "brpc":
+            task_model = LogFileService._select_brpc_visible_task(
+                parse_task,
+                diagnosis_task,
+            )
+        else:
+            task_model = LogFileService._select_visible_task(
+                parse_task, diagnosis_task, store_task
+            )
         if not task_model:
             task_model = await TaskPGManager.get_current_task_by_op_id(log_file_id)
         if task_model:
@@ -460,11 +688,14 @@ class LogFileService:
                 diagnosis_task.task_reports = diagnosis_reports
             if store_task:
                 store_task.task_reports = store_reports
-            log_file_model.overall_progress = parallel_overall_progress(
-                parse_task,
-                diagnosis_task,
-                store_task,
-            )
+            if log_type == "brpc":
+                log_file_model.overall_progress = task_progress(task_model)
+            else:
+                log_file_model.overall_progress = parallel_overall_progress(
+                    parse_task,
+                    diagnosis_task,
+                    store_task,
+                )
             task_model.task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(
                 [task_model.id]
             )

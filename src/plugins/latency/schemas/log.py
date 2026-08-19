@@ -54,12 +54,16 @@ class LogFileModel(BaseModel):
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
+    log_type: str = Field(default="kv-cache", description="日志类型：kv-cache 或 brpc")
     task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
     overall_progress: float = Field(
         default=0.0,
         ge=0.0,
         le=100.0,
-        description="日志解析、故障定界和 trace 上下文落库三个任务的综合平均进度",
+        description=(
+            "KVCache 日志解析、故障定界和 trace 上下文落库的综合进度；"
+            "BRPC 为日志解析与诊断两个 worker 的平均进度"
+        ),
     )
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"

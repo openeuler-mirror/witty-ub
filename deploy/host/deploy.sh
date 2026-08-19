@@ -91,11 +91,12 @@ build_cpp() {
 
     local BUILD_DIR="$PROJECT_DIR/build"
     local DIAG_TOOL="$BUILD_DIR/src/witty-ub-diag-tool"
+    local BRPC_DIAG_TOOL="$BUILD_DIR/src/witty-ub-brpc-diag"
 
     mkdir -p "$LOG_DIR"
 
-    if [ -f "$DIAG_TOOL" ]; then
-        _log "witty-ub-diag-tool 已存在，跳过编译"
+    if [ -f "$DIAG_TOOL" ] && [ -f "$BRPC_DIAG_TOOL" ]; then
+        _log "C++ 诊断工具已存在，跳过编译"
         return 0
     fi
 
@@ -105,22 +106,25 @@ build_cpp() {
     _info "CMake 配置..."
     cmake "$PROJECT_DIR" -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -3
 
-    _info "编译 witty-ub-diag-tool (使用 $(nproc) 核)..."
-    if ! make -j"$(nproc)" witty-ub-diag-tool 2>&1 | tee "$LOG_DIR/cpp-build.log"; then
+    _info "编译 witty-ub-diag-tool 和 witty-ub-brpc-diag (使用 $(nproc) 核)..."
+    if ! make -j"$(nproc)" witty-ub-diag-tool witty-ub-brpc-diag 2>&1 | tee "$LOG_DIR/cpp-build.log"; then
         _err "C++ 编译失败，最近日志:"
         tail -30 "$LOG_DIR/cpp-build.log"
         return 1
     fi
 
-    if [ -f "$DIAG_TOOL" ]; then
-        chmod +x "$DIAG_TOOL"
-        _log "witty-ub-diag-tool 编译完成: $DIAG_TOOL"
-    else
-        _err "C++ 编译失败: $DIAG_TOOL 不存在"
+    if [ ! -f "$DIAG_TOOL" ] || [ ! -f "$BRPC_DIAG_TOOL" ]; then
+        _err "C++ 编译失败: 诊断工具产物不完整"
+        [ -f "$DIAG_TOOL" ] || _err "  缺少 $DIAG_TOOL"
+        [ -f "$BRPC_DIAG_TOOL" ] || _err "  缺少 $BRPC_DIAG_TOOL"
         _err "诊断功能将不可用。请检查 CMake/make 输出后再运行:"
-        _err "  cmake $PROJECT_DIR -DCMAKE_BUILD_TYPE=Release && make -j\$(nproc) witty-ub-diag-tool"
+        _err "  cmake $PROJECT_DIR -DCMAKE_BUILD_TYPE=Release && make -j\$(nproc) witty-ub-diag-tool witty-ub-brpc-diag"
         return 1
     fi
+
+    chmod +x "$DIAG_TOOL" "$BRPC_DIAG_TOOL"
+    _log "witty-ub-diag-tool 编译完成: $DIAG_TOOL"
+    _log "witty-ub-brpc-diag 编译完成: $BRPC_DIAG_TOOL"
 
     cd "$PROJECT_DIR"
 }
@@ -163,12 +167,16 @@ copy_data_files() {
 
     $SUDO mkdir -p "$WITTY_DIR/data/kvcache" \
                   "$WITTY_DIR/data/urma" \
+                  "$WITTY_DIR/data/ubsocket" \
+                  "$WITTY_DIR/data/umq" \
                   "$WITTY_DIR/data/view-vis" \
                   "$WITTY_DIR/config/agents" 2>/dev/null || true
 
     $SUDO cp "$PROJECT_DIR/data/failure_mode_tree.json" "$WITTY_DIR/data/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/kvcache/"*.json "$WITTY_DIR/data/kvcache/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/urma/"*.json "$WITTY_DIR/data/urma/" 2>/dev/null || true
+    $SUDO cp "$PROJECT_DIR/data/ubsocket/"*.json "$WITTY_DIR/data/ubsocket/" 2>/dev/null || true
+    $SUDO cp "$PROJECT_DIR/data/umq/"*.json "$WITTY_DIR/data/umq/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/view-vis/"* "$WITTY_DIR/data/view-vis/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/agents/"*.md "$WITTY_DIR/config/agents/" 2>/dev/null || true
@@ -347,7 +355,7 @@ start_services() {
     # Wait for backend
     local BACKEND_OK=0
     for i in $(seq 1 30); do
-        if curl -s http://127.0.0.1:9772/health_check 2>/dev/null | grep -q "ok"; then
+        if curl --noproxy 127.0.0.1 -s http://127.0.0.1:9772/health_check 2>/dev/null | grep -q "ok"; then
             _log "后端已启动 (${USE_SYSTEMD:+unit=witty-ub-backend, }port 9772)"
             BACKEND_OK=1
             break
@@ -377,7 +385,7 @@ start_services() {
         fi
 
         sleep 3
-        if curl -so /dev/null -w "%{http_code}" http://127.0.0.1:5173 2>/dev/null | grep -q 200; then
+        if curl --noproxy 127.0.0.1 -so /dev/null -w "%{http_code}" http://127.0.0.1:5173 2>/dev/null | grep -q 200; then
             _log "前端已启动 (${USE_SYSTEMD:+unit=witty-ub-frontend, }port 5173)"
         else
             _warn "前端可能尚未就绪，等待 Vite 编译..."

@@ -22,6 +22,7 @@ from httpx import AsyncClient
 import os
 from latency.schemas.log import LogFileModel
 from latency.schemas.request import (
+    RunBrpcDiagnosisRequest,
     UpLoadLogFilesRequest,
     UpdateLogFileRequest,
     ListLogFilesRequest,
@@ -31,6 +32,7 @@ from latency.schemas.response import (
     DeleteLogFilesResponse,
     UpdateLogFileResponse,
     RunOrStopLogParseResponse,
+    RunBrpcDiagnosisResponse,
     ListLogFilesResponse,
     GetLogFileResponse,
 )
@@ -91,6 +93,27 @@ async def upload_log_files(
     return UploadLogFilesResponse(result=upload_log_files_msg)
 
 
+@router.post(
+    "/{log_file_id}/brpc-diagnosis",
+    response_model=RunBrpcDiagnosisResponse,
+    operation_id="run_brpc_log_diagnosis",
+    description=(
+        "Create an independent BRPC diagnosis task for an existing log file. "
+        "start_time is interpreted as UTC+8 and the task scans until the "
+        "BRPC tool startup time."
+    ),
+)
+async def run_brpc_diagnosis_by_log_file_id(
+    log_file_id: Annotated[str, Path()],
+    req: Annotated[RunBrpcDiagnosisRequest, Body()],
+) -> RunBrpcDiagnosisResponse:
+    result = await LogFileService.run_brpc_diagnosis_by_log_file_id(
+        log_file_id,
+        req,
+    )
+    return RunBrpcDiagnosisResponse(result=result)
+
+
 @router.delete("/{log_file_id}", response_model=DeleteLogFilesResponse)
 async def delete_log_file_by_log_file_id(
     log_file_id: Annotated[str, Path()],
@@ -130,7 +153,6 @@ async def run_or_stop_log_file_by_log_file_id(
         "status, task IDs and fault counts. A non-successful parse status means "
         "downstream results may be incomplete."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def list_log_files(
     kb_id: Annotated[str, Path()],
@@ -148,7 +170,6 @@ async def list_log_files(
         "Get one log file by ID, including its knowledge base, source, parse "
         "status, task information and fault statistics."
     ),
-    openapi_extra={"x-mcp-enabled": True, "x-mcp-read-only": True},
 )
 async def get_log_file_by_log_file_id(
     log_file_id: Annotated[str, Path()],

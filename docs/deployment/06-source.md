@@ -66,21 +66,13 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src/plugins
 
 ```bash
 # RPM 安装
-sudo yum install -y opencode
+npm i -g opencode-ai # 或按照 [opencode 官方文档](https://opencode.ai/zh/download) 安装
 
-# 配置（参考 opencode 官方文档）
-mkdir -p ~/.config/opencode
-cat > ~/.config/opencode/config.yaml << 'EOF'
-provider:
-  my-provider:
-    type: custom
-    apiKey: "your-api-key"
-    baseURL: "your-base-url"
-model: "my-provider/model-name"
-EOF
+# 修改配置，参考 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)
+vi ~/.config/opencode/opencode.jsonc
 
 # 启动后台服务
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+bash ./src/plugins/latency/deploy/run_opencode.sh
 ```
 
 ---

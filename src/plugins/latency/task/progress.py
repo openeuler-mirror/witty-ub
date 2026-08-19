@@ -84,6 +84,13 @@ def _task_progress(task, *, include_preprocess: bool = True) -> float:
             "Trace context logs stored",
             "Trace上下文落库",
         },
+        TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER: {
+            "初始化 BRPC",
+            "重新初始化 BRPC",
+            "开始 BRPC",
+            "已选择 BRPC",
+            "BRPC 诊断",
+        },
     }.get(task.task_type)
 
     values = []
@@ -119,13 +126,15 @@ def _preprocess_progress(*tasks) -> float:
 
 def parallel_overall_progress(*tasks) -> float:
     """Shared preprocessing progress plus average progress of parallel tasks."""
-    if not tasks:
+    if not tasks or not any(task is not None for task in tasks):
         return 0.0
     preprocess_progress = _preprocess_progress(*tasks)
     preprocess_weight = min(preprocess_progress, 5.0)  # 预处理进度最大占5%
-    # 取三个任务进度的平均值
-    task_progress_values = [_task_progress(task, include_preprocess=False) for task in tasks]
-    task_average = sum(task_progress_values) / len(task_progress_values) if task_progress_values else 0.0
+    # 缺失的并行任务按 0% 计，避免其他任务提前把总进度推到 100%。
+    task_progress_values = [
+        _task_progress(task, include_preprocess=False) for task in tasks
+    ]
+    task_average = sum(task_progress_values) / len(task_progress_values)
     return min(
         100.0,
         preprocess_weight + (100.0 - preprocess_weight) * task_average / 100.0,

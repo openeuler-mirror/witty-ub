@@ -16,7 +16,6 @@
 latency/
 ├── access/                     # 入口层 (App)
 │   ├── fastapi_server.py       # FastAPI 应用主入口
-│   ├── mcp_server.py           # MCP 服务器入口
 │   └── shell_server.py         # Shell 命令行入口
 ├── routers/                    # 路由层 (Router)
 │   ├── anomalous_event.py
@@ -104,7 +103,7 @@ latency/
 │   ├── test_postgresql_integration.py
 │   ├── test_detection_optimized.py
 │   ├── test_diagnosis_case.py
-│   ├── test_mcp_server.py
+│   ├── test_diagnosis_api_contract.py
 │   └── ...
 ├── ds_log_analyzer.py          # DS 日志分析器主入口
 ├── LICENSE
@@ -259,11 +258,14 @@ ds_worker_info_log_file = ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "
 resource_log_file = ["resource.log"]
 
 [log_analyzer_params]
-total_p99_threshold_ms = 2.0
+total_p99_threshold_ms = 5.0
 c2w_p99_threshold_ms = 2.0
 w2w_p99_threshold_ms = 1.5
 urma_link_p99_threshold_ms = 4.0
 query_meta_p99_threshold_ms = 1.0
+total_p9999_threshold_ms = 5.0
+total_pmax_threshold_ms = 5.0
+total_ave_threshold_ms = 5.0
 ```
 
 #### 日志路径映射 `[log_filename_pattern]`
@@ -286,11 +288,14 @@ Worker 解析日志时，会根据上传日志所在的目录，按以下 key �
 
 | key | 说明 |
 |-----|------|
-| `total_p99_threshold_ms` | 总时延阈值（毫秒） |
+| `total_p99_threshold_ms` | 总时延 P99 阈值（毫秒） |
 | `c2w_p99_threshold_ms` | Client-to-Worker 时延阈值 |
 | `w2w_p99_threshold_ms` | Worker-to-Worker 时延阈值 |
 | `urma_link_p99_threshold_ms` | URMA 建链时延阈值 |
 | `query_meta_p99_threshold_ms` | Worker QueryMeta 时延阈值 |
+| `total_p9999_threshold_ms` | 总时延 P9999 阈值（毫秒） |
+| `total_pmax_threshold_ms` | 总时延最大值阈值（毫秒） |
+| `total_ave_threshold_ms` | 总时延均值阈值（毫秒） |
 
 ### 6. 启动服务
 
@@ -310,23 +315,13 @@ python -m latency.access.fastapi_server
 curl http://127.0.0.1:9772/health_check
 ```
 
-### 7. 启动 MCP / OpenCode（可选）
+### 7. 启动 OpenCode（可选）
 
-先启动 FastAPI 服务，再启动 MCP：
-
-```bash
-export PYTHONPATH=/path/to/witty-ub/src/plugins:$PYTHONPATH
-export LATENCY_API_BASE_URL=http://127.0.0.1:9772
-python -m latency.access.mcp_server
-```
-
-OpenCode 服务：
+诊断 Agent 通过 HTTP 直接查询已启动的 FastAPI 服务。使用部署脚本校验配置并启动
+OpenCode：
 
 ```bash
-export OPENCODE_CONFIG=/path/to/witty-ub/config/opencode.json
-export WITTY_UB_LATENCY_PYTHON=/path/to/witty-ub/src/plugins/latency/.venv/bin/python
-export WITTY_UB_PLUGINS_DIR=/path/to/witty-ub/src/plugins
-opencode serve --hostname 127.0.0.1 --port 4096
+bash /path/to/witty-ub/src/plugins/latency/deploy/run_opencode.sh
 ```
 
 ---

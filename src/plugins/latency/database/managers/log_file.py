@@ -30,6 +30,7 @@ class LogFilePGManager:
             "total_count": 0,
             "anomalous_count": 0,
             "failure_count": 0,
+            "log_type": getattr(log_file, "log_type", "kv-cache") or "kv-cache",
             "existed_status": log_file.existed_status,
             "created_at": parse_timestamp(log_file.created_at),
             "updated_at": parse_timestamp(log_file.created_at),
@@ -119,6 +120,7 @@ class LogFilePGManager:
                 "file_size": row.size,
                 "anomaly_cnt": row.anomalous_count,
                 "trace_failure_event_cnt": row.failure_count or 0,
+                "log_type": getattr(row, "log_type", "kv-cache") or "kv-cache",
                 "existed_status": row.existed_status,
                 "created_at": format_timestamp(row.created_at),
             }
@@ -143,6 +145,7 @@ class LogFilePGManager:
             "file_size": row.size,
             "anomaly_cnt": row.anomalous_count,
             "trace_failure_event_cnt": row.failure_count or 0,
+            "log_type": getattr(row, "log_type", "kv-cache") or "kv-cache",
             "existed_status": row.existed_status,
             "created_at": format_timestamp(row.created_at),
         }

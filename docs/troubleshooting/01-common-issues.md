@@ -148,16 +148,17 @@ ls ~/.config/opencode/
 # - ~/.config/opencode:/root/.config/opencode
 ```
 
+> **说明**：docker 部署时修改 opencode 配置文件请在宿主机上操作，部署会将宿主机配置目录映射到容器中，在容器内修改不会持久化。详见 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)。
+
 ### 7.2 环境变量未设置
 
 ```bash
 # 进入容器检查环境变量
-docker exec witty-ub env | grep -E "(OPENCODE_CONFIG|WITTY_DIR|WITTY_UB_PLUGINS_DIR)"
+docker exec witty-ub env | grep -E "(OPENCODE_CONFIG|WITTY_DIR)"
 
 # 预期输出:
 # OPENCODE_CONFIG=/var/witty-ub/config/opencode.json
-# WITTY_DIR=/var/witty-ub/config
-# WITTY_UB_PLUGINS_DIR=/var/witty-ub
+# WITTY_DIR=/var/witty-ub
 ```
 
 ### 7.3 OpenCode 进程未启动
@@ -169,8 +170,8 @@ docker exec witty-ub ps aux | grep opencode
 # 检查 OpenCode 日志
 docker exec witty-ub cat /var/log/witty-ub/opencode_server.log
 
-# 手动启动 OpenCode
-docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=/var/witty-ub/config/opencode.json /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 > /var/log/witty-ub/opencode_server.log 2>&1 &"
+# 手动启动 OpenCode（会先校验配置）
+docker exec witty-ub bash /var/witty-ub/latency/deploy/run_opencode.sh
 ```
 
 ### 7.4 Agent 文件路径错误
@@ -179,21 +180,18 @@ docker exec witty-ub bash -c "cd /var/witty-ub/latency && nohup OPENCODE_CONFIG=
 # 检查 agent 文件是否存在
 docker exec witty-ub ls -la /var/witty-ub/config/agents/
 
-# 检查 opencode.json 配置文件中的路径是否正确（使用绝对路径）
+# 检查 opencode.json 配置文件中的路径是否正确
 docker exec witty-ub cat /var/witty-ub/config/opencode.json | grep -A5 prompt
 
 # 预期输出:
-# "prompt": "{file:/var/witty-ub/config/agents/witty-ub-diagnostician.md}"
+# "prompt": "{file:{env:WITTY_DIR}/config/agents/witty-ub-diagnostician.md}"
 ```
 
-### 7.5 MCP 服务未启动
+### 7.5 Latency API 未启动
 
 ```bash
-# 检查 MCP 服务进程是否运行
-docker exec witty-ub ps aux | grep mcp_server
-
-# 检查 Latency 服务是否正常（MCP 依赖它）
-docker exec witty-ub curl http://localhost:9772/health_check
+# Agent 直接依赖 Latency HTTP API
+docker exec witty-ub curl --noproxy 127.0.0.1 http://127.0.0.1:9772/health_check
 ```
 
 ---

@@ -25,6 +25,8 @@ constexpr uint32_t START_TIMEOUT = 3000;
 constexpr uint32_t START_SLEEP_TIME = 100;
 constexpr uint32_t STOP_TIMES = 500;
 constexpr uint32_t STOP_SLEEP_TIME = 5;
+constexpr size_t THREAD_POOL_SIZE = 4;
+constexpr size_t THREAD_POOL_MAX_SIZE = 4;
 
 RackHttpServer &RackHttpServer::GetInstance()
 {
@@ -49,7 +51,7 @@ bool RackHttpServer::Start()
     LOG_INFO << "Start()";
     std::lock_guard<std::mutex> lock(start_mutex_);
     LOG_INFO << "Start Check is running";
-    if (server_.is_running()){
+    if (server_.is_running()) {
         LOG_INFO << "Server is running";
         return true;
     }
@@ -74,7 +76,8 @@ bool RackHttpServer::Start()
 
 void RackHttpServer::Stop()
 {
-    if (!server_.is_running()) return;
+    if (!server_.is_running())
+        return;
     server_.stop();
     bool exited = false;
     for (int i = 0; i < STOP_TIMES; ++i) {
@@ -99,21 +102,29 @@ void RackHttpServer::Run()
 {
     LOG_INFO << "In run";
     try {
-        server_.new_task_queue = []() -> httplib::ThreadPool * { return new httplib::ThreadPool(4, 4); };
+        server_.new_task_queue = []() -> httplib::ThreadPool* {
+            return new httplib::ThreadPool(THREAD_POOL_SIZE, THREAD_POOL_MAX_SIZE);
+        };
 
-        server_.Get(".*",
-            [this](const httplib::Request &request, httplib::Response &response) { HandlerRequest(request, response); });
-        server_.Post(".*",
-            [this](const httplib::Request &request, httplib::Response &response) { HandlerRequest(request, response); });
-        server_.Put(".*",
-            [this](const httplib::Request &request, httplib::Response &response) { HandlerRequest(request, response); });
-        server_.Delete(".*",
-            [this](const httplib::Request &request, httplib::Response &response) { HandlerRequest(request, response); });
-        server_.Patch(".*",
-            [this](const httplib::Request &request, httplib::Response &response) { HandlerRequest(request, response); });
-        server_.Options(".*",
-            [this](const httplib::Request &request, httplib::Response &response) { HandlerRequest(request, response); });
-        
+        server_.Get(".*", [this](const httplib::Request &request, httplib::Response &response) {
+            HandlerRequest(request, response);
+        });
+        server_.Post(".*", [this](const httplib::Request &request, httplib::Response &response) {
+            HandlerRequest(request, response);
+        });
+        server_.Put(".*", [this](const httplib::Request &request, httplib::Response &response) {
+            HandlerRequest(request, response);
+        });
+        server_.Delete(".*", [this](const httplib::Request &request, httplib::Response &response) {
+            HandlerRequest(request, response);
+        });
+        server_.Patch(".*", [this](const httplib::Request &request, httplib::Response &response) {
+            HandlerRequest(request, response);
+        });
+        server_.Options(".*", [this](const httplib::Request &request, httplib::Response &response) {
+            HandlerRequest(request, response);
+        });
+
         // 检查端口是否被占用
         int sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sockfd < 0) {
@@ -178,20 +189,19 @@ RackResult RackHttpServer::ValidateHttpRequest(const httplib::Request &req, Rack
     }
     return RACK_OK;
 }
-std::string RackHttpServer::GenerateQueryString(const std::multimap<std::string, std::string> &queryParams)
+std::string RackHttpServer::GenerateQueryString(const httplib::Params &queryParams)
 {
-    std::string queryString;
-    bool first = true;
+    std::string queryStr;
+
     for (const auto &param : queryParams) {
-        if (!first) {
-            queryString.append("&"); // 添加分隔符
+        if (!queryStr.empty()) {
+            queryStr += "&";
         }
-        first = false;
-        queryString.append(param.first);
-        queryString.append("=");
-        queryString.append("param.second");
+
+        queryStr += param.first + "=" + param.second;
     }
-    return queryString;
+
+    return queryStr;
 }
 
 void RackHttpServer::HandlerRequest(const httplib::Request &req, httplib::Response &res)

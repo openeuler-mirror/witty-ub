@@ -13,6 +13,7 @@ ds_client_info_log_file = ["ds_client*.INFO.log", "*_runtime.log", "*_split_runt
 ds_worker_access_log_file = ["access.log", "access*.log", "*_access.log", "*_split_access.log"]
 ds_worker_info_log_file = ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "*_runtime.log", "*_split_runtime.log"]
 resource_log_file = ["resource.log"]
+brpc_log_file_patterns = ["brpc.log", "brpc.log.*", "*brpc*.log"]
 
 [log_analyzer_params]
 total_p99_threshold_ms = 5.0
@@ -20,6 +21,9 @@ c2w_p99_threshold_ms = 2.0
 w2w_p99_threshold_ms = 1.5
 urma_link_p99_threshold_ms = 4.0
 query_meta_p99_threshold_ms = 1.0
+total_p9999_threshold_ms = 5.0
+total_pmax_threshold_ms = 5.0
+total_ave_threshold_ms = 5.0
 sliding_window_sizes = [100, 200, 300, 500]
 sliding_window_steps = [20, 30, 40, 50]
 zone_anomaly_density_threshold = 0.5

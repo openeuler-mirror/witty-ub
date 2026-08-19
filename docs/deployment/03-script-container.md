@@ -41,6 +41,9 @@ bash deploy/docker/manage.sh
 
 ```bash
 # 在有网络的机器导出镜像
+docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
+docker pull quay.io/sclorg/postgresql-15-c9s:latest
+
 docker save -o witty-ub.tar hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
 docker save -o pg15.tar quay.io/sclorg/postgresql-15-c9s:latest
 
@@ -89,6 +92,8 @@ WITTY_HOST_PORT=8080 bash deploy/docker/manage.sh
 WITTY_IMAGE=my-custom:v1 bash deploy/docker/manage.sh
 PG_HOST_IN_CONTAINER=172.18.0.1 bash deploy/docker/manage.sh
 ```
+
+> **说明**：若需修改 opencode 配置文件，请在宿主机上操作。`manage.sh` 会将宿主机的 opencode 配置目录（默认 `~/.config/opencode/`，可通过 `OPENCODE_CONFIG_DIR` 覆盖）映射到容器中，在容器内修改不会持久化。详见 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)。
 
 ---
 

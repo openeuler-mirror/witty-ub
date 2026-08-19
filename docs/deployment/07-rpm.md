@@ -2,16 +2,16 @@
 
 ## 概述
 
-适用于 openEuler 原生部署场景，通过 systemd 管理服务。
-
-> 推荐使用脚本部署 → [宿主机脚本部署](02-script-host.md) | [容器脚本部署](03-script-container.md)
+适用于 openEuler 原生部署场景，通过 systemd 管理服务。`yum install witty-ub` 安装后，使用 `witty-ub manager` 完成 PG 初始化、服务启停、数据清理、日志查看等运维操作。
 
 ---
 
 ## 前置条件
 
 - openEuler 24.03 LTS SP3 / SP4
-- PostgreSQL 已部署 → [05-database.md](05-database.md)
+- root 或 sudo 权限
+
+> PostgreSQL 不需要预装，`witty-ub manager install` 会自动初始化。
 
 ---
 
@@ -45,127 +45,93 @@ EOF
 
 ---
 
-## 安装
+## 安装与初始化
 
 ```bash
 sudo yum install -y witty-ub
-sudo yum install -y opencode
+sudo witty-ub manager install    # 初始化 PostgreSQL + 启动服务
 ```
+
+完成后访问 `http://<服务器IP>:8080`。
 
 ---
 
-## 配置 OpenCode
+## 配置 OpenCode（可选）
 
 ```bash
-mkdir -p ~/.config/opencode
-cat > ~/.config/opencode/config.yaml << 'EOF'
-provider:
-  my-provider:
-    type: custom
-    apiKey: "your-api-key"
-    baseURL: "your-base-url"
-model: "my-provider/model-name"
-EOF
-
-# 启动后台服务
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/zh/download)
+vi ~/.config/opencode/opencode.jsonc
+bash /var/witty-ub/latency/deploy/run_opencode.sh   # 启动后台服务
 ```
+
+参考 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)。
 
 ---
 
 ## PG 连接配置
 
-```bash
-sudo vi /var/witty-ub/config/database.conf
-```
+PG 凭据位于 `/etc/witty-ub/pg.conf`，默认值：`host=127.0.0.1 port=15432 db/user/pass=witty-ub`。
 
-```conf
-PG_HOST=127.0.0.1
-PG_PORT=15432
-PG_DATABASE=witty-ub
-PG_USER=witty-ub
-PG_PASSWORD=witty-ub
-```
+如需修改（如指向外部 PG），编辑后重新执行 `sudo witty-ub manager install` 即可同步生效。
 
 ---
 
 ## 服务管理
 
 ```bash
-# 启动
-sudo systemctl start witty-ub-web
-sudo systemctl start witty-ub-latency
-
-# 开机自启
-sudo systemctl enable witty-ub-web
-sudo systemctl enable witty-ub-latency
-
-# 查看状态
-sudo systemctl status witty-ub-web
-sudo systemctl status witty-ub-latency
-
-# 重启 / 停止
-sudo systemctl restart witty-ub-web witty-ub-latency
-sudo systemctl stop witty-ub-web witty-ub-latency
+sudo witty-ub manager             # 交互式菜单
+sudo witty-ub manager start       # 启动
+sudo witty-ub manager stop        # 停止
+sudo witty-ub manager restart     # 重启
+sudo witty-ub manager status      # 查看状态
+sudo witty-ub manager logs        # 查看日志
+sudo witty-ub manager psql        # 进入 psql
 ```
 
-| 服务名 | 说明 | 默认端口 |
-|--------|------|----------|
+| 服务 | 说明 | 端口 |
+|------|------|------|
 | `witty-ub-web` | Web UI（Nginx） | 8080 |
 | `witty-ub-latency` | 后端 API（FastAPI） | 9772 |
+| `postgresql-15` | 数据库 | 15432 |
 
 ---
 
 ## 验证
 
 ```bash
-# 测试 API
-curl http://localhost:8080/health_check
-
-# 查看日志
-journalctl -u witty-ub-web -f
-journalctl -u witty-ub-latency -f
+curl http://localhost:9772/health_check
+curl -I http://localhost:8080
+sudo witty-ub manager status
 ```
 
-浏览器访问：`http://<服务器IP>:8080`
+浏览器访问 `http://<服务器IP>:8080`。
 
 ---
 
-## 升级与卸载
+## 升级 / 卸载 / 清理
 
 ```bash
-# 升级
-sudo yum update -y witty-ub
-sudo systemctl restart witty-ub-web witty-ub-latency
-
-# 卸载
-sudo systemctl stop witty-ub-web witty-ub-latency
-sudo systemctl disable witty-ub-web witty-ub-latency
-sudo yum remove -y witty-ub
+sudo yum update -y witty-ub && sudo witty-ub manager restart   # 升级
+sudo witty-ub manager clean                                    # 清空数据（PG 表 + /var 数据）
+sudo witty-ub manager uninstall                                # 停服务 + 禁用 units
+sudo yum remove -y witty-ub witty-ub-manager                   # 彻底卸载 RPM
 ```
 
 ---
 
-## 目录结构
+## 故障排查
 
-```
-/var/witty-ub/
-├── data/          # 故障模式数据、KVCache
-├── latency/       # 应用代码
-├── log/           # 日志
-├── config/        # 配置
-└── web/           # Web 前端
-
-/usr/bin/
-├── witty-ub-log
-├── witty-ub-topo
-└── witty-ub-diag-tool
-```
+| 问题 | 排查 |
+|------|------|
+| 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager install` |
+| 前端 8080 起不来 | `ss -tlnp \| grep 8080` 查端口占用 |
+| psql 连不上 | `systemctl status postgresql-15`；`cat /etc/witty-ub/pg.conf` |
+| 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager install` |
 
 ---
 
 ## 后续步骤
 
-- 手动数据库部署 → [05-database.md](05-database.md)
+- 数据库手动部署 → [05-database.md](05-database.md)
 - 宿主机脚本部署 → [02-script-host.md](02-script-host.md)
 - 容器脚本部署 → [03-script-container.md](03-script-container.md)

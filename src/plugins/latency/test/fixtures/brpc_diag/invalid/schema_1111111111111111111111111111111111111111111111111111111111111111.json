@@ -1,0 +1,83 @@
+{
+  "format_version": 1,
+  "schema_id": "1111111111111111111111111111111111111111111111111111111111111111",
+  "nodes": [
+    {
+      "node_id": "ubsocket_001",
+      "node_type": "interface",
+      "component": "ubsocket",
+      "name": "冲突后的接口名称",
+      "filename": "ubsocket_socket.h",
+      "function_name": "ReadV",
+      "phenomenon": "向下级匹配",
+      "cause": "向下级匹配",
+      "solution": "向下级匹配",
+      "error_code": null
+    },
+    {
+      "node_id": "ubsocket_005",
+      "node_type": "failure_mode",
+      "component": "ubsocket",
+      "name": "弹出乱序接收元素时堆对象为空",
+      "filename": "ubsocket_fast_heap.h",
+      "function_name": "Pop",
+      "phenomenon": "heap is empty",
+      "cause": "receive queue is inconsistent",
+      "solution": "check receive queue state",
+      "error_code": -5
+    },
+    {
+      "node_id": "umq_001",
+      "node_type": "interface",
+      "component": "umq",
+      "name": "消息接收接口",
+      "filename": "umq_api.h",
+      "function_name": "Recv",
+      "phenomenon": "向下级匹配",
+      "cause": "向下级匹配",
+      "solution": "向下级匹配",
+      "error_code": null
+    },
+    {
+      "node_id": "umq_006",
+      "node_type": "failure_mode",
+      "component": "umq",
+      "name": "消息接收失败",
+      "filename": "umq_recv.cpp",
+      "function_name": "RecvImpl",
+      "phenomenon": "receive failed",
+      "cause": "transport error",
+      "solution": "check transport state",
+      "error_code": "UMQ_E_RECV"
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "ubsocket_001",
+      "target_node_id": "ubsocket_005",
+      "edge_type": "intra_component"
+    },
+    {
+      "source_node_id": "ubsocket_005",
+      "target_node_id": "umq_001",
+      "edge_type": "cross_component"
+    },
+    {
+      "source_node_id": "umq_001",
+      "target_node_id": "umq_006",
+      "edge_type": "intra_component"
+    }
+  ],
+  "failure_interface_mappings": [
+    {
+      "failure_mode_id": "ubsocket_005",
+      "interface_ids": ["ubsocket_001"],
+      "subgraph_edge_indexes": [0]
+    },
+    {
+      "failure_mode_id": "umq_006",
+      "interface_ids": ["umq_001"],
+      "subgraph_edge_indexes": [2]
+    }
+  ]
+}

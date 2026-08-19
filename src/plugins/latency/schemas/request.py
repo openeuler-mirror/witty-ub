@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Any, List, Union
 from fastapi import UploadFile
 from latency.ENUM.general import SourceType
@@ -44,6 +46,24 @@ class ParseConfig(BaseModel):
         return self.min_elapsed_ms is not None
 
 
+class RunBrpcDiagnosisRequest(BaseModel):
+    start_time: str = Field(
+        ...,
+        description="BRPC 日志扫描开始时间，UTC+8，格式 YYYY-MM-DD HH:MM:SS",
+    )
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except ValueError as exc:
+            raise ValueError("start_time 必须使用 YYYY-MM-DD HH:MM:SS 格式") from exc
+        if parsed.strftime("%Y-%m-%d %H:%M:%S") != value:
+            raise ValueError("start_time 必须使用 YYYY-MM-DD HH:MM:SS 格式")
+        return value
+
+
 class CreateLogKnowledgeRequest(BaseModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
     name: str = Field(..., min_length=1, description="知识名称")
@@ -85,6 +105,10 @@ class UpLoadLogFileConfig(BaseModel):
     source: str | UploadFile = Field(
         default=None,
         description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
+    )
+    log_type: Optional[str] = Field(
+        default="kv-cache",
+        description="日志类型：kv-cache（默认）或 brpc",
     )
 
 
