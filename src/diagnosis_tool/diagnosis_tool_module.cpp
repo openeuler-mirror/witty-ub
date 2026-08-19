@@ -462,12 +462,17 @@ RackResult DiagnosisToolModule::AnalyzeAccessLogs()
                 continue;
             }
             std::vector<std::string> fields = log_helper::ToStringFields(fieldViews);
+            bool matched = false;
             for (const std::string &failureModeId : moduleToRootFailureModeIds_[MODULE_KVCACHE]) {
+                if (failureModeId == "kvcache_conn_fault_unknown") {
+                    continue;  // 跳过兜底模式，在最后处理
+                }
                 FailureModeController &controller = failureModeIdToController_.at(failureModeId);
                 auto failureMode = controller.GetFailureMode();
                 if (!failureMode->IsValid(fields)) {
                     continue;
                 }
+                matched = true;
                 rootValidFailureModeIds_.insert(failureModeId);
                 std::shared_ptr<FailureLogInfoAccess> failureLogInfoAccess = nullptr;
                 try {
@@ -475,6 +480,7 @@ RackResult DiagnosisToolModule::AnalyzeAccessLogs()
                 } catch (const std::exception &e) {
                     LOG_WARN << e.what();
                     LOG_WARN << "Failed to construct failure log info for access log: " << logLine << ", skip...";
+                    matched = false;
                     continue;
                 }
                 failureLogInfoAccess->BindFailureMode(failureModeId);
@@ -496,6 +502,32 @@ RackResult DiagnosisToolModule::AnalyzeAccessLogs()
                 traceIdToFailureLogInfos_[failureLogInfoAccess->traceId].push_back(failureLogInfoAccess);
                 traceIdToStatusCode_.emplace(failureLogInfoAccess->traceId, failureLogInfoAccess->statusCode);
                 break;
+            }
+            // 如果没有匹配到任何已知故障模式，且 status_code 非0，使用兜底模式
+            if (!matched && statusCode != 0) {
+                const std::string fallbackModeId = "kvcache_conn_fault_unknown";
+                auto it = failureModeIdToController_.find(fallbackModeId);
+                if (it != failureModeIdToController_.end()) {
+                    FailureModeController &fallbackController = it->second;
+                    auto fallbackMode = fallbackController.GetFailureMode();
+                    if (fallbackMode && fallbackMode->IsValid(fields)) {
+                        rootValidFailureModeIds_.insert(fallbackModeId);
+                        std::shared_ptr<FailureLogInfoAccess> failureLogInfoAccess = nullptr;
+                        try {
+                            failureLogInfoAccess = std::make_shared<FailureLogInfoAccess>(fields, logLine);
+                        } catch (const std::exception &e) {
+                            LOG_WARN << e.what();
+                            LOG_WARN << "Failed to construct failure log info for fallback mode: " << logLine;
+                        }
+                        if (failureLogInfoAccess) {
+                            failureLogInfoAccess->BindFailureMode(fallbackModeId);
+                            fallbackController.Hit(failureLogInfoAccess->traceId, failureLogInfoAccess);
+                            statusCodeToFailureModeId_.emplace(failureLogInfoAccess->statusCode, fallbackModeId);
+                            traceIdToFailureLogInfos_[failureLogInfoAccess->traceId].push_back(failureLogInfoAccess);
+                            traceIdToStatusCode_.emplace(failureLogInfoAccess->traceId, failureLogInfoAccess->statusCode);
+                        }
+                    }
+                }
             }
         }
     }

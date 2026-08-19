@@ -9251,11 +9251,8 @@ const selectBrpcThreadGraphNode = (nodeId: string) => {
 }
 
 const getBrpcThreadGraphNodeHitCount = (node: BrpcFailureGraphNode) => {
-  if (node.node_type === 'failure_mode') return node.hit_count
-  const interfaceHit = selectedBrpcAbnormalThreadDetail.value?.thread.interface_hits.find(
-    (hit) => hit.interface_id === node.node_id,
-  )
-  return interfaceHit?.interface_hit_count ?? 0
+  if (node.node_type === 'interface') return 0
+  return node.hit_count
 }
 
 const getBrpcThreadGraphNodeInterfaceNames = (node: BrpcFailureGraphNode) => {
@@ -9382,6 +9379,7 @@ const BRPC_THREAD_GRAPH_NODE_GAP = 28
 const BRPC_THREAD_GRAPH_OUTER_GAP = 32
 const BRPC_THREAD_GRAPH_EDGE_CURVE_GAP = 36
 const BRPC_THREAD_GRAPH_EDGE_LANE_GAP = 24
+const BRPC_THREAD_GRAPH_COMPONENT_GAP = 80
 
 const wrapBrpcThreadGraphText = (value: string, font: string) => {
   const lines: string[] = []
@@ -9410,25 +9408,109 @@ const wrapBrpcThreadGraphText = (value: string, font: string) => {
   return lines.length > 0 ? lines : ['-']
 }
 
-const getBrpcThreadFailureGraphNodeMetrics = (node: BrpcFailureGraphNode) => {
-  const idLines = wrapBrpcThreadGraphText(node.node_id, '700 12px sans-serif')
-  const displayName =
-    node.node_type === 'interface'
-      ? getBrpcInterfaceDisplayName({
-          interface_name: node.name || '-',
-          function_name: node.function_name,
-        })
-      : node.name || '-'
-  const nameLines = wrapBrpcThreadGraphText(displayName, '600 13px sans-serif')
-  const height = 18 + idLines.length * 18 + nameLines.length * 18 + 18
-  return { width: BRPC_THREAD_GRAPH_NODE_WIDTH, height, idLines, nameLines }
+const buildBrpcThreadGraphNodeSymbol = (width: number, height: number) => {
+  const radius = Math.min(Math.max(height * 0.16, 8), 14)
+  const rx = (2 * radius) / width
+  const ry = (2 * radius) / height
+  const h = 0.4477
+  const f = (n: number) => n.toFixed(4)
+  const xIn = 1 - rx
+  const xOut = -1 + rx
+  const yIn = 1 - ry
+  const yOut = -1 + ry
+  return `path://M ${f(xIn)},-1 L ${f(xOut)},-1 C ${f(-1 + h * rx)},-1 -1,${f(-1 + h * ry)} -1,${f(yOut)} L -1,${f(yIn)} C -1,${f(1 - h * ry)} ${f(-1 + h * rx)},1 ${f(xOut)},1 L ${f(xIn)},1 C ${f(1 - h * rx)},1 1,${f(1 - h * ry)} 1,${f(yIn)} L 1,${f(yOut)} C 1,${f(-1 + h * ry)} ${f(1 - h * rx)},-1 ${f(xIn)},-1 Z`
 }
 
-const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
-  const levels = getBrpcThreadFailureGraphLevels(graph)
+const getBrpcThreadFailureGraphNodeMetrics = (node: BrpcFailureGraphNode) => {
+  const idLines = wrapBrpcThreadGraphText(node.node_id, '700 12px sans-serif')
+  const nameLines = wrapBrpcThreadGraphText(node.name || '-', '600 13px sans-serif')
+  const functionNameLines =
+    node.node_type === 'interface' && node.function_name
+      ? wrapBrpcThreadGraphText(node.function_name, '400 12px sans-serif')
+      : []
+  const tailLineCount = node.node_type === 'interface' ? functionNameLines.length : 1
+  const height = 18 + idLines.length * 18 + nameLines.length * 18 + tailLineCount * 18
+  return {
+    width: BRPC_THREAD_GRAPH_NODE_WIDTH,
+    height,
+    idLines,
+    nameLines,
+    functionNameLines,
+  }
+}
+
+const findBrpcThreadFailureGraphComponents = (
+  graph: BrpcFailureGraph,
+): Array<{
+  nodes: BrpcFailureGraphNode[]
+  edges: BrpcFailureGraphEdge[]
+  edgeIndices: number[]
+}> => {
+  const adjacency = new Map<string, Set<string>>()
+  graph.nodes.forEach((node) => adjacency.set(node.node_id, new Set()))
+  graph.edges.forEach((edge) => {
+    if (!adjacency.has(edge.source_node_id) || !adjacency.has(edge.target_node_id)) return
+    adjacency.get(edge.source_node_id)!.add(edge.target_node_id)
+    adjacency.get(edge.target_node_id)!.add(edge.source_node_id)
+  })
+
+  const visited = new Set<string>()
+  const components: Array<{
+    nodes: BrpcFailureGraphNode[]
+    edges: BrpcFailureGraphEdge[]
+    edgeIndices: number[]
+  }> = []
+  graph.nodes.forEach((node) => {
+    if (visited.has(node.node_id)) return
+    const componentNodeIds = new Set<string>()
+    const queue: string[] = [node.node_id]
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      if (componentNodeIds.has(id)) continue
+      componentNodeIds.add(id)
+      adjacency.get(id)?.forEach((neighbor) => {
+        if (!componentNodeIds.has(neighbor)) queue.push(neighbor)
+      })
+    }
+    componentNodeIds.forEach((id) => visited.add(id))
+    const componentNodes = graph.nodes.filter((entry) => componentNodeIds.has(entry.node_id))
+    const componentEdges: BrpcFailureGraphEdge[] = []
+    const componentEdgeIndices: number[] = []
+    graph.edges.forEach((edge, edgeIndex) => {
+      if (
+        componentNodeIds.has(edge.source_node_id) &&
+        componentNodeIds.has(edge.target_node_id)
+      ) {
+        componentEdges.push(edge)
+        componentEdgeIndices.push(edgeIndex)
+      }
+    })
+    components.push({
+      nodes: componentNodes,
+      edges: componentEdges,
+      edgeIndices: componentEdgeIndices,
+    })
+  })
+  return components
+}
+
+const layoutBrpcThreadFailureGraphComponent = (
+  component: {
+    nodes: BrpcFailureGraphNode[]
+    edges: BrpcFailureGraphEdge[]
+    edgeIndices: number[]
+  },
+  yOffset: number,
+  curveYExtents: number[],
+) => {
+  const { nodes, edges, edgeIndices } = component
+  const levels = getBrpcThreadFailureGraphLevels({
+    nodes,
+    edges,
+  } as BrpcFailureGraph)
   const levelIndexes = new Map<string, number>()
   const nodeLayouts = new Map(
-    graph.nodes.map((node) => [
+    nodes.map((node) => [
       node.node_id,
       { ...getBrpcThreadFailureGraphNodeMetrics(node), x: 0, y: 0 },
     ]),
@@ -9437,17 +9519,17 @@ const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
     (_, levelIndex) => levelIndex * (BRPC_THREAD_GRAPH_NODE_WIDTH + BRPC_THREAD_GRAPH_LEVEL_GAP),
   )
 
-  levels.forEach(([, nodes], levelIndex) => {
+  levels.forEach(([, levelNodes], levelIndex) => {
     const levelHeight =
-      nodes.reduce((height, node) => height + (nodeLayouts.get(node.node_id)?.height ?? 0), 0) +
-      Math.max(0, nodes.length - 1) * BRPC_THREAD_GRAPH_NODE_GAP
+      levelNodes.reduce((height, node) => height + (nodeLayouts.get(node.node_id)?.height ?? 0), 0) +
+      Math.max(0, levelNodes.length - 1) * BRPC_THREAD_GRAPH_NODE_GAP
     let top = -levelHeight / 2
-    nodes.forEach((node) => {
+    levelNodes.forEach((node) => {
       const nodeLayout = nodeLayouts.get(node.node_id)
       if (!nodeLayout) return
       levelIndexes.set(node.node_id, levelIndex)
       nodeLayout.x = levelCenters[levelIndex] ?? 0
-      nodeLayout.y = top + nodeLayout.height / 2
+      nodeLayout.y = top + nodeLayout.height / 2 + yOffset
       top += nodeLayout.height + BRPC_THREAD_GRAPH_NODE_GAP
     })
   })
@@ -9458,7 +9540,6 @@ const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
   const minNodeTop = Math.min(...layouts.map((layout) => layout.y - layout.height / 2))
   const maxNodeBottom = Math.max(...layouts.map((layout) => layout.y + layout.height / 2))
   const edgeCurveness = new Map<number, number>()
-  const curveYExtents: number[] = []
   let topLaneCount = 0
   let bottomLaneCount = 0
 
@@ -9490,7 +9571,7 @@ const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
     targetLayout: (typeof layouts)[number],
     curveness: number,
   ) => {
-    const obstacleLayouts = graph.nodes
+    const obstacleLayouts = nodes
       .filter(
         (node) => node.node_id !== edge.source_node_id && node.node_id !== edge.target_node_id,
       )
@@ -9514,7 +9595,9 @@ const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
     return true
   }
 
-  graph.edges.forEach((edge, edgeIndex) => {
+  edges.forEach((edge, componentEdgeIndex) => {
+    const globalEdgeIndex = edgeIndices[componentEdgeIndex]
+    if (globalEdgeIndex === undefined) return
     const sourceLevelIndex = levelIndexes.get(edge.source_node_id)
     const targetLevelIndex = levelIndexes.get(edge.target_node_id)
     const sourceLayout = nodeLayouts.get(edge.source_node_id)
@@ -9551,13 +9634,52 @@ const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
       Math.abs(topCurveness) <= Math.abs(bottomCurveness) ? topCurveness : bottomCurveness
     if (curveness === topCurveness) topLaneCount += 1
     else bottomLaneCount += 1
-    edgeCurveness.set(edgeIndex, curveness)
+    edgeCurveness.set(globalEdgeIndex, curveness)
 
     for (let step = 0; step <= 40; step += 1) {
       curveYExtents.push(getCurvePoint(sourceLayout, targetLayout, curveness, step / 40).y)
     }
   })
 
+  const minY = Math.min(...layouts.map((layout) => layout.y))
+  const maxY = Math.max(...layouts.map((layout) => layout.y))
+  const dataWidth = Math.max(2, maxX - minX)
+  const dataHeight = Math.max(2, maxY - minY)
+  const horizontalOuterGap =
+    Math.max(...layouts.map((layout) => layout.width / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
+  const verticalOuterGap =
+    Math.max(...layouts.map((layout) => layout.height / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
+
+  return {
+    nodeLayouts,
+    edgeCurveness,
+    bounds: { minX, maxX, minY, maxY },
+    dataWidth,
+    dataHeight,
+    width: Math.ceil(dataWidth + horizontalOuterGap * 2),
+    height: Math.ceil(dataHeight + verticalOuterGap * 2),
+  }
+}
+
+const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
+  const components = findBrpcThreadFailureGraphComponents(graph)
+  const nodeLayouts = new Map<string, ReturnType<typeof getBrpcThreadFailureGraphNodeMetrics> & { x: number; y: number }>()
+  const edgeCurveness = new Map<number, number>()
+  const curveYExtents: number[] = []
+  let yOffset = 0
+
+  components.forEach((component, componentIndex) => {
+    const layout = layoutBrpcThreadFailureGraphComponent(component, yOffset, curveYExtents)
+    layout.nodeLayouts.forEach((value, key) => nodeLayouts.set(key, value))
+    layout.edgeCurveness.forEach((value, key) => edgeCurveness.set(key, value))
+    if (componentIndex < components.length - 1) {
+      yOffset += layout.bounds.maxY - layout.bounds.minY + BRPC_THREAD_GRAPH_COMPONENT_GAP
+    }
+  })
+
+  const layouts = [...nodeLayouts.values()]
+  const minX = Math.min(...layouts.map((layout) => layout.x))
+  const maxX = Math.max(...layouts.map((layout) => layout.x))
   const minY = Math.min(...layouts.map((layout) => layout.y), ...curveYExtents)
   const maxY = Math.max(...layouts.map((layout) => layout.y), ...curveYExtents)
   const dataWidth = Math.max(2, maxX - minX)
@@ -9618,7 +9740,9 @@ const renderBrpcThreadFailureGraph = () => {
       const labelLines = [
         ...nodeLayout.idLines.map((line) => `{code|${line}}`),
         ...nodeLayout.nameLines.map((line) => `{name|${line}}`),
-        `{count|命中 ${getBrpcThreadGraphNodeHitCount(node)}}`,
+        ...(node.node_type === 'interface'
+          ? nodeLayout.functionNameLines.map((line) => `{fn|${line}}`)
+          : [`{count|命中 ${getBrpcThreadGraphNodeHitCount(node)}}`]),
       ]
       return {
         id: node.node_id,
@@ -9627,22 +9751,25 @@ const renderBrpcThreadFailureGraph = () => {
         nodeType: node.node_type,
         x: nodeLayout.x,
         y: nodeLayout.y,
-        symbol: 'roundRect',
+        symbol: buildBrpcThreadGraphNodeSymbol(nodeLayout.width, nodeLayout.height),
+        symbolKeepAspect: false,
         symbolSize: [nodeLayout.width, nodeLayout.height],
         itemStyle: {
           color: 'rgba(255, 255, 255, 0.96)',
           borderColor: nodeAccentColor,
           borderWidth: node.directly_hit ? 2.4 : 1.4,
-          shadowBlur: 8,
-          shadowOffsetY: 5,
-          shadowColor: 'rgba(15, 23, 42, 0.12)',
+          shadowBlur: 6,
+          shadowOffsetX: 0,
+          shadowOffsetY: 0,
+          shadowColor: 'rgba(15, 23, 42, 0.1)',
         },
         label: {
           show: true,
           formatter: labelLines.join('\n'),
           rich: {
-            code: { color: nodeAccentColor, fontSize: 12, fontWeight: 700, lineHeight: 20 },
-            name: { color: '#172033', fontSize: 13, fontWeight: 600, lineHeight: 19 },
+            code: { color: nodeAccentColor, fontSize: 12, fontWeight: 700, lineHeight: 18 },
+            name: { color: '#172033', fontSize: 13, fontWeight: 600, lineHeight: 18 },
+            fn: { color: '#475467', fontSize: 12, fontWeight: 400, lineHeight: 18 },
             count: {
               color: '#667085',
               fontSize: 12,
@@ -9692,18 +9819,21 @@ const renderBrpcThreadFailureGraph = () => {
           const node = graph.nodes.find((item) => item.node_id === datum?.nodeId)
           if (!node) return ''
           const typeLabel = node.node_type === 'interface' ? '接口节点' : '故障模式'
-          return [
+          const displayName =
+            node.node_type === 'interface'
+              ? getBrpcInterfaceDisplayName({
+                  interface_name: node.name || '-',
+                  function_name: node.function_name,
+                })
+              : node.name || '-'
+          const lines = [
             `<strong>${echarts.format.encodeHTML(node.node_id)}</strong>`,
-            echarts.format.encodeHTML(
-              node.node_type === 'interface'
-                ? getBrpcInterfaceDisplayName({
-                    interface_name: node.name || '-',
-                    function_name: node.function_name,
-                  })
-                : node.name || '-',
-            ),
-            `${typeLabel} · 命中 ${getBrpcThreadGraphNodeHitCount(node)}`,
-          ].join('<br>')
+            echarts.format.encodeHTML(displayName),
+            node.node_type === 'interface'
+              ? typeLabel
+              : `${typeLabel} · 命中 ${getBrpcThreadGraphNodeHitCount(node)}`,
+          ]
+          return lines.join('<br>')
         },
       },
       series: [
@@ -15745,7 +15875,7 @@ onBeforeUnmount(() => {
                       </span>
                     </div>
                     <div class="trace-fault-detail-item">
-                      <span class="trace-fault-detail-label">对应接口名</span>
+                      <span class="trace-fault-detail-label">对应接口</span>
                       <span class="trace-fault-detail-value">
                         {{ getBrpcThreadGraphNodeInterfaceNames(selectedBrpcThreadGraphNode) }}
                       </span>
@@ -15816,7 +15946,7 @@ onBeforeUnmount(() => {
                               </span>
                             </div>
                             <div class="trace-fault-detail-item">
-                              <span class="trace-fault-detail-label">对应接口名</span>
+                              <span class="trace-fault-detail-label">对应接口</span>
                               <span class="trace-fault-detail-value">
                                 {{
                                   getBrpcThreadGraphNodeInterfaceNames(
