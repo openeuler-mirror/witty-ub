@@ -98,7 +98,7 @@ LABEL_TO_COLUMNS: dict[str, tuple[str, ...]] = {
         "bucket_epoch", "log_id", "status_code", "timestamp", "pod_ip",
         "cluster_name", "data_size", "inflight_count",
     ),
-    WORKER_ACCESS_LABEL: ("worker_total_latency", "bucket_epoch", "timestamp", "log_id", "op", "operation", "op_key", "pod_ip", "cluster_name"),
+    WORKER_ACCESS_LABEL: ("worker_total_latency", "bucket_epoch", "timestamp", "log_id", "op", "operation", "op_key", "status_code", "pod_ip", "cluster_name"),
     # Worker info labels 也需要添加 pod_ip 和 cluster_name，确保所有相关 pod 和集群都被记录
     URMA_LABEL: ("urma_total_latency", "src", "dst", "pod_ip", "cluster_name"),
     REMOTE_PULL_LABEL: ("src", "dst", "pod_ip", "cluster_name"),
@@ -262,6 +262,7 @@ def _project(label: str, entry, row: dict[str, object]) -> None:
             row["op_key"] = "SET"
         else:
             row["op_key"] = None
+        row["status_code"] = _get(entry, TupleField.STATUS_CODE)
         # 添加 pod_ip 字段，确保 Worker access log 的 pod_ip 也被收集
         pod_ip = _get(entry, TupleField.POD_IP)
         row["pod_ip"] = str(pod_ip) if pod_ip else None
