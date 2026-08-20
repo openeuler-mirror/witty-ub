@@ -3,6 +3,7 @@ import os
 import aiofiles
 import aiohttp
 import logging
+import re
 import shutil
 from pathlib import Path
 from fastapi import UploadFile
@@ -53,6 +54,18 @@ from latency.exceptions import (
 
 logger = logging.getLogger(__name__)
 witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
+
+_PROFILING_TIMESTAMP_RE = re.compile(r"^timeStamp:\s*\S")
+
+
+def _is_profiling_log(file_path: str | Path) -> bool:
+    """Read the first line and check if it matches the profiling timestamp format."""
+    try:
+        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            first_line = f.readline().strip()
+    except (IOError, OSError):
+        return False
+    return bool(_PROFILING_TIMESTAMP_RE.match(first_line))
 
 
 class LogFileService:
@@ -280,28 +293,16 @@ class LogFileService:
                     if source.is_dir()
                     else [source]
                 )
-                profiling_files = [
-                    path
-                    for path in source_files
-                    if "ubsocket_profiling" in path.name.lower()
-                    and path.name.endswith(".txt")
-                ]
-                patterns = await BrpcLogDiagnosisWorker._load_brpc_patterns(kb_id)
-                diagnosis_files = BrpcLogDiagnosisWorker.find_brpc_logs(
-                    source_path,
-                    patterns,
-                )
+                classified: list[tuple[Path, TaskTypeEnum]] = []
+                for path in source_files:
+                    if _is_profiling_log(path):
+                        classified.append((path, TaskTypeEnum.BRPC_LOG_PARSE_WORKER))
+                    else:
+                        classified.append(
+                            (path, TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER)
+                        )
 
-                for path, task_type in [
-                    *(
-                        (path, TaskTypeEnum.BRPC_LOG_PARSE_WORKER)
-                        for path in profiling_files
-                    ),
-                    *(
-                        (path, TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER)
-                        for path in diagnosis_files
-                    ),
-                ]:
+                for path, task_type in classified:
                     matched_model = LogFileModel(
                         kb_id=kb_id,
                         name=path.name,
@@ -312,7 +313,7 @@ class LogFileService:
                     log_file_models.append(matched_model)
                     log_file_task_types[matched_model.id] = task_type
 
-                if profiling_files or diagnosis_files:
+                if classified:
                     continue
 
             log_file_models.append(log_file_model)
@@ -452,7 +453,11 @@ class LogFileService:
                         TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
                         TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
                     }
-                    else TaskTypeEnum.BRPC_LOG_PARSE_WORKER
+                    else (
+                        TaskTypeEnum.BRPC_LOG_PARSE_WORKER
+                        if _is_profiling_log(log_file_model.file_path)
+                        else TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER
+                    )
                 )
             task_id = await TaskHandler.init_task(
                 task_type=task_type,

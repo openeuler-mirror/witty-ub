@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Optional
 
@@ -22,6 +23,18 @@ from latency.schemas.task import TaskModel
 from latency.task.worker.base import BaseWorker
 
 logger = logging.getLogger(__name__)
+
+_PROFILING_TIMESTAMP_RE = re.compile(r"^timeStamp:\s*\S")
+
+
+def _is_profiling_log(file_path: str) -> bool:
+    """Read the first line and check if it matches the profiling timestamp format."""
+    try:
+        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            first_line = f.readline().strip()
+    except (IOError, OSError):
+        return False
+    return bool(_PROFILING_TIMESTAMP_RE.match(first_line))
 
 
 class BrpcLogParseWorker(BaseWorker):
@@ -97,19 +110,17 @@ class BrpcLogParseWorker(BaseWorker):
         if not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
 
-        # 查找 profiling 文件
         import os
-        import glob as glob_module
 
         profiling_files: list[str] = []
         if os.path.isfile(log_dir):
-            if "ubsocket_profiling" in os.path.basename(log_dir).lower():
-                profiling_files = [log_dir]
+            profiling_files = [log_dir]
         elif os.path.isdir(log_dir):
             for root, _, files in os.walk(log_dir):
                 for f in files:
-                    if "ubsocket_profiling" in f.lower() and f.endswith(".txt"):
-                        profiling_files.append(os.path.join(root, f))
+                    fp = os.path.join(root, f)
+                    if _is_profiling_log(fp):
+                        profiling_files.append(fp)
 
         if not profiling_files:
             logger.warning(f"未找到 BRPC profiling 文件: {log_dir}")

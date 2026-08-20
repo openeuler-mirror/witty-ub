@@ -490,13 +490,11 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 raise BrpcDiagnosisWorkerError(
                     f"BRPC diagnosis LogFile does not exist: {task.op_id}"
                 )
-            patterns = await BrpcLogDiagnosisWorker._load_brpc_patterns(
-                log_file.kb_id
-            )
-            selected_log = BrpcLogDiagnosisWorker.select_brpc_log(
-                log_file.file_path,
-                patterns,
-            )
+            selected_log = Path(log_file.file_path)
+            if not selected_log.is_file():
+                raise BrpcDiagnosisWorkerError(
+                    f"BRPC diagnosis log file not found: {selected_log}"
+                )
             if start_time is None:
                 start_time = BrpcLogDiagnosisWorker._resolve_start_time(task_id)
             else:
