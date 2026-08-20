@@ -1456,6 +1456,15 @@ const toggleAgentChat = () => {
   }
 }
 
+const goBackAgentView = () => {
+  agentView.value =
+    agentView.value === 'models'
+      ? 'login'
+      : agentView.value === 'chat' || agentView.value === 'providers'
+        ? 'models'
+        : 'providers'
+}
+
 const sendAgentMessage = async () => {
   if (isAgentSending.value) {
     await abortAgentSession()
@@ -3081,9 +3090,7 @@ const latencySeriesCount = computed(() => latencySeriesConfig.value.length)
 const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
   const next = new Set(visibleLatencyKeys.value)
   if (next.has(key)) {
-    if (next.size > 1) {
-      next.delete(key)
-    }
+    next.delete(key)
   } else {
     next.add(key)
   }
@@ -3097,7 +3104,7 @@ const selectAllLatencySeries = () => {
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([latencySeriesConfig.value[0].key])
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>()
 }
 
 const latencyPercentileOptions = computed(() => [
@@ -3844,25 +3851,6 @@ const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   return ranges
 }
 
-const estimateLatencyLegendRows = (series: Array<{ label: string }>, availableWidth: number) => {
-  let rows = 1
-  let currentWidth = 0
-  series.forEach(({ label }) => {
-    const textWidth = Array.from(label).reduce(
-      (width, character) => width + (/^[\u0000-\u00ff]$/.test(character) ? 7 : 12),
-      0,
-    )
-    const itemWidth = textWidth + 52
-    if (currentWidth > 0 && currentWidth + itemWidth > availableWidth) {
-      rows += 1
-      currentWidth = itemWidth
-    } else {
-      currentWidth += itemWidth
-    }
-  })
-  return rows
-}
-
 const createLatencyEchartsOption = (
   buckets: LatencyChartBucket[],
   chartWidth = 1600,
@@ -3871,9 +3859,9 @@ const createLatencyEchartsOption = (
   const markAreaData = getLatencyMarkAreas(buckets)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
   const visibleSeries = latencySeriesConfig.value.filter((s) => isLatencySeriesVisible(s.key))
+  const hasLegend = visibleSeries.length > 0
+  const gridTop = 70
   const legendWidth = Math.max(320, chartWidth - 88)
-  const legendRows = estimateLatencyLegendRows(visibleSeries, legendWidth)
-  const gridTop = 38 + legendRows * 25
 
   return {
     color: visibleSeries.map((series) => series.color),
@@ -3884,6 +3872,8 @@ const createLatencyEchartsOption = (
         typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
     },
     legend: {
+      show: hasLegend,
+      type: hasLegend ? 'scroll' : undefined,
       data: visibleSeries.map((series) => series.label),
       top: 6,
       left: 'center',
@@ -3906,10 +3896,10 @@ const createLatencyEchartsOption = (
     },
     grid: {
       top: gridTop,
-      right: 68,
-      bottom: 15,
-      left: 54,
-      containLabel: true,
+      right: 24,
+      bottom: 64,
+      left: 76,
+      containLabel: false,
     },
     xAxis: {
       type: 'category',
@@ -3950,6 +3940,7 @@ const createLatencyEchartsOption = (
       type: 'value',
       name: '延迟(ms)',
       min: 0,
+      max: (value: { max: number }) => (Number.isFinite(value.max) && value.max > 0 ? value.max : 100),
       splitLine: {
         lineStyle: {
           color: '#e2e8f0',
@@ -4000,15 +3991,12 @@ const createLatencyEchartsOption = (
   }
 }
 
-const createDetailLatencyEchartsOption = (
-  points: LatencyChartBucket[],
-  chartWidth = 1200,
-): EChartsOption => {
+const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): EChartsOption => {
   const labels = points.map((point) => point.label)
   const markAreaData = getLatencyMarkAreas(points)
 
   return {
-    ...createLatencyEchartsOption(points, chartWidth),
+    ...createLatencyEchartsOption(points),
     xAxis: {
       type: 'category',
       data: labels,
@@ -4363,6 +4351,16 @@ const renderLatencyEchart = () => {
     createLatencyEchartsOption(latencyChartBuckets.value, element.clientWidth),
     true,
   )
+  latencyChartInstance.off('legendselectchanged')
+  latencyChartInstance.on('legendselectchanged', (params: unknown) => {
+    const event = params as { selected?: Record<string, boolean> }
+    if (!event.selected) return
+    const next = new Set<LatencyMetricKey>()
+    latencySeriesConfig.value.forEach((series) => {
+      if (event.selected?.[series.label]) next.add(series.key)
+    })
+    visibleLatencyKeys.value = next
+  })
   latencyChartInstance.off('click')
   latencyChartInstance.on('click', (params: unknown) => {
     const event = params as { componentType?: string; dataIndex?: number }
@@ -4542,14 +4540,17 @@ const faultCodes = computed(() => {
 const hasFaultChartMetricData = computed(() =>
   Object.values(faultChartMetrics.value).some((metrics) => metrics.length > 0),
 )
-const faultAggregatedEventCodeColumnMaxWidth = 132
+const faultAggregatedEventCodeColumnMinWidth = 132
+const faultAggregatedEventCodeColumnMaxWidth = 220
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
-  const width = columnCount * faultAggregatedEventCodeColumnMaxWidth
+  const minWidth = columnCount * faultAggregatedEventCodeColumnMinWidth
+  const preferredWidth = columnCount * faultAggregatedEventCodeColumnMaxWidth
+  const width = `clamp(${minWidth}px, 100%, ${preferredWidth}px)`
   return {
-    gridTemplateColumns: `repeat(${columnCount}, ${faultAggregatedEventCodeColumnMaxWidth}px)`,
-    width: `${width}px`,
-    minWidth: `${width}px`,
+    gridTemplateColumns: `repeat(${columnCount}, minmax(${faultAggregatedEventCodeColumnMinWidth}px, ${faultAggregatedEventCodeColumnMaxWidth}px))`,
+    width,
+    minWidth: width,
   }
 })
 const paginatedFaultAggregatedEventRows = computed(() => faultAggregatedEventRows.value)
@@ -12624,7 +12625,7 @@ onBeforeUnmount(() => {
                           }"
                         >
                           <div class="aggregate-cell latency-breakdown-header">
-                            <span>各阶段时延分解</span>
+                            <span>各阶段时延分解（P99）</span>
                             <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
                           </div>
                         </div>
@@ -12682,7 +12683,7 @@ onBeforeUnmount(() => {
                                 }"
                               >
                                 <div class="aggregate-cell latency-breakdown-header compact">
-                                  <span>IP 对阶段时延分解（ms）</span>
+                                  <span>IP 对阶段时延分解（P99，ms）</span>
                                 </div>
                               </div>
                               <div
@@ -13017,7 +13018,7 @@ onBeforeUnmount(() => {
                           ></div>
                         </div>
                         <div class="aggregate-cell latency-breakdown-header column-resizable">
-                          <span>各阶段时延分解</span>
+                          <span>各阶段时延分解（P99）</span>
                           <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
                           <div
                             class="column-resize-handle"
@@ -13625,7 +13626,9 @@ onBeforeUnmount(() => {
                       >
                         <div
                           class="aggregate-latency-scrollbar-spacer fault-code-scrollbar-spacer"
-                          :style="{ width: faultAggregatedEventCodeGridStyle.minWidth }"
+                          :style="{
+                            width: faultAggregatedEventCodeGridStyle.width,
+                          }"
                         ></div>
                       </div>
                       <div
@@ -16673,7 +16676,7 @@ onBeforeUnmount(() => {
                         </span>
                       </div>
                       <div class="aggregate-cell latency-breakdown-header">
-                        <span>各阶段时延分解</span>
+                        <span>各阶段时延分解（P99）</span>
                         <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
                       </div>
                     </div>
@@ -17965,13 +17968,11 @@ onBeforeUnmount(() => {
     >
       <header class="agent-chat-header">
         <button
-          v-if="agentView !== 'login' && agentView !== 'models'"
+          v-if="agentView !== 'login'"
           class="agent-auth-back"
           type="button"
           aria-label="返回上一级"
-          @click="
-            agentView = agentView === 'chat' || agentView === 'providers' ? 'models' : 'providers'
-          "
+          @click="goBackAgentView"
         >
           ‹
         </button>
