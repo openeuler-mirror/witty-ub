@@ -1456,6 +1456,15 @@ const toggleAgentChat = () => {
   }
 }
 
+const goBackAgentView = () => {
+  agentView.value =
+    agentView.value === 'models'
+      ? 'login'
+      : agentView.value === 'chat' || agentView.value === 'providers'
+        ? 'models'
+        : 'providers'
+}
+
 const sendAgentMessage = async () => {
   if (isAgentSending.value) {
     await abortAgentSession()
@@ -17959,13 +17968,11 @@ onBeforeUnmount(() => {
     >
       <header class="agent-chat-header">
         <button
-          v-if="agentView !== 'login' && agentView !== 'models'"
+          v-if="agentView !== 'login'"
           class="agent-auth-back"
           type="button"
           aria-label="返回上一级"
-          @click="
-            agentView = agentView === 'chat' || agentView === 'providers' ? 'models' : 'providers'
-          "
+          @click="goBackAgentView"
         >
           ‹
         </button>
