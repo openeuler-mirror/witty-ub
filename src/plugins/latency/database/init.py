@@ -30,6 +30,7 @@ _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
         "interface_resolution",
         "VARCHAR NOT NULL DEFAULT 'unresolved'",
     ),
+    ("brpc_profiling_result", "source_file", "VARCHAR"),
 ]
 
 

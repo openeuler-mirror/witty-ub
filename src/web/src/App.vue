@@ -3073,6 +3073,12 @@ const latencySeriesConfig = computed(() =>
   selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
 )
 
+const availableLatencySeriesConfig = computed(() =>
+  latencySeriesConfig.value.filter((series) =>
+    latencyChartBuckets.value.some((bucket) => bucket.values[series.key] != null),
+  ),
+)
+
 type LatencyMetricKey =
   | (typeof getLatencySeriesConfig)[number]['key']
   | (typeof setLatencySeriesConfig)[number]['key']
@@ -3085,7 +3091,7 @@ const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
 ])
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
 const selectedLatencySeriesCount = computed(() => visibleLatencyKeys.value.size)
-const latencySeriesCount = computed(() => latencySeriesConfig.value.length)
+const latencySeriesCount = computed(() => availableLatencySeriesConfig.value.length)
 
 const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
   const next = new Set(visibleLatencyKeys.value)
@@ -3100,11 +3106,11 @@ const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
 const isLatencySeriesVisible = (key: LatencyMetricKey) => visibleLatencyKeys.value.has(key)
 
 const selectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set(latencySeriesConfig.value.map((s) => s.key))
+  visibleLatencyKeys.value = new Set(availableLatencySeriesConfig.value.map((s) => s.key))
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>()
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>([availableLatencySeriesConfig.value[0].key])
 }
 
 const latencyPercentileOptions = computed(() => [
@@ -3868,6 +3874,7 @@ const createLatencyEchartsOption = (
     tooltip: {
       trigger: 'axis',
       appendToBody: true,
+      order: 'valueDesc',
       valueFormatter: (value) =>
         typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
     },
@@ -4108,6 +4115,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
         const first = items[0] as { dataIndex?: number } | undefined
@@ -4217,6 +4225,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
         const first = items[0] as { dataIndex?: number } | undefined
@@ -4297,6 +4306,7 @@ const createFaultEchartsOption = (
   return {
     tooltip: {
       trigger: 'axis',
+      order: 'valueDesc',
     },
     legend: {
       data: seriesNames,
@@ -5883,8 +5893,8 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
   try {
     const requestBody: Record<string, unknown> = {
       kb_id: assetId,
-      src_ip: detail.podRow.srcIp,
-      dst_ip: detail.podRow.dstIp,
+      src_ip: detail.podRow.srcIp === '-' ? '' : detail.podRow.srcIp,
+      dst_ip: detail.podRow.dstIp === '-' ? '' : detail.podRow.dstIp,
       is_anomalous: true,
       start_time: detail.eventRow.startTime,
       end_time: detail.eventRow.endTime,
@@ -5993,8 +6003,8 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
       body: JSON.stringify({
         kb_id: assetId,
         err_codes: errCodes,
-        src_ip: detail.podRow.srcIp,
-        dst_ip: detail.podRow.dstIp,
+        src_ip: detail.podRow.srcIp === '-' ? '' : detail.podRow.srcIp,
+        dst_ip: detail.podRow.dstIp === '-' ? '' : detail.podRow.dstIp,
         start_time: detail.eventRow.startTime,
         end_time: detail.eventRow.endTime,
         max_points: 1000,
@@ -6637,8 +6647,11 @@ const loadLatencyChart = async () => {
 
   try {
     const filters = appliedFilters.value
+    const currentLogFile = logFiles.value.find((f) => getLogFileId(f) === selectedLogFileId.value)
     const logId =
-      selectedLogFileId.value ?? (logFiles.value[0] ? getLogFileId(logFiles.value[0]) : undefined)
+      currentLogFile && isKvcacheLogFile(currentLogFile)
+        ? selectedLogFileId.value
+        : (pickDefaultKvcacheLogFile(logFiles.value)?.log_file_id ?? undefined)
     const body: Record<string, unknown> = {
       kb_id: assetId,
       max_points: maxPoints,
@@ -6795,6 +6808,13 @@ const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
   detailLatencyMetrics.value = []
 
   try {
+    const currentDetailLogFile = logFiles.value.find(
+      (f) => getLogFileId(f) === selectedLogFileId.value,
+    )
+    const detailLogId =
+      currentDetailLogFile && isKvcacheLogFile(currentDetailLogFile)
+        ? selectedLogFileId.value
+        : (pickDefaultKvcacheLogFile(logFiles.value)?.log_file_id ?? undefined)
     const requestBody: Record<string, unknown> = {
       kb_id: assetId,
       src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
@@ -6803,7 +6823,7 @@ const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
       sort_by: 'timestamp',
       sort_order: 'asc',
       bucket_seconds: selectedLatencyScale.value,
-      log_id: selectedLogFileId.value ?? undefined,
+      log_id: detailLogId,
     }
     if (row.startTime) {
       requestBody.start_time = row.startTime
@@ -8400,6 +8420,13 @@ const getLogFileProgressClass = (file: LogFileModel) => {
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
 
+const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'brpc'
+
+const pickDefaultKvcacheLogFile = (files: LogFileModel[]): LogFileModel | null => {
+  if (files.length === 0) return null
+  return files.find(isKvcacheLogFile) ?? files[0]!
+}
+
 const normalizeLogFile = (file: LogFileModel): LogFileModel => {
   const logFileId = file.log_file_id || file.id
   return {
@@ -8419,24 +8446,29 @@ const isLogFileDetailLoaded = (file: LogFileModel) =>
 
 const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
 
+const isBrpcLogFile = (file: LogFileModel) => file.log_type === 'brpc'
+
 const isBrpcProfilingLogFile = (file: LogFileModel) =>
   getLogFileTaskType(file) === 'brpc_log_parse_worker'
 
 const isBrpcDiagnosisLogFile = (file: LogFileModel) =>
   getLogFileTaskType(file) === 'brpc_log_diagnosis_worker'
 
-const shouldShowLogFileLatencyAnomalyCount = (file: LogFileModel) => !isBrpcDiagnosisLogFile(file)
+const shouldShowLogFileLatencyAnomalyCount = (file: LogFileModel) =>
+  isBrpcLogFile(file) || !isBrpcDiagnosisLogFile(file)
 
 const shouldShowLogFileConnectionAnomalyCount = (file: LogFileModel) =>
-  !isBrpcProfilingLogFile(file)
+  isBrpcLogFile(file) || !isBrpcProfilingLogFile(file)
 
-const getLogFileAnomalyCountText = (file: LogFileModel) => `时延异常数：${file.anomaly_cnt}`
+const getLogFileAnomalyCountText = (file: LogFileModel) =>
+  isBrpcLogFile(file) ? `接口日志文件数：${file.anomaly_cnt}` : `时延异常数：${file.anomaly_cnt}`
 
 const getLogFileTraceFailureEventCountText = (file: LogFileModel) =>
   `通断异常数：${file.trace_failure_event_cnt ?? 0}`
 
 const getLogFileAnomalyCountClass = (file: LogFileModel) => {
   if (!isLogFileDetailLoaded(file)) return ''
+  if (isBrpcLogFile(file)) return 'anomaly-ok'
   return file.anomaly_cnt > 0 ? 'anomaly-danger' : 'anomaly-ok'
 }
 
@@ -8466,29 +8498,17 @@ const loadLogFileAnomalyCount = async (file: LogFileModel) => {
   try {
     const result = await request<GetLogFileResult>(`/log_file/${logFileId}`)
     if (result.log_file) {
-      let traceFailureEventCount = result.log_file.trace_failure_event_cnt ?? 0
-      const task = getDetailedLogFileTask(file)
-      if (task?.id && task.task_type === 'brpc_log_diagnosis_worker') {
-        const batchResult = await request<{ task_id: string; batch_id: string }>(
-          `/brpc-diagnosis/task/${encodeURIComponent(task.id)}/batch`,
-        )
-        const metadataResult = await request<{ batch: BrpcDiagnosisBatch }>(
-          `/brpc-diagnosis/batch/${encodeURIComponent(batchResult.batch_id)}`,
-        )
-        traceFailureEventCount = metadataResult.batch.hit_count
-      }
       logFileAnomalyCntById.value = {
         ...logFileAnomalyCntById.value,
         [logFileId]: result.log_file.anomaly_cnt,
       }
       logFileTraceFailureEventCntById.value = {
         ...logFileTraceFailureEventCntById.value,
-        [logFileId]: traceFailureEventCount,
+        [logFileId]: result.log_file.trace_failure_event_cnt ?? 0,
       }
       updateLogFileInList({
         ...result.log_file,
         log_file_id: logFileId,
-        trace_failure_event_cnt: traceFailureEventCount,
       })
       loadedAnomalyLogFileIds.value = new Set(loadedAnomalyLogFileIds.value).add(logFileId)
     }
@@ -8588,14 +8608,17 @@ const loadLogFiles = async (
     logFiles.value = nextLogFiles
     logFilesTotal.value = nextTotal
     logFilesPage.value = pageNum
-    // 默认选中最新（列表首项，created_sorted_desc）日志文件作为“当前 log”，
-    // 供时延指标桶模式直读分位统计表（log_id）使用；列表为空则清空
+    // 默认选中最新的 kv-cache 日志文件作为“当前 log”，
+    // 供时延指标桶模式直读分位统计表（log_id）使用；列表为空则清空。
+    // 必须避开 brpc 日志文件，否则 kvcache 时延 API 按 brpc log_id 过滤会返回空结果。
     if (nextLogFiles.length > 0) {
       const currentId = selectedLogFileId.value
-      const stillExists =
-        currentId !== null && nextLogFiles.some((f) => getLogFileId(f) === currentId)
-      if (!stillExists) {
-        selectedLogFileId.value = getLogFileId(nextLogFiles[0]!)
+      const currentFile = nextLogFiles.find((f) => getLogFileId(f) === currentId)
+      if (currentFile && isKvcacheLogFile(currentFile)) {
+        // 当前选中的是 kv-cache 日志，保持不变
+      } else {
+        const defaultFile = pickDefaultKvcacheLogFile(nextLogFiles)
+        selectedLogFileId.value = defaultFile ? getLogFileId(defaultFile) : null
       }
     } else {
       selectedLogFileId.value = null
@@ -8689,9 +8712,10 @@ const deleteLogFile = async (logFileId: string) => {
       logFiles.value.splice(index, 1)
       logFilesTotal.value = Math.max(0, logFilesTotal.value - 1)
     }
-    // 若删除的是当前选中 log，回退到列表首项（或清空）
+    // 若删除的是当前选中 log，回退到最新的 kv-cache 日志（或清空）
     if (selectedLogFileId.value === logFileId) {
-      selectedLogFileId.value = logFiles.value.length > 0 ? getLogFileId(logFiles.value[0]!) : null
+      const fallback = pickDefaultKvcacheLogFile(logFiles.value)
+      selectedLogFileId.value = fallback ? getLogFileId(fallback) : null
     }
   } catch (error) {
     console.error('删除日志文件失败:', error)
@@ -8795,16 +8819,15 @@ type BrpcLogFileOption = {
 }
 
 const brpcLogFiles = ref<BrpcLogFileOption[]>([])
-const brpcProfilingLogFiles = computed(() =>
-  brpcLogFiles.value.filter((file) => file.taskType === 'brpc_log_parse_worker'),
-)
-const brpcDiagnosisLogFiles = computed(() =>
-  brpcLogFiles.value.filter((file) => file.taskType === 'brpc_log_diagnosis_worker'),
-)
+const brpcProfilingLogFiles = computed(() => brpcLogFiles.value)
+const brpcDiagnosisLogFiles = computed(() => brpcLogFiles.value)
 const brpcSelectedLogId = ref('')
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
 const brpcAllRows = ref<Record<string, any>[]>([])
+const brpcAllFileRows = ref<Record<string, any>[]>([])
+const brpcFileNames = ref<string[]>([])
+const brpcSelectedFileName = ref('')
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -9019,6 +9042,9 @@ const resetAssetScopedMonitorData = () => {
   brpcDataLoading.value = false
   brpcInterfaceNames.value = []
   brpcAllRows.value = []
+  brpcAllFileRows.value = []
+  brpcFileNames.value = []
+  brpcSelectedFileName.value = ''
   brpcSuccessSelectedIfaces.value = []
   brpcLatencySelectedIfaces.value = []
   brpcSingleIface.value = ''
@@ -9094,7 +9120,9 @@ const brpcFaultChartRange = computed<LatencyChartRange | null>(() => {
 const displayableBrpcFaultTimelineSeries = computed(() =>
   brpcFaultTimelineSeries.value
     .map((timeline, index) => ({ timeline, index }))
-    .filter(({ timeline }) => timeline.points.some((point) => point.interface_hit_count > 0)),
+    .filter(({ timeline }) =>
+      (timeline.points ?? []).some((point) => (point.interface_hit_count ?? 0) > 0),
+    ),
 )
 
 const hasBrpcFaultTimelineData = computed(() =>
@@ -9939,13 +9967,13 @@ const loadBrpcLogFiles = async () => {
       }))
 
     if (!brpcProfilingLogFiles.value.some((file) => file.id === brpcSelectedLogId.value)) {
-      brpcSelectedLogId.value = ''
+      const firstProfilingLog = brpcProfilingLogFiles.value[0]
+      brpcSelectedLogId.value = firstProfilingLog?.id ?? ''
     }
     if (!brpcDiagnosisLogFiles.value.some((file) => file.id === brpcFaultSelectedLogId.value)) {
       brpcFaultTimelineRequestSequence += 1
       brpcAggregatedEventsRequestSequence += 1
       brpcAbnormalThreadsRequestSequence += 1
-      brpcFaultSelectedLogId.value = ''
       brpcFaultResolvedLogId.value = ''
       brpcFaultBatch.value = null
       brpcFaultTimelineSeries.value = []
@@ -9953,6 +9981,8 @@ const loadBrpcLogFiles = async () => {
       brpcAggregatedEventTotal.value = 0
       brpcAbnormalThreads.value = []
       brpcAbnormalThreadTotal.value = 0
+      const firstDiagnosisLog = brpcDiagnosisLogFiles.value[0]
+      brpcFaultSelectedLogId.value = firstDiagnosisLog?.id ?? ''
     }
   } catch {
     if (selectedAssetId.value === assetId) {
@@ -9962,7 +9992,37 @@ const loadBrpcLogFiles = async () => {
 }
 
 const onBrpcLogChange = async () => {
+  brpcSelectedFileName.value = ''
+  brpcSuccessSelectedIfaces.value = []
+  brpcLatencySelectedIfaces.value = []
+  brpcSingleIface.value = ''
   await loadBrpcMonitorData()
+}
+
+const applyBrpcFileFilter = () => {
+  const file = brpcSelectedFileName.value
+  const rows = file
+    ? brpcAllFileRows.value.filter((r) => (r.source_file ?? '') === file)
+    : brpcAllFileRows.value
+  brpcAllRows.value = rows
+  brpcInterfaceNames.value = [...new Set(rows.map((r) => r.interface_name))]
+    .filter(Boolean)
+    .sort()
+  brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
+  brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
+  const firstInterface = brpcInterfaceNames.value.at(0)
+  if (firstInterface) {
+    brpcSingleIface.value = firstInterface
+  }
+  nextTick(() => {
+    renderBrpcSuccessChart()
+    renderBrpcSingleChart()
+    renderBrpcLatencyChart()
+  })
+}
+
+const onBrpcFileChange = () => {
+  applyBrpcFileFilter()
 }
 
 const loadBrpcMonitorData = async () => {
@@ -9974,6 +10034,7 @@ const loadBrpcMonitorData = async () => {
   try {
     const result = await request<{
       interface_names: string[]
+      file_names: string[]
       rows: Record<string, any>[]
     }>(`/brpc_profiling/${selectedLogId}`)
 
@@ -9985,25 +10046,18 @@ const loadBrpcMonitorData = async () => {
       return
     }
 
-    brpcInterfaceNames.value = result.interface_names ?? []
-    brpcAllRows.value = result.rows ?? []
+    brpcFileNames.value = result.file_names ?? []
+    brpcAllFileRows.value = result.rows ?? []
 
-    // 默认全选接口
-    if (brpcSuccessSelectedIfaces.value.length === 0) {
-      brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
-    }
-    if (brpcLatencySelectedIfaces.value.length === 0) {
-      brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
-    }
-    const firstInterface = brpcInterfaceNames.value.at(0)
-    if (!brpcSingleIface.value && firstInterface) {
-      brpcSingleIface.value = firstInterface
+    // 默认选择第一个源文件
+    if (
+      brpcFileNames.value.length > 0 &&
+      !brpcFileNames.value.includes(brpcSelectedFileName.value)
+    ) {
+      brpcSelectedFileName.value = brpcFileNames.value[0]
     }
 
-    await nextTick()
-    renderBrpcSuccessChart()
-    renderBrpcSingleChart()
-    renderBrpcLatencyChart()
+    applyBrpcFileFilter()
   } catch {
     if (
       requestSequence === brpcProfilingRequestSequence &&
@@ -10012,6 +10066,8 @@ const loadBrpcMonitorData = async () => {
     ) {
       brpcInterfaceNames.value = []
       brpcAllRows.value = []
+      brpcAllFileRows.value = []
+      brpcFileNames.value = []
     }
   } finally {
     if (requestSequence === brpcProfilingRequestSequence) {
@@ -10045,7 +10101,7 @@ const getBrpcTimestamps = (): string[] => {
 // 计算成功率/失败率
 const calcRate = (success: number, failure: number): number => {
   const total = success + failure
-  return total > 0 ? (success / total) * 100 : 0
+  return total > 0 ? (success / total) * 100 : 100
 }
 const calcFailureRate = (success: number, failure: number): number => {
   const total = success + failure
@@ -10083,6 +10139,27 @@ const getBrpcMetricValue = (
       return null
   }
 }
+
+const brpcIfacesWithMetricData = (metric: string): string[] => {
+  const dataMap = buildBrpcDataMap()
+  const timestamps = getBrpcTimestamps()
+  return brpcInterfaceNames.value.filter((iface) => {
+    const ifaceData = dataMap.get(iface)
+    return timestamps.some((ts) => getBrpcMetricValue(ifaceData?.get(ts), metric) !== null)
+  })
+}
+
+const brpcSuccessAvailableIfaces = computed(() => brpcIfacesWithMetricData(brpcSuccessMetric.value))
+const brpcLatencyAvailableIfaces = computed(() => brpcIfacesWithMetricData(brpcLatencyMetric.value))
+
+const brpcSingleAvailableMetrics = computed(() => {
+  const dataMap = buildBrpcDataMap()
+  const timestamps = getBrpcTimestamps()
+  const ifaceData = dataMap.get(brpcSingleIface.value)
+  return brpcSingleMetrics.filter((metric) =>
+    timestamps.some((ts) => getBrpcMetricValue(ifaceData?.get(ts), metric.value) !== null),
+  )
+})
 
 // 格式化 brpc 时间戳为 HH:mm:ss
 const formatBrpcTimestamp = (ts: string): string => {
@@ -10162,6 +10239,17 @@ const getBrpcInterfaceColor = (iface: string): string => {
     ? (BRPC_INTERFACE_COLORS[idx % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8')
     : '#94a3b8'
 }
+
+const BRPC_SINGLE_METRIC_COLORS: Record<string, string> = {
+  requestCount: '#5470c6',
+  successRate: '#91cc75',
+  failureRate: '#ee6666',
+  successCount: '#fac858',
+  failureCount: '#73c0de',
+}
+
+const getBrpcSingleMetricColor = (metric: string): string =>
+  BRPC_SINGLE_METRIC_COLORS[metric] ?? '#94a3b8'
 
 // 估算 brpc 图例行数
 const estimateBrpcLegendRows = (labels: string[], availableWidth: number): number => {
@@ -10285,7 +10373,7 @@ const renderBrpcFaultTimelineChart = () => {
 
   brpcFaultTimelineChartInstance.setOption(
     {
-      tooltip: { trigger: 'axis', appendToBody: true },
+      tooltip: { trigger: 'axis', appendToBody: true, order: 'valueDesc' },
       legend: {
         ...brpcLegendStyle,
         data: seriesLabels,
@@ -10387,7 +10475,7 @@ const renderBrpcEventDetailTimelineChart = () => {
 
   brpcEventDetailTimelineChartInstance.setOption(
     {
-      tooltip: { trigger: 'axis', appendToBody: true },
+      tooltip: { trigger: 'axis', appendToBody: true, order: 'valueDesc' },
       legend: {
         ...brpcLegendStyle,
         data: seriesLabels,
@@ -11080,10 +11168,7 @@ const renderBrpcSuccessChart = () => {
   const dataMap = buildBrpcDataMap()
   const timestamps = getBrpcTimestamps()
   const labels = timestamps.map(formatBrpcTimestamp)
-  const selectedIfaces =
-    brpcSuccessSelectedIfaces.value.length > 0
-      ? brpcSuccessSelectedIfaces.value
-      : brpcInterfaceNames.value
+  const selectedIfaces = brpcSuccessSelectedIfaces.value
 
   const metricLabelMap: Record<string, string> = {
     successRate: '成功率(%)',
@@ -11114,6 +11199,7 @@ const renderBrpcSuccessChart = () => {
       tooltip: {
         trigger: 'axis',
         appendToBody: true,
+        order: 'valueDesc',
       },
       legend: {
         ...brpcLegendStyle,
@@ -11170,6 +11256,7 @@ const renderBrpcSingleChart = () => {
     data: timestamps.map((ts) => getBrpcMetricValue(ifaceData?.get(ts), metric)),
     smooth: true,
     connectNulls: true,
+    itemStyle: { color: getBrpcSingleMetricColor(metric) },
   }))
 
   const legendData = selectedMetrics.map((m) => metricLabelMap[m] || m)
@@ -11182,6 +11269,7 @@ const renderBrpcSingleChart = () => {
       tooltip: {
         trigger: 'axis',
         appendToBody: true,
+        order: 'valueDesc',
       },
       legend: {
         ...brpcLegendStyle,
@@ -11213,10 +11301,7 @@ const renderBrpcLatencyChart = () => {
   const dataMap = buildBrpcDataMap()
   const timestamps = getBrpcTimestamps()
   const labels = timestamps.map(formatBrpcTimestamp)
-  const selectedIfaces =
-    brpcLatencySelectedIfaces.value.length > 0
-      ? brpcLatencySelectedIfaces.value
-      : brpcInterfaceNames.value
+  const selectedIfaces = brpcLatencySelectedIfaces.value
 
   const series = selectedIfaces.map((iface) => {
     const ifaceData = dataMap.get(iface)
@@ -11241,6 +11326,7 @@ const renderBrpcLatencyChart = () => {
       tooltip: {
         trigger: 'axis',
         appendToBody: true,
+        order: 'valueDesc',
         valueFormatter: (value: unknown) =>
           typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
       },
@@ -11261,7 +11347,8 @@ const renderBrpcLatencyChart = () => {
 
 const selectAllBrpcIfaces = (chart: 'success' | 'latency') => {
   const target = chart === 'success' ? brpcSuccessSelectedIfaces : brpcLatencySelectedIfaces
-  target.value = [...brpcInterfaceNames.value]
+  const available = chart === 'success' ? brpcSuccessAvailableIfaces : brpcLatencyAvailableIfaces
+  target.value = [...available.value]
   if (chart === 'success') renderBrpcSuccessChart()
   else renderBrpcLatencyChart()
 }
@@ -11294,7 +11381,7 @@ const toggleBrpcLatencyIface = (iface: string) => {
 }
 
 const selectAllBrpcSingleMetrics = () => {
-  brpcSingleSelectedMetrics.value = brpcSingleMetrics.map((m) => m.value)
+  brpcSingleSelectedMetrics.value = brpcSingleAvailableMetrics.value.map((m) => m.value)
   renderBrpcSingleChart()
 }
 
@@ -11331,14 +11418,22 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
 
   if (targetProduct === 'brpc') {
     await loadBrpcLogFiles()
-    if (section === 'brpc-fault' && !brpcFaultSelectedLogId.value) {
+    if (!brpcSelectedLogId.value) {
+      brpcSelectedLogId.value = brpcProfilingLogFiles.value[0]?.id ?? ''
+    }
+    if (!brpcFaultSelectedLogId.value) {
       brpcFaultSelectedLogId.value = brpcDiagnosisLogFiles.value[0]?.id ?? ''
     }
     await nextTick()
-    if (brpcAllRows.value.length > 0) {
-      renderBrpcSuccessChart()
-      renderBrpcSingleChart()
-      renderBrpcLatencyChart()
+    if (brpcSelectedLogId.value) {
+      await loadBrpcMonitorData()
+    }
+    if (brpcFaultSelectedLogId.value) {
+      const loadActiveBrpcFaultList =
+        activeBrpcFaultTab.value === 'thread'
+          ? loadBrpcAbnormalThreads(1)
+          : loadBrpcAggregatedEvents(1)
+      await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
     }
     document
       .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
@@ -11346,13 +11441,6 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
         behavior: 'smooth',
         block: 'start',
       })
-    if (section === 'brpc-fault') {
-      const loadActiveBrpcFaultList =
-        activeBrpcFaultTab.value === 'thread'
-          ? loadBrpcAbnormalThreads(1)
-          : loadBrpcAggregatedEvents(1)
-      await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
-    }
     return
   }
 
@@ -12173,7 +12261,7 @@ onBeforeUnmount(() => {
                 </button>
                 <div class="latency-series-options" aria-label="时延指标选择">
                   <label
-                    v-for="series in latencySeriesConfig"
+                    v-for="series in availableLatencySeriesConfig"
                     :key="series.key"
                     class="latency-series-checkbox"
                   >
@@ -14319,18 +14407,14 @@ onBeforeUnmount(() => {
           </header>
 
           <!-- 日志文件选择器 -->
-          <div class="brpc-log-selector">
+          <div v-if="brpcFileNames.length > 0" class="brpc-log-selector">
             <span class="brpc-log-label">选择日志文件：</span>
-            <select v-model="brpcSelectedLogId" class="brpc-log-select" @change="onBrpcLogChange">
-              <option value="">-- 请选择 BRPC 日志文件 --</option>
-              <option v-for="log in brpcProfilingLogFiles" :key="log.id" :value="log.id">
-                {{ log.name }}
+            <select v-model="brpcSelectedFileName" class="brpc-log-select" @change="onBrpcFileChange">
+              <option v-for="name in brpcFileNames" :key="name" :value="name">
+                {{ name }}
               </option>
             </select>
             <span v-if="brpcDataLoading" class="brpc-loading">加载中...</span>
-            <span class="brpc-log-hint"
-              >（每个 BRPC profiling 文件独立解析，以文件名区分；选择要呈现的解析结果）</span
-            >
           </div>
 
           <!-- 图表1：接口成功率总览 -->
@@ -14356,7 +14440,7 @@ onBeforeUnmount(() => {
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
-                  已选 {{ brpcSuccessSelectedIfaces.length }}/{{ brpcInterfaceNames.length }}
+                  已选 {{ brpcSuccessSelectedIfaces.length }}/{{ brpcSuccessAvailableIfaces.length }}
                 </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
@@ -14374,7 +14458,7 @@ onBeforeUnmount(() => {
                 </button>
                 <div class="latency-series-options" aria-label="接口选择">
                   <label
-                    v-for="iface in brpcInterfaceNames"
+                    v-for="iface in brpcSuccessAvailableIfaces"
                     :key="iface"
                     class="latency-series-checkbox"
                   >
@@ -14414,7 +14498,7 @@ onBeforeUnmount(() => {
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">指标选择：</span>
                 <span class="latency-series-toggle-count">
-                  已选 {{ brpcSingleSelectedMetrics.length }}/{{ brpcSingleMetrics.length }}
+                  已选 {{ brpcSingleSelectedMetrics.length }}/{{ brpcSingleAvailableMetrics.length }}
                 </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
@@ -14432,7 +14516,7 @@ onBeforeUnmount(() => {
                 </button>
                 <div class="latency-series-options" aria-label="指标选择">
                   <label
-                    v-for="metric in brpcSingleMetrics"
+                    v-for="metric in brpcSingleAvailableMetrics"
                     :key="metric.value"
                     class="latency-series-checkbox"
                   >
@@ -14441,6 +14525,10 @@ onBeforeUnmount(() => {
                       :checked="brpcSingleSelectedMetrics.includes(metric.value)"
                       @change="toggleBrpcSingleMetric(metric.value)"
                     />
+                    <span
+                      class="latency-series-color-dot"
+                      :style="{ backgroundColor: getBrpcSingleMetricColor(metric.value) }"
+                    ></span>
                     {{ metric.label }}
                   </label>
                 </div>
@@ -14468,7 +14556,7 @@ onBeforeUnmount(() => {
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
-                  已选 {{ brpcLatencySelectedIfaces.length }}/{{ brpcInterfaceNames.length }}
+                  已选 {{ brpcLatencySelectedIfaces.length }}/{{ brpcLatencyAvailableIfaces.length }}
                 </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
@@ -14486,7 +14574,7 @@ onBeforeUnmount(() => {
                 </button>
                 <div class="latency-series-options" aria-label="接口选择">
                   <label
-                    v-for="iface in brpcInterfaceNames"
+                    v-for="iface in brpcLatencyAvailableIfaces"
                     :key="iface"
                     class="latency-series-checkbox"
                   >
@@ -14592,9 +14680,6 @@ onBeforeUnmount(() => {
                 </div>
                 <div v-else-if="brpcDiagnosisLogFiles.length === 0" class="chart-state">
                   暂无 BRPC 接口故障数据
-                </div>
-                <div v-else-if="!brpcFaultSelectedLogId" class="chart-state">
-                  请选择 BRPC 日志文件
                 </div>
                 <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
                   暂无 BRPC 接口故障数时序数据
