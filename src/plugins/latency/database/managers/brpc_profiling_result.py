@@ -44,6 +44,7 @@ class BrpcProfilingResultPGManager:
                     model = BrpcProfilingResult(
                         id=str(uuid.uuid4()),
                         log_id=log_id,
+                        source_file=record.source_file,
                         timestamp=record.timestamp,
                         interface_name=record.interface_name,
                         success_count=record.success_count,
@@ -118,6 +119,62 @@ class BrpcProfilingResultPGManager:
             return 0
 
     @staticmethod
+    async def count_files_by_log_id(log_id: str) -> int:
+        """按 log_id 统计不同 source_file 的数量。
+
+        NULL source_file（旧数据）算作 1 个文件。
+        """
+        try:
+            async with PGManager.session() as session:
+                stmt = (
+                    select(
+                        func.count(
+                            func.distinct(
+                                func.coalesce(BrpcProfilingResult.source_file, "")
+                            )
+                        )
+                    )
+                    .where(
+                        BrpcProfilingResult.log_id == log_id,
+                        BrpcProfilingResult.existed_status.is_(True),
+                    )
+                )
+                result = await session.execute(stmt)
+                count = result.scalar() or 0
+            return count
+        except Exception as e:
+            logger.error(f"[PG] 统计 BRPC profiling 文件数量失败: {e}")
+            return 0
+
+    @staticmethod
+    async def get_file_names_by_log_id(log_id: str) -> list[str]:
+        """获取指定日志文件的所有 source_file（去重排序）。
+
+        NULL source_file（旧数据）返回空字符串占位。
+        """
+        try:
+            async with PGManager.session() as session:
+                stmt = (
+                    select(
+                        func.coalesce(BrpcProfilingResult.source_file, "").label(
+                            "src_file"
+                        )
+                    )
+                    .where(
+                        BrpcProfilingResult.log_id == log_id,
+                        BrpcProfilingResult.existed_status.is_(True),
+                    )
+                    .distinct()
+                    .order_by("src_file")
+                )
+                result = await session.execute(stmt)
+                names = [row[0] for row in result.all()]
+            return names
+        except Exception as e:
+            logger.error(f"[PG] 获取 BRPC profiling 文件名列表失败: {e}")
+            return []
+
+    @staticmethod
     async def get_timestamps_by_log_id(log_id: str) -> list[datetime]:
         """获取指定日志文件的所有 timestamp（去重排序）。
 
@@ -146,11 +203,14 @@ class BrpcProfilingResultPGManager:
             return []
 
     @staticmethod
-    async def get_all_by_log_id(log_id: str) -> list[BrpcProfilingResult]:
+    async def get_all_by_log_id(
+        log_id: str, source_file: str | None = None
+    ) -> list[BrpcProfilingResult]:
         """获取指定日志文件的所有 profiling 记录（按 timestamp 和 interface_name 排序）。
 
         Args:
             log_id: 日志文件 ID
+            source_file: 可选，按源文件名过滤
 
         Returns:
             BrpcProfilingResult 列表
@@ -163,7 +223,14 @@ class BrpcProfilingResultPGManager:
                         BrpcProfilingResult.log_id == log_id,
                         BrpcProfilingResult.existed_status.is_(True),
                     )
-                    .order_by(BrpcProfilingResult.timestamp, BrpcProfilingResult.interface_name)
+                )
+                if source_file is not None:
+                    stmt = stmt.where(
+                        func.coalesce(BrpcProfilingResult.source_file, "")
+                        == source_file
+                    )
+                stmt = stmt.order_by(
+                    BrpcProfilingResult.timestamp, BrpcProfilingResult.interface_name
                 )
                 result = await session.execute(stmt)
                 rows = result.scalars().all()

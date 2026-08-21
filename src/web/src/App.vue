@@ -8446,24 +8446,29 @@ const isLogFileDetailLoaded = (file: LogFileModel) =>
 
 const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
 
+const isBrpcLogFile = (file: LogFileModel) => file.log_type === 'brpc'
+
 const isBrpcProfilingLogFile = (file: LogFileModel) =>
   getLogFileTaskType(file) === 'brpc_log_parse_worker'
 
 const isBrpcDiagnosisLogFile = (file: LogFileModel) =>
   getLogFileTaskType(file) === 'brpc_log_diagnosis_worker'
 
-const shouldShowLogFileLatencyAnomalyCount = (file: LogFileModel) => !isBrpcDiagnosisLogFile(file)
+const shouldShowLogFileLatencyAnomalyCount = (file: LogFileModel) =>
+  isBrpcLogFile(file) || !isBrpcDiagnosisLogFile(file)
 
 const shouldShowLogFileConnectionAnomalyCount = (file: LogFileModel) =>
-  !isBrpcProfilingLogFile(file)
+  isBrpcLogFile(file) || !isBrpcProfilingLogFile(file)
 
-const getLogFileAnomalyCountText = (file: LogFileModel) => `时延异常数：${file.anomaly_cnt}`
+const getLogFileAnomalyCountText = (file: LogFileModel) =>
+  isBrpcLogFile(file) ? `接口日志文件数：${file.anomaly_cnt}` : `时延异常数：${file.anomaly_cnt}`
 
 const getLogFileTraceFailureEventCountText = (file: LogFileModel) =>
   `通断异常数：${file.trace_failure_event_cnt ?? 0}`
 
 const getLogFileAnomalyCountClass = (file: LogFileModel) => {
   if (!isLogFileDetailLoaded(file)) return ''
+  if (isBrpcLogFile(file)) return 'anomaly-ok'
   return file.anomaly_cnt > 0 ? 'anomaly-danger' : 'anomaly-ok'
 }
 
@@ -8493,29 +8498,17 @@ const loadLogFileAnomalyCount = async (file: LogFileModel) => {
   try {
     const result = await request<GetLogFileResult>(`/log_file/${logFileId}`)
     if (result.log_file) {
-      let traceFailureEventCount = result.log_file.trace_failure_event_cnt ?? 0
-      const task = getDetailedLogFileTask(file)
-      if (task?.id && task.task_type === 'brpc_log_diagnosis_worker') {
-        const batchResult = await request<{ task_id: string; batch_id: string }>(
-          `/brpc-diagnosis/task/${encodeURIComponent(task.id)}/batch`,
-        )
-        const metadataResult = await request<{ batch: BrpcDiagnosisBatch }>(
-          `/brpc-diagnosis/batch/${encodeURIComponent(batchResult.batch_id)}`,
-        )
-        traceFailureEventCount = metadataResult.batch.hit_count
-      }
       logFileAnomalyCntById.value = {
         ...logFileAnomalyCntById.value,
         [logFileId]: result.log_file.anomaly_cnt,
       }
       logFileTraceFailureEventCntById.value = {
         ...logFileTraceFailureEventCntById.value,
-        [logFileId]: traceFailureEventCount,
+        [logFileId]: result.log_file.trace_failure_event_cnt ?? 0,
       }
       updateLogFileInList({
         ...result.log_file,
         log_file_id: logFileId,
-        trace_failure_event_cnt: traceFailureEventCount,
       })
       loadedAnomalyLogFileIds.value = new Set(loadedAnomalyLogFileIds.value).add(logFileId)
     }
@@ -8826,16 +8819,15 @@ type BrpcLogFileOption = {
 }
 
 const brpcLogFiles = ref<BrpcLogFileOption[]>([])
-const brpcProfilingLogFiles = computed(() =>
-  brpcLogFiles.value.filter((file) => file.taskType === 'brpc_log_parse_worker'),
-)
-const brpcDiagnosisLogFiles = computed(() =>
-  brpcLogFiles.value.filter((file) => file.taskType === 'brpc_log_diagnosis_worker'),
-)
+const brpcProfilingLogFiles = computed(() => brpcLogFiles.value)
+const brpcDiagnosisLogFiles = computed(() => brpcLogFiles.value)
 const brpcSelectedLogId = ref('')
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
 const brpcAllRows = ref<Record<string, any>[]>([])
+const brpcAllFileRows = ref<Record<string, any>[]>([])
+const brpcFileNames = ref<string[]>([])
+const brpcSelectedFileName = ref('')
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -9050,6 +9042,9 @@ const resetAssetScopedMonitorData = () => {
   brpcDataLoading.value = false
   brpcInterfaceNames.value = []
   brpcAllRows.value = []
+  brpcAllFileRows.value = []
+  brpcFileNames.value = []
+  brpcSelectedFileName.value = ''
   brpcSuccessSelectedIfaces.value = []
   brpcLatencySelectedIfaces.value = []
   brpcSingleIface.value = ''
@@ -9997,7 +9992,37 @@ const loadBrpcLogFiles = async () => {
 }
 
 const onBrpcLogChange = async () => {
+  brpcSelectedFileName.value = ''
+  brpcSuccessSelectedIfaces.value = []
+  brpcLatencySelectedIfaces.value = []
+  brpcSingleIface.value = ''
   await loadBrpcMonitorData()
+}
+
+const applyBrpcFileFilter = () => {
+  const file = brpcSelectedFileName.value
+  const rows = file
+    ? brpcAllFileRows.value.filter((r) => (r.source_file ?? '') === file)
+    : brpcAllFileRows.value
+  brpcAllRows.value = rows
+  brpcInterfaceNames.value = [...new Set(rows.map((r) => r.interface_name))]
+    .filter(Boolean)
+    .sort()
+  brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
+  brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
+  const firstInterface = brpcInterfaceNames.value.at(0)
+  if (firstInterface) {
+    brpcSingleIface.value = firstInterface
+  }
+  nextTick(() => {
+    renderBrpcSuccessChart()
+    renderBrpcSingleChart()
+    renderBrpcLatencyChart()
+  })
+}
+
+const onBrpcFileChange = () => {
+  applyBrpcFileFilter()
 }
 
 const loadBrpcMonitorData = async () => {
@@ -10009,6 +10034,7 @@ const loadBrpcMonitorData = async () => {
   try {
     const result = await request<{
       interface_names: string[]
+      file_names: string[]
       rows: Record<string, any>[]
     }>(`/brpc_profiling/${selectedLogId}`)
 
@@ -10020,25 +10046,18 @@ const loadBrpcMonitorData = async () => {
       return
     }
 
-    brpcInterfaceNames.value = result.interface_names ?? []
-    brpcAllRows.value = result.rows ?? []
+    brpcFileNames.value = result.file_names ?? []
+    brpcAllFileRows.value = result.rows ?? []
 
-    // 默认全选接口
-    if (brpcSuccessSelectedIfaces.value.length === 0) {
-      brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
-    }
-    if (brpcLatencySelectedIfaces.value.length === 0) {
-      brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
-    }
-    const firstInterface = brpcInterfaceNames.value.at(0)
-    if (!brpcSingleIface.value && firstInterface) {
-      brpcSingleIface.value = firstInterface
+    // 默认选择第一个源文件
+    if (
+      brpcFileNames.value.length > 0 &&
+      !brpcFileNames.value.includes(brpcSelectedFileName.value)
+    ) {
+      brpcSelectedFileName.value = brpcFileNames.value[0]
     }
 
-    await nextTick()
-    renderBrpcSuccessChart()
-    renderBrpcSingleChart()
-    renderBrpcLatencyChart()
+    applyBrpcFileFilter()
   } catch {
     if (
       requestSequence === brpcProfilingRequestSequence &&
@@ -10047,6 +10066,8 @@ const loadBrpcMonitorData = async () => {
     ) {
       brpcInterfaceNames.value = []
       brpcAllRows.value = []
+      brpcAllFileRows.value = []
+      brpcFileNames.value = []
     }
   } finally {
     if (requestSequence === brpcProfilingRequestSequence) {
@@ -14386,18 +14407,14 @@ onBeforeUnmount(() => {
           </header>
 
           <!-- 日志文件选择器 -->
-          <div class="brpc-log-selector">
+          <div v-if="brpcFileNames.length > 0" class="brpc-log-selector">
             <span class="brpc-log-label">选择日志文件：</span>
-            <select v-model="brpcSelectedLogId" class="brpc-log-select" @change="onBrpcLogChange">
-              <option value="">-- 请选择 BRPC 日志文件 --</option>
-              <option v-for="log in brpcProfilingLogFiles" :key="log.id" :value="log.id">
-                {{ log.name }}
+            <select v-model="brpcSelectedFileName" class="brpc-log-select" @change="onBrpcFileChange">
+              <option v-for="name in brpcFileNames" :key="name" :value="name">
+                {{ name }}
               </option>
             </select>
             <span v-if="brpcDataLoading" class="brpc-loading">加载中...</span>
-            <span class="brpc-log-hint"
-              >（每个 BRPC profiling 文件独立解析，以文件名区分；选择要呈现的解析结果）</span
-            >
           </div>
 
           <!-- 图表1：接口成功率总览 -->

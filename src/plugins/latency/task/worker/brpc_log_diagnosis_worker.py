@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import fnmatch
 import json
 import logging
 import os
@@ -18,7 +17,6 @@ from pydantic import ValidationError
 
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
-from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.task import TaskPGManager
 from latency.schemas.brpc_diagnosis import BrpcDiagBatch
@@ -32,16 +30,11 @@ logger = logging.getLogger(__name__)
 WITTY_INSTALL_PATH_DEFAULT = "/usr/bin"
 WITTY_DIR_DEFAULT = "/var/witty-ub"
 BRPC_DIAG_TIMEOUT_SECONDS_DEFAULT = 3600.0
-BRPC_LOG_FILE_PATTERNS_DEFAULT = ("brpc.log", "brpc.log.*", "*brpc*.log")
 _TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
 class BrpcDiagnosisWorkerError(RuntimeError):
     """Raised when the worker cannot produce an importable diagnosis result."""
-
-
-class BrpcLogSelectionError(BrpcDiagnosisWorkerError):
-    """Raised when filename patterns do not select exactly one BRPC log."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,83 +98,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
     async def delete(task_id: str) -> str:
         await BrpcLogDiagnosisWorker.stop(task_id)
         return task_id
-
-    @staticmethod
-    def select_brpc_log(
-        source_path: str | Path,
-        patterns: list[str] | tuple[str, ...],
-    ) -> Path:
-        candidates = BrpcLogDiagnosisWorker.find_brpc_logs(source_path, patterns)
-
-        if not candidates:
-            raise BrpcLogSelectionError(
-                f"未找到 BRPC 日志: source={Path(source_path)}, patterns={list(patterns)}"
-            )
-        if len(candidates) > 1:
-            candidate_list = ", ".join(str(path) for path in candidates)
-            raise BrpcLogSelectionError(
-                f"匹配到多个 BRPC 日志，请明确选择一个文件: {candidate_list}"
-            )
-        return candidates[0]
-
-    @staticmethod
-    def find_brpc_logs(
-        source_path: str | Path,
-        patterns: list[str] | tuple[str, ...],
-    ) -> list[Path]:
-        """Return every diagnosis log selected by the configured patterns."""
-        source = Path(source_path)
-        candidates: list[Path] = []
-        if source.is_file():
-            root = source.parent
-            # BRPC profiling directories are represented as one LogFile per
-            # ubsocket_profiling*.txt.  The diagnosis input is a sibling log,
-            # so fall back to scanning that directory when the asset file
-            # itself does not match a configured diagnosis-log pattern.
-            source_matches = any(
-                fnmatch.fnmatch(source.name, pattern) for pattern in patterns
-            )
-            files = (
-                [source]
-                if source_matches
-                else sorted(path for path in root.rglob("*") if path.is_file())
-            )
-        elif source.is_dir():
-            files = sorted(path for path in source.rglob("*") if path.is_file())
-            root = source
-        else:
-            files = []
-            root = source.parent
-
-        for path in files:
-            relative_path = path.relative_to(root).as_posix()
-            if any(
-                fnmatch.fnmatch(path.name, pattern)
-                or fnmatch.fnmatch(relative_path, pattern)
-                for pattern in patterns
-            ):
-                candidates.append(path)
-        return candidates
-
-    @staticmethod
-    async def _load_brpc_patterns(kb_id: str | None) -> list[str]:
-        try:
-            if kb_id:
-                runtime_config = await DiagnosisConfigPGManager.get_or_create(kb_id)
-                patterns = runtime_config.log_filename_pattern.brpc_log_file_patterns
-            else:
-                patterns = (
-                    Config()
-                    .get_config()
-                    .log_filename_pattern.brpc_log_file_patterns
-                )
-        except Exception as exc:
-            logger.warning(
-                "BRPC filename pattern config unavailable, using defaults: %s",
-                exc,
-            )
-            patterns = list(BRPC_LOG_FILE_PATTERNS_DEFAULT)
-        return list(patterns or BRPC_LOG_FILE_PATTERNS_DEFAULT)
 
     @staticmethod
     def _validate_start_time(start_time: str) -> str:
@@ -491,9 +407,9 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                     f"BRPC diagnosis LogFile does not exist: {task.op_id}"
                 )
             selected_log = Path(log_file.file_path)
-            if not selected_log.is_file():
+            if not selected_log.exists():
                 raise BrpcDiagnosisWorkerError(
-                    f"BRPC diagnosis log file not found: {selected_log}"
+                    f"BRPC diagnosis log path not found: {selected_log}"
                 )
             if start_time is None:
                 start_time = BrpcLogDiagnosisWorker._resolve_start_time(task_id)
@@ -504,7 +420,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 start_time,
                 task_id,
             )
-            await BaseWorker.report(task_id, f"已选择 BRPC 日志: {selected_log}", 15.0)
+            await BaseWorker.report(task_id, f"BRPC 诊断数据源: {selected_log}", 15.0)
 
             BrpcLogDiagnosisWorker._execute_tool(task_id, command)
             await BaseWorker.report(task_id, "BRPC 诊断工具运行完成", 60.0)

@@ -108,6 +108,10 @@ RackResult DiagnosisModule::Initialize()
     if (!ParseBrpcLogArgument(arguments, brpcLogPath)) {
         return RACK_FAIL;
     }
+    if (!std::filesystem::exists(brpcLogPath)) {
+        LOG_ERROR << "brpc-log path does not exist: " << brpcLogPath.string();
+        return RACK_FAIL;
+    }
     if (!ParseTaskIdArgument(arguments, taskId_)) {
         return RACK_FAIL;
     }

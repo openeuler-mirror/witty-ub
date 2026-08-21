@@ -424,6 +424,7 @@ class BrpcProfilingResult(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     log_id: Mapped[str] = mapped_column(String, index=True)
+    source_file: Mapped[Optional[str]] = mapped_column(String)
     timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     interface_name: Mapped[str] = mapped_column(String)
     success_count: Mapped[int] = mapped_column(Integer, default=0)
