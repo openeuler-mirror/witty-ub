@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -40,6 +41,7 @@ class BrpcProfilingRecord:
     """BRPC profiling 单条记录"""
     timestamp: datetime
     interface_name: str
+    source_file: str = ""
     success_count: int = 0
     failure_count: int = 0
     total_ns: int = 0
@@ -73,6 +75,7 @@ class BrpcProfilingParser:
         """
         self._records = []
         current_timestamp: Optional[datetime] = None
+        source_file = os.path.basename(file_path)
 
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -109,6 +112,7 @@ class BrpcProfilingParser:
                 values_str = iface_match.group(2).strip()
                 record = self._parse_interface_row(current_timestamp, interface_name, values_str)
                 if record:
+                    record.source_file = source_file
                     self._records.append(record)
 
         logger.info(f"BRPC profiling 解析完成: {len(self._records)} 条记录, "
