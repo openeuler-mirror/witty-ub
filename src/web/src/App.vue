@@ -5893,8 +5893,8 @@ const loadFaultAggregatedEventDetailTraceEvents = async (
   try {
     const requestBody: Record<string, unknown> = {
       kb_id: assetId,
-      src_ip: detail.podRow.srcIp,
-      dst_ip: detail.podRow.dstIp,
+      src_ip: detail.podRow.srcIp === '-' ? '' : detail.podRow.srcIp,
+      dst_ip: detail.podRow.dstIp === '-' ? '' : detail.podRow.dstIp,
       is_anomalous: true,
       start_time: detail.eventRow.startTime,
       end_time: detail.eventRow.endTime,
@@ -6003,8 +6003,8 @@ const loadFaultAggregatedEventDetailChart = async (detail: FaultAggregatedEventD
       body: JSON.stringify({
         kb_id: assetId,
         err_codes: errCodes,
-        src_ip: detail.podRow.srcIp,
-        dst_ip: detail.podRow.dstIp,
+        src_ip: detail.podRow.srcIp === '-' ? '' : detail.podRow.srcIp,
+        dst_ip: detail.podRow.dstIp === '-' ? '' : detail.podRow.dstIp,
         start_time: detail.eventRow.startTime,
         end_time: detail.eventRow.endTime,
         max_points: 1000,
