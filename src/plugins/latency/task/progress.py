@@ -88,8 +88,15 @@ def _task_progress(task, *, include_preprocess: bool = True) -> float:
             "初始化 BRPC",
             "重新初始化 BRPC",
             "开始 BRPC",
-            "已选择 BRPC",
             "BRPC 诊断",
+        },
+        TaskTypeEnum.BRPC_LOG_PARSE_WORKER: {
+            "BRPC task",
+            "BRPC parse",
+            "BRPC profiling",
+            "BRPC 解析",
+            "开始 BRPC",
+            "解析失败",
         },
     }.get(task.task_type)
 

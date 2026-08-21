@@ -3,6 +3,7 @@ import os
 import aiofiles
 import aiohttp
 import logging
+import re
 import shutil
 from pathlib import Path
 from fastapi import UploadFile
@@ -16,6 +17,7 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.anomalous_event import AnomalousEventPGManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
 from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
+from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventPGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.log import LogFileModel
@@ -53,6 +55,18 @@ from latency.exceptions import (
 
 logger = logging.getLogger(__name__)
 witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
+
+_PROFILING_TIMESTAMP_RE = re.compile(r"^timeStamp:\s*\S")
+
+
+def _is_profiling_log(file_path: str | Path) -> bool:
+    """Read the first line and check if it matches the profiling timestamp format."""
+    try:
+        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            first_line = f.readline().strip()
+    except (IOError, OSError):
+        return False
+    return bool(_PROFILING_TIMESTAMP_RE.match(first_line))
 
 
 class LogFileService:
@@ -108,6 +122,32 @@ class LogFileService:
             }:
                 return task
         return diagnosis_task or parse_task
+
+    @staticmethod
+    async def _populate_brpc_counts(log_file_model, parse_task, diagnosis_task) -> None:
+        """Populate profiling count and diagnosis hit count for a BRPC log file."""
+        success_statuses = {
+            TaskStatusEnum.SUCCESSFUL,
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE,
+        }
+        if parse_task and parse_task.status in success_statuses:
+            try:
+                profiling_cnt = await BrpcProfilingResultPGManager.count_files_by_log_id(
+                    log_file_model.id
+                )
+                log_file_model.anomaly_cnt = profiling_cnt
+            except Exception as exc:
+                logger.warning("failed to count BRPC profiling results: %s", exc)
+        if diagnosis_task and diagnosis_task.status in success_statuses:
+            try:
+                async with PGManager.session() as session:
+                    batch = await BrpcDiagnosisPGManager.get_batch_by_task_id(
+                        session, diagnosis_task.id
+                    )
+                    if batch:
+                        log_file_model.trace_failure_event_cnt = batch.hit_count
+            except Exception as exc:
+                logger.warning("failed to get BRPC diagnosis hit count: %s", exc)
 
     @staticmethod
     async def _delete_brpc_diagnosis_results(tasks) -> None:
@@ -273,65 +313,35 @@ class LogFileService:
                                 f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
                             )
             if log_type == "brpc":
-                source_path = log_file_model.file_path
-                source = Path(source_path)
-                source_files = (
-                    sorted(path for path in source.rglob("*") if path.is_file())
-                    if source.is_dir()
-                    else [source]
+                log_file_models.append(log_file_model)
+                log_file_task_types[log_file_model.id] = (
+                    TaskTypeEnum.BRPC_LOG_PARSE_WORKER
                 )
-                profiling_files = [
-                    path
-                    for path in source_files
-                    if "ubsocket_profiling" in path.name.lower()
-                    and path.name.endswith(".txt")
-                ]
-                patterns = await BrpcLogDiagnosisWorker._load_brpc_patterns(kb_id)
-                diagnosis_files = BrpcLogDiagnosisWorker.find_brpc_logs(
-                    source_path,
-                    patterns,
-                )
-
-                for path, task_type in [
-                    *(
-                        (path, TaskTypeEnum.BRPC_LOG_PARSE_WORKER)
-                        for path in profiling_files
-                    ),
-                    *(
-                        (path, TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER)
-                        for path in diagnosis_files
-                    ),
-                ]:
-                    matched_model = LogFileModel(
-                        kb_id=kb_id,
-                        name=path.name,
-                        log_type=log_type,
-                        file_path=str(path),
-                        file_size=path.stat().st_size,
-                    )
-                    log_file_models.append(matched_model)
-                    log_file_task_types[matched_model.id] = task_type
-
-                if profiling_files or diagnosis_files:
-                    continue
+                continue
 
             log_file_models.append(log_file_model)
             log_file_task_types[log_file_model.id] = (
-                TaskTypeEnum.BRPC_LOG_PARSE_WORKER
-                if log_type == "brpc"
-                else TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
+                TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
             )
         log_file_ids = await LogFilePGManager.add_log_files(log_file_models)
 
         for log_file_id in log_file_ids:
             task_type = log_file_task_types[log_file_id]
 
-            if task_type in {
-                TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
-                TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
-            }:
+            if task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER:
                 await TaskHandler.init_task(
-                    task_type=task_type,
+                    task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+                    op_id=log_file_id,
+                    parse_config=req.parse_config,
+                )
+                await TaskHandler.init_task(
+                    task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+                    op_id=log_file_id,
+                    parse_config=req.parse_config,
+                )
+            elif task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
+                await TaskHandler.init_task(
+                    task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
                     op_id=log_file_id,
                     parse_config=req.parse_config,
                 )
@@ -341,8 +351,8 @@ class LogFileService:
                     op_id=log_file_id,
                     parse_config=req.parse_config,
                 )
-                await TaskHandler.init_task(  
-                    task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,  
+                await TaskHandler.init_task(
+                    task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
                     op_id=log_file_id,
                     parse_config=req.parse_config
                 )
@@ -387,7 +397,6 @@ class LogFileService:
         await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_file_id)
         await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_file_id)
         await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_file_id)
-        from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
         await BrpcProfilingResultPGManager.delete_by_log_id(log_file_id)
         
         # 删除任务报告和任务
@@ -610,7 +619,13 @@ class LogFileService:
                 store_task.task_reports = type_task_report_dict.get(store_task.id, [])
 
             if log_file_model.log_type == "brpc":
-                log_file_model.overall_progress = task_progress(visible_task)
+                log_file_model.overall_progress = parallel_overall_progress(
+                    brpc_parse_task,
+                    diagnosis_task,
+                )
+                await LogFileService._populate_brpc_counts(
+                    log_file_model, brpc_parse_task, diagnosis_task
+                )
             else:
                 log_file_model.overall_progress = parallel_overall_progress(
                     parse_task,
@@ -689,7 +704,13 @@ class LogFileService:
             if store_task:
                 store_task.task_reports = store_reports
             if log_type == "brpc":
-                log_file_model.overall_progress = task_progress(task_model)
+                log_file_model.overall_progress = parallel_overall_progress(
+                    parse_task,
+                    diagnosis_task,
+                )
+                await LogFileService._populate_brpc_counts(
+                    log_file_model, parse_task, diagnosis_task
+                )
             else:
                 log_file_model.overall_progress = parallel_overall_progress(
                     parse_task,

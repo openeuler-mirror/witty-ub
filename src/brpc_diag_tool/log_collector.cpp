@@ -13,12 +13,14 @@
 #define MODULE_NAME "BRPC_DIAG"
 
 #include "log_collector.h"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <fstream>
 #include <limits>
 #include <string_view>
 #include <utility>
+#include <vector>
 #include "logger.h"
 #include "time_utils.h"
 
@@ -234,12 +236,27 @@ bool LogCollector::ParseBrpcLogFields(BrpcLog &logEntry)
 }
 
 // 流式读取 BRPC 日志并按时间范围交给调用方处理。
+// brpcLogPath_ 可以是单个日志文件，也可以是包含多个日志文件的目录。
 bool LogCollector::ForEachBrpcLog(std::int64_t startTimestamp, std::int64_t endTimestamp,
                                   const BrpcLogConsumer &consumer) const
 {
-    std::ifstream file(brpcLogPath_);
-    if (!file.is_open()) {
-        LOG_ERROR << "failed to open log file: " << brpcLogPath_.string();
+    std::vector<std::filesystem::path> filePaths;
+    if (std::filesystem::is_directory(brpcLogPath_)) {
+        for (const auto &entry : std::filesystem::recursive_directory_iterator(brpcLogPath_)) {
+            if (entry.is_regular_file()) {
+                filePaths.push_back(entry.path());
+            }
+        }
+        std::sort(filePaths.begin(), filePaths.end());
+    } else if (std::filesystem::is_regular_file(brpcLogPath_)) {
+        filePaths.push_back(brpcLogPath_);
+    } else {
+        LOG_ERROR << "brpc log path is neither a file nor a directory: " << brpcLogPath_.string();
+        return false;
+    }
+
+    if (filePaths.empty()) {
+        LOG_ERROR << "no files found in brpc log path: " << brpcLogPath_.string();
         return false;
     }
 
@@ -247,36 +264,58 @@ bool LogCollector::ForEachBrpcLog(std::int64_t startTimestamp, std::int64_t endT
         LOG_INFO << "brpc log timestamp range is empty: [" << startTimestamp << ", " << endTimestamp << "]";
         return true;
     }
-    std::size_t logCount = 0;
-    std::size_t invalidTimestampCount = 0;
-    std::size_t invalidFormatCount = 0;
-    std::string line;
-    while (std::getline(file, line)) {
-        std::int64_t logTimestamp = 0;
-        if (!ExtractLogTimestamp(line, logTimestamp)) {
-            ++invalidTimestampCount;
-            continue;
+
+    std::size_t totalLogCount = 0;
+    std::size_t totalInvalidTimestampCount = 0;
+    std::size_t totalInvalidFormatCount = 0;
+    for (const auto &filePath : filePaths) {
+        std::ifstream file(filePath);
+        if (!file.is_open()) {
+            LOG_ERROR << "failed to open log file: " << filePath.string();
+            return false;
         }
-        if (logTimestamp < startTimestamp || logTimestamp >= endTimestamp) {
-            continue;
+
+        std::size_t logCount = 0;
+        std::size_t invalidTimestampCount = 0;
+        std::size_t invalidFormatCount = 0;
+        std::string line;
+        while (std::getline(file, line)) {
+            std::int64_t logTimestamp = 0;
+            if (!ExtractLogTimestamp(line, logTimestamp)) {
+                ++invalidTimestampCount;
+                continue;
+            }
+            if (logTimestamp < startTimestamp || logTimestamp >= endTimestamp) {
+                continue;
+            }
+            BrpcLog logEntry;
+            logEntry.text = std::move(line);
+            logEntry.timestamp = logTimestamp;
+            if (!ParseBrpcLogFields(logEntry)) {
+                ++invalidFormatCount;
+            }
+            consumer(std::move(logEntry));
+            ++logCount;
         }
-        BrpcLog logEntry;
-        logEntry.text = std::move(line);
-        logEntry.timestamp = logTimestamp;
-        if (!ParseBrpcLogFields(logEntry)) {
-            ++invalidFormatCount;
+        if (file.bad()) {
+            LOG_ERROR << "failed while reading log file: " << filePath.string();
+            return false;
         }
-        consumer(std::move(logEntry));
-        ++logCount;
-    }
-    if (file.bad()) {
-        LOG_ERROR << "failed while reading log file: " << brpcLogPath_.string();
-        return false;
+
+        totalLogCount += logCount;
+        totalInvalidTimestampCount += invalidTimestampCount;
+        totalInvalidFormatCount += invalidFormatCount;
+
+        LOG_INFO << "processed " << logCount << " brpc log entries from " << filePath.string()
+                 << " in timestamp range [" << startTimestamp << ", " << endTimestamp
+                 << "], skipped " << invalidTimestampCount << " entries with invalid timestamp, retained "
+                 << invalidFormatCount << " entries with invalid format as raw text";
     }
 
-    LOG_INFO << "processed " << logCount << " brpc log entries in timestamp range [" << startTimestamp << ", "
-             << endTimestamp << "], skipped " << invalidTimestampCount << " entries with invalid timestamp, retained "
-             << invalidFormatCount << " entries with invalid format as raw text";
+    LOG_INFO << "processed total " << totalLogCount << " brpc log entries from " << filePaths.size()
+             << " files in timestamp range [" << startTimestamp << ", " << endTimestamp
+             << "], skipped " << totalInvalidTimestampCount << " entries with invalid timestamp, retained "
+             << totalInvalidFormatCount << " entries with invalid format as raw text";
     return true;
 }
 

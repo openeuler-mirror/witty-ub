@@ -27,7 +27,6 @@ from latency.task.worker.base import BaseWorker
 from latency.task.worker.brpc_log_diagnosis_worker import (
     BrpcDiagnosisWorkerError,
     BrpcLogDiagnosisWorker,
-    BrpcLogSelectionError,
 )
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import (
     KVCacheLogEventDiagnosisWorker,
@@ -126,9 +125,6 @@ def _configure_run_dependencies(monkeypatch, log_path):
         reports.append((message, progress))
         return True
 
-    async def load_patterns(_kb_id):
-        return ["brpc.log"]
-
     monkeypatch.setattr(worker_module.TaskPGManager, "get_task_by_task_id", get_task)
     monkeypatch.setattr(worker_module.TaskPGManager, "update_task", update_task)
     monkeypatch.setattr(
@@ -142,11 +138,6 @@ def _configure_run_dependencies(monkeypatch, log_path):
         update_log_file,
     )
     monkeypatch.setattr(worker_module.BaseWorker, "report", report)
-    monkeypatch.setattr(
-        BrpcLogDiagnosisWorker,
-        "_load_brpc_patterns",
-        load_patterns,
-    )
     monkeypatch.setattr(
         BrpcLogDiagnosisWorker,
         "_resolve_start_time",
@@ -230,11 +221,11 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
     ]
 
 
-def test_upload_brpc_path_creates_separate_parse_and_diagnosis_entries(monkeypatch, tmp_path):
+def test_upload_brpc_creates_one_model_and_two_tasks(monkeypatch, tmp_path):
+    log1 = tmp_path / "brpc.log"
+    log1.write_text("brpc log content 1", encoding="utf-8")
     profiling = tmp_path / "ubsocket_profiling.txt"
-    profiling.write_text("profiling", encoding="utf-8")
-    diagnosis = tmp_path / "brpc.log"
-    diagnosis.write_text("diagnosis", encoding="utf-8")
+    profiling.write_text("timeStamp: 2026-08-13 10:00:00\ninterface stats\n", encoding="utf-8")
     added_models = []
 
     async def add_log_files(models):
@@ -265,18 +256,64 @@ def test_upload_brpc_path_creates_separate_parse_and_diagnosis_entries(monkeypat
         )
     )
 
-    assert result.log_file_ids == [model.id for model in added_models]
-    assert [model.file_path for model in added_models] == [
-        str(profiling),
-        str(diagnosis),
-    ]
+    assert len(added_models) == 1
+    assert added_models[0].file_path == str(tmp_path)
+    assert result.log_file_ids == [added_models[0].id]
     assert [call.kwargs["task_type"] for call in init_task.await_args_list] == [
         TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
         TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
     ]
 
 
-def test_get_brpc_log_file_returns_its_own_worker_progress(monkeypatch):
+def test_upload_brpc_directory_creates_two_tasks(monkeypatch, tmp_path):
+    log1 = tmp_path / "brpc.log"
+    log1.write_text("brpc log content 1", encoding="utf-8")
+    log2 = tmp_path / "brpc.log.1"
+    log2.write_text("brpc log content 2", encoding="utf-8")
+    other = tmp_path / "subdir" / "other.log"
+    other.parent.mkdir()
+    other.write_text("other log content", encoding="utf-8")
+    added_models = []
+
+    async def add_log_files(models):
+        added_models.extend(models)
+        return [model.id for model in models]
+
+    init_task = AsyncMock(side_effect=["parse-task", "diagnosis-task"])
+    monkeypatch.setattr(
+        log_file_service_module.LogFilePGManager,
+        "add_log_files",
+        add_log_files,
+    )
+    monkeypatch.setattr(log_file_service_module.TaskHandler, "init_task", init_task)
+
+    result = _run(
+        LogFileService.upload_log_files(
+            "kb-id",
+            UpLoadLogFilesRequest(
+                upload_log_file_configs=[
+                    UpLoadLogFileConfig(
+                        name=tmp_path.name,
+                        source_type=SourceType.LOCAL,
+                        source=str(tmp_path),
+                        log_type="brpc",
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert len(added_models) == 1
+    assert added_models[0].file_path == str(tmp_path)
+    assert added_models[0].file_size == log1.stat().st_size + log2.stat().st_size + other.stat().st_size
+    assert init_task.await_count == 2
+    assert [call.kwargs["task_type"] for call in init_task.await_args_list] == [
+        TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+        TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+    ]
+
+
+def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
     log_file = LogFileModel(
         id="log-file-id",
         kb_id="kb-id",
@@ -304,6 +341,7 @@ def test_get_brpc_log_file_returns_its_own_worker_progress(monkeypatch):
         get_current_calls.append(task_type)
         return {
             TaskTypeEnum.BRPC_LOG_PARSE_WORKER: parse_task,
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER: diagnosis_task,
         }.get(task_type)
 
     async def list_reports(task_ids):
@@ -340,6 +378,11 @@ def test_get_brpc_log_file_returns_its_own_worker_progress(monkeypatch):
         "list_task_reports_by_task_ids",
         list_reports,
     )
+    monkeypatch.setattr(
+        log_file_service_module.LogFileService,
+        "_populate_brpc_counts",
+        AsyncMock(),
+    )
 
     result = _run(LogFileService.get_log_file_by_log_file_id(log_file.id))
 
@@ -347,10 +390,10 @@ def test_get_brpc_log_file_returns_its_own_worker_progress(monkeypatch):
         TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
         TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
     ]
-    assert result.log_file.overall_progress == 80.0
+    assert result.log_file.overall_progress == 60.0
 
 
-def test_list_brpc_log_files_returns_its_own_worker_progress(monkeypatch):
+def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
     log_file = LogFileModel(
         id="log-file-id",
         kb_id="kb-id",
@@ -377,6 +420,7 @@ def test_list_brpc_log_files_returns_its_own_worker_progress(monkeypatch):
     async def list_current(_op_ids, task_type=None):
         queried_task_types.append(task_type)
         return {
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER: [parse_task],
             TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER: [diagnosis_task],
         }.get(task_type, [])
 
@@ -415,13 +459,113 @@ def test_list_brpc_log_files_returns_its_own_worker_progress(monkeypatch):
         "list_task_reports_by_task_ids",
         list_reports,
     )
+    monkeypatch.setattr(
+        log_file_service_module.LogFileService,
+        "_populate_brpc_counts",
+        AsyncMock(),
+    )
 
     result = _run(
         LogFileService.list_log_files("kb-id", ListLogFilesRequest())
     )
 
+    assert TaskTypeEnum.BRPC_LOG_PARSE_WORKER in queried_task_types
     assert TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER in queried_task_types
-    assert result.log_files[0].overall_progress == 40.0
+    assert result.log_files[0].overall_progress == 60.0
+
+
+def test_populate_brpc_counts_sets_profiling_and_diagnosis_counts(monkeypatch):
+    log_file = LogFileModel(
+        id="log-file-id",
+        kb_id="kb-id",
+        name="brpc-logs",
+        log_type="brpc",
+        file_path="/logs",
+    )
+    parse_task = SimpleNamespace(
+        id="parse-task",
+        status=TaskStatusEnum.SUCCESSFUL,
+    )
+    diagnosis_task = SimpleNamespace(
+        id="diagnosis-task",
+        status=TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE,
+    )
+    batch = SimpleNamespace(hit_count=42)
+
+    monkeypatch.setattr(
+        log_file_service_module.BrpcProfilingResultPGManager,
+        "count_files_by_log_id",
+        AsyncMock(return_value=3),
+    )
+
+    @asynccontextmanager
+    async def open_session():
+        yield object()
+
+    monkeypatch.setattr(
+        log_file_service_module.PGManager,
+        "session",
+        staticmethod(open_session),
+    )
+    monkeypatch.setattr(
+        log_file_service_module.BrpcDiagnosisPGManager,
+        "get_batch_by_task_id",
+        AsyncMock(return_value=batch),
+    )
+
+    _run(LogFileService._populate_brpc_counts(log_file, parse_task, diagnosis_task))
+
+    assert log_file.anomaly_cnt == 3
+    assert log_file.trace_failure_event_cnt == 42
+
+
+def test_populate_brpc_counts_skips_unsuccessful_tasks(monkeypatch):
+    log_file = LogFileModel(
+        id="log-file-id",
+        kb_id="kb-id",
+        name="brpc-logs",
+        log_type="brpc",
+        file_path="/logs",
+    )
+    parse_task = SimpleNamespace(
+        id="parse-task",
+        status=TaskStatusEnum.RUNNING,
+    )
+    diagnosis_task = SimpleNamespace(
+        id="diagnosis-task",
+        status=TaskStatusEnum.FAILED,
+    )
+
+    _run(LogFileService._populate_brpc_counts(log_file, parse_task, diagnosis_task))
+
+    assert log_file.anomaly_cnt == 0
+    assert log_file.trace_failure_event_cnt is None
+
+
+@pytest.mark.parametrize(
+    "parse_status,diag_status,expected_task",
+    [
+        (TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING, "parse"),
+        (TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING, "diag"),
+        (TaskStatusEnum.SUCCESSFUL, TaskStatusEnum.RUNNING, "diag"),
+        (TaskStatusEnum.SUCCESSFUL, TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, "diag"),
+        (TaskStatusEnum.FAILED, TaskStatusEnum.SUCCESSFUL, "diag"),
+        (TaskStatusEnum.FAILED_PENDING_REMOVE, TaskStatusEnum.FAILED, "parse"),
+    ],
+)
+def test_select_brpc_visible_task_priority(parse_status, diag_status, expected_task):
+    parse_task = SimpleNamespace(
+        id="parse-task",
+        status=parse_status,
+        task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+    )
+    diagnosis_task = SimpleNamespace(
+        id="diag-task",
+        status=diag_status,
+        task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+    )
+    selected = LogFileService._select_brpc_visible_task(parse_task, diagnosis_task)
+    assert selected.id == ("parse-task" if expected_task == "parse" else "diag-task")
 
 
 def test_brpc_worker_is_registered_and_progress_is_recognized():
@@ -548,38 +692,6 @@ def test_delete_brpc_results_deletes_only_brpc_batches(monkeypatch):
     _run(LogFileService._delete_brpc_diagnosis_results(tasks))
 
     delete_batch.assert_awaited_once_with(session, "brpc-task")
-
-
-def test_select_brpc_log_requires_exactly_one_match(tmp_path):
-    with pytest.raises(BrpcLogSelectionError, match="未找到 BRPC 日志"):
-        BrpcLogDiagnosisWorker.select_brpc_log(tmp_path, ["brpc.log"])
-
-    selected = tmp_path / "nested" / "brpc.log"
-    selected.parent.mkdir()
-    selected.write_text("one", encoding="utf-8")
-    assert BrpcLogDiagnosisWorker.select_brpc_log(
-        tmp_path,
-        ["brpc.log"],
-    ) == selected
-
-    second = tmp_path / "brpc.log.1"
-    second.write_text("two", encoding="utf-8")
-    with pytest.raises(BrpcLogSelectionError, match="匹配到多个") as exc_info:
-        BrpcLogDiagnosisWorker.select_brpc_log(tmp_path, ["brpc.log*"])
-    assert str(selected) in str(exc_info.value)
-    assert str(second) in str(exc_info.value)
-
-
-def test_select_brpc_log_uses_profiling_file_sibling_directory(tmp_path):
-    profiling = tmp_path / "ubsocket_profiling_20260813.txt"
-    profiling.write_text("profiling", encoding="utf-8")
-    diagnosis_log = tmp_path / "brpc.log"
-    diagnosis_log.write_text("diagnosis", encoding="utf-8")
-
-    assert BrpcLogDiagnosisWorker.select_brpc_log(
-        profiling,
-        ["brpc.log"],
-    ) == diagnosis_log
 
 
 def test_build_command_uses_documented_arguments(monkeypatch, tmp_path):
@@ -726,7 +838,7 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
     assert commands[0][1] == [
         "/opt/witty/bin/witty-ub-brpc-diag",
         "--brpc-log",
-        str(log_path),
+        str(log_path.parent),
         "--time",
         "2026-08-11 10:20:30",
         "--task-id",

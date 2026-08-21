@@ -1,8 +1,8 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
 """BRPC profiling 数据查询路由。"""
 
-from fastapi import APIRouter, Path
-from typing import Annotated
+from fastapi import APIRouter, Path, Query
+from typing import Annotated, Optional
 
 from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.schemas.response import BrpcProfilingDataResponse, BrpcProfilingDataMsg
@@ -14,29 +14,31 @@ router = APIRouter(prefix="/brpc_profiling", tags=["brpc_profiling"])
 @router.get("/{log_id}", response_model=BrpcProfilingDataResponse)
 async def get_brpc_profiling_data(
     log_id: Annotated[str, Path(description="日志文件 ID")],
+    source_file: Annotated[Optional[str], Query(description="按源文件名过滤")] = None,
 ) -> BrpcProfilingDataResponse:
     """获取指定日志文件的 BRPC profiling 时序数据。
 
     返回按 timestamp 排序的完整数据，前端自行按接口名分组。
+    可通过 source_file 参数过滤特定源文件的数据。
     """
-    timestamps = await BrpcProfilingResultPGManager.get_timestamps_by_log_id(log_id)
-    if not timestamps:
+    file_names = await BrpcProfilingResultPGManager.get_file_names_by_log_id(log_id)
+
+    all_records = await BrpcProfilingResultPGManager.get_all_by_log_id(
+        log_id, source_file=source_file
+    )
+    if not all_records:
         raise NotFoundBizException(resource="BRPC profiling 数据")
 
-    # 一次性获取所有记录
-    all_records = await BrpcProfilingResultPGManager.get_all_by_log_id(log_id)
-
-    # 提取接口名列表（去重排序）
     interface_names = sorted(
         {r.interface_name for r in all_records}
     )
 
-    # 构建数据行
     rows = []
     for record in all_records:
         rows.append({
             "timestamp": record.timestamp.isoformat() if record.timestamp else None,
             "interface_name": record.interface_name,
+            "source_file": record.source_file,
             "success_count": record.success_count,
             "failure_count": record.failure_count,
             "total_ns": record.total_ns,
@@ -53,6 +55,7 @@ async def get_brpc_profiling_data(
     return BrpcProfilingDataResponse(
         result=BrpcProfilingDataMsg(
             interface_names=interface_names,
+            file_names=file_names,
             rows=rows,
         ),
     )

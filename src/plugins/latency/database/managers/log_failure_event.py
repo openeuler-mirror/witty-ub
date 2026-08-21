@@ -886,8 +886,6 @@ class LogFailureEventPGManager:
                 .where(TraceFailureEvent.failure_mode != "")
                 .where(TraceFailureEvent.status_code.is_not(None))
                 .where(TraceFailureEvent.status_code != "")
-                .where(TraceFailureEvent.src_ip.is_not(None))
-                .where(TraceFailureEvent.dst_ip.is_not(None))
             )
             if log_ids:
                 stmt = stmt.where(TraceFailureEvent.log_id.in_(log_ids))
@@ -1039,8 +1037,6 @@ class LogFailureEventPGManager:
                     TraceFailureEvent.status_code,
                     func.count().label("cnt"),
                 )
-                .where(TraceFailureEvent.src_ip.is_not(None))
-                .where(TraceFailureEvent.dst_ip.is_not(None))
                 .where(TraceFailureEvent.pod_names.is_not(None))
                 .where(TraceFailureEvent.failure_mode.is_not(None))
                 .where(TraceFailureEvent.failure_mode != "")
@@ -1169,10 +1165,6 @@ class LogFailureEventPGManager:
                     TraceFailureEvent.status_code,
                     func.count().label("cnt"),
                 )
-                .where(TraceFailureEvent.src_ip.is_not(None))
-                .where(TraceFailureEvent.src_ip.is_not(None))
-                .where(TraceFailureEvent.dst_ip.is_not(None))
-                .where(TraceFailureEvent.dst_ip.is_not(None))
                 .where(TraceFailureEvent.failure_mode.is_not(None))
                 .where(TraceFailureEvent.failure_mode != "")
                 .where(TraceFailureEvent.status_code.is_not(None))
