@@ -1,0 +1,12 @@
+- testcase1:
+    question: 如何确认 Client 与 Worker 之间已建立共享内存通道？
+    answer: 查找日志 "Client and worker support transfer data through shared memory and the fd send over ..."；同时检查 Worker 日志中 "Register client: ..., shmEnabled: ..." 是否为 true。
+- testcase2:
+    question: 共享内存 fd 传递失败会导致 Client 注册失败吗？
+    answer: 通常不会导致注册失败，但会关闭零拷贝通道，数据回退到 RPC 传输，影响性能。
+- testcase3:
+    question: 跨节点 Client 访问 Worker 时会使用共享内存吗？
+    answer: 通常不会，跨节点场景下共享内存不可用，数据会通过 RPC 或 URMA/RDMA 传输。
+- testcase4:
+    question: 共享内存使用率升高时如何排查性能影响？
+    answer: 查看 resource.log 中的 shm_info 和 Cache_Hit_Info；如果 missNum 增加且 shm_info 使用率接近上限，可能需要扩容或调整淘汰策略。

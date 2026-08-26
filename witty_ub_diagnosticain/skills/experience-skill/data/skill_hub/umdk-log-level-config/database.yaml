@@ -1,0 +1,9 @@
+- testcase1:
+    question: 如何把 URMA 日志级别设置为 debug？
+    answer: 在进程启动前执行 export URMA_LOG_LEVEL=debug，或调用 urma_log_set_level(URMA_VLOG_LEVEL_DEBUG)。
+- testcase2:
+    question: 生产环境建议使用什么日志级别？
+    answer: 生产环境建议使用默认的 info 或 warning，仅在排障时临时开启 debug。
+- testcase3:
+    question: 设置了 URMA_LOG_LEVEL=debug 但看不到 debug 日志怎么办？
+    answer: 检查环境变量是否传递到进程、检查 rsyslog 是否过滤了日志、检查应用是否注册了自定义日志回调接管了输出。

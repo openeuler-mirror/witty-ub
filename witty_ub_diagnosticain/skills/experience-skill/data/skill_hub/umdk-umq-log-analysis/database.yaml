@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 UMQ_ERR_EFLOWCTL 应该怎么排查？
+    answer: 检查发送端是否被流控阻塞，结合 UMQ 统计查看发送和接收速率，检查接收端消费速度和窗口配置。
+- testcase2:
+    question: UMQ 日志中 UMQ_BUF_RNR_RETRY_CNT_EXC_ERR 表示什么？
+    answer: 表示远端接收端没有足够缓冲，RNR 重试次数超限，应检查接收端 QBuf 分配和 dequeue 速度。
+- testcase3:
+    question: 分析 UMQ 日志为什么要结合统计指标？
+    answer: 日志提供具体错误和调用点，统计提供全局趋势和量化指标，两者结合可以更快定位问题根因和范围。

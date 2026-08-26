@@ -1,0 +1,12 @@
+- testcase1:
+    question: Hash ring 版本在哪里查看？
+    answer: 查找日志 "Update ring of version ..."，version 字段表示当前 ring 版本号。
+- testcase2:
+    question: 元数据迁移失败常见原因是什么？
+    answer: 常见原因是目标节点未收到 addnode 信息或状态未 READY，日志表现为 "Fill metadata for migration failed. ... worker don't receive addnode info"。
+- testcase3:
+    question: scale down 任务卡住时有什么日志表现？
+    answer: 可能看到 "all scale down task is processing, no need to excute, skip" 或 "no worker to handle scale down task"；需要检查是否有存活节点可承担迁移。
+- testcase4:
+    question: 如何确认元数据迁移已完成？
+    answer: 查找 "Finish migrate task from ... to ... cost ... ms" 日志；如果只看到 "Start migrate task" 而没有 "Finish"，可能迁移仍在执行或已失败。

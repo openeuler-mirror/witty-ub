@@ -179,7 +179,10 @@ copy_data_files() {
     $SUDO cp "$PROJECT_DIR/data/umq/"*.json "$WITTY_DIR/data/umq/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/view-vis/"* "$WITTY_DIR/data/view-vis/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
-    $SUDO cp "$PROJECT_DIR/config/agents/"*.md "$WITTY_DIR/config/agents/" 2>/dev/null || true
+
+    # Deploy witty_ub_diagnosticain into .opencode directory
+    $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnosticain/.opencode" 2>/dev/null || true
+    $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnosticain/"* "$WITTY_DIR/witty_ub_diagnosticain/.opencode/" 2>/dev/null || true
 
     _log "数据文件已部署到 $WITTY_DIR"
 }

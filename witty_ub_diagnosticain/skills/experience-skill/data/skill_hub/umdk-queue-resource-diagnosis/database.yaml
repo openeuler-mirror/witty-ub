@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 UMQ_ERR_ENOSR 应该怎么排查？
+    answer: 检查 Jetty/TP 资源配额是否达到上限，使用 urma_admin 查看资源使用情况，检查是否存在资源泄漏。
+- testcase2:
+    question: 如何判断是否存在资源泄漏？
+    answer: 统计资源创建和销毁次数，如果创建数远大于销毁数或持续增长，说明存在泄漏；检查是否有对象创建后未销毁。
+- testcase3:
+    question: JFC 队列深度应该怎么配置？
+    answer: 推荐 JFC 队列深度 >= 关联 jetty 的队列深度总和 / 每多少个 WR 生成一个 CR + 关联 jetty 数。

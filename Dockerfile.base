@@ -66,3 +66,17 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode && \
     opencode --version
+
+# Install uv package manager for experience-skill
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
+
+# Create venv for experience-skill and install Python dependencies
+RUN python3 -m venv /var/witty-ub/experience-skill/.venv && \
+    /var/witty-ub/experience-skill/.venv/bin/pip install \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    "fastapi>=0.110.0" \
+    "uvicorn[standard]>=0.21.0" \
+    "pydantic>=2.7.0" \
+    "pyyaml>=6.0" && \
+    rm -rf /root/.cache/pip

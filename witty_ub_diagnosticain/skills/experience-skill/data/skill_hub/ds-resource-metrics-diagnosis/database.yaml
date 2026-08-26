@@ -1,0 +1,12 @@
+- testcase1:
+    question: 共享内存使用率持续升高时应该检查哪些指标？
+    answer: 检查 object_nums、object_total_datasize、Cache_Hit_Info、L2 缓存配置和 LRU 淘汰策略。
+- testcase2:
+    question: 线程池利用率高且 waitingTask 多说明什么？
+    answer: 说明处理能力不足，可能是请求量大或某些请求阻塞，需要检查访问日志中的高耗时 action 和线程池配置。
+- testcase3:
+    question: ETCD 请求成功率下降如何进一步排查？
+    answer: 检查 request_out.log 中 ETCD 请求失败类型和耗时，检查 ETCD 集群健康状态和 Worker 与 ETCD 网络质量。
+- testcase4:
+    question: 流缓存指标中如何判断 page 泄漏？
+    answer: 检查 numPagesCreated - numPagesReleased 是否远大于 numPagesInUse + numPagesCached，或观察 sharedMemUsed 是否持续增长。

@@ -1,0 +1,9 @@
+- testcase1:
+    question: CAM 算子报 shape mismatch 应该怎么排查？
+    answer: 对照 CAM API Guide 检查对应接口的输入输出张量形状约束，重点检查 expand_x、topk_idx、topk_weights、scales 等张量的形状是否匹配。
+- testcase2:
+    question: A2 接口和 A3 接口可以混用吗？
+    answer: 不可以，CAM 接口在 API Guide 中明确标注了代际约束，A2 接口只支持 A2 环境，A3 接口只支持 A3 环境。
+- testcase3:
+    question: CAM 问题为什么需要收集 CANN/HCCL 日志？
+    answer: 因为 CAM 算子运行在 PyTorch/ACL/HCCL 框架之上，UMDK 侧主要提供 Python API 约束，算子内部错误通常由 CANN/HCCL 日志记录。

@@ -1,0 +1,12 @@
+- testcase1:
+    question: Stream Cache 中 K_SC_STREAM_NOT_FOUND（3000）通常是什么原因？
+    answer: Stream 未创建或已删除，或订阅时流名称错误。
+- testcase2:
+    question: 如何判断 Stream 的 Producer 是否阻塞？
+    answer: 查看 sc_metrics 日志中 numLocalProdBlocked 或 numRemoteProdBlocked 是否大于 0；同时检查 numEleSent 与 numEleRecv 的差距。
+- testcase3:
+    question: K_SC_WORKER_WAS_LOST（3005）说明什么？
+    answer: Stream 相关的 Worker 被判定为 lost/dead，通常由网络分区或 Worker 进程异常导致。
+- testcase4:
+    question: 远端流推送成功率下降如何排查？
+    answer: 查看 resource.log 中 remote_stream_push_success_rate；检查 URMA/RDMA 连接状态、远端 Worker 日志和相关线程池利用率。

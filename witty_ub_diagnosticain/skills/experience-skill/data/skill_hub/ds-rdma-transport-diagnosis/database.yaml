@@ -1,0 +1,12 @@
+- testcase1:
+    question: URMA 日志中 "[URMA_NEED_CONNECT] No existing connection for remoteAddress" 表示什么？
+    answer: 表示本地没有到远端 Worker 的 URMA 连接，需要新建连接；通常后续会触发 WorkerWorkerExchangeUrmaConnectInfo 或 TryReconnectRemoteWorker。
+- testcase2:
+    question: "[URMA_MODIFY_JETTY_TO_ERROR] Mark Jetty ... invalid" 说明什么？
+    answer: 说明某个 URMA Jetty 被标记为失效，通常由远端 Worker 重启、网络抖动或连接不稳定触发，系统会尝试重建连接。
+- testcase3:
+    question: 如何排查 ZMQ 端口冲突导致的 Worker 启动失败？
+    answer: 查找日志 "ZMQ bind to tcp://... unsuccessful: Address already in use"；使用 ss 或 lsof 检查端口占用，清理残留进程或更换端口。
+- testcase4:
+    question: "Worker was hanged about ... ms" 与传输层有什么关系？
+    answer: 进程挂起会导致所有保活/心跳/传输线程无法运行，可能同时触发 ETCD lease 失效、URMA 连接超时和 RPC 超时；需要从 OS 调度层面排查。
