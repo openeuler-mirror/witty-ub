@@ -1,0 +1,12 @@
+- testcase1:
+    question: Client 日志中如何确认是否成功通过共享内存与 Worker 通信？
+    answer: 查找日志 "Client and worker support transfer data through shared memory and the fd send over ..."；如果未出现，则可能是 SCMTCP/UDS 连接失败或 Worker 未启用共享内存。
+- testcase2:
+    question: Client 注册失败时应该检查哪些日志？
+    answer: 检查 Client 日志中的 "Register client failed" 和 Worker 日志中的 "Register client failed because worker is exiting"；同时确认 Client 与 Worker 版本是否匹配。
+- testcase3:
+    question: Client 与 Worker 版本不匹配会导致什么错误？
+    answer: 注册或请求可能返回 K_CLIENT_WORKER_VERSION_MISMATCH（28），需要统一 Client 与 Worker 版本。
+- testcase4:
+    question: 如何按 trace_id 串联 Client 和 Worker 日志？
+    answer: 从 Client 访问日志中提取 trace_id，再到 Worker 运行日志和访问日志中 grep 该 trace_id，注意跨节点时需要分别收集对应 Worker 日志。

@@ -1,0 +1,9 @@
+- testcase1:
+    question: 如何从 URMA 日志中提取 thread_id 和出错函数？
+    answer: 使用 awk 以 | 分隔字段，查找包含 thread_id= 和 Line 的字段，分别提取线程 ID 和函数名。
+- testcase2:
+    question: 日志中出现 rate limit 摘要意味着什么？
+    answer: 意味着对应日志点在窗口期内被高频触发，系统抑制了 N 条日志，应找到原始错误根因。
+- testcase3:
+    question: 为什么日志解析出来的字段数量不对？
+    answer: 可能修改了 URMA_LOG_SEPARATOR 或使用了自定义日志回调，导致格式变化，需要先确认分隔符和日志格式。

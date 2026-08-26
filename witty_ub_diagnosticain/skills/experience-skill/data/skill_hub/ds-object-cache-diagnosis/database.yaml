@@ -1,0 +1,12 @@
+- testcase1:
+    question: Object Cache 中对象封印后有什么限制？
+    answer: 对象封印后不可修改，再次写入会返回 K_OC_ALREADY_SEALED（2000）。
+- testcase2:
+    question: K_OC_REMOTE_GET_NOT_ENOUGH（2002）通常是什么原因？
+    answer: 远端 Worker 批量获取不足，可能由网络/传输层异常、远端对象正在迁移或删除导致。
+- testcase3:
+    question: 对象缓存中 keep 参数为 true 时需要注意什么？
+    answer: 需要手动管理对象生命周期，否则对象可能长期占用内存；应确保在不需要时显式释放。
+- testcase4:
+    question: 如何定位对象被 LRU 淘汰的问题？
+    answer: 查看 resource.log 中 shm_info 和 Cache_Hit_Info；如果 missNum 增加且对象访问返回 K_NOT_FOUND 或 K_OC_OBJECT_NOT_IN_USED，可能对象被 LRU 淘汰。

@@ -31,3 +31,10 @@ latency.db-wal
 .omo/run-continuation/
 .omo/ulw-research/
 .omo/ralph-loop.local.md
+
+# experience-skill 运行时产物和第三方依赖
+witty_ub_diagnosticain/skills/experience-skill/data/experience.db
+witty_ub_diagnosticain/skills/experience-skill/data/experience.db-shm
+witty_ub_diagnosticain/skills/experience-skill/data/experience.db-wal
+witty_ub_diagnosticain/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/
+witty_ub_diagnosticain/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/libsimple

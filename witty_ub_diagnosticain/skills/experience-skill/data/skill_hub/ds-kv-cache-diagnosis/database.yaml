@@ -1,0 +1,12 @@
+- testcase1:
+    question: KV Cache 访问日志中常见的 action 有哪些？
+    answer: DS_KV_CLIENT_CREATE、DS_KV_CLIENT_SET、DS_KV_CLIENT_MSET、DS_KV_CLIENT_GET、DS_KV_CLIENT_DELETE、DS_KV_CLIENT_EXIST、DS_KV_CLIENT_EXPIRE 等。
+- testcase2:
+    question: KV Get 返回 K_NOT_FOUND（3）可能是什么原因？
+    answer: 键未创建、已过期、被 LRU 淘汰，或键所在 Worker 已下线。
+- testcase3:
+    question: 如何排查 KV 写入时返回 K_LRU_HARD_LIMIT（34）？
+    answer: 查看 resource.log 中 shm_info 使用率是否接近上限，检查 eviction_reserve_mem_threshold_mb 配置，必要时扩容或调整缓存策略。
+- testcase4:
+    question: KV 批量操作失败如何分析部分失败的 key？
+    answer: 查看访问日志中 response_param 字段，通常会包含 failedKeys 或失败总数；同时结合运行日志中的具体错误信息。

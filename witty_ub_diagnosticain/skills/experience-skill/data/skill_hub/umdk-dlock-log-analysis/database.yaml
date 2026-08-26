@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 DLOCK_LOCK_NOT_GET 应该怎么排查？
+    answer: 检查锁是否已被其他客户端占用、公平锁队列是否过长、超时时间是否过短、网络是否正常。
+- testcase2:
+    question: DLock 中 DEBUG_STATS_NETWORK_FAIL 增加说明什么？
+    answer: 说明 DLock 控制面通信（post_send/post_recv）失败，应结合 URMA 日志检查链路和对端状态。
+- testcase3:
+    question: 分析 DLock 问题为什么需要同时看服务端和客户端日志？
+    answer: 因为分布式锁是跨端协作，单端日志可能只显示结果状态，根因可能在对端或网络，需要结合两端日志交叉验证。

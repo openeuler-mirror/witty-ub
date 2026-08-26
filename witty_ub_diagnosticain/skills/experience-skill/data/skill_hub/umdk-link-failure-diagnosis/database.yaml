@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 URMA_EVENT_PORT_DOWN 应该怎么排查？
+    answer: 先执行 urma_admin port show 确认端口状态，再检查物理连接、对端状态、dmesg 中的驱动/固件报错。
+- testcase2:
+    question: 日志中出现 URMA_CR_ACK_TIMEOUT_ERR 可能是什么原因？
+    answer: 可能是网络不可达、链路质量差、ack_timeout 配置过短或对端繁忙，应检查网络、链路、超时配置和对端资源。
+- testcase3:
+    question: 排查链路故障需要收集哪些信息？
+    answer: 需要收集 URMA 日志、urma_admin port show 输出、dmesg 输出、线缆/光模块型号、固件版本和复现步骤。

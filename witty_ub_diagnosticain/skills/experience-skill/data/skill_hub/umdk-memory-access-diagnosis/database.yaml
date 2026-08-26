@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 URMA_CR_LOC_ACCESS_ERR 应该怎么排查？
+    answer: 检查本地 MR 的地址、长度、权限是否与 WR 操作匹配，确认访问长度未超出 MR 范围，内存未被提前释放或修改。
+- testcase2:
+    question: URMA_CR_REM_ACCESS_ABORT_ERR 通常与什么有关？
+    answer: 通常与对端 MR 无效、权限不足、对端状态异常或链路异常有关，应检查对端日志和 MR 配置。
+- testcase3:
+    question: 出现 WR_FLUSH_ERR 意味着什么？
+    answer: 意味着 Jetty/JFS 已经处于错误状态，该 WR 被 flush，应优先检查前置错误（如 LOC_ACCESS、ACK_TIMEOUT）而不是仅处理 flush 本身。

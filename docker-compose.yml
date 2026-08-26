@@ -42,6 +42,8 @@ services:
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       # opencode
       - ~/.config/opencode:/root/.config/opencode
+      # experience-skill persistent data (experience.db)
+      - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/data
     environment:
       # Python path for latency plugin
       - PYTHONPATH=/var/witty-ub
@@ -72,6 +74,8 @@ volumes:
   witty-ub-uploads:
     driver: local
   witty-ub-results:
+    driver: local
+  witty-ub-experience-data:
     driver: local
 
 networks:

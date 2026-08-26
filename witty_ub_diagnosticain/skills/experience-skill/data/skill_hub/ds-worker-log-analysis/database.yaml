@@ -1,0 +1,12 @@
+- testcase1:
+    question: Worker 启动日志中如何确认是否使用外部 ETCD？
+    answer: 查找日志 "Using external etcd: ..."；如果使用 Metastore，通常会看到 "start_metastore_service" 相关日志或连接 metastore_address 的日志。
+- testcase2:
+    question: Worker 异常退出前应该重点查看哪些日志？
+    answer: 查看最后 20 条 ERROR/FATAL 日志、lease 相关错误（"Failed to refresh lease"）、"Worker was hanged about" 和 "ZMQ bind ... Address already in use"。
+- testcase3:
+    question: "Worker was hanged about ... ms" 表示什么？
+    answer: 表示 Worker 进程被 OS 调度挂起约指定毫秒数，可能导致 ETCD lease 保活失败，进而被集群判定为 lost/dead。
+- testcase4:
+    question: Worker 启动时 "Did not restart so no need to reconcile" 说明什么？
+    answer: 说明 Worker 判定为正常启动或正常重启，无需进行本地状态与集群状态的协调恢复，直接设置健康文件。
