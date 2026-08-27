@@ -36,7 +36,7 @@ allowed-tools: >
 初始关键词检索本地经验:
 
 ```bash
-cd /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts
+cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
 
 # BRPC 相关关键词
 uv run experience-skill search-experiences \
@@ -239,7 +239,7 @@ BRPC 详情响应中的证据分层:
 **在形成候选根因之后**,用阶段二~五发现的更精确关键词再次检索:
 
 ```bash
-cd /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts
+cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
 
 # 示例:用发现的故障模式作精确检索
 uv run experience-skill search-experiences \

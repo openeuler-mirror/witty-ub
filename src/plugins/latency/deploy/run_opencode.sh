@@ -14,9 +14,9 @@ readonly NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly LATENCY_PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 readonly PLUGINS_DIR="$(dirname "${LATENCY_PROJECT_DIR}")"
-readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/witty_ub_diagnosticain/.opencode/opencode.json"
+readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/witty_ub_diagnostician/.opencode/opencode.json"
 readonly REPO_ROOT="$(cd "${PLUGINS_DIR}/../.." && pwd)"
-readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/witty_ub_diagnosticain/opencode.json"
+readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/witty_ub_diagnostician/opencode.json"
 readonly OPENCODE_LOG="${LATENCY_PROJECT_DIR}/opencode_server.log"
 
 # Select the configuration that belongs to this script's layout. A stale
@@ -24,9 +24,11 @@ readonly OPENCODE_LOG="${LATENCY_PROJECT_DIR}/opencode_server.log"
 if [[ "${LATENCY_PROJECT_DIR}" == "/var/witty-ub/latency" && -f "${DEPLOYED_OPENCODE_CONFIG}" ]]; then
     readonly OPENCODE_CONFIG_PATH="${DEPLOYED_OPENCODE_CONFIG}"
     readonly WITTY_ROOT="/var/witty-ub"
+    readonly AGENT_PROMPT="${WITTY_ROOT}/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
 elif [[ -f "${LOCAL_OPENCODE_CONFIG}" ]]; then
     readonly OPENCODE_CONFIG_PATH="${LOCAL_OPENCODE_CONFIG}"
     readonly WITTY_ROOT="${REPO_ROOT}"
+    readonly AGENT_PROMPT="${WITTY_ROOT}/witty_ub_diagnostician/agents/witty-ub-diagnostician.md"
 else
     echo "[ERROR] OpenCode configuration not found." >&2
     echo "        Checked: ${DEPLOYED_OPENCODE_CONFIG}" >&2
@@ -34,10 +36,27 @@ else
     exit 1
 fi
 
-readonly AGENT_PROMPT="${WITTY_ROOT}/witty_ub_diagnosticain/.opencode/agents/witty-ub-diagnostician.md"
 if [[ ! -f "${AGENT_PROMPT}" ]]; then
     echo "[ERROR] Diagnosis agent prompt not found: ${AGENT_PROMPT}" >&2
     exit 1
+fi
+
+# ── 前后端分离部署: Agent 访问的后端基址与监听地址可参数化 ──
+WITTY_API_BASE="${WITTY_API_BASE:-http://127.0.0.1:9772}"
+WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
+OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
+
+# 渲染提示词中的占位符 (幂等: 已渲染内容不含占位符)。
+# /var 下的部署副本归 root 所有, 无写权限时借助 sudo。
+RENDER_SUDO=""
+[[ -w "${AGENT_PROMPT}" ]] || RENDER_SUDO="sudo"
+if ${RENDER_SUDO} sed -i \
+    -e "s|\${WITTY_API_BASE}|${WITTY_API_BASE}|g" \
+    -e "s|\${WITTY_NO_PROXY}|${WITTY_NO_PROXY}|g" \
+    "${AGENT_PROMPT}" 2>/dev/null; then
+    echo "[INFO] Agent prompt API base: ${WITTY_API_BASE}"
+else
+    echo "[WARN] Failed to render agent prompt placeholders: ${AGENT_PROMPT}" >&2
 fi
 
 # Skip installation when a working OpenCode command is already available.
@@ -82,16 +101,16 @@ if curl --silent --fail --max-time 2 --noproxy 127.0.0.1 http://127.0.0.1:4096/g
     exit 0
 fi
 
-if ! curl --silent --fail --max-time 2 --noproxy 127.0.0.1 http://127.0.0.1:9772/health_check >/dev/null 2>&1; then
-    echo "[WARN] Latency backend is not ready at http://127.0.0.1:9772." >&2
+if ! curl --silent --fail --max-time 2 --noproxy '*' "${WITTY_API_BASE}/health_check" >/dev/null 2>&1; then
+    echo "[WARN] Latency backend is not ready at ${WITTY_API_BASE}." >&2
     echo "       OpenCode will start, but diagnosis queries will fail until the backend is healthy." >&2
 fi
 
 # Start the OpenCode service in the background.
 echo "[INFO] Using OpenCode configuration: ${OPENCODE_CONFIG}"
-echo "[INFO] Starting OpenCode server at http://127.0.0.1:4096 ..."
-nohup "${COMMAND_NAME}" serve --hostname 127.0.0.1 --port 4096 \
-    > "${OPENCODE_LOG}" 2>&1 &
+echo "[INFO] Starting OpenCode server at http://${OPENCODE_HOST}:4096 ..."
+nohup "${COMMAND_NAME}" serve --hostname "${OPENCODE_HOST}" --port 4096 \
+    >"${OPENCODE_LOG}" 2>&1 &
 OPENCODE_PID=$!
 
 for _ in $(seq 1 20); do

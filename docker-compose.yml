@@ -1,7 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 # witty-ub is licensed under the Mulan PSL v2.
 
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
@@ -32,7 +32,7 @@ services:
     container_name: witty-ub
     restart: unless-stopped
     ports:
-      - "32412:8080"  # Web UI (Nginx + API proxy)
+      - "32412:8080" # Web UI (Nginx + API proxy)
     volumes:
       # Persistent data storage
       - witty-ub-data:/var/witty-ub/data
@@ -43,7 +43,7 @@ services:
       # opencode
       - ~/.config/opencode:/root/.config/opencode
       # experience-skill persistent data (experience.db)
-      - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/data
+      - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
     environment:
       # Python path for latency plugin
       - PYTHONPATH=/var/witty-ub
@@ -64,12 +64,71 @@ services:
     networks:
       - witty-ub-network
 
+  # ── 前后端分离部署（docker compose --profile split up） ──
+  # 同一镜像按 WITTY_ROLE 分角色: backend 跑 FastAPI+数据卷, frontend 跑
+  # Nginx+OpenCode（LLM key 与经验库随前端节点）, 前端反代后端 9772。
+  witty-ub-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["split"]
+    container_name: witty-ub-backend
+    restart: unless-stopped
+    volumes:
+      - witty-ub-data:/var/witty-ub/data
+      - witty-ub-backend-logs:/var/log/witty-ub
+      - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
+      - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
+    environment:
+      - WITTY_ROLE=backend
+      # Python path for latency plugin
+      - PYTHONPATH=/var/witty-ub
+      # Log level (optional)
+      - LOG_LEVEL=info
+      # PostgreSQL 连接（容器内通过容器名 postgres 访问，端口为容器内 5432）
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DATABASE=witty-ub
+      - PG_USER=witty-ub
+      - PG_PASSWORD=witty-ub
+    networks:
+      - witty-ub-network
+
+  witty-ub-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["split"]
+    container_name: witty-ub-frontend
+    restart: unless-stopped
+    depends_on:
+      witty-ub-backend:
+        condition: service_healthy
+    ports:
+      - "32413:8080" # Web UI (Nginx + 反代远端后端/本机 OpenCode)
+    volumes:
+      # OpenCode LLM 配置与经验库留在前端节点
+      - ~/.config/opencode:/root/.config/opencode
+      # experience-skill persistent data (experience.db)
+      - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
+      - witty-ub-frontend-logs:/var/log/witty-ub
+    environment:
+      - WITTY_ROLE=frontend
+      # 容器网络内经服务名访问后端
+      - WITTY_BACKEND_URL=http://witty-ub-backend:9772
+    networks:
+      - witty-ub-network
+
 volumes:
   pg15-data:
     driver: local
   witty-ub-data:
     driver: local
   witty-ub-logs:
+    driver: local
+  witty-ub-backend-logs:
+    driver: local
+  witty-ub-frontend-logs:
     driver: local
   witty-ub-uploads:
     driver: local

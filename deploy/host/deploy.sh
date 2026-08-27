@@ -12,6 +12,12 @@
 #   bash deploy/host/deploy.sh --stop   # 停止所有服务
 #   bash deploy/host/deploy.sh --clean  # 一键清理
 #
+# 前后端分离部署 (WITTY_ROLE=all|backend|frontend, 或 --role backend/frontend):
+#   后端机: bash deploy/host/deploy.sh --deploy --role backend
+#   前端机: WITTY_BACKEND_URL=http://<backend>:9772 \
+#           bash deploy/host/deploy.sh --deploy --role frontend
+#   前端机只跑 前端 + OpenCode(手动 run_opencode.sh), 不依赖 PostgreSQL/C++ 工具链。
+#
 # 访问:
 #   前端: http://localhost:5173     (生产: vite preview 托管 dist/; 无 dist 时回退 dev server)
 #   后端: http://localhost:9772
@@ -30,6 +36,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 LOG_DIR="$PROJECT_DIR/.deploy-logs"
+
+# ──────────────────── 前后端分离部署角色 ────────────────────
+# all: 单机全量 (默认, 行为与历史版本一致)
+# backend: 仅 FastAPI 后端 + PostgreSQL + C++ 工具链 + 数据
+# frontend: 仅前端 (nginx 静态托管 + 反代远端后端, 无 nginx 时回退 vite
+#           preview) + OpenCode (Agent 随前端节点, 访问远端后端 9772)
+WITTY_ROLE="${WITTY_ROLE:-all}"
+WITTY_BACKEND_URL="${WITTY_BACKEND_URL:-http://127.0.0.1:9772}"
+WITTY_API_BASE="${WITTY_API_BASE:-$WITTY_BACKEND_URL}"
+WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
+WITTY_AGENT_URL="${WITTY_AGENT_URL:-http://127.0.0.1:4096}"
+# export 供 envsubst / run_opencode.sh 等子进程读取
+export WITTY_ROLE WITTY_BACKEND_URL WITTY_API_BASE WITTY_NO_PROXY WITTY_AGENT_URL
+# 前端托管方式: start_services 中按 nginx 可用性置为 nginx, 默认 vite
+WEB_MODE="vite"
 
 # ──────────────────── 载入子脚本 ────────────────────
 
@@ -57,28 +78,28 @@ setup_postgresql() {
     fi
 
     case "$OS_ID" in
-        openeuler)
-            _info "调用 deploy/deploy_pg.sh --rpm 部署 PostgreSQL..."
-            if _is_root; then
-                bash "$DEPLOY_PG_SCRIPT" --rpm
-            elif _has_cmd sudo; then
-                sudo bash "$DEPLOY_PG_SCRIPT" --rpm
-            else
-                _warn "需要 root 权限: sudo bash $DEPLOY_PG_SCRIPT --rpm"
-                return 1
-            fi
-            ;;
-        ubuntu)
-            _info "调用 deploy/deploy_pg.sh --apt 部署 PostgreSQL..."
-            if _is_root; then
-                bash "$DEPLOY_PG_SCRIPT" --apt
-            elif _has_cmd sudo; then
-                sudo bash "$DEPLOY_PG_SCRIPT" --apt
-            else
-                _warn "需要 root 权限: sudo bash $DEPLOY_PG_SCRIPT --apt"
-                return 1
-            fi
-            ;;
+    openeuler)
+        _info "调用 deploy/deploy_pg.sh --rpm 部署 PostgreSQL..."
+        if _is_root; then
+            bash "$DEPLOY_PG_SCRIPT" --rpm
+        elif _has_cmd sudo; then
+            sudo bash "$DEPLOY_PG_SCRIPT" --rpm
+        else
+            _warn "需要 root 权限: sudo bash $DEPLOY_PG_SCRIPT --rpm"
+            return 1
+        fi
+        ;;
+    ubuntu)
+        _info "调用 deploy/deploy_pg.sh --apt 部署 PostgreSQL..."
+        if _is_root; then
+            bash "$DEPLOY_PG_SCRIPT" --apt
+        elif _has_cmd sudo; then
+            sudo bash "$DEPLOY_PG_SCRIPT" --apt
+        else
+            _warn "需要 root 权限: sudo bash $DEPLOY_PG_SCRIPT --apt"
+            return 1
+        fi
+        ;;
     esac
 
     _log "PostgreSQL 就绪: $PG_HOST:$PG_PORT"
@@ -169,7 +190,10 @@ build_frontend() {
     _step_header "编译前端 (可选)"
 
     local WEB_DIR="$PROJECT_DIR/src/web"
-    [ -d "$WEB_DIR" ] || { _warn "前端目录不存在，跳过"; return 0; }
+    [ -d "$WEB_DIR" ] || {
+        _warn "前端目录不存在，跳过"
+        return 0
+    }
 
     mkdir -p "$LOG_DIR"
 
@@ -197,14 +221,15 @@ copy_data_files() {
     _step_header "部署数据文件"
 
     local WITTY_DIR="/var/witty-ub"
-    local SUDO=""; _is_root || SUDO="sudo"
+    local SUDO=""
+    _is_root || SUDO="sudo"
 
     $SUDO mkdir -p "$WITTY_DIR/data/kvcache" \
-                  "$WITTY_DIR/data/urma" \
-                  "$WITTY_DIR/data/ubsocket" \
-                  "$WITTY_DIR/data/umq" \
-                  "$WITTY_DIR/data/view-vis" \
-                  "$WITTY_DIR/config/agents" 2>/dev/null || true
+        "$WITTY_DIR/data/urma" \
+        "$WITTY_DIR/data/ubsocket" \
+        "$WITTY_DIR/data/umq" \
+        "$WITTY_DIR/data/view-vis" \
+        "$WITTY_DIR/config/agents" 2>/dev/null || true
 
     $SUDO cp "$PROJECT_DIR/data/failure_mode_tree.json" "$WITTY_DIR/data/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/kvcache/"*.json "$WITTY_DIR/data/kvcache/" 2>/dev/null || true
@@ -214,9 +239,21 @@ copy_data_files() {
     $SUDO cp "$PROJECT_DIR/data/view-vis/"* "$WITTY_DIR/data/view-vis/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
 
-    # Deploy witty_ub_diagnosticain into .opencode directory
-    $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnosticain/.opencode" 2>/dev/null || true
-    $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnosticain/"* "$WITTY_DIR/witty_ub_diagnosticain/.opencode/" 2>/dev/null || true
+    # Deploy witty_ub_diagnostician into .opencode directory
+    # (OpenCode/Agent 随前端角色部署; backend 角色不跑 OpenCode, 跳过)
+    if [ "$WITTY_ROLE" != "backend" ]; then
+        $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnostician/.opencode" 2>/dev/null || true
+        $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnostician/"* "$WITTY_DIR/witty_ub_diagnostician/.opencode/" 2>/dev/null || true
+        # 渲染 Agent 提示词中的后端基址占位符 (幂等: 已渲染内容无占位符)
+        local AGENT_MD="$WITTY_DIR/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
+        if [ -f "$AGENT_MD" ]; then
+            $SUDO sed -i \
+                -e "s|\${WITTY_API_BASE}|$WITTY_API_BASE|g" \
+                -e "s|\${WITTY_NO_PROXY}|$WITTY_NO_PROXY|g" \
+                "$AGENT_MD"
+            _log "Agent 提示词后端基址: $WITTY_API_BASE"
+        fi
+    fi
 
     _log "数据文件已部署到 $WITTY_DIR"
 }
@@ -229,7 +266,10 @@ sync_pg_credentials() {
     # 实测踩坑：仓库 config 默认 pg_password=""，而 deploy_pg.sh 用 pg.conf
     # 的 PG_PASSWORD 建库 → 后端 InvalidPasswordError。
     local PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"
-    [ -f "$PG_CONF_FILE" ] || { _warn "pg.conf 不存在，跳过凭据同步"; return 0; }
+    [ -f "$PG_CONF_FILE" ] || {
+        _warn "pg.conf 不存在，跳过凭据同步"
+        return 0
+    }
 
     local PHOST P PORT PUSER PDB PPASS
     PHOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
@@ -239,12 +279,16 @@ sync_pg_credentials() {
     PPASS="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
 
     [ -n "$PHOST" ] || PHOST="127.0.0.1"
-    [ -n "$PORT" ]  || PORT="15432"
+    [ -n "$PORT" ] || PORT="15432"
     [ -n "$PUSER" ] || PUSER="witty-ub"
-    [ -n "$PDB" ]   || PDB="witty-ub"
-    [ -n "$PPASS" ] || { _warn "pg.conf 未设置 PG_PASSWORD，跳过"; return 0; }
+    [ -n "$PDB" ] || PDB="witty-ub"
+    [ -n "$PPASS" ] || {
+        _warn "pg.conf 未设置 PG_PASSWORD，跳过"
+        return 0
+    }
 
-    local SUDO=""; _is_root || SUDO="sudo"
+    local SUDO=""
+    _is_root || SUDO="sudo"
     local WITTY_DIR="/var/witty-ub"
     for CONF in "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/diagnosis_config.toml"; do
         [ -f "$CONF" ] || continue
@@ -281,22 +325,107 @@ install_systemd_units() {
     local UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     local SYS_WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
 
-    [ -d "$UNIT_SRC" ] || { _warn "systemd 模板目录缺失: $UNIT_SRC"; return 1; }
+    [ -d "$UNIT_SRC" ] || {
+        _warn "systemd 模板目录缺失: $UNIT_SRC"
+        return 1
+    }
     mkdir -p "$UNIT_DIR"
 
-    sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
-        -e "s|__WITTY_DIR__|$SYS_WITTY_DIR|g" \
-        "$UNIT_SRC/witty-ub-backend.service" > "$UNIT_DIR/witty-ub-backend.service"
-    sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
-        "$UNIT_SRC/witty-ub-frontend.service" > "$UNIT_DIR/witty-ub-frontend.service"
+    # 按角色安装 units: frontend 角色的 web/OpenCode 为裸进程托管,
+    # 不安装 vite frontend unit; backend 角色不需要 frontend unit。
+    local UNITS=()
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+            -e "s|__WITTY_DIR__|$SYS_WITTY_DIR|g" \
+            "$UNIT_SRC/witty-ub-backend.service" >"$UNIT_DIR/witty-ub-backend.service"
+        UNITS+=(witty-ub-backend.service)
+    fi
+    if [ "$WITTY_ROLE" != "backend" ]; then
+        sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+            "$UNIT_SRC/witty-ub-frontend.service" >"$UNIT_DIR/witty-ub-frontend.service"
+        UNITS+=(witty-ub-frontend.service)
+    fi
 
     if ! systemd_user_available; then
         _warn "systemctl --user 不可用 (缺 pam_systemd.so / 无 systemd user 会话?)"
         _warn "openEuler 24.03+ 修复: sudo dnf install -y systemd-pam; 或 loginctl enable-linger $USER"
         return 1
     fi
-    systemctl --user enable witty-ub-backend.service witty-ub-frontend.service >/dev/null 2>&1 || true
-    _log "systemd user units 已安装并启用 (witty-ub-backend / witty-ub-frontend)"
+    systemctl --user enable "${UNITS[@]}" >/dev/null 2>&1 || true
+    _log "systemd user units 已安装并启用 (${UNITS[*]})"
+}
+
+# ──────────────────── frontend 角色: Web + OpenCode ────────────────────
+
+render_web_nginx() {
+    # 渲染统一 nginx 模板: 静态托管 dist/ + 反代远端后端/本机 OpenCode。
+    # envsubst 优先 (gettext), 缺失时 sed 兜底, 不强依赖新包。
+    if command -v envsubst >/dev/null 2>&1; then
+        envsubst '${WITTY_BACKEND_URL} ${WITTY_AGENT_URL}' \
+            <"$PROJECT_DIR/packaging/nginx/witty-ub-web.conf.template"
+    else
+        sed -e "s|\${WITTY_BACKEND_URL}|$WITTY_BACKEND_URL|g" \
+            -e "s|\${WITTY_AGENT_URL}|$WITTY_AGENT_URL|g" \
+            "$PROJECT_DIR/packaging/nginx/witty-ub-web.conf.template"
+    fi | sed \
+        -e "s|pid /run/witty-ub-web/nginx.pid;|pid $PROJECT_DIR/.deploy-run/nginx.pid;|" \
+        -e "s|error_log /var/log/witty-ub-web/error.log warn;|error_log $LOG_DIR/web-error.log warn;|" \
+        -e "s|access_log /var/log/witty-ub-web/access.log;|access_log $LOG_DIR/web-access.log;|"
+}
+
+start_frontend_node() {
+    local DIST_DIR="$PROJECT_DIR/src/web/dist"
+    local SUDO=""
+    _is_root || SUDO="sudo"
+
+    # --- Web: nginx 静态托管 + 反代 (需 dist 构建产物), 否则回退 vite preview ---
+    if [ -d "$DIST_DIR" ] && [ -n "$(ls -A "$DIST_DIR" 2>/dev/null)" ] && _has_cmd nginx; then
+        WEB_MODE="nginx"
+        _info "启动 Web (nginx 静态托管 dist/ + 反代, port 8080)..."
+        # 清理本项目旧 nginx / 旧 vite 实例
+        [ -f "$PROJECT_DIR/.deploy-run/nginx.pid" ] && $SUDO kill "$($SUDO cat "$PROJECT_DIR/.deploy-run/nginx.pid")" 2>/dev/null || true
+        _has_cmd fuser && fuser -k 8080/tcp 5173/tcp 2>/dev/null || true
+        sleep 1
+        mkdir -p "$PROJECT_DIR/.deploy-run" "$LOG_DIR"
+        # 发布 dist 到 /var/witty-ub/web: nginx worker(非特权用户)无法
+        # 穿透用户 home 目录(750), 不能直接托管 ~/src/web/dist。
+        $SUDO mkdir -p /var/witty-ub
+        $SUDO rm -rf /var/witty-ub/web
+        $SUDO cp -r "$DIST_DIR" /var/witty-ub/web
+        $SUDO chmod -R a+rX /var/witty-ub/web
+        render_web_nginx >"$PROJECT_DIR/.deploy-run/nginx.conf"
+        $SUDO nginx -c "$PROJECT_DIR/.deploy-run/nginx.conf"
+        sleep 1
+        if curl --noproxy '*' -so /dev/null -w "%{http_code}" http://127.0.0.1:8080 2>/dev/null | grep -q 200; then
+            _log "Web 已启动 (nginx, port 8080, backend=$WITTY_BACKEND_URL)"
+        else
+            _err "nginx 启动失败, 查看 $LOG_DIR/web-error.log"
+            return 1
+        fi
+    else
+        WEB_MODE="vite"
+        _warn "nginx 或 dist/ 不可用, 回退 vite preview 反代 (port 5173)"
+        _check_node || _warn "Node 版本不满足要求，前端可能无法启动"
+        export VITE_DEV_API_TARGET="$WITTY_BACKEND_URL"
+        nohup bash "$SCRIPT_DIR/run_frontend.sh" >"$LOG_DIR/frontend.log" 2>&1 &
+        echo $! >"$LOG_DIR/frontend.pid"
+        sleep 3
+        if curl --noproxy 127.0.0.1 -so /dev/null -w "%{http_code}" http://127.0.0.1:5173 2>/dev/null | grep -q 200; then
+            _log "Web 已启动 (vite preview, port 5173, backend=$WITTY_BACKEND_URL)"
+        else
+            _warn "前端可能尚未就绪，等待 Vite 编译..."
+        fi
+    fi
+
+    # --- OpenCode: Agent 随前端节点, 经 WITTY_API_BASE 访问(远端)后端 ---
+    _info "启动 OpenCode (Agent 后端基址: $WITTY_API_BASE)..."
+    if ! WITTY_API_BASE="$WITTY_API_BASE" \
+        WITTY_NO_PROXY="$WITTY_NO_PROXY" \
+        OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}" \
+        bash "$PROJECT_DIR/src/plugins/latency/deploy/run_opencode.sh"; then
+        _warn "OpenCode 启动失败 (Agent 诊断不可用, Web 页面不受影响)"
+        _info "排查: bash src/plugins/latency/deploy/run_opencode.sh"
+    fi
 }
 
 # ──────────────────── 启动服务 ────────────────────
@@ -315,27 +444,27 @@ start_services() {
     # DEPLOY_PM=systemd|nohup 可强制指定 (测试/排障)。
     local USE_SYSTEMD=0
     case "${DEPLOY_PM:-auto}" in
-        systemd)
-            if systemd_user_available; then
-                USE_SYSTEMD=1
-            else
-                _err "DEPLOY_PM=systemd 但 systemctl --user 不可用"
-                return 1
-            fi
-            ;;
-        nohup)
-            USE_SYSTEMD=0
-            _warn "DEPLOY_PM=nohup 强制使用裸进程托管"
-            ;;
-        *)
-            if install_systemd_units; then
-                USE_SYSTEMD=1
-                _log "进程托管: systemd user units (崩溃自愈/开机自启)"
-            else
-                _warn "进程托管: 回退 nohup 裸进程 + PID 文件 (无崩溃自愈/开机自启)"
-                _info "恢复 systemd 托管: openEuler 24.03+ 执行 sudo dnf install -y systemd-pam 后重跑"
-            fi
-            ;;
+    systemd)
+        if systemd_user_available; then
+            USE_SYSTEMD=1
+        else
+            _err "DEPLOY_PM=systemd 但 systemctl --user 不可用"
+            return 1
+        fi
+        ;;
+    nohup)
+        USE_SYSTEMD=0
+        _warn "DEPLOY_PM=nohup 强制使用裸进程托管"
+        ;;
+    *)
+        if install_systemd_units; then
+            USE_SYSTEMD=1
+            _log "进程托管: systemd user units (崩溃自愈/开机自启)"
+        else
+            _warn "进程托管: 回退 nohup 裸进程 + PID 文件 (无崩溃自愈/开机自启)"
+            _info "恢复 systemd 托管: openEuler 24.03+ 执行 sudo dnf install -y systemd-pam 后重跑"
+        fi
+        ;;
     esac
 
     # --- 清理旧进程 (PID 文件 + 精确端口) ---
@@ -343,7 +472,7 @@ start_services() {
     # systemd 托管时仅当 unit 非活跃才清, 避免误杀 systemd 正在管理的进程。
     if [ "$USE_SYSTEMD" = "1" ]; then
         if ! systemctl --user is-active --quiet witty-ub-backend.service 2>/dev/null; then
-            [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")"  2>/dev/null || true
+            [ -f "$LOG_DIR/backend.pid" ] && kill "$(cat "$LOG_DIR/backend.pid")" 2>/dev/null || true
             _has_cmd fuser && fuser -k 9772/tcp 2>/dev/null || true
         fi
         if ! systemctl --user is-active --quiet witty-ub-frontend.service 2>/dev/null; then
@@ -351,74 +480,102 @@ start_services() {
             _has_cmd fuser && fuser -k 5173/tcp 2>/dev/null || true
         fi
     else
-        [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")"  2>/dev/null || true
+        [ -f "$LOG_DIR/backend.pid" ] && kill "$(cat "$LOG_DIR/backend.pid")" 2>/dev/null || true
         [ -f "$LOG_DIR/frontend.pid" ] && kill "$(cat "$LOG_DIR/frontend.pid")" 2>/dev/null || true
-        _has_cmd fuser && { fuser -k 9772/tcp 2>/dev/null || true; fuser -k 5173/tcp 2>/dev/null || true; }
+        _has_cmd fuser && {
+            fuser -k 9772/tcp 2>/dev/null || true
+            fuser -k 5173/tcp 2>/dev/null || true
+        }
     fi
     sleep 1
 
-    # --- Verify PostgreSQL is reachable ---
-    local PG_HOST="${PG_HOST:-127.0.0.1}"
-    local PG_PORT="${PG_PORT:-15432}"
-    if _has_cmd pg_isready && ! pg_isready -h "$PG_HOST" -p "$PG_PORT" -q 2>/dev/null; then
-        _err "PostgreSQL 未就绪 ($PG_HOST:$PG_PORT)，后端将无法连接数据库"
-        _info "请先启动 PostgreSQL: sudo systemctl start postgresql"
-        _info "或设置环境变量 PG_HOST / PG_PORT 指向正确的数据库"
-        return 1
-    fi
-
-    # --- Backend ---
-    if [ ! -f "$LATENCY_DIR/.venv/bin/python" ]; then
-        _warn "Python venv 不存在，跳过后端启动"
-        _info "请先运行完整部署: bash deploy/host/deploy.sh"
-        return 1
-    fi
-    if [ "$USE_SYSTEMD" = "1" ]; then
-        _info "启动 FastAPI 后端 (systemd user unit)..."
-        systemctl --user start witty-ub-backend.service || { _err "后端 unit 启动失败"; return 1; }
+    # --- frontend 角色: 探测远端后端 (不阻塞, 后端可能稍后就绪) ---
+    if [ "$WITTY_ROLE" = "frontend" ]; then
+        local BE_OK=0
+        for i in $(seq 1 15); do
+            if curl -s --max-time 3 --noproxy '*' "$WITTY_BACKEND_URL/health_check" 2>/dev/null | grep -q "ok"; then
+                _log "远端后端就绪: $WITTY_BACKEND_URL"
+                BE_OK=1
+                break
+            fi
+            sleep 2
+        done
+        [ "$BE_OK" = "1" ] || _warn "远端后端 $WITTY_BACKEND_URL 暂不可达, 前端仍将启动 (API 请求将失败)"
     else
-        _info "启动 FastAPI 后端 (nohup 裸进程)..."
-        # 环境与 systemd unit 对齐 (PYTHONPATH/WITTY_DIR/WITTY_INSTALL_PATH/CONFIG)。
-        # 必须用 venv python: 系统 python3 无 polars, 解析任务会 ModuleNotFoundError。
-        export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
-        export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
-        export CONFIG="${CONFIG:-$PROJECT_DIR/config/diagnosis_config.toml}"
-        export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
-        nohup "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py" \
-            > "$LOG_DIR/backend.log" 2>&1 &
-        echo $! > "$LOG_DIR/backend.pid"
+        # --- Verify PostgreSQL is reachable ---
+        local PG_HOST="${PG_HOST:-127.0.0.1}"
+        local PG_PORT="${PG_PORT:-15432}"
+        if _has_cmd pg_isready && ! pg_isready -h "$PG_HOST" -p "$PG_PORT" -q 2>/dev/null; then
+            _err "PostgreSQL 未就绪 ($PG_HOST:$PG_PORT)，后端将无法连接数据库"
+            _info "请先启动 PostgreSQL: sudo systemctl start postgresql"
+            _info "或设置环境变量 PG_HOST / PG_PORT 指向正确的数据库"
+            return 1
+        fi
     fi
 
-    # Wait for backend
-    local BACKEND_OK=0
-    for i in $(seq 1 30); do
-        if curl --noproxy 127.0.0.1 -s http://127.0.0.1:9772/health_check 2>/dev/null | grep -q "ok"; then
-            _log "后端已启动 (${USE_SYSTEMD:+unit=witty-ub-backend, }port 9772)"
-            BACKEND_OK=1
-            break
+    # --- Backend (frontend 角色跳过, 后端在远端机器上) ---
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        if [ ! -f "$LATENCY_DIR/.venv/bin/python" ]; then
+            _warn "Python venv 不存在，跳过后端启动"
+            _info "请先运行完整部署: bash deploy/host/deploy.sh"
+            return 1
         fi
-        if [ $i -eq 30 ]; then
-            _warn "后端启动超时，最近日志如下:"
-            journalctl --user -u witty-ub-backend.service -n 20 --no-pager 2>/dev/null || tail -20 "$LOG_DIR/backend.log" 2>/dev/null || true
+        if [ "$USE_SYSTEMD" = "1" ]; then
+            _info "启动 FastAPI 后端 (systemd user unit)..."
+            systemctl --user start witty-ub-backend.service || {
+                _err "后端 unit 启动失败"
+                return 1
+            }
+        else
+            _info "启动 FastAPI 后端 (nohup 裸进程)..."
+            # 环境与 systemd unit 对齐 (PYTHONPATH/WITTY_DIR/WITTY_INSTALL_PATH/CONFIG)。
+            # 必须用 venv python: 系统 python3 无 polars, 解析任务会 ModuleNotFoundError。
+            export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+            export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
+            export CONFIG="${CONFIG:-$PROJECT_DIR/config/diagnosis_config.toml}"
+            export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
+            nohup "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py" \
+                >"$LOG_DIR/backend.log" 2>&1 &
+            echo $! >"$LOG_DIR/backend.pid"
         fi
-        sleep 2
-    done
-    if [ "$BACKEND_OK" -ne 1 ]; then
-        _err "后端启动失败(60 秒内健康检查未通过)。"
-        _err "请检查 journalctl --user -u witty-ub-backend.service 或 $LOG_DIR/backend.log 定位原因（最常见：PostgreSQL 密码/端口配置错误）。"
-        return 1
+
+        # Wait for backend
+        local BACKEND_OK=0
+        for i in $(seq 1 30); do
+            if curl --noproxy 127.0.0.1 -s http://127.0.0.1:9772/health_check 2>/dev/null | grep -q "ok"; then
+                _log "后端已启动 (${USE_SYSTEMD:+unit=witty-ub-backend, }port 9772)"
+                BACKEND_OK=1
+                break
+            fi
+            if [ $i -eq 30 ]; then
+                _warn "后端启动超时，最近日志如下:"
+                journalctl --user -u witty-ub-backend.service -n 20 --no-pager 2>/dev/null || tail -20 "$LOG_DIR/backend.log" 2>/dev/null || true
+            fi
+            sleep 2
+        done
+        if [ "$BACKEND_OK" -ne 1 ]; then
+            _err "后端启动失败(60 秒内健康检查未通过)。"
+            _err "请检查 journalctl --user -u witty-ub-backend.service 或 $LOG_DIR/backend.log 定位原因（最常见：PostgreSQL 密码/端口配置错误）。"
+            return 1
+        fi
     fi
 
-    # --- Frontend ---
-    if [ -d "$WEB_DIR" ]; then
+    # --- Frontend (backend 角色跳过) ---
+    if [ "$WITTY_ROLE" = "frontend" ]; then
+        # frontend 角色: nginx 静态托管 + 反代远端后端 + OpenCode (裸进程)
+        start_frontend_node
+    elif [ "$WITTY_ROLE" != "backend" ] && [ -d "$WEB_DIR" ]; then
         _check_node || _warn "Node 版本不满足要求，前端可能无法启动"
         if [ "$USE_SYSTEMD" = "1" ]; then
             _info "启动前端 (systemd user unit, vite preview 托管 dist/)..."
-            systemctl --user start witty-ub-frontend.service || { _err "前端 unit 启动失败"; return 1; }
+            systemctl --user start witty-ub-frontend.service || {
+                _err "前端 unit 启动失败"
+                return 1
+            }
         else
             _info "启动前端 (nohup 裸进程, vite preview 托管 dist/)..."
-            nohup bash "$SCRIPT_DIR/run_frontend.sh" > "$LOG_DIR/frontend.log" 2>&1 &
-            echo $! > "$LOG_DIR/frontend.pid"
+            nohup bash "$SCRIPT_DIR/run_frontend.sh" >"$LOG_DIR/frontend.log" 2>&1 &
+            echo $! >"$LOG_DIR/frontend.pid"
         fi
 
         sleep 3
@@ -438,10 +595,23 @@ stop_services() {
     _info "停止 Vite 前端..."
     systemctl --user stop witty-ub-frontend.service 2>/dev/null || true
 
+    # 停止 frontend 角色的 nginx (本项目实例, pid 文件存在才动)
+    local SUDO=""
+    _is_root || SUDO="sudo"
+    if [ -f "$PROJECT_DIR/.deploy-run/nginx.pid" ]; then
+        _info "停止 Web nginx..."
+        $SUDO kill "$($SUDO cat "$PROJECT_DIR/.deploy-run/nginx.pid")" 2>/dev/null || true
+    fi
+    # 停止 OpenCode 裸进程 (frontend 角色)
+    _has_cmd fuser && fuser -k 4096/tcp 2>/dev/null || true
+
     # 清理残留 nohup 孤儿进程 (历史部署方式遗留)
-    [ -f "$LOG_DIR/backend.pid" ]  && kill "$(cat "$LOG_DIR/backend.pid")" 2>/dev/null || true
+    [ -f "$LOG_DIR/backend.pid" ] && kill "$(cat "$LOG_DIR/backend.pid")" 2>/dev/null || true
     [ -f "$LOG_DIR/frontend.pid" ] && kill "$(cat "$LOG_DIR/frontend.pid")" 2>/dev/null || true
-    _has_cmd fuser && { fuser -k 9772/tcp 2>/dev/null || true; fuser -k 5173/tcp 2>/dev/null || true; }
+    _has_cmd fuser && {
+        fuser -k 9772/tcp 2>/dev/null || true
+        fuser -k 5173/tcp 2>/dev/null || true
+    }
 
     _log "所有服务已停止"
 }
@@ -456,9 +626,15 @@ detect_existing_deploy() {
         _warn "检测到端口 9772/5173 已被占用(已有服务在运行)"
         found=1
     fi
-    [ -f "$LOG_DIR/backend.pid" ] && { _warn "检测到 PID 文件: $LOG_DIR/backend.pid"; found=1; }
-    [ -f "$LOG_DIR/frontend.pid" ] && { _warn "检测到 PID 文件: $LOG_DIR/frontend.pid"; found=1; }
-    if _has_cmd psql && _psql -tAc "SELECT count(*) FROM log_knowledge" >/dev/null 2>&1 && \
+    [ -f "$LOG_DIR/backend.pid" ] && {
+        _warn "检测到 PID 文件: $LOG_DIR/backend.pid"
+        found=1
+    }
+    [ -f "$LOG_DIR/frontend.pid" ] && {
+        _warn "检测到 PID 文件: $LOG_DIR/frontend.pid"
+        found=1
+    }
+    if _has_cmd psql && _psql -tAc "SELECT count(*) FROM log_knowledge" >/dev/null 2>&1 &&
         [ "$(_psql -tAc "SELECT count(*) FROM log_knowledge" 2>/dev/null | tr -d ' ')" != "0" ]; then
         _warn "检测到 PostgreSQL 中已有知识库数据"
         found=1
@@ -499,16 +675,22 @@ clean_all() {
     echo "  2) 以上全部 + 删除 build/ + .venv/ + 部署日志 (彻底干净, 下次需重新编译/装依赖)"
     echo ""
     local scope
-    # CLEAN_SCOPE 环境变量 (CI/自动化测试) 优先, 跳过交互。
+    # CLEAN_SCOPE 环境变量 (CI/自动化测试) 优先, 跳过交互;
+    # NONINTERACTIVE=1 时默认 scope=1 (保留构建产物, 可秒级重装)。
     if [ -n "${CLEAN_SCOPE:-}" ]; then
         scope="$CLEAN_SCOPE"
+    elif [ "${NONINTERACTIVE:-0}" = "1" ]; then
+        scope=1
     else
         read -r -p "请选择 [1-2, 默认 1]: " scope
         scope="${scope:-1}"
     fi
     case "$scope" in
-        1|2) ;;
-        *) _err "无效选择: $scope"; return 1 ;;
+    1 | 2) ;;
+    *)
+        _err "无效选择: $scope"
+        return 1
+        ;;
     esac
 
     echo ""
@@ -544,7 +726,8 @@ clean_all() {
     # 3. 清 /var/witty-ub
     if [ -d /var/witty-ub ]; then
         _info "删除 /var/witty-ub..."
-        local SUDO=""; _is_root || SUDO="sudo"
+        local SUDO=""
+        _is_root || SUDO="sudo"
         $SUDO rm -rf /var/witty-ub/data /var/witty-ub/config 2>/dev/null || true
         _log "/var/witty-ub 数据已删除"
     fi
@@ -575,12 +758,37 @@ show_access_info() {
     echo "╔══════════════════════════════════════════════╗"
     echo "║  部署完成！访问地址:                          ║"
     echo "║                                              ║"
-    echo "║  前端:   http://localhost:5173               ║"
-    if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
-        echo "║  前端:   http://$(hostname -I | awk '{print $1}'):5173        ║"
-    fi
-    echo "║  后端:   http://localhost:9772               ║"
-    echo "║  健康:   http://localhost:9772/health_check   ║"
+    case "$WITTY_ROLE" in
+    backend)
+        echo "║  角色:   backend (仅后端)                    ║"
+        echo "║  后端:   http://0.0.0.0:9772                 ║"
+        echo "║  健康:   http://localhost:9772/health_check   ║"
+        ;;
+    frontend)
+        echo "║  角色:   frontend (仅前端)                   ║"
+        if [ "$WEB_MODE" = "nginx" ]; then
+            echo "║  前端:   http://localhost:8080 (nginx)       ║"
+            if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
+                echo "║  前端:   http://$(hostname -I | awk '{print $1}'):8080        ║"
+            fi
+        else
+            echo "║  前端:   http://localhost:5173 (vite preview) ║"
+            if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
+                echo "║  前端:   http://$(hostname -I | awk '{print $1}'):5173        ║"
+            fi
+        fi
+        echo "║  后端:   $WITTY_BACKEND_URL (远端)"
+        echo "║  Agent:  http://localhost:4096 → $WITTY_API_BASE"
+        ;;
+    *)
+        echo "║  前端:   http://localhost:5173               ║"
+        if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
+            echo "║  前端:   http://$(hostname -I | awk '{print $1}'):5173        ║"
+        fi
+        echo "║  后端:   http://localhost:9772               ║"
+        echo "║  健康:   http://localhost:9772/health_check   ║"
+        ;;
+    esac
     echo "║                                              ║"
     echo "║  日志:   $LOG_DIR/                           ║"
     echo "╚══════════════════════════════════════════════╝"
@@ -590,6 +798,10 @@ show_access_info() {
 main_deploy() {
     show_banner
     detect_os
+
+    if [ "$WITTY_ROLE" != "all" ]; then
+        _log "前后端分离部署, 角色: $WITTY_ROLE (backend=$WITTY_BACKEND_URL)"
+    fi
 
     # 部署前检测: 若环境已有部署痕迹, 交互询问是否先清理再重装。
     if detect_existing_deploy; then
@@ -606,12 +818,20 @@ main_deploy() {
     fi
 
     install_system_deps
-    setup_postgresql
-    install_python_deps
-    build_frontend
-    build_cpp
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        setup_postgresql
+        install_python_deps
+    fi
+    if [ "$WITTY_ROLE" != "backend" ]; then
+        build_frontend
+    fi
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        build_cpp
+    fi
     copy_data_files
-    sync_pg_credentials
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        sync_pg_credentials
+    fi
     start_services
     show_access_info
 }
@@ -655,18 +875,21 @@ menu_main() {
         read -r -p "请选择操作 [0-5]: " choice
         echo ""
         case "$choice" in
-            1) main_deploy ;;
-            2) install_deps ;;
-            3) start_services; show_access_info ;;
-            4) stop_services ;;
-            5) clean_all ;;
-            0)
-                echo "再见！"
-                exit 0
-                ;;
-            *)
-                _err "无效选项，请重新选择"
-                ;;
+        1) main_deploy ;;
+        2) install_deps ;;
+        3)
+            start_services
+            show_access_info
+            ;;
+        4) stop_services ;;
+        5) clean_all ;;
+        0)
+            echo "再见！"
+            exit 0
+            ;;
+        *)
+            _err "无效选项，请重新选择"
+            ;;
         esac
         echo ""
         read -r -p "按回车继续..." _
@@ -675,44 +898,82 @@ menu_main() {
 
 # ──────────────────── 参数解析 ────────────────────
 
-case "${1:-menu}" in
-    --start|-s|start)
-        detect_os
-        start_services
-        show_access_info
+# 先提取 --role <role> / --role=<role> (剩余参数原样传给子命令 case)
+ROLE_ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --role)
+        [ $# -ge 2 ] || {
+            echo "错误: --role 需要参数 (all|backend|frontend)"
+            exit 1
+        }
+        WITTY_ROLE="$2"
+        shift 2
         ;;
-    --stop|-x|stop)
-        stop_services
-        ;;
-    --clean|-c|clean)
-        show_banner
-        detect_os
-        clean_all
-        ;;
-    --deploy|deploy)
-        main_deploy
-        ;;
-    --menu|-m|menu)
-        menu_main
-        ;;
-    --help|-h|help)
-        show_banner
-        echo "用法: bash deploy/host/deploy.sh [选项]"
-        echo ""
-        echo "  (无参数)      交互式菜单（选择部署 / 启动 / 停止 / 清理）"
-        echo "  --deploy      直接完整部署（跳过菜单，同 NONINTERACTIVE=1）"
-        echo "  --start / -s  仅启动服务"
-        echo "  --stop  / -x  停止服务"
-        echo "  --clean / -c  一键清理（交互选择范围: 服务+PG数据+var数据 / 或加 build+venv+日志）"
-        echo "  --help  / -h  显示帮助"
-        echo ""
-        echo "相关脚本:"
-        echo "  deploy/host/install_deps.sh  仅安装系统依赖 + Python 依赖"
-        echo "  deploy/deploy_pg.sh          PostgreSQL 独立部署 (Docker/RPM/APT)"
-        echo "  deploy/docker/deploy_witty.sh 容器一键部署"
-        echo "  deploy/docker/manage.sh       容器运维管理"
+    --role=*)
+        WITTY_ROLE="${1#--role=}"
+        shift
         ;;
     *)
-        main_deploy
+        ROLE_ARGS+=("$1")
+        shift
         ;;
+    esac
+done
+set -- ${ROLE_ARGS[@]+"${ROLE_ARGS[@]}"}
+
+case "$WITTY_ROLE" in
+all | backend | frontend) ;;
+*)
+    echo "错误: 无效角色 '$WITTY_ROLE' (可选: all|backend|frontend)"
+    exit 1
+    ;;
+esac
+
+case "${1:-menu}" in
+--start | -s | start)
+    detect_os
+    start_services
+    show_access_info
+    ;;
+--stop | -x | stop)
+    stop_services
+    ;;
+--clean | -c | clean)
+    show_banner
+    detect_os
+    clean_all
+    ;;
+--deploy | deploy)
+    main_deploy
+    ;;
+--menu | -m | menu)
+    menu_main
+    ;;
+--help | -h | help)
+    show_banner
+    echo "用法: bash deploy/host/deploy.sh [选项]"
+    echo ""
+    echo "  (无参数)      交互式菜单（选择部署 / 启动 / 停止 / 清理）"
+    echo "  --deploy      直接完整部署（跳过菜单，同 NONINTERACTIVE=1）"
+    echo "  --start / -s  仅启动服务"
+    echo "  --stop  / -x  停止服务"
+    echo "  --clean / -c  一键清理（交互选择范围: 服务+PG数据+var数据 / 或加 build+venv+日志）"
+    echo "  --help  / -h  显示帮助"
+    echo ""
+    echo "前后端分离部署:"
+    echo "  --role all|backend|frontend   部署角色（默认 all, 也可用环境变量 WITTY_ROLE）"
+    echo "  WITTY_BACKEND_URL=http://<backend>:9772  frontend 角色指向的远端后端"
+    echo "  示例(后端机): bash deploy/host/deploy.sh --deploy --role backend"
+    echo "  示例(前端机): WITTY_BACKEND_URL=http://be:9772 bash deploy/host/deploy.sh --deploy --role frontend"
+    echo ""
+    echo "相关脚本:"
+    echo "  deploy/host/install_deps.sh  仅安装系统依赖 + Python 依赖"
+    echo "  deploy/deploy_pg.sh          PostgreSQL 独立部署 (Docker/RPM/APT)"
+    echo "  deploy/docker/deploy_witty.sh 容器一键部署"
+    echo "  deploy/docker/manage.sh       容器运维管理"
+    ;;
+*)
+    main_deploy
+    ;;
 esac

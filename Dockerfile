@@ -20,7 +20,7 @@ RUN mkdir -p build && cd build && \
         witty-ub-brpc-diag
 
 # Compile tokenizer for experience-skill
-RUN cd witty_ub_diagnosticain/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
+RUN cd witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
     bash build.sh
 
 # ============================================
@@ -52,17 +52,19 @@ RUN find /usr/share/witty-ub/data -type f -exec chmod 0640 {} \; && \
 # Copy configuration files
 COPY config/diagnosis_config.toml /var/witty-ub/config/
 
-# Copy witty_ub_diagnosticain contents into .opencode directory
-COPY witty_ub_diagnosticain/ /var/witty-ub/witty_ub_diagnosticain/.opencode/
+# Copy witty_ub_diagnostician contents into .opencode directory
+COPY witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/.opencode/
 
 # Copy compiled libsimple.so from builder
-COPY --from=builder-cpp /build/witty_ub_diagnosticain/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/libsimple.so /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/
+COPY --from=builder-cpp /build/witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/libsimple.so /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/
 
 # Copy web frontend (pre-built locally)
 COPY src/web/dist /var/witty-ub/web/
 
-# Copy nginx configuration (container-optimized)
+# Copy nginx configuration (container-optimized default + template for split
+# deployment; entrypoint renders the template with WITTY_BACKEND_URL/WITTY_AGENT_URL)
 COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
+COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
 
 # Copy latency plugin
 COPY src/plugins/latency/ENUM /var/witty-ub/latency/ENUM/
@@ -82,10 +84,10 @@ COPY src/plugins/latency/deploy/run_opencode.sh /var/witty-ub/latency/deploy/run
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 
 # Create symlink for libsimple.so and set up experience-skill venv
-RUN cd /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
+RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
     ln -sf simple-src/output/bin/libsimple.so libsimple && \
-    cd /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts && \
-    /root/.local/bin/uv sync --frozen
+    cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts && \
+    /root/.local/bin/uv sync
 
 # Set permissions
 RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
@@ -95,13 +97,14 @@ RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
     find /var/witty-ub/config -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/web -type d -exec chmod 0755 {} \; && \
     find /var/witty-ub/web -type f -exec chmod 0644 {} \; && \
-    find /var/witty-ub/witty_ub_diagnosticain -type d -exec chmod 0755 {} \; && \
-    find /var/witty-ub/witty_ub_diagnosticain -type f -exec chmod 0644 {} \; && \
-    find /var/witty-ub/witty_ub_diagnosticain -type f -name "*.sh" -exec chmod 0755 {} \;
+    find /var/witty-ub/witty_ub_diagnostician -type d -exec chmod 0755 {} \; && \
+    find /var/witty-ub/witty_ub_diagnostician -type f -exec chmod 0644 {} \; && \
+    find /var/witty-ub/witty_ub_diagnostician -type f -name "*.sh" -exec chmod 0755 {} \;
 
-# Copy entrypoint script
+# Copy entrypoint & healthcheck scripts
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker/healthcheck.sh /healthcheck.sh
+RUN chmod +x /entrypoint.sh /healthcheck.sh
 
 # Expose ports
 # 8080: Web UI (nginx)
@@ -112,8 +115,8 @@ EXPOSE 8080 9772 4096
 # Volumes for persistent data
 VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
 
-# Health check
+# Health check (role-aware: frontend probes the remote backend)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:9772/health_check || exit 1
+    CMD ["/healthcheck.sh"]
 
 ENTRYPOINT ["/entrypoint.sh"]
