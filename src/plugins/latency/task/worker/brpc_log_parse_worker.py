@@ -162,14 +162,14 @@ class BrpcLogParseWorker(BaseWorker):
             t_parse = time.perf_counter() - t_run_start
 
             if record_count == 0:
-                await BaseWorker.report(task.id, "解析失败：未找到 BRPC profiling 日志", 100.0)
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
-                )
+                await BaseWorker.report(task.id, "无 BRPC profiling 文件，跳过 profiling 解析", 100.0)
                 await LogFilePGManager.update_log_file(
-                    task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
+                    task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
                 )
-                return False
+                await TaskPGManager.update_task(
+                    task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+                )
+                return True
 
             await BaseWorker.report(
                 task.id,

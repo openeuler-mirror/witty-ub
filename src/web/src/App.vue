@@ -10374,8 +10374,11 @@ const brpcSingleAvailableMetrics = computed(() => {
 
 // 格式化 brpc 时间戳为 HH:mm:ss
 const formatBrpcTimestamp = (ts: string): string => {
-  const match = ts.match(/[T ](\d{2}:\d{2}:\d{2})/)
-  return match?.[1] ?? ts
+  const match = ts.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/)
+  if (match) {
+    return `${match[1]} ${match[2]}`
+  }
+  return ts
 }
 
 // brpc 图表公共图例样式（与 kv-cache 时延监控统一）
@@ -11270,35 +11273,18 @@ const loadBrpcAbnormalThreadHits = async (
   brpcAbnormalThreadHitsError.value = ''
   brpcAbnormalThreadHits.value = []
   try {
-    const pageSize = 1000
-    const buildHitsQuery = (pageNum: number) => {
-      const query = new URLSearchParams({
-        pod_ip: thread.pod_ip,
-        thread_id: String(thread.thread_id),
-        start_time: startTime,
-        end_time: endTime,
-        page_num: String(pageNum),
-        page_cnt: String(pageSize),
-      })
-      if (thread.pod_name) query.set('pod_name', thread.pod_name)
-      return query
-    }
-    const loadPage = (pageNum: number) =>
-      request<{ total: number; hits: BrpcDiagHitLog[] }>(
-        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/hits?${buildHitsQuery(pageNum).toString()}`,
-      )
-
-    const firstPage = await loadPage(1)
-    if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
-    const pageCount = Math.ceil((firstPage.total ?? 0) / pageSize)
-    const remainingPages = await Promise.all(
-      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => loadPage(index + 2)),
+    const query = new URLSearchParams({
+      pod_ip: thread.pod_ip,
+      thread_id: String(thread.thread_id),
+      start_time: startTime,
+      end_time: endTime,
+    })
+    if (thread.pod_name) query.set('pod_name', thread.pod_name)
+    const result = await request<{ total: number; hits: BrpcDiagHitLog[] }>(
+      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/thread-logs?${query.toString()}`,
     )
     if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
-    brpcAbnormalThreadHits.value = [
-      ...(firstPage.hits ?? []),
-      ...remainingPages.flatMap((page) => page.hits ?? []),
-    ]
+    brpcAbnormalThreadHits.value = result.hits ?? []
   } catch (error) {
     if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
     brpcAbnormalThreadHitsError.value =
@@ -12096,7 +12082,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="monitor-nav-group">
-            <div class="monitor-nav-group-title">BRPC</div>
+            <div class="monitor-nav-group-title">UBSocket</div>
             <div class="monitor-nav-sublist">
               <button
                 class="monitor-nav-item"
@@ -14622,7 +14608,7 @@ onBeforeUnmount(() => {
           <header class="monitor-header">
             <h1>接口监控</h1>
             <p class="monitor-sub">
-              监控 BRPC profiling 日志中 21 个接口的请求成功率、失败率、时延等指标
+              监控 UBSocket profiling 日志中 21 个接口的请求成功率、失败率、时延等指标
             </p>
           </header>
 
@@ -14829,7 +14815,7 @@ onBeforeUnmount(() => {
           <div class="monitor-grid">
             <article class="monitor-card chart-slot">
               <div class="monitor-card-title">
-                <span>📈 BRPC 公共API故障时序分布</span>
+                <span>📈 UBSocket 公共API故障时序分布</span>
                 <div class="chart-title-actions brpc-fault-chart-actions">
                   <button
                     v-if="brpcFaultChartRange"
@@ -14872,7 +14858,7 @@ onBeforeUnmount(() => {
                 >
                   清空
                 </button>
-                <div class="latency-series-options" aria-label="BRPC 公共 API 曲线选择">
+                <div class="latency-series-options" aria-label="UBSocket 公共 API 曲线选择">
                   <label
                     v-for="series in brpcFaultSeriesOptions"
                     :key="series.id"
@@ -14893,7 +14879,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="latency-chart-panel">
                 <div v-if="isBrpcFaultTimelineLoading" class="chart-state">
-                  正在加载 BRPC 公共API故障时序分布...
+                  正在加载 UBSocket 公共API故障时序分布...
                 </div>
                 <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
                   {{ brpcFaultTimelineError }}
@@ -14908,7 +14894,7 @@ onBeforeUnmount(() => {
                   v-else
                   ref="brpcFaultTimelineRef"
                   class="echarts-latency-chart"
-                  aria-label="BRPC 公共API故障时序分布"
+                  aria-label="UBSocket 公共API故障时序分布"
                 ></div>
               </div>
             </article>
@@ -15697,11 +15683,11 @@ onBeforeUnmount(() => {
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
                 <input type="radio" v-model="logType" value="kv-cache" :disabled="isUploadingLog" />
-                <span>kv-cache</span>
+                <span>KVCache</span>
               </label>
               <label class="log-type-option">
                 <input type="radio" v-model="logType" value="brpc" :disabled="isUploadingLog" />
-                <span>brpc</span>
+                <span>UBSocket</span>
               </label>
             </div>
             <input
@@ -15942,7 +15928,7 @@ onBeforeUnmount(() => {
             <section class="brpc-detail-section">
               <div class="brpc-detail-section-heading">
                 <div>
-                  <h3>BRPC 公共API故障时序分布</h3>
+                  <h3>UBSocket 公共API故障时序分布</h3>
                 </div>
               </div>
               <div class="brpc-detail-chart-panel">
@@ -15954,7 +15940,7 @@ onBeforeUnmount(() => {
                   ref="brpcEventDetailTimelineRef"
                   class="brpc-detail-timeline-chart"
                   role="img"
-                  aria-label="BRPC 公共API故障时序分布"
+                  aria-label="UBSocket 公共API故障时序分布"
                 ></div>
               </div>
             </section>

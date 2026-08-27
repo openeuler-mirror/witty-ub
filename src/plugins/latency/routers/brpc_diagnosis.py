@@ -126,6 +126,39 @@ async def list_hits(
 
 
 @router.get(
+    "/batch/{batch_id}/thread-logs",
+    response_model=ListBrpcDiagHitsResponse,
+    operation_id="list_brpc_thread_logs",
+    description=(
+        "List ALL log lines (fault + normal) for one thread from the original "
+        "log file. Fault lines carry a failure_mode_id; normal lines have an "
+        "empty failure_mode_id."
+    ),
+)
+async def list_thread_logs(
+    batch_id: Annotated[str, Path(min_length=1)],
+    pod_ip: Annotated[str, Query(min_length=1)],
+    thread_id: Annotated[int, Query()],
+    start_time: Annotated[
+        BrpcQueryTimestamp | None,
+        Query(description=_QUERY_TIME_DESCRIPTION),
+    ] = None,
+    end_time: Annotated[
+        BrpcQueryTimestamp | None,
+        Query(description=_QUERY_TIME_DESCRIPTION),
+    ] = None,
+) -> ListBrpcDiagHitsResponse:
+    result = await BrpcDiagnosisService.list_thread_logs(
+        batch_id=batch_id,
+        pod_ip=pod_ip,
+        thread_id=thread_id,
+        start_timestamp=start_time,
+        end_timestamp=end_time,
+    )
+    return ListBrpcDiagHitsResponse(result=result)
+
+
+@router.get(
     "/batch/{batch_id}/interface-timeline",
     response_model=GetBrpcInterfaceTimelineResponse,
     operation_id="get_brpc_interface_timeline",

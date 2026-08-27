@@ -361,6 +361,7 @@ def test_scan_file_multi_dispatches_on_disk_type(monkeypatch, tmp_path):
         calls["decoupled"] += 1
         return {}
 
+    monkeypatch.setattr(pw, "_scan_file_polars", _fake_sync)
     monkeypatch.setattr(pw, "_scan_file_multi_sync", _fake_sync)
     monkeypatch.setattr(pw, "_scan_file_multi_decoupled", _fake_decoupled)
 
@@ -379,6 +380,7 @@ def test_single_parser_fast_path_precedes_dispatch(monkeypatch, tmp_path):
     def _boom(*args, **kwargs):
         raise AssertionError("dispatch reached — fast path must short-circuit")
 
+    monkeypatch.setattr(pw, "_scan_file_polars", _boom)
     monkeypatch.setattr(pw, "_scan_file_multi_sync", _boom)
     monkeypatch.setattr(pw, "_scan_file_multi_decoupled", _boom)
     monkeypatch.setenv("WITTY_UB_IO_DECOUPLE", "1")
