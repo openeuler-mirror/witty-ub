@@ -9,7 +9,7 @@
 ### witty-ub 容器环境变量
 
 | 变量名 | 默认值 | 说明 |
-|--------|--------|------|
+| -------- | -------- | ------ |
 | `PYTHONPATH` | `/var/witty-ub` | Python 模块搜索路径 |
 | `LOG_LEVEL` | `info` | 日志级别（debug/info/warning/error） |
 | `PG_HOST` | `postgres` | PostgreSQL 主机地址 |
@@ -18,10 +18,39 @@
 | `PG_USER` | `witty-ub` | PostgreSQL 用户名 |
 | `PG_PASSWORD` | `witty-ub` | PostgreSQL 密码 |
 
+### 前后端分离部署环境变量
+
+> 分离部署（`WITTY_ROLE=backend/frontend`，后端节点与前端节点可不在同一台机器）详见 [架构概览](../deployment/01-overview.md)
+
+| 变量名 | 默认值 | 说明 |
+| -------- | -------- | ------ |
+| `WITTY_ROLE` | `all` | 容器/部署角色：`all` 单机全量 / `backend` 仅后端 / `frontend` 仅前端 |
+| `WITTY_BACKEND_URL` | `http://127.0.0.1:9772` | Nginx API 反代上游（前端节点指向后端节点地址） |
+| `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent 提示词中的后端 API 基址（部署时渲染） |
+| `WITTY_NO_PROXY` | `127.0.0.1` | Agent curl `--noproxy` 参数 |
+| `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | Nginx `/agent-api/` 反代上游 |
+| `OPENCODE_HOST` | `127.0.0.1` | OpenCode 监听地址（OpenCode 留在后端节点时改 `0.0.0.0`） |
+
+### 前端运行时配置（config.json）
+
+前端构建产物目录下的 `config.json` 支持不改构建切换后端（优先级低于 `VITE_*` 构建期环境变量）：
+
+```json
+{
+  "apiBase": "",
+  "agentApiBase": "/agent-api"
+}
+```
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `apiBase` | `""` | 后端 API 基址；留空 = 同源（经 Nginx 反代），设为 `http://<后端>:9772` 则浏览器直连 |
+| `agentApiBase` | `/agent-api` | OpenCode Agent API 基址 |
+
 ### PostgreSQL 容器环境变量
 
 | 变量名 | 默认值 | 说明 |
-|--------|--------|------|
+| -------- | -------- | ------ |
 | `POSTGRESQL_USER` | `witty-ub` | 数据库用户 |
 | `POSTGRESQL_PASSWORD` | `witty-ub` | 数据库密码 |
 | `POSTGRESQL_DATABASE` | `witty-ub` | 数据库名称 |
@@ -33,23 +62,25 @@
 
 ## 端口映射
 
-### 容器部署端口
+### 前后端分离部署（默认形态）
+
+| 节点 | 服务 | 端口 | 说明 |
+| ---- | ---- | ---- | ---- |
+| 后端节点 | Latency Plugin API | 9772 | 后端 API 服务（FastAPI，仅对前端节点开放） |
+| 后端节点 | PostgreSQL | 5432 / 15432 | 数据库服务（仅本机/后端内部） |
+| 前端节点 | Web UI (Nginx) | 8080 / 32413 | Web 界面和 API/Agent 反代 |
+| 前端节点 | OpenCode Server | 4096 | AI 诊断服务（仅本机，经 `/agent-api/` 反代） |
+
+### 单机部署端口（前后端同机）
 
 | 服务 | 容器内端口 | 宿主机端口 | 说明 |
-|------|-----------|-----------|------|
+| ------ | ----------- | ----------- | ------ |
 | Web UI (Nginx) | 8080 | 32412 | Web 界面和 API 代理 |
 | Latency Plugin API | 9772 | 9772 | 后端 API 服务（FastAPI） |
 | OpenCode Server | 4096 | 4096 | AI 诊断服务 |
 | PostgreSQL | 5432 | 15432 | 数据库服务 |
 
-### RPM 部署端口
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| Web UI (Nginx) | 8080 | Web 界面 |
-| Latency Plugin API | 9772 | 后端 API 服务 |
-| OpenCode Server | 4096 | AI 诊断服务 |
-| PostgreSQL | 5432 或 15432 | 数据库服务（取决于配置） |
+RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432 或 15432（取决于配置）。
 
 ---
 
@@ -58,7 +89,7 @@
 ### 容器数据卷配置
 
 | 卷名 | 容器路径 | 用途 |
-|------|---------|------|
+| ------ | --------- | ------ |
 | `witty-ub-data` | `/var/witty-ub/data` | 故障模式数据、KVCache、拓扑数据 |
 | `witty-ub-logs` | `/var/log/witty-ub` | 应用日志 |
 | `witty-ub-uploads` | `/var/witty-ub/latency/file/file_upload` | 上传的日志文件 |
@@ -149,8 +180,8 @@ server {
 
 ```jsonc
 {
-  	"$schema": "https://opencode.ai/config.json",
-  	"provider": {
+   "$schema": "https://opencode.ai/config.json",
+   "provider": {
         "provider-ID": {
             "name": "provider-name",
             "npm": "@ai-sdk/openai-compatible",
@@ -189,7 +220,7 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 ### 数据库连接配置
 
 | 配置项 | 默认值 | 说明 |
-|--------|--------|------|
+| -------- | -------- | ------ |
 | `PG_HOST` | `127.0.0.1` | PostgreSQL 主机地址 |
 | `PG_PORT` | `15432` | PostgreSQL 端口 |
 | `PG_DATABASE` | `witty-ub` | 数据库名 |
@@ -201,7 +232,7 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 ### PG_HOST 场景说明
 
 | 场景 | PG_HOST | PG_PORT | 说明 |
-|------|---------|---------|------|
+| ------ | --------- | --------- | ------ |
 | 宿主机访问 | `127.0.0.1` | `15432` | 部署脚本、本地开发 |
 | 容器访问宿主机 RPM PG | `172.18.0.1` | `15432` | Docker 网络网关 |
 | 容器访问 PG 容器 | `postgres` | `5432` | Docker 网络 DNS |
@@ -211,7 +242,7 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 以下参数留空时由部署脚本根据宿主机内存自动计算：
 
 | 配置项 | 说明 | 推荐值（8GB 内存） |
-|--------|------|-------------------|
+| -------- | ------ | ------------------- |
 | `PG_SHARED_BUFFERS` | 共享缓冲区 | `2GB`（物理内存 25%） |
 | `PG_EFFECTIVE_CACHE_SIZE` | 优化器缓存 | `6GB`（物理内存 50%-75%） |
 | `PG_WORK_MEM` | 排序/哈希内存 | `64MB` |
@@ -226,7 +257,7 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 ### Docker 部署专用配置
 
 | 配置项 | 默认值 | 说明 |
-|--------|--------|------|
+| -------- | -------- | ------ |
 | `PG_CONTAINER_NAME` | `postgres` | PostgreSQL 容器名称 |
 | `PG_IMAGE` | `quay.io/sclorg/postgresql-15-c9s:latest` | PostgreSQL 镜像 |
 | `PG_NETWORK` | `witty-ub-network` | Docker 网络名称 |
@@ -236,7 +267,7 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 ### witty-ub 容器部署专用配置
 
 | 配置项 | 默认值 | 说明 |
-|--------|--------|------|
+| -------- | -------- | ------ |
 | `WITTY_CONTAINER_NAME` | `witty-ub` | witty-ub 容器名称 |
 | `WITTY_IMAGE` | （自动选择） | witty-ub 镜像 |
 | `WITTY_HOST_PORT` | `32412` | 宿主机端口 |
