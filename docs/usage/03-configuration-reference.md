@@ -1,6 +1,6 @@
 # 配置参考手册
 
-本文档汇总 witty-ub 系统的所有配置项，包括环境变量、端口映射、数据卷、Nginx 配置、OpenCode 配置和 pg.conf 配置。
+本文档汇总 witty-ub 系统的所有配置项，包括环境变量、端口映射、数据卷、Nginx 配置、OpenCode 配置和 deploy.conf 配置。
 
 ---
 

@@ -130,7 +130,7 @@ sudo witty-ub manager install    # 初始化 PostgreSQL + 启动服务
 
 ## PG 连接配置（后端节点）
 
-PG 凭据位于 `/etc/witty-ub/pg.conf`，默认值：`host=127.0.0.1 port=15432 db/user/pass=witty-ub`。
+PG 凭据位于 `/etc/witty-ub/deploy.conf`（旧安装为 `pg.conf`，自动兼容），默认值：`host=127.0.0.1 port=15432 db/user/pass=witty-ub`。
 
 如需修改（如指向外部 PG），编辑后重新执行 `sudo witty-ub manager install` 即可同步生效。
 
@@ -149,7 +149,7 @@ sudo witty-ub manager psql        # 进入 psql
 ```
 
 | 服务 | 落位 | 端口 |
-|------|------|------|
+| ------ | ------ | ------ |
 | `witty-ub-web` | 前端节点（Nginx） | 8080 |
 | `witty-ub-latency` | 后端节点（FastAPI） | 9772 |
 | `postgresql-15` | 后端节点（数据库） | 15432 |
@@ -183,11 +183,11 @@ sudo yum remove -y witty-ub witty-ub-manager                   # 彻底卸载 RP
 ## 故障排查
 
 | 问题 | 排查 |
-|------|------|
+| ------ | ------ |
 | 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager install` |
 | 前端 8080 起不来 | `ss -tlnp \| grep 8080` 查端口占用；分离部署时检查 `/etc/witty-ub/web/nginx.conf` 是否已渲染 `WITTY_BACKEND_URL` |
 | 前端页面接口 502 | 确认后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙 |
-| psql 连不上 | `systemctl status postgresql-15`；`cat /etc/witty-ub/pg.conf` |
+| psql 连不上 | `systemctl status postgresql-15`；`cat /etc/witty-ub/deploy.conf` |
 | 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager install` |
 
 ---

@@ -8,7 +8,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
-CONF_FILE="${DEPLOY_DIR}/../pg.conf"
+CONF_FILE="${DEPLOY_DIR}/../deploy.conf"
+[ -f "$CONF_FILE" ] || CONF_FILE="${DEPLOY_DIR}/../pg.conf"   # 兼容旧名
 
 PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
 WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"

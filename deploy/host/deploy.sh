@@ -261,13 +261,14 @@ copy_data_files() {
 # ──────────────────── PG 凭据同步 ────────────────────
 
 sync_pg_credentials() {
-    # 将 deploy/pg.conf 中实际的 PG 凭据写入 diagnosis_config.toml 的 [db] 段
+    # 将 deploy/deploy.conf 中实际的 PG 凭据写入 diagnosis_config.toml 的 [db] 段
     # （仓库 + /var 两份），确保后端连接凭据与 deploy_pg.sh 创建的库一致。
-    # 实测踩坑：仓库 config 默认 pg_password=""，而 deploy_pg.sh 用 pg.conf
+    # 实测踩坑：仓库 config 默认 pg_password=""，而 deploy_pg.sh 用 deploy.conf
     # 的 PG_PASSWORD 建库 → 后端 InvalidPasswordError。
-    local PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"
+    local PG_CONF_FILE="$SCRIPT_DIR/../deploy.conf"
+    [ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="$SCRIPT_DIR/../pg.conf" # 兼容旧名
     [ -f "$PG_CONF_FILE" ] || {
-        _warn "pg.conf 不存在，跳过凭据同步"
+        _warn "deploy.conf 不存在，跳过凭据同步"
         return 0
     }
 
@@ -720,7 +721,7 @@ clean_all() {
             END \$\$;" 2>&1 | tail -2
         _log "PostgreSQL 数据已清空"
     else
-        _warn "PostgreSQL 未连接，跳过清库 (检查 pg.conf 或 PG_HOST/PG_PORT 环境变量)"
+        _warn "PostgreSQL 未连接，跳过清库 (检查 deploy.conf 或 PG_HOST/PG_PORT 环境变量)"
     fi
 
     # 3. 清 /var/witty-ub

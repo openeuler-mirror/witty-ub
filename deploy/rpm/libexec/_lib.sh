@@ -4,7 +4,7 @@
 #
 # witty-ub manager 共享工具库（RPM 安装后由 witty-ub-manager 子包提供）
 # 被 manager.sh / install_deps.sh / deploy_pg.sh 共同 source。
-# 提供色彩日志、OS 检测、PG 凭据加载（读 /etc/witty-ub/pg.conf）、
+# 提供色彩日志、OS 检测、PG 凭据加载（读 /etc/witty-ub/deploy.conf，兼容旧名 pg.conf）、
 # psql 封装、交互确认等通用函数。
 #
 # 不要直接执行此脚本。
@@ -17,7 +17,8 @@ WITTY_MANAGER_DIR="${WITTY_MANAGER_DIR:-/usr/libexec/witty-ub-manager}"
 WITTY_LATENCY_DIR="${WITTY_LATENCY_DIR:-${WITTY_DIR}/latency}"
 WITTY_CONFIG_DIR="${WITTY_CONFIG_DIR:-${WITTY_DIR}/config}"
 WITTY_ETC_DIR="${WITTY_ETC_DIR:-/etc/witty-ub}"
-PG_CONF_FILE="${PG_CONF_FILE:-${WITTY_ETC_DIR}/pg.conf}"
+PG_CONF_FILE="${PG_CONF_FILE:-${WITTY_ETC_DIR}/deploy.conf}"
+[ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="${WITTY_ETC_DIR}/pg.conf"   # 兼容旧安装
 DIAG_CONFIG_FILE="${DIAG_CONFIG_FILE:-${WITTY_CONFIG_DIR}/diagnosis_config.toml}"
 
 # witty-ub 的 systemd services（system-wide，由 witty-ub 主包安装）

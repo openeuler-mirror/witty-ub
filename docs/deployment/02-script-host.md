@@ -99,7 +99,7 @@ bash deploy/host/deploy.sh --deploy
 | ⑤ 前端编译 | `npm run build-only` 构建 `dist/`（失败回退 dev server，不阻塞部署） |
 | ⑥ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过） |
 | ⑦ 数据文件 | 将故障模式、配置文件复制到 `/var/witty-ub/` |
-| ⑧ 凭据同步 | 将 `deploy/pg.conf` 的实际 PG 凭据写入 `diagnosis_config.toml` |
+| ⑧ 凭据同步 | 将 `deploy/deploy.conf` 的实际 PG 凭据写入 `diagnosis_config.toml` |
 | ⑨ 启动服务 | FastAPI(9772) + 前端（nginx 托管，回退 vite preview 5173）+ OpenCode(4096) |
 
 ### 验证部署
@@ -176,7 +176,7 @@ PG_PASSWORD="witty-ub"
 
 ### 环境变量覆盖
 
-通过环境变量临时覆盖 `pg.conf` 中的配置：
+通过环境变量临时覆盖 `deploy.conf` 中的配置：
 
 ```bash
 PG_HOST=10.0.0.5 PG_PORT=5432 bash deploy/host/deploy.sh --start

@@ -160,7 +160,7 @@ do_clean() {
             END \$\$;" 2>&1 | tail -2
         _log "PostgreSQL 数据表已清空"
     else
-        _warn "PostgreSQL 未连接，跳过清库（检查 /etc/witty-ub/pg.conf）"
+        _warn "PostgreSQL 未连接，跳过清库（检查 /etc/witty-ub/deploy.conf）"
     fi
 
     # 3. 清 /var/witty-ub 运行数据（保留配置文件 diagnosis_config.toml 等）

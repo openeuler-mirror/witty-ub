@@ -1,6 +1,6 @@
-"""Deployment-layer integration tests for deploy/*.sh + pg.conf.
+"""Deployment-layer integration tests for deploy/*.sh + deploy.conf.
 
-Covers bash syntax, pg.conf parsing, deploy_pg.sh modes, deploy.sh
+Covers bash syntax, deploy.conf parsing, deploy_pg.sh modes, deploy.sh
 OS detection and function behaviour, directory layout, plus end-to-end
 pipeline.
 
@@ -40,23 +40,23 @@ class TestDeploySyntax:
 
     @pytest.mark.parametrize(
         "script",
-        ["deploy.sh", "deploy_pg.sh", "deploy_witty.sh", "manage.sh"],
+        ["host/deploy.sh", "deploy_pg.sh", "docker/deploy_witty.sh", "docker/manage.sh"],
     )
     def test_syntax(self, script):
         r = subprocess.run(["bash", "-n", str(_DEPLOY_DIR / script)], capture_output=True, text=True)
         assert r.returncode == 0, f"{script} syntax error:\n{r.stderr}"
 
 
-class TestPgConf:
-    """deploy/pg.conf validation."""
+class TestDeployConf:
+    """deploy/deploy.conf validation."""
 
     def test_sourceable(self):
-        r = _bash(f"source {_DEPLOY_DIR}/pg.conf && echo $PG_HOST")
-        assert r.returncode == 0, f"pg.conf source failed:\n{r.stderr}"
+        r = _bash(f"source {_DEPLOY_DIR}/deploy.conf && echo $PG_HOST")
+        assert r.returncode == 0, f"deploy.conf source failed:\n{r.stderr}"
         assert "127.0.0.1" in r.stdout
 
     def test_required_fields(self):
-        r = _bash(f"source {_DEPLOY_DIR}/pg.conf && echo $PG_HOST $PG_PORT $PG_DATABASE $PG_USER")
+        r = _bash(f"source {_DEPLOY_DIR}/deploy.conf && echo $PG_HOST $PG_PORT $PG_DATABASE $PG_USER")
         parts = r.stdout.strip().split()
         assert parts[0] == "127.0.0.1"
         assert parts[1] == "15432"
@@ -73,7 +73,7 @@ class TestDeployPgSh:
         assert "--apt" in out
         assert "--rpm" in out
         assert "--docker" in out
-        assert "pg.conf" in out
+        assert "deploy.conf" in out
 
     def test_deploy_apt_function_exists(self):
         src = (_DEPLOY_DIR / "deploy_pg.sh").read_text()
@@ -87,18 +87,19 @@ class TestDeployPgSh:
 
 
 class TestDeploySh:
-    """deploy/deploy.sh behaviour."""
+    """deploy/host/deploy.sh behaviour."""
 
     def test_help_output(self):
-        r = _bash(f"bash {_DEPLOY_DIR}/deploy.sh --help")
+        r = _bash(f"bash {_DEPLOY_DIR}/host/deploy.sh --help")
         out = r.stdout + r.stderr
         assert r.returncode == 0
         assert "witty-ub" in out
 
+    @pytest.mark.skipif(not Path("/etc/os-release").exists(), reason="_lib.sh 仅支持 openEuler/Ubuntu")
     def test_os_detection_functions(self):
         inner = (
-            "set +eu; source " + str(_DEPLOY_DIR / "deploy.sh")
-            + " --help 2>/dev/null; set +eu; "
+            "set +eu; source " + str(_DEPLOY_DIR / "host" / "_lib.sh")
+            + "; set +eu; "
             + "detect_os 2>/dev/null && echo OS=$OS_ID; "
             + "_is_root && echo IS_ROOT || echo NOT_ROOT; "
             + "_has_cmd bash && echo HAS_BASH; "
@@ -107,16 +108,17 @@ class TestDeploySh:
         )
         r = _bash(inner)
         out = r.stdout + r.stderr
-        assert "OS=ubuntu" in out
+        assert "OS=" in out
         assert "NOT_ROOT" in out
         assert "HAS_BASH" in out
         assert "NO_FAKE" in out
         assert "DONE" in out
 
+    @pytest.mark.skipif(not Path("/etc/os-release").exists(), reason="_lib.sh 仅支持 openEuler/Ubuntu")
     def test_check_node_accepts_current_version(self):
         inner = (
-            "set +eu; source " + str(_DEPLOY_DIR / "deploy.sh")
-            + " --help 2>/dev/null; set +eu; "
+            "set +eu; source " + str(_DEPLOY_DIR / "host" / "_lib.sh")
+            + "; set +eu; "
             + "_check_node 2>&1"
         )
         r = _bash(inner)
@@ -125,19 +127,19 @@ class TestDeploySh:
         assert "v" in out
 
     def test_npx_not_used_in_start_services(self):
-        src = (_DEPLOY_DIR / "deploy.sh").read_text()
+        src = (_DEPLOY_DIR / "host" / "deploy.sh").read_text()
         assert "npx vite" not in src, "must use ./node_modules/.bin/vite, not npx"
 
     def test_backend_kill_uses_fuser(self):
-        src = (_DEPLOY_DIR / "deploy.sh").read_text()
+        src = (_DEPLOY_DIR / "host" / "deploy.sh").read_text()
         assert "fuser" in src and "9772" in src, "should kill by port 9772"
 
     def test_frontend_kill_uses_fuser(self):
-        src = (_DEPLOY_DIR / "deploy.sh").read_text()
+        src = (_DEPLOY_DIR / "host" / "deploy.sh").read_text()
         assert "fuser" in src and "5173" in src, "should kill by port 5173"
 
     def test_stop_services_has_fuser(self):
-        src = (_DEPLOY_DIR / "deploy.sh").read_text()
+        src = (_DEPLOY_DIR / "host" / "deploy.sh").read_text()
         lines = src.split("\n")
         in_stop = False
         found = False
@@ -153,11 +155,11 @@ class TestDeploySh:
         assert found, "stop_services must also kill by port"
 
     def test_npm_registry_check_in_build_frontend(self):
-        src = (_DEPLOY_DIR / "deploy.sh").read_text()
+        src = (_DEPLOY_DIR / "host" / "deploy.sh").read_text()
         assert "npm ping" in src, "should check npm registry reachability"
 
     def test_node_check_in_build_frontend(self):
-        src = (_DEPLOY_DIR / "deploy.sh").read_text()
+        src = (_DEPLOY_DIR / "host" / "deploy.sh").read_text()
         import re
         build_start = src.index("build_frontend()")
         next_func = re.search(r"^[a-z_]+\(\)", src[build_start + 16:], re.MULTILINE)
@@ -169,11 +171,18 @@ class TestDeploySh:
 class TestDeployDirectoryLayout:
     """deploy/ directory structure and old-path cleanup."""
 
-    _EXPECTED = ["deploy.sh", "deploy_pg.sh", "deploy_witty.sh", "manage.sh", "pg.conf"]
+    _EXPECTED = ["deploy_pg.sh", "deploy.conf", "host/deploy.sh", "docker/deploy_witty.sh", "docker/manage.sh"]
 
     def test_all_deploy_files_present(self):
         for fname in self._EXPECTED:
             assert (_DEPLOY_DIR / fname).is_file(), f"missing {fname}"
+
+    def test_pg_conf_fallback_supported(self):
+        """旧名 pg.conf 已改名 deploy.conf，读取方必须保留回退逻辑。"""
+        for script in ["deploy_pg.sh", "docker/deploy_witty.sh", "docker/manage.sh",
+                       "host/deploy.sh", "host/_lib.sh", "rpm/libexec/_lib.sh"]:
+            src = (_DEPLOY_DIR / script).read_text()
+            assert "pg.conf" in src, f"{script} lacks pg.conf fallback"
 
     def test_deploy_pg_resolves_depoy_dir(self):
         src = (_DEPLOY_DIR / "deploy_pg.sh").read_text()

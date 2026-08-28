@@ -113,10 +113,11 @@ _confirm_clean() {
 
 # ──────────────────── PG 凭据 ────────────────────
 
-# 解析 pg.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
-# 与 sync_pg_credentials 同源(pg.conf 是唯一真实凭据来源)。
+# 解析 deploy.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
+# 与 sync_pg_credentials 同源(deploy.conf 是唯一真实凭据来源)。
 _load_pg_credentials() {
-    local PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"
+    local PG_CONF_FILE="$SCRIPT_DIR/../deploy.conf"
+    [ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"   # 兼容旧名
     [ -f "$PG_CONF_FILE" ] || return 1
     PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"

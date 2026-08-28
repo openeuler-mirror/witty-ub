@@ -59,12 +59,12 @@ bash deploy/docker/manage.sh
 
 ## 配置说明
 
-### 配置文件 pg.conf
+### 配置文件 deploy.conf
 
-所有脚本共用 `deploy/pg.conf`，修改后全局生效：
+所有脚本共用 `deploy/deploy.conf`（旧名 `pg.conf` 仍兼容），修改后全局生效：
 
 ```bash
-vi deploy/pg.conf
+vi deploy/deploy.conf
 ```
 
 常用配置：

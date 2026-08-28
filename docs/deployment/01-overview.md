@@ -126,7 +126,7 @@ witty-ub/
 ├── Dockerfile.rpm                # RPM 包构建
 ├── build.sh                      # 镜像构建脚本
 ├── deploy/                       # 部署脚本
-│   ├── pg.conf                   # 统一配置文件
+│   ├── deploy.conf               # 统一部署配置文件
 │   ├── deploy_pg.sh              # PostgreSQL 部署
 │   ├── host/                     # 宿主机/源码部署
 │   │   ├── deploy.sh             # 一键部署脚本（--role backend/frontend）
