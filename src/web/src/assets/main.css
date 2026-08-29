@@ -3173,7 +3173,8 @@ button {
 
 .fault-trace-pod-cell,
 .fault-trace-cluster-cell,
-.fault-trace-host-cell {
+.fault-trace-host-cell,
+.fault-trace-multi-value-cell {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -3805,7 +3806,7 @@ button {
 
 .abnormal-left-grid.fault-trace-left-grid.aggregate-body-row {
   height: auto;
-  align-items: center;
+  align-items: stretch;
 }
 
 .abnormal-left-grid.fault-trace-left-grid.aggregate-body-row .aggregate-cell {
@@ -4996,6 +4997,13 @@ button {
   gap: 6px;
 }
 
+.trace-sub-fault-list-limited {
+  max-height: 180px;
+  overflow-y: auto;
+  align-content: flex-start;
+  padding-right: 4px;
+}
+
 .trace-sub-fault-block {
   display: flex;
   flex-direction: column;
@@ -5022,6 +5030,36 @@ button {
   border-color: #2563eb;
   background: #dbeafe;
   color: #1e40af;
+}
+
+.trace-sub-fault-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #64748b;
+  font-size: 0.74rem;
+}
+
+.trace-sub-fault-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-sub-fault-action {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 0;
+}
+
+.trace-sub-fault-action:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
 }
 
 .trace-sub-fault-detail {
@@ -5103,6 +5141,17 @@ button {
   color: #7c3aed;
   background: #f5f3ff;
   border: 1px solid #ddd6fe;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.failure-mode-chain-error-code {
+  flex-shrink: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: 999px;
   padding: 2px 10px;
 }

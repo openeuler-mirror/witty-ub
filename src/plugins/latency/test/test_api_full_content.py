@@ -13,6 +13,7 @@ import requests
 
 from latency.config.config import Config
 from latency.database.engine import PGManager
+from latency.database.init import init_postgresql_database
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_parse_result import LogParseResultPGManager
@@ -68,6 +69,10 @@ def seeded(base_url):
     """初始化 PGManager 并写入一套完整 mock 数据，返回所有 ID。"""
     config = Config().get_config()
     PGManager.initialize(config.db.pg_dsn_url())
+
+    async def _setup():
+        await init_postgresql_database()
+        return await _seed()
 
     async def _seed():
         kb_id = str(uuid.uuid4())
@@ -211,6 +216,7 @@ def seeded(base_url):
                     solution="Check link",
                     failure_domain="network",
                     children_failure_mode_ids="",
+                    error_code="K_LINK_SLOW(-1)",
                 )
             ]
         )
@@ -244,7 +250,7 @@ def seeded(base_url):
                     "log_id": log_id,
                     "trace_id": "trace-001",
                     "timestamp": now_str(),
-                    "status_code": status_code,
+                    "status_code": [status_code],
                     "failure_mode": failure_mode_id,
                     "pod_names": [],
                     "host_names": [],
@@ -267,7 +273,7 @@ def seeded(base_url):
             "status_code": status_code,
         }
 
-    return asyncio.run(_seed())
+    return asyncio.run(_setup())
 
 
 class TestHealthAndMeta:
@@ -558,6 +564,7 @@ class TestFailureModeKnowledgeContent:
         data = resp.json()
         assert resp.status_code == 200
         assert data["result"]["failure_mode"]["id"] == seeded["failure_mode_id"]
+        assert data["result"]["failure_mode"]["error_code"] == "K_LINK_SLOW(-1)"
 
 
 class TestDiagnosisConfigContent:

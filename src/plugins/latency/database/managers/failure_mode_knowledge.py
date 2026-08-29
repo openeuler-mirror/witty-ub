@@ -69,6 +69,7 @@ class FailureModeKnowledgePGManager:
             solution=row.solution or "",
             failure_domain=row.failure_domain or "",
             children_failure_mode_ids=row.children_failure_mode_ids or "",
+            error_code=row.error_code,
         )
 
     @staticmethod
@@ -85,6 +86,7 @@ class FailureModeKnowledgePGManager:
                 solution=row.solution or "",
                 failure_domain=row.failure_domain or "",
                 children_failure_mode_ids=row.children_failure_mode_ids or "",
+                error_code=row.error_code,
             )
             for row in rows
         }
@@ -115,6 +117,7 @@ class FailureModeKnowledgePGManager:
                         "solution": insert_stmt.excluded.solution,
                         "failure_domain": insert_stmt.excluded.failure_domain,
                         "children_failure_mode_ids": insert_stmt.excluded.children_failure_mode_ids,
+                        "error_code": insert_stmt.excluded.error_code,
                     },
                 )
                 await session.execute(stmt)

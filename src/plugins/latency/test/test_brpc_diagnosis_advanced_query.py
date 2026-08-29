@@ -540,26 +540,26 @@ def test_failure_graph_bridges_cross_component_interface_chain():
     #   [0] ubsocket_001 (interface) -> ubsocket_005 (failure, intra)
     #   [1] ubsocket_005 (failure)  -> umq_001      (interface, cross)
     #   [2] umq_001      (interface) -> umq_006     (failure, intra)
-    # Extend the chain past umq_001 -> urma4brpc:
-    #   umq_001 (interface)        -> urma4brpc_001 (interface, cross)
-    #   urma4brpc_001 (interface)  -> urma4brpc_002 (failure, intra)
+    # Extend the chain past umq_001 -> urma:
+    #   umq_001 (interface)        -> urma_001 (interface, cross)
+    #   urma_001 (interface)  -> urma_002 (failure, intra)
     urma_interface = schema.nodes[2].model_copy(
         update={
-            "node_id": "urma4brpc_001",
+            "node_id": "urma_001",
             "node_type": "interface",
             "component": "urma",
             "name": "URMA 公共接口",
-            "filename": "urma4brpc.h",
+            "filename": "urma.h",
             "function_name": "urma_call",
         }
     )
     urma_failure = schema.nodes[3].model_copy(
         update={
-            "node_id": "urma4brpc_002",
+            "node_id": "urma_002",
             "node_type": "failure_mode",
             "component": "urma",
             "name": "URMA 调用失败",
-            "filename": "urma4brpc.cpp",
+            "filename": "urma.cpp",
             "function_name": "urma_call",
         }
     )
@@ -567,14 +567,14 @@ def test_failure_graph_bridges_cross_component_interface_chain():
     chain_edge = schema.edges[1].model_copy(
         update={
             "source_node_id": "umq_001",
-            "target_node_id": "urma4brpc_001",
+            "target_node_id": "urma_001",
             "edge_type": "cross_component",
         }
     )
     urma_intra = schema.edges[1].model_copy(
         update={
-            "source_node_id": "urma4brpc_001",
-            "target_node_id": "urma4brpc_002",
+            "source_node_id": "urma_001",
+            "target_node_id": "urma_002",
             "edge_type": "intra_component",
         }
     )
@@ -582,8 +582,8 @@ def test_failure_graph_bridges_cross_component_interface_chain():
     schema.failure_interface_mappings.append(
         schema.failure_interface_mappings[0].model_copy(
             update={
-                "failure_mode_id": "urma4brpc_002",
-                "interface_ids": ["urma4brpc_001"],
+                "failure_mode_id": "urma_002",
+                "interface_ids": ["urma_001"],
                 "subgraph_edge_indexes": [len(schema.edges) - 1],
             }
         )
@@ -602,11 +602,11 @@ def test_failure_graph_bridges_cross_component_interface_chain():
                 "unresolved_hit_count": 0,
             },
             {
-                "failure_mode_id": "urma4brpc_002",
-                "component": "urma4brpc",
-                "failure_mode_name": "urma4brpc failure",
+                "failure_mode_id": "urma_002",
+                "component": "urma",
+                "failure_mode_name": "urma failure",
                 "hit_count": 1,
-                "interface_ids": ["urma4brpc_001"],
+                "interface_ids": ["urma_001"],
                 "unresolved_hit_count": 0,
             },
         ],
@@ -616,8 +616,8 @@ def test_failure_graph_bridges_cross_component_interface_chain():
         "ubsocket_001",
         "ubsocket_005",
         "umq_001",
-        "urma4brpc_001",
-        "urma4brpc_002",
+        "urma_001",
+        "urma_002",
     }
     # umq_001 is the bridge interface — not directly hit, but retained so the
     # cross-component chain stays connected instead of breaking into islands.
@@ -630,8 +630,8 @@ def test_failure_graph_bridges_cross_component_interface_chain():
     ] == [
         ("ubsocket_001", "ubsocket_005", "intra_component"),
         ("ubsocket_005", "umq_001", "cross_component"),
-        ("umq_001", "urma4brpc_001", "cross_component"),
-        ("urma4brpc_001", "urma4brpc_002", "intra_component"),
+        ("umq_001", "urma_001", "cross_component"),
+        ("urma_001", "urma_002", "intra_component"),
     ]
 
 

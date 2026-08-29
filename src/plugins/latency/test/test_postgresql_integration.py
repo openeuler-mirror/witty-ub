@@ -16,7 +16,10 @@ import pytest
 from sqlalchemy import text
 
 from latency.database.engine import PGManager
-from latency.database.init import init_postgresql_database
+from latency.database.init import (
+    backfill_trace_failure_event_status_codes,
+    init_postgresql_database,
+)
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventPGManager,
@@ -46,6 +49,68 @@ PG_DSN = os.getenv(
 async def _truncate_log_parse_result():
     async with PGManager.connection() as conn:
         await conn.execute(text("TRUNCATE TABLE log_parse_result CASCADE"))
+
+
+@pytest.mark.asyncio
+async def test_backfill_trace_failure_event_status_codes_uses_varchar_array():
+    PGManager.initialize(PG_DSN)
+    failure_mode_id = "pg-test-status-code-mode"
+    trace_event_id = "pg-test-status-code-trace"
+    database_ready = False
+    try:
+        await init_postgresql_database()
+        database_ready = True
+        async with PGManager.engine().begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO failure_mode_knowledge (id, error_code) "
+                    "VALUES (:id, :error_code) "
+                    "ON CONFLICT (id) DO UPDATE SET error_code = EXCLUDED.error_code"
+                ),
+                {"id": failure_mode_id, "error_code": "K_DUPLICATED(1)"},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO trace_failure_event "
+                    "(id, log_id, failure_mode, status_code) "
+                    "VALUES (:id, :log_id, :failure_mode, ARRAY[]::VARCHAR[]) "
+                    "ON CONFLICT (id) DO UPDATE SET "
+                    "failure_mode = EXCLUDED.failure_mode, "
+                    "status_code = EXCLUDED.status_code"
+                ),
+                {
+                    "id": trace_event_id,
+                    "log_id": "pg-test-status-code-log",
+                    "failure_mode": failure_mode_id,
+                },
+            )
+
+        await backfill_trace_failure_event_status_codes()
+
+        async with PGManager.connection() as conn:
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT status_code, pg_typeof(status_code)::TEXT "
+                        "FROM trace_failure_event WHERE id = :id"
+                    ),
+                    {"id": trace_event_id},
+                )
+            ).one()
+        assert row[0] == ["1"]
+        assert row[1] == "character varying[]"
+    finally:
+        if database_ready:
+            async with PGManager.engine().begin() as conn:
+                await conn.execute(
+                    text("DELETE FROM trace_failure_event WHERE id = :id"),
+                    {"id": trace_event_id},
+                )
+                await conn.execute(
+                    text("DELETE FROM failure_mode_knowledge WHERE id = :id"),
+                    {"id": failure_mode_id},
+                )
+        await PGManager.close()
 
 
 @pytest.mark.asyncio

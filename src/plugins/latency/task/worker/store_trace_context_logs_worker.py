@@ -268,6 +268,19 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 _report_progress(total_inserted)
 
             trace_failure_events = list(trace_failure_events_map.values())
+            for trace_failure_event in trace_failure_events:
+                # 跨日志剪枝：某模式在 trace 中存在更深层命中（如 access 根与
+                # runtime 子节点同时命中）时，只保留更深的子节点。
+                trace_failure_event["failure_mode"] = (
+                    KVCacheLogEventDiagnosisWorker._leaf_failure_modes(
+                        trace_failure_event.get("failure_mode") or [], failure_mode_cache
+                    )
+                )
+                trace_failure_event["status_code"] = (
+                    KVCacheLogEventDiagnosisWorker._failure_mode_error_codes(
+                        trace_failure_event["failure_mode"], failure_mode_cache
+                    )
+                )
             if trace_failure_events:
                 trace_store_start = time.perf_counter()
                 await LogFailureEventPGManager.add_trace_failure_event_raw(trace_failure_events)

@@ -30,8 +30,8 @@ class TraceFailureEventModel(BaseModel):
     host_names: list[str] = Field(..., description="主机名列表")
     cluster_names: list[str] = Field(..., description="集群列表")
     timestamp: str = Field(..., description="日志最早时间戳")
-    status_code: str = Field(..., description="状态码")
-    failure_mode: str = Field(..., description="故障模式")
+    status_code: list[str] = Field(default_factory=list, description="状态码列表")
+    failure_mode: list[str] = Field(default_factory=list, description="trace涉及日志命中的故障模式列表")
     operation: str = Field(default="", description="操作类型：GET / SET")
 
 class ErrCodeMetricItem(BaseModel):
