@@ -24,7 +24,7 @@ for required_file in \
     "${WITTY_RUNTIME_DATA_DIR}/failure_mode_tree.json" \
     "${WITTY_RUNTIME_DATA_DIR}/ubsocket/ubsocket_failure_mode.json" \
     "${WITTY_RUNTIME_DATA_DIR}/umq/umq_failure_mode.json" \
-    "${WITTY_RUNTIME_DATA_DIR}/urma/urma_failure_mode_for_brpc.json"; do
+    "${WITTY_RUNTIME_DATA_DIR}/urma/urma_failure_mode.json"; do
     if [ ! -f "${required_file}" ]; then
         echo "[ERROR] Required diagnosis data is missing: ${required_file}"
         exit 1
