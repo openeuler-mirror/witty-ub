@@ -36,7 +36,7 @@ public:
 
 private:
     std::shared_ptr<FailureMode> failureMode_;
-    int hitCount_;
+    int hitCount_{};
     TraceIdToFailureLogInfoMap traceIdToFailureLogInfo_;
     std::unordered_set<std::string> subValidFailureModeIds_;
 };

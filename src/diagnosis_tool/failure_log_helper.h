@@ -13,6 +13,7 @@
 #ifndef FAILURE_LOG_HELPER_H
 #define FAILURE_LOG_HELPER_H
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,9 +25,8 @@ inline constexpr std::string_view DELIM = " | ";
 bool WildcardMatch(const std::string &pattern, const std::string &path);
 void SplitView(std::vector<std::string_view> &out, std::string_view str, std::string_view delim,
                bool keepEmpty = false);
-bool ExtractSingleField(std::string_view &out, std::string_view str, std::string_view delim, int idx);
 bool IsDigit(char ch);
-bool IsTimestampTAt(std::string_view line, size_t pos);
+bool IsTimestampTAt(std::string_view line, std::size_t pos);
 std::string_view FindTimestampT(std::string_view line);
 std::string ToTimestampTBound(std::string timestamp);
 std::string_view TrimView(std::string_view str);

@@ -24,11 +24,11 @@ namespace brpc {
 namespace {
 constexpr const char *FAILURE_MODE_TREE_PATH_REL = "data/failure_mode_tree.json";
 
-// 三个组件的故障模式 JSON 文件（urma4brpc 复用 urma 子目录）
+// 三个组件的故障模式 JSON 文件
 constexpr const char *COMPONENT_FILES[] = {
     "data/ubsocket/ubsocket_failure_mode.json",
     "data/umq/umq_failure_mode.json",
-    "data/urma/urma_failure_mode_for_brpc.json",
+    "data/urma/urma_failure_mode.json",
 };
 
 bool ParseJsonFile(const std::string &path, const char *description, Json::Value &root)

@@ -14,24 +14,33 @@
 
 #include "failure_log_helper.h"
 
-#include <fnmatch.h>
 #include <cctype>
 #include <charconv>
 #include <system_error>
 
+#include <fnmatch.h>
+
 namespace diag {
 namespace log_helper {
-constexpr size_t TIMESTAMP_T_SIZE = 19;
+namespace {
+constexpr std::string_view TIMESTAMP_T_PATTERN = "dddd-dd-ddTdd:dd:dd";
+constexpr char TIMESTAMP_DIGIT_PLACEHOLDER = 'd';
+constexpr char TIMESTAMP_T_SEPARATOR = 'T';
+constexpr char TIMESTAMP_BOUND_SEPARATOR = ' ';
+constexpr std::size_t TIMESTAMP_DATE_SIZE = 10;
+constexpr std::size_t DEFAULT_FIELD_CAPACITY = 8;
+constexpr int FNMATCH_FLAGS = 0;
+} // namespace
 
 bool WildcardMatch(const std::string &pattern, const std::string &path)
 {
-    return fnmatch(pattern.c_str(), path.c_str(), 0) == 0;
+    return fnmatch(pattern.c_str(), path.c_str(), FNMATCH_FLAGS) == 0;
 }
 
 void SplitView(std::vector<std::string_view> &out, std::string_view str, std::string_view delim, bool keepEmpty)
 {
     out.clear();
-    out.reserve(8);
+    out.reserve(DEFAULT_FIELD_CAPACITY);
     if (delim.empty()) {
         if (keepEmpty || !str.empty()) {
             out.emplace_back(str);
@@ -54,61 +63,39 @@ void SplitView(std::vector<std::string_view> &out, std::string_view str, std::st
     }
 }
 
-bool ExtractSingleField(std::string_view &out, std::string_view str, std::string_view delim, int idx)
-{
-    out = {};
-    if (idx < 0) {
-        return false;
-    }
-    if (delim.empty()) {
-        if (idx != 0) {
-            return false;
-        }
-        out = str;
-        return true;
-    }
-
-    std::size_t begin = 0;
-    for (int i = 0; i < idx; i++) {
-        const std::size_t pos = str.find(delim, begin);
-        if (pos == std::string::npos) {
-            return false;
-        }
-        begin = pos + delim.size();
-    }
-
-    const std::size_t end = str.find(delim, begin);
-    out = str.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
-    return true;
-}
-
 bool IsDigit(char ch)
 {
     return ch >= '0' && ch <= '9';
 }
 
-bool IsTimestampTAt(std::string_view line, size_t pos)
+bool IsTimestampTAt(std::string_view line, std::size_t pos)
 {
-    return pos + TIMESTAMP_T_SIZE <= line.size() && IsDigit(line[pos]) && IsDigit(line[pos + 1]) &&
-           IsDigit(line[pos + 2]) && IsDigit(line[pos + 3]) && line[pos + 4] == '-' && IsDigit(line[pos + 5]) &&
-           IsDigit(line[pos + 6]) && line[pos + 7] == '-' && IsDigit(line[pos + 8]) && IsDigit(line[pos + 9]) &&
-           line[pos + 10] == 'T' && IsDigit(line[pos + 11]) && IsDigit(line[pos + 12]) && line[pos + 13] == ':' &&
-           IsDigit(line[pos + 14]) && IsDigit(line[pos + 15]) && line[pos + 16] == ':' && IsDigit(line[pos + 17]) &&
-           IsDigit(line[pos + 18]);
+    if (pos + TIMESTAMP_T_PATTERN.size() > line.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < TIMESTAMP_T_PATTERN.size(); ++index) {
+        const char expected = TIMESTAMP_T_PATTERN[index];
+        const bool matches = expected == TIMESTAMP_DIGIT_PLACEHOLDER ? IsDigit(line[pos + index]) :
+                                                                       line[pos + index] == expected;
+        if (!matches) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::string_view FindTimestampT(std::string_view line)
 {
-    size_t searchPos = 0;
+    std::size_t searchPos = 0;
     while (true) {
-        const size_t tPos = line.find('T', searchPos);
+        const std::size_t tPos = line.find(TIMESTAMP_T_SEPARATOR, searchPos);
         if (tPos == std::string_view::npos) {
             return {};
         }
-        if (tPos >= 10) {
-            const size_t timestampPos = tPos - 10;
+        if (tPos >= TIMESTAMP_DATE_SIZE) {
+            const std::size_t timestampPos = tPos - TIMESTAMP_DATE_SIZE;
             if (IsTimestampTAt(line, timestampPos)) {
-                return line.substr(timestampPos, TIMESTAMP_T_SIZE);
+                return line.substr(timestampPos, TIMESTAMP_T_PATTERN.size());
             }
         }
         searchPos = tPos + 1;
@@ -117,19 +104,19 @@ std::string_view FindTimestampT(std::string_view line)
 
 std::string ToTimestampTBound(std::string timestamp)
 {
-    if (timestamp.size() > 10 && timestamp[10] == ' ') {
-        timestamp[10] = 'T';
+    if (timestamp.size() > TIMESTAMP_DATE_SIZE && timestamp[TIMESTAMP_DATE_SIZE] == TIMESTAMP_BOUND_SEPARATOR) {
+        timestamp[TIMESTAMP_DATE_SIZE] = TIMESTAMP_T_SEPARATOR;
     }
     return timestamp;
 }
 
 std::string_view TrimView(std::string_view str)
 {
-    size_t begin = 0;
+    std::size_t begin = 0;
     while (begin < str.size() && std::isspace(static_cast<unsigned char>(str[begin]))) {
         begin++;
     }
-    size_t end = str.size();
+    std::size_t end = str.size();
     while (end > begin && std::isspace(static_cast<unsigned char>(str[end - 1]))) {
         end--;
     }
@@ -165,11 +152,11 @@ std::vector<std::string> ToStringFields(const std::vector<std::string_view> &fie
 
 std::string Trim(const std::string &str)
 {
-    size_t begin = 0;
+    std::size_t begin = 0;
     while (begin < str.size() && std::isspace(static_cast<unsigned char>(str[begin]))) {
         begin++;
     }
-    size_t end = str.size();
+    std::size_t end = str.size();
     while (end > begin && std::isspace(static_cast<unsigned char>(str[end - 1]))) {
         end--;
     }

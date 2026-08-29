@@ -16,82 +16,123 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include <sys/stat.h>
 
 #include <json/json.h>
-#include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <sstream>
-#include <utility>
-#include <vector>
 
 #include "failure_def.h"
 #include "logger.h"
 
 namespace diag {
+namespace {
 constexpr const char *HTML_OUTPUT_FILENAME = "failure-mode-view-vis.html";
 constexpr const char *DEFAULT_OUTPUT_DIR = "/var/witty-ub";
 constexpr const char *VIEW_VIS_RUNTIME_RESOURCE_DIR = "/var/witty-ub/data/view-vis";
 constexpr const char *VIEW_VIS_SOURCE_RESOURCE_DIR = "data/view-vis";
+constexpr const char *VIEW_VIS_RELATIVE_RESOURCE_DIR = "../../data/view-vis";
 constexpr const char *HTML_TEMPLATE_NAME = "failure_mode_view.html";
 constexpr const char *CSS_RESOURCE_NAME = "failure_mode_view.css";
 constexpr const char *JS_RESOURCE_NAME = "failure_mode_view.js";
 constexpr const char *DATA_PLACEHOLDER = "__FAILURE_MODE_VIEW_DATA__";
 constexpr const char *CSS_PLACEHOLDER = "__FAILURE_MODE_VIEW_CSS__";
 constexpr const char *JS_PLACEHOLDER = "__FAILURE_MODE_VIEW_JS__";
+constexpr const char *DATETIME_FORMAT = "iso8601";
+constexpr const char *JSON_WRITER_INDENTATION_KEY = "indentation";
+constexpr const char *JSON_WRITER_INDENTATION = "  ";
+constexpr std::string_view SCRIPT_CLOSE_TAG = "</";
+constexpr const char *ESCAPED_SCRIPT_CLOSE_TAG = "<\\";
+constexpr const char *JSON_KEY_TIME = "time";
+constexpr const char *JSON_KEY_TIMESTAMP = "timestamp";
+constexpr const char *JSON_KEY_FAILURE_MODE_ID = "failure_mode_id";
+constexpr const char *JSON_KEY_FILENAME = "filename";
+constexpr const char *JSON_KEY_LINE_NUMBER = "line_no";
+constexpr const char *JSON_KEY_POD_NAME = "pod_name";
+constexpr const char *JSON_KEY_PROCESS_ID = "pid";
+constexpr const char *JSON_KEY_THREAD_ID = "tid";
+constexpr const char *JSON_KEY_TRACE_ID = "trace_id";
+constexpr const char *JSON_KEY_CLUSTER_NAME = "cluster_name";
+constexpr const char *JSON_KEY_STATUS_CODE = "status_code";
+constexpr const char *JSON_KEY_ACTION = "action";
+constexpr const char *JSON_KEY_COST = "cost";
+constexpr const char *JSON_KEY_DATA_SIZE = "data_size";
+constexpr const char *JSON_KEY_REQUEST_MESSAGE = "req_msg";
+constexpr const char *JSON_KEY_RESPONSE_MESSAGE = "resp_msg";
+constexpr const char *JSON_KEY_MESSAGE = "message";
+constexpr const char *JSON_KEY_LOGS = "logs";
+constexpr const char *JSON_KEY_START_TIME = "start_time";
+constexpr const char *JSON_KEY_END_TIME = "end_time";
+constexpr const char *JSON_KEY_DURATION_US = "duration_us";
+constexpr const char *JSON_KEY_MODE_COUNT = "mode_count";
+constexpr const char *JSON_KEY_ID = "id";
+constexpr const char *JSON_KEY_NAME = "name";
+constexpr const char *JSON_KEY_CAUSE = "cause";
+constexpr const char *JSON_KEY_SUGGESTION = "suggestion";
+constexpr const char *JSON_KEY_VALIDATION = "validation";
+constexpr const char *JSON_KEY_HIT_COUNT = "hit_count";
+constexpr const char *JSON_KEY_LOG_INFO = "log_info";
+constexpr const char *JSON_KEY_CHILDREN = "children";
+constexpr const char *JSON_KEY_TREES = "trees";
+constexpr const char *JSON_KEY_TRACES = "traces";
 constexpr mode_t OUTPUT_FILE_PERM_640 = 0640;
-constexpr const int MICROSECONDS_UNIT = 1000000;
-constexpr const int MICROSECONDS_LEN = 6;
+constexpr int64_t MICROSECONDS_PER_SECOND = 1000000;
+constexpr int MICROSECONDS_WIDTH = 6;
+constexpr char TIME_FRACTION_SEPARATOR = '.';
+constexpr char ZERO_FILL_CHARACTER = '0';
 
 using TraceView = std::pair<std::string, const std::vector<std::shared_ptr<FailureLogInfo>> *>;
 
 std::string FormatLogTime(int64_t timestamp)
 {
-    auto datetime = failure::TimestampToDatetimeStr(timestamp, "iso8601");
+    auto datetime = failure::TimestampToDatetimeStr(timestamp, DATETIME_FORMAT);
     if (!datetime.has_value()) {
         return std::to_string(timestamp);
     }
-    int64_t microseconds = timestamp % MICROSECONDS_UNIT;
+    int64_t microseconds = timestamp % MICROSECONDS_PER_SECOND;
     if (microseconds < 0) {
-        microseconds += MICROSECONDS_UNIT;
+        microseconds += MICROSECONDS_PER_SECOND;
     }
     if (microseconds == 0) {
         return *datetime;
     }
     std::ostringstream oss;
-    oss << *datetime << "." << std::setw(MICROSECONDS_LEN) << std::setfill('0') << microseconds;
+    oss << *datetime << TIME_FRACTION_SEPARATOR << std::setw(MICROSECONDS_WIDTH) << std::setfill(ZERO_FILL_CHARACTER)
+        << microseconds;
     return oss.str();
 }
 
 Json::Value LogInfoToJson(const std::shared_ptr<FailureLogInfo> logInfo)
 {
     Json::Value logJson(Json::objectValue);
-    logJson["time"] = FormatLogTime(logInfo->timestamp);
-    logJson["timestamp"] = Json::Int64(logInfo->timestamp);
-    logJson["failure_mode_id"] = Json::Value(Json::arrayValue);
+    logJson[JSON_KEY_TIME] = FormatLogTime(logInfo->timestamp);
+    logJson[JSON_KEY_TIMESTAMP] = Json::Int64(logInfo->timestamp);
+    logJson[JSON_KEY_FAILURE_MODE_ID] = Json::Value(Json::arrayValue);
     for (const std::string &failureModeId : logInfo->failureModeIds) {
-        logJson["failure_mode_id"].append(failureModeId);
+        logJson[JSON_KEY_FAILURE_MODE_ID].append(failureModeId);
     }
-    logJson["filename"] = logInfo->filename;
-    logJson["line_no"] = logInfo->lineNo;
-    logJson["pod_name"] = logInfo->podName;
-    logJson["pid"] = logInfo->pid;
-    logJson["tid"] = logInfo->tid;
-    logJson["trace_id"] = logInfo->traceId;
-    logJson["cluster_name"] = logInfo->clusterName;
+    logJson[JSON_KEY_FILENAME] = logInfo->filename;
+    logJson[JSON_KEY_LINE_NUMBER] = logInfo->lineNo;
+    logJson[JSON_KEY_POD_NAME] = logInfo->podName;
+    logJson[JSON_KEY_PROCESS_ID] = logInfo->pid;
+    logJson[JSON_KEY_THREAD_ID] = logInfo->tid;
+    logJson[JSON_KEY_TRACE_ID] = logInfo->traceId;
+    logJson[JSON_KEY_CLUSTER_NAME] = logInfo->clusterName;
     auto logInfoTmp = logInfo;
     if (auto accessInfo = std::dynamic_pointer_cast<FailureLogInfoAccess>(logInfoTmp)) {
-        logJson["status_code"] = accessInfo->statusCode;
-        logJson["action"] = accessInfo->action;
-        logJson["cost"] = accessInfo->cost;
-        logJson["data_size"] = accessInfo->dataSize;
-        logJson["req_msg"] = accessInfo->reqMsg;
-        logJson["resp_msg"] = accessInfo->respMsg;
+        logJson[JSON_KEY_STATUS_CODE] = accessInfo->statusCode;
+        logJson[JSON_KEY_ACTION] = accessInfo->action;
+        logJson[JSON_KEY_COST] = accessInfo->cost;
+        logJson[JSON_KEY_DATA_SIZE] = accessInfo->dataSize;
+        logJson[JSON_KEY_REQUEST_MESSAGE] = accessInfo->reqMsg;
+        logJson[JSON_KEY_RESPONSE_MESSAGE] = accessInfo->respMsg;
     } else if (auto logInfoRuntime = std::dynamic_pointer_cast<FailureLogInfoRuntime>(logInfoTmp)) {
-        logJson["message"] = logInfoRuntime->message;
+        logJson[JSON_KEY_MESSAGE] = logInfoRuntime->message;
     }
     return logJson;
 }
@@ -99,8 +140,8 @@ Json::Value LogInfoToJson(const std::shared_ptr<FailureLogInfo> logInfo)
 Json::Value TraceToJson(const std::string &traceId, const std::vector<std::shared_ptr<FailureLogInfo>> &trace)
 {
     Json::Value traceJson(Json::objectValue);
-    traceJson["trace_id"] = traceId;
-    traceJson["logs"] = Json::Value(Json::arrayValue);
+    traceJson[JSON_KEY_TRACE_ID] = traceId;
+    traceJson[JSON_KEY_LOGS] = Json::Value(Json::arrayValue);
 
     std::vector<std::shared_ptr<FailureLogInfo>> logInfos;
     logInfos.reserve(trace.size());
@@ -117,19 +158,19 @@ Json::Value TraceToJson(const std::string &traceId, const std::vector<std::share
             startTime = std::min(startTime, logInfo->timestamp);
             endTime = std::max(endTime, logInfo->timestamp);
         }
-        traceJson["start_time"] = FormatLogTime(startTime);
-        traceJson["end_time"] = FormatLogTime(endTime);
-        traceJson["duration_us"] = Json::Int64(endTime - startTime);
-        traceJson["mode_count"] = static_cast<Json::UInt64>(logInfos.size());
+        traceJson[JSON_KEY_START_TIME] = FormatLogTime(startTime);
+        traceJson[JSON_KEY_END_TIME] = FormatLogTime(endTime);
+        traceJson[JSON_KEY_DURATION_US] = Json::Int64(endTime - startTime);
+        traceJson[JSON_KEY_MODE_COUNT] = static_cast<Json::UInt64>(logInfos.size());
     } else {
-        traceJson["start_time"] = "";
-        traceJson["end_time"] = "";
-        traceJson["duration_us"] = Json::Int64(0);
-        traceJson["mode_count"] = Json::UInt64(0);
+        traceJson[JSON_KEY_START_TIME] = "";
+        traceJson[JSON_KEY_END_TIME] = "";
+        traceJson[JSON_KEY_DURATION_US] = Json::Int64(0);
+        traceJson[JSON_KEY_MODE_COUNT] = Json::UInt64(0);
     }
 
     for (const auto &logInfo : logInfos) {
-        traceJson["logs"].append(LogInfoToJson(logInfo));
+        traceJson[JSON_KEY_LOGS].append(LogInfoToJson(logInfo));
     }
     return traceJson;
 }
@@ -137,7 +178,7 @@ Json::Value TraceToJson(const std::string &traceId, const std::vector<std::share
 std::string JsonToString(const Json::Value &root)
 {
     Json::StreamWriterBuilder builder;
-    builder["indentation"] = "  ";
+    builder[JSON_WRITER_INDENTATION_KEY] = JSON_WRITER_INDENTATION;
     return Json::writeString(builder, root);
 }
 
@@ -145,11 +186,11 @@ std::string EscapeJsonForScript(const std::string &json)
 {
     std::string escaped;
     escaped.reserve(json.size());
-    for (size_t i = 0; i < json.size(); ++i) {
-        if (json[i] == '<' && i + 1 < json.size() && json[i + 1] == '/') {
-            escaped.append("<\\");
+    for (std::size_t index = 0; index < json.size(); ++index) {
+        if (json.compare(index, SCRIPT_CLOSE_TAG.size(), SCRIPT_CLOSE_TAG) == 0) {
+            escaped.append(ESCAPED_SCRIPT_CLOSE_TAG);
         } else {
-            escaped.push_back(json[i]);
+            escaped.push_back(json[index]);
         }
     }
     return escaped;
@@ -172,7 +213,7 @@ RackResult ReadResourceFile(const std::string &fileName, std::string &content)
     std::filesystem::path sourceResourcePath = VIEW_VIS_SOURCE_RESOURCE_DIR;
     sourceResourcePath.append(fileName);
     std::filesystem::path relativeResourcePath = std::filesystem::path(__FILE__).parent_path();
-    relativeResourcePath.append("../../data/view-vis");
+    relativeResourcePath.append(VIEW_VIS_RELATIVE_RESOURCE_DIR);
     relativeResourcePath.append(fileName);
     std::filesystem::path runtimeResourcePath = VIEW_VIS_RUNTIME_RESOURCE_DIR;
     runtimeResourcePath.append(fileName);
@@ -233,19 +274,19 @@ bool CompareTraceView(const TraceView &left, const TraceView &right)
 Json::Value NodeToJson(const FailureModeViewNode &node)
 {
     Json::Value nodeJson(Json::objectValue);
-    nodeJson["id"] = node.GetData().id;
-    nodeJson["name"] = node.GetData().name;
-    nodeJson["cause"] = node.GetData().cause;
-    nodeJson["suggestion"] = node.GetData().suggestion;
-    nodeJson["validation"] = node.GetData().validation;
-    nodeJson["hit_count"] = node.GetData().hitCount;
+    nodeJson[JSON_KEY_ID] = node.GetData().id;
+    nodeJson[JSON_KEY_NAME] = node.GetData().name;
+    nodeJson[JSON_KEY_CAUSE] = node.GetData().cause;
+    nodeJson[JSON_KEY_SUGGESTION] = node.GetData().suggestion;
+    nodeJson[JSON_KEY_VALIDATION] = node.GetData().validation;
+    nodeJson[JSON_KEY_HIT_COUNT] = node.GetData().hitCount;
 
-    nodeJson["log_info"] = Json::objectValue;
+    nodeJson[JSON_KEY_LOG_INFO] = Json::objectValue;
     for (const auto &[traceId, logInfo] : node.GetData().traceIdToFailureLogInfo) {
-        nodeJson["log_info"][traceId] = LogInfoToJson(logInfo);
+        nodeJson[JSON_KEY_LOG_INFO][traceId] = LogInfoToJson(logInfo);
     }
 
-    nodeJson["children"] = Json::Value(Json::arrayValue);
+    nodeJson[JSON_KEY_CHILDREN] = Json::Value(Json::arrayValue);
     std::vector<const FailureModeViewNode *> children;
     children.reserve(node.GetSubNodes().size());
     for (const FailureModeViewNode &child : node.GetSubNodes()) {
@@ -253,7 +294,7 @@ Json::Value NodeToJson(const FailureModeViewNode &node)
     }
     std::sort(children.begin(), children.end(), CompareFailureModeViewNode);
     for (const FailureModeViewNode *child : children) {
-        nodeJson["children"].append(NodeToJson(*child));
+        nodeJson[JSON_KEY_CHILDREN].append(NodeToJson(*child));
     }
 
     return nodeJson;
@@ -264,8 +305,8 @@ Json::Value BuildRootJson(
     const std::unordered_map<std::string, std::vector<std::shared_ptr<FailureLogInfo>>> &traceIdToFailureLogInfos)
 {
     Json::Value root(Json::objectValue);
-    root["trees"] = Json::Value(Json::arrayValue);
-    root["traces"] = Json::Value(Json::arrayValue);
+    root[JSON_KEY_TREES] = Json::Value(Json::arrayValue);
+    root[JSON_KEY_TRACES] = Json::Value(Json::arrayValue);
 
     std::vector<const FailureModeViewNode *> sortedRoots;
     sortedRoots.reserve(roots.size());
@@ -274,7 +315,7 @@ Json::Value BuildRootJson(
     }
     std::sort(sortedRoots.begin(), sortedRoots.end(), CompareFailureModeViewNode);
     for (const FailureModeViewNode *node : sortedRoots) {
-        root["trees"].append(NodeToJson(*node));
+        root[JSON_KEY_TREES].append(NodeToJson(*node));
     }
 
     std::vector<TraceView> sortedTraces;
@@ -284,7 +325,7 @@ Json::Value BuildRootJson(
     }
     std::sort(sortedTraces.begin(), sortedTraces.end(), CompareTraceView);
     for (const auto &[traceId, trace] : sortedTraces) {
-        root["traces"].append(TraceToJson(traceId, *trace));
+        root[JSON_KEY_TRACES].append(TraceToJson(traceId, *trace));
     }
     return root;
 }
@@ -349,6 +390,7 @@ RackResult WriteHtml(const std::string &html, const std::string &outputDir)
     }
     return RACK_OK;
 }
+} // namespace
 
 FailureModeViewNodeData::FailureModeViewNodeData(const FailureModeController &controller)
     : id(controller.GetFailureMode()->GetId()),
