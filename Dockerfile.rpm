@@ -2,14 +2,20 @@
 # witty-ub is licensed under the Mulan PSL v2.
 
 # ============================================
-# Build image using RPM package
+# Build images using RPM packages.
+#
+# Targets (docker build -f Dockerfile.rpm --target <target>):
+#   all       All-in-One（默认，安装 meta 包 witty-ub）
+#   backend   后端角色（witty-ub-backend 子包）
+#   frontend  前端角色（witty-ub-web 子包 + OpenCode）
 # ============================================
-FROM openeuler/openeuler:24.03-lts
+
+# ---------- shared: RPM repo ----------
+FROM openeuler/openeuler:24.03-lts AS repo
 
 ARG REPO_URL
 
 LABEL maintainer="witty-ub"
-LABEL description="Witty-UB: Fault localization tool using RPM package"
 
 RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
     echo "name=Witty-UB Repository" >> /etc/yum.repos.d/witty-ub.repo && \
@@ -17,7 +23,83 @@ RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
     echo "enabled=1" >> /etc/yum.repos.d/witty-ub.repo && \
     echo "gpgcheck=0" >> /etc/yum.repos.d/witty-ub.repo
 
-# Install witty-ub, dependencies, and Node.js for OpenCode
+# ============================================
+# backend: FastAPI + C++ diagnosis tools
+# ============================================
+FROM repo AS backend
+
+LABEL description="Witty-UB backend image (RPM, FastAPI + C++ diagnosis tools)"
+
+RUN yum install -y witty-ub-backend && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+RUN mkdir -p /var/witty-ub/latency/file/file_upload \
+    /var/witty-ub/latency/file/file_parse_result \
+    /var/log/witty-ub
+
+COPY docker/entrypoint.sh /entrypoint.sh
+COPY docker/healthcheck.sh /healthcheck.sh
+RUN chmod +x /entrypoint.sh /healthcheck.sh
+
+ENV WITTY_ROLE=backend
+
+EXPOSE 9772
+
+VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD ["/healthcheck.sh"]
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# ============================================
+# frontend: Nginx + OpenCode
+# ============================================
+FROM repo AS frontend
+
+LABEL description="Witty-UB frontend image (RPM, Nginx + OpenCode)"
+
+RUN yum install -y witty-ub-web nodejs npm && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+RUN mkdir -p /etc/witty-ub/web \
+    /run/witty-ub-web \
+    /var/log/witty-ub-web
+
+# Install OpenCode (requires Node.js for postinstall script)
+RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
+
+# Container-optimized nginx default + template (entrypoint renders with
+# WITTY_BACKEND_URL/WITTY_AGENT_URL)
+COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
+COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
+
+COPY docker/entrypoint.sh /entrypoint.sh
+COPY docker/healthcheck.sh /healthcheck.sh
+RUN chmod +x /entrypoint.sh /healthcheck.sh
+
+ENV WITTY_ROLE=frontend
+
+EXPOSE 8080 4096
+
+VOLUME ["/var/log/witty-ub"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD ["/healthcheck.sh"]
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# ============================================
+# all: All-in-One (default)
+# ============================================
+FROM repo AS all
+
+LABEL description="Witty-UB: Fault localization tool using RPM package"
+
+# Install witty-ub meta package (pulls in backend/web/manager subpackages)
 RUN yum install -y witty-ub nodejs npm && \
     yum clean all && \
     rm -rf /var/cache/yum
@@ -29,25 +111,24 @@ RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /run/witty-ub-web \
     /var/log/witty-ub-web
 
-# Copy container-optimized nginx configuration
-COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
-
 # Install OpenCode (requires Node.js for postinstall script)
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
 
-# Copy entrypoint script
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Container-optimized nginx default + template (entrypoint renders with
+# WITTY_BACKEND_URL/WITTY_AGENT_URL)
+COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
+COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
 
-# Expose ports
+COPY docker/entrypoint.sh /entrypoint.sh
+COPY docker/healthcheck.sh /healthcheck.sh
+RUN chmod +x /entrypoint.sh /healthcheck.sh
+
 EXPOSE 8080 9772 4096
 
-# Volumes for persistent data
 VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:9772/health_check || exit 1
+    CMD ["/healthcheck.sh"]
 
 ENTRYPOINT ["/entrypoint.sh"]
