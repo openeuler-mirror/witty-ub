@@ -165,4 +165,4 @@ docker images | grep witty-ub
 ## 下一步
 
 - 推送镜像 → [03-distribution.md](03-distribution.md)
-- RPM 包构建 → [02-rpm-build.md](02-rpm-build.md)
+- 基于 RPM 仓库构建镜像 → [02-rpm-build.md](02-rpm-build.md)

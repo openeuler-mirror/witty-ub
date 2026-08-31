@@ -48,7 +48,7 @@ docker compose --profile split up -d
 ## 打包构建
 
 - [Docker 镜像构建](./package/01-docker-build.md) — 分层镜像架构，构建应用镜像用于容器部署
-- [RPM 包构建](./package/02-rpm-build.md) — 生成 RPM 安装包，适用于生产环境快速部署
+- [基于 RPM 仓库构建镜像](./package/02-rpm-build.md) — 从 RPM 仓库构建单机全量镜像，与生产 RPM 版本一致
 - [镜像分发](./package/03-distribution.md) — 镜像推送、导出 tar 包、离线加载
 
 ## 使用文档
