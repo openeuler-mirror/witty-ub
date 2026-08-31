@@ -7,7 +7,7 @@
 | 包名 | 内容 | 安装位置 |
 | ------ | ------ | ------ |
 | `witty-ub-backend` | FastAPI 后端、C++ 诊断工具、故障模式数据 | 后端节点 |
-| `witty-ub-web` | Web 前端、Nginx 模板、OpenCode Agent bundle | 前端节点 |
+| `witty-ub-web` | Web 前端、Nginx 模板、OpenCode Agent 提示词与启动脚本 | 前端节点 |
 | `witty-ub-manager` | `witty-ub` 命令与部署管理器 | 两端自动依赖安装 |
 | `witty-ub` | meta 包，一键安装上述三个子包 | 单机部署 |
 
@@ -15,7 +15,7 @@
 
 | 节点 | 安装 | 运行的服务 |
 | ------ | ------ | ----------- |
-| 后端节点 | `witty-ub-backend` | `postgresql-15`(5432) + `witty-ub-latency`(9772) |
+| 后端节点 | `witty-ub-backend` | `postgresql`(5432，服务名按已装包自动探测) + `witty-ub-latency`(9772) |
 | 前端节点 | `witty-ub-web` | `witty-ub-web`(8080) + OpenCode(4096，手动启动) |
 | 单机 | `witty-ub` | 以上全部 |
 
@@ -92,7 +92,7 @@ sudo witty-ub manager install --backend http://<后端IP>:9772
 
 ```bash
 npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/zh/download)
-vi ~/.config/opencode/opencode.jsonc   # 参考 配置参考手册 · OpenCode 配置
+vi ~/.config/opencode/opencode.jsonc   # 参考 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)
 
 set -a; source /etc/witty-ub/web/env; set +a
 bash /var/witty-ub/latency/deploy/run_opencode.sh
@@ -165,7 +165,7 @@ sudo witty-ub manager psql        # 进入 psql（仅后端节点）
 | ------ | ------ | ------ |
 | `witty-ub-web` | 前端节点（Nginx） | 8080 |
 | `witty-ub-latency` | 后端节点（FastAPI） | 9772 |
-| `postgresql-15` | 后端节点（数据库） | 5432 |
+| `postgresql` | 后端节点（数据库） | 5432 |
 
 ---
 
@@ -205,7 +205,7 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 | 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager install` |
 | 前端 8080 起不来 | `ss -tlnp \| grep 8080` 查端口占用；检查 `/etc/witty-ub/web/nginx.conf` 是否已渲染后端地址 |
 | 前端页面接口 502 | 确认后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙 |
-| psql 连不上 | `systemctl status postgresql-15`；`cat /etc/witty-ub/deploy.conf` |
+| psql 连不上 | `systemctl status postgresql`；`cat /etc/witty-ub/deploy.conf` |
 | 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager install` |
 
 ---

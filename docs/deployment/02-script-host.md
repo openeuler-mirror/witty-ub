@@ -14,14 +14,14 @@
 
 ## 前置条件
 
-**后端节点**
+### 后端节点
 
 - openEuler 24.03 LTS 或 Ubuntu 24.04 / WSL
 - sudo 权限、git、内存至少 8GB，Python 依赖安装和 C++ 编译内存占用较高
 - 软件源已配置：yum/dnf 源与 pypi 源，pypi 源通过 `~/.pip/pip.conf` 的 `index-url` 指定。内网或无外网环境必须提前配置
 - 数据文件位于仓库 `data/`，或挂载数据卷到 `/var/witty-ub/data`
 
-**前端节点**
+### 前端节点
 
 - sudo 权限、git、npm 源已配置，registry 位于项目根目录或 `src/web/.npmrc`
 - Node.js 18+ 与 nginx 均可由脚本自动安装；nginx 缺失时回退 vite preview
@@ -91,7 +91,7 @@ bash deploy/host/deploy.sh --deploy
 ```
 
 | 步骤 | 内容 |
-|------|------|
+| ------ | ------ |
 | ① OS 检测 | 自动识别 openEuler / Ubuntu，选择对应包管理器 (dnf / apt) |
 | ② 系统依赖 | 安装 cmake, gcc-c++, PostgreSQL, Python3, Node.js, nginx 等 |
 | ③ PostgreSQL | 调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 15432 端口 |
@@ -155,7 +155,7 @@ bash deploy/host/install_deps.sh
 ### 角色与分离部署变量
 
 | 变量 | 默认值 | 说明 |
-|------|--------|------|
+| ------ | -------- | ------ |
 | `WITTY_ROLE` | `all` | `--role` 参数与其等价：`all` / `backend` / `frontend` |
 | `WITTY_BACKEND_URL` | `http://127.0.0.1:9772` | 前端节点的后端反代上游（前端节点必填为后端地址） |
 | `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent 提示词中的后端基址 |
@@ -187,7 +187,7 @@ PG_HOST=10.0.0.5 PG_PORT=5432 bash deploy/host/deploy.sh --start
 `start_services` 按 `DEPLOY_PM` 环境变量选择托管方式（默认 `auto`）：
 
 | 值 | 行为 |
-|----|------|
+| ---- | ------ |
 | `auto`（默认） | systemd user units 优先；`systemctl --user` 不可用时自动回退 nohup 裸进程 + PID 文件 |
 | `systemd` | 强制 systemd 托管（不可用时明确报错） |
 | `nohup` | 强制裸进程托管（测试 / 排障） |

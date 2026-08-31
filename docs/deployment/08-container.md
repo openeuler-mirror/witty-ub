@@ -245,7 +245,7 @@ docker run -d \
 
 ### 场景一：PG 也是容器（同网络）
 
-```
+```text
 witty-ub-backend → postgres:5432  （Docker 内部 DNS）
 ```
 
