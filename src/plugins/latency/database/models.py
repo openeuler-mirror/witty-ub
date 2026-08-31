@@ -516,7 +516,7 @@ class TraceFailureEvent(Base):
     host_names: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
     cluster_names: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
     timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
-    status_code: Mapped[Optional[str]] = mapped_column(String)
+    status_code: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
     failure_mode: Mapped[Optional[str]] = mapped_column(String)
     operation: Mapped[Optional[str]] = mapped_column(String)
 
@@ -531,6 +531,7 @@ class FailureModeKnowledge(Base):
     solution: Mapped[Optional[str]] = mapped_column(Text)
     failure_domain: Mapped[Optional[str]] = mapped_column(String)
     children_failure_mode_ids: Mapped[Optional[str]] = mapped_column(String)
+    error_code: Mapped[Optional[str]] = mapped_column(String)
 
 
 class StatusCodeKnowledge(Base):

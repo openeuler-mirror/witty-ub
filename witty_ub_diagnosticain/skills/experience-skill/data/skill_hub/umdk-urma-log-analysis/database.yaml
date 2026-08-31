@@ -1,0 +1,9 @@
+- testcase1:
+    question: URMA 日志中出现 Invalid parameter 应该怎么排查？
+    answer: 检查报错函数对应的 API 入参，重点检查是否传入了 NULL、未初始化的结构体、越界值或不匹配的句柄。
+- testcase2:
+    question: 分析 URMA 日志时需要同时收集哪些辅助信息？
+    answer: 需要同时收集 dmesg 内核日志、系统日志、已加载的 urma 模块、设备节点列表、OS 版本和 UMDK 版本。
+- testcase3:
+    question: 日志中有很多 rate limit 摘要怎么办？
+    answer: 找到 rate limit 摘要之前的原始错误日志，通常该错误在循环或重试中高频触发，应优先解决根因。

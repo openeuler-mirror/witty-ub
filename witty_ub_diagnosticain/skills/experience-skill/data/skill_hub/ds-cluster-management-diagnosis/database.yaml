@@ -1,0 +1,12 @@
+- testcase1:
+    question: Worker 如何判断 lease 保活失败？
+    answer: 通过日志 "Failed to refresh lease: the new ttl is 0." 或 "etcd keep alive run failed, keep alive timer ElapsedMilliSecond: ..." 判断；通常会进一步触发节点被标记为 timeout/dead。
+- testcase2:
+    question: 如何确认集群节点上下线事件？
+    answer: 查找日志 "Event Type: Add Node: ..." 和 "Event Type: Remove Node: ..."；这些事件来自 ETCD WATCH 或本地状态更新。
+- testcase3:
+    question: Worker 与 ETCD 网络断开时会产生什么事件？
+    answer: 会生成伪造的 DELETE 事件："Due to network failure, a fake node deletion event[key: ...] needs to be generated"，触发本地集群状态更新。
+- testcase4:
+    question: 扩缩容期间请求返回 K_SCALING（32）或 K_TRY_AGAIN（19）应该怎么办？
+    answer: 说明集群正在扩缩容，需要应用层重试；同时检查扩缩容任务是否完成，避免任务卡住。

@@ -1,0 +1,12 @@
+- testcase1:
+    question: 如何量化接口时延分布？
+    answer: 使用访问日志中的 cost 字段，按 action 统计 P50/P90/P99 或平均值。
+- testcase2:
+    question: 缓存命中率下降通常会导致什么性能问题？
+    answer: 会导致 Get 请求耗时增加，更多访问远端 Worker 或磁盘，吞吐下降。
+- testcase3:
+    question: "Worker was hanged about ... ms" 对性能有什么影响？
+    answer: 进程挂起会导致所有请求超时增加、lease 失效、URMA 超时，是严重性能问题，需要从 OS 调度层面排查。
+- testcase4:
+    question: 性能下降时如何判断是否回退到 TCP 传输？
+    answer: 查看 URMA 日志中是否有大量连接重建或 [URMA_NEED_CONNECT]；检查 enable_transport_fallback 是否开启，以及资源日志中是否远端访问耗时高。

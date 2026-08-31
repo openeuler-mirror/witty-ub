@@ -55,15 +55,6 @@ add_executable(witty-ub-diag-tool
     witty_ub_diag_tool_main.cpp
 )
 target_include_directories(witty-ub-diag-tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-if(APPLE)
-    target_link_options(witty-ub-diag-tool PRIVATE -force_load $<TARGET_FILE:diagnosis_tool>)
-else()
-    target_link_options(witty-ub-diag-tool PRIVATE 
-        "-Wl,--whole-archive" 
-        "$<TARGET_FILE:diagnosis_tool>"
-        "-Wl,--no-whole-archive"
-    )
-endif()
 target_link_libraries(witty-ub-diag-tool PRIVATE ubse_context diagnosis_tool log4cplus)
 
 add_executable(witty-ub-brpc-diag

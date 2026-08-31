@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 URPC_ERR_EVENT_QUEUE_FAILURE 应该怎么处理？
+    answer: 队列状态通常已损坏，应销毁并重建队列，同时检查前置错误日志和统计。
+- testcase2:
+    question: URPC_ERR_TRANSPORT_ERR 通常与什么有关？
+    answer: 通常与底层 URMA 传输错误有关，需要结合 URMA 日志、urma_admin 输出和 CR 状态码分析。
+- testcase3:
+    question: 出现 URPC_ERR_VERSION_ERR 应该怎么排查？
+    answer: 确认通信两端 UMDK/URPC 版本一致，检查是否有混合版本部署。

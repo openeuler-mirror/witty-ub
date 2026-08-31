@@ -14,9 +14,9 @@ readonly NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly LATENCY_PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 readonly PLUGINS_DIR="$(dirname "${LATENCY_PROJECT_DIR}")"
-readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/config/opencode.json"
+readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/witty_ub_diagnosticain/.opencode/opencode.json"
 readonly REPO_ROOT="$(cd "${PLUGINS_DIR}/../.." && pwd)"
-readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/config/opencode.json"
+readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/witty_ub_diagnosticain/opencode.json"
 readonly OPENCODE_LOG="${LATENCY_PROJECT_DIR}/opencode_server.log"
 
 # Select the configuration that belongs to this script's layout. A stale
@@ -34,7 +34,7 @@ else
     exit 1
 fi
 
-readonly AGENT_PROMPT="${WITTY_ROOT}/config/agents/witty-ub-diagnostician.md"
+readonly AGENT_PROMPT="${WITTY_ROOT}/witty_ub_diagnosticain/.opencode/agents/witty-ub-diagnostician.md"
 if [[ ! -f "${AGENT_PROMPT}" ]]; then
     echo "[ERROR] Diagnosis agent prompt not found: ${AGENT_PROMPT}" >&2
     exit 1

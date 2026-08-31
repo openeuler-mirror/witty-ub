@@ -1,0 +1,12 @@
+- testcase1:
+    question: yuanrong-datasystem 运行日志的字段顺序是什么？
+    answer: time | level | filename | pod_name | pid:tid | trace_id | cluster_name | message。
+- testcase2:
+    question: 访问日志中 status_code 为 0 表示什么？非 0 呢？
+    answer: 0 表示成功；非 0 表示失败，对应 include/datasystem/utils/status.h 中的 StatusCode。
+- testcase3:
+    question: 如何按 trace_id 聚合一次请求的完整链路日志？
+    answer: 使用 grep 或 awk 过滤 trace_id 字段，并在运行日志、访问日志、request_out.log 中联合检索；注意资源日志和 sc_metrics 通常不带 trace_id。
+- testcase4:
+    question: 资源日志中 Cache_Hit_Info 字段的含义是什么？
+    answer: memHitNum/diskHitNum/l2HitNum/remoteHitNum/missNum，分别表示本地内存命中、本地磁盘命中、二级缓存命中、远端 worker 命中、未命中次数。

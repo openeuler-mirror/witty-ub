@@ -8,23 +8,18 @@
  # PURPOSE.
 ## See the Mulan PSL v2 for more details.
 
-file(GLOB URMA_FAILURE_MODE_SOURCES failure_mode_realization/urma/urma_failure_*.cpp)
-file(GLOB KVCACHE_FAILURE_MODE_SOURCES failure_mode_realization/kvcache/kvcache_conn_fault_*.cpp)
-
 add_library(diagnosis_tool STATIC
     diagnosis_tool_module.cpp
+    diagnosis_engine.cpp
     failure_log_helper.cpp
     failure_log_info.cpp
     failure_mode_controller.cpp
-    failure_mode_factory.cpp
-    failure_mode_view.cpp
     failure_mode.cpp
-    ${KVCACHE_FAILURE_MODE_SOURCES}
-    ${URMA_FAILURE_MODE_SOURCES}
 )
 target_include_directories(diagnosis_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 find_package(jsoncpp QUIET)
+find_package(Threads REQUIRED)
 find_library(RE2_LIBRARY NAMES re2 REQUIRED)
 
 if(jsoncpp_FOUND)
@@ -33,6 +28,7 @@ if(jsoncpp_FOUND)
             include
             ubse_context
             jsoncpp_lib
+            Threads::Threads
             ${RE2_LIBRARY}
     )
 else()
@@ -43,6 +39,7 @@ else()
             ubse_context
             jsoncpp
             stdc++fs
+            Threads::Threads
             ${RE2_LIBRARY}
     )
 endif()

@@ -1,0 +1,9 @@
+- testcase1:
+    question: 带宽低于预期应该怎么排查？
+    answer: 先使用 urma_perftest 建立带宽基线，检查链路宽度/速率、是否有 ACK_TIMEOUT 重传、是否触发流控、队列深度是否充足。
+- testcase2:
+    question: 时延抖动大可能是什么原因？
+    answer: 可能是 CPU 调度、中断聚合、RNR 重试、队列错误或资源竞争导致，应检查 NUMA 绑定、队列统计和 RNR 错误。
+- testcase3:
+    question: 性能随时间下降应该怎么排查？
+    answer: 检查是否存在资源泄漏、队列错误累积、热降频、日志中错误统计持续增长，对比初始基线和当前数据。

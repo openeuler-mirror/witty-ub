@@ -95,8 +95,42 @@ build_cpp() {
 
     mkdir -p "$LOG_DIR"
 
-    if [ -f "$DIAG_TOOL" ] && [ -f "$BRPC_DIAG_TOOL" ]; then
-        _log "C++ 诊断工具已存在，跳过编译"
+    # 是否需要 (重新) 编译:
+    #   1. FORCE_REBUILD_CPP=1          -> 强制重编
+    #   2. 任一二进制缺失                -> 必然重编
+    #   3. src/ 下源码 (*.cpp/*.cc/*.c/*.h/*.hpp) 或任一 CMakeLists.txt
+    #      比两个二进制中较旧的那个新    -> 源码改过, 重编
+    #   否则跳过编译 (避免改了 cpp 仍命中旧二进制)
+    local NEED_REBUILD=0
+    if [ "${FORCE_REBUILD_CPP:-0}" = "1" ]; then
+        NEED_REBUILD=1
+        _info "FORCE_REBUILD_CPP=1, 强制重新编译"
+    elif [ ! -f "$DIAG_TOOL" ] || [ ! -f "$BRPC_DIAG_TOOL" ]; then
+        NEED_REBUILD=1
+        [ -f "$DIAG_TOOL" ]      || _info "缺少 $DIAG_TOOL, 需要编译"
+        [ -f "$BRPC_DIAG_TOOL" ] || _info "缺少 $BRPC_DIAG_TOOL, 需要编译"
+    else
+        # 取两个二进制中较旧的那个作为 mtime 基准 (任一源码比它新就要重编)
+        local REF_BIN
+        if [ "$(stat -c %Y "$DIAG_TOOL" 2>/dev/null || echo 0)" \
+             -le "$(stat -c %Y "$BRPC_DIAG_TOOL" 2>/dev/null || echo 0)" ]; then
+            REF_BIN="$DIAG_TOOL"
+        else
+            REF_BIN="$BRPC_DIAG_TOOL"
+        fi
+        # find -newer 找到第一个匹配即 quit, 不全量遍历
+        if find "$PROJECT_DIR/src" -type f \( -name '*.cpp' -o -name '*.cc' \
+                 -o -name '*.c' -o -name '*.h' -o -name '*.hpp' \) \
+                 -newer "$REF_BIN" -print -quit 2>/dev/null | grep -q . || \
+           find "$PROJECT_DIR" -type f -name 'CMakeLists.txt' \
+                 -not -path '*/build/*' -newer "$REF_BIN" -print -quit 2>/dev/null | grep -q .; then
+            NEED_REBUILD=1
+            _info "检测到 C++ 源码/CMakeLists.txt 比二进制新, 重新编译"
+        fi
+    fi
+
+    if [ "$NEED_REBUILD" = "0" ]; then
+        _log "C++ 诊断工具已存在且源码未改动, 跳过编译"
         return 0
     fi
 
@@ -179,7 +213,10 @@ copy_data_files() {
     $SUDO cp "$PROJECT_DIR/data/umq/"*.json "$WITTY_DIR/data/umq/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/view-vis/"* "$WITTY_DIR/data/view-vis/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
-    $SUDO cp "$PROJECT_DIR/config/agents/"*.md "$WITTY_DIR/config/agents/" 2>/dev/null || true
+
+    # Deploy witty_ub_diagnosticain into .opencode directory
+    $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnosticain/.opencode" 2>/dev/null || true
+    $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnosticain/"* "$WITTY_DIR/witty_ub_diagnosticain/.opencode/" 2>/dev/null || true
 
     _log "数据文件已部署到 $WITTY_DIR"
 }

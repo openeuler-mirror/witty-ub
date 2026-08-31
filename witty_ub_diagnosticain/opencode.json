@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "latency-analysis": "./skills/latency-analysis",
+    "failure-code-analysis": "./skills/failure-code-analysis",
+    "diagnostic-report-generation": "./skills/diagnostic-report-generation",
+    "experience-skill": "./skills/experience-skill",
+    "brpc-diagnosis": "./skills/brpc-diagnosis"
+  },
+  "agent": {
+    "witty-ub-diagnostician": {
+      "description": "Witty-UB diagnostician agent: 通过只读 HTTP API 分析 KVC 分布式缓存的时延和通断故障",
+      "mode": "primary",
+      "temperature": 0.25,
+      "maxSteps": 15,
+      "prompt": "{file:/var/witty-ub/witty_ub_diagnosticain/.opencode/agents/witty-ub-diagnostician.md}",
+      "tools": {
+        "bash": true
+      },
+      "permission": {
+        "edit": "deny",
+        "webfetch": "deny",
+        "bash": {
+          "*": "deny",
+          "curl *": "allow",
+          "cd *experience-skill/scripts && uv run experience-skill *": "allow",
+          "cd *experience-skill/scripts && uv run --no-sync experience-skill *": "allow"
+        }
+      }
+    }
+  }
+}

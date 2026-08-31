@@ -1,0 +1,12 @@
+- testcase1:
+    question: 异构对象接口返回 K_ACL_ERROR（5000）通常是什么原因？
+    answer: 昇腾 ACL 调用失败，可能由设备内存不足、驱动异常或设备 ID 错误导致。
+- testcase2:
+    question: 如何确认当前版本是否支持异构对象？
+    answer: 检查日志中是否有 "Hetero function not compiled in" 或相关初始化日志；也可以调用 HealthCheck 或检查编译选项。
+- testcase3:
+    question: K_FUTURE_TIMEOUT（5002）在异步异构操作中通常是什么原因？
+    answer: 异步设备操作未完成，可能由设备队列阻塞、内存拷贝慢或传输延迟导致。
+- testcase4:
+    question: HCCL 错误（K_HCCL_ERROR=5001）如何排查？
+    answer: 检查 HCCL 通信组初始化日志、设备拓扑、驱动和固件版本，以及卡间链路状态。

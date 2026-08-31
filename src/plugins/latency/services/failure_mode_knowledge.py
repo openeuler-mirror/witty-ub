@@ -10,6 +10,13 @@ from latency.schemas.response import (
 
 logger = logging.getLogger(__name__)
 
+KVCACHE_ERROR_CODE_FILE = "kvcache_error_code_info.json"
+KVCACHE_FAILURE_MODE_FILE = "kvcache_failure_mode.json"
+URMA_FAILURE_MODE_FILE = "urma_failure_mode.json"
+KVCACHE_TREE_MODULE = "kvcache"
+URMA_TREE_MODULE = "urma"
+UNKNOWN_KVCACHE_FAILURE_MODE_ID = "kvcache_failure_unknown"
+
 
 class FailureModeKnowledge:
     @staticmethod
@@ -24,22 +31,23 @@ class FailureModeKnowledge:
         failure_modes = []
 
         status_code_json_path = os.path.join(
-            data_path, "kvcache", "kvcache_conn_fault_code_info.json"
+            data_path, "kvcache", KVCACHE_ERROR_CODE_FILE
         )
         try:
             with open(status_code_json_path, "r", encoding="utf-8") as f:
                 status_code_data = json.load(f)
 
+            if not isinstance(status_code_data, dict):
+                raise ValueError("故障码知识文件顶层必须是对象")
             status_code_knowledge = []
-            for item in status_code_data:
-                for status_code, info in item.items():
-                    status_code_knowledge.append(
-                        StatusCodeKnowledgeModel(
-                            status_code=str(status_code),
-                            symptom=info.get("故障现象", ""),
-                            root_cause=info.get("故障原因", ""),
-                        )
+            for status_code, info in status_code_data.items():
+                status_code_knowledge.append(
+                    StatusCodeKnowledgeModel(
+                        status_code=str(status_code),
+                        symptom=info.get("故障现象", ""),
+                        root_cause=info.get("故障原因", ""),
                     )
+                )
             await FailureModeKnowledgePGManager.add_status_code_knowledge(
                 status_code_knowledge
             )
@@ -49,20 +57,23 @@ class FailureModeKnowledge:
         except Exception as e:
             logger.error("读取故障码知识失败: %s", str(e))
         
-        kvcache_json_path = os.path.join(data_path, "kvcache", "kvcache_conn_fault_mode.json")
+        kvcache_json_path = os.path.join(
+            data_path, "kvcache", KVCACHE_FAILURE_MODE_FILE
+        )
         try:
             with open(kvcache_json_path, "r", encoding="utf-8") as f:
                 kvcache_data = json.load(f)
             
             for row in kvcache_data:
                 failure_mode = FailureModeModel(
-                    id=row.get("故障编码", ""),
+                    id=row.get("故障编号", ""),
                     name=row.get("故障名称", ""),
                     symptom=row.get("故障现象", ""),
                     root_cause=row.get("故障原因", ""),
                     solution=row.get("解决办法", ""),
                     failure_domain=row.get("故障域", ""),
-                    children_failure_mode_ids=""
+                    children_failure_mode_ids="",
+                    error_code=row.get("错误码"),
                 )
                 failure_modes.append(failure_mode)
             logger.info(f"成功读取 kvcache 故障模式: {len(kvcache_data)} 条")
@@ -70,8 +81,23 @@ class FailureModeKnowledge:
             logger.error(f"kvcache 故障模式文件不存在: {kvcache_json_path}")
         except Exception as e:
             logger.error(f"读取 kvcache 故障模式失败: {str(e)}")
+
+        if not any(
+            mode.id == UNKNOWN_KVCACHE_FAILURE_MODE_ID for mode in failure_modes
+        ):
+            failure_modes.append(
+                FailureModeModel(
+                    id=UNKNOWN_KVCACHE_FAILURE_MODE_ID,
+                    name="未知故障",
+                    symptom="状态码非0且未匹配其他已知故障模式",
+                    root_cause="识别到未知状态码，当前知识库中没有对应故障模式",
+                    solution="请联系管理员更新故障模式知识库",
+                    failure_domain="KVCache",
+                    children_failure_mode_ids="",
+                )
+            )
         
-        urma_json_path = os.path.join(data_path, "urma", "urma_failure_mode.json")
+        urma_json_path = os.path.join(data_path, "urma", URMA_FAILURE_MODE_FILE)
         urma_count = 0
         try:
             with open(urma_json_path, "r", encoding="utf-8") as f:
@@ -79,13 +105,14 @@ class FailureModeKnowledge:
             
             for row in urma_data:
                 failure_mode = FailureModeModel(
-                    id=row.get("故障编码", ""),
+                    id=row.get("故障编号", ""),
                     name=row.get("故障名称", ""),
-                    symptom=row.get("故障表现（验证方法）", ""),
+                    symptom=row.get("故障现象", ""),
                     root_cause=row.get("故障原因", ""),
                     solution=row.get("解决办法", ""),
                     failure_domain=row.get("故障域", ""),
-                    children_failure_mode_ids=""
+                    children_failure_mode_ids="",
+                    error_code=row.get("错误码"),
                 )
                 failure_modes.append(failure_mode)
                 urma_count += 1
@@ -101,7 +128,7 @@ class FailureModeKnowledge:
                 tree_data = json.load(f)
             
             children_map = {}
-            for category in ["kvcache_conn", "urma"]:
+            for category in [KVCACHE_TREE_MODULE, URMA_TREE_MODULE]:
                 if category in tree_data:
                     for mode_id, children_ids in tree_data[category].items():
                         if children_ids:

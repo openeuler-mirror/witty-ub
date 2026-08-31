@@ -202,7 +202,7 @@ if docker run --rm --entrypoint /bin/bash "$SELECTED_IMAGE" -c \
     'test -x /usr/bin/witty-ub-brpc-diag &&
      test -f /var/witty-ub/data/ubsocket/ubsocket_failure_mode.json &&
      test -f /var/witty-ub/data/umq/umq_failure_mode.json &&
-     test -f /var/witty-ub/data/urma/urma_failure_mode_for_brpc.json'; then
+     test -f /var/witty-ub/data/urma/urma_failure_mode.json'; then
     log_ok "BRPC diagnosis binary and data verified"
 else
     log_error "Image is missing the BRPC diagnosis binary or required data files"

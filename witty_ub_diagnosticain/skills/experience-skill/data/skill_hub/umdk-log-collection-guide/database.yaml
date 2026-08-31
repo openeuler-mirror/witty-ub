@@ -1,0 +1,9 @@
+- testcase1:
+    question: 如何在 openEuler 上把 URMA 日志重定向到独立文件？
+    answer: 创建 /etc/rsyslog.d/urma.conf，写入 ':msg, contains, "[URMA]" /var/log/umdk/urma.log' 和 ':msg, contains, "[URMA]" ~'，创建 /var/log/umdk 目录并重启 rsyslog。
+- testcase2:
+    question: UMDK 日志需要配置哪些内容才能长期保留？
+    answer: 需要配置 rsyslog 重定向到 /var/log/umdk/ 独立目录，并配置 /etc/logrotate.d/umdk 使用 daily/rotate 30/compress/delaycompress 等参数进行轮转。
+- testcase3:
+    question: 临时排查 URMA 问题需要把日志级别设为什么？
+    answer: 建议设置 export URMA_LOG_LEVEL=debug，但仅在临时排障时使用，注意磁盘空间。

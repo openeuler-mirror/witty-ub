@@ -214,9 +214,9 @@ do_status() {
     echo ""
     _info "端口监听:"
     if _has_cmd ss; then
-        ss -tlnp 2>/dev/null | grep -E ':(8080|9772|15432) ' || true
+        ss -tlnp 2>/dev/null | grep -E ':(8080|9772|5432) ' || true
     elif _has_cmd netstat; then
-        netstat -tlnp 2>/dev/null | grep -E ':(8080|9772|15432) ' || true
+        netstat -tlnp 2>/dev/null | grep -E ':(8080|9772|5432) ' || true
     fi
 }
 

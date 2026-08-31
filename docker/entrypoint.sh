@@ -24,7 +24,7 @@ for required_file in \
     "${WITTY_RUNTIME_DATA_DIR}/failure_mode_tree.json" \
     "${WITTY_RUNTIME_DATA_DIR}/ubsocket/ubsocket_failure_mode.json" \
     "${WITTY_RUNTIME_DATA_DIR}/umq/umq_failure_mode.json" \
-    "${WITTY_RUNTIME_DATA_DIR}/urma/urma_failure_mode_for_brpc.json"; do
+    "${WITTY_RUNTIME_DATA_DIR}/urma/urma_failure_mode.json"; do
     if [ ! -f "${required_file}" ]; then
         echo "[ERROR] Required diagnosis data is missing: ${required_file}"
         exit 1
@@ -65,14 +65,14 @@ done
 # backend is healthy.
 echo "[4/5] Starting OpenCode server..."
 cd /var/witty-ub
-export OPENCODE_CONFIG="${OPENCODE_CONFIG:-/var/witty-ub/config/opencode.json}"
+export OPENCODE_CONFIG="${OPENCODE_CONFIG:-/var/witty-ub/witty_ub_diagnosticain/.opencode/opencode.json}"
 nohup /usr/bin/opencode serve --hostname 127.0.0.1 --port 4096 \
     > /var/log/witty-ub/opencode_server.log 2>&1 &
 OPENCODE_PID=$!
 
 echo "  Waiting for OpenCode server to be ready..."
 for i in $(seq 1 20); do
-    if curl -s --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health | grep -q 'healthy'; then
+    if curl -s --max-time 3 --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health | grep -q 'healthy'; then
         echo "[OK] OpenCode server started on port 4096"
         break
     fi

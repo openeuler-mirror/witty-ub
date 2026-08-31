@@ -1,0 +1,9 @@
+- testcase1:
+    question: URMA 日志中出现 urma_create_cr 返回 URMA_EINVAL 怎么排查？
+    answer: 检查传入的 cr_attr 参数，包括 tp、flag 等字段是否按规范初始化，是否传入了 NULL 或不合法的句柄。
+- testcase2:
+    question: 日志中显示 udriver return fail 应该看什么？
+    answer: 应该同时查看 dmesg 内核日志，找到对应时间点的内核态错误，因为该失败通常来自底层驱动。
+- testcase3:
+    question: urma_destroy_cr 报 failed to find cr handle 是什么原因？
+    answer: 可能是重复销毁、使用了错误句柄，或 CR 已经被其他路径销毁。

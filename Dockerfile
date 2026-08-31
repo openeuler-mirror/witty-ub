@@ -19,6 +19,10 @@ RUN mkdir -p build && cd build && \
         witty-ub-diag-tool \
         witty-ub-brpc-diag
 
+# Compile tokenizer for experience-skill
+RUN cd witty_ub_diagnosticain/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
+    bash build.sh
+
 # ============================================
 # Stage 2: Runtime image (based on base image)
 # ============================================
@@ -47,8 +51,12 @@ RUN find /usr/share/witty-ub/data -type f -exec chmod 0640 {} \; && \
 
 # Copy configuration files
 COPY config/diagnosis_config.toml /var/witty-ub/config/
-COPY config/opencode.json /var/witty-ub/config/
-COPY config/agents/witty-ub-diagnostician.md /var/witty-ub/config/agents/
+
+# Copy witty_ub_diagnosticain contents into .opencode directory
+COPY witty_ub_diagnosticain/ /var/witty-ub/witty_ub_diagnosticain/.opencode/
+
+# Copy compiled libsimple.so from builder
+COPY --from=builder-cpp /build/witty_ub_diagnosticain/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/libsimple.so /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/
 
 # Copy web frontend (pre-built locally)
 COPY src/web/dist /var/witty-ub/web/
@@ -73,6 +81,12 @@ COPY src/plugins/latency/task /var/witty-ub/latency/task/
 COPY src/plugins/latency/deploy/run_opencode.sh /var/witty-ub/latency/deploy/run_opencode.sh
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 
+# Create symlink for libsimple.so and set up experience-skill venv
+RUN cd /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
+    ln -sf simple-src/output/bin/libsimple.so libsimple && \
+    cd /var/witty-ub/witty_ub_diagnosticain/.opencode/skills/experience-skill/scripts && \
+    /root/.local/bin/uv sync --frozen
+
 # Set permissions
 RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
         /usr/bin/witty-ub-diag-tool /usr/bin/witty-ub-brpc-diag && \
@@ -80,7 +94,10 @@ RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
     find /var/witty-ub/data -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/config -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/web -type d -exec chmod 0755 {} \; && \
-    find /var/witty-ub/web -type f -exec chmod 0644 {} \;
+    find /var/witty-ub/web -type f -exec chmod 0644 {} \; && \
+    find /var/witty-ub/witty_ub_diagnosticain -type d -exec chmod 0755 {} \; && \
+    find /var/witty-ub/witty_ub_diagnosticain -type f -exec chmod 0644 {} \; && \
+    find /var/witty-ub/witty_ub_diagnosticain -type f -name "*.sh" -exec chmod 0755 {} \;
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh

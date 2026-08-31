@@ -1,0 +1,9 @@
+- testcase1:
+    question: 日志中出现 UMQ_ERR_EFLOWCTL 应该怎么排查？
+    answer: 检查接收端消费速度是否跟得上发送速度，检查流控窗口大小和接收端 QBuf 资源是否充足。
+- testcase2:
+    question: UMQ_BUF_FLOW_CONTROL_UPDATE 是错误吗？
+    answer: 不是错误，这是正常的流控窗口更新事件，用于通知发送端窗口变化。
+- testcase3:
+    question: 流控问题通常需要同时看哪些端？
+    answer: 需要同时看发送端和接收端，重点对比发送速率、接收速率、QBuf 分配和 dequeue 速度。
