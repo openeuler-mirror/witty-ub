@@ -41,8 +41,8 @@ COPY --from=builder-cpp /build/build/src/witty-ub-brpc-diag /usr/bin/
 # existing witty-ub-data volume when the image is upgraded.
 COPY data/view-vis /usr/share/witty-ub/data/view-vis/
 COPY data/failure_mode_tree.json /usr/share/witty-ub/data/
-COPY data/kvcache/kvcache_conn_fault_mode.json /usr/share/witty-ub/data/kvcache/
-COPY data/kvcache/kvcache_conn_fault_code_info.json /var/witty-ub/data/kvcache/
+COPY data/kvcache/kvcache_failure_mode.json /usr/share/witty-ub/data/kvcache/
+COPY data/kvcache/kvcache_error_code_info.json /var/witty-ub/data/kvcache/
 COPY data/ubsocket /usr/share/witty-ub/data/ubsocket/
 COPY data/umq /usr/share/witty-ub/data/umq/
 COPY data/urma /usr/share/witty-ub/data/urma/
