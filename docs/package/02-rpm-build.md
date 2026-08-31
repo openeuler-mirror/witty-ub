@@ -2,14 +2,14 @@
 
 ## 概述
 
-`build.sh --rpm` 从 RPM 仓库安装 witty-ub 并构建**单机全量 Docker 镜像**，无需本地源码编译，与生产环境 RPM 版本一致。
+`build.sh --rpm` 从 RPM 仓库安装 witty-ub 子包并构建 Docker 镜像，无需本地源码编译，与生产环境 RPM 版本一致。支持三种角色镜像：`latest`（单机全量）、`backend`（后端）、`frontend`（前端）。
 
 > RPM 包本身的构建（spec + rpmbuild）在 openEuler 打包仓 src-openeuler/witty-ub 维护，不在本仓库。RPM 部署方式见[部署文档](../deployment/07-rpm.md)。
 
 | 项目 | 说明 |
 | ------ | ------ |
-| 基础镜像 | `openeuler/openeuler:24.03-lts` |
-| 安装内容 | `witty-ub`（meta 包，自动拉入 backend/web/manager 三个子包） |
+| 基础镜像 | `openeuler/openeuler:24.03-lts-sp4` |
+| 安装内容 | `all`: meta 包 `witty-ub`；`backend`: `witty-ub-backend`；`frontend`: `witty-ub-web` |
 | 构建时间 | 首次 5-10 分钟，后续 1-2 分钟 |
 
 ---
@@ -24,8 +24,12 @@
 ## 使用 build.sh 构建
 
 ```bash
-# 本地构建（必须提供 --repo-url）
+# 单机全量镜像（必须提供 --repo-url）
 bash build.sh --rpm --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<子目录>
+
+# 角色镜像（分离部署）
+bash build.sh --rpm --rpm-role backend --repo-url http://...
+bash build.sh --rpm --rpm-role frontend --repo-url http://...
 
 # 指定架构
 bash build.sh --rpm --platform linux/amd64 --repo-url http://...
@@ -49,7 +53,7 @@ bash build.sh --rpm --version v1.0.0 --repo-url http://...
 ## Dockerfile.rpm 说明
 
 ```dockerfile
-FROM openeuler/openeuler:24.03-lts
+FROM openeuler/openeuler:24.03-lts-sp4 AS repo
 
 ARG REPO_URL
 
@@ -58,17 +62,24 @@ RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
     echo "baseurl=$REPO_URL" >> /etc/yum.repos.d/witty-ub.repo && \
     ...
 
-# 安装 witty-ub（meta 包）和依赖
+# target all：安装 meta 包（拉入全部子包）
 RUN yum install -y witty-ub nodejs npm && ...
 
-# 安装 OpenCode
-RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/
+# target backend：仅安装后端子包
+RUN yum install -y witty-ub-backend && ...
 
-# 暴露端口
-EXPOSE 8080 9772 4096
+# target frontend：安装前端子包 + OpenCode
+RUN yum install -y witty-ub-web nodejs npm && ...
+RUN npm install -g opencode-ai ...
 ```
 
-产物为单机全量镜像（含全部角色负载），适合 All-in-One 部署；如需分离部署的角色镜像，使用[源码构建](01-docker-build.md)的 `backend`/`frontend` target。
+| 镜像 | target | 安装子包 | 用途 |
+| ------ | ------ | --------- | ------ |
+| `witty-ub:latest` | `all`（默认） | `witty-ub`（meta） | 单机 All-in-One 部署 |
+| `witty-ub:backend` | `backend` | `witty-ub-backend` | 分离部署的后端节点 |
+| `witty-ub:frontend` | `frontend` | `witty-ub-web` | 分离部署的前端节点 |
+
+镜像用法与源码构建的角色镜像一致，见[容器化部署](../deployment/08-container.md)。
 
 ---
 
@@ -79,7 +90,7 @@ EXPOSE 8080 9772 4096
 | 构建时间 | 15-20 分钟（首次） | 5-10 分钟（首次） |
 | 代码更新 | 支持热更新 | 需要 RPM 仓库更新 |
 | 版本一致性 | 依赖源码版本 | 与生产环境 RPM 版本一致 |
-| 角色镜像 | 支持 backend/frontend target | 仅单机全量 |
+| 角色镜像 | 支持 backend/frontend target | 支持 backend/frontend target |
 | 适用场景 | 开发、测试 | 生产环境 |
 
 ---

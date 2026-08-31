@@ -20,7 +20,6 @@ show_usage() {
     echo "  --platform     Target platform: local, linux/amd64, linux/arm64"
     echo "  --rpm          Build image using RPM package (instead of source code)"
     echo "  --rpm-role     Image role with --rpm: all, backend, frontend (default: all)"
-    echo "  --rpm-role     Image role with --rpm: all, backend, frontend (default: all)"
     echo "  --repo-url     Specify custom RPM repository URL (used with --rpm)"
     echo "  --version      Specify image tag version (default: latest)"
     echo "  -h, --help     Show this help message"

@@ -55,6 +55,7 @@ bash build.sh --version v1.0.0
 | `--multi` | 双架构构建（x86_64 + arm64），需配合 `--registry` |
 | `--registry <url>` | 镜像仓库地址（多架构构建必需） |
 | `--rpm` | 使用 RPM 包构建 → [02-rpm-build.md](02-rpm-build.md) |
+| `--rpm-role <role>` | RPM 构建的角色：`all`、`backend`、`frontend`（默认 `all`） |
 | `--repo-url <url>` | RPM 仓库地址（与 `--rpm` 配合） |
 
 ### 多架构构建

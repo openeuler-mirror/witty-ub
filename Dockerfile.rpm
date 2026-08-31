@@ -11,11 +11,15 @@
 # ============================================
 
 # ---------- shared: RPM repo ----------
-FROM openeuler/openeuler:24.03-lts AS repo
+FROM openeuler/openeuler:24.03-lts-sp4 AS repo
 
 ARG REPO_URL
 
 LABEL maintainer="witty-ub"
+
+# Disable update repos: their metadata may be unavailable; the everything
+# repo provided by REPO_URL already contains all dependencies.
+RUN sed -i '/update/s/^enabled=1/enabled=0/' /etc/yum.repos.d/*.repo
 
 RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
     echo "name=Witty-UB Repository" >> /etc/yum.repos.d/witty-ub.repo && \
