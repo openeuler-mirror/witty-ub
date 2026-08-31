@@ -16,17 +16,22 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string_view>
 #include <unordered_set>
 
+#include <fcntl.h>
 #include <re2/re2.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "failure_def.h"
 #include "failure_log_helper.h"
-#include "failure_mode_view.h"
 #include "logger.h"
 #include "ubse_context.h"
 
@@ -58,7 +63,64 @@ constexpr std::string_view FAILURE_TRACE_DELIMITER = " | ";
 constexpr char HIDDEN_FILE_PREFIX = '.';
 constexpr char WINDOWS_LINE_END = '\r';
 constexpr mode_t OUTPUT_DIRECTORY_PERMISSIONS = 0755;
+constexpr std::size_t ESTIMATED_LOG_LINE_LENGTH = 128;
+
+bool MatchesAnyPattern(const std::string &patternList, const fs::path &filename)
+{
+    std::vector<std::string_view> patternViews;
+    log_helper::SplitView(patternViews, patternList, PATTERN_LIST_DELIMITER);
+    return std::any_of(patternViews.begin(), patternViews.end(), [&](std::string_view pattern) {
+        return !pattern.empty() && log_helper::WildcardMatch(std::string(pattern), filename.string());
+    });
+}
 } // namespace
+
+MappedReadFile::MappedReadFile(const std::string &path)
+{
+    descriptor_ = ::open(path.c_str(), O_RDONLY);
+    struct stat status {};
+    if (descriptor_ < 0 || ::fstat(descriptor_, &status) != 0 || status.st_size < 0 ||
+        static_cast<std::uintmax_t>(status.st_size) > std::numeric_limits<std::size_t>::max()) {
+        Close();
+        return;
+    }
+    size_ = static_cast<std::size_t>(status.st_size);
+    if (size_ == 0) {
+        return;
+    }
+    void *mapping = ::mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, descriptor_, 0);
+    if (mapping == MAP_FAILED) {
+        Close();
+        return;
+    }
+    data_ = mapping;
+}
+
+MappedReadFile::~MappedReadFile()
+{
+    if (data_ != nullptr) {
+        ::munmap(data_, size_);
+    }
+    Close();
+}
+
+bool MappedReadFile::IsOpen() const
+{
+    return descriptor_ >= 0;
+}
+
+std::string_view MappedReadFile::Content() const
+{
+    return data_ == nullptr ? std::string_view{} : std::string_view(static_cast<const char *>(data_), size_);
+}
+
+void MappedReadFile::Close()
+{
+    if (descriptor_ >= 0) {
+        ::close(descriptor_);
+        descriptor_ = -1;
+    }
+}
 
 DiagnosisToolModule::DiagnosisToolModule() = default;
 
@@ -66,8 +128,7 @@ RackResult DiagnosisToolModule::Initialize()
 {
     engine_.reset();
     logTypeToPath_.clear();
-    if (ParseDiagArgs() != RACK_OK || ConfigureMergedPath() != RACK_OK || ExtractLogsByTimeWindow() != RACK_OK ||
-        BuildLogTypeToPathMap() != RACK_OK) {
+    if (ParseDiagArgs() != RACK_OK || ConfigureMergedPath() != RACK_OK) {
         return RACK_FAIL;
     }
     engine_ = DiagnosisEngine::Create(wittyDir_);
@@ -75,6 +136,11 @@ RackResult DiagnosisToolModule::Initialize()
         LOG_ERROR << "failed to initialize data-driven diagnosis engine from: " << wittyDir_;
         return RACK_FAIL;
     }
+    engine_->BeginDiagnosis();
+    if (ExtractLogsByTimeWindow() != RACK_OK || BuildLogTypeToPathMap() != RACK_OK) {
+        return RACK_FAIL;
+    }
+    engine_->FinishDiagnosis(logTypeToPath_[LOG_TYPE_ACCESS].size(), logTypeToPath_[LOG_TYPE_RUNTIME].size());
     return RACK_OK;
 }
 
@@ -91,8 +157,7 @@ RackResult DiagnosisToolModule::Start()
         LOG_ERROR << "DiagnosisToolModule is not initialized";
         return RACK_FAIL;
     }
-    if (!engine_->RunDiagnosis(logTypeToPath_[LOG_TYPE_ACCESS], logTypeToPath_[LOG_TYPE_RUNTIME]) ||
-        StoreFailureTraces() != RACK_OK || GenerateFailureModeView() != RACK_OK) {
+    if (StoreFailureTraces() != RACK_OK) {
         return RACK_FAIL;
     }
     LOG_INFO << "DiagnosisToolModule completed";
@@ -213,7 +278,7 @@ std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::strin
     return matchedFiles;
 }
 
-RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
+void DiagnosisToolModule::CollectLogSources(std::unordered_map<std::string, std::vector<std::string>> &outputToSources)
 {
     struct LogFilePattern {
         const std::string *pattern;
@@ -227,7 +292,6 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
         LogFilePattern{&resourceLogFile_, ARG_RESOURCE_LOG},
     };
 
-    std::unordered_set<std::string> writtenPaths;
     std::unordered_set<std::string> extractedSourcePaths;
     for (const LogFilePattern &entry : patterns) {
         if (entry.pattern->empty()) {
@@ -244,23 +308,141 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
                 continue;
             }
             const fs::path outputPath = fs::path(mergedLogDir_) / fs::path(sourcePath).filename();
-            const bool append = writtenPaths.find(outputPath.string()) != writtenPaths.end();
-            if (!ExtractLogLinesByTimeWindow(sourcePath, outputPath.string(), append)) {
+            outputToSources[outputPath.string()].push_back(sourcePath);
+        }
+    }
+}
+
+void DiagnosisToolModule::ClassifyLogOutputs(
+    const std::unordered_map<std::string, std::vector<std::string>> &outputToSources,
+    std::vector<std::string> &accessOutputs, std::vector<std::string> &runtimeOutputs,
+    std::vector<std::string> &otherOutputs)
+{
+    for (const auto &[outputPath, sources] : outputToSources) {
+        const fs::path filename = fs::path(outputPath).filename();
+        const bool access = MatchesAnyPattern(dsClientAccessLogFile_, filename) ||
+                            MatchesAnyPattern(dsWorkerAccessLogFile_, filename);
+        const bool runtime = MatchesAnyPattern(dsClientInfoLogFile_, filename) ||
+                             MatchesAnyPattern(dsWorkerInfoLogFile_, filename);
+        if (access) {
+            accessOutputs.push_back(outputPath);
+        }
+        if (runtime) {
+            runtimeOutputs.push_back(outputPath);
+        }
+        if (!access && !runtime) {
+            otherOutputs.push_back(outputPath);
+        }
+    }
+    std::sort(accessOutputs.begin(), accessOutputs.end());
+    std::sort(runtimeOutputs.begin(), runtimeOutputs.end());
+    std::sort(otherOutputs.begin(), otherOutputs.end());
+}
+
+RackResult DiagnosisToolModule::ProcessClassifiedOutputs(
+    const std::unordered_map<std::string, std::vector<std::string>> &outputToSources,
+    const std::vector<std::string> &accessOutputs, const std::vector<std::string> &runtimeOutputs,
+    const std::vector<std::string> &otherOutputs)
+{
+    auto extractOutput = [this, &outputToSources](const std::string &outputPath, LogKind kind) {
+        const auto &sources = outputToSources.at(outputPath);
+        for (std::size_t index = 0; index < sources.size(); ++index) {
+            if (!ExtractLogLinesByTimeWindow(sources[index], outputPath, index != 0, kind)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    std::unordered_set<std::string> extractedOutputs;
+    for (const std::string &outputPath : accessOutputs) {
+        if (!extractOutput(outputPath, LogKind::ACCESS)) {
+            return RACK_FAIL;
+        }
+        extractedOutputs.insert(outputPath);
+    }
+    for (const std::string &outputPath : runtimeOutputs) {
+        if (extractedOutputs.find(outputPath) != extractedOutputs.end()) {
+            if (!FeedExtractedLog(outputPath, LogKind::RUNTIME)) {
                 return RACK_FAIL;
             }
-            writtenPaths.insert(outputPath.string());
+        } else {
+            if (!extractOutput(outputPath, LogKind::RUNTIME)) {
+                return RACK_FAIL;
+            }
+            extractedOutputs.insert(outputPath);
+        }
+    }
+    for (const std::string &outputPath : otherOutputs) {
+        if (!extractOutput(outputPath, LogKind::NONE)) {
+            return RACK_FAIL;
         }
     }
     return RACK_OK;
 }
 
-bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPath, const std::string &outputPath,
-                                                      bool append)
+RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
 {
-    std::ifstream input(inputPath);
-    if (!input.is_open()) {
-        LOG_ERROR << "Cannot open input file: " << inputPath;
+    std::unordered_map<std::string, std::vector<std::string>> outputToSources;
+    CollectLogSources(outputToSources);
+    std::vector<std::string> accessOutputs;
+    std::vector<std::string> runtimeOutputs;
+    std::vector<std::string> otherOutputs;
+    ClassifyLogOutputs(outputToSources, accessOutputs, runtimeOutputs, otherOutputs);
+    return ProcessClassifiedOutputs(outputToSources, accessOutputs, runtimeOutputs, otherOutputs);
+}
+
+void DiagnosisToolModule::WriteExtractedLine(std::ostream &output, std::string_view line, LogKind kind,
+                                             bool useMappedInput, std::vector<std::string_view> &runtimeLines) const
+{
+    output.write(line.data(), static_cast<std::streamsize>(line.size()));
+    output.put('\n');
+    if (kind == LogKind::ACCESS) {
+        engine_->AnalyzeAccessLine(line);
+    } else if (kind == LogKind::RUNTIME) {
+        if (useMappedInput) {
+            runtimeLines.push_back(line);
+        } else {
+            engine_->AnalyzeRuntimeLine(line);
+        }
+    }
+}
+
+bool DiagnosisToolModule::ProcessExtractedLine(std::string_view line, LineProcessContext &ctx) const
+{
+    if (!line.empty() && line.back() == WINDOWS_LINE_END) {
+        line.remove_suffix(1);
+    }
+    const std::string_view timestamp = log_helper::FindTimestampT(line);
+    if (timestamp.empty()) {
+        if (ctx.inRange) {
+            WriteExtractedLine(ctx.output, line, ctx.kind, ctx.useMappedInput, ctx.runtimeLines);
+        }
+        return true;
+    }
+    if (timestamp > ctx.endTime) {
         return false;
+    }
+    if (timestamp < ctx.startTime) {
+        ctx.inRange = false;
+        return true;
+    }
+    ctx.inRange = true;
+    WriteExtractedLine(ctx.output, line, ctx.kind, ctx.useMappedInput, ctx.runtimeLines);
+    return true;
+}
+
+bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPath, const std::string &outputPath,
+                                                      bool append, LogKind kind)
+{
+    MappedReadFile mappedInput(inputPath);
+    std::ifstream fallbackInput;
+    if (!mappedInput.IsOpen()) {
+        fallbackInput.open(inputPath);
+        if (!fallbackInput.is_open()) {
+            LOG_ERROR << "Cannot open input file: " << inputPath;
+            return false;
+        }
     }
     const std::ios_base::openmode mode = std::ios::out | (append ? std::ios::app : std::ios::trunc);
     std::ofstream output(outputPath, mode);
@@ -268,46 +450,87 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
         LOG_ERROR << "Cannot open output file: " << outputPath;
         return false;
     }
-
+    std::vector<std::string_view> runtimeLines;
+    const bool useMappedInput = mappedInput.IsOpen();
+    if (kind == LogKind::RUNTIME && useMappedInput) {
+        runtimeLines.reserve(mappedInput.Content().size() / ESTIMATED_LOG_LINE_LENGTH);
+    }
     const std::string startTime = log_helper::ToTimestampTBound(startTimeStr_);
     const std::string endTime = log_helper::ToTimestampTBound(endTimeStr_);
     bool inRange = false;
+    LineProcessContext ctx{startTime, endTime, inRange, output, kind, useMappedInput, runtimeLines};
+    if (useMappedInput) {
+        const std::string_view content = mappedInput.Content();
+        std::size_t offset = 0;
+        while (offset < content.size()) {
+            const std::size_t end = content.find('\n', offset);
+            const std::string_view line = end == std::string_view::npos ? content.substr(offset) :
+                                                                          content.substr(offset, end - offset);
+            if (!ProcessExtractedLine(line, ctx) || end == std::string_view::npos) {
+                break;
+            }
+            offset = end + 1;
+        }
+        if (kind == LogKind::RUNTIME) {
+            engine_->AnalyzeRuntimeLines(runtimeLines);
+        }
+    } else {
+        std::string line;
+        while (std::getline(fallbackInput, line)) {
+            if (!ProcessExtractedLine(line, ctx)) {
+                break;
+            }
+        }
+    }
+    return !fallbackInput.bad() && output.good();
+}
+
+bool DiagnosisToolModule::FeedExtractedLog(const std::string &path, LogKind kind)
+{
+    MappedReadFile mappedInput(path);
+    if (mappedInput.IsOpen()) {
+        std::vector<std::string_view> lines;
+        const std::string_view content = mappedInput.Content();
+        lines.reserve(content.size() / ESTIMATED_LOG_LINE_LENGTH);
+        std::size_t offset = 0;
+        while (offset < content.size()) {
+            const std::size_t end = content.find('\n', offset);
+            lines.push_back(end == std::string_view::npos ? content.substr(offset) :
+                                                            content.substr(offset, end - offset));
+            if (end == std::string_view::npos) {
+                break;
+            }
+            offset = end + 1;
+        }
+        if (kind == LogKind::RUNTIME) {
+            engine_->AnalyzeRuntimeLines(lines);
+        } else {
+            for (std::string_view line : lines) {
+                engine_->AnalyzeAccessLine(line);
+            }
+        }
+        return true;
+    }
+
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        LOG_ERROR << "Cannot open extracted log file: " << path;
+        return false;
+    }
     std::string line;
     while (std::getline(input, line)) {
-        if (!line.empty() && line.back() == WINDOWS_LINE_END) {
-            line.pop_back();
+        if (kind == LogKind::ACCESS) {
+            engine_->AnalyzeAccessLine(line);
+        } else if (kind == LogKind::RUNTIME) {
+            engine_->AnalyzeRuntimeLine(line);
         }
-        const std::string_view timestamp = log_helper::FindTimestampT(line);
-        if (timestamp.empty()) {
-            if (inRange) {
-                output << line << '\n';
-            }
-            continue;
-        }
-        if (timestamp > endTime) {
-            break;
-        }
-        if (timestamp < startTime) {
-            inRange = false;
-            continue;
-        }
-        inRange = true;
-        output << line << '\n';
     }
-    return !input.bad() && output.good();
+    return !input.bad();
 }
 
 RackResult DiagnosisToolModule::BuildLogTypeToPathMap()
 {
     logTypeToPath_.clear();
-    auto matchesAnyPattern = [](const std::string &patternList, const fs::path &filename) {
-        std::vector<std::string_view> patternViews;
-        log_helper::SplitView(patternViews, patternList, PATTERN_LIST_DELIMITER);
-        return std::any_of(patternViews.begin(), patternViews.end(), [&](std::string_view pattern) {
-            return !pattern.empty() && log_helper::WildcardMatch(std::string(pattern), filename.string());
-        });
-    };
-
     std::error_code error;
     for (fs::recursive_directory_iterator iterator(mergedLogDir_, fs::directory_options::skip_permission_denied, error),
          end;
@@ -320,11 +543,11 @@ RackResult DiagnosisToolModule::BuildLogTypeToPathMap()
             continue;
         }
         const fs::path filename = iterator->path().filename();
-        if (matchesAnyPattern(dsClientAccessLogFile_, filename) ||
-            matchesAnyPattern(dsWorkerAccessLogFile_, filename)) {
+        if (MatchesAnyPattern(dsClientAccessLogFile_, filename) ||
+            MatchesAnyPattern(dsWorkerAccessLogFile_, filename)) {
             logTypeToPath_[LOG_TYPE_ACCESS].push_back(iterator->path().string());
         }
-        if (matchesAnyPattern(dsClientInfoLogFile_, filename) || matchesAnyPattern(dsWorkerInfoLogFile_, filename)) {
+        if (MatchesAnyPattern(dsClientInfoLogFile_, filename) || MatchesAnyPattern(dsWorkerInfoLogFile_, filename)) {
             logTypeToPath_[LOG_TYPE_RUNTIME].push_back(iterator->path().string());
         }
     }
@@ -365,16 +588,6 @@ RackResult DiagnosisToolModule::StoreFailureTraces() const
         }
     }
     return output.good() ? RACK_OK : RACK_FAIL;
-}
-
-RackResult DiagnosisToolModule::GenerateFailureModeView() const
-{
-    FailureModeView view;
-    if (view.Build(engine_->GetHitRoots(), engine_->GetControllers(), engine_->GetTraceLogs()) != RACK_OK) {
-        LOG_ERROR << "failed to build failure mode view";
-        return RACK_FAIL;
-    }
-    return view.Dump(mergedLogDir_);
 }
 
 } // namespace diag

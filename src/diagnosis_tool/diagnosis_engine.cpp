@@ -16,10 +16,17 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
+#include <limits>
 #include <string_view>
+#include <thread>
 #include <tuple>
+#include <type_traits>
 #include <utility>
+
+#include <unistd.h>
 
 #include "failure_log_helper.h"
 #include "logger.h"
@@ -30,6 +37,7 @@ namespace {
 constexpr const char *KVCACHE_FAILURE_MODE_PATH = "data/kvcache/kvcache_failure_mode.json";
 constexpr const char *URMA_FAILURE_MODE_PATH = "data/urma/urma_failure_mode.json";
 constexpr const char *FAILURE_MODE_TREE_PATH = "data/failure_mode_tree.json";
+constexpr const char *RULE_CACHE_PATH = "cache/diagnosis_rules_v1.bin";
 constexpr const char *JSON_KEY_ERROR_CODE = "错误码";
 constexpr const char *JSON_KEY_FAILURE_ID = "故障编号";
 constexpr const char *JSON_KEY_FAILURE_NAME = "故障名称";
@@ -68,6 +76,178 @@ constexpr std::size_t URMA_MARKER_FIELD_INDEX = 0;
 constexpr std::size_t URMA_LIBRARY_FIELD_INDEX = 1;
 constexpr std::size_t URMA_FUNCTION_FIELD_INDEX = 4;
 constexpr int SUCCESS_STATUS_CODE = 0;
+constexpr std::array<char, 8> RULE_CACHE_MAGIC = {'W', 'U', 'B', 'D', 'I', 'A', 'G', '1'};
+constexpr std::uint32_t RULE_CACHE_VERSION = 1;
+constexpr std::size_t RULE_SOURCE_COUNT = 3;
+constexpr std::uint64_t MAX_CACHED_RULES = 1000000;
+constexpr std::uint64_t MAX_CACHED_ITEMS = 10000000;
+constexpr std::uint64_t MAX_CACHED_STRING_SIZE = 16 * 1024 * 1024;
+constexpr std::size_t MIN_RUNTIME_LINES_PER_WORKER = 50000;
+constexpr std::size_t MAX_RUNTIME_WORKERS = 8;
+
+struct RuleSourceStamp {
+    std::uint64_t size;
+    std::int64_t modified;
+};
+
+template <typename T>
+bool WriteBinary(std::ostream &stream, const T &value)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    std::string buffer(sizeof(value), '\0');
+    std::memcpy(buffer.data(), &value, sizeof(value));
+    stream.write(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    return stream.good();
+}
+
+template <typename T>
+bool ReadBinary(std::istream &stream, T &value)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    std::string buffer(sizeof(value), '\0');
+    stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    if (stream.good()) {
+        std::memcpy(&value, buffer.data(), sizeof(value));
+    }
+    return stream.good();
+}
+
+bool WriteCacheString(std::ostream &stream, const std::string &value)
+{
+    const std::uint64_t size = value.size();
+    return WriteBinary(stream, size) && static_cast<bool>(stream.write(value.data(), value.size()));
+}
+
+bool ReadCacheString(std::istream &stream, std::string &value)
+{
+    std::uint64_t size = 0;
+    if (!ReadBinary(stream, size) || size > MAX_CACHED_STRING_SIZE) {
+        return false;
+    }
+    value.resize(static_cast<std::size_t>(size));
+    return size == 0 || static_cast<bool>(stream.read(value.data(), static_cast<std::streamsize>(size)));
+}
+
+bool WriteCacheIndices(std::ostream &stream, const std::vector<std::size_t> &indices)
+{
+    const std::uint64_t count = indices.size();
+    if (!WriteBinary(stream, count)) {
+        return false;
+    }
+    for (std::size_t index : indices) {
+        if (!WriteBinary(stream, static_cast<std::uint64_t>(index))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ReadCacheIndices(std::istream &stream, std::vector<std::size_t> &indices)
+{
+    std::uint64_t count = 0;
+    if (!ReadBinary(stream, count) || count > MAX_CACHED_ITEMS) {
+        return false;
+    }
+    indices.clear();
+    indices.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t item = 0; item < count; ++item) {
+        std::uint64_t index = 0;
+        if (!ReadBinary(stream, index) || index > std::numeric_limits<std::size_t>::max()) {
+            return false;
+        }
+        indices.push_back(static_cast<std::size_t>(index));
+    }
+    return true;
+}
+
+std::array<std::filesystem::path, RULE_SOURCE_COUNT> RuleSourcePaths(const std::filesystem::path &wittyDir)
+{
+    return {
+        wittyDir / KVCACHE_FAILURE_MODE_PATH,
+        wittyDir / URMA_FAILURE_MODE_PATH,
+        wittyDir / FAILURE_MODE_TREE_PATH,
+    };
+}
+
+bool GetRuleSourceStamps(const std::filesystem::path &wittyDir, std::array<RuleSourceStamp, RULE_SOURCE_COUNT> &stamps)
+{
+    const auto paths = RuleSourcePaths(wittyDir);
+    for (std::size_t index = 0; index < paths.size(); ++index) {
+        std::error_code error;
+        const std::uintmax_t size = std::filesystem::file_size(paths[index], error);
+        if (error || size > std::numeric_limits<std::uint64_t>::max()) {
+            return false;
+        }
+        const auto modified = std::filesystem::last_write_time(paths[index], error);
+        if (error) {
+            return false;
+        }
+        stamps[index] = RuleSourceStamp{
+            static_cast<std::uint64_t>(size),
+            static_cast<std::int64_t>(modified.time_since_epoch().count()),
+        };
+    }
+    return true;
+}
+
+template <std::size_t FieldCount>
+bool SplitExactFields(std::string_view line, std::array<std::string_view, FieldCount> &fields)
+{
+    static_assert(FieldCount > 0);
+    std::size_t offset = 0;
+    for (std::size_t index = 0; index + 1 < FieldCount; ++index) {
+        const std::size_t delimiter = line.find(log_helper::DELIM, offset);
+        if (delimiter == std::string_view::npos) {
+            return false;
+        }
+        fields[index] = line.substr(offset, delimiter - offset);
+        offset = delimiter + log_helper::DELIM.size();
+    }
+    if (line.find(log_helper::DELIM, offset) != std::string_view::npos) {
+        return false;
+    }
+    fields.back() = line.substr(offset);
+    return true;
+}
+
+std::string_view ExtractRuntimeTraceId(std::string_view line)
+{
+    std::size_t offset = 0;
+    for (std::size_t index = 0; index < TRACEID_IDX; ++index) {
+        const std::size_t delimiter = line.find(log_helper::DELIM, offset);
+        if (delimiter == std::string_view::npos) {
+            return {};
+        }
+        offset = delimiter + log_helper::DELIM.size();
+    }
+    const std::size_t delimiter = line.find(log_helper::DELIM, offset);
+    if (delimiter == std::string_view::npos) {
+        return {};
+    }
+    return log_helper::TrimView(line.substr(offset, delimiter - offset));
+}
+
+std::optional<LevelOption> ParseLevelView(std::string_view value)
+{
+    value = log_helper::TrimView(value);
+    if (value.size() != 1) {
+        return std::nullopt;
+    }
+    switch (value.front()) {
+        case 'I':
+            return LevelOption::INFO;
+        case 'D':
+            return LevelOption::DEBUG;
+        case 'W':
+            return LevelOption::WARN;
+        case 'E':
+            return LevelOption::ERROR;
+        case 'F':
+            return LevelOption::FATAL;
+        default:
+            return std::nullopt;
+    }
+}
 
 bool ParseJsonFile(const std::filesystem::path &path, Json::Value &root)
 {
@@ -137,6 +317,54 @@ bool ParseUrmaPipeMessage(std::string_view message, std::string &functionName, i
            ParseUrmaFunctionLocation(fields[URMA_FUNCTION_FIELD_INDEX], functionName, lineNo);
 }
 
+bool ValidateCacheHeader(std::istream &stream)
+{
+    std::array<char, RULE_CACHE_MAGIC.size()> magic{};
+    std::uint32_t version = 0;
+    stream.read(magic.data(), magic.size());
+    if (!stream.good() || magic != RULE_CACHE_MAGIC || !ReadBinary(stream, version) || version != RULE_CACHE_VERSION) {
+        return false;
+    }
+    return true;
+}
+
+bool LoadCacheRuleDescriptor(std::istream &stream, FailureModeDescriptor &desc)
+{
+    if (!ReadCacheString(stream, desc.id) || !ReadCacheString(stream, desc.name) ||
+        !ReadCacheString(stream, desc.phenomenon) || !ReadCacheString(stream, desc.cause) ||
+        !ReadCacheString(stream, desc.suggestion) || !ReadCacheString(stream, desc.filename) ||
+        !ReadCacheString(stream, desc.functionName)) {
+        return false;
+    }
+    std::uint8_t hasErrorCode = 0;
+    if (!ReadBinary(stream, hasErrorCode) || hasErrorCode > 1) {
+        return false;
+    }
+    if (hasErrorCode != 0) {
+        std::string errorCode;
+        if (!ReadCacheString(stream, errorCode)) {
+            return false;
+        }
+        desc.errorCode = std::move(errorCode);
+    }
+    std::uint8_t nodeType = 0;
+    if (!ReadBinary(stream, nodeType) || nodeType > static_cast<std::uint8_t>(FailureModeNodeType::URMA_FAILURE)) {
+        return false;
+    }
+    desc.nodeType = static_cast<FailureModeNodeType>(nodeType);
+    return true;
+}
+
+bool WriteCacheHeader(std::ostream &stream, const std::array<RuleSourceStamp, RULE_SOURCE_COUNT> &stamps)
+{
+    stream.write(RULE_CACHE_MAGIC.data(), RULE_CACHE_MAGIC.size());
+    bool written = stream.good() && WriteBinary(stream, RULE_CACHE_VERSION);
+    for (const RuleSourceStamp &stamp : stamps) {
+        written = written && WriteBinary(stream, stamp.size) && WriteBinary(stream, stamp.modified);
+    }
+    return written;
+}
+
 } // namespace
 
 std::unique_ptr<DiagnosisEngine> DiagnosisEngine::Create(const std::filesystem::path &wittyDir)
@@ -152,6 +380,14 @@ std::unique_ptr<DiagnosisEngine> DiagnosisEngine::Create(const std::filesystem::
 bool DiagnosisEngine::LoadRules(const std::filesystem::path &wittyDir)
 {
     rules_.clear();
+    if (LoadRuleCache(wittyDir)) {
+        if (BuildIndices()) {
+            LOG_INFO << "loaded diagnosis rules from binary cache";
+            return true;
+        }
+        rules_.clear();
+    }
+
     std::unordered_map<std::string, std::size_t> idToIndex;
     if (!LoadFailureModes(wittyDir / KVCACHE_FAILURE_MODE_PATH, FailureModeComponent::KVCACHE, idToIndex) ||
         !LoadFailureModes(wittyDir / URMA_FAILURE_MODE_PATH, FailureModeComponent::URMA, idToIndex)) {
@@ -180,7 +416,224 @@ bool DiagnosisEngine::LoadRules(const std::filesystem::path &wittyDir)
     if (!LoadFailureModeTree(wittyDir / FAILURE_MODE_TREE_PATH, idToIndex)) {
         return false;
     }
-    return BuildIndices();
+    if (!BuildIndices()) {
+        return false;
+    }
+    SaveRuleCache(wittyDir);
+    return true;
+}
+
+bool DiagnosisEngine::LoadRuleCache(const std::filesystem::path &wittyDir)
+{
+    std::ifstream stream(wittyDir / RULE_CACHE_PATH, std::ios::binary);
+    if (!stream.is_open()) {
+        return false;
+    }
+    if (!ValidateCacheHeader(stream)) {
+        return false;
+    }
+    if (!ValidateCacheStamps(stream, wittyDir)) {
+        return false;
+    }
+    std::uint64_t ruleCount = 0;
+    if (!ReadBinary(stream, ruleCount) || ruleCount == 0 || ruleCount > MAX_CACHED_RULES) {
+        return false;
+    }
+    std::vector<Rule> loadedRules;
+    if (!LoadCacheRules(stream, loadedRules, ruleCount)) {
+        return false;
+    }
+    if (!ValidateCacheIndices(loadedRules, ruleCount)) {
+        return false;
+    }
+    rules_ = std::move(loadedRules);
+    return true;
+}
+
+bool DiagnosisEngine::ValidateCacheStamps(std::istream &stream, const std::filesystem::path &wittyDir) const
+{
+    std::array<RuleSourceStamp, RULE_SOURCE_COUNT> currentStamps{};
+    if (!GetRuleSourceStamps(wittyDir, currentStamps)) {
+        return false;
+    }
+    for (const RuleSourceStamp &current : currentStamps) {
+        RuleSourceStamp cached{};
+        if (!ReadBinary(stream, cached.size) || !ReadBinary(stream, cached.modified) || cached.size != current.size ||
+            cached.modified != current.modified) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool DiagnosisEngine::LoadCacheRules(std::istream &stream, std::vector<Rule> &loadedRules,
+                                     std::uint64_t ruleCount) const
+{
+    loadedRules.reserve(static_cast<std::size_t>(ruleCount));
+    for (std::uint64_t item = 0; item < ruleCount; ++item) {
+        Rule rule;
+        if (!LoadOneCacheRule(stream, rule)) {
+            return false;
+        }
+        loadedRules.push_back(std::move(rule));
+    }
+    return true;
+}
+
+bool DiagnosisEngine::LoadOneCacheRule(std::istream &stream, Rule &rule) const
+{
+    FailureModeDescriptor desc;
+    if (!LoadCacheRuleDescriptor(stream, desc)) {
+        return false;
+    }
+    rule.failureMode = std::make_shared<FailureMode>(std::move(desc));
+    rule.filenameBasename = Basename(rule.failureMode->GetFilename());
+    if (!LoadCacheRuleKeywords(stream, rule)) {
+        return false;
+    }
+    return LoadCacheRuleConditions(stream, rule);
+}
+
+bool DiagnosisEngine::LoadCacheRuleKeywords(std::istream &stream, Rule &rule) const
+{
+    std::uint64_t keywordCount = 0;
+    if (!ReadBinary(stream, keywordCount) || keywordCount > MAX_CACHED_ITEMS) {
+        return false;
+    }
+    rule.keywords.reserve(static_cast<std::size_t>(keywordCount));
+    for (std::uint64_t keyword = 0; keyword < keywordCount; ++keyword) {
+        std::string value;
+        if (!ReadCacheString(stream, value)) {
+            return false;
+        }
+        rule.keywords.push_back(std::move(value));
+    }
+    return true;
+}
+
+bool DiagnosisEngine::LoadCacheRuleConditions(std::istream &stream, Rule &rule) const
+{
+    if (!ReadCacheIndices(stream, rule.childIndices) || !ReadCacheIndices(stream, rule.parentIndices)) {
+        return false;
+    }
+    std::uint8_t hasAccessStatus = 0;
+    std::int32_t accessStatus = 0;
+    if (!ReadBinary(stream, hasAccessStatus) || hasAccessStatus > 1 ||
+        (hasAccessStatus != 0 && !ReadBinary(stream, accessStatus))) {
+        return false;
+    }
+    if (hasAccessStatus != 0) {
+        rule.accessStatusCode = accessStatus;
+    }
+    std::uint8_t hasCondition = 0;
+    std::int32_t conditionStatus = 0;
+    std::uint8_t responseNonempty = 0;
+    if (!ReadBinary(stream, hasCondition) || hasCondition > 1 ||
+        (hasCondition != 0 &&
+         (!ReadBinary(stream, conditionStatus) || !ReadBinary(stream, responseNonempty) || responseNonempty > 1))) {
+        return false;
+    }
+    if (hasCondition != 0) {
+        rule.accessMatchCondition = AccessMatchCondition{conditionStatus, responseNonempty != 0};
+    }
+    std::uint8_t logMatchEnabled = 0;
+    if (!ReadBinary(stream, logMatchEnabled) || logMatchEnabled > 1) {
+        return false;
+    }
+    rule.logMatchEnabled = logMatchEnabled != 0;
+    return true;
+}
+
+bool DiagnosisEngine::ValidateCacheIndices(const std::vector<Rule> &loadedRules, std::uint64_t ruleCount) const
+{
+    for (const Rule &rule : loadedRules) {
+        const auto validIndex = [ruleCount](std::size_t index) {
+            return index < ruleCount;
+        };
+        if (!std::all_of(rule.childIndices.begin(), rule.childIndices.end(), validIndex) ||
+            !std::all_of(rule.parentIndices.begin(), rule.parentIndices.end(), validIndex)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void DiagnosisEngine::SaveRuleCache(const std::filesystem::path &wittyDir) const
+{
+    std::array<RuleSourceStamp, RULE_SOURCE_COUNT> stamps{};
+    if (!GetRuleSourceStamps(wittyDir, stamps)) {
+        return;
+    }
+    const std::filesystem::path cachePath = wittyDir / RULE_CACHE_PATH;
+    std::error_code error;
+    std::filesystem::create_directories(cachePath.parent_path(), error);
+    if (error) {
+        LOG_WARN << "failed to create diagnosis rule cache directory: " << error.message();
+        return;
+    }
+    const std::filesystem::path temporaryPath =
+        cachePath.string() + ".tmp." + std::to_string(static_cast<long long>(::getpid()));
+    std::ofstream stream(temporaryPath, std::ios::binary | std::ios::trunc);
+    bool written = stream.is_open();
+    if (written) {
+        written = WriteCacheHeader(stream, stamps);
+    }
+    written = written && WriteBinary(stream, static_cast<std::uint64_t>(rules_.size()));
+    for (const Rule &rule : rules_) {
+        if (!written) {
+            break;
+        }
+        written = WriteOneCacheRule(stream, rule);
+    }
+    stream.flush();
+    written = written && stream.good();
+    stream.close();
+    if (written) {
+        error.clear();
+        std::filesystem::rename(temporaryPath, cachePath, error);
+    }
+    if (!written || error) {
+        std::filesystem::remove(temporaryPath, error);
+        LOG_WARN << "failed to update diagnosis rule cache: " << cachePath;
+    }
+}
+
+bool DiagnosisEngine::WriteOneCacheRule(std::ostream &stream, const Rule &rule) const
+{
+    const FailureMode &mode = *rule.failureMode;
+    bool written = WriteCacheString(stream, mode.GetId()) && WriteCacheString(stream, mode.GetName()) &&
+                   WriteCacheString(stream, mode.GetPhenomenon()) &&
+                   WriteCacheString(stream, mode.GetRootCauseDesc()) &&
+                   WriteCacheString(stream, mode.GetFixSuggDesc()) && WriteCacheString(stream, mode.GetFilename()) &&
+                   WriteCacheString(stream, mode.GetFunctionName());
+    const std::uint8_t hasErrorCode = mode.GetErrorCode().has_value() ? 1 : 0;
+    written = written && WriteBinary(stream, hasErrorCode);
+    if (written && hasErrorCode != 0) {
+        written = WriteCacheString(stream, *mode.GetErrorCode());
+    }
+    const std::uint8_t nodeType = static_cast<std::uint8_t>(mode.GetNodeType());
+    written = written && WriteBinary(stream, nodeType) &&
+              WriteBinary(stream, static_cast<std::uint64_t>(rule.keywords.size()));
+    for (const std::string &keyword : rule.keywords) {
+        written = written && WriteCacheString(stream, keyword);
+    }
+    written = written && WriteCacheIndices(stream, rule.childIndices) && WriteCacheIndices(stream, rule.parentIndices);
+
+    const std::uint8_t hasAccessStatus = rule.accessStatusCode.has_value() ? 1 : 0;
+    written = written && WriteBinary(stream, hasAccessStatus);
+    if (written && hasAccessStatus != 0) {
+        written = WriteBinary(stream, static_cast<std::int32_t>(*rule.accessStatusCode));
+    }
+    const std::uint8_t hasCondition = rule.accessMatchCondition.has_value() ? 1 : 0;
+    written = written && WriteBinary(stream, hasCondition);
+    if (written && hasCondition != 0) {
+        const std::uint8_t responseNonempty = rule.accessMatchCondition->respMsgNonempty ? 1 : 0;
+        written = WriteBinary(stream, static_cast<std::int32_t>(rule.accessMatchCondition->statusCode)) &&
+                  WriteBinary(stream, responseNonempty);
+    }
+    const std::uint8_t logMatchEnabled = rule.logMatchEnabled ? 1 : 0;
+    written = written && WriteBinary(stream, logMatchEnabled);
+    return written;
 }
 
 bool DiagnosisEngine::LoadFailureModes(const std::filesystem::path &path, FailureModeComponent component,
@@ -222,11 +675,10 @@ bool DiagnosisEngine::LoadFailureModes(const std::filesystem::path &path, Failur
         desc.nodeType = *nodeType;
         Rule rule;
         rule.failureMode = std::make_shared<FailureMode>(std::move(desc));
+        rule.filenameBasename = Basename(rule.failureMode->GetFilename());
         rule.keywords = ParseKeywords(phenomenon);
         rule.accessStatusCode = ParseNumericErrorCode(rule.failureMode->GetErrorCode());
-        // Runtime rules without parsed keywords are never safe to match by
-        // filename/function/level alone. This also protects historical data
-        // that predates the structured log-match configuration.
+        // Never match a runtime rule without keywords by filename/function/level alone.
         rule.logMatchEnabled = *nodeType != FailureModeNodeType::RUNTIME_LOG || !rule.keywords.empty();
         if (!ApplyLogMatchConfig(item, *nodeType, rule, path, index) ||
             !ApplyMatchCondition(item, *nodeType, rule, path, index)) {
@@ -357,8 +809,8 @@ bool DiagnosisEngine::BuildIndices()
     accessStatusToRuleIndex_.clear();
     conditionalAccessRuleIndices_.clear();
     unknownAccessRuleIndex_.reset();
-    runtimeRootIndices_.clear();
     kvcacheFilenameToRuleIndices_.clear();
+    kvcacheLocationToRuleIndices_.clear();
     urmaFunctionToRuleIndices_.clear();
     std::size_t disabledRuntimeRuleCount = 0;
 
@@ -402,11 +854,16 @@ bool DiagnosisEngine::RegisterRuleIndex(std::size_t index, std::size_t &disabled
                 return false;
             }
         } else {
-            runtimeRootIndices_.push_back(index);
+            // Access nodes are matched exclusively from access logs. An access
+            // node without an access status code or structured match condition
+            // is intentionally not indexed for runtime-log matching.
+            LOG_WARN << "ignored access failure mode without an access match condition or status code: "
+                     << mode->GetId();
         }
     } else if (nodeType == FailureModeNodeType::RUNTIME_LOG) {
         if (rule.logMatchEnabled) {
-            kvcacheFilenameToRuleIndices_[Basename(mode->GetFilename())].push_back(index);
+            kvcacheFilenameToRuleIndices_[rule.filenameBasename].push_back(index);
+            kvcacheLocationToRuleIndices_[rule.filenameBasename][mode->GetFunctionName()].push_back(index);
         } else {
             ++disabledRuntimeRuleCount;
         }
@@ -430,32 +887,149 @@ void DiagnosisEngine::ResetResult()
 bool DiagnosisEngine::RunDiagnosis(const std::vector<std::string> &accessLogPaths,
                                    const std::vector<std::string> &runtimeLogPaths)
 {
-    ResetResult();
-    std::unordered_map<std::string, TraceContext> traces;
-    if (!AnalyzeAccessLogs(accessLogPaths, traces)) {
+    BeginDiagnosis();
+    if (!AnalyzeAccessLogs(accessLogPaths)) {
         return false;
+    }
+    if (!AnalyzeRuntimeLogs(runtimeLogPaths)) {
+        return false;
+    }
+    FinishDiagnosis(accessLogPaths.size(), runtimeLogPaths.size());
+    return true;
+}
+
+void DiagnosisEngine::BeginDiagnosis()
+{
+    accessTraceIds_.clear();
+    ResetResult();
+    diagnosisTraces_.clear();
+    pendingKvcacheRecords_.clear();
+    pendingUrmaLines_.clear();
+}
+
+void DiagnosisEngine::AnalyzeAccessLine(std::string_view line)
+{
+    std::shared_ptr<FailureLogInfoAccess> log;
+    if (!ParseAccessLog(std::string(line), log) || log->traceId.empty()) {
+        return;
+    }
+    const std::optional<std::size_t> ruleIndex = ResolveAccessRule(*log);
+    if (!ruleIndex.has_value() || IsAccessLocationMismatch(*ruleIndex, *log)) {
+        return;
+    }
+    const auto traceIterator = diagnosisTraces_.try_emplace(log->traceId).first;
+    accessTraceIds_.insert(traceIterator->first);
+    traceIterator->second.rootIndices.insert(*ruleIndex);
+    hitRoots_.insert(rules_[*ruleIndex].failureMode->GetId());
+    RecordHit(*ruleIndex, log);
+}
+
+void DiagnosisEngine::AnalyzeRuntimeLine(std::string_view line)
+{
+    RuntimeMatchBatch batch;
+    MatchRuntimeLine(line, batch);
+    if (!batch.kvcacheRecords.empty()) {
+        pendingKvcacheRecords_.push_back(std::move(batch.kvcacheRecords.front()));
+    }
+    if (!batch.urmaLines.empty()) {
+        pendingUrmaLines_.push_back(std::move(batch.urmaLines.front()));
+    }
+}
+
+void DiagnosisEngine::AnalyzeRuntimeLines(const std::vector<std::string_view> &lines)
+{
+    if (lines.empty()) {
+        return;
+    }
+    const std::size_t availableWorkers = std::max(1U, std::thread::hardware_concurrency());
+    const std::size_t usefulWorkers = (lines.size() + MIN_RUNTIME_LINES_PER_WORKER - 1) / MIN_RUNTIME_LINES_PER_WORKER;
+    const std::size_t workerCount = std::min({availableWorkers, usefulWorkers, MAX_RUNTIME_WORKERS});
+    std::vector<RuntimeMatchBatch> batches(workerCount);
+    if (workerCount == 1) {
+        for (std::string_view line : lines) {
+            MatchRuntimeLine(line, batches.front());
+        }
+    } else {
+        const std::size_t chunkSize = (lines.size() + workerCount - 1) / workerCount;
+        std::vector<std::thread> workers;
+        workers.reserve(workerCount);
+        for (std::size_t worker = 0; worker < workerCount; ++worker) {
+            const std::size_t begin = worker * chunkSize;
+            const std::size_t end = std::min(lines.size(), begin + chunkSize);
+            workers.emplace_back([this, &lines, &batch = batches[worker], begin, end]() {
+                for (std::size_t index = begin; index < end; ++index) {
+                    MatchRuntimeLine(lines[index], batch);
+                }
+            });
+        }
+        for (std::thread &worker : workers) {
+            worker.join();
+        }
     }
 
-    std::vector<RuntimeRecord> runtimeRecords;
-    if (!ReadRuntimeLogs(runtimeLogPaths, runtimeRecords)) {
-        return false;
+    std::size_t kvcacheCount = pendingKvcacheRecords_.size();
+    std::size_t urmaCount = pendingUrmaLines_.size();
+    for (const RuntimeMatchBatch &batch : batches) {
+        kvcacheCount += batch.kvcacheRecords.size();
+        urmaCount += batch.urmaLines.size();
     }
-    SeedRuntimeRoots(runtimeRecords, traces);
-    AnalyzeKvcacheRuntime(runtimeRecords, traces);
-    AnalyzeUrmaRuntime(runtimeRecords, traces);
+    pendingKvcacheRecords_.reserve(kvcacheCount);
+    pendingUrmaLines_.reserve(urmaCount);
+    for (RuntimeMatchBatch &batch : batches) {
+        std::move(batch.kvcacheRecords.begin(), batch.kvcacheRecords.end(), std::back_inserter(pendingKvcacheRecords_));
+        std::move(batch.urmaLines.begin(), batch.urmaLines.end(), std::back_inserter(pendingUrmaLines_));
+    }
+}
+
+void DiagnosisEngine::MatchRuntimeLine(std::string_view line, RuntimeMatchBatch &batch) const
+{
+    const std::string_view traceId = ExtractRuntimeTraceId(line);
+    if (traceId.empty() || accessTraceIds_.find(traceId) == accessTraceIds_.end()) {
+        return;
+    }
+    if (line.find(URMA_LOG_KEYWORD) != std::string_view::npos) {
+        batch.urmaLines.emplace_back(line);
+        return;
+    }
+
+    RuntimeMatchView view;
+    if (!ParseRuntimeMatchView(line, view)) {
+        return;
+    }
+    RuleIndices matchedIndices = MatchKvcacheRuntime(view);
+    if (matchedIndices.empty()) {
+        return;
+    }
+
+    RuntimeRecord record;
+    if (ParseRuntimeRecord(std::string(line), record)) {
+        batch.kvcacheRecords.push_back(KvcacheMatchRecord{
+            std::move(record.log),
+            std::move(matchedIndices),
+        });
+    }
+}
+
+void DiagnosisEngine::FinishDiagnosis(std::size_t accessFileCount, std::size_t runtimeFileCount)
+{
+    std::stable_sort(
+        pendingKvcacheRecords_.begin(), pendingKvcacheRecords_.end(), [](const auto &left, const auto &right) {
+            return std::tie(left.log->timestamp, left.log->rawLog) < std::tie(right.log->timestamp, right.log->rawLog);
+        });
+    RecordKvcacheMatches(pendingKvcacheRecords_, diagnosisTraces_);
+    ActivateKvcachePaths(diagnosisTraces_);
+    AnalyzeUrmaRuntime(pendingUrmaLines_, diagnosisTraces_);
 
     for (auto &[traceId, logs] : traceLogs_) {
         std::stable_sort(logs.begin(), logs.end(), [](const auto &left, const auto &right) {
             return std::tie(left->timestamp, left->rawLog) < std::tie(right->timestamp, right->rawLog);
         });
     }
-    LOG_INFO << "diagnosed " << traceLogs_.size() << " failure traces from " << accessLogPaths.size()
-             << " access log files and " << runtimeLogPaths.size() << " runtime/URMA log files";
-    return true;
+    LOG_INFO << "diagnosed " << traceLogs_.size() << " failure traces from " << accessFileCount
+             << " access log files and " << runtimeFileCount << " runtime/URMA log files";
 }
 
-bool DiagnosisEngine::AnalyzeAccessLogs(const std::vector<std::string> &paths,
-                                        std::unordered_map<std::string, TraceContext> &traces)
+bool DiagnosisEngine::AnalyzeAccessLogs(const std::vector<std::string> &paths)
 {
     std::vector<std::string> sortedPaths = paths;
     std::sort(sortedPaths.begin(), sortedPaths.end());
@@ -467,17 +1041,7 @@ bool DiagnosisEngine::AnalyzeAccessLogs(const std::vector<std::string> &paths,
         }
         std::string line;
         while (std::getline(stream, line)) {
-            std::shared_ptr<FailureLogInfoAccess> log;
-            if (!ParseAccessLog(line, log) || log->traceId.empty()) {
-                continue;
-            }
-            const std::optional<std::size_t> ruleIndex = ResolveAccessRule(*log);
-            if (!ruleIndex.has_value() || IsAccessLocationMismatch(*ruleIndex, *log)) {
-                continue;
-            }
-            traces[log->traceId].rootIndices.insert(*ruleIndex);
-            hitRoots_.insert(rules_[*ruleIndex].failureMode->GetId());
-            RecordHit(*ruleIndex, log);
+            AnalyzeAccessLine(line);
         }
         if (stream.bad()) {
             LOG_ERROR << "failed while reading access log: " << path;
@@ -518,7 +1082,7 @@ bool DiagnosisEngine::IsAccessLocationMismatch(std::size_t ruleIndex, const Fail
     return !log.functionName.empty() && log.functionName != mode.GetFunctionName();
 }
 
-bool DiagnosisEngine::ReadRuntimeLogs(const std::vector<std::string> &paths, std::vector<RuntimeRecord> &records) const
+bool DiagnosisEngine::AnalyzeRuntimeLogs(const std::vector<std::string> &paths)
 {
     std::vector<std::string> sortedPaths = paths;
     std::sort(sortedPaths.begin(), sortedPaths.end());
@@ -530,88 +1094,56 @@ bool DiagnosisEngine::ReadRuntimeLogs(const std::vector<std::string> &paths, std
         }
         std::string line;
         while (std::getline(stream, line)) {
-            RuntimeRecord record;
-            if (ParseRuntimeRecord(line, record)) {
-                records.push_back(std::move(record));
-            }
+            AnalyzeRuntimeLine(line);
         }
         if (stream.bad()) {
             LOG_ERROR << "failed while reading runtime log: " << path;
             return false;
         }
     }
-    std::stable_sort(records.begin(), records.end(), [](const RuntimeRecord &left, const RuntimeRecord &right) {
-        return std::tie(left.log->timestamp, left.log->rawLog) < std::tie(right.log->timestamp, right.log->rawLog);
-    });
     return true;
 }
 
-void DiagnosisEngine::SeedRuntimeRoots(const std::vector<RuntimeRecord> &records,
-                                       std::unordered_map<std::string, TraceContext> &traces)
+DiagnosisEngine::RuleIndices DiagnosisEngine::MatchKvcacheRuntime(const RuntimeMatchView &view) const
 {
-    for (const RuntimeRecord &record : records) {
-        if (record.urma || record.log->traceId.empty()) {
-            continue;
+    const RuleIndices *candidates = nullptr;
+    if (view.functionName.empty()) {
+        const auto filenameIterator = kvcacheFilenameToRuleIndices_.find(view.filenameBasename);
+        if (filenameIterator != kvcacheFilenameToRuleIndices_.end()) {
+            candidates = &filenameIterator->second;
         }
-        std::optional<std::size_t> bestIndex;
-        std::size_t bestSpecificity = 0;
-        for (std::size_t index : runtimeRootIndices_) {
-            const Rule &rule = rules_[index];
-            if (Basename(record.log->filename) != Basename(rule.failureMode->GetFilename())) {
-                continue;
-            }
-            std::size_t specificity = 0;
-            if (!RuleMatches(rule, *record.log, record.log->message, specificity)) {
-                continue;
-            }
-            if (!bestIndex.has_value() || specificity > bestSpecificity ||
-                (specificity == bestSpecificity && index < *bestIndex)) {
-                bestIndex = index;
-                bestSpecificity = specificity;
+    } else {
+        const auto filenameIterator = kvcacheLocationToRuleIndices_.find(view.filenameBasename);
+        if (filenameIterator != kvcacheLocationToRuleIndices_.end()) {
+            const auto functionIterator = filenameIterator->second.find(view.functionName);
+            if (functionIterator != filenameIterator->second.end()) {
+                candidates = &functionIterator->second;
             }
         }
-        if (!bestIndex.has_value()) {
-            continue;
-        }
-        traces[record.log->traceId].rootIndices.insert(*bestIndex);
-        hitRoots_.insert(rules_[*bestIndex].failureMode->GetId());
-        RecordHit(*bestIndex, record.log);
     }
+    if (candidates == nullptr) {
+        return {};
+    }
+    // message 可能拼接多个日志的内容：命中几条规则就记录几条，同一物理日志
+    // 可绑定多个 runtime 故障模式。
+    return SelectMatchingRules(*candidates, view);
 }
 
-void DiagnosisEngine::AnalyzeKvcacheRuntime(const std::vector<RuntimeRecord> &records,
-                                            std::unordered_map<std::string, TraceContext> &traces)
+void DiagnosisEngine::RecordKvcacheMatches(std::vector<KvcacheMatchRecord> &records,
+                                           std::unordered_map<std::string, TraceContext> &traces)
 {
-    // KVCache runtime 日志必带 trace_id：每条 ERROR 日志都应绑定命中的全部故障
-    // 模式，不要求 trace 先被 access 根种下，也不按根的子节点集合过滤。
-    for (const RuntimeRecord &record : records) {
-        if (record.urma) {
+    // Runtime logs only bind runtime failure modes. Access roots come solely
+    // from AnalyzeAccessLine and remain associated with their access log rows.
+    for (KvcacheMatchRecord &record : records) {
+        const auto traceIterator = traces.find(record.log->traceId);
+        if (traceIterator == traces.end()) {
             continue;
         }
-        auto candidatesIterator = kvcacheFilenameToRuleIndices_.find(Basename(record.log->filename));
-        if (candidatesIterator == kvcacheFilenameToRuleIndices_.end()) {
-            continue;
-        }
-
-        // message 可能拼接多个日志的内容：命中几条规则就记录几条，同一物理日志
-        // 可绑定多个 runtime 故障模式。
-        const RuleIndices matched =
-            SelectMatchingRules(candidatesIterator->second, nullptr, *record.log, record.log->message);
-        if (matched.empty()) {
-            continue;
-        }
-        TraceContext *trace = nullptr;
-        if (!record.log->traceId.empty()) {
-            trace = &traces[record.log->traceId];
-        }
-        for (std::size_t matchedIndex : matched) {
-            if (trace != nullptr) {
-                trace->kvcacheRuntimeIndices.insert(matchedIndex);
-            }
+        for (std::size_t matchedIndex : record.matchedIndices) {
+            traceIterator->second.kvcacheRuntimeIndices.insert(matchedIndex);
             RecordHit(matchedIndex, record.log);
         }
     }
-    ActivateKvcachePaths(traces);
 }
 
 void DiagnosisEngine::ActivateKvcachePaths(const std::unordered_map<std::string, TraceContext> &traces)
@@ -636,11 +1168,19 @@ void DiagnosisEngine::ActivateKvcachePaths(const std::unordered_map<std::string,
     }
 }
 
-void DiagnosisEngine::AnalyzeUrmaRuntime(const std::vector<RuntimeRecord> &records,
+void DiagnosisEngine::AnalyzeUrmaRuntime(const std::vector<std::string> &candidateLines,
                                          const std::unordered_map<std::string, TraceContext> &traces)
 {
-    for (const RuntimeRecord &record : records) {
-        if (!record.urma || record.log->traceId.empty()) {
+    struct UrmaMatchRecord {
+        std::shared_ptr<FailureLogInfoRuntime> log;
+        std::size_t failureIndex;
+        InterfaceToAnchors interfaceToAnchors;
+    };
+    std::vector<UrmaMatchRecord> matchedRecords;
+
+    for (const std::string &line : candidateLines) {
+        RuntimeRecord record;
+        if (!ParseRuntimeRecord(line, record) || !record.urma || record.log->traceId.empty()) {
             continue;
         }
         auto traceIterator = traces.find(record.log->traceId);
@@ -652,18 +1192,28 @@ void DiagnosisEngine::AnalyzeUrmaRuntime(const std::vector<RuntimeRecord> &recor
             continue;
         }
 
-        const InterfaceToAnchors interfaceToAnchors = CollectUrmaInterfaces(traceIterator->second);
+        InterfaceToAnchors interfaceToAnchors = CollectUrmaInterfaces(traceIterator->second);
         const RuleIndexSet allowed = CollectUrmaFailureRules(interfaceToAnchors);
         auto urmaLog = std::make_shared<FailureLogInfoRuntime>(*record.log);
         urmaLog->failureModeIds.clear();
         urmaLog->functionName = record.matchFunctionName;
         urmaLog->message = record.matchMessage;
         const auto matched = SelectBestRule(functionIterator->second, allowed, *urmaLog, record.matchMessage);
-        if (!matched.has_value()) {
-            continue;
+        if (matched.has_value()) {
+            matchedRecords.push_back(UrmaMatchRecord{
+                std::move(urmaLog),
+                *matched,
+                std::move(interfaceToAnchors),
+            });
         }
-        ActivateUrmaPath(*matched, interfaceToAnchors);
-        RecordHit(*matched, urmaLog);
+    }
+
+    std::stable_sort(matchedRecords.begin(), matchedRecords.end(), [](const auto &left, const auto &right) {
+        return std::tie(left.log->timestamp, left.log->rawLog) < std::tie(right.log->timestamp, right.log->rawLog);
+    });
+    for (UrmaMatchRecord &record : matchedRecords) {
+        ActivateUrmaPath(record.failureIndex, record.interfaceToAnchors);
+        RecordHit(record.failureIndex, record.log);
     }
 }
 
@@ -756,8 +1306,40 @@ DiagnosisEngine::RuleIndices DiagnosisEngine::SelectMatchingRules(const RuleIndi
     return result;
 }
 
+DiagnosisEngine::RuleIndices DiagnosisEngine::SelectMatchingRules(const RuleIndices &candidates,
+                                                                  const RuntimeMatchView &view) const
+{
+    std::vector<std::pair<std::size_t, std::size_t>> matched; // (specificity, index)
+    for (std::size_t index : candidates) {
+        std::size_t specificity = 0;
+        if (RuleMatches(rules_[index], view, specificity)) {
+            matched.emplace_back(specificity, index);
+        }
+    }
+    std::sort(matched.begin(), matched.end(), [](const auto &left, const auto &right) {
+        if (left.first != right.first) {
+            return left.first > right.first;
+        }
+        return left.second < right.second;
+    });
+    RuleIndices result;
+    result.reserve(matched.size());
+    for (const auto &entry : matched) {
+        result.push_back(entry.second);
+    }
+    return result;
+}
+
 bool DiagnosisEngine::RuleMatches(const Rule &rule, const FailureLogInfoRuntime &log, const std::string &message,
                                   std::size_t &specificity) const
+{
+    const RuntimeMatchView view{
+        BasenameView(log.filename), log.functionName, log.traceId, message, log.level,
+    };
+    return RuleMatches(rule, view, specificity);
+}
+
+bool DiagnosisEngine::RuleMatches(const Rule &rule, const RuntimeMatchView &view, std::size_t &specificity) const
 {
     if (!rule.logMatchEnabled) {
         return false;
@@ -765,22 +1347,22 @@ bool DiagnosisEngine::RuleMatches(const Rule &rule, const FailureLogInfoRuntime 
     const FailureMode &mode = *rule.failureMode;
     if (mode.GetNodeType() == FailureModeNodeType::URMA_FAILURE) {
         // 一线 URMA 嵌入日志只携带 function[line]，不携带源文件名。
-        if (log.functionName != mode.GetFunctionName()) {
+        if (view.functionName != mode.GetFunctionName()) {
             return false;
         }
     } else {
-        if (Basename(log.filename) != Basename(mode.GetFilename())) {
+        if (view.filenameBasename != rule.filenameBasename) {
             return false;
         }
-        if (!log.functionName.empty() && log.functionName != mode.GetFunctionName()) {
+        if (!view.functionName.empty() && view.functionName != mode.GetFunctionName()) {
             return false;
         }
     }
     if (rule.keywords.empty()) {
         const bool fatalRuntimeEntry = mode.IsAccessEntry() &&
                                        mode.GetPhenomenon().find(FATAL_LEVEL_MARKER) != std::string::npos;
-        if (mode.IsPublicInterface() || !IsErrorLevel(log.level) ||
-            (fatalRuntimeEntry && log.level != LevelOption::FATAL)) {
+        if (mode.IsPublicInterface() || !view.level.has_value() || !IsErrorLevel(*view.level) ||
+            (fatalRuntimeEntry && *view.level != LevelOption::FATAL)) {
             return false;
         }
         specificity = mode.GetFilename().size() + mode.GetFunctionName().size();
@@ -790,7 +1372,7 @@ bool DiagnosisEngine::RuleMatches(const Rule &rule, const FailureLogInfoRuntime 
     std::size_t offset = 0;
     specificity = 0;
     for (const std::string &keyword : rule.keywords) {
-        offset = message.find(keyword, offset);
+        offset = view.message.find(keyword, offset);
         if (offset == std::string::npos) {
             return false;
         }
@@ -907,10 +1489,45 @@ bool DiagnosisEngine::ParseRuntimeRecord(const std::string &line, RuntimeRecord 
     return true;
 }
 
+bool DiagnosisEngine::ParseRuntimeMatchView(std::string_view line, RuntimeMatchView &view)
+{
+    std::array<std::string_view, RUNTIME_FIELDS_SIZE> fields;
+    if (!SplitExactFields(line, fields)) {
+        return false;
+    }
+
+    const auto level = ParseLevelView(fields[LEVEL_IDX]);
+    if (!level.has_value()) {
+        return false;
+    }
+
+    const std::string_view location = log_helper::TrimView(fields[FILENAME_LINENO_IDX]);
+    const std::size_t lineSeparator = location.rfind(':');
+    if (lineSeparator == std::string_view::npos) {
+        return false;
+    }
+    const std::string_view filenameFunction = location.substr(0, lineSeparator);
+    const std::size_t functionSeparator = filenameFunction.find(':');
+    const std::string_view filename = filenameFunction.substr(0, functionSeparator);
+
+    view.filenameBasename = BasenameView(filename);
+    view.functionName = functionSeparator == std::string_view::npos ? std::string_view{} :
+                                                                      filenameFunction.substr(functionSeparator + 1);
+    view.traceId = log_helper::TrimView(fields[TRACEID_IDX]);
+    view.message = log_helper::TrimView(fields[MESSAGE_IDX]);
+    view.level = level;
+    return true;
+}
+
 std::string DiagnosisEngine::Basename(const std::string &path)
 {
+    return std::string(BasenameView(path));
+}
+
+std::string_view DiagnosisEngine::BasenameView(std::string_view path)
+{
     const std::size_t separator = path.find_last_of("/\\");
-    return separator == std::string::npos ? path : path.substr(separator + 1);
+    return separator == std::string_view::npos ? path : path.substr(separator + 1);
 }
 
 const DiagnosisEngine::ControllerMap &DiagnosisEngine::GetControllers() const

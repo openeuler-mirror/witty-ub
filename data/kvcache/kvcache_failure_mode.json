@@ -1747,7 +1747,7 @@
     "故障编号": "kvcache_runtime_111",
     "节点类型": "runtime_log",
     "故障名称": "共享内存引用递减时等待超时",
-    "故障现象": "依次匹配`timeout`",
+    "故障现象": "依次匹配`[Client/WorkerRpc] Get done, rpc timeout: `、`, path: `、`, costUs: `、`, rc: `",
     "错误码": "K_RUNTIME_ERROR(5)",
     "故障原因": "执行共享内存引用递减时，KVCache内部组件发生等待超时，导致该操作无法完成。",
     "解决办法": "无",
