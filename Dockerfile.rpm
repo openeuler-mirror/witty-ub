@@ -47,6 +47,7 @@ COPY docker/healthcheck.sh /healthcheck.sh
 RUN chmod +x /entrypoint.sh /healthcheck.sh
 
 ENV WITTY_ROLE=backend
+ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 9772
 
@@ -127,6 +128,9 @@ COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.tem
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
 RUN chmod +x /entrypoint.sh /healthcheck.sh
+
+ENV WITTY_ROLE=all
+ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 8080 9772 4096
 
