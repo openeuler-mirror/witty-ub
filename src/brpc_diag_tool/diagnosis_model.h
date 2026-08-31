@@ -42,7 +42,7 @@ inline DiagnosisComponent GetDiagnosisComponent(std::string_view id)
     if (id.rfind("umq_", 0) == 0) {
         return DiagnosisComponent::UMQ;
     }
-    if (id.rfind("urma4brpc_", 0) == 0) {
+    if (id.rfind("urma_", 0) == 0) {
         return DiagnosisComponent::URMA;
     }
     return DiagnosisComponent::UNKNOWN;

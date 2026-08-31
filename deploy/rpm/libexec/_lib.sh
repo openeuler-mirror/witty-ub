@@ -55,9 +55,9 @@ _require_root() {
 # 以 postgres 用户身份执行 psql（自动处理 root/sudo）
 _psql_as_postgres() {
     if _is_root; then
-        su - postgres -c "psql -p ${PG_PORT:-15432} $*"
+        su - postgres -c "psql -p ${PG_PORT:-5432} $*"
     else
-        sudo su - postgres -c "psql -p ${PG_PORT:-15432} $*"
+        sudo su - postgres -c "psql -p ${PG_PORT:-5432} $*"
     fi
 }
 
@@ -105,12 +105,13 @@ _confirm() {
 _load_pg_credentials() {
     [ -f "$PG_CONF_FILE" ] || { _warn "pg.conf 不存在: $PG_CONF_FILE"; return 1; }
     PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    PG_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    [ -z "$PG_PORT" ] && PG_PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     [ -z "$PG_HOST" ] && PG_HOST="127.0.0.1"
-    [ -z "$PG_PORT" ] && PG_PORT="15432"
+    [ -z "$PG_PORT" ] && PG_PORT="5432"
     [ -z "$PG_USER" ] && PG_USER="witty-ub"
     [ -z "$PG_DATABASE" ] && PG_DATABASE="witty-ub"
     [ -n "$PG_PASSWORD" ] && export PGPASSWORD="$PG_PASSWORD"

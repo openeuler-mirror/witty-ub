@@ -2,6 +2,7 @@ import asyncio
 import fnmatch
 import logging
 import os
+import re
 import uuid
 import subprocess
 import time
@@ -215,15 +216,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         src_ip, dst_ip = KVCacheLogEventDiagnosisWorker._extract_src_dst_ip(raw_text)
         operation = KVCacheLogEventDiagnosisWorker._extract_operation(raw_text)
 
+        # 单条日志可能命中多个故障模式；父子同时命中时只保留更深的子节点。
+        leaf_modes = KVCacheLogEventDiagnosisWorker._leaf_failure_modes(
+            log_failure_event.get("failure_mode") or [], failure_mode_cache
+        )
+
         if trace_id not in trace_failure_events_map:
-            failure_mode = log_failure_event["failure_mode"]
-            leaf_mode = (
-                KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
-                    failure_mode, failure_mode_cache
-                )
-                if failure_mode
-                else ""
-            )
             trace_failure_events_map[trace_id] = {
                 "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{log_failure_event['log_id']}:{trace_id}")),
                 "log_id": log_failure_event["log_id"],
@@ -234,8 +232,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 "host_names": [log_failure_event["host_name"]] if log_failure_event["host_name"] else [],
                 "cluster_names": [log_failure_event["cluster_name"]] if log_failure_event["cluster_name"] else [],
                 "timestamp": log_failure_event["timestamp"],
-                "status_code": log_failure_event["status_code"] if log_failure_event["status_code"] else "",
-                "failure_mode": leaf_mode,
+                "status_code": KVCacheLogEventDiagnosisWorker._failure_mode_error_codes(
+                    leaf_modes, failure_mode_cache
+                ),
+                "failure_mode": list(leaf_modes),
                 "operation": operation,
             }
             return
@@ -246,8 +246,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         host_name = log_failure_event["host_name"]
         cluster_name = log_failure_event["cluster_name"]
         timestamp = log_failure_event["timestamp"]
-        status_code = log_failure_event["status_code"]
-        failure_mode = log_failure_event["failure_mode"]
 
         if pod_name and pod_name not in trace_failure_event["pod_names"]:
             trace_failure_event["pod_names"].append(pod_name)
@@ -261,12 +259,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         if timestamp < trace_failure_event["timestamp"]:
             trace_failure_event["timestamp"] = timestamp
 
-        if not trace_failure_event["status_code"] and status_code:
-            trace_failure_event["status_code"] = status_code
-
-        if trace_failure_event["status_code"] == "0" and status_code != "0":
-            trace_failure_event["status_code"] = status_code
-
         if src_ip:
             trace_failure_event["src_ip"] = src_ip
         if dst_ip:
@@ -275,25 +267,21 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         if operation and not trace_failure_event.get("operation"):
             trace_failure_event["operation"] = operation
 
-        if not failure_mode:
-            return
+        # trace 汇聚其涉及日志命中的全部故障模式（保序去重）。
+        for mode in leaf_modes:
+            if mode not in trace_failure_event["failure_mode"]:
+                trace_failure_event["failure_mode"].append(mode)
 
-        new_leaf_mode = KVCacheLogEventDiagnosisWorker._find_leaf_failure_mode(
-            failure_mode, failure_mode_cache
+        trace_failure_event["failure_mode"] = (
+            KVCacheLogEventDiagnosisWorker._leaf_failure_modes(
+                trace_failure_event["failure_mode"], failure_mode_cache
+            )
         )
-        if not new_leaf_mode:
-            return
-
-        if not trace_failure_event["failure_mode"]:
-            trace_failure_event["failure_mode"] = new_leaf_mode
-            return
-
-        if KVCacheLogEventDiagnosisWorker._is_child_failure_mode(
-            trace_failure_event["failure_mode"],
-            new_leaf_mode,
-            failure_mode_cache,
-        ):
-            trace_failure_event["failure_mode"] = new_leaf_mode
+        trace_failure_event["status_code"] = (
+            KVCacheLogEventDiagnosisWorker._failure_mode_error_codes(
+                trace_failure_event["failure_mode"], failure_mode_cache
+            )
+        )
     
     @staticmethod
     async def parse_filepath_config(kb_id: str | None = None):
@@ -418,26 +406,65 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         return False
     
     @staticmethod
-    def _find_leaf_failure_mode(failure_modes: list[str], failure_mode_cache: dict) -> str:
-        if not failure_modes:
-            return ""
-        
-        failure_modes_set = set(failure_modes)
-        
+    def _leaf_failure_modes(failure_modes: list[str], failure_mode_cache: dict) -> list[str]:
+        """返回列表中没有更深层命中出现的模式（父子同时命中时只保留子节点），保序去重。"""
+        result: list[str] = []
+        candidates = [mode for mode in failure_modes if mode]
+        candidate_set = set(candidates)
+        for mode in candidates:
+            has_descendant = any(
+                other != mode
+                and KVCacheLogEventDiagnosisWorker._is_child_failure_mode(
+                    mode, other, failure_mode_cache
+                )
+                for other in candidate_set
+            )
+            if has_descendant:
+                continue
+            if mode not in result:
+                result.append(mode)
+        return result
+
+    @staticmethod
+    def _failure_mode_error_codes(
+        failure_modes: list[str], failure_mode_cache: dict
+    ) -> list[str]:
+        """Return normalized codes for matched modes, preserving mode order."""
+        result: list[str] = []
         for mode in failure_modes:
-            failure_mode_info = failure_mode_cache.get(mode)
-            
-            if not failure_mode_info or not failure_mode_info.children_failure_mode_ids:
-                return mode
-            
-            children_ids = [cid.strip() for cid in failure_mode_info.children_failure_mode_ids.split(',') if cid.strip()]
-            
-            has_child_in_list = any(child_id in failure_modes_set for child_id in children_ids)
-            
-            if not has_child_in_list:
-                return mode
-        
-        return failure_modes[0]
+            failure_mode = failure_mode_cache.get(mode)
+            raw_error_code = getattr(failure_mode, "error_code", None)
+            error_code = KVCacheLogEventDiagnosisWorker._normalize_failure_mode_error_code(
+                raw_error_code
+            )
+            if error_code and error_code not in result:
+                result.append(error_code)
+        return result
+
+    @staticmethod
+    def _normalize_failure_mode_error_code(raw_error_code) -> str:
+        """Normalize ``K_NAME(1004)``/numeric codes and ignore no-code sentinels."""
+        if raw_error_code is None:
+            return ""
+        error_code = str(raw_error_code).strip()
+        if not error_code or error_code.upper() in {
+            "NULL",
+            "NULLPTR",
+            "NONE",
+            "N/A",
+            "NA",
+            "-",
+        }:
+            return ""
+        if re.fullmatch(r"K_OK\(\s*\+?0+\s*\)", error_code, re.IGNORECASE):
+            return "0"
+        numeric_suffix = re.search(r"\(\s*([-+]?\d+)\s*\)\s*$", error_code)
+        if numeric_suffix:
+            numeric_code = numeric_suffix.group(1)
+            return "" if int(numeric_code) == 0 else numeric_code
+        if re.fullmatch(r"[-+]?\d+", error_code):
+            return ""
+        return error_code
 
     @staticmethod
     async def run(task_id: str, log_dir: str | None = None) -> bool:

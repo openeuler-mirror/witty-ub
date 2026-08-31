@@ -62,5 +62,9 @@ async def get_status_code_knowledge(
 async def get_failure_mode_by_id(
     failure_mode_id: Annotated[str, Path()],
 ) -> GetFailureModeResponse:
-    get_failure_mode_msg = await FailureModeKnowledge.get_failure_mode_knowledege_by_id(failure_mode_id)
+    get_failure_mode_msg = (
+        await FailureModeKnowledge.get_failure_mode_knowledege_by_id(failure_mode_id)
+    )
+    if get_failure_mode_msg.failure_mode is None:
+        raise HTTPException(status_code=404, detail=f"未找到故障模式 {failure_mode_id}")
     return GetFailureModeResponse(result=get_failure_mode_msg)

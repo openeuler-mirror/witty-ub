@@ -38,7 +38,10 @@ from latency.routers import (
 )
 
 from latency.database.engine import PGManager
-from latency.database.init import init_postgresql_database
+from latency.database.init import (
+    backfill_trace_failure_event_status_codes,
+    init_postgresql_database,
+)
 from latency.exceptions import BaseBizException, NotFoundBizException, ConflictBizException, BadRequestBizException
 from pydantic import ValidationError
 
@@ -169,6 +172,7 @@ async def startup_event():
     logger.info("PostgreSQL backend initialized")
 
     await FailureModeKnowledge().init_failure_mode_knowledge()
+    await backfill_trace_failure_event_status_codes()
     # 5s → 1s: 任务创建后被更快拾起, 缩短上传→解析的调度延迟(实测创建后要
     # 等下一轮轮询 ~4s)。handle_tasks 每轮仅 3 个低开销 DB 查询, 1s 间隔
     # 不构成压力; max_instances=3 防重入(重叠时 APScheduler 跳过本轮)。

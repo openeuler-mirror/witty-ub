@@ -12,10 +12,11 @@
 
 #include "failure_mode_controller.h"
 
+#include <utility>
+
 namespace diag {
 FailureModeController::FailureModeController(std::shared_ptr<FailureMode> failureMode)
-    : failureMode_(failureMode),
-      hitCount_(0)
+    : failureMode_(std::move(failureMode))
 {
 }
 

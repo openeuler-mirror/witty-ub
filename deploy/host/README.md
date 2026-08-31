@@ -108,7 +108,7 @@ deploy.sh
 3. **PostgreSQL**：调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 15432 端口
 4. **Python 环境**：创建 `.venv` 虚拟环境，安装 FastAPI / SQLAlchemy / asyncpg / polars 等依赖
 5. **前端编译**：`npm run build-only` 构建 `dist/`（编译失败回退 dev server，不阻塞部署）
-6. **C++ 编译**：编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过）
+6. **C++ 编译**：编译 `witty-ub-diag-tool` / `witty-ub-brpc-diag` 诊断工具（源码或 `CMakeLists.txt` 比二进制新则重编；`FORCE_REBUILD_CPP=1` 强制重编）
 7. **数据文件**：将故障模式树、配置文件复制到 `/var/witty-ub/`
 8. **凭据同步**：将 `deploy/pg.conf` 的实际 PG 凭据写入 `diagnosis_config.toml`
 9. **启动服务**：启动 FastAPI 后端 (9772) + Vite 前端 (5173)，等待健康检查通过
@@ -153,6 +153,16 @@ PG_HOST=10.0.0.5 PG_PORT=5432 bash deploy/host/deploy.sh
 
 > `systemctl --user` 强依赖 `pam_systemd.so`（openEuler 24.03+ 拆到独立包 `systemd-pam`）。
 > 缺失时 user 会话 PAM 加载失败 → `systemctl --user` 全部不可用 → 自动回退 nohup。
+
+### 强制重新编译 C++
+
+`build_cpp` 默认按 mtime 判定：`src/` 下任一源码（`*.cpp/*.cc/*.c/*.h/*.hpp`）或任一 `CMakeLists.txt` 比两个二进制中较旧的那个新就重编，否则跳过。改了 cpp 但二进制还在时不会再误判为已编译。
+
+强制重编（绕过 mtime 检查）：
+
+```bash
+FORCE_REBUILD_CPP=1 bash deploy/host/deploy.sh --deploy
+```
 
 ---
 

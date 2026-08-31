@@ -376,6 +376,12 @@ class LogFailureEventPGManager:
         return True
 
     @staticmethod
+    def _normalize_failure_mode_column(value) -> str:
+        if isinstance(value, list):
+            return ",".join(fm.strip() for fm in value if isinstance(fm, str) and fm.strip())
+        return value or ""
+
+    @staticmethod
     async def add_trace_failure_event(
         results: list[TraceFailureEventModel],
     ) -> list[str]:
@@ -399,8 +405,10 @@ class LogFailureEventPGManager:
                         host_names=event.host_names or [],
                         cluster_names=event.cluster_names or [],
                         timestamp=parse_timestamp(event.timestamp),
-                        status_code=event.status_code or "",
-                        failure_mode=event.failure_mode or "",
+                        status_code=event.status_code or [],
+                        failure_mode=LogFailureEventPGManager._normalize_failure_mode_column(
+                            event.failure_mode
+                        ),
                         operation=event.operation or "",
                     )
                 )
@@ -421,8 +429,23 @@ class LogFailureEventPGManager:
                 param[key] = []
         param.setdefault("src_ip", None)
         param.setdefault("dst_ip", None)
-        param.setdefault("status_code", "")
-        param.setdefault("failure_mode", "")
+        # status_code 现为 VARCHAR[]；统一规整为非空字符串数组（保序去重）。
+        status_codes = param.get("status_code") or []
+        if isinstance(status_codes, str):
+            status_codes = [s.strip() for s in status_codes.split(",") if s.strip()]
+        elif not isinstance(status_codes, list):
+            status_codes = []
+        seen: set[str] = set()
+        normalized_codes: list[str] = []
+        for code in status_codes:
+            text_code = str(code).strip()
+            if text_code and text_code not in seen:
+                seen.add(text_code)
+                normalized_codes.append(text_code)
+        param["status_code"] = normalized_codes
+        param["failure_mode"] = LogFailureEventPGManager._normalize_failure_mode_column(
+            param.get("failure_mode")
+        )
         param.setdefault("operation", "")
         return (
             param["id"],
@@ -460,8 +483,18 @@ class LogFailureEventPGManager:
                     param[key] = []
             param.setdefault("src_ip", None)
             param.setdefault("dst_ip", None)
-            param.setdefault("status_code", "")
-            param.setdefault("failure_mode", "")
+            # status_code 现为 VARCHAR[]；字符串/单值按需转成数组。
+            raw_status_codes = param.get("status_code") or []
+            if isinstance(raw_status_codes, str):
+                raw_status_codes = [
+                    s.strip() for s in raw_status_codes.split(",") if s.strip()
+                ]
+            elif not isinstance(raw_status_codes, list):
+                raw_status_codes = []
+            param["status_code"] = [str(s).strip() for s in raw_status_codes if str(s).strip()]
+            param["failure_mode"] = LogFailureEventPGManager._normalize_failure_mode_column(
+                param.get("failure_mode")
+            )
             param.setdefault("operation", "")
             objs.append(
                 TraceFailureEvent(
@@ -564,7 +597,9 @@ class LogFailureEventPGManager:
                 stmt = stmt.where(ip_cond)
 
             if req.status_codes:
-                stmt = stmt.where(TraceFailureEvent.status_code.in_(req.status_codes))
+                stmt = stmt.where(
+                    TraceFailureEvent.status_code.overlap(array(req.status_codes))
+                )
 
             if req.is_anomalous is not None:
                 if req.is_anomalous:
@@ -609,6 +644,7 @@ class LogFailureEventPGManager:
 
             events = []
             for row in rows:
+                failure_mode_str = row.failure_mode or ""
                 events.append(
                     TraceFailureEventModel(
                         id=row.id,
@@ -620,8 +656,10 @@ class LogFailureEventPGManager:
                         host_names=row.host_names or [],
                         cluster_names=row.cluster_names or [],
                         timestamp=format_timestamp(row.timestamp) or "",
-                        status_code=row.status_code or "",
-                        failure_mode=row.failure_mode or "",
+                        status_code=row.status_code or [],
+                        failure_mode=[
+                            fm.strip() for fm in failure_mode_str.split(",") if fm.strip()
+                        ],
                         operation=row.operation or "",
                     )
                 )
@@ -703,7 +741,9 @@ class LogFailureEventPGManager:
             if log_ids:
                 stmt = stmt.where(TraceFailureEvent.log_id.in_(log_ids))
             if req.err_codes:
-                stmt = stmt.where(TraceFailureEvent.status_code.in_(req.err_codes))
+                stmt = stmt.where(
+                    TraceFailureEvent.status_code.overlap(array(req.err_codes))
+                )
 
             ip_cond = LogFailureEventPGManager._ip_eq(TraceFailureEvent.src_ip, req.src_ip)
             if ip_cond is not None:
@@ -757,8 +797,11 @@ class LogFailureEventPGManager:
             timestamps = []
             for row in rows:
                 ts = row.timestamp
-                if ts:
-                    timestamps.append((ts, row.status_code or "UNKNOWN"))
+                if not ts:
+                    continue
+                # status_code 为 VARCHAR[]，每个码各自计入曲线。
+                for code in (row.status_code or []):
+                    timestamps.append((ts, code or "UNKNOWN"))
 
             if not timestamps:
                 return 0, {}
@@ -876,16 +919,21 @@ class LogFailureEventPGManager:
                 "time_bucket"
             )
 
+            # status_code 现为 VARCHAR[]，按码逐项展开后再分桶计数。
+            unnested_status_code = func.unnest(TraceFailureEvent.status_code).label(
+                "status_code"
+            )
+
             stmt = (
                 select(
                     time_bucket,
-                    TraceFailureEvent.status_code,
+                    unnested_status_code,
                     func.count().label("cnt"),
                 )
                 .where(TraceFailureEvent.failure_mode.is_not(None))
                 .where(TraceFailureEvent.failure_mode != "")
                 .where(TraceFailureEvent.status_code.is_not(None))
-                .where(TraceFailureEvent.status_code != "")
+                .where(func.array_length(TraceFailureEvent.status_code, 1) > 0)
             )
             if log_ids:
                 stmt = stmt.where(TraceFailureEvent.log_id.in_(log_ids))
@@ -918,7 +966,7 @@ class LogFailureEventPGManager:
             if req.operation:
                 stmt = stmt.where(TraceFailureEvent.operation == req.operation)
 
-            stmt = stmt.group_by(time_bucket, TraceFailureEvent.status_code)
+            stmt = stmt.group_by(time_bucket, unnested_status_code)
 
             async with PGManager.session() as session:
                 result = await session.execute(stmt)
@@ -1034,14 +1082,14 @@ class LogFailureEventPGManager:
             stmt = (
                 select(
                     TraceFailureEvent.pod_names,
-                    TraceFailureEvent.status_code,
+                    func.unnest(TraceFailureEvent.status_code).label("status_code"),
                     func.count().label("cnt"),
                 )
                 .where(TraceFailureEvent.pod_names.is_not(None))
                 .where(TraceFailureEvent.failure_mode.is_not(None))
                 .where(TraceFailureEvent.failure_mode != "")
                 .where(TraceFailureEvent.status_code.is_not(None))
-                .where(TraceFailureEvent.status_code != "")
+                .where(func.array_length(TraceFailureEvent.status_code, 1) > 0)
             )
             if log_ids:
                 stmt = stmt.where(TraceFailureEvent.log_id.in_(log_ids))
@@ -1055,7 +1103,8 @@ class LogFailureEventPGManager:
                 )
 
             stmt = stmt.group_by(
-                TraceFailureEvent.pod_names, TraceFailureEvent.status_code
+                TraceFailureEvent.pod_names,
+                func.unnest(TraceFailureEvent.status_code),
             )
 
             async with PGManager.session() as session:
@@ -1162,13 +1211,13 @@ class LogFailureEventPGManager:
                 select(
                     src_ip_str,
                     dst_ip_str,
-                    TraceFailureEvent.status_code,
+                    func.unnest(TraceFailureEvent.status_code).label("status_code"),
                     func.count().label("cnt"),
                 )
                 .where(TraceFailureEvent.failure_mode.is_not(None))
                 .where(TraceFailureEvent.failure_mode != "")
                 .where(TraceFailureEvent.status_code.is_not(None))
-                .where(TraceFailureEvent.status_code != "")
+                .where(func.array_length(TraceFailureEvent.status_code, 1) > 0)
             )
             if log_ids:
                 stmt = stmt.where(TraceFailureEvent.log_id.in_(log_ids))
@@ -1202,7 +1251,9 @@ class LogFailureEventPGManager:
                 stmt = stmt.where(TraceFailureEvent.operation == req.operation)
 
             stmt = stmt.group_by(
-                src_ip_str, dst_ip_str, TraceFailureEvent.status_code
+                src_ip_str,
+                dst_ip_str,
+                func.unnest(TraceFailureEvent.status_code),
             )
 
             async with PGManager.session() as session:
