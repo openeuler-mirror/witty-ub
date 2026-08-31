@@ -67,5 +67,5 @@ docker compose --profile split up -d
 浏览器访问前端节点：
 
 - 宿主机脚本 / RPM 部署：`http://<前端IP>:8080`
-- 容器部署：`http://<前端IP>:32412`
+- 容器部署：单机 `http://<IP>:32412`，分离部署 `http://<前端IP>:32413`
 - 源码开发模式：`http://localhost:5173`
