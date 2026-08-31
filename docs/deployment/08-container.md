@@ -2,7 +2,7 @@
 
 ## 概述
 
-容器化部署提供环境一致性、快速部署、易于扩展等优势。**同一镜像通过 `WITTY_ROLE` 支持分离部署**：后端容器（`WITTY_ROLE=backend`，数据卷 + FastAPI，无出网要求）与前端容器（`WITTY_ROLE=frontend`，Nginx + OpenCode，LLM key 与经验库随前端节点）可以跑在不同机器上。
+容器化部署提供环境一致性、快速部署、易于扩展等优势。**同一镜像通过 `WITTY_ROLE` 支持分离部署**：`WITTY_ROLE=backend` 的后端容器承载数据卷与 FastAPI，无出网要求；`WITTY_ROLE=frontend` 的前端容器承载 Nginx 与 OpenCode，LLM key 与经验库随前端节点。两者可以运行在不同机器上。
 
 > 推荐使用脚本部署 → [宿主机脚本部署](02-script-host.md) | [容器脚本部署](03-script-container.md)。本文档介绍手动 `docker run` 和 `docker compose` 方式。
 
@@ -41,7 +41,7 @@ docker compose --profile split up -d
 ```
 
 | 服务 | 角色 | 说明 |
-|------|------|------|
+| ------ | ------ | ------ |
 | `witty-ub-backend` | `WITTY_ROLE=backend` | FastAPI + 数据卷（不对外暴露端口） |
 | `witty-ub-frontend` | `WITTY_ROLE=frontend` | 32413 → 8080（Nginx + OpenCode），`WITTY_BACKEND_URL` 指向 backend |
 | `postgres` | 数据库 | 15432，仅 backend 使用 |
@@ -106,7 +106,7 @@ docker run -d \
   -e WITTY_ROLE=backend \
   -e PYTHONPATH=/var/witty-ub \
   -e PG_HOST=172.18.0.1 \
-  -e PG_PORT=15432 \
+  -e PG_PORT=5432 \
   -e PG_DATABASE=witty-ub \
   -e PG_USER=witty-ub \
   -e PG_PASSWORD=witty-ub \
@@ -272,7 +272,7 @@ docker run -d \
 ## 数据卷说明
 
 | 卷名 | 容器路径 | 角色 | 用途 |
-|------|---------|------|------|
+| ------ | --------- | ------ | ------ |
 | `witty-ub-data` | `/var/witty-ub/data` | backend | 故障模式、KVCache |
 | `witty-ub-uploads` | `/var/witty-ub/latency/file/file_upload` | backend | 上传文件 |
 | `witty-ub-results` | `/var/witty-ub/latency/file/file_parse_result` | backend | 解析结果 |
@@ -307,7 +307,7 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
-|------|--------|------|
+| ------ | -------- | ------ |
 | `WITTY_ROLE` | `all` | `all` 单机全量 / `backend` 仅后端 / `frontend` 仅前端 |
 | `WITTY_BACKEND_URL` | `http://127.0.0.1:9772` | frontend 角色的 API 反代上游，指向后端节点 |
 | `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent 提示词中的后端 API 基址 |

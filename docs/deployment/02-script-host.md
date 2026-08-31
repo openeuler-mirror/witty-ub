@@ -17,14 +17,14 @@
 **后端节点**
 
 - openEuler 24.03 LTS 或 Ubuntu 24.04 / WSL
-- sudo 权限、git、内存至少 8GB（Python 依赖安装和 C++ 编译较吃内存）
-- 软件源已配置（默认内网/无外网环境，必需）：yum/dnf 源、pypi 源（`~/.pip/pip.conf` 的 `index-url`）
-- 数据文件位于仓库 `data/`（或挂载数据卷到 `/var/witty-ub/data`）
+- sudo 权限、git、内存至少 8GB，Python 依赖安装和 C++ 编译内存占用较高
+- 软件源已配置：yum/dnf 源与 pypi 源，pypi 源通过 `~/.pip/pip.conf` 的 `index-url` 指定。内网或无外网环境必须提前配置
+- 数据文件位于仓库 `data/`，或挂载数据卷到 `/var/witty-ub/data`
 
 **前端节点**
 
-- 同样需要 sudo 权限、git、npm 源（项目根目录或 `src/web/.npmrc` 的 `registry`）
-- Node.js 18+（脚本会安装）、nginx（脚本会安装，缺失时回退 vite preview）
+- sudo 权限、git、npm 源已配置，registry 位于项目根目录或 `src/web/.npmrc`
+- Node.js 18+ 与 nginx 均可由脚本自动安装；nginx 缺失时回退 vite preview
 - 能出网访问大模型服务；已安装 OpenCode 并配置 LLM key：
 
 ```bash
@@ -162,9 +162,9 @@ bash deploy/host/install_deps.sh
 | `WITTY_NO_PROXY` | `127.0.0.1` | Agent curl `--noproxy` 参数 |
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | `/agent-api/` 反代上游 |
 
-### 配置文件 pg.conf（后端节点）
+### 配置文件 deploy.conf（后端节点）
 
-部署脚本读取 `deploy/pg.conf` 的 PostgreSQL 连接配置：
+部署脚本读取 `deploy/deploy.conf` 的 PostgreSQL 连接配置：
 
 ```conf
 PG_HOST="127.0.0.1"

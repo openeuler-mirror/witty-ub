@@ -215,14 +215,15 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 
 ---
 
-## pg.conf 配置
+## deploy.conf 配置
 
 ### 数据库连接配置
 
 | 配置项 | 默认值 | 说明 |
 | -------- | -------- | ------ |
 | `PG_HOST` | `127.0.0.1` | PostgreSQL 主机地址 |
-| `PG_PORT` | `15432` | PostgreSQL 端口 |
+| `PG_PORT` | `15432` | PostgreSQL 宿主机映射端口，Docker 部署使用 |
+| `PG_PORT_RPM` | `5432` | PostgreSQL 监听端口，RPM 部署使用 |
 | `PG_DATABASE` | `witty-ub` | 数据库名 |
 | `PG_USER` | `witty-ub` | 用户名 |
 | `PG_PASSWORD` | `witty-ub` | 密码 |
@@ -233,8 +234,9 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 
 | 场景 | PG_HOST | PG_PORT | 说明 |
 | ------ | --------- | --------- | ------ |
-| 宿主机访问 | `127.0.0.1` | `15432` | 部署脚本、本地开发 |
-| 容器访问宿主机 RPM PG | `172.18.0.1` | `15432` | Docker 网络网关 |
+| 源码部署，宿主机访问 | `127.0.0.1` | `15432` | 部署脚本、本地开发 |
+| RPM 部署，宿主机访问 | `127.0.0.1` | `5432` | `PG_PORT_RPM` 默认值 |
+| 容器访问宿主机 RPM PG | `172.18.0.1` | `5432` | Docker 网络网关 |
 | 容器访问 PG 容器 | `postgres` | `5432` | Docker 网络 DNS |
 
 ### PostgreSQL 性能调优参数

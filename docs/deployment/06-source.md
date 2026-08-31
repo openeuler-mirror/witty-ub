@@ -60,7 +60,7 @@ PG 连接配置：
 
 ```bash
 export PG_HOST=127.0.0.1
-export PG_PORT=15432
+export PG_PORT=15432        # 以实际 PG 配置为准：脚本部署默认 15432，RPM 手动部署默认 5432
 export PG_DATABASE=witty-ub
 export PG_USER=witty-ub
 export PG_PASSWORD=witty-ub

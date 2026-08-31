@@ -2,12 +2,14 @@
 
 ## 概述
 
-适用于 openEuler 原生部署场景，通过 systemd 管理服务。**前后端默认支持分离部署**：RPM 内 `witty-ub-latency`（FastAPI 后端）与 `witty-ub-web`（Nginx 前端）是相互独立的服务，可分别部署在不同机器上。`yum install witty-ub` 后，使用 `witty-ub manager` 完成 PG 初始化、服务启停、数据清理、日志查看等运维操作。
+适用于 openEuler 原生部署场景，通过 systemd 管理服务。**前后端默认支持分离部署**：RPM 内 `witty-ub-latency` 与 `witty-ub-web` 是相互独立的服务，分别提供 FastAPI 后端与 Nginx 前端，可分别部署在不同机器上。`yum install witty-ub` 后，使用 `witty-ub manager` 完成 PG 初始化、服务启停、数据清理、日志查看等运维操作。
+
+节点定义见[架构概览](01-overview.md)：后端节点部署在有数据的机器上，前端节点部署在能访问大模型服务的机器上。
 
 | 机器 | 安装 | 启用的服务 |
-|------|------|-----------|
-| 后端节点（有数据的机器） | `witty-ub` | `postgresql-15` + `witty-ub-latency`(9772)，禁用 `witty-ub-web` |
-| 前端节点（能访问 Agent/LLM） | `witty-ub` | `witty-ub-web`(8080) + OpenCode(4096)，禁用 `witty-ub-latency` |
+| ------ | ------ | ----------- |
+| 后端节点 | `witty-ub` | `postgresql-15` + `witty-ub-latency`(9772)，禁用 `witty-ub-web` |
+| 前端节点 | `witty-ub` | `witty-ub-web`(8080) + OpenCode(4096)，禁用 `witty-ub-latency` |
 
 ---
 
@@ -130,9 +132,9 @@ sudo witty-ub manager install    # 初始化 PostgreSQL + 启动服务
 
 ## PG 连接配置（后端节点）
 
-PG 凭据位于 `/etc/witty-ub/deploy.conf`（旧安装为 `pg.conf`，自动兼容），默认值：`host=127.0.0.1 port=15432 db/user/pass=witty-ub`。
+PG 凭据位于 `/etc/witty-ub/deploy.conf`，旧安装的 `pg.conf` 自动兼容。默认值：`host=127.0.0.1 port=5432 db/user/pass=witty-ub`。
 
-如需修改（如指向外部 PG），编辑后重新执行 `sudo witty-ub manager install` 即可同步生效。
+如需修改，例如指向外部 PG，编辑后重新执行 `sudo witty-ub manager install` 即可同步生效。
 
 ---
 
@@ -152,7 +154,7 @@ sudo witty-ub manager psql        # 进入 psql
 | ------ | ------ | ------ |
 | `witty-ub-web` | 前端节点（Nginx） | 8080 |
 | `witty-ub-latency` | 后端节点（FastAPI） | 9772 |
-| `postgresql-15` | 后端节点（数据库） | 15432 |
+| `postgresql-15` | 后端节点（数据库） | 5432 |
 
 ---
 

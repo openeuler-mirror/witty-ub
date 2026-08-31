@@ -2,17 +2,17 @@
 
 ## 概述
 
-使用 `deploy/docker/manage.sh` 一键完成容器化部署，自动处理镜像拉取、容器创建、服务启动、健康检查等全流程（单机 All-in-One 形态，前端与后端在同一容器内）。
+使用 `deploy/docker/manage.sh` 一键完成容器化部署，自动处理镜像拉取、容器创建、服务启动、健康检查全流程，部署单机 All-in-One 形态，前端与后端在同一容器内。
 
-适合生产环境。**需要前后端分离部署**（后端跑在有数据的机器、前端+Agent 跑在能出网的机器）时，使用镜像的 `WITTY_ROLE=backend/frontend` 分角色部署 → [手动容器部署 · 分离部署](08-container.md)。
+适合生产环境。需要前后端分离部署时，使用镜像的 `WITTY_ROLE=backend/frontend` 分角色部署 → [手动容器部署 · 分离部署](08-container.md)。
 
 ---
 
 ## 前置条件
 
-- Docker 18.09+ 已安装并运行
+- Docker 20.10+ 已安装并运行
 - 至少 4GB 内存、10GB 可用磁盘空间
-- 有权限拉取镜像（或本地已有镜像）
+- 有权限拉取镜像，或本地已有镜像
 
 ```bash
 # 验证 Docker 环境
@@ -85,7 +85,7 @@ PG_DATABASE="witty-ub"
 
 ### 环境变量覆盖
 
-通过环境变量临时覆盖 `pg.conf` 中的配置：
+通过环境变量临时覆盖 `deploy.conf` 中的配置：
 
 ```bash
 WITTY_HOST_PORT=8080 bash deploy/docker/manage.sh
