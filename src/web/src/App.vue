@@ -5379,6 +5379,21 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
   }
 }
 
+const getFailureModeDisplayErrorCode = (failureModeId: string) => {
+  const detail = failureModeDetailsById.value[failureModeId]
+  if (!detail) return ''
+  const errorCode = (detail.error_code as string | number | null | undefined) ?? null
+  const errorCodeText =
+    errorCode === null || errorCode === undefined || errorCode === ''
+      ? ''
+      : String(errorCode).trim()
+  if (errorCodeText) return errorCodeText
+  // 进程级 FATAL 故障的 error_code 为 null，但属于 access 故障，统一展示为 "FATAL"。
+  const name = (detail.name ?? '').trim()
+  if (name.includes('FATAL')) return 'FATAL'
+  return ''
+}
+
 const getFailureModeLabel = (
   failureModeId: string,
   showErrorCode: boolean,
@@ -5386,12 +5401,8 @@ const getFailureModeLabel = (
 ) => {
   const detail = failureModeDetailsById.value[failureModeId]
   const name = detail?.name || fallbackName
-  const errorCode = (detail?.error_code as string | number | null | undefined) ?? null
-  const errorCodeText =
-    errorCode === null || errorCode === undefined || errorCode === ''
-      ? ''
-      : String(errorCode).trim()
-  return showErrorCode && errorCodeText ? `${errorCodeText} ${name}` : name
+  const errorCodeText = showErrorCode ? getFailureModeDisplayErrorCode(failureModeId) : ''
+  return errorCodeText ? `${errorCodeText} ${name}` : name
 }
 
 const isAccessTraceLog = (log: TraceLogRow) =>
@@ -5476,6 +5487,11 @@ const selectedTraceFailureMode = computed<(FailureModeKnowledgeModel & { _id: st
   },
 )
 
+const selectedTraceFailureModeDisplayErrorCode = computed(() => {
+  const failureMode = selectedTraceFailureMode.value
+  return failureMode ? getFailureModeDisplayErrorCode(failureMode._id) : ''
+})
+
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
@@ -5503,6 +5519,11 @@ const selectedFaultTraceFailureMode = computed<
   if (!selectedId) return null
   const detail = failureModeDetailsById.value[selectedId]
   return detail ? { ...detail, _id: selectedId } : null
+})
+
+const selectedFaultTraceFailureModeDisplayErrorCode = computed(() => {
+  const failureMode = selectedFaultTraceFailureMode.value
+  return failureMode ? getFailureModeDisplayErrorCode(failureMode._id) : ''
 })
 
 const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(
@@ -17603,12 +17624,12 @@ onBeforeUnmount(() => {
                   </span>
                   <span
                     v-if="
-                      selectedTraceFailureMode.error_code &&
+                      selectedTraceFailureModeDisplayErrorCode &&
                       selectedTraceAccessFailureModeIds.has(selectedTraceFailureMode._id)
                     "
                     class="failure-mode-chain-error-code"
                   >
-                    错误码：{{ selectedTraceFailureMode.error_code }}
+                    错误码：{{ selectedTraceFailureModeDisplayErrorCode }}
                   </span>
                 </div>
                 <div class="failure-mode-chain-detail">
@@ -17887,12 +17908,12 @@ onBeforeUnmount(() => {
                   </span>
                   <span
                     v-if="
-                      selectedFaultTraceFailureMode.error_code &&
+                      selectedFaultTraceFailureModeDisplayErrorCode &&
                       selectedFaultTraceAccessFailureModeIds.has(selectedFaultTraceFailureMode._id)
                     "
                     class="failure-mode-chain-error-code"
                   >
-                    错误码：{{ selectedFaultTraceFailureMode.error_code }}
+                    错误码：{{ selectedFaultTraceFailureModeDisplayErrorCode }}
                   </span>
                 </div>
                 <div class="failure-mode-chain-detail">

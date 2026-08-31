@@ -54,8 +54,11 @@ async def _truncate_log_parse_result():
 @pytest.mark.asyncio
 async def test_backfill_trace_failure_event_status_codes_uses_varchar_array():
     PGManager.initialize(PG_DSN)
-    failure_mode_id = "pg-test-status-code-mode"
+    access_failure_mode_id = "pg-test-access-status-code-mode"
+    runtime_failure_mode_id = "pg-test-runtime-status-code-mode"
     trace_event_id = "pg-test-status-code-trace"
+    access_log_event_id = "pg-test-status-code-access-log"
+    runtime_log_event_id = "pg-test-status-code-runtime-log"
     database_ready = False
     try:
         await init_postgresql_database()
@@ -64,10 +67,15 @@ async def test_backfill_trace_failure_event_status_codes_uses_varchar_array():
             await conn.execute(
                 text(
                     "INSERT INTO failure_mode_knowledge (id, error_code) "
-                    "VALUES (:id, :error_code) "
+                    "VALUES (:access_id, :access_code), (:runtime_id, :runtime_code) "
                     "ON CONFLICT (id) DO UPDATE SET error_code = EXCLUDED.error_code"
                 ),
-                {"id": failure_mode_id, "error_code": "K_DUPLICATED(1)"},
+                {
+                    "access_id": access_failure_mode_id,
+                    "access_code": "K_ACCESS(1)",
+                    "runtime_id": runtime_failure_mode_id,
+                    "runtime_code": "K_RUNTIME(2)",
+                },
             )
             await conn.execute(
                 text(
@@ -81,8 +89,31 @@ async def test_backfill_trace_failure_event_status_codes_uses_varchar_array():
                 {
                     "id": trace_event_id,
                     "log_id": "pg-test-status-code-log",
-                    "failure_mode": failure_mode_id,
+                    "failure_mode": f"{access_failure_mode_id},{runtime_failure_mode_id}",
                 },
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO log_failure_event "
+                    "(id, log_id, trace_id, status_code, failure_mode, host_name) "
+                    "VALUES "
+                    "(:access_log_id, :log_id, :trace_id, '1', :access_mode, 'host'), "
+                    "(:runtime_log_id, :log_id, :trace_id, '', :runtime_mode, 'host')"
+                ),
+                {
+                    "access_log_id": access_log_event_id,
+                    "runtime_log_id": runtime_log_event_id,
+                    "log_id": "pg-test-status-code-log",
+                    "trace_id": "pg-test-trace-id",
+                    "access_mode": access_failure_mode_id,
+                    "runtime_mode": runtime_failure_mode_id,
+                },
+            )
+            await conn.execute(
+                text(
+                    "UPDATE trace_failure_event SET trace_id = :trace_id WHERE id = :id"
+                ),
+                {"trace_id": "pg-test-trace-id", "id": trace_event_id},
             )
 
         await backfill_trace_failure_event_status_codes()
@@ -103,12 +134,16 @@ async def test_backfill_trace_failure_event_status_codes_uses_varchar_array():
         if database_ready:
             async with PGManager.engine().begin() as conn:
                 await conn.execute(
+                    text("DELETE FROM log_failure_event WHERE id IN (:access_id, :runtime_id)"),
+                    {"access_id": access_log_event_id, "runtime_id": runtime_log_event_id},
+                )
+                await conn.execute(
                     text("DELETE FROM trace_failure_event WHERE id = :id"),
                     {"id": trace_event_id},
                 )
                 await conn.execute(
-                    text("DELETE FROM failure_mode_knowledge WHERE id = :id"),
-                    {"id": failure_mode_id},
+                    text("DELETE FROM failure_mode_knowledge WHERE id IN (:access_id, :runtime_id)"),
+                    {"access_id": access_failure_mode_id, "runtime_id": runtime_failure_mode_id},
                 )
         await PGManager.close()
 
