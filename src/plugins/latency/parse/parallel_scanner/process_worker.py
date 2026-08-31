@@ -392,12 +392,12 @@ def _scan_file_multi(
     parsers: list,
     path: str,
 ) -> dict[str, list]:
-    """扫描单文件：单解析器快路径优先；多解析器按磁盘类型分派解耦/同步。"""
+    """扫描单文件：单解析器快路径优先；多解析器走 polars 向量化读取。"""
     if len(parsers) == 1 and hasattr(parsers[0], 'scan_file'):
         return _scan_file_fast_path(parsers, path)
     if _should_decouple(path):
         return _scan_file_multi_decoupled(parsers, path)
-    return _scan_file_multi_sync(parsers, path)
+    return _scan_file_polars(parsers, path)
 
 
 def _scan_file_fast_path(parsers: list, path: str) -> dict[str, list]:
@@ -440,6 +440,84 @@ def _scan_file_multi_sync(
         return {p.label: [] for p in parsers}
     total_ms = (time.perf_counter() - t_total) * 1000
     _record_file_timing(path, total_ms - parse_ms, parse_ms)
+    return result
+
+
+def _scan_file_polars(
+    parsers: list,
+    path: str,
+) -> dict[str, list]:
+    """Polars 向量化读取：用 Rust 引擎读文件 + 关键词过滤，只对命中行做 Python 解析。
+
+    读取时使用 separator=\\x01（SOH 控制符，不出现在文本日志中）使每行成为
+    单列字符串，保留原始行文本。随后在 polars 中做 starts_with("2") 时间戳
+    前缀过滤和 str.contains 关键词预过滤（Rust 向量化），最后只将命中的少量
+    行（通常 <5%）传入 _parse_lines 执行 Python regex 提取。
+
+    任何 polars 异常均回退到 _scan_file_multi_sync。
+    """
+    import polars as pl
+
+    t_io = time.perf_counter()
+    try:
+        df = pl.read_csv(
+            path,
+            separator="\x01",
+            has_header=False,
+            infer_schema_length=0,
+            low_memory=True,
+            raise_if_empty=False,
+            new_columns=["line"],
+        )
+    except Exception as e:
+        logger.warning(f"Polars read failed for {path}: {e}, falling back to sync")
+        return _scan_file_multi_sync(parsers, path)
+
+    if df.height == 0:
+        _record_file_timing(path, 0.0, 0.0)
+        return {p.label: [] for p in parsers}
+
+    df = df.filter(pl.col("line").str.starts_with("2"))
+    if df.height == 0:
+        _record_file_timing(path, (time.perf_counter() - t_io) * 1000, 0.0)
+        return {p.label: [] for p in parsers}
+
+    all_keywords: list[str] = []
+    for p in parsers:
+        kws = getattr(p, "_keywords", None)
+        if kws:
+            all_keywords.extend(kws)
+
+    has_extra_matcher = any(
+        getattr(p, "_line_may_match", None) is not None for p in parsers
+    )
+
+    if all_keywords:
+        import re as _re
+
+        kw_pattern = "|".join(_re.escape(kw) for kw in all_keywords)
+        kw_filter = pl.col("line").str.contains(kw_pattern)
+        if has_extra_matcher:
+            kw_filter = kw_filter | (
+                pl.col("line").str.contains("src")
+                & pl.col("line").str.contains("dst")
+            )
+        df = df.filter(kw_filter)
+
+    t_filter_ms = (time.perf_counter() - t_io) * 1000
+
+    if df.height == 0:
+        _record_file_timing(path, t_filter_ms, 0.0)
+        return {p.label: [] for p in parsers}
+
+    matching_lines = df["line"].to_list()
+    del df
+
+    t_parse = time.perf_counter()
+    result = _parse_lines(parsers, path, matching_lines)
+    parse_ms = (time.perf_counter() - t_parse) * 1000
+
+    _record_file_timing(path, t_filter_ms, parse_ms)
     return result
 
 

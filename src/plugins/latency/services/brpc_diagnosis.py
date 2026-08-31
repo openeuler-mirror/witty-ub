@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import json
+import logging
+import os
+import re
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from latency.database.engine import PGManager
 from latency.database.managers.brpc_diagnosis import (
@@ -194,6 +198,222 @@ class BrpcDiagnosisService:
             batch_id=batch_id,
             total=total,
             hits=[BrpcDiagHitLog.model_validate(row) for row in rows],
+        )
+
+    # --- Thread log reader (all lines, not just fault hits) ---
+
+    _UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    _UTC_PLUS_8 = timezone(timedelta(hours=8))
+
+    _LOG_LINE_RE = re.compile(
+        r"^\[(\d{8} \d{2}:\d{2}:\d{2}\.\d{6})\]"
+        r"\[([^\]]*)\]"
+        r"\[([^\]]*)\]"
+        r"\[([^\]]*)\]"
+        r"\[([^\]]*)\]"
+        r"\[([^\]]*)\]"
+        r"\[([^\]]*)\]"
+        r"\s?(.*)$"
+    )
+
+    _URMA_PREFIX = "[URMA]"
+    _URMA_INNER_RE = re.compile(
+        r"^\[URMA\]\[thread_id=(\d+)\]\[([^\]]*)\]\[([^\]]*)\]"
+    )
+
+    @staticmethod
+    def _log_time_to_epoch_us(time_str: str) -> int:
+        dt = datetime.strptime(time_str, "%Y%m%d %H:%M:%S.%f")
+        dt = dt.replace(tzinfo=BrpcDiagnosisService._UTC_PLUS_8)
+        delta = dt - BrpcDiagnosisService._UTC_EPOCH
+        return int(
+            delta.days * 86_400_000_000
+            + delta.seconds * 1_000_000
+            + delta.microseconds
+        )
+
+    @staticmethod
+    async def list_thread_logs(
+        *,
+        batch_id: str,
+        pod_ip: str,
+        thread_id: int,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
+    ) -> ListBrpcDiagHitsMsg:
+        """Read ALL log lines for one thread from the original log file.
+
+        Fault lines are matched with hits from the database to populate
+        failure_mode_id; non-fault lines get an empty failure_mode_id.
+        """
+        from latency.database.managers.log_file import LogFilePGManager
+        from latency.database.managers.task import TaskPGManager
+
+        logger = logging.getLogger(__name__)
+
+        async with PGManager.session() as session:
+            batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
+            if batch is None:
+                raise NotFoundBizException(resource="BRPC 诊断 batch")
+
+            # Resolve batch → task → log file path
+            task = await TaskPGManager.get_task_by_task_id(batch.task_id)
+            if task is None or not task.op_id:
+                raise NotFoundBizException(resource="BRPC 诊断 task")
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(
+                task.op_id
+            )
+            if log_file is None or not log_file.file_path:
+                raise NotFoundBizException(resource="BRPC 诊断日志文件")
+
+            # Get fault hits for matching
+            _, hit_rows = await BrpcDiagnosisPGManager.list_hits(
+                session,
+                batch_id=batch_id,
+                pod_ip=pod_ip,
+                thread_id=thread_id,
+                page_num=1,
+                page_cnt=1_000_000,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
+
+        # Build {timestamp_us: failure_mode_id} for fault matching
+        fault_map: dict[int, str] = {}
+        for row in hit_rows:
+            fault_map[row.timestamp] = row.failure_mode_id
+
+        file_path = log_file.file_path
+
+        # Determine which file(s) to read — mirror C++ ForEachBrpcLog:
+        # recursive read of all regular files (any extension)
+        files_to_read: list[str] = []
+        if os.path.isdir(file_path):
+            for name in (f"{pod_ip}.log", pod_ip):
+                candidate = os.path.join(file_path, name)
+                if os.path.isfile(candidate):
+                    files_to_read = [candidate]
+                    break
+            if not files_to_read:
+                walked: list[str] = []
+                for root, _dirs, fnames in os.walk(file_path):
+                    for fname in fnames:
+                        fpath = os.path.join(root, fname)
+                        if os.path.isfile(fpath):
+                            walked.append(fpath)
+                files_to_read = sorted(walked)
+        elif os.path.isfile(file_path):
+            files_to_read = [file_path]
+        else:
+            logger.warning("BRPC thread-logs: log file not found: %s", file_path)
+            return ListBrpcDiagHitsMsg(
+                batch_id=batch_id, total=0, hits=[]
+            )
+
+        # Parse and filter log lines
+        all_logs: list[BrpcDiagHitLog] = []
+        counter = 0
+        tid_str = str(thread_id)
+        for fpath in files_to_read:
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.rstrip("\n")
+                        m = BrpcDiagnosisService._LOG_LINE_RE.match(line)
+                        if m is None:
+                            continue
+                        (
+                            time_str,
+                            pod_name,
+                            line_pod_ip,
+                            component_raw,
+                            location,
+                            line_tid,
+                            trace_id,
+                            message,
+                        ) = m.groups()
+
+                        # URMA inner log: override thread_id/component/location/
+                        # trace_id to match C++ ParseBrpcLogFields behaviour.
+                        urma_offset = message.find(
+                            BrpcDiagnosisService._URMA_PREFIX
+                        )
+                        if urma_offset != -1:
+                            um = BrpcDiagnosisService._URMA_INNER_RE.match(
+                                message[urma_offset:]
+                            )
+                            if um is None:
+                                continue
+                            line_tid = um.group(1)
+                            component_raw = "URMA"
+                            location = um.group(3)
+                            trace_id = um.group(2) if um.group(2) != "-" else ""
+
+                        if line_pod_ip != pod_ip:
+                            continue
+                        if line_tid != tid_str:
+                            continue
+
+                        ts_us = (
+                            BrpcDiagnosisService._log_time_to_epoch_us(time_str)
+                        )
+                        if (
+                            start_timestamp is not None
+                            and ts_us < start_timestamp
+                        ):
+                            continue
+                        if (
+                            end_timestamp is not None
+                            and ts_us >= end_timestamp
+                        ):
+                            continue
+
+                        # Parse filename:func:line
+                        parts = location.rsplit(":", 2)
+                        if len(parts) == 3:
+                            filename, func_name, line_num_str = parts
+                            try:
+                                line_num = int(line_num_str)
+                            except ValueError:
+                                line_num = None
+                        else:
+                            filename = location
+                            func_name = None
+                            line_num = None
+
+                        component = component_raw.lower() or None
+                        failure_mode_id = fault_map.get(ts_us, "")
+
+                        counter += 1
+                        all_logs.append(
+                            BrpcDiagHitLog(
+                                hit_id=f"{batch_id}:{ts_us}:{counter}",
+                                batch_id=batch_id,
+                                schema_id=batch.schema_id,
+                                failure_mode_id=failure_mode_id,
+                                interface_id=None,
+                                interface_resolution="unresolved",
+                                time=ts_us,
+                                pod_name=pod_name or None,
+                                pod_ip=line_pod_ip or None,
+                                component=component,
+                                filename=filename or None,
+                                function_name=func_name,
+                                line_number=line_num,
+                                thread_id=thread_id,
+                                trace_id=trace_id or None,
+                                message=message,
+                            )
+                        )
+            except (IOError, OSError) as exc:
+                logger.warning("BRPC thread-logs: failed to read %s: %s", fpath, exc)
+
+        all_logs.sort(key=lambda h: h.time)
+
+        return ListBrpcDiagHitsMsg(
+            batch_id=batch_id,
+            total=len(all_logs),
+            hits=all_logs,
         )
 
     @staticmethod
