@@ -30,11 +30,15 @@ sync_backend_data() {
     # Refresh packaged rules on every start. Docker only initializes a named
     # volume from the image on its first use, so an existing witty-ub-data volume
     # would otherwise miss rules added by a newer image.
+    # Source-built images seed from /usr/share/witty-ub/data; RPM images already
+    # install the data directly into the runtime dir.
     echo "Syncing packaged diagnosis data..."
     WITTY_DATA_SEED_DIR="/usr/share/witty-ub/data"
     WITTY_RUNTIME_DATA_DIR="${WITTY_DIR}/data"
     mkdir -p "${WITTY_RUNTIME_DATA_DIR}"
-    cp -a "${WITTY_DATA_SEED_DIR}/." "${WITTY_RUNTIME_DATA_DIR}/"
+    if [ -d "${WITTY_DATA_SEED_DIR}" ]; then
+        cp -a "${WITTY_DATA_SEED_DIR}/." "${WITTY_RUNTIME_DATA_DIR}/"
+    fi
 
     for required_file in \
         "${WITTY_RUNTIME_DATA_DIR}/failure_mode_tree.json" \
@@ -53,16 +57,31 @@ sync_backend_data() {
     echo "[OK] BRPC diagnosis tool and data are ready"
 }
 
+# ── Agent 配置布局检测 ──────────────────────────────────────────────
+# bundle: 源码镜像 witty_ub_diagnostician/.opencode/
+# legacy: RPM 镜像 config/（仅提示词的旧布局）
+detect_agent_layout() {
+    local bundle="${WITTY_DIR}/witty_ub_diagnostician/.opencode"
+    local legacy="${WITTY_DIR}/config"
+    if [ -f "${bundle}/opencode.json" ] && [ -f "${bundle}/agents/witty-ub-diagnostician.md" ]; then
+        AGENT_OPENCODE_CONFIG="${bundle}/opencode.json"
+        AGENT_PROMPT_MD="${bundle}/agents/witty-ub-diagnostician.md"
+    elif [ -f "${legacy}/opencode.json" ] && [ -f "${legacy}/agents/witty-ub-diagnostician.md" ]; then
+        AGENT_OPENCODE_CONFIG="${legacy}/opencode.json"
+        AGENT_PROMPT_MD="${legacy}/agents/witty-ub-diagnostician.md"
+    else
+        echo "[ERROR] OpenCode agent config not found (checked ${bundle} and ${legacy})"
+        exit 1
+    fi
+    echo "[OK] Agent config: ${AGENT_OPENCODE_CONFIG}"
+}
+
 # ── 渲染 Agent 提示词（WITTY_API_BASE / WITTY_NO_PROXY） ────────────
 render_agent_prompt() {
-    local agent_md="${WITTY_DIR}/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
-    if [ ! -f "${agent_md}" ]; then
-        echo "[WARN] Agent prompt not found: ${agent_md}"
-        return 0
-    fi
+    detect_agent_layout
     # 幂等: 已渲染内容不含占位符, envsubst 为 no-op
-    envsubst '${WITTY_API_BASE} ${WITTY_NO_PROXY}' <"${agent_md}" >"${agent_md}.tmp" &&
-        mv "${agent_md}.tmp" "${agent_md}"
+    envsubst '${WITTY_API_BASE} ${WITTY_NO_PROXY}' <"${AGENT_PROMPT_MD}" >"${AGENT_PROMPT_MD}.tmp" &&
+        mv "${AGENT_PROMPT_MD}.tmp" "${AGENT_PROMPT_MD}"
     echo "[OK] Agent prompt rendered with API base: ${WITTY_API_BASE}"
 }
 
@@ -115,7 +134,7 @@ wait_backend_ready() {
 start_opencode() {
     render_agent_prompt
     cd /var/witty-ub
-    export OPENCODE_CONFIG="${OPENCODE_CONFIG:-/var/witty-ub/witty_ub_diagnostician/.opencode/opencode.json}"
+    export OPENCODE_CONFIG="${OPENCODE_CONFIG:-${AGENT_OPENCODE_CONFIG}}"
     nohup /usr/bin/opencode serve --hostname "${OPENCODE_HOST}" --port 4096 \
         >/var/log/witty-ub/opencode_server.log 2>&1 &
     OPENCODE_PID=$!
