@@ -220,6 +220,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         leaf_modes = KVCacheLogEventDiagnosisWorker._leaf_failure_modes(
             log_failure_event.get("failure_mode") or [], failure_mode_cache
         )
+        # Only access-log hits contribute codes to the aggregate event list.
+        # Runtime rows have an empty raw status_code, while both client and
+        # worker access rows always carry one (including the successful "0").
+        access_leaf_modes = (
+            leaf_modes if str(log_failure_event.get("status_code") or "").strip() else []
+        )
 
         if trace_id not in trace_failure_events_map:
             trace_failure_events_map[trace_id] = {
@@ -233,9 +239,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 "cluster_names": [log_failure_event["cluster_name"]] if log_failure_event["cluster_name"] else [],
                 "timestamp": log_failure_event["timestamp"],
                 "status_code": KVCacheLogEventDiagnosisWorker._failure_mode_error_codes(
-                    leaf_modes, failure_mode_cache
+                    access_leaf_modes, failure_mode_cache
                 ),
                 "failure_mode": list(leaf_modes),
+                # Transient bookkeeping used to keep access attribution
+                # independent from cross-log runtime leaf pruning.
+                "_access_failure_modes": list(access_leaf_modes),
                 "operation": operation,
             }
             return
@@ -277,9 +286,21 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 trace_failure_event["failure_mode"], failure_mode_cache
             )
         )
+
+        access_failure_modes = trace_failure_event.setdefault(
+            "_access_failure_modes", []
+        )
+        for mode in access_leaf_modes:
+            if mode not in access_failure_modes:
+                access_failure_modes.append(mode)
+        trace_failure_event["_access_failure_modes"] = (
+            KVCacheLogEventDiagnosisWorker._leaf_failure_modes(
+                access_failure_modes, failure_mode_cache
+            )
+        )
         trace_failure_event["status_code"] = (
             KVCacheLogEventDiagnosisWorker._failure_mode_error_codes(
-                trace_failure_event["failure_mode"], failure_mode_cache
+                trace_failure_event["_access_failure_modes"], failure_mode_cache
             )
         )
     

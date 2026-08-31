@@ -349,7 +349,13 @@ async def migrate_trace_failure_event_status_code_to_array() -> None:
 
 
 async def backfill_trace_failure_event_status_codes() -> None:
-    """按 trace 命中的故障模式回填故障码，修复历史 access 状态码数据。"""
+    """按 access 日志命中的故障模式回填 trace 故障码。
+
+    ``trace_failure_event.failure_mode`` 包含整个 trace 的 access 和 runtime
+    命中，不能用它直接生成聚合列表的故障码。``log_failure_event``
+    中只有 access 日志行带非空原始 ``status_code``，因此以此作为
+    access 归属标记，并从该行命中的故障模式查找故障码。
+    """
     async with PGManager.engine().begin() as conn:
         await conn.execute(text(
             "WITH failure_mode_codes AS ("
@@ -364,23 +370,28 @@ async def backfill_trace_failure_event_status_codes() -> None:
             "THEN SUBSTRING(BTRIM(error_code) FROM '\\(\\s*([-+]?[0-9]+)\\s*\\)\\s*$') "
             "ELSE BTRIM(error_code) END AS error_code "
             "FROM failure_mode_knowledge"
-            "), mode_codes AS ("
+            "), access_mode_codes AS ("
             "SELECT trace_event.id, failure_mode_code.error_code, "
             "MIN(matched_mode.ordinality) AS first_position "
             "FROM trace_failure_event AS trace_event "
-            "JOIN LATERAL UNNEST(STRING_TO_ARRAY(COALESCE(trace_event.failure_mode, ''), ',')) "
+            "JOIN log_failure_event AS log_event "
+            "ON log_event.log_id = trace_event.log_id "
+            "AND log_event.trace_id = trace_event.trace_id "
+            "JOIN LATERAL UNNEST(STRING_TO_ARRAY(COALESCE(log_event.failure_mode, ''), ',')) "
             "WITH ORDINALITY AS matched_mode(failure_mode_id, ordinality) ON TRUE "
             "JOIN failure_mode_codes AS failure_mode_code "
             "ON failure_mode_code.id = BTRIM(matched_mode.failure_mode_id) "
-            "WHERE failure_mode_code.error_code IS NOT NULL "
+            "WHERE COALESCE(BTRIM(log_event.status_code), '') <> '' "
+            "AND COALESCE(BTRIM(log_event.failure_mode), '') <> '' "
+            "AND failure_mode_code.error_code IS NOT NULL "
             "GROUP BY trace_event.id, failure_mode_code.error_code"
             "), derived AS ("
             "SELECT trace_event.id, COALESCE("
-            "ARRAY_AGG(mode_codes.error_code ORDER BY mode_codes.first_position) "
-            "FILTER (WHERE mode_codes.error_code IS NOT NULL), ARRAY[]::VARCHAR[]"
+            "ARRAY_AGG(access_mode_codes.error_code ORDER BY access_mode_codes.first_position) "
+            "FILTER (WHERE access_mode_codes.error_code IS NOT NULL), ARRAY[]::VARCHAR[]"
             ")::VARCHAR[] AS status_codes "
             "FROM trace_failure_event AS trace_event "
-            "LEFT JOIN mode_codes ON mode_codes.id = trace_event.id "
+            "LEFT JOIN access_mode_codes ON access_mode_codes.id = trace_event.id "
             "GROUP BY trace_event.id"
             ") "
             "UPDATE trace_failure_event AS trace_event "

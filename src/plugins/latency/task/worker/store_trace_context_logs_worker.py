@@ -276,9 +276,14 @@ class StoreTraceContextLogsWorker(BaseWorker):
                         trace_failure_event.get("failure_mode") or [], failure_mode_cache
                     )
                 )
+                # 聚合故障码的口径是 access 日志命中的故障模式；
+                # runtime 模式仍保留在 failure_mode 中供 trace 详情展示。
+                access_failure_modes = trace_failure_event.pop(
+                    "_access_failure_modes", []
+                )
                 trace_failure_event["status_code"] = (
                     KVCacheLogEventDiagnosisWorker._failure_mode_error_codes(
-                        trace_failure_event["failure_mode"], failure_mode_cache
+                        access_failure_modes, failure_mode_cache
                     )
                 )
             if trace_failure_events:

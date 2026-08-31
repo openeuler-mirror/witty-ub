@@ -5379,6 +5379,21 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
   }
 }
 
+const getFailureModeDisplayErrorCode = (failureModeId: string) => {
+  const detail = failureModeDetailsById.value[failureModeId]
+  if (!detail) return ''
+  const errorCode = (detail.error_code as string | number | null | undefined) ?? null
+  const errorCodeText =
+    errorCode === null || errorCode === undefined || errorCode === ''
+      ? ''
+      : String(errorCode).trim()
+  if (errorCodeText) return errorCodeText
+  // 进程级 FATAL 故障的 error_code 为 null，但属于 access 故障，统一展示为 "FATAL"。
+  const name = (detail.name ?? '').trim()
+  if (name.includes('FATAL')) return 'FATAL'
+  return ''
+}
+
 const getFailureModeLabel = (
   failureModeId: string,
   showErrorCode: boolean,
@@ -5386,12 +5401,8 @@ const getFailureModeLabel = (
 ) => {
   const detail = failureModeDetailsById.value[failureModeId]
   const name = detail?.name || fallbackName
-  const errorCode = (detail?.error_code as string | number | null | undefined) ?? null
-  const errorCodeText =
-    errorCode === null || errorCode === undefined || errorCode === ''
-      ? ''
-      : String(errorCode).trim()
-  return showErrorCode && errorCodeText ? `${errorCodeText} ${name}` : name
+  const errorCodeText = showErrorCode ? getFailureModeDisplayErrorCode(failureModeId) : ''
+  return errorCodeText ? `${errorCodeText} ${name}` : name
 }
 
 const isAccessTraceLog = (log: TraceLogRow) =>
@@ -5476,11 +5487,20 @@ const selectedTraceFailureMode = computed<(FailureModeKnowledgeModel & { _id: st
   },
 )
 
+const selectedTraceFailureModeDisplayErrorCode = computed(() => {
+  const failureMode = selectedTraceFailureMode.value
+  return failureMode ? getFailureModeDisplayErrorCode(failureMode._id) : ''
+})
+
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
   visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  void loadRelatedFailureModeDetails(failureModeId, selectedTraceFailureModeIds.value)
+  void loadRelatedFailureModeDetails(
+    failureModeId,
+    selectedTraceFailureModeIds.value,
+    selectedTraceAccessFailureModeIds.value,
+  )
 }
 
 const selectedFaultTraceFailureModeIds = computed<string[]>(() => {
@@ -5505,6 +5525,11 @@ const selectedFaultTraceFailureMode = computed<
   return detail ? { ...detail, _id: selectedId } : null
 })
 
+const selectedFaultTraceFailureModeDisplayErrorCode = computed(() => {
+  const failureMode = selectedFaultTraceFailureMode.value
+  return failureMode ? getFailureModeDisplayErrorCode(failureMode._id) : ''
+})
+
 const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: string }) | null>(
   () => {
     const selectedId = selectedChildFailureModeId.value
@@ -5519,7 +5544,11 @@ const selectFaultTraceFailureMode = (failureModeId: string) => {
   selectedFaultTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
   visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  void loadRelatedFailureModeDetails(failureModeId, selectedFaultTraceFailureModeIds.value)
+  void loadRelatedFailureModeDetails(
+    failureModeId,
+    selectedFaultTraceFailureModeIds.value,
+    selectedFaultTraceAccessFailureModeIds.value,
+  )
 }
 
 const getFailureModeChildren = (failureMode?: FailureModeKnowledgeModel | null) =>
@@ -5528,25 +5557,59 @@ const getFailureModeChildren = (failureMode?: FailureModeKnowledgeModel | null) 
     .map((childId) => childId.trim())
     .filter(Boolean) ?? []
 
+const normalizeFailureModeErrorCode = (rawErrorCode: string | number | null | undefined) => {
+  if (rawErrorCode === null || rawErrorCode === undefined) return ''
+  const errorCode = String(rawErrorCode).trim()
+  if (
+    !errorCode ||
+    ['NULL', 'NULLPTR', 'NONE', 'N/A', 'NA', '-'].includes(errorCode.toUpperCase())
+  )
+    return ''
+  if (/^K_OK\(\s*\+?0+\s*\)$/i.test(errorCode)) return '0'
+  const numericSuffix = errorCode.match(/\(\s*([-+]?\d+)\s*\)\s*$/)?.[1]
+  if (numericSuffix) return Number(numericSuffix) === 0 ? '' : numericSuffix
+  if (/^[-+]?\d+$/.test(errorCode)) return ''
+  return errorCode
+}
+
 const getRelatedFailureModeIds = (
   failureMode: FailureModeKnowledgeModel | null | undefined,
   traceFailureModeIds: string[],
+  accessFailureModeIds: Set<string>,
 ) => {
   const traceFailureModeIdSet = new Set(traceFailureModeIds)
   const matchedChildIds = getFailureModeChildren(failureMode).filter((childId) =>
     traceFailureModeIdSet.has(childId),
   )
-  return matchedChildIds.length > 0 ? matchedChildIds : traceFailureModeIds
+  if (matchedChildIds.length > 0) return matchedChildIds
+
+  const errorCode = normalizeFailureModeErrorCode(failureMode?.error_code)
+  if (!errorCode) return []
+
+  // 子故障交集为空时，只在当前 trace 已命中的故障模式中筛选同码项，
+  // 避免从故障模式知识库中收集全量同码故障。
+  return traceFailureModeIds.filter((failureModeId) => {
+    if (failureModeId === failureMode?.id || accessFailureModeIds.has(failureModeId)) return false
+    const candidateErrorCode = normalizeFailureModeErrorCode(
+      failureModeDetailsById.value[failureModeId]?.error_code,
+    )
+    return candidateErrorCode === errorCode
+  })
 }
 
 const selectedTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
+  getRelatedFailureModeIds(
+    selectedTraceFailureMode.value,
+    selectedTraceFailureModeIds.value,
+    selectedTraceAccessFailureModeIds.value,
+  ),
 )
 
 const selectedFaultTraceRelatedFailureModeIds = computed(() =>
   getRelatedFailureModeIds(
     selectedFaultTraceFailureMode.value,
     selectedFaultTraceFailureModeIds.value,
+    selectedFaultTraceAccessFailureModeIds.value,
   ),
 )
 
@@ -5576,11 +5639,12 @@ const getVisibleRelatedFailureModeCount = (relatedFailureModeIds: string[]) =>
 const loadRelatedFailureModeDetails = async (
   failureModeId: string,
   traceFailureModeIds: string[],
+  accessFailureModeIds: Set<string>,
 ) => {
   const parentFailureMode =
     failureModeDetailsById.value[failureModeId] ?? (await loadFailureModeDetail(failureModeId))
   const relatedFailureModeIds = getVisibleRelatedFailureModeIds(
-    getRelatedFailureModeIds(parentFailureMode, traceFailureModeIds),
+    getRelatedFailureModeIds(parentFailureMode, traceFailureModeIds, accessFailureModeIds),
   )
   await Promise.all(relatedFailureModeIds.map((relatedId) => loadFailureModeDetail(relatedId)))
 }
@@ -5672,21 +5736,6 @@ watch(
   },
   { immediate: true },
 )
-
-const normalizeFailureModeErrorCode = (rawErrorCode: string | number | null | undefined) => {
-  if (rawErrorCode === null || rawErrorCode === undefined) return ''
-  const errorCode = String(rawErrorCode).trim()
-  if (
-    !errorCode ||
-    ['NULL', 'NULLPTR', 'NONE', 'N/A', 'NA', '-'].includes(errorCode.toUpperCase())
-  )
-    return ''
-  if (/^K_OK\(\s*\+?0+\s*\)$/i.test(errorCode)) return '0'
-  const numericSuffix = errorCode.match(/\(\s*([-+]?\d+)\s*\)\s*$/)?.[1]
-  if (numericSuffix) return Number(numericSuffix) === 0 ? '' : numericSuffix
-  if (/^[-+]?\d+$/.test(errorCode)) return ''
-  return errorCode
-}
 
 const fetchAccessFailureModeIdsByTrace = async (traceIds: string[], assetId: string) => {
   const accessFailureModeIdsByTrace = new Map<string, Set<string>>()
@@ -17603,12 +17652,12 @@ onBeforeUnmount(() => {
                   </span>
                   <span
                     v-if="
-                      selectedTraceFailureMode.error_code &&
+                      selectedTraceFailureModeDisplayErrorCode &&
                       selectedTraceAccessFailureModeIds.has(selectedTraceFailureMode._id)
                     "
                     class="failure-mode-chain-error-code"
                   >
-                    错误码：{{ selectedTraceFailureMode.error_code }}
+                    错误码：{{ selectedTraceFailureModeDisplayErrorCode }}
                   </span>
                 </div>
                 <div class="failure-mode-chain-detail">
@@ -17887,12 +17936,12 @@ onBeforeUnmount(() => {
                   </span>
                   <span
                     v-if="
-                      selectedFaultTraceFailureMode.error_code &&
+                      selectedFaultTraceFailureModeDisplayErrorCode &&
                       selectedFaultTraceAccessFailureModeIds.has(selectedFaultTraceFailureMode._id)
                     "
                     class="failure-mode-chain-error-code"
                   >
-                    错误码：{{ selectedFaultTraceFailureMode.error_code }}
+                    错误码：{{ selectedFaultTraceFailureModeDisplayErrorCode }}
                   </span>
                 </div>
                 <div class="failure-mode-chain-detail">

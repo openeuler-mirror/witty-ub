@@ -19,29 +19,49 @@ def _log_event(*, failure_modes: list[str], status_code: str = "raw-status") -> 
     }
 
 
-def test_trace_failure_codes_come_from_all_leaf_failure_modes():
+def test_trace_failure_codes_come_only_from_access_log_failure_modes():
     failure_mode_cache = {
-        "parent": SimpleNamespace(
-            children_failure_mode_ids="child", error_code="K_PARENT(0)"
+        "access": SimpleNamespace(
+            children_failure_mode_ids="runtime", error_code="K_ACCESS(7)"
         ),
-        "child": SimpleNamespace(children_failure_mode_ids="", error_code="K_CHILD(5)"),
+        "runtime": SimpleNamespace(children_failure_mode_ids="", error_code="K_RUNTIME(5)"),
         "other": SimpleNamespace(children_failure_mode_ids="", error_code=None),
     }
     events: dict[str, dict] = {}
 
     KVCacheLogEventDiagnosisWorker._merge_trace_failure_event(
         events,
-        _log_event(failure_modes=["parent"], status_code="incorrect-raw-code"),
+        _log_event(failure_modes=["access"], status_code="7"),
         failure_mode_cache,
     )
     KVCacheLogEventDiagnosisWorker._merge_trace_failure_event(
         events,
-        _log_event(failure_modes=["child", "other"], status_code="another-raw-code"),
+        _log_event(failure_modes=["runtime", "other"], status_code=""),
         failure_mode_cache,
     )
 
-    assert events["trace-1"]["failure_mode"] == ["child", "other"]
-    assert events["trace-1"]["status_code"] == ["5"]
+    # Runtime leaf pruning still controls trace detail modes, but aggregate
+    # codes retain their independent access-log attribution.
+    assert events["trace-1"]["failure_mode"] == ["runtime", "other"]
+    assert events["trace-1"]["status_code"] == ["7"]
+
+
+def test_runtime_only_trace_has_no_aggregate_failure_codes():
+    failure_mode_cache = {
+        "runtime": SimpleNamespace(
+            children_failure_mode_ids="", error_code="K_RUNTIME(5)"
+        ),
+    }
+    events: dict[str, dict] = {}
+
+    KVCacheLogEventDiagnosisWorker._merge_trace_failure_event(
+        events,
+        _log_event(failure_modes=["runtime"], status_code=""),
+        failure_mode_cache,
+    )
+
+    assert events["trace-1"]["failure_mode"] == ["runtime"]
+    assert events["trace-1"]["status_code"] == []
 
 
 def test_failure_mode_error_codes_ignore_missing_and_duplicate_codes():
