@@ -17,15 +17,15 @@ ARG REPO_URL
 
 LABEL maintainer="witty-ub"
 
-# Disable update repos: their metadata may be unavailable; the everything
-# repo provided by REPO_URL already contains all dependencies.
-RUN sed -i '/update/s/^enabled=1/enabled=0/' /etc/yum.repos.d/*.repo
+# Disable update repos: their remote metadata may drift (checksum mismatch);
+# the base repos plus the everything repo from REPO_URL cover all dependencies.
+RUN sed -i -e '/^\[update\]/,/^\[/ s/^enabled=1/enabled=0/' \
+           -e '/^\[update-source\]/,/^\[/ s/^enabled=1/enabled=0/' \
+           /etc/yum.repos.d/*.repo
 
-RUN echo "[witty-ub]" > /etc/yum.repos.d/witty-ub.repo && \
-    echo "name=Witty-UB Repository" >> /etc/yum.repos.d/witty-ub.repo && \
-    echo "baseurl=$REPO_URL" >> /etc/yum.repos.d/witty-ub.repo && \
-    echo "enabled=1" >> /etc/yum.repos.d/witty-ub.repo && \
-    echo "gpgcheck=0" >> /etc/yum.repos.d/witty-ub.repo
+# printf %s keeps a literal $basearch (if present) for dnf to expand per-arch
+RUN printf '[witty-ub]\nname=Witty-UB Repository\nbaseurl=%s\nenabled=1\ngpgcheck=0\n' \
+    "$REPO_URL" > /etc/yum.repos.d/witty-ub.repo
 
 # ============================================
 # backend: FastAPI + C++ diagnosis tools
