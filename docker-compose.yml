@@ -29,6 +29,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: witty-ub:latest
     container_name: witty-ub
     restart: unless-stopped
     ports:
@@ -98,6 +99,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: frontend
+    image: witty-ub:frontend
     profiles: ["split"]
     container_name: witty-ub-frontend
     restart: unless-stopped
