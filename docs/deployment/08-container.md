@@ -2,7 +2,7 @@
 
 ## 概述
 
-容器化部署提供环境一致性、快速部署、易于扩展等优势。**同一镜像通过 `WITTY_ROLE` 支持分离部署**：`WITTY_ROLE=backend` 的后端容器承载数据卷与 FastAPI，无出网要求；`WITTY_ROLE=frontend` 的前端容器承载 Nginx 与 OpenCode，LLM key 与经验库随前端节点。两者可以运行在不同机器上。
+容器化部署提供环境一致性、快速部署、易于扩展等优势。**分离部署使用按角色构建的镜像**：`witty-ub:backend` 承载数据卷与 FastAPI，无出网要求；`witty-ub:frontend` 承载 Nginx 与 OpenCode，LLM key 与经验库随前端节点。两者可以运行在不同机器上；单机部署使用全量镜像 `witty-ub:latest`。
 
 > 推荐使用脚本部署 → [宿主机脚本部署](02-script-host.md) | [容器脚本部署](03-script-container.md)。本文档介绍手动 `docker run` 和 `docker compose` 方式。
 
@@ -18,15 +18,19 @@
 ### 获取镜像
 
 ```bash
-# 拉取
+# 拉取（单机全量镜像）
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:latest
-
-# 本地 tag（简化名称）
 docker tag hub-harbor.oepkgs.net/neocopilot/witty-ub:latest witty-ub:latest
+
+# 分离部署需在两台机器分别拉取角色镜像
+docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:backend    # 后端机器
+docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend   # 前端机器
 
 # 离线导入
 docker load -i witty-ub.tar
 ```
+
+本地构建见[镜像构建](../package/01-docker-build.md)。
 
 ---
 
@@ -40,10 +44,10 @@ docker load -i witty-ub.tar
 docker compose --profile split up -d
 ```
 
-| 服务 | 角色 | 说明 |
+| 服务 | 镜像 | 说明 |
 | ------ | ------ | ------ |
-| `witty-ub-backend` | `WITTY_ROLE=backend` | FastAPI + 数据卷（不对外暴露端口） |
-| `witty-ub-frontend` | `WITTY_ROLE=frontend` | 32413 → 8080（Nginx + OpenCode），`WITTY_BACKEND_URL` 指向 backend |
+| `witty-ub-backend` | `witty-ub:backend` | FastAPI + 数据卷（不对外暴露端口） |
+| `witty-ub-frontend` | `witty-ub:frontend` | 32413 → 8080（Nginx + OpenCode），`WITTY_BACKEND_URL` 指向 backend |
 | `postgres` | 数据库 | 15432，仅 backend 使用 |
 
 前端容器健康检查经反代探测远端后端 `/health_check`；`depends_on: condition: service_healthy` 保证后端就绪后才启动前端。
@@ -54,14 +58,13 @@ docker compose --profile split up -d
 # 前端机器的 docker-compose.yml
 services:
   witty-ub-frontend:
-    image: witty-ub:latest
+    image: witty-ub:frontend
     ports:
       - "32413:8080"
     volumes:
       - ~/.config/opencode:/root/.config/opencode          # LLM key
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
     environment:
-      - WITTY_ROLE=frontend
       - WITTY_BACKEND_URL=http://<后端机器IP>:9772
     networks:
       - witty-ub-network
@@ -72,7 +75,7 @@ services:
 ```yaml
 services:
   witty-ub-backend:
-    image: witty-ub:latest
+    image: witty-ub:backend
     ports:
       - "9772:9772"        # 对前端机器开放
     volumes:
@@ -80,7 +83,6 @@ services:
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
     environment:
-      - WITTY_ROLE=backend
       - PG_HOST=<PG地址>
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
@@ -103,7 +105,6 @@ docker run -d \
   -v witty-ub-data:/var/witty-ub/data \
   -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
   -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
-  -e WITTY_ROLE=backend \
   -e PYTHONPATH=/var/witty-ub \
   -e PG_HOST=172.18.0.1 \
   -e PG_PORT=5432 \
@@ -111,7 +112,7 @@ docker run -d \
   -e PG_USER=witty-ub \
   -e PG_PASSWORD=witty-ub \
   --network witty-ub-network \
-  witty-ub:latest
+  witty-ub:backend
 ```
 
 **前端机器**：
@@ -123,9 +124,8 @@ docker run -d \
   -p 32413:8080 \
   -v ~/.config/opencode:/root/.config/opencode \
   -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
-  -e WITTY_ROLE=frontend \
   -e WITTY_BACKEND_URL=http://<后端机器IP>:9772 \
-  witty-ub:latest
+  witty-ub:frontend
 ```
 
 容器启动时自动完成：envsubst 渲染 Nginx 配置（API 反代 `WITTY_BACKEND_URL`）→ 渲染 Agent 提示词后端基址 → 启动 OpenCode(4096) + Nginx(8080)。
@@ -308,7 +308,7 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 
 | 变量 | 默认值 | 说明 |
 | ------ | -------- | ------ |
-| `WITTY_ROLE` | `all` | `all` 单机全量 / `backend` 仅后端 / `frontend` 仅前端 |
+| `WITTY_ROLE` | 镜像内置 | `backend`/`frontend` 镜像已内置角色，`latest` 默认 `all`，一般无需设置 |
 | `WITTY_BACKEND_URL` | `http://127.0.0.1:9772` | frontend 角色的 API 反代上游，指向后端节点 |
 | `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent 提示词中的后端 API 基址 |
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | `/agent-api/` 反代上游 |

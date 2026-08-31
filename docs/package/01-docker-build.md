@@ -5,9 +5,13 @@
 witty-ub 采用分层镜像架构：
 
 | 镜像 | Dockerfile | 说明 |
-|------|-----------|------|
-| `witty-ub-base` | `Dockerfile.base` | 基础镜像，包含所有依赖（C++ 库、Python、OpenCode 等） |
-| `witty-ub` | `Dockerfile` | 应用镜像，包含业务代码和配置 |
+| ------ | ----------- | ------ |
+| `witty-ub-base` | `Dockerfile.base` target `base` | 全量基础镜像（C++ 工具链 + 全部依赖），用于构建 C++ 与单机镜像 |
+| `witty-ub-base-backend` | `Dockerfile.base` target `base-backend` | 后端基础镜像（C++ 运行库 + latency venv，约 640MB） |
+| `witty-ub-base-frontend` | `Dockerfile.base` target `base-frontend` | 前端基础镜像（Nginx + OpenCode + experience-skill venv，约 1.2GB） |
+| `witty-ub:latest` | `Dockerfile` 默认 target | 单机全量应用镜像（All-in-One） |
+| `witty-ub:backend` | `Dockerfile` target `backend` | 后端角色镜像（FastAPI + C++ 诊断工具 + 数据，约 670MB） |
+| `witty-ub:frontend` | `Dockerfile` target `frontend` | 前端角色镜像（Nginx + OpenCode + web dist，约 1.3GB） |
 
 首次构建 base 镜像需要 10-15 分钟，后续源码修改只需重建应用镜像（30 秒 - 2 分钟）。
 
@@ -45,7 +49,7 @@ bash build.sh --version v1.0.0
 ### 构建参数
 
 | 参数 | 说明 |
-|------|------|
+| ------ | ------ |
 | `--version <tag>` | 镜像标签（默认 `latest`） |
 | `--platform <platform>` | 目标平台：`local`、`linux/amd64`、`linux/arm64` |
 | `--multi` | 双架构构建（x86_64 + arm64），需配合 `--registry` |
@@ -77,7 +81,7 @@ bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub --ver
 
 ```bash
 # 1. 构建 base 镜像
-docker build -f Dockerfile.base -t witty-ub-base:latest .
+docker build -f Dockerfile.base --target base -t witty-ub-base:latest .
 
 # 2. 构建前端
 cd src/web
@@ -110,8 +114,8 @@ docker compose build --no-cache
 适用于低版本 Docker 环境（无 buildx、无 Compose v2）。
 
 ```bash
-# 1. 构建 base 镜像
-docker build -f Dockerfile.base -t witty-ub-base:latest .
+# 1. 构建 base 镜像（全量，单机镜像与 C++ 编译需要）
+docker build -f Dockerfile.base --target base -t witty-ub-base:latest .
 
 # 2. 构建前端（必须在本地环境，避免 QEMU 性能问题）
 cd src/web
@@ -120,7 +124,13 @@ npm run build-only
 cd ../..
 
 # 3. 构建应用镜像
-docker build -f Dockerfile -t witty-ub:latest .
+docker build -f Dockerfile -t witty-ub:latest .            # 单机全量
+
+# 4. 分离部署角色镜像（可选，需先构建对应 base）
+docker build -f Dockerfile.base --target base-backend -t witty-ub-base-backend:latest .
+docker build -f Dockerfile.base --target base-frontend -t witty-ub-base-frontend:latest .
+docker build -f Dockerfile --target backend -t witty-ub:backend .
+docker build -f Dockerfile --target frontend -t witty-ub:frontend .
 ```
 
 ---
@@ -128,6 +138,7 @@ docker build -f Dockerfile -t witty-ub:latest .
 ## 前端构建说明
 
 前端代码（`src/web`）必须在本地环境构建：
+
 - 避免 QEMU 模拟环境下的性能问题和内存不足
 - 构建产物 `src/web/dist` 通过 COPY 指令打包到镜像
 
@@ -136,7 +147,7 @@ docker build -f Dockerfile -t witty-ub:latest .
 ## 构建时间参考
 
 | 场景 | 首次 | 后续 |
-|------|------|------|
+| ------ | ------ | ------ |
 | 单架构 | 10-15 分钟 | 30 秒 - 2 分钟 |
 | 双架构 | 15-30 分钟 | 5-10 分钟 |
 | 仅前端修改 | 1-2 分钟 | 1-2 分钟 |
