@@ -14,30 +14,53 @@ readonly NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly LATENCY_PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 readonly PLUGINS_DIR="$(dirname "${LATENCY_PROJECT_DIR}")"
-readonly DEPLOYED_OPENCODE_CONFIG="/var/witty-ub/witty_ub_diagnostician/.opencode/opencode.json"
 readonly REPO_ROOT="$(cd "${PLUGINS_DIR}/../.." && pwd)"
-readonly LOCAL_OPENCODE_CONFIG="${REPO_ROOT}/witty_ub_diagnostician/opencode.json"
 readonly OPENCODE_LOG="${LATENCY_PROJECT_DIR}/opencode_server.log"
+
+# Agent 配置双布局:
+#   bundle: witty_ub_diagnostician/.opencode/（Agent bundle 随包安装）
+#   legacy: config/opencode.json + config/agents/（仅提示词的旧布局）
+DEPLOYED_BUNDLE_CONFIG="/var/witty-ub/witty_ub_diagnostician/.opencode/opencode.json"
+DEPLOYED_BUNDLE_PROMPT="/var/witty-ub/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
+DEPLOYED_LEGACY_CONFIG="/var/witty-ub/config/opencode.json"
+DEPLOYED_LEGACY_PROMPT="/var/witty-ub/config/agents/witty-ub-diagnostician.md"
+LOCAL_BUNDLE_CONFIG="${REPO_ROOT}/witty_ub_diagnostician/opencode.json"
+LOCAL_BUNDLE_PROMPT="${REPO_ROOT}/witty_ub_diagnostician/agents/witty-ub-diagnostician.md"
+LOCAL_LEGACY_CONFIG="${REPO_ROOT}/config/opencode.json"
+LOCAL_LEGACY_PROMPT="${REPO_ROOT}/config/agents/witty-ub-diagnostician.md"
 
 # Select the configuration that belongs to this script's layout. A stale
 # /var/witty-ub installation must not override a source-tree invocation.
-if [[ "${LATENCY_PROJECT_DIR}" == "/var/witty-ub/latency" && -f "${DEPLOYED_OPENCODE_CONFIG}" ]]; then
-    readonly OPENCODE_CONFIG_PATH="${DEPLOYED_OPENCODE_CONFIG}"
-    readonly WITTY_ROOT="/var/witty-ub"
-    readonly AGENT_PROMPT="${WITTY_ROOT}/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
-elif [[ -f "${LOCAL_OPENCODE_CONFIG}" ]]; then
-    readonly OPENCODE_CONFIG_PATH="${LOCAL_OPENCODE_CONFIG}"
-    readonly WITTY_ROOT="${REPO_ROOT}"
-    readonly AGENT_PROMPT="${WITTY_ROOT}/witty_ub_diagnostician/agents/witty-ub-diagnostician.md"
+OPENCODE_CONFIG_PATH=""
+WITTY_ROOT=""
+AGENT_PROMPT=""
+if [[ "${LATENCY_PROJECT_DIR}" == "/var/witty-ub/latency" ]]; then
+    if [[ -f "${DEPLOYED_BUNDLE_CONFIG}" && -f "${DEPLOYED_BUNDLE_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${DEPLOYED_BUNDLE_CONFIG}"
+        WITTY_ROOT="/var/witty-ub"
+        AGENT_PROMPT="${DEPLOYED_BUNDLE_PROMPT}"
+    elif [[ -f "${DEPLOYED_LEGACY_CONFIG}" && -f "${DEPLOYED_LEGACY_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${DEPLOYED_LEGACY_CONFIG}"
+        WITTY_ROOT="/var/witty-ub"
+        AGENT_PROMPT="${DEPLOYED_LEGACY_PROMPT}"
+    fi
 else
-    echo "[ERROR] OpenCode configuration not found." >&2
-    echo "        Checked: ${DEPLOYED_OPENCODE_CONFIG}" >&2
-    echo "        Checked: ${LOCAL_OPENCODE_CONFIG}" >&2
-    exit 1
+    if [[ -f "${LOCAL_BUNDLE_CONFIG}" && -f "${LOCAL_BUNDLE_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${LOCAL_BUNDLE_CONFIG}"
+        WITTY_ROOT="${REPO_ROOT}"
+        AGENT_PROMPT="${LOCAL_BUNDLE_PROMPT}"
+    elif [[ -f "${LOCAL_LEGACY_CONFIG}" && -f "${LOCAL_LEGACY_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${LOCAL_LEGACY_CONFIG}"
+        WITTY_ROOT="${REPO_ROOT}"
+        AGENT_PROMPT="${LOCAL_LEGACY_PROMPT}"
+    fi
 fi
-
-if [[ ! -f "${AGENT_PROMPT}" ]]; then
-    echo "[ERROR] Diagnosis agent prompt not found: ${AGENT_PROMPT}" >&2
+if [[ -z "${OPENCODE_CONFIG_PATH}" || ! -f "${AGENT_PROMPT}" ]]; then
+    echo "[ERROR] OpenCode configuration not found." >&2
+    echo "        Checked: ${DEPLOYED_BUNDLE_CONFIG}" >&2
+    echo "        Checked: ${DEPLOYED_LEGACY_CONFIG}" >&2
+    echo "        Checked: ${LOCAL_BUNDLE_CONFIG}" >&2
+    echo "        Checked: ${LOCAL_LEGACY_CONFIG}" >&2
     exit 1
 fi
 
