@@ -64,7 +64,7 @@ FROM repo AS frontend
 
 LABEL description="Witty-UB frontend image (RPM, Nginx + OpenCode)"
 
-RUN yum install -y witty-ub-web nodejs npm && \
+RUN yum install -y witty-ub-web gettext nodejs npm && \
     yum clean all && \
     rm -rf /var/cache/yum
 
@@ -104,7 +104,7 @@ FROM repo AS all
 LABEL description="Witty-UB: Fault localization tool using RPM package"
 
 # Install witty-ub meta package (pulls in backend/web/manager subpackages)
-RUN yum install -y witty-ub nodejs npm && \
+RUN yum install -y witty-ub gettext nodejs npm && \
     yum clean all && \
     rm -rf /var/cache/yum
 
