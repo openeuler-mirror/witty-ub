@@ -62,19 +62,9 @@ fi
 WITTY_API_BASE="${WITTY_API_BASE:-http://127.0.0.1:9772}"
 WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
 OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
-
-# 渲染提示词中的占位符 (幂等: 已渲染内容不含占位符)。
-# /var 下的部署副本归 root 所有, 无写权限时借助 sudo。
-RENDER_SUDO=""
-[[ -w "${AGENT_PROMPT}" ]] || RENDER_SUDO="sudo"
-if ${RENDER_SUDO} sed -i \
-    -e "s|\${WITTY_API_BASE}|${WITTY_API_BASE}|g" \
-    -e "s|\${WITTY_NO_PROXY}|${WITTY_NO_PROXY}|g" \
-    "${AGENT_PROMPT}" 2>/dev/null; then
-    echo "[INFO] Agent prompt API base: ${WITTY_API_BASE}"
-else
-    echo "[WARN] Failed to render agent prompt placeholders: ${AGENT_PROMPT}" >&2
-fi
+# Agent 提示词保持仓库原文；其 curl 命令中的变量由 Bash 在执行时展开。
+# 导出到 OpenCode 进程及它启动的 Agent Bash 子进程。
+export WITTY_API_BASE WITTY_NO_PROXY OPENCODE_HOST
 
 # Skip installation when a working OpenCode command is already available.
 if command -v "${COMMAND_NAME}" >/dev/null 2>&1; then

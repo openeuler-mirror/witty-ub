@@ -21,6 +21,7 @@ latency.db
 latency.db-shm
 latency.db-wal
 .deploy-logs/
+.deploy-run/
 
 # 本地构建依赖包
 *.deb

@@ -23,7 +23,7 @@ spec 文件在仓外（openEuler 社区打包仓），仓内只有 `deploy/rpm/l
 1. `dnf install witty-ub` 一键安装 `witty-ub-backend` + `witty-ub-web` + `witty-ub-manager`（All-in-One 不回退）；
 2. `dnf install witty-ub-backend`：仅后端负载，自动依赖 `witty-ub-manager`；
 3. `dnf install witty-ub-web`：仅前端负载，自动依赖 `witty-ub-manager`；
-4. **配置即生效**：前端机 `witty-ub manager` 配置后端地址后自动渲染 nginx/Agent 提示词并启动服务；后端机同理（PG 初始化 + 凭据同步 + 启动 latency）。
+4. **配置即生效**：前端机 `witty-ub manager` 配置后端地址后自动渲染 nginx，Agent 通过 OpenCode 进程环境变量取得配置；后端机同理（PG 初始化 + 凭据同步 + 启动 latency）。
 
 ## 3. 子包设计
 
@@ -101,7 +101,7 @@ witty-ub manager install [--backend http://<ip>:9772]
 | 角色 | 动作 |
 | ---- | ---- |
 | backend | 依赖检查 → PG 初始化（deploy_pg.sh）→ 凭据同步 → enable --now witty-ub-latency → 健康检查 |
-| frontend | 依赖检查 → 写 `/etc/witty-ub/web/env` → 渲染 nginx conf 与 Agent 提示词（`--backend` 指定，默认读 env 现值）→ enable --now witty-ub-web → 端到端探测 |
+| frontend | 依赖检查 → 写 `/etc/witty-ub/web/env` → 渲染 nginx conf（`--backend` 指定，默认读 env 现值）→ Agent 启动时导出 env → enable --now witty-ub-web → 端到端探测 |
 | all | 依次执行 backend + frontend（`--backend` 默认 127.0.0.1，行为与现状一致） |
 
 ### 4.3 config 子命令（配置即生效）
@@ -111,11 +111,11 @@ witty-ub manager config --backend http://192.168.1.10:9772   # 前端机：切�
 witty-ub manager config --show
 ```
 
-流程：写入 `/etc/witty-ub/web/env`（`WITTY_BACKEND_URL` / `WITTY_API_BASE` / `WITTY_NO_PROXY`）→ 重新渲染 `/etc/witty-ub/web/nginx.conf`（sed 替换模板占位符，不依赖 gettext/envsubst）→ 重新渲染 Agent 提示词基址 → `systemctl restart witty-ub-web`。全程幂等，重启机器后配置持久。
+流程：写入 `/etc/witty-ub/web/env`（`WITTY_BACKEND_URL` / `WITTY_API_BASE` / `WITTY_NO_PROXY`）→ 重新渲染 `/etc/witty-ub/web/nginx.conf`（sed 替换模板占位符，不依赖 gettext/envsubst）→ `systemctl restart witty-ub-web`。Agent 提示词保持原文，OpenCode 启动时导出 env。
 
 ### 4.4 OpenCode 维持手动启动
 
-**不新增 `witty-ub-agent.service`**：OpenCode 仍由用户在前端机手动执行 `deploy_opencode.sh` 启动（沿用源码/Docker 部署已验证的流程）。LLM key 位于 `~/.config/opencode`，因用户而异，纳入 systemd 反而引入运行用户与密钥路径问题。`manager config` 切换后端地址后会重新渲染提示词，并提示用户重启 OpenCode：
+**不新增 `witty-ub-agent.service`**：OpenCode 仍由用户在前端机手动执行 `deploy_opencode.sh` 启动（沿用源码/Docker 部署已验证的流程）。LLM key 位于 `~/.config/opencode`，因用户而异，纳入 systemd 反而引入运行用户与密钥路径问题。`manager config` 切换后端地址后提示用户重启 OpenCode，新进程会导出更新后的环境变量：
 
 ```bash
 set -a; source /etc/witty-ub/web/env; set +a
@@ -149,7 +149,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 - [ ] `dnf install witty-ub` → 三个子包齐装，安装后无服务自动启动，`manager install` 后 All-in-One 行为与现状回归一致；
 - [ ] 后端机 `dnf install witty-ub-backend` → 自动带入 manager；`manager install` 完成 PG 初始化 + latency 启动 + 健康检查 200；
 - [ ] 前端机 `dnf install witty-ub-web` → 自动带入 manager；`manager install --backend http://<be>:9772` 后页面 200 / API 反代 200；手动启动 OpenCode 后 agent-api 200；
-- [ ] 前端机 `manager config --backend <新地址>` → env/nginx/Agent 提示词重渲染、witty-ub-web 自动重启、新地址生效；
+- [ ] 前端机 `manager config --backend <新地址>` → env/nginx 更新、witty-ub-web 自动重启，OpenCode 重启后新地址生效；
 - [ ] 前端机重启后配置持久（env 文件 + 渲染产物 + enabled units）；
 - [ ] 后端机不可达时前端 502 报错可读；
 - [ ] 旧单包 `dnf update` 升级路径文件无冲突；

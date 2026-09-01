@@ -60,7 +60,7 @@ PG 连接配置：
 
 ```bash
 export PG_HOST=127.0.0.1
-export PG_PORT=15432        # 以实际 PG 配置为准：脚本部署默认 15432，RPM 手动部署默认 5432
+export PG_PORT=5432         # 源码/RPM 部署统一使用 PostgreSQL 标准端口
 export PG_DATABASE=witty-ub
 export PG_USER=witty-ub
 export PG_PASSWORD=witty-ub
@@ -94,7 +94,7 @@ npm run build-only   # 产物 dist/
 npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/zh/download)
 vi ~/.config/opencode/opencode.jsonc   # 参考 配置参考手册 · OpenCode 配置
 
-# 指向后端节点启动（渲染 Agent 提示词中的后端基址）
+# 指向后端节点启动（变量导出给 OpenCode/Agent Bash 子进程）
 cd witty-ub
 WITTY_API_BASE=http://<后端IP>:9772 \
   bash deploy/deploy_opencode.sh

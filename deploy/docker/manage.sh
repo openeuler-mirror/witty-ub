@@ -203,7 +203,7 @@ do_install_witty() {
         if [ -n "$PG_RPM" ]; then
             PG_DETECTED="rpm"
             PG_PORT_DETECTED=$(ss -tlnp 2>/dev/null | grep 'postgres' | head -1 | awk '{print $4}' | rev | cut -d: -f1 | rev)
-            PG_DETAIL="宿主机服务（${PG_RPM}，端口 ${PG_PORT_DETECTED:-${PG_PORT:-15432}}）"
+            PG_DETAIL="宿主机服务（${PG_RPM}，端口 ${PG_PORT_DETECTED:-${PG_PORT_RPM:-5432}}）"
             log_ok "检测到 PostgreSQL: ${PG_DETAIL}"
         fi
     fi

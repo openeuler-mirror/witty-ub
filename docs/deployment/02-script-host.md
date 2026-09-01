@@ -61,7 +61,7 @@ NONINTERACTIVE=1 WITTY_BACKEND_URL=http://<后端IP>:9772 \
   bash deploy/host/deploy.sh --deploy --role frontend
 ```
 
-脚本自动完成：前端编译 `dist/` → 发布到 `/var/witty-ub/web`（nginx 静态托管）→ 渲染 Nginx 配置（API 反代 `WITTY_BACKEND_URL`，`/agent-api/` 反代本机 OpenCode）→ 渲染 Agent 提示词后端基址 → 启动 OpenCode(4096) + Nginx(8080)。
+脚本自动完成：前端编译 `dist/` → 发布到 `/var/witty-ub/web`（nginx 静态托管）→ 渲染 Nginx 配置（API 反代 `WITTY_BACKEND_URL`，`/agent-api/` 反代本机 OpenCode）→ 导出 Agent 运行时环境变量 → 启动 OpenCode(4096) + Nginx(8080)。Agent 提示词文件保持仓库原文。
 
 验证：
 
@@ -94,7 +94,7 @@ bash deploy/host/deploy.sh --deploy
 | ------ | ------ |
 | ① OS 检测 | 自动识别 openEuler / Ubuntu，选择对应包管理器 (dnf / apt) |
 | ② 系统依赖 | 安装 cmake, gcc-c++, PostgreSQL, Python3, Node.js, nginx 等 |
-| ③ PostgreSQL | 调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 15432 端口 |
+| ③ PostgreSQL | 调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 5432 端口 |
 | ④ Python 环境 | 创建 `.venv` 虚拟环境，安装 FastAPI/SQLAlchemy/asyncpg/polars 等依赖 |
 | ⑤ 前端编译 | `npm run build-only` 构建 `dist/`（失败回退 dev server，不阻塞部署） |
 | ⑥ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过） |
@@ -168,7 +168,7 @@ bash deploy/host/install_deps.sh
 
 ```conf
 PG_HOST="127.0.0.1"
-PG_PORT="15432"
+PG_PORT_RPM="5432"
 PG_DATABASE="witty-ub"
 PG_USER="witty-ub"
 PG_PASSWORD="witty-ub"
@@ -179,7 +179,7 @@ PG_PASSWORD="witty-ub"
 通过环境变量临时覆盖 `deploy.conf` 中的配置：
 
 ```bash
-PG_HOST=10.0.0.5 PG_PORT=5432 bash deploy/host/deploy.sh --start
+PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh --start
 ```
 
 ### 进程托管方式
@@ -204,7 +204,7 @@ PG_HOST=10.0.0.5 PG_PORT=5432 bash deploy/host/deploy.sh --start
 - **前端节点页面打不开/接口 502**：确认 `WITTY_BACKEND_URL` 指向正确且后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙
 - **端口冲突**：前端 8080 / 后端 9772 被占。`ss -tlnp | grep -E '8080|9772'` 检查占用
 - **C++ 编译失败**：缺少编译依赖。按报错补装后重跑 `cmake . -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) witty-ub-diag-tool`
-- **PostgreSQL 未就绪**：`pg_isready -h 127.0.0.1 -p 15432` 检查；或设置 `PG_HOST` / `PG_PORT` 指向正确数据库
+- **PostgreSQL 未就绪**：`pg_isready -h 127.0.0.1 -p 5432` 检查；或设置 `PG_HOST` / `PG_PORT_RPM` 指向正确数据库
 
 ---
 

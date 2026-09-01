@@ -62,8 +62,9 @@ source "$SCRIPT_DIR/install_deps.sh"
 setup_postgresql() {
     _step_header "初始化 PostgreSQL"
 
+    _load_pg_credentials || true
     local PG_HOST="${PG_HOST:-127.0.0.1}"
-    local PG_PORT="${PG_PORT:-15432}"
+    local PG_PORT="${PG_PORT:-5432}"
 
     if _has_cmd pg_isready && pg_isready -h "$PG_HOST" -p "$PG_PORT" 2>/dev/null; then
         _log "PostgreSQL 已运行在 $PG_HOST:$PG_PORT，跳过初始化"
@@ -242,15 +243,7 @@ copy_data_files() {
     if [ "$WITTY_ROLE" != "backend" ]; then
         $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnostician/.opencode" 2>/dev/null || true
         $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnostician/"* "$WITTY_DIR/witty_ub_diagnostician/.opencode/" 2>/dev/null || true
-        # 渲染 Agent 提示词中的后端基址占位符 (幂等: 已渲染内容无占位符)
-        local AGENT_MD="$WITTY_DIR/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
-        if [ -f "$AGENT_MD" ]; then
-            $SUDO sed -i \
-                -e "s|\${WITTY_API_BASE}|$WITTY_API_BASE|g" \
-                -e "s|\${WITTY_NO_PROXY}|$WITTY_NO_PROXY|g" \
-                "$AGENT_MD"
-            _log "Agent 提示词后端基址: $WITTY_API_BASE"
-        fi
+        _log "Agent bundle 已部署（提示词保持原始占位符）"
     fi
 
     _log "数据文件已部署到 $WITTY_DIR"
@@ -259,26 +252,22 @@ copy_data_files() {
 # ──────────────────── PG 凭据同步 ────────────────────
 
 sync_pg_credentials() {
-    # 将 deploy/deploy.conf 中实际的 PG 凭据写入 diagnosis_config.toml 的 [db] 段
-    # （仓库 + /var 两份），确保后端连接凭据与 deploy_pg.sh 创建的库一致。
-    # 实测踩坑：仓库 config 默认 pg_password=""，而 deploy_pg.sh 用 deploy.conf
-    # 的 PG_PASSWORD 建库 → 后端 InvalidPasswordError。
-    local PG_CONF_FILE="$SCRIPT_DIR/../deploy.conf"
-    [ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="$SCRIPT_DIR/../pg.conf" # 兼容旧名
-    [ -f "$PG_CONF_FILE" ] || {
+    # 将 deploy/deploy.conf 中实际的 PG 凭据写入运行时配置。
+    # 仓库中的 config/diagnosis_config.toml 是源码模板，启动/部署不得改写。
+    if ! _load_pg_credentials; then
         _warn "deploy.conf 不存在，跳过凭据同步"
         return 0
-    }
+    fi
 
     local PHOST P PORT PUSER PDB PPASS
-    PHOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PUSER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PDB="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PPASS="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    PHOST="$PG_HOST"
+    PORT="$PG_PORT"
+    PUSER="$PG_USER"
+    PDB="$PG_DATABASE"
+    PPASS="$PG_PASSWORD"
 
     [ -n "$PHOST" ] || PHOST="127.0.0.1"
-    [ -n "$PORT" ] || PORT="15432"
+    [ -n "$PORT" ] || PORT="5432"
     [ -n "$PUSER" ] || PUSER="witty-ub"
     [ -n "$PDB" ] || PDB="witty-ub"
     [ -n "$PPASS" ] || {
@@ -288,18 +277,40 @@ sync_pg_credentials() {
 
     local SUDO=""
     _is_root || SUDO="sudo"
-    local WITTY_DIR="/var/witty-ub"
-    for CONF in "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/diagnosis_config.toml"; do
-        [ -f "$CONF" ] || continue
-        $SUDO sed -i \
-            -e "s|^pg_host = .*|pg_host = \"$PHOST\"|" \
-            -e "s|^pg_port = .*|pg_port = $PORT|" \
-            -e "s|^pg_database = .*|pg_database = \"$PDB\"|" \
-            -e "s|^pg_user = .*|pg_user = \"$PUSER\"|" \
-            -e "s|^pg_password = .*|pg_password = \"$PPASS\"|" \
-            "$CONF" 2>/dev/null || true
-        _log "已同步 PG 凭据到 $CONF (host=$PHOST port=$PORT db=$PDB user=$PUSER)"
-    done
+    local RUNTIME_WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+    local CONF="$RUNTIME_WITTY_DIR/config/diagnosis_config.toml"
+    [ -f "$CONF" ] || {
+        _warn "运行时配置不存在，跳过凭据同步: $CONF"
+        return 0
+    }
+    $SUDO sed -i \
+        -e "s|^pg_host = .*|pg_host = \"$PHOST\"|" \
+        -e "s|^pg_port = .*|pg_port = $PORT|" \
+        -e "s|^pg_database = .*|pg_database = \"$PDB\"|" \
+        -e "s|^pg_user = .*|pg_user = \"$PUSER\"|" \
+        -e "s|^pg_password = .*|pg_password = \"$PPASS\"|" \
+        "$CONF"
+    _log "已同步 PG 凭据到运行时配置 $CONF (host=$PHOST port=$PORT db=$PDB user=$PUSER)"
+}
+
+prepare_runtime_diagnosis_config() {
+    # “仅启动服务”也必须使用独立运行时副本，避免把部署参数写回源码。
+    local RUNTIME_WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+    local SOURCE_CONF="$PROJECT_DIR/config/diagnosis_config.toml"
+    local RUNTIME_CONF="$RUNTIME_WITTY_DIR/config/diagnosis_config.toml"
+    local SUDO=""
+    _is_root || SUDO="sudo"
+
+    if [ ! -f "$RUNTIME_CONF" ]; then
+        [ -f "$SOURCE_CONF" ] || {
+            _err "源配置不存在: $SOURCE_CONF"
+            return 1
+        }
+        $SUDO mkdir -p "$RUNTIME_WITTY_DIR/config"
+        $SUDO cp "$SOURCE_CONF" "$RUNTIME_CONF"
+        _log "已创建运行时配置: $RUNTIME_CONF"
+    fi
+    sync_pg_credentials
 }
 
 # ──────────────────── systemd user units ────────────────────
@@ -437,6 +448,10 @@ start_services() {
 
     mkdir -p "$LOG_DIR"
 
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        prepare_runtime_diagnosis_config
+    fi
+
     # --- 选择进程托管方式 ---
     # 默认 auto: systemd user units 优先 (崩溃自愈/开机自启);
     # systemctl --user 不可用 (缺 systemd-pam / WSL / 容器) 时回退 nohup 裸进程。
@@ -503,11 +518,11 @@ start_services() {
     else
         # --- Verify PostgreSQL is reachable ---
         local PG_HOST="${PG_HOST:-127.0.0.1}"
-        local PG_PORT="${PG_PORT:-15432}"
+        local PG_PORT="${PG_PORT:-5432}"
         if _has_cmd pg_isready && ! pg_isready -h "$PG_HOST" -p "$PG_PORT" -q 2>/dev/null; then
             _err "PostgreSQL 未就绪 ($PG_HOST:$PG_PORT)，后端将无法连接数据库"
             _info "请先启动 PostgreSQL: sudo systemctl start postgresql"
-            _info "或设置环境变量 PG_HOST / PG_PORT 指向正确的数据库"
+            _info "或设置环境变量 PG_HOST / PG_PORT_RPM 指向正确的数据库"
             return 1
         fi
     fi
@@ -531,7 +546,7 @@ start_services() {
             # 必须用 venv python: 系统 python3 无 polars, 解析任务会 ModuleNotFoundError。
             export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
             export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
-            export CONFIG="${CONFIG:-$PROJECT_DIR/config/diagnosis_config.toml}"
+            export CONFIG="${CONFIG:-$WITTY_DIR/config/diagnosis_config.toml}"
             export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
             nohup "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py" \
                 >"$LOG_DIR/backend.log" 2>&1 &
@@ -783,7 +798,7 @@ clean_all() {
             END \$\$;" 2>&1 | tail -2
         _log "PostgreSQL 数据已清空"
     else
-        _warn "PostgreSQL 未连接，跳过清库 (检查 deploy.conf 或 PG_HOST/PG_PORT 环境变量)"
+        _warn "PostgreSQL 未连接，跳过清库 (检查 deploy.conf 或 PG_HOST/PG_PORT_RPM 环境变量)"
     fi
 
     # 3. 清 /var/witty-ub
@@ -896,9 +911,6 @@ main_deploy() {
         build_cpp
     fi
     copy_data_files
-    if [ "$WITTY_ROLE" != "frontend" ]; then
-        sync_pg_credentials
-    fi
     start_services
     show_access_info
 }

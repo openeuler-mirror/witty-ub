@@ -26,7 +26,7 @@
 | -------- | -------- | ------ |
 | `WITTY_ROLE` | `all` | 容器/部署角色：`all` 单机全量 / `backend` 仅后端 / `frontend` 仅前端 |
 | `WITTY_BACKEND_URL` | `http://127.0.0.1:9772` | Nginx API 反代上游（前端节点指向后端节点地址） |
-| `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent 提示词中的后端 API 基址（部署时渲染） |
+| `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent Bash 执行时展开的后端 API 基址（提示词保持原文） |
 | `WITTY_NO_PROXY` | `127.0.0.1` | Agent curl `--noproxy` 参数 |
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | Nginx `/agent-api/` 反代上游 |
 | `OPENCODE_HOST` | `127.0.0.1` | OpenCode 监听地址（OpenCode 留在后端节点时改 `0.0.0.0`） |
@@ -67,7 +67,7 @@
 | 节点 | 服务 | 端口 | 说明 |
 | ---- | ---- | ---- | ---- |
 | 后端节点 | Latency Plugin API | 9772 | 后端 API 服务（FastAPI，仅对前端节点开放） |
-| 后端节点 | PostgreSQL | 5432 / 15432 | 数据库服务（仅本机/后端内部） |
+| 后端节点 | PostgreSQL | 5432 | 数据库服务（仅本机/后端内部；Docker 可映射为宿主机 15432） |
 | 前端节点 | Web UI (Nginx) | 8080 / 32413 | Web 界面和 API/Agent 反代 |
 | 前端节点 | OpenCode Server | 4096 | AI 诊断服务（仅本机，经 `/agent-api/` 反代） |
 
@@ -80,7 +80,7 @@
 | OpenCode Server | 4096 | 4096 | AI 诊断服务 |
 | PostgreSQL | 5432 | 15432 | 数据库服务 |
 
-RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432 或 15432（取决于配置）。
+RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432。
 
 ---
 
@@ -239,7 +239,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | -------- | -------- | ------ |
 | `PG_HOST` | `127.0.0.1` | PostgreSQL 主机地址 |
 | `PG_PORT` | `15432` | PostgreSQL 宿主机映射端口，Docker 部署使用 |
-| `PG_PORT_RPM` | `5432` | PostgreSQL 监听端口，RPM 部署使用 |
+| `PG_PORT_RPM` | `5432` | PostgreSQL 监听端口，源码/RPM 部署使用 |
 | `PG_DATABASE` | `witty-ub` | 数据库名 |
 | `PG_USER` | `witty-ub` | 用户名 |
 | `PG_PASSWORD` | `witty-ub` | 密码 |
@@ -250,7 +250,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 
 | 场景 | PG_HOST | PG_PORT | 说明 |
 | ------ | --------- | --------- | ------ |
-| 源码部署，宿主机访问 | `127.0.0.1` | `15432` | 部署脚本、本地开发 |
+| 源码部署，宿主机访问 | `127.0.0.1` | `5432` | `PG_PORT_RPM` 默认值 |
 | RPM 部署，宿主机访问 | `127.0.0.1` | `5432` | `PG_PORT_RPM` 默认值 |
 | 容器访问宿主机 RPM PG | `172.18.0.1` | `5432` | Docker 网络网关 |
 | 容器访问 PG 容器 | `postgres` | `5432` | Docker 网络 DNS |

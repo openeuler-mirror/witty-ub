@@ -242,7 +242,7 @@ sudo cp /path/to/witty-ub/config/agents/witty-ub-diagnostician.md /var/witty-ub/
 ```toml
 [db]
 pg_host = "127.0.0.1"
-pg_port = 15432
+pg_port = 5432
 pg_database = "latency_test"
 pg_user = "postgres"
 pg_password = "postgres"

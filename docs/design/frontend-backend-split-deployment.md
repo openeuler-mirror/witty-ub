@@ -19,7 +19,7 @@
 | Nginx（前端） | 8080（容器映射 32412）/ 5173（源码方式 vite preview） | 0.0.0.0 | 托管 `src/web/dist` 静态资源 + API 反代 |
 | FastAPI 后端 | 9772 | `0.0.0.0`（`schemas/config.py` 默认） | CORS `allow_origins=["*"]` |
 | OpenCode（Agent） | 4096 | **`127.0.0.1`**（`docker/entrypoint.sh`、`deploy_opencode.sh` 硬编码） | 前端经 `/agent-api/` 前缀访问 |
-| PostgreSQL | 5432 / 15432 | — | 仅后端访问 |
+| PostgreSQL | 5432 | — | 仅后端访问（Docker 可映射为宿主机 15432） |
 
 ### 2.2 请求链路（现状）
 
@@ -82,7 +82,7 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 | **A. 跑在前端节点（默认）** | 推荐分离形态 | 后端机无出网要求、只暴露 9772；LLM key 与经验库（experience.db）留在用户侧；`/agent-api/` 反代本机 4096，与现状单机布局同构 |
 | B. 留在后端节点（兜底） | 前端机无法安装 Node/OpenCode 等受限环境 | OpenCode 绑 `0.0.0.0`，前端节点 `/agent-api/` 反代 `<backend>:4096`；要求后端机能出网访问 LLM |
 
-落位 A 的必要改动：Agent 提示词中的后端基址由 `http://127.0.0.1:9772` 参数化为 `<backend>:9772`（部署时渲染），`--noproxy` 同步调整（见 §4.6）。
+落位 A 的必要改动：Agent 提示词中的后端基址使用 `${WITTY_API_BASE}`，`--noproxy` 使用 `${WITTY_NO_PROXY}`；两者由 OpenCode 进程导出，不改写提示词文件（见 §4.6）。
 
 ## 4. 改造内容
 
@@ -108,7 +108,7 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 - `docker/entrypoint.sh` 按 `WITTY_ROLE` 分角色（默认 `all`，行为与现状完全一致）：
   - `all`：现状流程（nginx + FastAPI + OpenCode 同容器）；
   - `backend`：仅 FastAPI（绑 `0.0.0.0`）+ 数据卷，不启动 nginx 与 OpenCode；
-  - `frontend`：nginx + OpenCode（绑 `127.0.0.1:4096`，agent bundle 与 experience 卷随本角色挂载），entrypoint 用 envsubst 渲染 API 上游为 `${WITTY_BACKEND_URL}` 并将 `${WITTY_API_BASE}` 注入 Agent 提示词（见 §4.6），`/agent-api/` 反代本机 4096；健康检查改为探测后端 `/health_check`。
+  - `frontend`：nginx + OpenCode（绑 `127.0.0.1:4096`，agent bundle 与 experience 卷随本角色挂载），entrypoint 用 envsubst 渲染 API 上游为 `${WITTY_BACKEND_URL}`，并向 OpenCode 导出 `${WITTY_API_BASE}`（见 §4.6），`/agent-api/` 反代本机 4096；健康检查改为探测后端 `/health_check`。
 - `docker-compose.yml` 新增 `profiles: [split]` 的示例：`witty-ub-backend` + `witty-ub-frontend` 两个服务，前端服务通过环境变量指向后端服务名；默认 profile 保持单容器 All-in-One。
 - 现有单镜像即可承载三种角色（dist、后端 runtime、agent bundle 都在镜像内），不拆镜像，降低交付复杂度。
 
@@ -118,7 +118,7 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 - `/etc/witty-ub/web/env`（`EnvironmentFile`）承载 `WITTY_BACKEND_URL` / `WITTY_API_BASE`；`witty-ub-web.service` 增加 `ExecStartPre=/bin/sh -c "envsubst < /etc/witty-ub/web/nginx.conf.template > /run/witty-ub-web/nginx.conf"`。
 - `witty-ub manager` 新增分离部署子命令：
   - 后端机：`witty-ub manager install --role backend`（跳过 web 子包与 OpenCode 检查）；
-  - 前端机：`witty-ub manager install --role frontend --backend http://<backend>:9772`（写入 env 文件、渲染 nginx conf 与 Agent 提示词后拉起 `witty-ub-web` + OpenCode）。
+  - 前端机：`witty-ub manager install --role frontend --backend http://<backend>:9772`（写入 env 文件、渲染 nginx conf，OpenCode 启动时导出 Agent 变量）。
 - 两台机器各装所需子包，PG 仍随后端机部署；`OPENCODE_CONFIG_DIR`（LLM key 配置）在前端机用户侧。
 
 ### 4.5 源码 / 宿主机脚本部署改造
@@ -126,13 +126,13 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 - `deploy/host/deploy.sh` 增加 `--role all|backend|frontend`（默认 `all`）：
   - `backend`：跳过前端构建、`witty-ub-frontend` unit 与 OpenCode 启动；
   - `frontend`：跳过 PG/venv/C++ 编译；启动 OpenCode（`deploy_opencode.sh`）+ nginx 静态托管（机器无 nginx 时回退 vite preview，并要求通过 `config.json` 直连后端）；systemd unit 模板按角色成套安装；
-- 前端节点部署脚本负责渲染 `config.json`（直连场景）或 nginx conf（反代场景），并向 Agent 提示词注入 `WITTY_API_BASE`。
+- 前端节点部署脚本负责渲染 `config.json`（直连场景）或 nginx conf（反代场景），并向 OpenCode/Agent Bash 子进程导出 `WITTY_API_BASE`。
 
 ### 4.6 Agent（OpenCode）配置参数化
 
 Agent bundle（`witty_ub_diagnostician/`）当前在提示词 [agents/witty-ub-diagnostician.md](../../witty_ub_diagnostician/agents/witty-ub-diagnostician.md) 中 3 处硬编码 `http://127.0.0.1:9772`，且明令"禁止通过 curl 访问其他主机、其他端口"，另有 `--noproxy 127.0.0.1`——这是 OpenCode 迁往前端节点的主要障碍。改造：
 
-- 提示词模板化：仓库内保留 `witty-ub-diagnostician.md.template`，基址与 `--noproxy` 值以 `${WITTY_API_BASE}`（默认 `http://127.0.0.1:9772`）/ `${WITTY_NO_PROXY}` 占位；部署脚本 envsubst 渲染到运行时目录（opencode.json 的 `{file:...}` prompt 路径不变）。渲染后必须保留"只允许访问该基址"的约束表述，防止 Agent 越权 curl。
+- 提示词参数化：仓库内的 `witty-ub-diagnostician.md` 直接保留 `${WITTY_API_BASE}`（默认 `http://127.0.0.1:9772`）/ `${WITTY_NO_PROXY}`。部署脚本不渲染、不复制、不改写提示词；OpenCode 进程导出变量，Agent 执行 Bash 时展开。
 - `docker/entrypoint.sh`、`deploy_opencode.sh` 的 `--hostname` 参数化为 `${OPENCODE_HOST:-127.0.0.1}`（仅兜底落位 B 需要 `0.0.0.0`）。
 - experience 卷（experience.db）与 `OPENCODE_CONFIG_DIR`（LLM key）归属前端节点的 agent 运行时，不随后端角色部署。
 - 顺带修复该 commit 引入的问题：`deploy/pg.conf` 中 `OPENCODE_CONFIG_DIR` 硬编码个人路径 `/home/tsn/opencode`（应回退 `${HOME}/.config/opencode` 默认值）；目录名拼写 `witty_ub_diagnostician` → `witty_ub_diagnostician`（已扩散至 Dockerfile/entrypoint/deploy_opencode.sh/deploy.sh/opencode.json 多处路径，宜尽早统一更名）。
@@ -148,7 +148,7 @@ Agent bundle（`witty_ub_diagnostician/`）当前在提示词 [agents/witty-ub-d
 | 阶段 | 内容 | 依赖 |
 | ------ | ------ | ------ |
 | P1 | src/web 运行时 `config.json` + vite proxy 参数化 | 无 |
-| P2 | Nginx 模板统一 + Agent 提示词模板化（`WITTY_API_BASE`/`WITTY_NO_PROXY`）+ envsubst 渲染 | 无 |
+| P2 | Nginx 模板统一 + Agent 提示词变量化（`WITTY_API_BASE`/`WITTY_NO_PROXY`）+ 运行时环境导出 | 无 |
 | P3 | Docker：entrypoint 角色化（frontend 角色含 OpenCode + experience 卷迁移）+ compose `split` profile | P2 |
 | P4 | host deploy.sh / deploy_opencode.sh 角色化与 `OPENCODE_HOST` | P1、P2 |
 | P5 | RPM 子包拆分（web 子包含 agent bundle + nodejs/OpenCode）+ manager 分离子命令 | P2 |

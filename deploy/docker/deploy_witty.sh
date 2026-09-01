@@ -290,7 +290,7 @@ detect_pg_config() {
             # 找到宿主机监听端口
             HOST_PG_PORT=$(ss -tlnp 2>/dev/null | grep 'postgres' | head -1 | awk '{print $4}' | rev | cut -d: -f1 | rev)
             if [ -z "$HOST_PG_PORT" ]; then
-                HOST_PG_PORT="${PG_PORT:-15432}"
+                HOST_PG_PORT="${PG_PORT_RPM:-5432}"
             fi
             # 找到 Docker 网络的网关 IP（容器访问宿主机用）
             DOCKER_GATEWAY=$(docker network inspect "${WITTY_NETWORK}" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)

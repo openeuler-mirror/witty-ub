@@ -74,7 +74,7 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 | --------- | --------- | --------- |
 | 容器 | 32412 → 8080（Nginx） | 9772（FastAPI）、4096（OpenCode），均经 Nginx 反代 |
 | 容器 split profile | 32413 → 8080（前端容器） | backend 容器 9772 不对外 |
-| 宿主机脚本 | 8080（Nginx，回退 vite preview 5173）、9772（后端） | 15432（PostgreSQL） |
+| 宿主机脚本 | 8080（Nginx，回退 vite preview 5173）、9772（后端） | 5432（PostgreSQL） |
 | RPM | 8080（Nginx）、9772（FastAPI） | 5432（PostgreSQL） |
 
 ## 环境要求

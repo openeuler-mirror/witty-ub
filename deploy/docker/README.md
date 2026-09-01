@@ -199,7 +199,7 @@ bash manage.sh
 
 # 或在 pg.conf 中手动指定
 # PG_HOST_IN_CONTAINER=172.18.0.1
-# PG_PORT_IN_CONTAINER=15432
+# PG_PORT_IN_CONTAINER=5432
 ```
 
 ### 自定义端口部署
