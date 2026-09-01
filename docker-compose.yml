@@ -72,6 +72,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: backend
+    image: witty-ub:backend
     profiles: ["split"]
     container_name: witty-ub-backend
     restart: unless-stopped
