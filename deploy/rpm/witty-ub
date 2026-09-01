@@ -30,33 +30,31 @@ Commands:
   manager [subcommand]   部署管理器（无参数进入交互菜单）
 
 Manager subcommands:
-  install [--backend URL]   按角色初始化并启动服务
+  deploy [--backend URL]    按角色完整部署并启动服务
+  deps                      仅安装/更新本机角色所需依赖
   config [--backend URL]    前端节点配置后端地址，自动生效
   config --show             查看当前角色与连接配置
-  uninstall                 停止并禁用 systemd units（保留数据）
-  clean                     清空 PostgreSQL 数据 + /var/witty-ub/data
+  clean                     一键清理（交互选择范围）
   start/stop/restart/status/logs   仅操作本机角色的服务
   psql                      连接 PostgreSQL 终端（仅后端角色）
   (none)                    交互式菜单
 
 Other binaries (call directly, witty-ub-backend subpackage):
-  witty-ub-log          日志解析诊断工具
-  witty-ub-topo         拓扑分析工具
-  witty-ub-diag-tool    综合诊断工具
+  witty-ub-diag-tool    KVCache 诊断工具
   witty-ub-brpc-diag    BRPC 诊断工具
 
 Typical workflow (split deployment):
   # 后端节点（有数据的机器）
   sudo dnf install -y witty-ub-backend   # 自动依赖 witty-ub-manager
-  sudo witty-ub manager install          # PG 初始化 + 启动 latency
+  sudo witty-ub manager deploy           # PG 初始化 + 启动 latency
 
   # 前端节点（能访问 Agent/LLM 的机器）
   sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
-  sudo witty-ub manager install --backend http://<后端IP>:9772
+  sudo witty-ub manager deploy --backend http://<后端IP>:9772
 
 Typical workflow (single machine):
   sudo dnf install -y witty-ub           # meta 包，一键装入三个子包
-  sudo witty-ub manager install
+  sudo witty-ub manager deploy
 EOF
         ;;
     *)

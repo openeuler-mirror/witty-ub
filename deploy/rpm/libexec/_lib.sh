@@ -264,7 +264,7 @@ render_agent_prompt() {
     _log "Agent 提示词已渲染: $prompt_file (api_base=${api_base})"
 }
 
-# 按当前 web env 渲染 nginx 与 Agent 提示词（config/install 共用）
+# 按当前 web env 渲染 nginx 与 Agent 提示词（config/deploy 共用）
 render_frontend_configs() {
     local backend_url agent_url no_proxy
     backend_url="$(web_env_get WITTY_BACKEND_URL http://127.0.0.1:9772)"

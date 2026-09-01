@@ -16,6 +16,7 @@ data/20260728-skills-cmd-check/
 data/kvcache-conn-fault-log/
 
 *.log
+*.pid
 latency.db
 latency.db-shm
 latency.db-wal

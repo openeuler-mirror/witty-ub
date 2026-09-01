@@ -41,8 +41,12 @@ bash deploy/host/deploy.sh
     3) 仅启动服务（已部署过）
     4) 停止所有服务
 
+  🤖  Agent 服务
+    5) 启动 Agent 服务（OpenCode）
+    6) 停止 Agent 服务
+
   🗑️  清理
-    5) 一键清理（交互选择范围）
+    7) 一键清理（交互选择范围）
 
     0) 退出
 ```
@@ -79,7 +83,9 @@ deploy.sh
   │     ├── [2] 仅安装依赖 → install_deps.sh
   │     ├── [3] 仅启动服务 → start_services
   │     ├── [4] 停止服务 → stop_services
-  │     └── [5] 一键清理 → clean_all
+  │     ├── [5] 启动 Agent → start_agent
+  │     ├── [6] 停止 Agent → stop_agent
+  │     └── [7] 一键清理 → clean_all
   ├── --deploy 直接完整部署（跳过菜单）
   │     └── main_deploy
   │           ├── install_deps.sh           # 系统依赖 + Python venv

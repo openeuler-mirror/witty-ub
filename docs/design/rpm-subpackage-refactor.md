@@ -15,7 +15,7 @@ spec 文件在仓外（openEuler 社区打包仓），仓内只有 `deploy/rpm/l
 
 1. **两台机器装同一个大包**：前端机被迫装上 PG/后端代码/数据卷，后端机被迫装上 web dist 与 Agent bundle；
 2. **角色靠手动裁剪**：装完后手动 `systemctl disable --now` 不需要的服务；
-3. **配置链路手动**：前端机手动 `envsubst` 渲染 nginx conf、手动 `WITTY_API_BASE=... bash run_opencode.sh` 启动 OpenCode；
+3. **配置链路手动**：前端机手动 `envsubst` 渲染 nginx conf、手动 `WITTY_API_BASE=... bash deploy_opencode.sh` 启动 OpenCode；
 4. **manager 不感知角色**：`_lib.sh` 中 `WITTY_SERVICES=(witty-ub-web witty-ub-latency)` 硬编码，`install` 子命令假设单机 All-in-One（初始化 PG + 启全部服务）。
 
 ## 2. 目标
@@ -40,14 +40,14 @@ spec 文件在仓外（openEuler 社区打包仓），仓内只有 `deploy/rpm/l
 | `witty-ub-latency.service` | ✓ | | | |
 | web dist（`/var/witty-ub/web/`） | | ✓ | | |
 | Agent bundle（`/var/witty-ub/witty_ub_diagnostician/.opencode/`） | | ✓ | | |
-| `/var/witty-ub/latency/deploy/run_opencode.sh` | | ✓ | | |
+| `/var/witty-ub/deploy/deploy_opencode.sh` | | ✓ | | |
 | `/usr/share/witty-ub/nginx/witty-ub-web.conf.template` + `witty-ub-web.service` | | ✓ | | |
 | `/etc/witty-ub/web/env`（前端连接配置，安装默认值） | | ✓ | | |
 | `/usr/bin/witty-ub` + `/usr/libexec/witty-ub-manager/` | | | ✓ | |
 | `/etc/witty-ub/deploy.conf`（PG 凭据） | | | ✓ | |
 | 无负载文件，仅 Requires + license | | | | ✓ |
 
-`/var/witty-ub`、`/var/witty-ub/latency{,/deploy}` 等父目录由相关子包共享属主（RPM 允许多包共有一个目录），保证单角色机器上目录齐全。
+`/var/witty-ub`、`/var/witty-ub/latency{,/deploy}`、`/var/witty-ub/deploy` 等父目录由相关子包共享属主（RPM 允许多包共有一个目录），保证单角色机器上目录齐全。
 
 ### 3.2 依赖关系（spec Requires）
 
@@ -68,7 +68,7 @@ spec 文件在仓外（openEuler 社区打包仓），仓内只有 `deploy/rpm/l
 
 spec 不进本仓，仍在 src-openeuler 社区打包仓（openEuler-24.03-LTS-SP3 分支）维护。本轮改造向打包仓交付两部分：
 
-- 新增 Patch0017：携带本仓 `deploy/rpm/*` 角色化脚本、`packaging/nginx/witty-ub-web.conf.template`、`deploy/rpm/web.env`、`run_opencode.sh` 参数化，以及打包仓树内 `config/agents` 提示词参数化与 `config/opencode.json` curl 权限放宽（Agent bundle 含 2.6MB 二进制，不随 patch 携带，打包仓沿用 `config/agents` 提示词布局，`run_opencode.sh`/`_lib.sh` 双布局兼容）；
+- 新增 Patch0017：携带本仓 `deploy/rpm/*` 角色化脚本、`packaging/nginx/witty-ub-web.conf.template`、`deploy/rpm/web.env`、`deploy_opencode.sh` 参数化，以及打包仓树内 `config/agents` 提示词参数化与 `config/opencode.json` curl 权限放宽（Agent bundle 含 2.6MB 二进制，不随 patch 携带，打包仓沿用 `config/agents` 提示词布局，`deploy_opencode.sh`/`_lib.sh` 双布局兼容）；
 - spec 改写为四包结构（子包拆分、依赖矩阵、%post 归属），Release 递增；
 - 验证路径：OrbStack openEuler VM 内 `rpmbuild` 构建 → 本地 repo → `dnf install` 分离部署实测。
 
@@ -115,11 +115,11 @@ witty-ub manager config --show
 
 ### 4.4 OpenCode 维持手动启动
 
-**不新增 `witty-ub-agent.service`**：OpenCode 仍由用户在前端机手动执行 `run_opencode.sh` 启动（沿用源码/Docker 部署已验证的流程）。LLM key 位于 `~/.config/opencode`，因用户而异，纳入 systemd 反而引入运行用户与密钥路径问题。`manager config` 切换后端地址后会重新渲染提示词，并提示用户重启 OpenCode：
+**不新增 `witty-ub-agent.service`**：OpenCode 仍由用户在前端机手动执行 `deploy_opencode.sh` 启动（沿用源码/Docker 部署已验证的流程）。LLM key 位于 `~/.config/opencode`，因用户而异，纳入 systemd 反而引入运行用户与密钥路径问题。`manager config` 切换后端地址后会重新渲染提示词，并提示用户重启 OpenCode：
 
 ```bash
 set -a; source /etc/witty-ub/web/env; set +a
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+bash /var/witty-ub/deploy/deploy_opencode.sh
 ```
 
 ### 4.5 install_deps.sh / 文案同步

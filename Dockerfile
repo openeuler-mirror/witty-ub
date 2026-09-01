@@ -65,12 +65,12 @@ COPY src/plugins/latency/routers /var/witty-ub/latency/routers/
 COPY src/plugins/latency/schemas /var/witty-ub/latency/schemas/
 COPY src/plugins/latency/services /var/witty-ub/latency/services/
 COPY src/plugins/latency/task /var/witty-ub/latency/task/
-COPY src/plugins/latency/deploy/run_opencode.sh /var/witty-ub/latency/deploy/run_opencode.sh
+COPY deploy/deploy_opencode.sh /var/witty-ub/deploy/deploy_opencode.sh
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 
 RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
         /usr/bin/witty-ub-diag-tool /usr/bin/witty-ub-brpc-diag && \
-    chmod 0755 /var/witty-ub/latency/deploy/run_opencode.sh && \
+    chmod 0755 /var/witty-ub/deploy/deploy_opencode.sh && \
     find /var/witty-ub/data -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/config -type f -exec chmod 0640 {} \;
 
@@ -195,7 +195,7 @@ COPY src/plugins/latency/routers /var/witty-ub/latency/routers/
 COPY src/plugins/latency/schemas /var/witty-ub/latency/schemas/
 COPY src/plugins/latency/services /var/witty-ub/latency/services/
 COPY src/plugins/latency/task /var/witty-ub/latency/task/
-COPY src/plugins/latency/deploy/run_opencode.sh /var/witty-ub/latency/deploy/run_opencode.sh
+COPY deploy/deploy_opencode.sh /var/witty-ub/deploy/deploy_opencode.sh
 COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 
 # Create symlink for libsimple.so and set up experience-skill venv
@@ -207,7 +207,7 @@ RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/sc
 # Set permissions
 RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
         /usr/bin/witty-ub-diag-tool /usr/bin/witty-ub-brpc-diag && \
-    chmod 0755 /var/witty-ub/latency/deploy/run_opencode.sh && \
+    chmod 0755 /var/witty-ub/deploy/deploy_opencode.sh && \
     find /var/witty-ub/data -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/config -type f -exec chmod 0640 {} \; && \
     find /var/witty-ub/web -type d -exec chmod 0755 {} \; && \

@@ -19,7 +19,6 @@ from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import (
-    ARRAY,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -34,7 +33,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
