@@ -103,14 +103,23 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
-# Resolve the prompt path in opencode.json for both source and packaged layouts.
-export OPENCODE_CONFIG="${OPENCODE_CONFIG_PATH}"
+# Respect a user-provided OpenCode configuration; fall back to the bundled
+# one only when nothing is set. OPENCODE_CONFIG_DIR exposes the bundle's
+# standard .opencode layout (agents/skills/commands) so its skills stay
+# discoverable regardless of the cwd, while user settings still merge in.
+export OPENCODE_CONFIG="${OPENCODE_CONFIG:-${OPENCODE_CONFIG_PATH}}"
 export WITTY_DIR="${WITTY_ROOT}"
+export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$(cd "$(dirname "${OPENCODE_CONFIG_PATH}")" && pwd)}"
 
 echo "[INFO] Validating OpenCode configuration and diagnosis agent..."
-if ! "${COMMAND_NAME}" debug agent witty-ub-diagnostician >/dev/null; then
-    echo "[ERROR] OpenCode configuration is invalid: ${OPENCODE_CONFIG}" >&2
-    exit 1
+if ! "${COMMAND_NAME}" debug agent witty-ub-diagnostician >/dev/null 2>&1; then
+    if [[ "${OPENCODE_CONFIG}" != "${OPENCODE_CONFIG_PATH}" ]]; then
+        echo "[WARN] Diagnosis agent not found under the user-provided OPENCODE_CONFIG;" >&2
+        echo "       continuing with the user configuration as-is." >&2
+    else
+        echo "[ERROR] OpenCode configuration is invalid: ${OPENCODE_CONFIG}" >&2
+        exit 1
+    fi
 fi
 
 if curl --silent --fail --max-time 2 --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
