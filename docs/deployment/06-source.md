@@ -95,12 +95,15 @@ npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/z
 vi ~/.config/opencode/opencode.jsonc   # 参考 配置参考手册 · OpenCode 配置
 
 # 指向后端节点启动（渲染 Agent 提示词中的后端基址）
+cd witty-ub
 WITTY_API_BASE=http://<后端IP>:9772 \
-  bash ../../deploy/deploy_opencode.sh
+  bash deploy/deploy_opencode.sh
 # 监听 127.0.0.1:4096
 ```
 
-`deploy_opencode.sh` 支持的变量：`WITTY_API_BASE`（默认 `http://127.0.0.1:9772`）、`WITTY_NO_PROXY`（默认 `127.0.0.1`）、`OPENCODE_HOST`（默认 `127.0.0.1`）。
+`deploy_opencode.sh` 支持的变量：`WITTY_API_BASE`（默认 `http://127.0.0.1:9772`）、`WITTY_NO_PROXY`（默认 `127.0.0.1`）、`OPENCODE_HOST`（默认 `127.0.0.1`）、`OPENCODE_CONFIG` / `OPENCODE_CONFIG_DIR`（自定义 OpenCode 配置，已设置时不覆盖；未设置时使用随包 bundle，详见[配置参考](../usage/03-configuration-reference.md#opencode-配置)）。
+
+随包 bundle 提供 `witty-ub-diagnostician` 诊断 Agent 与诊断 Skills，经 `OPENCODE_CONFIG_DIR` 注入，与用户 `~/.config/opencode/` 下的配置和 Skills 合并生效。
 
 ### 启动 Web（Nginx 托管 + 反代）
 
