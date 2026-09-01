@@ -12,10 +12,9 @@ readonly PACKAGE_NAME="opencode-ai"
 readonly COMMAND_NAME="opencode"
 readonly NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-readonly LATENCY_PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
-readonly PLUGINS_DIR="$(dirname "${LATENCY_PROJECT_DIR}")"
-readonly REPO_ROOT="$(cd "${PLUGINS_DIR}/../.." && pwd)"
-readonly OPENCODE_LOG="${LATENCY_PROJECT_DIR}/opencode_server.log"
+readonly WITTY_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly OPENCODE_LOG="${WITTY_ROOT}/opencode_server.log"
+readonly OPENCODE_PID_FILE="${WITTY_ROOT}/opencode.pid"
 
 # Agent 配置双布局:
 #   bundle: witty_ub_diagnostician/.opencode/（Agent bundle 随包安装）
@@ -24,34 +23,29 @@ DEPLOYED_BUNDLE_CONFIG="/var/witty-ub/witty_ub_diagnostician/.opencode/opencode.
 DEPLOYED_BUNDLE_PROMPT="/var/witty-ub/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
 DEPLOYED_LEGACY_CONFIG="/var/witty-ub/config/opencode.json"
 DEPLOYED_LEGACY_PROMPT="/var/witty-ub/config/agents/witty-ub-diagnostician.md"
-LOCAL_BUNDLE_CONFIG="${REPO_ROOT}/witty_ub_diagnostician/opencode.json"
-LOCAL_BUNDLE_PROMPT="${REPO_ROOT}/witty_ub_diagnostician/agents/witty-ub-diagnostician.md"
-LOCAL_LEGACY_CONFIG="${REPO_ROOT}/config/opencode.json"
-LOCAL_LEGACY_PROMPT="${REPO_ROOT}/config/agents/witty-ub-diagnostician.md"
+LOCAL_BUNDLE_CONFIG="${WITTY_ROOT}/witty_ub_diagnostician/opencode.json"
+LOCAL_BUNDLE_PROMPT="${WITTY_ROOT}/witty_ub_diagnostician/agents/witty-ub-diagnostician.md"
+LOCAL_LEGACY_CONFIG="${WITTY_ROOT}/config/opencode.json"
+LOCAL_LEGACY_PROMPT="${WITTY_ROOT}/config/agents/witty-ub-diagnostician.md"
 
 # Select the configuration that belongs to this script's layout. A stale
 # /var/witty-ub installation must not override a source-tree invocation.
 OPENCODE_CONFIG_PATH=""
-WITTY_ROOT=""
 AGENT_PROMPT=""
-if [[ "${LATENCY_PROJECT_DIR}" == "/var/witty-ub/latency" ]]; then
+if [[ "${WITTY_ROOT}" == "/var/witty-ub" ]]; then
     if [[ -f "${DEPLOYED_BUNDLE_CONFIG}" && -f "${DEPLOYED_BUNDLE_PROMPT}" ]]; then
         OPENCODE_CONFIG_PATH="${DEPLOYED_BUNDLE_CONFIG}"
-        WITTY_ROOT="/var/witty-ub"
         AGENT_PROMPT="${DEPLOYED_BUNDLE_PROMPT}"
     elif [[ -f "${DEPLOYED_LEGACY_CONFIG}" && -f "${DEPLOYED_LEGACY_PROMPT}" ]]; then
         OPENCODE_CONFIG_PATH="${DEPLOYED_LEGACY_CONFIG}"
-        WITTY_ROOT="/var/witty-ub"
         AGENT_PROMPT="${DEPLOYED_LEGACY_PROMPT}"
     fi
 else
     if [[ -f "${LOCAL_BUNDLE_CONFIG}" && -f "${LOCAL_BUNDLE_PROMPT}" ]]; then
         OPENCODE_CONFIG_PATH="${LOCAL_BUNDLE_CONFIG}"
-        WITTY_ROOT="${REPO_ROOT}"
         AGENT_PROMPT="${LOCAL_BUNDLE_PROMPT}"
     elif [[ -f "${LOCAL_LEGACY_CONFIG}" && -f "${LOCAL_LEGACY_PROMPT}" ]]; then
         OPENCODE_CONFIG_PATH="${LOCAL_LEGACY_CONFIG}"
-        WITTY_ROOT="${REPO_ROOT}"
         AGENT_PROMPT="${LOCAL_LEGACY_PROMPT}"
     fi
 fi
@@ -121,6 +115,22 @@ fi
 
 if curl --silent --fail --max-time 2 --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
     echo "[OK] OpenCode server is already running at http://127.0.0.1:4096"
+    # pidfile 缺失时按端口反查 PID 回填（best-effort），方便 stop 菜单读取
+    if [[ ! -f "${OPENCODE_PID_FILE}" ]]; then
+        if command -v ss >/dev/null 2>&1; then
+            ss -lptnH 'sport = :4096' 2>/dev/null \
+                | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' \
+                | head -n1 >"${OPENCODE_PID_FILE}" 2>/dev/null || true
+        elif command -v fuser >/dev/null 2>&1; then
+            fuser 4096/tcp 2>/dev/null \
+                | sed 's|^[^:]*:||' | tr -s '[:space:]' '\n' \
+                | grep -E '^[0-9]+$' | head -n1 >"${OPENCODE_PID_FILE}" 2>/dev/null || true
+        elif command -v lsof >/dev/null 2>&1; then
+            lsof -t -iTCP:4096 -sTCP:LISTEN 2>/dev/null | head -n1 >"${OPENCODE_PID_FILE}" 2>/dev/null || true
+        fi
+        # 反查失败时移除空 pidfile, 让 stop 走端口兜底路径
+        [[ -s "${OPENCODE_PID_FILE}" ]] || rm -f "${OPENCODE_PID_FILE}"
+    fi
     exit 0
 fi
 
@@ -135,6 +145,8 @@ echo "[INFO] Starting OpenCode server at http://${OPENCODE_HOST}:4096 ..."
 nohup "${COMMAND_NAME}" serve --hostname "${OPENCODE_HOST}" --port 4096 \
     >"${OPENCODE_LOG}" 2>&1 &
 OPENCODE_PID=$!
+# 记录 pidfile, 供 stop 菜单读取
+echo "${OPENCODE_PID}" >"${OPENCODE_PID_FILE}"
 
 for _ in $(seq 1 20); do
     if curl --silent --fail --max-time 1 --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health >/dev/null 2>&1; then

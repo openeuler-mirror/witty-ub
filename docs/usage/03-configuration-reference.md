@@ -204,7 +204,7 @@ server {
 
 ```bash
 # 启动 OpenCode 后台服务
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+bash /var/witty-ub/deploy/deploy_opencode.sh
 ```
 
 ### 配置注意事项

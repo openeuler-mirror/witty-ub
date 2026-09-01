@@ -85,7 +85,7 @@ latency/
 ```bash
 # Deploy & run
 cd deploy && bash deploy.sh                              # uv venv + start (9772)
-bash run_opencode.sh                                     # OpenCode serve (4096)
+bash deploy/deploy_opencode.sh                             # OpenCode serve (4096)
 PYTHONPATH=$(pwd)/src/plugins python latency/access/fastapi_server.py
 
 # Tests

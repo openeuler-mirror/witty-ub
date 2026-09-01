@@ -220,9 +220,9 @@ class TestRpmSubpackageSupport:
             src = (_RPM_DIR / script).read_text()
             assert "witty-ub-agent.service" not in src, f"{script} 不应引用 witty-ub-agent.service"
 
-    def test_run_opencode_dual_layout(self):
-        """run_opencode.sh 支持 bundle 与 config/agents 双布局."""
-        src = (_PROJECT_ROOT / "src/plugins/latency/deploy/run_opencode.sh").read_text()
+    def test_deploy_opencode_dual_layout(self):
+        """deploy_opencode.sh 支持 bundle 与 config/agents 双布局."""
+        src = (_PROJECT_ROOT / "deploy" / "deploy_opencode.sh").read_text()
         assert "witty_ub_diagnostician" in src
         assert "config/agents/witty-ub-diagnostician.md" in src
 

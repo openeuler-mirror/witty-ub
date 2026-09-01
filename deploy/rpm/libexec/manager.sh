@@ -217,7 +217,7 @@ install_frontend() {
 
     _info "OpenCode Agent 维持手动启动:"
     _info "  set -a; source /etc/witty-ub/web/env; set +a"
-    _info "  bash /var/witty-ub/latency/deploy/run_opencode.sh"
+    _info "  bash /var/witty-ub/deploy/deploy_opencode.sh"
 }
 
 check_subpackages() {
@@ -394,7 +394,7 @@ do_config() {
 
     _info "如 OpenCode 已在运行，需重启以加载新的后端地址:"
     _info "  set -a; source /etc/witty-ub/web/env; set +a"
-    _info "  bash /var/witty-ub/latency/deploy/run_opencode.sh"
+    _info "  bash /var/witty-ub/deploy/deploy_opencode.sh"
 }
 
 # ──────────────────── clean ────────────────────
@@ -646,6 +646,88 @@ do_psql() {
     _psql
 }
 
+# ──────────────────── Agent 服务 ────────────────────
+
+# 启动 Agent 服务 (OpenCode): 跑 $WITTY_DIR/deploy/deploy_opencode.sh,
+# 脚本内自带健康检查、pidfile ($WITTY_DIR/opencode.pid) 写入、已运行早退逻辑。
+do_agent_start() {
+    _step_header "启动 Agent 服务 (OpenCode)"
+    local agent_script="$WITTY_DIR/deploy/deploy_opencode.sh"
+    if [[ ! -f "$agent_script" ]]; then
+        _err "未找到 Agent 启动脚本: $agent_script"
+        _info "请确认 witty-ub-web 子包已安装"
+        return 1
+    fi
+
+    # 加载前端连接配置 (WITTY_API_BASE / WITTY_NO_PROXY 等)
+    if [[ -f "$WITTY_WEB_ENV" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$WITTY_WEB_ENV"
+        set +a
+    fi
+
+    _info "Agent 后端基址: ${WITTY_API_BASE:-http://127.0.0.1:9772}"
+    bash "$agent_script" || {
+        _warn "Agent 服务启动失败 (查看 $WITTY_DIR/opencode_server.log)"
+        return 1
+    }
+}
+
+# 停止 Agent 服务: 优先读 $WITTY_DIR/opencode.pid (启动脚本写入),
+# pidfile 缺失/失效时按端口 4096 兜底 kill。
+do_agent_stop() {
+    _step_header "停止 Agent 服务 (OpenCode)"
+    local pidfile="$WITTY_DIR/opencode.pid"
+    local pid=""
+    if [[ -f "$pidfile" ]]; then
+        pid="$(cat "$pidfile" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        local i
+        for i in $(seq 1 10); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.5
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            _warn "进程未响应 SIGTERM, 发送 SIGKILL"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        _log "已停止 Agent (PID: $pid)"
+    else
+        _info "pidfile 缺失或 PID 已不存活, 按端口兜底"
+    fi
+
+    _has_cmd fuser && fuser -k 4096/tcp 2>/dev/null || true
+    rm -f "$pidfile"
+}
+
+# Agent 服务子菜单 (启动 / 停止)
+do_agent() {
+    if [ "$WITTY_ROLE" = "backend" ]; then
+        _err "当前是后端节点（角色: backend），Agent 服务运行在前端节点"
+        return 1
+    fi
+    _step_header "Agent 服务管理 (OpenCode)"
+    while true; do
+        echo "  1) 启动 Agent 服务"
+        echo "  2) 停止 Agent 服务"
+        echo "  q) 返回主菜单"
+        echo ""
+        read -r -p "选择 [1-2,q]: " sub
+        echo ""
+        case "$sub" in
+        1) do_agent_start ;;
+        2) do_agent_stop ;;
+        q) return 0 ;;
+        *) _err "无效选项" ;;
+        esac
+        echo ""
+    done
+}
+
 # ──────────────────── 交互式菜单 ────────────────────
 
 show_menu() {
@@ -669,6 +751,11 @@ show_menu() {
     echo "    7) 查看状态"
     echo "    8) 查看日志"
     echo ""
+    if [ "$WITTY_ROLE" != "backend" ]; then
+        echo "  🤖  Agent 服务"
+        echo "    a) 启动 / 停止 Agent 服务（OpenCode）"
+        echo ""
+    fi
     echo "  🗑️  清理"
     echo "    9) 一键清理（运行时数据 + PG 表，保留 RPM 业务数据/配置）"
     echo "       彻底卸载业务数据/配置: sudo dnf remove witty-ub*"
@@ -690,20 +777,21 @@ menu_main() {
     fi
     while true; do
         show_menu
-        read -r -p "请选择操作 [0-9,d,p]: " choice
+        read -r -p "请选择操作 [0-9,a,d,p]: " choice
         echo ""
         case "$choice" in
-        1) main_deploy ;;
-        2) menu_config_backend ;;
-        3) do_config --show ;;
-        4) do_start ;;
-        5) do_stop ;;
-        6) do_restart ;;
-        7) do_status ;;
-        8) do_logs ;;
-        9) do_clean ;;
-        d) install_deps_only ;;
-        p) do_psql ;;
+        1) main_deploy || true ;;
+        2) menu_config_backend || true ;;
+        3) do_config --show || true ;;
+        4) do_start || true ;;
+        5) do_stop || true ;;
+        6) do_restart || true ;;
+        7) do_status || true ;;
+        8) do_logs || true ;;
+        9) do_clean || true ;;
+        a) do_agent || true ;;
+        d) install_deps_only || true ;;
+        p) do_psql || true ;;
         0)
             echo "再见！"
             exit 0

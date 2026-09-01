@@ -96,11 +96,11 @@ vi ~/.config/opencode/opencode.jsonc   # 参考 配置参考手册 · OpenCode �
 
 # 指向后端节点启动（渲染 Agent 提示词中的后端基址）
 WITTY_API_BASE=http://<后端IP>:9772 \
-  bash ../plugins/latency/deploy/run_opencode.sh
+  bash ../../deploy/deploy_opencode.sh
 # 监听 127.0.0.1:4096
 ```
 
-`run_opencode.sh` 支持的变量：`WITTY_API_BASE`（默认 `http://127.0.0.1:9772`）、`WITTY_NO_PROXY`（默认 `127.0.0.1`）、`OPENCODE_HOST`（默认 `127.0.0.1`）。
+`deploy_opencode.sh` 支持的变量：`WITTY_API_BASE`（默认 `http://127.0.0.1:9772`）、`WITTY_NO_PROXY`（默认 `127.0.0.1`）、`OPENCODE_HOST`（默认 `127.0.0.1`）。
 
 ### 启动 Web（Nginx 托管 + 反代）
 

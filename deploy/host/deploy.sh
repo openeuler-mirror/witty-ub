@@ -16,7 +16,7 @@
 #   后端机: bash deploy/host/deploy.sh --deploy --role backend
 #   前端机: WITTY_BACKEND_URL=http://<backend>:9772 \
 #           bash deploy/host/deploy.sh --deploy --role frontend
-#   前端机只跑 前端 + OpenCode(手动 run_opencode.sh), 不依赖 PostgreSQL/C++ 工具链。
+#   前端机只跑 前端 + OpenCode(手动 deploy_opencode.sh), 不依赖 PostgreSQL/C++ 工具链。
 #
 # 访问:
 #   前端: http://localhost:5173     (生产: vite preview 托管 dist/; 无 dist 时回退 dev server)
@@ -47,7 +47,7 @@ WITTY_BACKEND_URL="${WITTY_BACKEND_URL:-http://127.0.0.1:9772}"
 WITTY_API_BASE="${WITTY_API_BASE:-$WITTY_BACKEND_URL}"
 WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
 WITTY_AGENT_URL="${WITTY_AGENT_URL:-http://127.0.0.1:4096}"
-# export 供 envsubst / run_opencode.sh 等子进程读取
+# export 供 envsubst / deploy_opencode.sh 等子进程读取
 export WITTY_ROLE WITTY_BACKEND_URL WITTY_API_BASE WITTY_NO_PROXY WITTY_AGENT_URL
 # 前端托管方式: start_services 中按 nginx 可用性置为 nginx, 默认 vite
 WEB_MODE="vite"
@@ -421,9 +421,9 @@ start_frontend_node() {
     if ! WITTY_API_BASE="$WITTY_API_BASE" \
         WITTY_NO_PROXY="$WITTY_NO_PROXY" \
         OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}" \
-        bash "$PROJECT_DIR/src/plugins/latency/deploy/run_opencode.sh"; then
+        bash "$PROJECT_DIR/deploy/deploy_opencode.sh"; then
         _warn "OpenCode 启动失败 (Agent 诊断不可用, Web 页面不受影响)"
-        _info "排查: bash src/plugins/latency/deploy/run_opencode.sh"
+        _info "排查: bash deploy/deploy_opencode.sh"
     fi
 }
 
@@ -613,6 +613,70 @@ stop_services() {
     }
 
     _log "所有服务已停止"
+}
+
+# ──────────────────── Agent 服务 ────────────────────
+
+# 启动 Agent 服务 (OpenCode): 跑 deploy/deploy_opencode.sh, 脚本内自带
+# 健康检查、pidfile (${WITTY_ROOT}/opencode.pid) 写入、已运行早退逻辑。
+start_agent() {
+    if [ "$WITTY_ROLE" = "backend" ]; then
+        _err "当前是后端节点（角色: backend），Agent 服务运行在前端节点"
+        return 1
+    fi
+    _step_header "启动 Agent 服务 (OpenCode)"
+    local agent_script="$PROJECT_DIR/deploy/deploy_opencode.sh"
+    if [[ ! -f "$agent_script" ]]; then
+        _err "未找到 Agent 启动脚本: $agent_script"
+        return 1
+    fi
+    _info "Agent 后端基址: ${WITTY_API_BASE:-http://127.0.0.1:9772}"
+    WITTY_API_BASE="${WITTY_API_BASE}" \
+        WITTY_NO_PROXY="${WITTY_NO_PROXY}" \
+        OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}" \
+        bash "$agent_script" || {
+            _warn "Agent 服务启动失败 (查看 $PROJECT_DIR/opencode_server.log)"
+            return 1
+        }
+}
+
+# 停止 Agent 服务: 优先读 ${WITTY_ROOT}/opencode.pid (启动脚本写入),
+# pidfile 缺失/失效时按端口 4096 兜底 kill。
+stop_agent() {
+    if [ "$WITTY_ROLE" = "backend" ]; then
+        _err "当前是后端节点（角色: backend），Agent 服务运行在前端节点"
+        return 1
+    fi
+    _step_header "停止 Agent 服务 (OpenCode)"
+    local pidfile="$PROJECT_DIR/opencode.pid"
+    local pid=""
+    if [[ -f "$pidfile" ]]; then
+        pid="$(cat "$pidfile" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        # 等待最多 5s 让进程优雅退出
+        local i
+        for i in $(seq 1 10); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.5
+        done
+        # 仍在运行则强杀
+        if kill -0 "$pid" 2>/dev/null; then
+            _warn "进程未响应 SIGTERM, 发送 SIGKILL"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        _log "已停止 Agent (PID: $pid)"
+    else
+        _info "pidfile 缺失或 PID 已不存活, 按端口兜底"
+    fi
+
+    # 端口兜底 (pidfile 缺失/失效, 或残留的孤儿进程)
+    _has_cmd fuser && fuser -k 4096/tcp 2>/dev/null || true
+
+    # 清理 pidfile
+    rm -f "$pidfile"
 }
 
 # ──────────────────── 清理 ────────────────────
@@ -857,8 +921,14 @@ show_menu() {
     echo "    3) 仅启动服务（已部署过）"
     echo "    4) 停止所有服务"
     echo ""
+    if [ "$WITTY_ROLE" != "backend" ]; then
+        echo "  🤖  Agent 服务"
+        echo "    5) 启动 Agent 服务（OpenCode）"
+        echo "    6) 停止 Agent 服务"
+        echo ""
+    fi
     echo "  🗑️  清理"
-    echo "    5) 一键清理（交互选择范围）"
+    echo "    7) 一键清理（交互选择范围）"
     echo ""
     echo "    0) 退出"
     echo ""
@@ -875,7 +945,11 @@ menu_main() {
     fi
     while true; do
         show_menu
-        read -r -p "请选择操作 [0-5]: " choice
+        if [ "$WITTY_ROLE" != "backend" ]; then
+            read -r -p "请选择操作 [0-7]: " choice
+        else
+            read -r -p "请选择操作 [0-4,7]: " choice
+        fi
         echo ""
         case "$choice" in
         1) main_deploy ;;
@@ -885,7 +959,9 @@ menu_main() {
             show_access_info
             ;;
         4) stop_services ;;
-        5) clean_all ;;
+        5) start_agent ;;
+        6) stop_agent ;;
+        7) clean_all ;;
         0)
             echo "再见！"
             exit 0

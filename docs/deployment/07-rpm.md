@@ -95,7 +95,7 @@ npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/z
 vi ~/.config/opencode/opencode.jsonc   # 参考 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)
 
 set -a; source /etc/witty-ub/web/env; set +a
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+bash /var/witty-ub/deploy/deploy_opencode.sh
 ```
 
 验证：
@@ -121,7 +121,7 @@ OpenCode 如在运行，需重启以加载新地址：
 
 ```bash
 set -a; source /etc/witty-ub/web/env; set +a
-bash /var/witty-ub/latency/deploy/run_opencode.sh
+bash /var/witty-ub/deploy/deploy_opencode.sh
 ```
 
 ---
