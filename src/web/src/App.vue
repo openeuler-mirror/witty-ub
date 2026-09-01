@@ -828,11 +828,18 @@ type LogParseOptions = {
   hosts?: string[]
 }
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const defaultAgentApiBase = (import.meta.env.VITE_OPENCODE_API_BASE_URL ?? '/agent-api').replace(
+type WittyRuntimeConfig = { apiBase?: string; agentApiBase?: string }
+const runtimeConfig: WittyRuntimeConfig =
+  (window as unknown as { __WITTY_CONFIG__?: WittyRuntimeConfig }).__WITTY_CONFIG__ ?? {}
+const apiBase = (import.meta.env.VITE_API_BASE_URL ?? runtimeConfig.apiBase ?? '').replace(
   /\/$/,
   '',
 )
+const defaultAgentApiBase = (
+  import.meta.env.VITE_OPENCODE_API_BASE_URL ??
+  runtimeConfig.agentApiBase ??
+  '/agent-api'
+).replace(/\/$/, '')
 const agentName = 'witty-ub-diagnostician'
 const agentUserAbortMessage = '用户终止响应'
 const isAgentChatOpen = ref(false)

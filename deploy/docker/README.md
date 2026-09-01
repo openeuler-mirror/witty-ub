@@ -116,7 +116,7 @@ manage.sh
 
 ## 配置文件
 
-所有脚本共用 `deploy/pg.conf`，修改后全局生效。
+所有脚本共用 `deploy/deploy.conf`（旧名 `pg.conf` 仍兼容），修改后全局生效。
 
 ### 完整配置项
 
@@ -173,7 +173,7 @@ WITTY_EXTRA_MOUNTS="/home:/home:ro"     # 额外挂载（可选）
 
 | 优先级 | 检测条件 | 连接结果 |
 |--------|---------|---------|
-| 0 | `pg.conf` 显式设置 `PG_HOST_IN_CONTAINER` | 使用配置值 |
+| 0 | `deploy.conf` 显式设置 `PG_HOST_IN_CONTAINER` | 使用配置值 |
 | 1 | 同网络 PG 容器正在运行 | `postgres:5432` |
 | 2 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
 | 3 | 以上都未检测到 | 默认 `postgres:5432` |

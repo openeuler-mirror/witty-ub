@@ -1,0 +1,68 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+#
+# witty-ub 前端 Nginx 配置模板（前后端分离部署）
+# 占位符由部署脚本 envsubst 渲染:
+#   WITTY_BACKEND_URL  后端 FastAPI 地址 (默认 http://127.0.0.1:9772)
+#   WITTY_AGENT_URL    OpenCode 地址       (默认 http://127.0.0.1:4096)
+# 渲染示例:
+#   envsubst '${WITTY_BACKEND_URL} ${WITTY_AGENT_URL}' < nginx.conf.template > nginx.conf
+
+pid /run/witty-ub-web/nginx.pid;
+error_log /var/log/witty-ub-web/error.log warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    access_log /var/log/witty-ub-web/access.log;
+    sendfile on;
+    keepalive_timeout 65;
+
+    # Allow large file uploads (log files can be up to 20GB)
+    client_max_body_size 20G;
+
+    server {
+        listen 8080;
+        server_name _;
+
+        root /var/witty-ub/web;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Proxy API requests to backend (FastAPI)
+        location ~ ^/(log_kb|log_file|log_parse_result|aggregated_event|anomalous_event|anomalous_event_chain|log_failure_event_result|failure_mode|diagnosis_case|diagnosis_config|task|brpc-diagnosis|brpc_profiling|health_check|docs|openapi.json) {
+            proxy_pass ${WITTY_BACKEND_URL};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # 大文件上传流式转发, 不在 frontend 节点落盘缓存
+            proxy_request_buffering off;
+            proxy_http_version 1.1;
+        }
+
+        # Proxy OpenCode requests; strip the /agent-api/ prefix.
+        location /agent-api/ {
+            rewrite ^/agent-api/(.*)$ /$1 break;
+            proxy_pass ${WITTY_AGENT_URL};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # SSE / 流式响应需要长连接
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_buffering off;
+        }
+    }
+}

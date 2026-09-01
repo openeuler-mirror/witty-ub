@@ -9,7 +9,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
-CONF_FILE="${DEPLOY_DIR}/../pg.conf"
+CONF_FILE="${DEPLOY_DIR}/../deploy.conf"
+[ -f "$CONF_FILE" ] || CONF_FILE="${DEPLOY_DIR}/../pg.conf"   # 兼容旧名
 
 # ---------- 参数解析 ----------
 CUSTOM_IMAGE=""
@@ -257,9 +258,9 @@ fi
 # 3.5 自动检测 PG 连接配置（容器内视角）
 # 优先级：用户显式配置 > 自动检测（PG 容器 > 宿主机 RPM PG > 默认值）
 detect_pg_config() {
-    # 如果用户在 pg.conf 中显式配置了（非空且不是默认 postgres），直接使用
+    # 如果用户在 deploy.conf 中显式配置了（非空且不是默认 postgres），直接使用
     if [ -n "${PG_HOST_IN_CONTAINER:-}" ] && [ "${PG_HOST_IN_CONTAINER}" != "postgres" ]; then
-        log_info "使用 pg.conf 中配置的 PG 连接: ${PG_HOST_IN_CONTAINER}:${PG_PORT_IN_CONTAINER:-5432}"
+        log_info "使用 deploy.conf 中配置的 PG 连接: ${PG_HOST_IN_CONTAINER}:${PG_PORT_IN_CONTAINER:-5432}"
         PG_IN_CONTAINER_HOST="${PG_HOST_IN_CONTAINER}"
         PG_IN_CONTAINER_PORT="${PG_PORT_IN_CONTAINER:-5432}"
         return 0

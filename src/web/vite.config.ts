@@ -24,12 +24,19 @@ function tomlPlugin(): PluginOption {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const plugins: PluginOption[] = [vue(), tomlPlugin()]
-  
+
   // Only include vueDevTools in development mode
   if (mode === 'development') {
     plugins.push(vueDevTools())
   }
-  
+
+  // dev/preview proxy 目标可经环境变量指向远程后端（前后端分离部署）
+  const apiTarget = process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:9772'
+  const agentTarget = process.env.VITE_DEV_AGENT_TARGET || 'http://127.0.0.1:4096'
+  const apiProxy = (prefix: string) => ({
+    [prefix]: { target: apiTarget, changeOrigin: true },
+  })
+
   return {
     plugins,
     resolve: {
@@ -40,58 +47,22 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/agent-api': {
-          target: 'http://127.0.0.1:4096',
+          target: agentTarget,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/agent-api/, ''),
         },
-        '/log_kb': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/log_file': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/diagnosis_config': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/log_parse_result': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/aggregated_event': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/anomalous_event': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/anomalous_event_chain': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/log_failure_event_result': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/failure_mode': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/task': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/brpc_profiling': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
-        '/brpc-diagnosis': {
-          target: 'http://127.0.0.1:9772',
-          changeOrigin: true,
-        },
+        ...apiProxy('/log_kb'),
+        ...apiProxy('/log_file'),
+        ...apiProxy('/diagnosis_config'),
+        ...apiProxy('/log_parse_result'),
+        ...apiProxy('/aggregated_event'),
+        ...apiProxy('/anomalous_event'),
+        ...apiProxy('/anomalous_event_chain'),
+        ...apiProxy('/log_failure_event_result'),
+        ...apiProxy('/failure_mode'),
+        ...apiProxy('/task'),
+        ...apiProxy('/brpc_profiling'),
+        ...apiProxy('/brpc-diagnosis'),
       },
     },
   }

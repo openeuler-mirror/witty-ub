@@ -7,6 +7,7 @@ APP_IMAGE="witty-ub:latest"
 REGISTRY=""
 PLATFORM="local"
 USE_RPM="false"
+RPM_ROLE="all"
 REPO_URL=""
 VERSION="latest"
 
@@ -18,6 +19,7 @@ show_usage() {
     echo "  --registry     Specify registry for multi-arch push (required with --multi)"
     echo "  --platform     Target platform: local, linux/amd64, linux/arm64"
     echo "  --rpm          Build image using RPM package (instead of source code)"
+    echo "  --rpm-role     Image role with --rpm: all, backend, frontend (default: all)"
     echo "  --repo-url     Specify custom RPM repository URL (used with --rpm)"
     echo "  --version      Specify image tag version (default: latest)"
     echo "  -h, --help     Show this help message"
@@ -25,39 +27,43 @@ show_usage() {
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --multi)
-            PLATFORM="linux/amd64,linux/arm64"
-            shift
-            ;;
-        --registry)
-            REGISTRY="$2"
-            shift 2
-            ;;
-        --platform)
-            PLATFORM="$2"
-            shift 2
-            ;;
-        --rpm)
-            USE_RPM="true"
-            shift
-            ;;
-        --repo-url)
-            REPO_URL="$2"
-            shift 2
-            ;;
-        --version)
-            VERSION="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_usage
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            show_usage
-            exit 1
-            ;;
+    --multi)
+        PLATFORM="linux/amd64,linux/arm64"
+        shift
+        ;;
+    --registry)
+        REGISTRY="$2"
+        shift 2
+        ;;
+    --platform)
+        PLATFORM="$2"
+        shift 2
+        ;;
+    --rpm)
+        USE_RPM="true"
+        shift
+        ;;
+    --rpm-role)
+        RPM_ROLE="$2"
+        shift 2
+        ;;
+    --repo-url)
+        REPO_URL="$2"
+        shift 2
+        ;;
+    --version)
+        VERSION="$2"
+        shift 2
+        ;;
+    -h | --help)
+        show_usage
+        exit 0
+        ;;
+    *)
+        echo "Unknown option: $1"
+        show_usage
+        exit 1
+        ;;
     esac
 done
 
@@ -73,6 +79,14 @@ if [ "$USE_RPM" = "true" ] && [ -z "$REPO_URL" ]; then
     show_usage
     exit 1
 fi
+
+case "$RPM_ROLE" in
+all | backend | frontend) ;;
+*)
+    echo "Error: invalid --rpm-role '$RPM_ROLE' (expected: all|backend|frontend)"
+    exit 1
+    ;;
+esac
 
 # Check buildx availability
 HAS_BUILDX=false
@@ -193,7 +207,7 @@ build_app() {
     else
         target_image="$APP_IMAGE"
         build_args=""
-        
+
         if [ -n "$REGISTRY" ]; then
             target_image="$REGISTRY:${VERSION}"
             REGISTRY_HOST="${REGISTRY%/*}"
@@ -223,30 +237,41 @@ build_app() {
 build_rpm() {
     echo ""
     echo "============================================"
-    echo "Building RPM-based image: $APP_IMAGE"
+    echo "Building RPM-based image: $APP_IMAGE (role: $RPM_ROLE)"
     echo "Platform: $PLATFORM"
     echo "============================================"
 
     target_image="$APP_IMAGE"
+    if [ "$RPM_ROLE" != "all" ]; then
+        target_image="${APP_IMAGE%:*}:$RPM_ROLE"
+    fi
     if [ -n "$REGISTRY" ]; then
         target_image="$REGISTRY:${VERSION}"
+        if [ "$RPM_ROLE" != "all" ]; then
+            target_image="$REGISTRY:$RPM_ROLE"
+        fi
     fi
 
     REPO_URL_FULL="${REPO_URL%/}/everything/\$basearch/"
-    build_args="--build-arg REPO_URL=\"$REPO_URL_FULL\""
 
     if [ "$PLATFORM" = "local" ]; then
-        eval docker build $build_args -f Dockerfile.rpm -t "$target_image" .
+        docker build \
+            --build-arg REPO_URL="$REPO_URL_FULL" \
+            --target "$RPM_ROLE" \
+            -f Dockerfile.rpm \
+            -t "$target_image" .
     elif [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
-        eval docker buildx build \
-            $build_args \
+        docker buildx build \
+            --build-arg REPO_URL="$REPO_URL_FULL" \
+            --target "$RPM_ROLE" \
             --platform "$PLATFORM" \
             --push \
             -f Dockerfile.rpm \
             -t "$target_image" .
     else
-        eval docker buildx build \
-            $build_args \
+        docker buildx build \
+            --build-arg REPO_URL="$REPO_URL_FULL" \
+            --target "$RPM_ROLE" \
             --platform "$PLATFORM" \
             --load \
             -f Dockerfile.rpm \

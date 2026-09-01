@@ -110,7 +110,7 @@ deploy.sh
 5. **前端编译**：`npm run build-only` 构建 `dist/`（编译失败回退 dev server，不阻塞部署）
 6. **C++ 编译**：编译 `witty-ub-diag-tool` / `witty-ub-brpc-diag` 诊断工具（源码或 `CMakeLists.txt` 比二进制新则重编；`FORCE_REBUILD_CPP=1` 强制重编）
 7. **数据文件**：将故障模式树、配置文件复制到 `/var/witty-ub/`
-8. **凭据同步**：将 `deploy/pg.conf` 的实际 PG 凭据写入 `diagnosis_config.toml`
+8. **凭据同步**：将 `deploy/deploy.conf` 的实际 PG 凭据写入 `diagnosis_config.toml`
 9. **启动服务**：启动 FastAPI 后端 (9772) + Vite 前端 (5173)，等待健康检查通过
 
 ---

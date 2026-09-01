@@ -204,7 +204,7 @@ deploy_rpm() {
     if PGPASSWORD="${PG_PASSWORD}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DATABASE}" -c "SELECT version();" >/dev/null 2>&1; then
         _log "连接验证通过"
     else
-        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / pg.conf"
+        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / deploy.conf"
     fi
 }
 
@@ -289,7 +289,7 @@ deploy_apt() {
     if PGPASSWORD="${PG_PASSWORD}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DATABASE}" -c "SELECT version();" >/dev/null 2>&1; then
         _log "连接验证通过"
     else
-        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / pg.conf"
+        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / deploy.conf"
     fi
 }
 

@@ -4,24 +4,37 @@ witty-ub 超节点故障智能监控诊断平台提供 KVCache 和 URMA 组件�
 
 ## 部署方式
 
+前后端默认支持分离部署：后端跑在有数据的机器（无出网要求），前端与 AI Agent 跑在能访问大模型服务的机器；两者也可合并为单机 All-in-One（`WITTY_ROLE=all`）。各部署方式均支持两种形态。
+
 ### 脚本部署（推荐）
 
 一键部署，适合快速上手：
 
 ```bash
-# 宿主机部署（开发调试）
-bash deploy/host/deploy.sh
+# 宿主机部署
+# 单机: 前后端同机
+bash deploy/host/deploy.sh --deploy
+
+# 分离: 后端节点（有数据的机器）
+bash deploy/host/deploy.sh --deploy --role backend
+
+# 分离: 前端节点（能访问 Agent/LLM 的机器）
+WITTY_BACKEND_URL=http://<后端IP>:9772 \
+  bash deploy/host/deploy.sh --deploy --role frontend
 ```
 
 → [宿主机脚本部署](./deployment/02-script-host.md)
 
 ```bash
-# 容器部署（生产环境）
+# 容器部署（单机）
 bash deploy/docker/manage.sh
 # 选择 [1] 一键安装
+
+# 容器分离部署（同机双容器, 跨机拆分见文档）
+docker compose --profile split up -d
 ```
 
-→ [容器脚本部署](./deployment/03-script-container.md)
+→ [容器脚本部署](./deployment/03-script-container.md) | [容器分离部署](./deployment/08-container.md)
 
 ### 手动部署
 
@@ -35,7 +48,7 @@ bash deploy/docker/manage.sh
 ## 打包构建
 
 - [Docker 镜像构建](./package/01-docker-build.md) — 分层镜像架构，构建应用镜像用于容器部署
-- [RPM 包构建](./package/02-rpm-build.md) — 生成 RPM 安装包，适用于生产环境快速部署
+- [基于 RPM 仓库构建镜像](./package/02-rpm-build.md) — 从 RPM 仓库构建单机全量镜像，与生产 RPM 版本一致
 - [镜像分发](./package/03-distribution.md) — 镜像推送、导出 tar 包、离线加载
 
 ## 使用文档
@@ -51,7 +64,8 @@ bash deploy/docker/manage.sh
 
 ## 访问服务
 
-- 本地：`http://localhost:8080`
-- 远程：`http://<服务器IP>:8080`
+浏览器访问前端节点：
 
-默认端口：RPM/容器 `8080`，源码开发 `5173`
+- 宿主机脚本 / RPM 部署：`http://<前端IP>:8080`
+- 容器部署：单机 `http://<IP>:32412`，分离部署 `http://<前端IP>:32413`
+- 源码开发模式：`http://localhost:5173`

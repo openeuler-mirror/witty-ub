@@ -8,6 +8,19 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      // 运行时配置: 同源 config.json 覆盖默认值, 支持不改构建产物切换后端
+      window.__WITTY_CONFIG__ = { apiBase: '', agentApiBase: '/agent-api' }
+      try {
+        var xhr = new XMLHttpRequest()
+        xhr.open('GET', 'config.json', false)
+        xhr.send(null)
+        if (xhr.status === 200) {
+          var cfg = JSON.parse(xhr.responseText)
+          Object.assign(window.__WITTY_CONFIG__, cfg)
+        }
+      } catch (e) {}
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

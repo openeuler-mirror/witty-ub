@@ -11,7 +11,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
-CONF_FILE="${DEPLOY_DIR}/pg.conf"
+CONF_FILE="${DEPLOY_DIR}/deploy.conf"
+[ -f "$CONF_FILE" ] || CONF_FILE="${DEPLOY_DIR}/pg.conf"   # 兼容旧名
 
 # ---------- 参数解析 ----------
 DEPLOY_MODE="docker"   # 默认 docker
