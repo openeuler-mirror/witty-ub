@@ -1,6 +1,6 @@
 [db]
 pg_host = "127.0.0.1"
-pg_port = 15432
+pg_port = 5432
 pg_database = "witty-ub"
 pg_user = "witty-ub"
 pg_password = "witty-ub"

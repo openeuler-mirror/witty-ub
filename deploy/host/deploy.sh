@@ -228,15 +228,13 @@ copy_data_files() {
         "$WITTY_DIR/data/urma" \
         "$WITTY_DIR/data/ubsocket" \
         "$WITTY_DIR/data/umq" \
-        "$WITTY_DIR/data/view-vis" \
-        "$WITTY_DIR/config/agents" 2>/dev/null || true
+        "$WITTY_DIR/config" 2>/dev/null || true
 
     $SUDO cp "$PROJECT_DIR/data/failure_mode_tree.json" "$WITTY_DIR/data/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/kvcache/"*.json "$WITTY_DIR/data/kvcache/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/urma/"*.json "$WITTY_DIR/data/urma/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/ubsocket/"*.json "$WITTY_DIR/data/ubsocket/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/umq/"*.json "$WITTY_DIR/data/umq/" 2>/dev/null || true
-    $SUDO cp "$PROJECT_DIR/data/view-vis/"* "$WITTY_DIR/data/view-vis/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
 
     # Deploy witty_ub_diagnostician into .opencode directory
@@ -729,7 +727,11 @@ clean_all() {
         _info "删除 /var/witty-ub..."
         local SUDO=""
         _is_root || SUDO="sudo"
-        $SUDO rm -rf /var/witty-ub/data /var/witty-ub/config 2>/dev/null || true
+        $SUDO rm -rf \
+            /var/witty-ub/data \
+            /var/witty-ub/config \
+            /var/witty-ub/witty_ub_diagnostician \
+            /var/witty-ub/cache 2>/dev/null || true
         _log "/var/witty-ub 数据已删除"
     fi
 

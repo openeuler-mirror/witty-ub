@@ -26,7 +26,7 @@
 - openEuler 24.03 LTS SP3 / SP4
 - root 或 sudo 权限
 
-> PostgreSQL 不需要预装，`witty-ub manager install` 会自动初始化（仅后端节点需要）。
+> PostgreSQL 不需要预装，`witty-ub manager deploy` 会自动初始化（仅后端节点需要）。
 
 ---
 
@@ -68,7 +68,7 @@ EOF
 
 ```bash
 sudo dnf install -y witty-ub-backend   # 自动依赖 witty-ub-manager
-sudo witty-ub manager install          # 初始化 PostgreSQL + 启动 latency
+sudo witty-ub manager deploy           # 初始化 PostgreSQL + 启动 latency
 ```
 
 验证并仅对前端节点开放 9772：
@@ -85,7 +85,7 @@ firewall-cmd --reload
 sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
 
 # 配置后端地址并启动（自动渲染 Nginx 反代与 Agent 提示词）
-sudo witty-ub manager install --backend http://<后端IP>:9772
+sudo witty-ub manager deploy --backend http://<后端IP>:9772
 ```
 
 配置并启动 OpenCode Agent：
@@ -132,7 +132,7 @@ bash /var/witty-ub/latency/deploy/run_opencode.sh
 
 ```bash
 sudo dnf install -y witty-ub
-sudo witty-ub manager install
+sudo witty-ub manager deploy
 ```
 
 完成后访问 `http://<服务器IP>:8080`。
@@ -143,7 +143,7 @@ sudo witty-ub manager install
 
 PG 凭据位于 `/etc/witty-ub/deploy.conf`，旧安装的 `pg.conf` 自动兼容。默认值：`host=127.0.0.1 port=5432 db/user/pass=witty-ub`。
 
-如需修改，例如指向外部 PG，编辑后重新执行 `sudo witty-ub manager install` 即可同步生效。
+如需修改，例如指向外部 PG，编辑后重新执行 `sudo witty-ub manager deploy` 即可同步生效。
 
 ---
 
@@ -153,6 +153,8 @@ PG 凭据位于 `/etc/witty-ub/deploy.conf`，旧安装的 `pg.conf` 自动兼�
 
 ```bash
 sudo witty-ub manager             # 交互式菜单
+sudo witty-ub manager deploy      # 完整部署
+sudo witty-ub manager deps        # 仅安装/更新依赖
 sudo witty-ub manager start       # 启动本机角色的服务
 sudo witty-ub manager stop        # 停止
 sudo witty-ub manager restart     # 重启
@@ -187,8 +189,7 @@ curl http://localhost:8080/health_check   # 经反代访问远端后端
 ```bash
 sudo dnf update -y witty-ub-backend && sudo witty-ub manager restart   # 后端节点升级
 sudo dnf update -y witty-ub-web && sudo witty-ub manager restart      # 前端节点升级
-sudo witty-ub manager clean                # 清空数据（PG 表 + /var 数据，后端节点）
-sudo witty-ub manager uninstall            # 停服务 + 禁用 units
+sudo witty-ub manager clean                # 两档清理（PG + 运行数据 / 再加 venv 和日志）
 sudo dnf remove -y witty-ub-backend witty-ub-manager    # 后端节点彻底卸载
 sudo dnf remove -y witty-ub-web witty-ub-manager        # 前端节点彻底卸载
 sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # 单机彻底卸载
@@ -202,11 +203,11 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 
 | 问题 | 排查 |
 | ------ | ------ |
-| 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager install` |
+| 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager deploy` |
 | 前端 8080 起不来 | `ss -tlnp \| grep 8080` 查端口占用；检查 `/etc/witty-ub/web/nginx.conf` 是否已渲染后端地址 |
 | 前端页面接口 502 | 确认后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙 |
 | psql 连不上 | `systemctl status postgresql`；`cat /etc/witty-ub/deploy.conf` |
-| 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager install` |
+| 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager deploy` |
 
 ---
 

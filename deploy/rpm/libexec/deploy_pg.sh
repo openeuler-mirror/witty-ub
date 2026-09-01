@@ -7,7 +7,7 @@
 # 用法:
 #   /usr/libexec/witty-ub-manager/deploy_pg.sh
 #
-# 由 manager.sh 的 install 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
+# 由 manager.sh 的 deploy 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
 # 跳过创建。仅支持 openEuler (RPM) / Ubuntu (APT)，不支持 Docker 模式。
 #
 # 配置来源: /etc/witty-ub/pg.conf（由 witty-ub-manager 子包安装）
