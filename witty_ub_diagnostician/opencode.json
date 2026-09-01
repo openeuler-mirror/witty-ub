@@ -13,7 +13,7 @@
       "mode": "primary",
       "temperature": 0.25,
       "maxSteps": 15,
-      "prompt": "{file:/var/witty-ub/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md}",
+      "prompt": "{file:./agents/witty-ub-diagnostician.md}",
       "tools": {
         "bash": true
       },

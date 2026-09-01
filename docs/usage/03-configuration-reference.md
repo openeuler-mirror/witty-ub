@@ -200,6 +200,22 @@ server {
 }
 ```
 
+### 随包 Agent 与 Skills
+
+随包 bundle 提供 `witty-ub-diagnostician` 诊断 Agent 与诊断 Skills（latency-analysis、failure-code-analysis、brpc-diagnosis、diagnostic-report-generation、experience-skill），OpenCode 启动时经 `OPENCODE_CONFIG_DIR` 注入：
+
+| 部署形态 | bundle 位置 |
+| -------- | ----------- |
+| 源码 | `<仓库>/witty_ub_diagnostician/` |
+| 容器 | `/var/witty-ub/witty_ub_diagnostician/.opencode/` |
+| RPM | `/var/witty-ub/config/` |
+
+与用户配置的合并关系：
+
+- `~/.config/opencode/` 下的用户配置、模型与 Skills 始终生效；bundle 的 agents/skills 与其合并，同名项以 bundle 为准
+- 环境变量 `OPENCODE_CONFIG` / `OPENCODE_CONFIG_DIR` 已设置时使用用户值，脚本不覆盖
+- 自定义 Skills 放 `~/.config/opencode/skills/<名称>/SKILL.md` 即可被诊断 Agent 使用
+
 ### 启动命令
 
 ```bash

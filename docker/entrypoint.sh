@@ -135,6 +135,9 @@ start_opencode() {
     render_agent_prompt
     cd /var/witty-ub
     export OPENCODE_CONFIG="${OPENCODE_CONFIG:-${AGENT_OPENCODE_CONFIG}}"
+    # Standard .opencode layout dir for agents/skills/commands discovery;
+    # a user-provided OPENCODE_CONFIG_DIR always wins.
+    export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$(cd "$(dirname "${AGENT_OPENCODE_CONFIG}")" && pwd)}"
     nohup /usr/bin/opencode serve --hostname "${OPENCODE_HOST}" --port 4096 \
         >/var/log/witty-ub/opencode_server.log 2>&1 &
     OPENCODE_PID=$!
