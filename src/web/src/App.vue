@@ -4369,6 +4369,7 @@ const createFaultEchartsOption = (
 ): EChartsOption => {
   const labels = buckets.map((bucket) => bucket.label)
   const seriesNames = codes.map((code) => `故障码${code}`)
+  const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
 
   return {
     tooltip: {
@@ -4391,6 +4392,11 @@ const createFaultEchartsOption = (
       data: labels,
       name: '时间',
       axisLabel: {
+        interval: (index: number) =>
+          labels.length <= 10 ||
+          index === 0 ||
+          index === labels.length - 1 ||
+          index % xAxisLabelStep === 0,
         color: '#64748b',
         fontSize: 12,
         rotate: 38,
