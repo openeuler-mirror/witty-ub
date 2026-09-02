@@ -369,7 +369,11 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             logger.exception("failed to update BRPC diagnosis task status")
 
     @staticmethod
-    async def run(task_id: str, start_time: str | None = None) -> bool:
+    async def run(
+        task_id: str,
+        log_dir: str | None = None,
+        start_time: str | None = None,
+    ) -> bool:
         try:
             task = await TaskPGManager.get_task_by_task_id(task_id)
             if task is None:
@@ -386,7 +390,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 raise BrpcDiagnosisWorkerError(
                     f"BRPC diagnosis LogFile does not exist: {task.op_id}"
                 )
-            selected_log = Path(log_file.file_path)
+            selected_log = Path(log_dir or log_file.file_path)
             if not selected_log.exists():
                 raise BrpcDiagnosisWorkerError(
                     f"BRPC diagnosis log path not found: {selected_log}"

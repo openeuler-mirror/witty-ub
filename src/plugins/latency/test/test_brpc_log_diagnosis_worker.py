@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import shutil
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -32,6 +32,8 @@ from latency.task.worker.kv_cache_log_event_diagnosis_worker import (
     KVCacheLogEventDiagnosisWorker,
 )
 import latency.task.worker.brpc_log_diagnosis_worker as worker_module
+import latency.task.log_preprocessor as log_preprocessor_module
+import latency.task.worker.base as base_worker_module
 import latency.services.log_file as log_file_service_module
 
 
@@ -163,15 +165,13 @@ def test_worker_type_and_default_patterns_are_defined():
     ]
 
 
-def test_task_handler_dispatches_brpc_without_shared_preprocessing(monkeypatch):
+def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     task = SimpleNamespace(
         id="brpc-task",
         task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
     )
     list_pending = AsyncMock(return_value=[task])
-    preprocess = AsyncMock(
-        side_effect=AssertionError("BRPC must not use KVCache preprocessing")
-    )
+    preprocess = AsyncMock(return_value="/preprocessed/brpc")
     run_worker = AsyncMock(return_value=True)
 
     monkeypatch.setattr(
@@ -189,10 +189,10 @@ def test_task_handler_dispatches_brpc_without_shared_preprocessing(monkeypatch):
 
     _run(TaskHandler.handle_pending_tasks())
 
-    preprocess.assert_not_awaited()
+    preprocess.assert_awaited_once_with(task)
     run_worker.assert_awaited_once_with(
         "brpc-task",
-        log_dir=None,
+        log_dir="/preprocessed/brpc",
         worker_kwargs={"start_time": "2026-08-11 10:20:30"},
     )
 
@@ -225,6 +225,46 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
         "brpc-parse-task",
         "brpc-diagnosis-task",
     ]
+
+
+def test_brpc_preprocess_dir_is_cleaned_after_both_workers_finish(monkeypatch):
+    parse_task = SimpleNamespace(status=TaskStatusEnum.SUCCESSFUL)
+    diagnosis_task = SimpleNamespace(status=TaskStatusEnum.RUNNING)
+
+    async def get_current_task(_op_id, task_type):
+        return {
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER: parse_task,
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER: diagnosis_task,
+        }[task_type]
+
+    cleanup = Mock()
+    monkeypatch.setattr(
+        base_worker_module.TaskPGManager,
+        "get_current_task_by_op_id",
+        get_current_task,
+    )
+    monkeypatch.setattr(
+        log_preprocessor_module,
+        "cleanup_preprocess_dir",
+        cleanup,
+    )
+
+    _run(
+        BaseWorker._cleanup_preprocess_dir_if_all_done(
+            "log-file-id",
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+        )
+    )
+    cleanup.assert_not_called()
+
+    diagnosis_task.status = TaskStatusEnum.SUCCESSFUL
+    _run(
+        BaseWorker._cleanup_preprocess_dir_if_all_done(
+            "log-file-id",
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+        )
+    )
+    cleanup.assert_called_once_with("log-file-id")
 
 
 def test_upload_brpc_creates_one_model_and_two_tasks(monkeypatch, tmp_path):
@@ -912,6 +952,39 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
     }
     assert reports[-1] == ("BRPC 诊断任务成功", 100.0)
     touch_log_kb.assert_awaited_once_with("kb-id")
+
+
+def test_worker_prefers_preprocessed_log_dir(monkeypatch, tmp_path):
+    original_path = tmp_path / "logs.zip"
+    original_path.write_bytes(b"archive")
+    preprocessed_path = tmp_path / "preprocessed"
+    preprocessed_path.mkdir()
+    (preprocessed_path / "brpc.log").write_text("log", encoding="utf-8")
+    output_dir = tmp_path / "witty" / "brpc-diag"
+    _copy_result_files(output_dir)
+    _configure_run_dependencies(monkeypatch, original_path)
+    commands = []
+
+    monkeypatch.setenv("WITTY_DIR", str(tmp_path / "witty"))
+    monkeypatch.setattr(
+        BrpcLogDiagnosisWorker,
+        "_execute_tool",
+        lambda task_id, command: commands.append((task_id, command)),
+    )
+    monkeypatch.setattr(
+        worker_module.BrpcDiagnosisImporter,
+        "import_result",
+        AsyncMock(return_value=None),
+    )
+
+    assert _run(
+        BrpcLogDiagnosisWorker.run(
+            "task-normal",
+            log_dir=str(preprocessed_path),
+        )
+    ) is True
+    command = commands[0][1]
+    assert command[command.index("--brpc-log") + 1] == str(preprocessed_path)
 
 
 @pytest.mark.parametrize("include_batch,include_schema", [(False, False), (True, False)])

@@ -86,10 +86,6 @@ class BrpcLogParseWorker(BaseWorker):
     @staticmethod
     async def deinit(task_id: str) -> str:
         """析构任务"""
-        from latency.task.log_preprocessor import cleanup_preprocess_dir
-        task = await TaskPGManager.get_task_by_task_id(task_id)
-        if task:
-            cleanup_preprocess_dir(task.op_id)
         return task_id
 
     @staticmethod
