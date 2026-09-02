@@ -391,6 +391,7 @@ def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
         TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
     ]
     assert result.log_file.overall_progress == 60.0
+    assert result.log_file.overall_status == TaskStatusEnum.RUNNING.value
 
 
 def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
@@ -472,6 +473,7 @@ def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
     assert TaskTypeEnum.BRPC_LOG_PARSE_WORKER in queried_task_types
     assert TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER in queried_task_types
     assert result.log_files[0].overall_progress == 60.0
+    assert result.log_files[0].overall_status == TaskStatusEnum.RUNNING.value
 
 
 def test_populate_brpc_counts_sets_profiling_and_diagnosis_counts(monkeypatch):
@@ -539,24 +541,24 @@ def test_populate_brpc_counts_skips_unsuccessful_tasks(monkeypatch):
     _run(LogFileService._populate_brpc_counts(log_file, parse_task, diagnosis_task))
 
     assert log_file.anomaly_cnt == 0
-    assert log_file.trace_failure_event_cnt is None
+    assert log_file.trace_failure_event_cnt == 0
 
 
 @pytest.mark.parametrize(
-    "parse_status,diag_status,expected_task",
+    "parse_task_status,diag_status,expected_task",
     [
         (TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING, "parse"),
         (TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING, "diag"),
         (TaskStatusEnum.SUCCESSFUL, TaskStatusEnum.RUNNING, "diag"),
         (TaskStatusEnum.SUCCESSFUL, TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, "diag"),
-        (TaskStatusEnum.FAILED, TaskStatusEnum.SUCCESSFUL, "diag"),
+        (TaskStatusEnum.FAILED, TaskStatusEnum.SUCCESSFUL, "parse"),
         (TaskStatusEnum.FAILED_PENDING_REMOVE, TaskStatusEnum.FAILED, "parse"),
     ],
 )
-def test_select_brpc_visible_task_priority(parse_status, diag_status, expected_task):
+def test_select_brpc_visible_task_priority(parse_task_status, diag_status, expected_task):
     parse_task = SimpleNamespace(
         id="parse-task",
-        status=parse_status,
+        status=parse_task_status,
         task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
     )
     diagnosis_task = SimpleNamespace(
@@ -566,6 +568,54 @@ def test_select_brpc_visible_task_priority(parse_status, diag_status, expected_t
     )
     selected = LogFileService._select_brpc_visible_task(parse_task, diagnosis_task)
     assert selected.id == ("parse-task" if expected_task == "parse" else "diag-task")
+
+
+@pytest.mark.parametrize(
+    "task_states,expected_status",
+    [
+        ([(TaskStatusEnum.PENDING, 0)], TaskStatusEnum.PENDING.value),
+        ([(TaskStatusEnum.RUNNING, 0), (TaskStatusEnum.PENDING, 0)], TaskStatusEnum.RUNNING.value),
+        (
+            [(TaskStatusEnum.FAILED_PENDING_REMOVE, 0), (TaskStatusEnum.RUNNING, 0)],
+            LogFileService.RETRYING_STATUS,
+        ),
+        ([(TaskStatusEnum.RUNNING, 1)], LogFileService.RETRYING_STATUS),
+        (
+            [(TaskStatusEnum.FAILED, 0), (TaskStatusEnum.RUNNING, 0)],
+            TaskStatusEnum.RUNNING.value,
+        ),
+        (
+            [(TaskStatusEnum.FAILED, 0), (TaskStatusEnum.SUCCESSFUL, 0)],
+            TaskStatusEnum.FAILED.value,
+        ),
+        (
+            [(TaskStatusEnum.CANCELLED, 0), (TaskStatusEnum.SUCCESSFUL, 0)],
+            TaskStatusEnum.CANCELLED.value,
+        ),
+        (
+            [
+                (TaskStatusEnum.SUCCESSFUL, 0),
+                (TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, 0),
+            ],
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+        ),
+        (
+            [(TaskStatusEnum.SUCCESSFUL, 0), (TaskStatusEnum.SUCCESSFUL, 0)],
+            TaskStatusEnum.SUCCESSFUL.value,
+        ),
+    ],
+)
+def test_aggregate_task_status(task_states, expected_status):
+    tasks = [
+        SimpleNamespace(status=status, retry_times=retry_times)
+        for status, retry_times in task_states
+    ]
+
+    assert LogFileService._aggregate_task_status(*tasks) == expected_status
+
+
+def test_aggregate_task_status_is_unknown_without_tasks():
+    assert LogFileService._aggregate_task_status() == "unknown"
 
 
 def test_brpc_worker_is_registered_and_progress_is_recognized():

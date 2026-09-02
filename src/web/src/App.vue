@@ -95,13 +95,13 @@ type LogFileModel = {
   log_file_id?: string
   kb_id: string
   name: string
-  parse_status: string
   file_path: string
   file_size: number
   anomaly_cnt: number
   trace_failure_event_cnt?: number
   log_type?: string
   task: TaskModel | null
+  overall_status: string
   overall_progress?: number
   existed_status: boolean
   created_at: string
@@ -818,10 +818,6 @@ type OpenCodeProviderResult = {
 }
 
 type AgentView = 'login' | 'models' | 'providers' | 'new-models' | 'chat'
-
-type GetLogFileResult = {
-  log_file?: LogFileModel | null
-}
 
 type LogParseOptions = {
   clusters?: string[]
@@ -1726,12 +1722,6 @@ const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
 const logFilesTotal = ref(0)
 const refreshingFileIds = ref<Set<string>>(new Set())
-const taskDetailsById = ref<Record<string, TaskModel>>({})
-const loadingTaskDetailIds = ref<Set<string>>(new Set())
-const logFileAnomalyCntById = ref<Record<string, number>>({})
-const logFileTraceFailureEventCntById = ref<Record<string, number>>({})
-const loadedAnomalyLogFileIds = ref<Set<string>>(new Set())
-const loadingAnomalyLogFileIds = ref<Set<string>>(new Set())
 const latencyMetricsByPercentile = reactive<Record<LatencyPercentileValue, LatencyMetricItem[]>>({
   p99: [],
   p9999: [],
@@ -8488,11 +8478,13 @@ const statusLabel = (s: string) => {
   const map: Record<string, string> = {
     pending: '待解析',
     running: '解析中',
+    retrying: '正在重试',
     cancelled: '已取消',
     successful: '解析成功',
     failed: '解析失败',
-    successful_pending_remove: '解析成功，待移除',
-    failed_pending_remove: '解析失败，待移除',
+    successful_pending_remove: '解析成功，收尾中',
+    failed_pending_remove: '解析失败，准备重试',
+    unknown: '状态未知',
   }
   return map[s] || s
 }
@@ -8501,31 +8493,26 @@ const statusBadgeClass = (s: string) => {
   const map: Record<string, string> = {
     pending: 'status-pending',
     running: 'status-running',
+    retrying: 'status-retrying',
     cancelled: 'status-cancelled',
     successful: 'status-successful',
     failed: 'status-failed',
     successful_pending_remove: 'status-successful-pending-remove',
     failed_pending_remove: 'status-failed-pending-remove',
+    unknown: 'status-unknown',
   }
-  return map[s] || 'status-pending'
+  return map[s] || 'status-unknown'
 }
 
-const terminalTaskStatuses = new Set([
-  'cancelled',
-  'successful',
-  'failed',
-  'successful_pending_remove',
-  'failed_pending_remove',
-])
+// `/log_file/list` already returns the current task together with its reports.
+// Keep that response as the single source of truth: a slower `/task/{id}` request
+// can otherwise overwrite a newer poll result and make failed/running statuses
+// alternate on screen.
+const getDetailedLogFileTask = (file: LogFileModel) => file.task
 
-const isTerminalTaskStatus = (status?: string) =>
-  Boolean(status && terminalTaskStatuses.has(status))
+const getLogFileOverallStatus = (file: LogFileModel) => file.overall_status
 
-const getDetailedLogFileTask = (file: LogFileModel) =>
-  file.task?.id ? (taskDetailsById.value[file.task.id] ?? file.task) : file.task
-
-const getLogFileTaskStatus = (file: LogFileModel) =>
-  getDetailedLogFileTask(file)?.status ?? file.parse_status ?? ''
+const getLogFileDisplayStatus = getLogFileOverallStatus
 
 const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
@@ -8672,24 +8659,27 @@ const humanizeLogFileProgressMessage = (message: string): string => {
 }
 
 const getLogFileProgressMessage = (file: LogFileModel) => {
+  if (getLogFileDisplayStatus(file) === 'retrying') {
+    return '正在重试'
+  }
   const latestProgress = getLatestProgressReport(file)
   const progressMessage = latestProgress?.message?.trim()
   if (progressMessage) return humanizeLogFileProgressMessage(progressMessage)
   const latestMilestone = getLatestLogFileTaskReport(file)
   const milestoneMessage = latestMilestone?.message?.trim()
   if (milestoneMessage) return humanizeLogFileProgressMessage(milestoneMessage)
-  return statusLabel(getLogFileTaskStatus(file))
+  return statusLabel(getLogFileDisplayStatus(file))
 }
 
 const shouldShowLogFileProgress = (file: LogFileModel) =>
-  Boolean(file.task || getLogFileTaskStatus(file))
+  Boolean(file.task || getLogFileOverallStatus(file))
 
 const getLogFileProgressClass = (file: LogFileModel) => {
-  const status = getLogFileTaskStatus(file)
-  if (status === 'failed' || status === 'failed_pending_remove') return 'failed'
+  const status = getLogFileDisplayStatus(file)
+  if (status === 'failed') return 'failed'
   if (status === 'successful' || status === 'successful_pending_remove') return 'successful'
   if (status === 'cancelled') return 'cancelled'
-  if (status === 'running') return 'running'
+  if (status === 'running' || status === 'retrying') return 'running'
   return 'pending'
 }
 
@@ -8702,22 +8692,13 @@ const pickDefaultKvcacheLogFile = (files: LogFileModel[]): LogFileModel | null =
   return files.find(isKvcacheLogFile) ?? files[0]!
 }
 
-const normalizeLogFile = (file: LogFileModel): LogFileModel => {
-  const logFileId = file.log_file_id || file.id
-  return {
-    ...file,
-    log_file_id: logFileId,
-    anomaly_cnt: logFileAnomalyCntById.value[logFileId] ?? file.anomaly_cnt,
-    trace_failure_event_cnt:
-      logFileTraceFailureEventCntById.value[logFileId] ?? file.trace_failure_event_cnt,
-  }
-}
+const normalizeLogFile = (file: LogFileModel): LogFileModel => ({
+  ...file,
+  log_file_id: file.log_file_id || file.id,
+})
 
-const isSuccessfulLogFileTask = (file: LogFileModel) =>
-  ['successful', 'successful_pending_remove'].includes(getLogFileTaskStatus(file))
-
-const isLogFileDetailLoaded = (file: LogFileModel) =>
-  loadedAnomalyLogFileIds.value.has(getLogFileId(file))
+const isSuccessfulLogFile = (file: LogFileModel) =>
+  ['successful', 'successful_pending_remove'].includes(getLogFileOverallStatus(file))
 
 const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
 
@@ -8742,108 +8723,12 @@ const getLogFileTraceFailureEventCountText = (file: LogFileModel) =>
   `通断异常数：${file.trace_failure_event_cnt ?? 0}`
 
 const getLogFileAnomalyCountClass = (file: LogFileModel) => {
-  if (!isLogFileDetailLoaded(file)) return ''
   if (isBrpcLogFile(file)) return 'anomaly-ok'
   return file.anomaly_cnt > 0 ? 'anomaly-danger' : 'anomaly-ok'
 }
 
-const getLogFileTraceFailureEventCountClass = (file: LogFileModel) => {
-  if (!isLogFileDetailLoaded(file)) return ''
-  return (file.trace_failure_event_cnt ?? 0) > 0 ? 'anomaly-danger' : 'anomaly-ok'
-}
-
-const updateLogFileInList = (logFile: LogFileModel) => {
-  const logFileId = getLogFileId(logFile)
-  logFiles.value = logFiles.value.map((file) => {
-    if (getLogFileId(file) !== logFileId && file.id !== logFile.id) return file
-    return normalizeLogFile({
-      ...file,
-      ...logFile,
-      log_file_id: logFileId || getLogFileId(file),
-    })
-  })
-}
-
-const loadLogFileAnomalyCount = async (file: LogFileModel) => {
-  const logFileId = getLogFileId(file)
-  if (!logFileId || loadedAnomalyLogFileIds.value.has(logFileId)) return
-  if (loadingAnomalyLogFileIds.value.has(logFileId)) return
-
-  loadingAnomalyLogFileIds.value = new Set(loadingAnomalyLogFileIds.value).add(logFileId)
-  try {
-    const result = await request<GetLogFileResult>(`/log_file/${logFileId}`)
-    if (result.log_file) {
-      logFileAnomalyCntById.value = {
-        ...logFileAnomalyCntById.value,
-        [logFileId]: result.log_file.anomaly_cnt,
-      }
-      logFileTraceFailureEventCntById.value = {
-        ...logFileTraceFailureEventCntById.value,
-        [logFileId]: result.log_file.trace_failure_event_cnt ?? 0,
-      }
-      updateLogFileInList({
-        ...result.log_file,
-        log_file_id: logFileId,
-      })
-      loadedAnomalyLogFileIds.value = new Set(loadedAnomalyLogFileIds.value).add(logFileId)
-    }
-  } catch {
-  } finally {
-    const next = new Set(loadingAnomalyLogFileIds.value)
-    next.delete(logFileId)
-    loadingAnomalyLogFileIds.value = next
-  }
-}
-
-const loadSuccessfulLogFileAnomalyCounts = (files: LogFileModel[]) => {
-  files.forEach((file) => {
-    if (isSuccessfulLogFileTask(file)) {
-      void loadLogFileAnomalyCount(file)
-    }
-  })
-}
-
-const loadTaskDetail = async (taskId: string) => {
-  if (!taskId || loadingTaskDetailIds.value.has(taskId)) return
-
-  loadingTaskDetailIds.value = new Set(loadingTaskDetailIds.value).add(taskId)
-  try {
-    const result = await request<{ task: TaskModel | null }>(`/task/${taskId}`)
-    if (result.task) {
-      taskDetailsById.value = {
-        ...taskDetailsById.value,
-        [taskId]: result.task,
-      }
-    }
-  } catch {
-  } finally {
-    const next = new Set(loadingTaskDetailIds.value)
-    next.delete(taskId)
-    loadingTaskDetailIds.value = next
-  }
-}
-
-const loadTaskDetailsForLogFiles = (files: LogFileModel[]) => {
-  const taskIds = new Set<string>()
-  const completedTasks: Record<string, TaskModel> = {}
-  files.forEach((file) => {
-    if (!file.task?.id) return
-    if (isTerminalTaskStatus(file.task.status)) {
-      completedTasks[file.task.id] = file.task
-      return
-    }
-    taskIds.add(file.task.id)
-  })
-  if (Object.keys(completedTasks).length > 0) {
-    taskDetailsById.value = {
-      ...taskDetailsById.value,
-      ...completedTasks,
-    }
-  }
-  taskIds.forEach((taskId) => {
-    void loadTaskDetail(taskId)
-  })
-}
+const getLogFileTraceFailureEventCountClass = (file: LogFileModel) =>
+  (file.trace_failure_event_cnt ?? 0) > 0 ? 'anomaly-danger' : 'anomaly-ok'
 
 const loadLogFiles = async (
   kbId: string,
@@ -8898,8 +8783,6 @@ const loadLogFiles = async (
     } else {
       selectedLogFileId.value = null
     }
-    loadTaskDetailsForLogFiles(nextLogFiles)
-    loadSuccessfulLogFileAnomalyCounts(nextLogFiles)
   } catch {
     if (selectedAssetId.value !== kbId) return
     if (!options.silent) {
@@ -10224,7 +10107,7 @@ const loadBrpcLogFiles = async () => {
         id: string
         name: string
         log_type: string
-        parse_status: string
+        overall_status: string
         task?: TaskModel | null
       }>
     }>(`/log_file/list/${assetId}`, {
@@ -10233,7 +10116,11 @@ const loadBrpcLogFiles = async () => {
     })
     if (selectedAssetId.value !== assetId) return
     brpcLogFiles.value = (result.log_files ?? [])
-      .filter((file) => file.log_type === 'brpc' && file.parse_status === 'successful')
+      .filter(
+        (file) =>
+          file.log_type === 'brpc' &&
+          ['successful', 'successful_pending_remove'].includes(file.overall_status),
+      )
       .map((file) => ({
         id: file.id,
         name: file.name,
@@ -15803,13 +15690,12 @@ onBeforeUnmount(() => {
                     >
                     <span
                       class="status-badge"
-                      :class="statusBadgeClass(getLogFileTaskStatus(file))"
-                      >{{ statusLabel(getLogFileTaskStatus(file)) }}</span
+                      :class="statusBadgeClass(getLogFileDisplayStatus(file))"
+                      >{{ statusLabel(getLogFileDisplayStatus(file)) }}</span
                     >
                     <span
                       v-if="
-                        isSuccessfulLogFileTask(file) &&
-                        isLogFileDetailLoaded(file) &&
+                        isSuccessfulLogFile(file) &&
                         shouldShowLogFileLatencyAnomalyCount(file)
                       "
                       class="anomaly-badge"
@@ -15818,8 +15704,7 @@ onBeforeUnmount(() => {
                     >
                     <span
                       v-if="
-                        isSuccessfulLogFileTask(file) &&
-                        isLogFileDetailLoaded(file) &&
+                        isSuccessfulLogFile(file) &&
                         shouldShowLogFileConnectionAnomalyCount(file)
                       "
                       class="anomaly-badge"

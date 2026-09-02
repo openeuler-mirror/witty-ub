@@ -127,7 +127,6 @@ async def test_cascade_delete():
         id=log_file_id,
         kb_id=kb_id,
         name="test.log",
-        parse_status="successful",
         file_path="/tmp/test.log",
         file_size=1024,
     )

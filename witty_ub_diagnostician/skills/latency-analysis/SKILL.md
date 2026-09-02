@@ -56,8 +56,8 @@ uv run experience-skill search-experiences \
 |------|---------|---------|------|
 | 1.1 | `POST /log_kb/list` | `created_sorted_desc=true`, `page_cnt=20` | 找到最新/匹配的知识库 `kb_id` |
 | 1.2 | `GET /log_kb/{kb_id}` | — | 二次校验知识库元数据，避免对错数据集操作 |
-| 1.3 | `POST /log_file/list/{kb_id}` | `parse_status` 不传（看全部） | 检查每个文件的 `parse_status` 是否为 SUCCESS，记录 `task_id` 与 `log_file.id`（后续作 `log_id` 用） |
-| 1.4 | `GET /task/{task_id}` | — | 若 parse_status≠SUCCESS，查进度/报告并声明"结论基于不完整数据" |
+| 1.3 | `POST /log_file/list/{kb_id}` | 不按状态过滤（看全部） | 检查每个文件的 `overall_status` 是否为 `successful`，记录 `task.id` 与 `log_file.id`（后续作 `log_id` 用） |
+| 1.4 | `GET /task/{task_id}` | — | 若 overall_status≠successful，查进度/报告并声明"结论基于不完整数据" |
 | 1.5 | `GET /log_parse_result/options` | `kb_id` | 获取真实存在的 cluster/host/pod 值，禁止臆测名称 |
 
 ---

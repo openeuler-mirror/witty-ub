@@ -70,12 +70,43 @@ def _is_profiling_log(file_path: str | Path) -> bool:
 
 
 class LogFileService:
+    RETRYING_STATUS = "retrying"
+
     @staticmethod
     def _is_task_successful(task) -> bool:
         return task and task.status in [
             TaskStatusEnum.SUCCESSFUL,
             TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE,
         ]
+
+    @staticmethod
+    def _aggregate_task_status(*tasks) -> str:
+        """Aggregate worker states into the lifecycle state shown for one log."""
+        existing_tasks = [task for task in tasks if task]
+        if not existing_tasks:
+            return "unknown"
+
+        def has_status(*statuses: TaskStatusEnum) -> bool:
+            return any(task.status in statuses for task in existing_tasks)
+
+        retrying = has_status(TaskStatusEnum.FAILED_PENDING_REMOVE) or any(
+            task.status in {TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING}
+            and getattr(task, "retry_times", 0) > 0
+            for task in existing_tasks
+        )
+        if retrying:
+            return LogFileService.RETRYING_STATUS
+        if has_status(TaskStatusEnum.RUNNING):
+            return TaskStatusEnum.RUNNING.value
+        if has_status(TaskStatusEnum.PENDING):
+            return TaskStatusEnum.PENDING.value
+        if has_status(TaskStatusEnum.FAILED):
+            return TaskStatusEnum.FAILED.value
+        if has_status(TaskStatusEnum.CANCELLED):
+            return TaskStatusEnum.CANCELLED.value
+        if has_status(TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE):
+            return TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
+        return TaskStatusEnum.SUCCESSFUL.value
 
     @staticmethod
     def _select_visible_task(parse_task, diagnosis_task, store_task=None):
@@ -619,19 +650,24 @@ class LogFileService:
                 store_task.task_reports = type_task_report_dict.get(store_task.id, [])
 
             if log_file_model.log_type == "brpc":
+                status_tasks = (brpc_parse_task, diagnosis_task)
                 log_file_model.overall_progress = parallel_overall_progress(
-                    brpc_parse_task,
-                    diagnosis_task,
+                    *status_tasks,
                 )
                 await LogFileService._populate_brpc_counts(
                     log_file_model, brpc_parse_task, diagnosis_task
                 )
             else:
+                status_tasks = (parse_task, diagnosis_task, store_task)
                 log_file_model.overall_progress = parallel_overall_progress(
-                    parse_task,
-                    diagnosis_task,
-                    store_task,
+                    *status_tasks,
                 )
+            aggregate_tasks = [task for task in status_tasks if task]
+            if not aggregate_tasks and visible_task:
+                aggregate_tasks.append(visible_task)
+            log_file_model.overall_status = LogFileService._aggregate_task_status(
+                *aggregate_tasks,
+            )
             # 和get_log_file_by_log_file_id完全一致：单独查询可见任务的reports并排序
             log_file_model.task = visible_task
             if visible_task:
@@ -704,21 +740,28 @@ class LogFileService:
             if store_task:
                 store_task.task_reports = store_reports
             if log_type == "brpc":
+                status_tasks = (parse_task, diagnosis_task)
                 log_file_model.overall_progress = parallel_overall_progress(
-                    parse_task,
-                    diagnosis_task,
+                    *status_tasks,
                 )
                 await LogFileService._populate_brpc_counts(
                     log_file_model, parse_task, diagnosis_task
                 )
             else:
+                status_tasks = (parse_task, diagnosis_task, store_task)
                 log_file_model.overall_progress = parallel_overall_progress(
-                    parse_task,
-                    diagnosis_task,
-                    store_task,
+                    *status_tasks,
                 )
+            aggregate_tasks = [task for task in status_tasks if task]
+            if not aggregate_tasks:
+                aggregate_tasks.append(task_model)
+            log_file_model.overall_status = LogFileService._aggregate_task_status(
+                *aggregate_tasks,
+            )
             task_model.task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(
                 [task_model.id]
             )
+        else:
+            log_file_model.overall_status = LogFileService._aggregate_task_status()
         log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)

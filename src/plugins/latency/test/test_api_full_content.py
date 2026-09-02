@@ -45,7 +45,6 @@ from latency.schemas.log import (
 from latency.schemas.diagnosis_case import DiagnosisCaseModel
 from latency.schemas.failure_mode import FailureModeModel, StatusCodeKnowledgeModel
 from latency.schemas.config import DiagnosisRuntimeConfig
-from latency.ENUM.task import TaskStatusEnum
 
 
 def now_str() -> str:
@@ -102,7 +101,6 @@ def seeded(base_url):
                 name="test.log",
                 file_path="/tmp/test.log",
                 file_size=1024,
-                parse_status=TaskStatusEnum.SUCCESSFUL.value,
             )
         )
 

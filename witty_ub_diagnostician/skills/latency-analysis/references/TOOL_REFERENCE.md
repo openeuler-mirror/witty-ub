@@ -29,11 +29,10 @@
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `parse_status` | str \| None | None | 可传 `"SUCCESS"` / `"RUNNING"` / `"FAILED"` 过滤 |
 | `page_num` | int | 1 | ≥ 1 |
 | `page_cnt` | int | 20 | 1 ~ 100 |
 
-返回中的日志文件 `id` 即后续请求的 `log_id`。
+返回中的 `overall_status` 是文件关联任务的聚合状态，日志文件 `id` 即后续请求的 `log_id`。
 
 ### `GET /task/{task_id}`
 

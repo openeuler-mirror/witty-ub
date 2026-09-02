@@ -179,9 +179,6 @@ class KVCacheLogParseWorker(BaseWorker):
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await LogFilePGManager.update_log_file(
-            log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
-        )
         await BaseWorker.report(task.id, "Task initialized", 0.0)
         return task.id
 
@@ -208,16 +205,10 @@ class KVCacheLogParseWorker(BaseWorker):
             task_id, existed_status=TaskStatusEnum.PENDING
         )
         if task.retry_times > Config().get_config().task.task_retry_times:
-            await LogFilePGManager.update_log_file(
-                task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
-            )
             logger.warning(
                 f"Task {task_id} retry count {task.retry_times} exceeded max retries {Config().get_config().task.task_retry_times}"
             )
             return False
-        await LogFilePGManager.update_log_file(
-            task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
-        )
         await BaseWorker.report(task.id, "Task reinitialized", 0.0)
         return True
 
@@ -1226,9 +1217,6 @@ class KVCacheLogParseWorker(BaseWorker):
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
-                await LogFilePGManager.update_log_file(
-                    task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
-                )
                 return False
 
             trace_rows = _trace_row_count(trace_index)
@@ -1453,9 +1441,6 @@ class KVCacheLogParseWorker(BaseWorker):
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
                 )
-                await LogFilePGManager.update_log_file(
-                    task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
-                )
                 await BaseWorker.report(task.id, "Task failed: store to DB unsuccessful", 100.0)
                 return False
 
@@ -1471,9 +1456,6 @@ class KVCacheLogParseWorker(BaseWorker):
             
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
-            )
-            await LogFilePGManager.update_log_file(
-                task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
             )
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)
 
@@ -1554,4 +1536,3 @@ class KVCacheLogParseWorker(BaseWorker):
             logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
         
         return task_id
-

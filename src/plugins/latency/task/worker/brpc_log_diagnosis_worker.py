@@ -62,10 +62,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await LogFilePGManager.update_log_file(
-            log_file.id,
-            {"parse_status": TaskStatusEnum.PENDING.value},
-        )
         await BaseWorker.report(task.id, "初始化 BRPC 诊断任务", 0.0)
         return task.id
 
@@ -82,10 +78,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 retry_limit,
             )
             return False
-        await LogFilePGManager.update_log_file(
-            task.op_id,
-            {"parse_status": TaskStatusEnum.PENDING.value},
-        )
         await BaseWorker.report(task_id, "重新初始化 BRPC 诊断任务", 0.0)
         return True
 
@@ -374,15 +366,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             )
         except Exception:
             logger.exception("failed to update BRPC diagnosis task status")
-        try:
-            task = await TaskPGManager.get_task_by_task_id(task_id)
-            if task is not None:
-                await LogFilePGManager.update_log_file(
-                    task.op_id,
-                    {"parse_status": TaskStatusEnum.FAILED.value},
-                )
-        except Exception:
-            logger.exception("failed to update BRPC diagnosis log status")
 
     @staticmethod
     async def run(task_id: str, start_time: str | None = None) -> bool:
@@ -394,10 +377,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.RUNNING.value},
-            )
-            await LogFilePGManager.update_log_file(
-                task.op_id,
-                {"parse_status": TaskStatusEnum.RUNNING.value},
             )
             await BaseWorker.report(task_id, "开始 BRPC 日志诊断", 5.0)
 
@@ -440,10 +419,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},
-            )
-            await LogFilePGManager.update_log_file(
-                task.op_id,
-                {"parse_status": TaskStatusEnum.SUCCESSFUL.value},
             )
             await BaseWorker.report(task_id, "BRPC 诊断任务成功", 100.0)
             return True

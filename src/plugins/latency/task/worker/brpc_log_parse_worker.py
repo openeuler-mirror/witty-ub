@@ -13,6 +13,7 @@ import time
 from typing import Optional
 
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.config.config import Config
 from latency.parse.brpc_profiling_parser import BrpcProfilingParser
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
@@ -61,9 +62,6 @@ class BrpcLogParseWorker(BaseWorker):
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await LogFilePGManager.update_log_file(
-            log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
-        )
         await BaseWorker.report(task.id, "BRPC task initialized", 0.0)
         return task.id
 
@@ -73,10 +71,15 @@ class BrpcLogParseWorker(BaseWorker):
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
+        retry_limit = Config().get_config().task.task_retry_times
+        if task.retry_times >= retry_limit:
+            logger.warning(
+                "BRPC parse task %s reached retry limit %d",
+                task_id,
+                retry_limit,
+            )
+            return False
         await BrpcProfilingResultPGManager.delete_by_log_id(task.op_id)
-        await LogFilePGManager.update_log_file(
-            task.op_id, {"parse_status": TaskStatusEnum.PENDING.value}
-        )
         await BaseWorker.report(task.id, "BRPC task reinitialized", 0.0)
         return True
 
@@ -163,9 +166,6 @@ class BrpcLogParseWorker(BaseWorker):
 
             if record_count == 0:
                 await BaseWorker.report(task.id, "无 BRPC profiling 文件，跳过 profiling 解析", 100.0)
-                await LogFilePGManager.update_log_file(
-                    task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
-                )
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
                 )
@@ -177,9 +177,6 @@ class BrpcLogParseWorker(BaseWorker):
                 90.0,
             )
 
-            await LogFilePGManager.update_log_file(
-                task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
-            )
             await BaseWorker.report(task.id, "BRPC task completed successfully", 100.0)
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}

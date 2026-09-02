@@ -142,10 +142,6 @@ class UpdateLogFileRequest(BaseModel):
 
 class ListLogFilesRequest(BaseModel):
     name: Optional[str] = Field(default=None, description="日志文件名称，支持模糊查询")
-    parse_status: Optional[TaskStatusEnum] = Field(
-        default=None,
-        description="日志文件解析状态，支持查询解析中的日志文件（parsing）、解析成功的日志文件（parsed）和解析失败的日志文件（failed）",
-    )
     created_at_start: Optional[str] = Field(
         default=None,
         description="日志文件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",

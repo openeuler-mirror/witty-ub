@@ -6934,12 +6934,14 @@ button {
   color: #1e40af;
 }
 
-.status-running {
+.status-running,
+.status-retrying {
   background: #fde68a;
   color: #92400e;
 }
 
-.status-cancelled {
+.status-cancelled,
+.status-unknown {
   background: #e2e8f0;
   color: #64748b;
 }

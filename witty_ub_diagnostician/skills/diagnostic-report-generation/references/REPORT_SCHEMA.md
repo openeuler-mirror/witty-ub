@@ -95,7 +95,7 @@
 | `file_details` | array | ✅ | 长度 = total_files |
 | `file_details[*].log_id` | string | ✅ | 唯一 |
 | `file_details[*].log_name` | string | ✅ | 非空 |
-| `file_details[*].parse_status` | string | ✅ | 枚举: `SUCCESS`, `RUNNING`, `FAILED` |
+| `file_details[*].overall_status` | string | ✅ | 枚举: `successful`, `running`, `retrying`, `failed`, `pending`, `cancelled`, `unknown` |
 | `file_details[*].task_id` | string/null | ❌ | — |
 | `file_details[*].fault_count_total` | integer | ✅ | ≥ 0 |
 | `integrity_rating` | string | ✅ | 枚举: `FULL`, `PARTIAL`, `INSUFFICIENT` |

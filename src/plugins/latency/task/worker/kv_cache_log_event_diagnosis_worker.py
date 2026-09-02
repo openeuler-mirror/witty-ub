@@ -52,9 +52,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await LogFilePGManager.update_log_file(
-            log_file_model.id, {"parse_status": TaskStatusEnum.PENDING.value}
-        )
         await BaseWorker.report(task.id, "初始化任务", 0.0)
         return task.id
 
@@ -65,9 +62,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         if not task:
             return False
         if task.retry_times >= Config().get_config().task.task_retry_times:
-            await LogFilePGManager.update_log_file(
-                task.op_id, {"parse_status": TaskStatusEnum.FAILED.value}
-            )
             logger.warning(
                 "任务 %s 重试次数 %d 已超过最大重试次数 %d",
                 task_id, task.retry_times, Config().get_config().task.task_retry_times,
@@ -550,9 +544,6 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
 
             logger.info("故障定界工具运行完成")
             await BaseWorker.report(task.id, "故障定界完成，等待Trace上下文落库任务处理", 80.0)
-            await LogFilePGManager.update_log_file(
-                task.op_id, {"parse_status": TaskStatusEnum.SUCCESSFUL.value}
-            )
             if log_file.kb_id:
                 from sqlalchemy import text
                 from latency.database.engine import PGManager

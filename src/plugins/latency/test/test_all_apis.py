@@ -59,9 +59,9 @@ def ensure_mock_data():
         lf_id = str(uuid.uuid4())
         db_execute(
             """INSERT INTO log_file_table
-            (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (lf_id, kb_id, "mock.log", "pending", "/etc/hostname", 12, 0, 1, now()),
+            (id, kb_id, name, file_path, file_size, anomaly_cnt, existed_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (lf_id, kb_id, "mock.log", "/etc/hostname", 12, 0, 1, now()),
         )
         print(f"  创建 mock log_file: {lf_id}")
     else:

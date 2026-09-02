@@ -49,9 +49,9 @@ def _wait_parse(lf_id: str) -> dict:
     while time.time() < deadline:
         resp = _api("GET", f"/log_file/{lf_id}")
         lf = _json(resp)["result"]["log_file"]
-        if lf["parse_status"] == "successful":
+        if lf["overall_status"] == "successful":
             return lf
-        if lf["parse_status"] == "failed":
+        if lf["overall_status"] == "failed":
             pytest.fail(f"Pipeline failed: {lf}")
         time.sleep(3)
     pytest.fail(f"Pipeline did not complete within {TIMEOUT}s")
@@ -112,7 +112,7 @@ class TestParsePipeline:
         assert log_file_id is not None and len(log_file_id) > 30
 
     def test_pipeline_completed(self, pipeline_done):
-        assert pipeline_done["parse_status"] == "successful"
+        assert pipeline_done["overall_status"] == "successful"
         assert pipeline_done["overall_progress"] >= 30.0
 
     def test_parse_results_exist(self, pipeline_done, log_file_id):

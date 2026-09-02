@@ -58,8 +58,8 @@ uv run experience-skill search-experiences \
 |------|---------|---------|------|
 | 1.1 | `POST /log_kb/list` | `created_sorted_desc=true`, `page_cnt=20` | 定位知识库 `kb_id` |
 | 1.2 | `GET /log_kb/{kb_id}` | — | 二次校验 |
-| 1.3 | `POST /log_file/list/{kb_id}` | `parse_status` 不传 | 检查 parse_status 与 fault 计数，记录 `task_id` 与 `log_file.id` |
-| 1.4 | `GET /task/{task_id}` | — | parse_status≠SUCCESS 时查进度，声明"基于不完整数据" |
+| 1.3 | `POST /log_file/list/{kb_id}` | 不按状态过滤 | 检查 `overall_status` 与 fault 计数，记录 `task.id` 与 `log_file.id` |
+| 1.4 | `GET /task/{task_id}` | — | overall_status≠successful 时查进度，声明"基于不完整数据" |
 | 1.5 | `GET /log_parse_result/options` | `kb_id` | 获取真实 cluster/host/pod 值，禁止臆测 |
 
 ---
@@ -91,7 +91,7 @@ start_time / end_time:       （可选，用户给了时间就传）
 2. 与用户报告的故障时间对齐，排除非故障时段的偶发干扰
 3. 若呈现**周期性重复**（如每 5 分钟一次尖峰），记录周期特征
    （可能指向 ETCD lease 续约失败、定时任务冲突、心跳超时等）
-4. **结果为空时**：返回阶段一核验 parse_status，或直接跳阶段四用
+4. **结果为空时**：返回阶段一核验 overall_status，或直接跳阶段四用
    `POST /log_failure_event_result/list_trace_events` 无时间过滤查
 
 ---

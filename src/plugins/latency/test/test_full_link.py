@@ -17,7 +17,6 @@ from latency.schemas.log import LogFileModel, LogKnowledgeModel
 from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
 from latency.database.engine import AsyncSQLiteSingleton
-from latency.ENUM.task import TaskStatusEnum
 
 
 async def setup_test_data(log_dir: str) -> tuple[str, str]:
@@ -44,7 +43,6 @@ async def setup_test_data(log_dir: str) -> tuple[str, str]:
         name="test_log_file.log",
         file_path=log_dir,
         file_size=1024,
-        parse_status=TaskStatusEnum.PENDING.value,
         anomaly_cnt=0,
     )
     await LogFileManager.add_log_file(log_file_model)
