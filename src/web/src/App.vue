@@ -3148,7 +3148,8 @@ const selectAllLatencySeries = () => {
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([availableLatencySeriesConfig.value[0].key])
+  const firstSeries = availableLatencySeriesConfig.value[0]
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>(firstSeries ? [firstSeries.key] : [])
 }
 
 const latencyPercentileOptions = computed(() => [
@@ -8411,6 +8412,13 @@ const saveDialog = async () => {
     dialog.error = '请填写资产库描述'
     return
   }
+  if (
+    dialog.mode === 'create' &&
+    assets.value.some((asset) => asset.existed_status !== false && asset.name.trim() === name)
+  ) {
+    dialog.error = '资产库名称已存在'
+    return
+  }
 
   isSaving.value = true
   errorMessage.value = ''
@@ -10321,7 +10329,7 @@ const loadBrpcMonitorData = async () => {
       brpcFileNames.value.length > 0 &&
       !brpcFileNames.value.includes(brpcSelectedFileName.value)
     ) {
-      brpcSelectedFileName.value = brpcFileNames.value[0]
+      brpcSelectedFileName.value = brpcFileNames.value[0] ?? ''
     }
 
     applyBrpcFileFilter()

@@ -69,6 +69,14 @@ class CreateLogKnowledgeRequest(BaseModel):
     name: str = Field(..., min_length=1, description="知识名称")
     description: str = Field(..., min_length=1, description="知识描述")
 
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("知识名称不能为空")
+        return value
+
 
 class UpdateLogKnowledgeRequest(BaseModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
