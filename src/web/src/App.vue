@@ -12407,9 +12407,9 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
-                  <span class="scale-label">时间尺度：</span>
+                  <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedLatencyScale" aria-label="时间尺度">
+                    <select v-model="selectedLatencyScale" aria-label="时延时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -12433,6 +12433,9 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
+              <p class="chart-scale-hint">
+                横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+              </p>
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
@@ -13525,9 +13528,9 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
-                  <span class="scale-label">时间尺度：</span>
+                  <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedFaultScale" aria-label="故障时间尺度">
+                    <select v-model="selectedFaultScale" aria-label="故障时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -13539,6 +13542,9 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
+              <p class="chart-scale-hint">
+                横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+              </p>
               <div class="latency-chart-panel">
                 <div v-if="isFaultChartLoading" class="chart-state">
                   正在加载故障码计数时序分布...
@@ -14842,9 +14848,12 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
-                  <span class="scale-label">时间尺度：</span>
+                  <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedBrpcFaultScale" aria-label="BRPC 故障时间尺度">
+                    <select
+                      v-model="selectedBrpcFaultScale"
+                      aria-label="BRPC 故障时间聚合尺度"
+                    >
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -14856,6 +14865,9 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
+              <p class="chart-scale-hint">
+                横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+              </p>
               <div v-if="brpcFaultSeriesOptions.length > 0" class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">

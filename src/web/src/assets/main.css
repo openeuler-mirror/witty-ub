@@ -1889,6 +1889,13 @@ button {
   white-space: nowrap;
 }
 
+.chart-scale-hint {
+  margin: -4px 0 10px;
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
 .latency-percentile-select {
   display: inline-flex;
 }
