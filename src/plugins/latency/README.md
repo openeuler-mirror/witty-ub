@@ -95,7 +95,6 @@ latency/
 │   └── kvcache_log_file.py
 ├── deploy/                     # 部署文件
 │   ├── deploy.sh
-│   ├── run_opencode.sh
 │   ├── requirements.txt
 │   └── ...
 ├── test/                       # 测试
@@ -243,7 +242,7 @@ sudo cp /path/to/witty-ub/config/agents/witty-ub-diagnostician.md /var/witty-ub/
 ```toml
 [db]
 pg_host = "127.0.0.1"
-pg_port = 15432
+pg_port = 5432
 pg_database = "latency_test"
 pg_user = "postgres"
 pg_password = "postgres"
@@ -321,7 +320,7 @@ curl http://127.0.0.1:9772/health_check
 OpenCode：
 
 ```bash
-bash /path/to/witty-ub/src/plugins/latency/deploy/run_opencode.sh
+bash /path/to/witty-ub/deploy/deploy_opencode.sh
 ```
 
 ---

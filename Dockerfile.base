@@ -2,9 +2,21 @@
 # witty-ub is licensed under the Mulan PSL v2.
 
 # ============================================
-# Base image with all dependencies pre-installed
+# Base images with dependencies pre-installed.
+#
+# Targets (docker build -f Dockerfile.base --target <target>):
+#   base           All-in-One（单机镜像用，含全部依赖与 C++ 工具链）
+#   base-backend   后端角色（C++ 运行库 + latency venv，无 nginx/node/opencode）
+#   base-frontend  前端角色（nginx + node + OpenCode + experience-skill venv）
 # ============================================
-FROM openeuler/openeuler:24.03-lts
+
+# ---------- shared: openEuler root ----------
+FROM openeuler/openeuler:24.03-lts AS oe-root
+
+# ============================================
+# base: All-in-One（保留全量，供主镜像构建 C++ 与单机部署）
+# ============================================
+FROM oe-root AS base
 
 LABEL maintainer="witty-ub"
 LABEL description="Witty-UB base image with all dependencies"
@@ -18,6 +30,7 @@ RUN dnf update -y --allowerasing && \
     zlib-devel brotli-devel re2-devel \
     log4cplus sqlite brotli zlib jsoncpp tinyxml2 \
     openssl-libs re2 nginx python3 python3-pip curl \
+    gettext \
     git wget nodejs npm && \
     dnf clean all && \
     rm -rf /var/cache/dnf
@@ -63,6 +76,93 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     rm -rf /root/.cache/pip
 
 # Install OpenCode (install in base image to avoid QEMU issues in multi-arch builds)
+RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode && \
+    opencode --version
+
+# Install uv package manager for experience-skill
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
+
+# Create venv for experience-skill and install Python dependencies
+RUN python3 -m venv /var/witty-ub/experience-skill/.venv && \
+    /var/witty-ub/experience-skill/.venv/bin/pip install \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    "fastapi>=0.110.0" \
+    "uvicorn[standard]>=0.21.0" \
+    "pydantic>=2.7.0" \
+    "pyyaml>=6.0" && \
+    rm -rf /root/.cache/pip
+
+# ============================================
+# base-backend: 后端角色（FastAPI + C++ 诊断工具运行环境）
+# ============================================
+FROM oe-root AS base-backend
+
+LABEL maintainer="witty-ub"
+LABEL description="Witty-UB backend base image (FastAPI + C++ diagnosis runtime)"
+
+RUN dnf update -y --allowerasing && \
+    dnf install -y --allowerasing \
+    log4cplus sqlite brotli zlib jsoncpp tinyxml2 \
+    openssl-libs re2 python3 python3-pip curl findutils && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+RUN mkdir -p /var/witty-ub/data/kvcache \
+    /var/witty-ub/data/urma \
+    /var/witty-ub/data/ubsocket \
+    /var/witty-ub/data/umq \
+    /usr/share/witty-ub/data \
+    /var/witty-ub/config \
+    /var/witty-ub/latency \
+    /var/witty-ub/latency/file/file_upload \
+    /var/witty-ub/latency/file/file_parse_result \
+    /var/log/witty-ub
+
+RUN python3 -m venv /var/witty-ub/latency/.venv && \
+    /var/witty-ub/latency/.venv/bin/pip install \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    fastapi==0.120.1 \
+    uvicorn==0.49.0 \
+    apscheduler==3.10.4 \
+    pydantic==2.12.3 \
+    python-multipart==0.0.20 \
+    aiohttp==3.9.5 \
+    aiofiles==25.1.0 \
+    chardet==4.0.0 \
+    requests==2.32.2 \
+    httpx==0.28.1 \
+    urllib3>=2.1.0 \
+    rarfile>=4.0 \
+    sqlalchemy==2.0.51 \
+    asyncpg==0.31.0 \
+    "numpy>=1.26.0,<3.0.0" \
+    "polars>=1.0" && \
+    rm -rf /root/.cache/pip
+
+# ============================================
+# base-frontend: 前端角色（Nginx + OpenCode + experience-skill）
+# ============================================
+FROM oe-root AS base-frontend
+
+LABEL maintainer="witty-ub"
+LABEL description="Witty-UB frontend base image (Nginx + OpenCode)"
+
+RUN dnf update -y --allowerasing && \
+    dnf install -y --allowerasing \
+    nginx python3 python3-pip curl gettext nodejs npm findutils && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+RUN mkdir -p /var/witty-ub/web \
+    /var/witty-ub/witty_ub_diagnostician \
+    /var/log/witty-ub \
+    /etc/witty-ub/web \
+    /run/witty-ub-web \
+    /var/log/witty-ub-web
+
+# Install OpenCode
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode && \
     opencode --version

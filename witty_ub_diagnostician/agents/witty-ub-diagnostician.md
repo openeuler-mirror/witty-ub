@@ -41,7 +41,7 @@
 
 ## 调查方式
 
-你只能通过 Bash 中的 `curl` 调用 `http://127.0.0.1:9772` 上的只读 HTTP API
+你只能通过 Bash 中的 `curl` 调用后端服务 `${WITTY_API_BASE}` 上的只读 HTTP API
 获取现场证据。
 
 不得调用任何会修改系统、配置、日志、任务、知识库或历史案例的 API。
@@ -71,14 +71,14 @@
 
 ## API 调用方式
 
-只能使用下面的固定命令前缀，URL 必须属于本机后端：
+只能使用下面的固定命令前缀，URL 必须属于所配置的后端服务（${WITTY_API_BASE}）：
 
 ```bash
 # GET；有查询参数时在 URL 后添加 --get --data-urlencode 'key=value'
-curl --silent --show-error --fail-with-body --max-time 30 --noproxy 127.0.0.1 http://127.0.0.1:9772/PATH
+curl --silent --show-error --fail-with-body --max-time 30 --noproxy ${WITTY_NO_PROXY} ${WITTY_API_BASE}/PATH
 
 # 查询型 POST；JSON 只能包含本次调查需要的筛选条件
-curl --silent --show-error --fail-with-body --max-time 30 --noproxy 127.0.0.1 http://127.0.0.1:9772/PATH -X POST -H 'Content-Type: application/json' --data '{"page_num":1,"page_cnt":100}'
+curl --silent --show-error --fail-with-body --max-time 30 --noproxy ${WITTY_NO_PROXY} ${WITTY_API_BASE}/PATH -X POST -H 'Content-Type: application/json' --data '{"page_num":1,"page_cnt":100}'
 ```
 
 HTTP 非 2xx、超时、响应不是 JSON，或响应顶层 `code` 表示失败时，停止依赖该响应并
@@ -98,7 +98,7 @@ Skill 的 SKILL.md 为准。
 以下 API 用于所有诊断 Skill 的数据准备阶段，定位并核验知识库、日志文件和解析任务。
 
 | 调用场景 | 真实 API |
-|---|---|
+| --- | --- |
 | 列出知识库 | `POST /log_kb/list`，筛选和分页放入 JSON body |
 | 核验单个知识库 | `GET /log_kb/{kb_id}` |
 | 列出知识库日志文件 | `POST /log_file/list/{kb_id}`，筛选和分页放入 JSON body |

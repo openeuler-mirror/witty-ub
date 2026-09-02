@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
+#
+# OpenCode installation and deployment script.
+# This script is intended for users who do not already have an OpenCode
+# service deployed. It installs OpenCode when necessary and starts a local
+# OpenCode service on 127.0.0.1:4096.
+
+set -euo pipefail
+
+readonly PACKAGE_NAME="opencode-ai"
+readonly COMMAND_NAME="opencode"
+readonly NPM_REGISTRY="https://mirrors.huaweicloud.com/repository/npm/"
+readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+readonly WITTY_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly OPENCODE_LOG="${WITTY_ROOT}/opencode_server.log"
+readonly OPENCODE_PID_FILE="${WITTY_ROOT}/opencode.pid"
+
+# Agent 配置双布局:
+#   bundle: witty_ub_diagnostician/.opencode/（Agent bundle 随包安装）
+#   legacy: config/opencode.json + config/agents/（仅提示词的旧布局）
+DEPLOYED_BUNDLE_CONFIG="/var/witty-ub/witty_ub_diagnostician/.opencode/opencode.json"
+DEPLOYED_BUNDLE_PROMPT="/var/witty-ub/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
+DEPLOYED_LEGACY_CONFIG="/var/witty-ub/config/opencode.json"
+DEPLOYED_LEGACY_PROMPT="/var/witty-ub/config/agents/witty-ub-diagnostician.md"
+LOCAL_BUNDLE_CONFIG="${WITTY_ROOT}/witty_ub_diagnostician/opencode.json"
+LOCAL_BUNDLE_PROMPT="${WITTY_ROOT}/witty_ub_diagnostician/agents/witty-ub-diagnostician.md"
+LOCAL_LEGACY_CONFIG="${WITTY_ROOT}/config/opencode.json"
+LOCAL_LEGACY_PROMPT="${WITTY_ROOT}/config/agents/witty-ub-diagnostician.md"
+
+# Select the configuration that belongs to this script's layout. A stale
+# /var/witty-ub installation must not override a source-tree invocation.
+OPENCODE_CONFIG_PATH=""
+AGENT_PROMPT=""
+if [[ "${WITTY_ROOT}" == "/var/witty-ub" ]]; then
+    if [[ -f "${DEPLOYED_BUNDLE_CONFIG}" && -f "${DEPLOYED_BUNDLE_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${DEPLOYED_BUNDLE_CONFIG}"
+        AGENT_PROMPT="${DEPLOYED_BUNDLE_PROMPT}"
+    elif [[ -f "${DEPLOYED_LEGACY_CONFIG}" && -f "${DEPLOYED_LEGACY_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${DEPLOYED_LEGACY_CONFIG}"
+        AGENT_PROMPT="${DEPLOYED_LEGACY_PROMPT}"
+    fi
+else
+    if [[ -f "${LOCAL_BUNDLE_CONFIG}" && -f "${LOCAL_BUNDLE_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${LOCAL_BUNDLE_CONFIG}"
+        AGENT_PROMPT="${LOCAL_BUNDLE_PROMPT}"
+    elif [[ -f "${LOCAL_LEGACY_CONFIG}" && -f "${LOCAL_LEGACY_PROMPT}" ]]; then
+        OPENCODE_CONFIG_PATH="${LOCAL_LEGACY_CONFIG}"
+        AGENT_PROMPT="${LOCAL_LEGACY_PROMPT}"
+    fi
+fi
+if [[ -z "${OPENCODE_CONFIG_PATH}" || ! -f "${AGENT_PROMPT}" ]]; then
+    echo "[ERROR] OpenCode configuration not found." >&2
+    echo "        Checked: ${DEPLOYED_BUNDLE_CONFIG}" >&2
+    echo "        Checked: ${DEPLOYED_LEGACY_CONFIG}" >&2
+    echo "        Checked: ${LOCAL_BUNDLE_CONFIG}" >&2
+    echo "        Checked: ${LOCAL_LEGACY_CONFIG}" >&2
+    exit 1
+fi
+
+# ── 前后端分离部署: Agent 访问的后端基址与监听地址可参数化 ──
+WITTY_API_BASE="${WITTY_API_BASE:-http://127.0.0.1:9772}"
+WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
+OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
+# Agent 提示词保持仓库原文；其 curl 命令中的变量由 Bash 在执行时展开。
+# 导出到 OpenCode 进程及它启动的 Agent Bash 子进程。
+export WITTY_API_BASE WITTY_NO_PROXY OPENCODE_HOST
+
+# Skip installation when a working OpenCode command is already available.
+if command -v "${COMMAND_NAME}" >/dev/null 2>&1; then
+    echo "[INFO] OpenCode is already installed; skipping installation."
+else
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "[ERROR] npm not found. Please install Node.js and npm first." >&2
+        exit 1
+    fi
+
+    echo "[INFO] npm found: $(npm --version)"
+    echo "[INFO] Installing ${PACKAGE_NAME} globally from ${NPM_REGISTRY}..."
+    npm install -g "${PACKAGE_NAME}" --registry="${NPM_REGISTRY}"
+
+    if ! command -v "${COMMAND_NAME}" >/dev/null 2>&1; then
+        echo "[ERROR] ${PACKAGE_NAME} was installed, but '${COMMAND_NAME}' is not in PATH." >&2
+        echo "        Ensure npm's global bin directory is included in PATH." >&2
+        exit 1
+    fi
+fi
+
+echo "[OK] OpenCode is ready: $(${COMMAND_NAME} --version)"
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "[ERROR] curl not found. The diagnosis agent requires curl to query the backend API." >&2
+    exit 1
+fi
+
+# Respect a user-provided OpenCode configuration; fall back to the bundled
+# one only when nothing is set. OPENCODE_CONFIG_DIR exposes the bundle's
+# standard .opencode layout (agents/skills/commands) so its skills stay
+# discoverable regardless of the cwd, while user settings still merge in.
+export OPENCODE_CONFIG="${OPENCODE_CONFIG:-${OPENCODE_CONFIG_PATH}}"
+export WITTY_DIR="${WITTY_ROOT}"
+export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$(cd "$(dirname "${OPENCODE_CONFIG_PATH}")" && pwd)}"
+
+echo "[INFO] Validating OpenCode configuration and diagnosis agent..."
+if ! "${COMMAND_NAME}" debug agent witty-ub-diagnostician >/dev/null 2>&1; then
+    if [[ "${OPENCODE_CONFIG}" != "${OPENCODE_CONFIG_PATH}" ]]; then
+        echo "[WARN] Diagnosis agent not found under the user-provided OPENCODE_CONFIG;" >&2
+        echo "       continuing with the user configuration as-is." >&2
+    else
+        echo "[ERROR] OpenCode configuration is invalid: ${OPENCODE_CONFIG}" >&2
+        exit 1
+    fi
+fi
+
+if curl --silent --fail --max-time 2 --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+    echo "[OK] OpenCode server is already running at http://127.0.0.1:4096"
+    # pidfile 缺失时按端口反查 PID 回填（best-effort），方便 stop 菜单读取
+    if [[ ! -f "${OPENCODE_PID_FILE}" ]]; then
+        if command -v ss >/dev/null 2>&1; then
+            ss -lptnH 'sport = :4096' 2>/dev/null \
+                | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' \
+                | head -n1 >"${OPENCODE_PID_FILE}" 2>/dev/null || true
+        elif command -v fuser >/dev/null 2>&1; then
+            fuser 4096/tcp 2>/dev/null \
+                | sed 's|^[^:]*:||' | tr -s '[:space:]' '\n' \
+                | grep -E '^[0-9]+$' | head -n1 >"${OPENCODE_PID_FILE}" 2>/dev/null || true
+        elif command -v lsof >/dev/null 2>&1; then
+            lsof -t -iTCP:4096 -sTCP:LISTEN 2>/dev/null | head -n1 >"${OPENCODE_PID_FILE}" 2>/dev/null || true
+        fi
+        # 反查失败时移除空 pidfile, 让 stop 走端口兜底路径
+        [[ -s "${OPENCODE_PID_FILE}" ]] || rm -f "${OPENCODE_PID_FILE}"
+    fi
+    exit 0
+fi
+
+if ! curl --silent --fail --max-time 2 --noproxy '*' "${WITTY_API_BASE}/health_check" >/dev/null 2>&1; then
+    echo "[WARN] Latency backend is not ready at ${WITTY_API_BASE}." >&2
+    echo "       OpenCode will start, but diagnosis queries will fail until the backend is healthy." >&2
+fi
+
+# Start the OpenCode service in the background.
+echo "[INFO] Using OpenCode configuration: ${OPENCODE_CONFIG}"
+echo "[INFO] Starting OpenCode server at http://${OPENCODE_HOST}:4096 ..."
+nohup "${COMMAND_NAME}" serve --hostname "${OPENCODE_HOST}" --port 4096 \
+    >"${OPENCODE_LOG}" 2>&1 &
+OPENCODE_PID=$!
+# 记录 pidfile, 供 stop 菜单读取
+echo "${OPENCODE_PID}" >"${OPENCODE_PID_FILE}"
+
+for _ in $(seq 1 20); do
+    if curl --silent --fail --max-time 1 --noproxy 127.0.0.1 http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+        echo "[OK] OpenCode server started in the background (PID: ${OPENCODE_PID})."
+        echo "     Log: ${OPENCODE_LOG}"
+        exit 0
+    fi
+    if ! kill -0 "${OPENCODE_PID}" 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
+echo "[ERROR] OpenCode server failed to become healthy at http://127.0.0.1:4096." >&2
+echo "        Check ${OPENCODE_LOG}" >&2
+exit 1

@@ -116,6 +116,8 @@ docker logs postgres
 
 ## 方式二：RPM 包部署
 
+RPM 方式安装的 PG 默认监听 5432 端口，与 RPM 部署的 witty-ub 读取的 `PG_PORT_RPM` 默认值一致。
+
 ### 手动安装步骤
 
 ```bash
@@ -127,7 +129,7 @@ sudo /usr/pgsql-15/bin/postgresql-15-setup initdb
 
 # 配置
 sudo vi /var/lib/pgsql/15/data/postgresql.conf
-# 添加/修改: listen_addresses = '*', port = 15432
+# 添加/修改: listen_addresses = '*', port = 5432
 
 # 认证
 sudo vi /var/lib/pgsql/15/data/pg_hba.conf
@@ -149,7 +151,7 @@ sudo -u postgres psql -c "CREATE DATABASE witty-ub OWNER witty-ub;"
 sudo systemctl status postgresql-15
 
 # 测试连接
-psql -h 127.0.0.1 -p 15432 -U witty-ub -d witty-ub
+psql -h 127.0.0.1 -p 5432 -U witty-ub -d witty-ub
 
 # 监听端口
 ss -tlnp | grep postgres
@@ -176,7 +178,7 @@ docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Gatew
 
 ```conf
 PG_HOST_IN_CONTAINER=172.18.0.1
-PG_PORT_IN_CONTAINER=15432
+PG_PORT_IN_CONTAINER=5432
 ```
 
 ---

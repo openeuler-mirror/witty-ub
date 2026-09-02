@@ -171,7 +171,7 @@ docker exec witty-ub ps aux | grep opencode
 docker exec witty-ub cat /var/log/witty-ub/opencode_server.log
 
 # 手动启动 OpenCode（会先校验配置）
-docker exec witty-ub bash /var/witty-ub/latency/deploy/run_opencode.sh
+docker exec witty-ub bash /var/witty-ub/deploy/deploy_opencode.sh
 ```
 
 ### 7.4 Agent 文件路径错误

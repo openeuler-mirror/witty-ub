@@ -41,8 +41,12 @@ bash deploy/host/deploy.sh
     3) 仅启动服务（已部署过）
     4) 停止所有服务
 
+  🤖  Agent 服务
+    5) 启动 Agent 服务（OpenCode）
+    6) 停止 Agent 服务
+
   🗑️  清理
-    5) 一键清理（交互选择范围）
+    7) 一键清理（交互选择范围）
 
     0) 退出
 ```
@@ -79,7 +83,9 @@ deploy.sh
   │     ├── [2] 仅安装依赖 → install_deps.sh
   │     ├── [3] 仅启动服务 → start_services
   │     ├── [4] 停止服务 → stop_services
-  │     └── [5] 一键清理 → clean_all
+  │     ├── [5] 启动 Agent → start_agent
+  │     ├── [6] 停止 Agent → stop_agent
+  │     └── [7] 一键清理 → clean_all
   ├── --deploy 直接完整部署（跳过菜单）
   │     └── main_deploy
   │           ├── install_deps.sh           # 系统依赖 + Python venv
@@ -87,8 +93,7 @@ deploy.sh
   │           ├── build_frontend            # npm run build-only → dist/
   │           ├── build_cpp                 # cmake + make witty-ub-diag-tool
   │           ├── copy_data_files           # 数据文件 → /var/witty-ub/
-  │           ├── sync_pg_credentials       # pg.conf 凭据 → diagnosis_config.toml
-  │           └── start_services            # systemd units / nohup 回退
+  │           └── start_services            # 渲染运行时配置 + systemd units / nohup 回退
   ├── --start 仅启动服务
   │     └── start_services
   ├── --stop  停止服务
@@ -105,26 +110,26 @@ deploy.sh
 
 1. **OS 检测**：自动识别 openEuler / Ubuntu，选择对应包管理器（dnf / apt）
 2. **系统依赖**：安装 cmake、gcc-c++、PostgreSQL、Python3、Node.js 等（openEuler 24.03+ 另装 `systemd-pam`）
-3. **PostgreSQL**：调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 15432 端口
+3. **PostgreSQL**：调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，默认监听 5432 端口
 4. **Python 环境**：创建 `.venv` 虚拟环境，安装 FastAPI / SQLAlchemy / asyncpg / polars 等依赖
 5. **前端编译**：`npm run build-only` 构建 `dist/`（编译失败回退 dev server，不阻塞部署）
 6. **C++ 编译**：编译 `witty-ub-diag-tool` / `witty-ub-brpc-diag` 诊断工具（源码或 `CMakeLists.txt` 比二进制新则重编；`FORCE_REBUILD_CPP=1` 强制重编）
 7. **数据文件**：将故障模式树、配置文件复制到 `/var/witty-ub/`
-8. **凭据同步**：将 `deploy/pg.conf` 的实际 PG 凭据写入 `diagnosis_config.toml`
+8. **凭据同步**：将 `deploy/deploy.conf` 的实际 PG 凭据写入 `/var/witty-ub/config/diagnosis_config.toml` 运行时副本，不改写仓库源配置
 9. **启动服务**：启动 FastAPI 后端 (9772) + Vite 前端 (5173)，等待健康检查通过
 
 ---
 
 ## 配置文件
 
-### pg.conf
+### deploy.conf
 
-部署脚本读取 `deploy/pg.conf` 的 PostgreSQL 连接配置，修改后全局生效：
+部署脚本读取 `deploy/deploy.conf` 的 PostgreSQL 连接配置，修改后全局生效：
 
 ```conf
 # ---------- 数据库连接配置 ----------
 PG_HOST="127.0.0.1"        # 宿主机访问地址
-PG_PORT="15432"            # 监听端口
+PG_PORT_RPM="5432"         # 宿主机源码/RPM 部署监听端口
 PG_DATABASE="witty-ub"
 PG_USER="witty-ub"
 PG_PASSWORD="witty-ub"
@@ -138,7 +143,7 @@ PG_PASSWORD="witty-ub"
 通过环境变量临时覆盖 `pg.conf` 中的配置：
 
 ```bash
-PG_HOST=10.0.0.5 PG_PORT=5432 bash deploy/host/deploy.sh
+PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh
 ```
 
 ### 进程托管方式
@@ -238,7 +243,7 @@ journalctl --user -u witty-ub-frontend.service -f
 | 端口冲突 | `ss -tlnp \| grep 5173` / `ss -tlnp \| grep 9772` |
 | C++ 编译失败 | 按报错补装依赖后重跑；`cmake . -DCMAKE_BUILD_TYPE=Release && make -j\$(nproc) witty-ub-diag-tool` |
 | 前端编译失败 | `npm ping` 检查 registry 可达性；编译失败不阻塞部署，可先 `npm run dev` 用开发模式 |
-| PostgreSQL 未就绪 | `pg_isready -h 127.0.0.1 -p 15432`；或设置 `PG_HOST` / `PG_PORT` 指向正确数据库 |
+| PostgreSQL 未就绪 | `pg_isready -h 127.0.0.1 -p 5432`；或设置 `PG_HOST` / `PG_PORT_RPM` 指向正确数据库 |
 
 ---
 

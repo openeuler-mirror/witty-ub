@@ -27,7 +27,7 @@ install_system_deps() {
         zlib-devel brotli-devel re2-devel
         postgresql postgresql-server
         python3 python3-pip
-        nodejs npm git curl
+        nodejs npm git curl nginx
     )
 
     local UBUNTU_PKGS=(
@@ -37,7 +37,7 @@ install_system_deps() {
         zlib1g-dev libbrotli-dev libre2-dev
         postgresql postgresql-client
         python3 python3-pip python3-venv
-        nodejs npm git curl
+        nodejs npm git curl nginx
         libpam-systemd
     )
 
@@ -81,7 +81,10 @@ install_python_deps() {
 
     # 依赖安装日志会写入 LOG_DIR; clean(scope 2)会删除该目录,
     # 不重建会让 tee 写日志失败 → pipefail 误判安装失败。
+    # 另: root 跑过 install_deps.sh 后日志文件归 root, 普通用户
+    # 再部署时 tee 无写权限同样误判 → 先删除旧日志再由 tee 重建。
     mkdir -p "$LOG_DIR"
+    rm -f "$LOG_DIR/pip-install.log"
 
     if [ ! -d "$VENV_DIR" ]; then
         python3 -m venv "$VENV_DIR"

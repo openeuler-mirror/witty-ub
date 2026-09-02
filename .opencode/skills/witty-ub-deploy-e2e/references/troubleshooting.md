@@ -9,7 +9,7 @@ Symptom -> cause -> fix. Each row is a real incident.
 | Backend startup crash `cannot alter column ... partition key` / `InvalidTableDefinitionError` | Old `time_window_aggregated` RANGE partitions left in DB from a previous version; migration hits the partition-key column | Already fixed in `database/init.py` (`migrate_timestamptz_to_timestamp` skips partitioned tables). Re-run full deploy. |
 | `ModuleNotFoundError: No module named 'latency'` at backend start | Backend launched with system `/usr/bin/python3` without `PYTHONPATH` (e.g. manual `nohup python3 -u access/fastapi_server.py`) | Use `bash deploy/deploy.sh --start` or `systemctl --user restart witty-ub-backend.service` (the unit sets `PYTHONPATH=/.../src/plugins`). |
 | Backend health OK but frontend 404 | Only backend was started | `bash deploy/deploy.sh --start` starts both; verify `curl :5173` = 200. |
-| PG auth failure `InvalidPasswordError` | `config/diagnosis_config.toml [db]` password empty/mismatched vs `deploy/pg.conf` | `deploy.sh` syncs credentials from `deploy/pg.conf`; check both files. |
+| PG auth failure `InvalidPasswordError` | `config/diagnosis_config.toml [db]` password empty/mismatched vs `deploy/deploy.conf` | `deploy.sh` syncs credentials from `deploy/deploy.conf`; check both files. |
 
 ## E2E / Task failures
 

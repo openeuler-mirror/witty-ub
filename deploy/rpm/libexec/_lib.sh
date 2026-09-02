@@ -4,7 +4,7 @@
 #
 # witty-ub manager 共享工具库（RPM 安装后由 witty-ub-manager 子包提供）
 # 被 manager.sh / install_deps.sh / deploy_pg.sh 共同 source。
-# 提供色彩日志、OS 检测、PG 凭据加载（读 /etc/witty-ub/pg.conf）、
+# 提供色彩日志、OS 检测、PG 凭据加载（读 /etc/witty-ub/deploy.conf，兼容旧名 pg.conf）、
 # psql 封装、交互确认等通用函数。
 #
 # 不要直接执行此脚本。
@@ -17,11 +17,17 @@ WITTY_MANAGER_DIR="${WITTY_MANAGER_DIR:-/usr/libexec/witty-ub-manager}"
 WITTY_LATENCY_DIR="${WITTY_LATENCY_DIR:-${WITTY_DIR}/latency}"
 WITTY_CONFIG_DIR="${WITTY_CONFIG_DIR:-${WITTY_DIR}/config}"
 WITTY_ETC_DIR="${WITTY_ETC_DIR:-/etc/witty-ub}"
-PG_CONF_FILE="${PG_CONF_FILE:-${WITTY_ETC_DIR}/pg.conf}"
+PG_CONF_FILE="${PG_CONF_FILE:-${WITTY_ETC_DIR}/deploy.conf}"
+[ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="${WITTY_ETC_DIR}/pg.conf" # 兼容旧安装
 DIAG_CONFIG_FILE="${DIAG_CONFIG_FILE:-${WITTY_CONFIG_DIR}/diagnosis_config.toml}"
 
-# witty-ub 的 systemd services（system-wide，由 witty-ub 主包安装）
-WITTY_SERVICES=(witty-ub-web witty-ub-latency)
+# 前端连接配置（witty-ub-web 子包安装默认值，manager config 管理）
+WITTY_WEB_ENV="${WITTY_ETC_DIR}/web/env"
+NGINX_CONF_TEMPLATE="${NGINX_CONF_TEMPLATE:-/usr/share/witty-ub/nginx/witty-ub-web.conf.template}"
+NGINX_CONF_FILE="${WITTY_ETC_DIR}/web/nginx.conf"
+
+# witty-ub 的 systemd services：由 role_services 按角色动态生成
+WITTY_SERVICES=()
 
 # ──────────────────── 色彩 ────────────────────
 
@@ -33,11 +39,14 @@ _COLOR_BLUE='\033[0;34m'
 
 # ──────────────────── 日志 ────────────────────
 
-_log()  { echo -e "${_COLOR_GREEN}[witty-ub]${_COLOR_RESET} $*"; }
+_log() { echo -e "${_COLOR_GREEN}[witty-ub]${_COLOR_RESET} $*"; }
 _warn() { echo -e "${_COLOR_YELLOW}[warn]${_COLOR_RESET}    $*"; }
-_err()  { echo -e "${_COLOR_RED}[error]${_COLOR_RESET}   $*"; }
+_err() { echo -e "${_COLOR_RED}[error]${_COLOR_RESET}   $*"; }
 _info() { echo -e "${_COLOR_BLUE}[info]${_COLOR_RESET}    $*"; }
-_step_header() { echo ""; echo -e "${_COLOR_GREEN}═══ $* ═══${_COLOR_RESET}"; }
+_step_header() {
+    echo ""
+    echo -e "${_COLOR_GREEN}═══ $* ═══${_COLOR_RESET}"
+}
 
 # ──────────────────── 工具 ────────────────────
 
@@ -93,8 +102,8 @@ _confirm() {
     local ans
     read -r -p "$prompt [y/N]: " ans
     case "$ans" in
-        y|Y|yes|YES) return 0 ;;
-        *) return 1 ;;
+    y | Y | yes | YES) return 0 ;;
+    *) return 1 ;;
     esac
 }
 
@@ -103,10 +112,12 @@ _confirm() {
 # 解析 /etc/witty-ub/pg.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
 # 与 sync_pg_credentials 同源(pg.conf 是唯一真实凭据来源)。
 _load_pg_credentials() {
-    [ -f "$PG_CONF_FILE" ] || { _warn "pg.conf 不存在: $PG_CONF_FILE"; return 1; }
+    [ -f "$PG_CONF_FILE" ] || {
+        _warn "pg.conf 不存在: $PG_CONF_FILE"
+        return 1
+    }
     PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    [ -z "$PG_PORT" ] && PG_PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
@@ -122,4 +133,113 @@ _load_pg_credentials() {
 _psql() {
     _load_pg_credentials || return 1
     psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" "$@"
+}
+
+# ──────────────────── 角色探测 ────────────────────
+
+# 按已安装子包探测本机部署角色:
+#   witty-ub-backend + witty-ub-web → all（单机/前后端同机）
+#   仅 witty-ub-backend            → backend
+#   仅 witty-ub-web                → frontend
+#   均未安装但旧单包 witty-ub 在   → all（旧单包负载全量，升级兼容）
+# WITTY_ROLE_FORCE=all|backend|frontend 可覆盖探测结果（测试/特殊场景）。
+detect_role() {
+    if [ -n "${WITTY_ROLE_FORCE:-}" ]; then
+        WITTY_ROLE="$WITTY_ROLE_FORCE"
+        return 0
+    fi
+    _has_cmd rpm || {
+        _err "rpm 命令不可用，无法探测部署角色（可用 WITTY_ROLE_FORCE 覆盖）"
+        return 1
+    }
+    local backend=0 web=0
+    rpm -q witty-ub-backend >/dev/null 2>&1 && backend=1
+    rpm -q witty-ub-web >/dev/null 2>&1 && web=1
+    if [ "$backend" = "1" ] && [ "$web" = "1" ]; then
+        WITTY_ROLE="all"
+    elif [ "$backend" = "1" ]; then
+        WITTY_ROLE="backend"
+    elif [ "$web" = "1" ]; then
+        WITTY_ROLE="frontend"
+    elif rpm -q witty-ub >/dev/null 2>&1; then
+        WITTY_ROLE="all"
+    else
+        _err "未检测到 witty-ub 子包（witty-ub-backend / witty-ub-web）"
+        _info "请先安装: sudo dnf install -y witty-ub-backend  # 或 witty-ub-web / witty-ub"
+        return 1
+    fi
+    return 0
+}
+
+# 按角色生成 WITTY_SERVICES（本机服务集合）
+role_services() {
+    case "${WITTY_ROLE:-all}" in
+    backend) WITTY_SERVICES=(witty-ub-latency) ;;
+    frontend) WITTY_SERVICES=(witty-ub-web) ;;
+    all) WITTY_SERVICES=(witty-ub-web witty-ub-latency) ;;
+    *)
+        _err "未知角色: ${WITTY_ROLE}"
+        return 1
+        ;;
+    esac
+}
+
+# ──────────────────── 前端连接配置 / 渲染 ────────────────────
+
+# 从 /etc/witty-ub/web/env 读取 KEY=VALUE 值；未设置时输出默认值。
+web_env_get() {
+    local key="$1" default="${2:-}" val=""
+    if [ -f "$WITTY_WEB_ENV" ]; then
+        val="$(grep -E "^${key}=" "$WITTY_WEB_ENV" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    fi
+    echo "${val:-$default}"
+}
+
+# 提取 URL 中的主机名（用于 no_proxy）
+_url_host() {
+    printf '%s' "$1" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://([^:/]+).*#\1#'
+}
+
+# 写 /etc/witty-ub/web/env（唯一配置源，nginx 与 Agent 提示词共用）
+write_web_env() {
+    local backend_url="$1" agent_url="$2" host no_proxy
+    host="$(_url_host "$backend_url")"
+    no_proxy="127.0.0.1"
+    [ -n "$host" ] && no_proxy="127.0.0.1,${host}"
+    mkdir -p "$(dirname "$WITTY_WEB_ENV")"
+    cat >"$WITTY_WEB_ENV" <<EOF
+# witty-ub-web 前端连接配置（由 witty-ub manager config 管理）
+# WITTY_BACKEND_URL: FastAPI 后端地址，nginx 反代与 Agent 提示词共用
+WITTY_BACKEND_URL=${backend_url}
+WITTY_API_BASE=${backend_url}
+WITTY_AGENT_URL=${agent_url}
+WITTY_NO_PROXY=${no_proxy}
+EOF
+    chmod 0640 "$WITTY_WEB_ENV"
+}
+
+# 渲染 nginx 配置（sed 替换模板占位符，不依赖 envsubst/gettext）
+render_nginx_conf() {
+    local backend_url="$1" agent_url="$2"
+    [ -f "$NGINX_CONF_TEMPLATE" ] || {
+        _warn "nginx 模板不存在: $NGINX_CONF_TEMPLATE（witty-ub-web 子包未安装?）"
+        return 1
+    }
+    mkdir -p "$(dirname "$NGINX_CONF_FILE")"
+    sed \
+        -e "s|\${WITTY_BACKEND_URL}|${backend_url}|g" \
+        -e "s|\${WITTY_AGENT_URL}|${agent_url}|g" \
+        "$NGINX_CONF_TEMPLATE" >"${NGINX_CONF_FILE}.tmp" &&
+        mv "${NGINX_CONF_FILE}.tmp" "$NGINX_CONF_FILE"
+    chmod 0640 "$NGINX_CONF_FILE"
+    _log "nginx 配置已渲染: $NGINX_CONF_FILE (backend=${backend_url} agent=${agent_url})"
+}
+
+# 按当前 web env 渲染 nginx（config/deploy 共用）。
+# Agent 提示词保持原文，WITTY_API_BASE/WITTY_NO_PROXY 由 OpenCode 导出。
+render_frontend_configs() {
+    local backend_url agent_url
+    backend_url="$(web_env_get WITTY_BACKEND_URL http://127.0.0.1:9772)"
+    agent_url="$(web_env_get WITTY_AGENT_URL http://127.0.0.1:4096)"
+    render_nginx_conf "$backend_url" "$agent_url" || return 1
 }

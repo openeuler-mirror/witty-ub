@@ -7,7 +7,7 @@
 # 主要子命令:
 #   witty-ub manager [subcommand]   # 部署管理（推荐入口）
 #
-# 其它独立二进制（由 witty-ub 主包安装，可直接调用）:
+# 其它独立二进制（由 witty-ub-backend 子包安装，可直接调用）:
 #   witty-ub-log          日志解析诊断工具
 #   witty-ub-topo         拓扑分析工具
 #   witty-ub-diag-tool    综合诊断工具
@@ -30,27 +30,31 @@ Commands:
   manager [subcommand]   部署管理器（无参数进入交互菜单）
 
 Manager subcommands:
-  install      初始化 PostgreSQL + 同步凭据 + 启动服务
-  uninstall    停止并禁用 systemd units（保留数据）
-  clean        清空 PostgreSQL 数据 + /var/witty-ub/data（不可恢复）
-  start        systemctl start witty-ub-web witty-ub-latency
-  stop         systemctl stop witty-ub-web witty-ub-latency
-  restart      systemctl restart witty-ub-web witty-ub-latency
-  status       systemctl status witty-ub-web witty-ub-latency
-  logs         journalctl -u witty-ub-web / witty-ub-latency -f
-  psql         连接 PostgreSQL 终端
-  (none)       交互式菜单
+  deploy [--backend URL]    按角色完整部署并启动服务
+  deps                      仅安装/更新本机角色所需依赖
+  config [--backend URL]    前端节点配置后端地址，自动生效
+  config --show             查看当前角色与连接配置
+  clean                     一键清理（交互选择范围）
+  start/stop/restart/status/logs   仅操作本机角色的服务
+  psql                      连接 PostgreSQL 终端（仅后端角色）
+  (none)                    交互式菜单
 
-Other binaries (call directly):
-  witty-ub-log          日志解析诊断工具
-  witty-ub-topo         拓扑分析工具
-  witty-ub-diag-tool    综合诊断工具
+Other binaries (call directly, witty-ub-backend subpackage):
+  witty-ub-diag-tool    KVCache 诊断工具
   witty-ub-brpc-diag    BRPC 诊断工具
 
-Typical workflow:
-  sudo yum install -y witty-ub         # 安装主包 + manager 子包
-  sudo witty-ub manager install        # 初始化 PG + 同步凭据 + 启动服务
-  witty-ub manager status              # 查看服务状态
+Typical workflow (split deployment):
+  # 后端节点（有数据的机器）
+  sudo dnf install -y witty-ub-backend   # 自动依赖 witty-ub-manager
+  sudo witty-ub manager deploy           # PG 初始化 + 启动 latency
+
+  # 前端节点（能访问 Agent/LLM 的机器）
+  sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
+  sudo witty-ub manager deploy --backend http://<后端IP>:9772
+
+Typical workflow (single machine):
+  sudo dnf install -y witty-ub           # meta 包，一键装入三个子包
+  sudo witty-ub manager deploy
 EOF
         ;;
     *)

@@ -7,7 +7,7 @@
 # 用法:
 #   /usr/libexec/witty-ub-manager/deploy_pg.sh
 #
-# 由 manager.sh 的 install 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
+# 由 manager.sh 的 deploy 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
 # 跳过创建。仅支持 openEuler (RPM) / Ubuntu (APT)，不支持 Docker 模式。
 #
 # 配置来源: /etc/witty-ub/pg.conf（由 witty-ub-manager 子包安装）
@@ -204,7 +204,7 @@ deploy_rpm() {
     if PGPASSWORD="${PG_PASSWORD}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DATABASE}" -c "SELECT version();" >/dev/null 2>&1; then
         _log "连接验证通过"
     else
-        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / pg.conf"
+        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / deploy.conf"
     fi
 }
 
@@ -289,7 +289,7 @@ deploy_apt() {
     if PGPASSWORD="${PG_PASSWORD}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DATABASE}" -c "SELECT version();" >/dev/null 2>&1; then
         _log "连接验证通过"
     else
-        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / pg.conf"
+        _warn "连接验证失败，请检查 pg_hba.conf / 防火墙 / deploy.conf"
     fi
 }
 

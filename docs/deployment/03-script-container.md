@@ -2,17 +2,17 @@
 
 ## 概述
 
-使用 `deploy/docker/manage.sh` 一键完成容器化部署，自动处理镜像拉取、容器创建、服务启动、健康检查等全流程。
+使用 `deploy/docker/manage.sh` 一键完成容器化部署，自动处理镜像拉取、容器创建、服务启动、健康检查全流程，部署单机 All-in-One 形态，前端与后端在同一容器内。
 
-适合生产环境。
+适合生产环境。需要前后端分离部署时，使用镜像的 `WITTY_ROLE=backend/frontend` 分角色部署 → [手动容器部署 · 分离部署](08-container.md)。
 
 ---
 
 ## 前置条件
 
-- Docker 18.09+ 已安装并运行
+- Docker 20.10+ 已安装并运行
 - 至少 4GB 内存、10GB 可用磁盘空间
-- 有权限拉取镜像（或本地已有镜像）
+- 有权限拉取镜像，或本地已有镜像
 
 ```bash
 # 验证 Docker 环境
@@ -30,7 +30,7 @@ bash deploy/docker/manage.sh
 
 选择 `[1] 一键安装` 即可自动完成：
 
-```
+```text
   [PG]    拉取镜像 → 创建网络 → 创建数据卷 → 启动容器 → 等待健康
   [witty] 拉取镜像 → 验证 → 创建网络/数据卷 → 启动 → 等待健康 → 验证
 ```
@@ -59,12 +59,12 @@ bash deploy/docker/manage.sh
 
 ## 配置说明
 
-### 配置文件 pg.conf
+### 配置文件 deploy.conf
 
-所有脚本共用 `deploy/pg.conf`，修改后全局生效：
+所有脚本共用 `deploy/deploy.conf`（旧名 `pg.conf` 仍兼容），修改后全局生效：
 
 ```bash
-vi deploy/pg.conf
+vi deploy/deploy.conf
 ```
 
 常用配置：
@@ -85,7 +85,7 @@ PG_DATABASE="witty-ub"
 
 ### 环境变量覆盖
 
-通过环境变量临时覆盖 `pg.conf` 中的配置：
+通过环境变量临时覆盖 `deploy.conf` 中的配置：
 
 ```bash
 WITTY_HOST_PORT=8080 bash deploy/docker/manage.sh

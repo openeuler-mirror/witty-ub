@@ -113,18 +113,28 @@ _confirm_clean() {
 
 # ──────────────────── PG 凭据 ────────────────────
 
-# 解析 pg.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
-# 与 sync_pg_credentials 同源(pg.conf 是唯一真实凭据来源)。
+# 解析 deploy.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
+# 与 sync_pg_credentials 同源(deploy.conf 是唯一真实凭据来源)。
 _load_pg_credentials() {
-    local PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"
+    local PG_CONF_FILE="$SCRIPT_DIR/../deploy.conf"
+    [ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"   # 兼容旧名
     [ -f "$PG_CONF_FILE" ] || return 1
-    PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    local CONF_HOST CONF_PORT CONF_USER CONF_DATABASE CONF_PASSWORD
+    CONF_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    # 宿主机源码部署与 RPM 部署一样连接本机 PostgreSQL；
+    # PG_PORT 是 Docker 宿主机映射端口，不能用在这里。
+    CONF_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    PG_HOST="${PG_HOST:-$CONF_HOST}"
+    # 仅接受原生部署专用的 PG_PORT_RPM 覆盖，不读取 Docker PG_PORT。
+    PG_PORT="${PG_PORT_RPM:-$CONF_PORT}"
+    PG_USER="${PG_USER:-$CONF_USER}"
+    PG_DATABASE="${PG_DATABASE:-$CONF_DATABASE}"
+    PG_PASSWORD="${PG_PASSWORD:-$CONF_PASSWORD}"
     [ -z "$PG_HOST" ] && PG_HOST="127.0.0.1"
-    [ -z "$PG_PORT" ] && PG_PORT="15432"
+    [ -z "$PG_PORT" ] && PG_PORT="5432"
     [ -z "$PG_USER" ] && PG_USER="witty-ub"
     [ -z "$PG_DATABASE" ] && PG_DATABASE="witty-ub"
     [ -n "$PG_PASSWORD" ] && export PGPASSWORD="$PG_PASSWORD"

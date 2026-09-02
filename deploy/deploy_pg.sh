@@ -11,10 +11,14 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$SCRIPT_DIR"
-CONF_FILE="${DEPLOY_DIR}/pg.conf"
+CONF_FILE="${DEPLOY_DIR}/deploy.conf"
+[ -f "$CONF_FILE" ] || CONF_FILE="${DEPLOY_DIR}/pg.conf"   # 兼容旧名
 
 # ---------- 参数解析 ----------
 DEPLOY_MODE="docker"   # 默认 docker
+# 保留命令行环境变量覆盖；source deploy.conf 会改写同名变量。
+PG_PORT_OVERRIDE="${PG_PORT:-}"
+PG_PORT_RPM_OVERRIDE="${PG_PORT_RPM:-}"
 
 usage() {
     cat <<EOF
@@ -66,6 +70,13 @@ if [ -f "$CONF_FILE" ]; then
 else
     echo "[ERROR] Config file not found: ${CONF_FILE}"
     exit 1
+fi
+
+# RPM/APT 使用本机 PostgreSQL 端口；PG_PORT 仅是 Docker 容器的宿主机映射端口。
+if [ "$DEPLOY_MODE" = "rpm" ] || [ "$DEPLOY_MODE" = "apt" ]; then
+    PG_PORT="${PG_PORT_RPM_OVERRIDE:-${PG_PORT_RPM:-5432}}"
+elif [ -n "$PG_PORT_OVERRIDE" ]; then
+    PG_PORT="$PG_PORT_OVERRIDE"
 fi
 
 # ---------- 公共工具函数 ----------
