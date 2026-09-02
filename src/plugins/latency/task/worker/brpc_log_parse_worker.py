@@ -166,6 +166,7 @@ class BrpcLogParseWorker(BaseWorker):
 
             if record_count == 0:
                 await BaseWorker.report(task.id, "无 BRPC profiling 文件，跳过 profiling 解析", 100.0)
+                await LogKnowledgePGManager.touch_log_kb(task.kb_id)
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
                 )
@@ -178,6 +179,7 @@ class BrpcLogParseWorker(BaseWorker):
             )
 
             await BaseWorker.report(task.id, "BRPC task completed successfully", 100.0)
+            await LogKnowledgePGManager.touch_log_kb(task.kb_id)
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )

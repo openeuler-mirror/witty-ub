@@ -100,6 +100,16 @@ class LogKnowledgePGManager:
         return result.rowcount or 0
 
     @staticmethod
+    async def touch_log_kb(log_kb_id: str) -> int:
+        """Refresh the asset's update time after a task changes its contents."""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :id"),
+                {"id": log_kb_id},
+            )
+        return result.rowcount or 0
+
+    @staticmethod
     async def count_log_kbs(req: ListLogKnowledgeRequest) -> int:
         stmt = select(func.count()).where(LogKnowledge.existed_status.is_(True))
         if req.name:

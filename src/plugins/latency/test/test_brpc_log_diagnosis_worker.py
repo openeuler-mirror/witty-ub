@@ -105,6 +105,7 @@ def _configure_run_dependencies(monkeypatch, log_path):
     log_file = SimpleNamespace(kb_id="kb-id", file_path=str(log_path))
     status_updates = []
     reports = []
+    touch_log_kb = AsyncMock(return_value=1)
 
     async def get_task(_task_id):
         return task
@@ -139,11 +140,16 @@ def _configure_run_dependencies(monkeypatch, log_path):
     )
     monkeypatch.setattr(worker_module.BaseWorker, "report", report)
     monkeypatch.setattr(
+        worker_module.LogKnowledgePGManager,
+        "touch_log_kb",
+        touch_log_kb,
+    )
+    monkeypatch.setattr(
         BrpcLogDiagnosisWorker,
         "_resolve_start_time",
         lambda _task_id: "2026-08-11 10:20:30",
     )
-    return task, status_updates, reports
+    return task, status_updates, reports, touch_log_kb
 
 
 def test_worker_type_and_default_patterns_are_defined():
@@ -862,7 +868,7 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
     log_path.write_text("log", encoding="utf-8")
     output_dir = tmp_path / "witty" / "brpc-diag"
     schema_path, batch_path = _copy_result_files(output_dir)
-    _, status_updates, reports = _configure_run_dependencies(
+    _, status_updates, reports, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
         log_path.parent,
     )
@@ -905,6 +911,7 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
         "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
     }
     assert reports[-1] == ("BRPC 诊断任务成功", 100.0)
+    touch_log_kb.assert_awaited_once_with("kb-id")
 
 
 @pytest.mark.parametrize("include_batch,include_schema", [(False, False), (True, False)])
@@ -920,7 +927,7 @@ def test_missing_output_marks_task_failed(
     output_dir = tmp_path / "witty" / "brpc-diag"
     if include_batch:
         _copy_result_files(output_dir, include_schema=include_schema)
-    _, status_updates, _ = _configure_run_dependencies(
+    _, status_updates, _, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
         log_path.parent,
     )
@@ -947,6 +954,7 @@ def test_missing_output_marks_task_failed(
     assert status_updates[-1] == {
         "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
     }
+    touch_log_kb.assert_not_awaited()
 
 
 def test_import_failure_marks_task_failed_and_preserves_outputs(
@@ -957,7 +965,7 @@ def test_import_failure_marks_task_failed_and_preserves_outputs(
     log_path.write_text("log", encoding="utf-8")
     output_dir = tmp_path / "witty" / "brpc-diag"
     schema_path, batch_path = _copy_result_files(output_dir)
-    _, status_updates, _ = _configure_run_dependencies(
+    _, status_updates, _, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
         log_path.parent,
     )
@@ -983,6 +991,7 @@ def test_import_failure_marks_task_failed_and_preserves_outputs(
     assert status_updates[-1] == {
         "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
     }
+    touch_log_kb.assert_not_awaited()
 
 
 def test_stop_terminates_registered_subprocess(monkeypatch, tmp_path):

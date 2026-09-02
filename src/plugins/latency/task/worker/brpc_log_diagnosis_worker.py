@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.task import TaskPGManager
 from latency.schemas.brpc_diagnosis import BrpcDiagBatch
 from latency.schemas.task import TaskModel
@@ -416,6 +417,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 expected_task_id=task_id,
             )
             await BaseWorker.report(task_id, "BRPC 诊断结果导入完成", 90.0)
+            await LogKnowledgePGManager.touch_log_kb(log_file.kb_id)
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},

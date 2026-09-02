@@ -58,3 +58,54 @@ def test_reinit_stops_at_retry_limit(monkeypatch):
 
     delete_results.assert_not_awaited()
     report.assert_not_awaited()
+
+
+def test_run_refreshes_asset_update_time_on_success(monkeypatch):
+    task = SimpleNamespace(id="task-id", op_id="log-id", kb_id="kb-id")
+    get_task = AsyncMock(return_value=task)
+    update_task = AsyncMock(return_value=1)
+    report = AsyncMock(return_value=True)
+    parse_log = AsyncMock(return_value=12)
+    touch_log_kb = AsyncMock(return_value=1)
+
+    monkeypatch.setattr(worker_module.TaskPGManager, "get_task_by_task_id", get_task)
+    monkeypatch.setattr(worker_module.TaskPGManager, "update_task", update_task)
+    monkeypatch.setattr(BaseWorker, "report", report)
+    monkeypatch.setattr(BrpcLogParseWorker, "parse_log", parse_log)
+    monkeypatch.setattr(
+        worker_module.LogKnowledgePGManager,
+        "touch_log_kb",
+        touch_log_kb,
+    )
+
+    assert _run(BrpcLogParseWorker.run("task-id")) is True
+
+    touch_log_kb.assert_awaited_once_with("kb-id")
+    assert update_task.await_args_list[-1].args == (
+        "task-id",
+        {"status": "successful_pending_remove"},
+    )
+
+
+def test_run_refreshes_asset_update_time_when_profiling_is_empty(monkeypatch):
+    task = SimpleNamespace(id="task-id", op_id="log-id", kb_id="kb-id")
+    update_task = AsyncMock(return_value=1)
+    touch_log_kb = AsyncMock(return_value=1)
+
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=task),
+    )
+    monkeypatch.setattr(worker_module.TaskPGManager, "update_task", update_task)
+    monkeypatch.setattr(BaseWorker, "report", AsyncMock(return_value=True))
+    monkeypatch.setattr(BrpcLogParseWorker, "parse_log", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        worker_module.LogKnowledgePGManager,
+        "touch_log_kb",
+        touch_log_kb,
+    )
+
+    assert _run(BrpcLogParseWorker.run("task-id")) is True
+
+    touch_log_kb.assert_awaited_once_with("kb-id")
