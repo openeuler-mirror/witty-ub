@@ -3126,10 +3126,13 @@ const latencySeriesConfig = computed(() =>
   selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
 )
 
-const availableLatencySeriesConfig = computed(() =>
+const getAvailableLatencySeriesConfig = (buckets: LatencyChartBucket[]) =>
   latencySeriesConfig.value.filter((series) =>
-    latencyChartBuckets.value.some((bucket) => bucket.values[series.key] != null),
-  ),
+    buckets.some((bucket) => bucket.values[series.key] != null),
+  )
+
+const availableLatencySeriesConfig = computed(() =>
+  getAvailableLatencySeriesConfig(latencyChartBuckets.value),
 )
 
 type LatencyMetricKey =
@@ -3143,7 +3146,10 @@ const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
   'urma_processing_us',
 ])
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
-const selectedLatencySeriesCount = computed(() => visibleLatencyKeys.value.size)
+const visibleLatencySeriesConfig = computed(() =>
+  availableLatencySeriesConfig.value.filter((series) => visibleLatencyKeys.value.has(series.key)),
+)
+const selectedLatencySeriesCount = computed(() => visibleLatencySeriesConfig.value.length)
 const latencySeriesCount = computed(() => availableLatencySeriesConfig.value.length)
 
 const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
@@ -3923,7 +3929,9 @@ const createLatencyEchartsOption = (
   const labels = buckets.map((bucket) => bucket.label)
   const markAreaData = getLatencyMarkAreas(buckets)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
-  const visibleSeries = latencySeriesConfig.value.filter((s) => isLatencySeriesVisible(s.key))
+  const visibleSeries = getAvailableLatencySeriesConfig(buckets).filter((series) =>
+    isLatencySeriesVisible(series.key),
+  )
   const hasLegend = visibleSeries.length > 0
   const gridTop = 70
   const legendWidth = Math.max(320, chartWidth - 88)
@@ -4095,8 +4103,8 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
         fontSize: 12,
       },
     },
-    series: latencySeriesConfig.value
-      .filter((s) => isLatencySeriesVisible(s.key))
+    series: getAvailableLatencySeriesConfig(points)
+      .filter((series) => isLatencySeriesVisible(series.key))
       .map((series, index) => ({
         name: series.label,
         type: 'line',
