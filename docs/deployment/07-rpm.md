@@ -84,7 +84,7 @@ firewall-cmd --reload
 ```bash
 sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
 
-# 配置后端地址并启动（自动渲染 Nginx 反代与 Agent 提示词）
+# 配置后端地址并启动（渲染 Nginx 反代，Agent 通过环境变量取得后端地址）
 sudo witty-ub manager deploy --backend http://<后端IP>:9772
 ```
 

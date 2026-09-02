@@ -25,9 +25,6 @@ DIAG_CONFIG_FILE="${DIAG_CONFIG_FILE:-${WITTY_CONFIG_DIR}/diagnosis_config.toml}
 WITTY_WEB_ENV="${WITTY_ETC_DIR}/web/env"
 NGINX_CONF_TEMPLATE="${NGINX_CONF_TEMPLATE:-/usr/share/witty-ub/nginx/witty-ub-web.conf.template}"
 NGINX_CONF_FILE="${WITTY_ETC_DIR}/web/nginx.conf"
-AGENT_PROMPT_FILE="${WITTY_DIR}/witty_ub_diagnostician/.opencode/agents/witty-ub-diagnostician.md"
-# 旧布局兜底（Agent bundle 未随包安装时，提示词位于 config/agents）
-AGENT_PROMPT_FILE_LEGACY="${WITTY_DIR}/config/agents/witty-ub-diagnostician.md"
 
 # witty-ub 的 systemd services：由 role_services 按角色动态生成
 WITTY_SERVICES=()
@@ -121,7 +118,6 @@ _load_pg_credentials() {
     }
     PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    [ -z "$PG_PORT" ] && PG_PORT="$(grep -E '^PG_PORT=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
     PG_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
@@ -239,37 +235,11 @@ render_nginx_conf() {
     _log "nginx 配置已渲染: $NGINX_CONF_FILE (backend=${backend_url} agent=${agent_url})"
 }
 
-# 渲染 Agent 提示词基址（幂等：已渲染内容不含占位符）
-# 优先 Agent bundle 布局，兜底 config/agents 旧布局
-render_agent_prompt() {
-    local api_base="$1" no_proxy="$2"
-    local prompt_file=""
-    if [ -f "$AGENT_PROMPT_FILE" ]; then
-        prompt_file="$AGENT_PROMPT_FILE"
-    elif [ -f "$AGENT_PROMPT_FILE_LEGACY" ]; then
-        prompt_file="$AGENT_PROMPT_FILE_LEGACY"
-    else
-        _warn "Agent 提示词不存在: $AGENT_PROMPT_FILE / $AGENT_PROMPT_FILE_LEGACY"
-        return 0
-    fi
-    local RENDER_SUDO=""
-    [ -w "$prompt_file" ] || RENDER_SUDO="sudo"
-    ${RENDER_SUDO} sed -i \
-        -e "s|\${WITTY_API_BASE}|${api_base}|g" \
-        -e "s|\${WITTY_NO_PROXY}|${no_proxy}|g" \
-        "$prompt_file" 2>/dev/null || {
-        _warn "Agent 提示词渲染失败"
-        return 0
-    }
-    _log "Agent 提示词已渲染: $prompt_file (api_base=${api_base})"
-}
-
-# 按当前 web env 渲染 nginx 与 Agent 提示词（config/deploy 共用）
+# 按当前 web env 渲染 nginx（config/deploy 共用）。
+# Agent 提示词保持原文，WITTY_API_BASE/WITTY_NO_PROXY 由 OpenCode 导出。
 render_frontend_configs() {
-    local backend_url agent_url no_proxy
+    local backend_url agent_url
     backend_url="$(web_env_get WITTY_BACKEND_URL http://127.0.0.1:9772)"
     agent_url="$(web_env_get WITTY_AGENT_URL http://127.0.0.1:4096)"
-    no_proxy="$(web_env_get WITTY_NO_PROXY 127.0.0.1)"
     render_nginx_conf "$backend_url" "$agent_url" || return 1
-    render_agent_prompt "$backend_url" "$no_proxy"
 }

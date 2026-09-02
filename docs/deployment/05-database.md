@@ -178,7 +178,7 @@ docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Gatew
 
 ```conf
 PG_HOST_IN_CONTAINER=172.18.0.1
-PG_PORT_IN_CONTAINER=15432
+PG_PORT_IN_CONTAINER=5432
 ```
 
 ---

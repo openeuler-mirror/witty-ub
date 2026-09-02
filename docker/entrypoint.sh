@@ -76,15 +76,7 @@ detect_agent_layout() {
     echo "[OK] Agent config: ${AGENT_OPENCODE_CONFIG}"
 }
 
-# ── 渲染 Agent 提示词（WITTY_API_BASE / WITTY_NO_PROXY） ────────────
-render_agent_prompt() {
-    detect_agent_layout
-    # 幂等: 已渲染内容不含占位符, envsubst 为 no-op
-    envsubst '${WITTY_API_BASE} ${WITTY_NO_PROXY}' <"${AGENT_PROMPT_MD}" >"${AGENT_PROMPT_MD}.tmp" &&
-        mv "${AGENT_PROMPT_MD}.tmp" "${AGENT_PROMPT_MD}"
-    echo "[OK] Agent prompt rendered with API base: ${WITTY_API_BASE}"
-}
-
+# Agent 提示词保持原文，WITTY_API_BASE / WITTY_NO_PROXY 由 Bash 执行时展开。
 # ── Nginx（all / frontend 角色） ──────────────────────────────
 start_nginx() {
     echo "Rendering Nginx config..."
@@ -132,7 +124,8 @@ wait_backend_ready() {
 
 # ── OpenCode（all / frontend 角色） ──────────────────────────────
 start_opencode() {
-    render_agent_prompt
+    # 使用原始 Agent 提示词；其 Bash 命令在执行时展开已导出的环境变量。
+    detect_agent_layout
     cd /var/witty-ub
     export OPENCODE_CONFIG="${OPENCODE_CONFIG:-${AGENT_OPENCODE_CONFIG}}"
     # Standard .opencode layout dir for agents/skills/commands discovery;

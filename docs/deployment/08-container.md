@@ -48,7 +48,7 @@ docker compose --profile split up -d
 | ------ | ------ | ------ |
 | `witty-ub-backend` | `witty-ub:backend` | FastAPI + 数据卷（不对外暴露端口） |
 | `witty-ub-frontend` | `witty-ub:frontend` | 32413 → 8080（Nginx + OpenCode），`WITTY_BACKEND_URL` 指向 backend |
-| `postgres` | 数据库 | 15432，仅 backend 使用 |
+| `postgres` | 数据库 | 容器内 5432（宿主机映射 15432），仅 backend 使用 |
 
 前端容器健康检查经反代探测远端后端 `/health_check`；`depends_on: condition: service_healthy` 保证后端就绪后才启动前端。
 
@@ -128,7 +128,7 @@ docker run -d \
   witty-ub:frontend
 ```
 
-容器启动时自动完成：envsubst 渲染 Nginx 配置（API 反代 `WITTY_BACKEND_URL`）→ 渲染 Agent 提示词后端基址 → 启动 OpenCode(4096) + Nginx(8080)。
+容器启动时自动完成：envsubst 渲染 Nginx 配置（API 反代 `WITTY_BACKEND_URL`）→ 将 Agent 变量导出给 OpenCode → 启动 OpenCode(4096) + Nginx(8080)。Agent 提示词文件不会被改写。
 
 ### 验证
 
@@ -263,7 +263,7 @@ docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Gatew
 docker run -d \
   ... \
   -e PG_HOST=172.18.0.1 \
-  -e PG_PORT=15432 \
+  -e PG_PORT=5432 \
   ...
 ```
 

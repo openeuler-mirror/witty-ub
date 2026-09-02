@@ -19,7 +19,7 @@ class DatabaseConfig(BaseModel):
     backend: str = Field(default="postgresql", description="数据库后端: sqlite 或 postgresql")
     db_path: str = Field(default="latency.db", description="SQLite数据库文件路径")
     pg_host: str = Field(default="127.0.0.1", description="PostgreSQL 主机地址")
-    pg_port: int = Field(default=15432, description="PostgreSQL 端口")
+    pg_port: int = Field(default=5432, description="PostgreSQL 端口")
     pg_database: str = Field(default="latency_test", description="PostgreSQL 数据库名")
     pg_user: str = Field(default="postgres", description="PostgreSQL 用户名")
     pg_password: str = Field(default="postgres", description="PostgreSQL 密码")

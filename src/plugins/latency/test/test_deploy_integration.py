@@ -56,12 +56,32 @@ class TestDeployConf:
         assert "127.0.0.1" in r.stdout
 
     def test_required_fields(self):
-        r = _bash(f"source {_DEPLOY_DIR}/deploy.conf && echo $PG_HOST $PG_PORT $PG_DATABASE $PG_USER")
+        r = _bash(
+            f"source {_DEPLOY_DIR}/deploy.conf && "
+            "echo $PG_HOST $PG_PORT_RPM $PG_PORT $PG_DATABASE $PG_USER"
+        )
         parts = r.stdout.strip().split()
         assert parts[0] == "127.0.0.1"
-        assert parts[1] == "15432"
-        assert parts[2] == "witty-ub"
+        assert parts[1] == "5432"  # 源码/RPM 本机 PostgreSQL
+        assert parts[2] == "15432"  # Docker 宿主机映射端口
         assert parts[3] == "witty-ub"
+        assert parts[4] == "witty-ub"
+
+    @pytest.mark.parametrize(
+        "loader",
+        [
+            f"source {_DEPLOY_DIR}/host/_lib.sh",
+            (
+                f"PG_CONF_FILE={_DEPLOY_DIR}/deploy.conf; "
+                f"source {_DEPLOY_DIR}/rpm/libexec/_lib.sh"
+            ),
+        ],
+    )
+    def test_native_deploy_loaders_use_5432(self, loader):
+        # 即使环境中残留 Docker 的 PG_PORT=15432，原生部署也不得读取它。
+        r = _bash(f"unset PG_PORT_RPM; PG_PORT=15432; {loader}; _load_pg_credentials; echo $PG_PORT")
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() == "5432"
 
 
 class TestDeployPgSh:
@@ -84,6 +104,41 @@ class TestDeployPgSh:
     def test_entry_point_dispatches_apt(self):
         src = (_DEPLOY_DIR / "deploy_pg.sh").read_text()
         assert 'DEPLOY_MODE="apt"' in src or "deploy_apt" in src.split(";;")[-1]
+
+    def test_native_modes_do_not_fall_back_to_docker_port(self):
+        src = (_DEPLOY_DIR / "deploy_pg.sh").read_text()
+        assert 'PG_PORT="${PG_PORT_RPM_OVERRIDE:-${PG_PORT_RPM:-5432}}"' in src
+
+
+class TestOpenCodePromptConfig:
+    """Agent prompt remains immutable and resolves backend variables at Bash runtime."""
+
+    def test_source_deploy_uses_repository_prompt_directly(self):
+        src = (_DEPLOY_DIR / "deploy_opencode.sh").read_text()
+        assert 'OPENCODE_CONFIG_PATH="${LOCAL_BUNDLE_CONFIG}"' in src
+        assert 'AGENT_PROMPT="${LOCAL_BUNDLE_PROMPT}"' in src
+        assert "export WITTY_API_BASE WITTY_NO_PROXY OPENCODE_HOST" in src
+        assert "LOCAL_RUNTIME_DIR" not in src
+        assert "sed -i" not in src
+
+    def test_prompt_keeps_runtime_variables(self):
+        prompt = (
+            _PROJECT_ROOT
+            / "witty_ub_diagnostician"
+            / "agents"
+            / "witty-ub-diagnostician.md"
+        ).read_text()
+        assert "${WITTY_API_BASE}" in prompt
+        assert "${WITTY_NO_PROXY}" in prompt
+
+    def test_other_deploy_paths_do_not_render_prompt(self):
+        for script in [
+            _DEPLOY_DIR / "host" / "deploy.sh",
+            _DEPLOY_DIR / "rpm" / "libexec" / "_lib.sh",
+            _PROJECT_ROOT / "docker" / "entrypoint.sh",
+        ]:
+            src = script.read_text()
+            assert "render_agent_prompt" not in src
 
 
 class TestDeploySh:

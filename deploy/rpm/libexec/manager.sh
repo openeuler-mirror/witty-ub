@@ -319,7 +319,7 @@ install_deps_only() {
 
 # ──────────────────── config ────────────────────
 
-# 配置即生效: 写 web env → 重渲染 nginx/Agent 提示词 → 重启 web
+# 配置即生效: 写 web env → 重渲染 nginx → 重启 web
 do_config() {
     local backend_url="" show=0
     while [ $# -gt 0 ]; do
