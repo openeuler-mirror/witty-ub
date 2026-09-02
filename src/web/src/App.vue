@@ -2161,6 +2161,31 @@ onBeforeUnmount(() => {
 const getLatencyLeftGridColumnWidths = () =>
   traceListColumnWidths.latencyLeft.map((w) => `minmax(0, ${w}fr)`).join(' ')
 
+const DETAIL_LATENCY_TOTAL_COLUMN_WIDTH = 100
+const DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH = 400
+// Content widths include the horizontal padding of their cells.
+const DETAIL_TRACE_LABEL_COLUMN_WIDTH = 116
+const DETAIL_TRACE_TIME_COLUMN_WIDTH = 160
+
+const getDetailLatencyLeftGridColumnWidths = () => {
+  const [, , traceIdWidth, , , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
+
+  return [
+    `${DETAIL_TRACE_LABEL_COLUMN_WIDTH}px`,
+    `${DETAIL_TRACE_TIME_COLUMN_WIDTH}px`,
+    `${(traceIdWidth || 220) + 10}px`,
+    'minmax(0, 1fr)',
+    `${clusterWidth || 90}px`,
+    `${hostWidth || 75}px`,
+  ].join(' ')
+}
+
+const getDetailLatencyDataGridColumnWidths = () =>
+  `${DETAIL_LATENCY_TOTAL_COLUMN_WIDTH}px ${DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH}px`
+
+const getDetailLatencyTraceFrameGridColumnWidths = () =>
+  `minmax(0, 1fr) ${DETAIL_LATENCY_TOTAL_COLUMN_WIDTH + DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH}px max-content`
+
 const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
 
@@ -5101,6 +5126,9 @@ const getTraceRowHeight = (podIpHtml: string) => {
   const lineCount = Math.max(1, podIpHtml.split(/<br\s*\/?\s*>/i).length)
   return `${Math.max(59, 24 + lineCount * 20)}px`
 }
+
+const getMultiLineCellTitle = (html: string) =>
+  html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '')
 
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value.map((result) => {
@@ -16723,6 +16751,9 @@ onBeforeUnmount(() => {
         <header class="side-drawer-header">
           <div class="side-drawer-title">
             <h2>聚合事件详情</h2>
+            <span class="operation-toggle-btn active drawer-operation-tag">
+              {{ selectedOperation.toUpperCase() }}
+            </span>
             <span class="aggregate-detail-hosts">
               {{ selectedAggregatedEvent.sourcePodIp }} → {{ selectedAggregatedEvent.targetPodIp }}
             </span>
@@ -16847,17 +16878,19 @@ onBeforeUnmount(() => {
               <div
                 ref="detailAbnormalTraceTableRef"
                 class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame"
+                :style="{
+                  gridTemplateColumns: getDetailLatencyTraceFrameGridColumnWidths(),
+                }"
               >
                 <div class="aggregate-fixed-left">
                   <div
                     class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
-                    :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
+                    :style="{ gridTemplateColumns: getDetailLatencyLeftGridColumnWidths() }"
                   >
                     <div class="aggregate-cell">标签</div>
                     <div class="aggregate-cell">时间</div>
                     <div class="aggregate-cell">Trace ID</div>
                     <div class="aggregate-cell">Pod IP</div>
-                    <div class="aggregate-cell">操作类型</div>
                     <div class="aggregate-cell">集群</div>
                     <div class="aggregate-cell">主机 IP</div>
                   </div>
@@ -16873,7 +16906,7 @@ onBeforeUnmount(() => {
                       :key="`${row.id}-fixed`"
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
                       :style="{
-                        gridTemplateColumns: getLatencyLeftGridColumnWidths(),
+                        gridTemplateColumns: getDetailLatencyLeftGridColumnWidths(),
                         height: getTraceRowHeight(row.podIp),
                       }"
                     >
@@ -16889,10 +16922,15 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="aggregate-cell">{{ row.time }}</div>
                       <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                      <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
-                      <div class="aggregate-cell">{{ row.operation }}</div>
-                      <div class="aggregate-cell">{{ row.clusterName }}</div>
-                      <div class="aggregate-cell">{{ row.host }}</div>
+                      <div
+                        class="aggregate-cell multi-line-pod-cell"
+                        :title="getMultiLineCellTitle(row.podIp)"
+                        v-html="row.podIp"
+                      ></div>
+                      <div class="aggregate-cell" :title="row.clusterName">
+                        {{ row.clusterName }}
+                      </div>
+                      <div class="aggregate-cell" :title="row.host">{{ row.host }}</div>
                     </div>
                   </template>
                 </div>
@@ -16910,7 +16948,7 @@ onBeforeUnmount(() => {
                     <div
                       class="abnormal-latency-grid aggregate-table-header"
                       :style="{
-                        gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                        gridTemplateColumns: getDetailLatencyDataGridColumnWidths(),
                       }"
                     >
                       <div
@@ -16967,7 +17005,7 @@ onBeforeUnmount(() => {
                         :key="`${row.id}-latency`"
                         class="abnormal-latency-grid aggregate-body-row"
                         :style="{
-                          gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                          gridTemplateColumns: getDetailLatencyDataGridColumnWidths(),
                           height: getTraceRowHeight(row.podIp),
                         }"
                       >

@@ -1691,6 +1691,14 @@ button {
   color: #fff;
 }
 
+.drawer-operation-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  cursor: default;
+  line-height: 1;
+}
+
 .monitor-sub {
   margin: 8px 0 0;
   border-left: 4px solid var(--primary);
@@ -5678,6 +5686,15 @@ button {
 .detail-abnormal-trace-frame .abnormal-left-grid .aggregate-cell {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.detail-abnormal-trace-frame .abnormal-left-grid .aggregate-cell.trace-id {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  text-overflow: clip;
+  line-height: 1.35;
 }
 
 .detail-abnormal-trace-frame .abnormal-left-grid .aggregate-cell.log-reason-cell {
