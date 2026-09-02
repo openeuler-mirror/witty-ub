@@ -4262,7 +4262,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
     itemStyle: { color: segment.color },
     data: rows.map((row) => {
       const value = row.segments[segment.key]
-      return typeof value === 'number' ? value : 0
+      return typeof value === 'number' ? value / 1000 : 0
     }),
   }))
 
@@ -4274,7 +4274,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
       barMaxWidth: 22,
       emphasis: { focus: 'series' as const },
       itemStyle: { color: '#94a3b8' },
-      data: rows.map((row) => row.otherLatency),
+      data: rows.map((row) => row.otherLatency / 1000),
     })
   }
 
@@ -4307,7 +4307,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -4349,7 +4349,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
         lineStyle: { color: '#dc2626', width: 2 },
         itemStyle: { color: '#dc2626' },
         z: 10,
-        data: rows.map((row) => row.totalLatency),
+        data: rows.map((row) => row.totalLatency / 1000),
       },
     ],
   }
