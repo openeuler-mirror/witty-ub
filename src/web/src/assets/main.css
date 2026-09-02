@@ -7376,6 +7376,14 @@ button {
   height: 400px;
 }
 
+#brpc-monitor .brpc-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
 .brpc-fault-chart-actions {
   flex-wrap: wrap;
 }

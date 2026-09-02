@@ -8986,6 +8986,9 @@ const brpcAllRows = ref<Record<string, any>[]>([])
 const brpcAllFileRows = ref<Record<string, any>[]>([])
 const brpcFileNames = ref<string[]>([])
 const brpcSelectedFileName = ref('')
+// 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
+// profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
+const hasBrpcProfilingLogFile = computed(() => brpcFileNames.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -14564,7 +14567,7 @@ onBeforeUnmount(() => {
           </header>
 
           <!-- 日志文件选择器 -->
-          <div v-if="brpcFileNames.length > 0" class="brpc-log-selector">
+          <div v-if="hasBrpcProfilingLogFile" class="brpc-log-selector">
             <span class="brpc-log-label">选择日志文件：</span>
             <select v-model="brpcSelectedFileName" class="brpc-log-select" @change="onBrpcFileChange">
               <option v-for="name in brpcFileNames" :key="name" :value="name">
@@ -14632,7 +14635,14 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
-              <div ref="brpcSuccessChartRef" class="chart-box"></div>
+              <div
+                v-if="!brpcDataLoading && !hasBrpcProfilingLogFile"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div v-else ref="brpcSuccessChartRef" class="chart-box"></div>
             </article>
 
             <!-- 图表2：单接口成功率监控 -->
@@ -14690,7 +14700,14 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
-              <div ref="brpcSingleChartRef" class="chart-box"></div>
+              <div
+                v-if="!brpcDataLoading && !hasBrpcProfilingLogFile"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div v-else ref="brpcSingleChartRef" class="chart-box"></div>
             </article>
 
             <!-- 图表3：时延监控 -->
@@ -14748,7 +14765,14 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
-              <div ref="brpcLatencyChartRef" class="chart-box"></div>
+              <div
+                v-if="!brpcDataLoading && !hasBrpcProfilingLogFile"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div v-else ref="brpcLatencyChartRef" class="chart-box"></div>
             </article>
           </div>
         </section>
