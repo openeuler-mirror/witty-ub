@@ -325,7 +325,7 @@ class TestLogParseResultContent:
     def test_list_results_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_parse_result/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -354,7 +354,7 @@ class TestLogParseResultContent:
     def test_list_traces_by_host_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_parse_result/traces/host/list",
-            json={"host": "10.0.0.1", "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "host": "10.0.0.1", "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -364,7 +364,7 @@ class TestLogParseResultContent:
     def test_get_latency_metrics_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_parse_result/metrics/latency",
-            json={"log_id": seeded["log_id"], "max_points": 100},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "max_points": 100},
             timeout=10,
         )
         data = resp.json()
@@ -376,7 +376,7 @@ class TestAggregatedEventContent:
     def test_list_src_dst_events_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -396,7 +396,7 @@ class TestAggregatedEventContent:
     def test_list_time_window_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list_time_window",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -416,7 +416,7 @@ class TestAnomalousEventContent:
     def test_list_anomalous_events_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/anomalous_event/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -440,7 +440,7 @@ class TestAnomalousEventChainContent:
     def test_list_chains_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/anomalous_event_chain/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -453,7 +453,7 @@ class TestLogFailureEventResultContent:
     def test_list_log_events_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_log_events",
-            json={"log_id": seeded["log_id"]},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"]},
             timeout=10,
         )
         data = resp.json()

@@ -115,9 +115,9 @@ class TestParsePipeline:
         assert pipeline_done["overall_status"] == "successful"
         assert pipeline_done["overall_progress"] >= 30.0
 
-    def test_parse_results_exist(self, pipeline_done, log_file_id):
+    def test_parse_results_exist(self, pipeline_done, kb_id, log_file_id):
         total = _json(_api("POST", "/log_parse_result/list",
-            json={"log_id": log_file_id, "page_cnt": 5, "page_num": 1}))["result"]["total"]
+            json={"kb_id": kb_id, "log_id": log_file_id, "page_cnt": 5, "page_num": 1}))["result"]["total"]
         assert total > 0, "No parse results found"
 
     def test_parse_latency_reasonable(self, pipeline_done):
@@ -127,9 +127,9 @@ class TestParsePipeline:
 
 
 class TestAggregatedEvents:
-    def test_src_dst_by_log_id(self, pipeline_done, log_file_id):
+    def test_src_dst_by_log_id(self, pipeline_done, kb_id, log_file_id):
         total = _json(_api("POST", "/aggregated_event/list",
-            json={"log_id": log_file_id, "page_cnt": 10, "page_num": 1}))["result"]["total"]
+            json={"kb_id": kb_id, "log_id": log_file_id, "page_cnt": 10, "page_num": 1}))["result"]["total"]
         assert total > 0, "src_dst aggregated events (by log_id) is 0"
 
     def test_src_dst_by_kb_id(self, pipeline_done, kb_id):

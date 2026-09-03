@@ -145,7 +145,7 @@ async def test_cascade_delete():
     )
     await LogParseResultManager.add_log_parse_result(parse_result_model)
 
-    req = ListLogParseResultRequest(log_id=log_file_id, page_num=1, page_cnt=10)
+    req = ListLogParseResultRequest(kb_id=kb_id, log_id=log_file_id, page_num=1, page_cnt=10)
     _, results = await LogParseResultManager.list_log_parse_results(req)
     assert len(results) > 0
 
@@ -156,7 +156,7 @@ async def test_cascade_delete():
 
     await LogParseResultManager.delete_log_parse_results_by_log_id(log_file_id)
 
-    req = ListLogParseResultRequest(log_id=log_file_id, page_num=1, page_cnt=10)
+    req = ListLogParseResultRequest(kb_id=kb_id, log_id=log_file_id, page_num=1, page_cnt=10)
     _, results = await LogParseResultManager.list_log_parse_results(req)
     assert len(results) == 0
 

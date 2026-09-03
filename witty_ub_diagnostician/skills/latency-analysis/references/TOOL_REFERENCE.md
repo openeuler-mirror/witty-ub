@@ -41,7 +41,7 @@
 ### `GET /log_parse_result/options`
 
 获取已解析日志中实际存在的 cluster / host / pod 值。**禁止臆测**名称。
-`kb_id` 作为查询参数传入，可选以限定范围。
+`kb_id` 作为查询参数传入，必填，用于限定范围。
 
 ---
 
@@ -152,7 +152,7 @@
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `fault_type` | `"latency"` \| `"connectivity"` \| `"mixed"` \| `"unknown"` | None | 本 Skill 用 `latency` |
-| `kb_id` | str \| None | None | 限定知识库 |
+| `kb_id` | str | — | 必填，限定知识库 |
 | `status_codes` / `failure_mode_ids` | list[str] \| None | [] | 信号量 |
 | `src_ips` / `dst_ips` / `hosts` / `pods` / `clusters` | list[str] \| None | [] | 故障域 |
 | `latency_components` | list[str] \| None | [] | 如 `["worker_query_meta_latency"]` |

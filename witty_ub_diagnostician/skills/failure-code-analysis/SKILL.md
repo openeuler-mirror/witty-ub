@@ -180,7 +180,7 @@ page_cnt:      50~100
 
 ```
 trace_ids: [list of str]     （必填，≤100）
-kb_id:     <ID>              （可选，建议传以加速）
+kb_id:     <ID>              （必填）
 log_id:    <该日志文件的 id> （可选，当前调查对应某日志文件时传）
 ```
 
@@ -301,7 +301,7 @@ uv run experience-skill search-experiences \
   - `max_points` 必须是 1 到 5000 的整数。
 - `POST /log_failure_event_result/list_log_events`
   - `trace_ids` 必填，且必须包含 1 到 100 个 trace ID。
-  - `kb_id` / `log_id` 可选，建议传以加速。
+  - `kb_id` 必填；`log_id` 可选，建议传以加速。
 - `POST /diagnosis_case/search` 的 `fault_type` 只能是 `latency`、`connectivity`、`mixed` 或 `unknown`。
 
 ## 通断标准流程补充

@@ -94,10 +94,10 @@ def query_task_status(task_id: str) -> str:
         return "未知"
 
 
-def query_task_list():
+def query_task_list(kb_id: str):
     """查询任务列表"""
     url = "http://localhost:9772/task/list"
-    payload = {"page_num": 1, "page_cnt": 5}
+    payload = {"kb_id": kb_id, "page_num": 1, "page_cnt": 5}
     try:
         response = requests.post(url, json=payload)
         response.raise_for_status()
@@ -169,7 +169,7 @@ async def main():
     
     # 4. 查询任务列表
     print("\n[Step 4] 查询任务列表")
-    query_task_list()
+    query_task_list(kb_id)
     
     # 5. 查询任务报告
     print("\n[Step 5] 查询任务报告")

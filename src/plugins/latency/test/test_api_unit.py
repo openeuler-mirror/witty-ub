@@ -241,10 +241,10 @@ class TestLogFile:
 class TestTask:
     """任务接口"""
     
-    def test_create_task(self, base_url, session_client, existing_log_file):
+    def test_create_task(self, base_url, session_client, existing_kb, existing_log_file):
         resp = session_client.post(
             f"{base_url}/task/create",
-            json={"task_type": "kv_cache_log_parse_worker", "op_id": existing_log_file},
+            json={"task_type": "kv_cache_log_parse_worker", "op_id": existing_log_file, "kb_id": existing_kb},
             timeout=10
         )
         assert resp.status_code == 200
@@ -254,7 +254,7 @@ class TestTask:
     def test_create_task_invalid_op(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/task/create",
-            json={"task_type": "INVALID_OP", "op_id": existing_kb},
+            json={"task_type": "INVALID_OP", "op_id": existing_kb, "kb_id": existing_kb},
             timeout=10
         )
         assert resp.status_code == 422
@@ -438,10 +438,10 @@ class TestDiagnosisCase:
         resp = session_client.get(f"{base_url}/diagnosis_case/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_search_case(self, base_url, session_client):
+    def test_search_case(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/diagnosis_case/search",
-            json={"case_name": "test", "page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "case_name": "test", "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -468,10 +468,10 @@ class TestFailureModeKnowledge:
 class TestSrcDstAggregatedEvent:
     """源目标聚合事件接口"""
     
-    def test_list_events(self, base_url, session_client):
+    def test_list_events(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -482,10 +482,10 @@ class TestSrcDstAggregatedEvent:
         resp = session_client.get(f"{base_url}/aggregated_event/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_list_time_window(self, base_url, session_client):
+    def test_list_time_window(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list_time_window",
-            json={"start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
+            json={"kb_id": existing_kb, "start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
             timeout=10
         )
         assert resp.status_code == 200
@@ -496,18 +496,18 @@ class TestSrcDstAggregatedEvent:
 class TestLogParseResult:
     """日志解析结果接口"""
     
-    def test_list_results(self, base_url, session_client):
+    def test_list_results(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_parse_result/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
-    
-    def test_get_options(self, base_url, session_client):
-        resp = session_client.get(f"{base_url}/log_parse_result/options", timeout=10)
+
+    def test_get_options(self, base_url, session_client, existing_kb):
+        resp = session_client.get(f"{base_url}/log_parse_result/options?kb_id={existing_kb}", timeout=10)
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
@@ -516,20 +516,20 @@ class TestLogParseResult:
         resp = session_client.get(f"{base_url}/log_parse_result/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_list_traces_by_host(self, base_url, session_client):
+    def test_list_traces_by_host(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_parse_result/traces/host/list",
-            json={"host": "localhost"},
+            json={"kb_id": existing_kb, "host": "localhost"},
             timeout=10
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
     
-    def test_get_latency_metrics(self, base_url, session_client):
+    def test_get_latency_metrics(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_parse_result/metrics/latency",
-            json={"trace_id": str(uuid.uuid4())},
+            json={"kb_id": existing_kb, "trace_id": str(uuid.uuid4())},
             timeout=10
         )
         assert resp.status_code == 200
@@ -544,10 +544,10 @@ class TestAnomalousEvent:
         resp = session_client.get(f"{base_url}/anomalous_event/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_list_events(self, base_url, session_client):
+    def test_list_events(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/anomalous_event/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -564,10 +564,10 @@ class TestAnomalousEvent:
 class TestAnomalousEventChain:
     """异常事件链接口"""
     
-    def test_list_chains(self, base_url, session_client):
+    def test_list_chains(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/anomalous_event_chain/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -578,10 +578,10 @@ class TestAnomalousEventChain:
 class TestLogFailureEventResult:
     """日志失败事件结果接口"""
     
-    def test_list_log_events(self, base_url, session_client):
+    def test_list_log_events(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_log_events",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -598,20 +598,20 @@ class TestLogFailureEventResult:
         data = resp.json()
         assert data["code"] == 200
     
-    def test_list_time_aggregated(self, base_url, session_client):
+    def test_list_time_aggregated(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_time_aggregated_failure_events",
-            json={"start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
+            json={"kb_id": existing_kb, "start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
             timeout=10
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
     
-    def test_list_pod_aggregated(self, base_url, session_client):
+    def test_list_pod_aggregated(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_pod_aggregated_failure_events",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
