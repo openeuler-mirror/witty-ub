@@ -398,7 +398,7 @@ class LogFileService:
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
         logger.warning(f"==================== 开始删除日志文件: {log_file_id} ====================")
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
-        if not log_file_model:
+        if not log_file_model or not getattr(log_file_model, "existed_status", True):
             raise NotFoundBizException(resource="日志文件")
         
         # 直接查询该日志文件的所有任务（不分状态），参考删除资产库的实现
@@ -463,7 +463,7 @@ class LogFileService:
         log_file_id: str, req: UpdateLogFileRequest
     ) -> UpdateLogFileMsg:
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
-        if not log_file_model:
+        if not log_file_model or not getattr(log_file_model, "existed_status", True):
             raise NotFoundBizException(resource="日志文件")
         rowcount = await LogFilePGManager.update_log_file(
             log_file_id, req.model_dump(exclude_none=True)
@@ -477,8 +477,8 @@ class LogFileService:
         log_file_id: str, run: bool
     ) -> RunOrStopLogParseMsg:
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
-        if not log_file_model:
-            return RunOrStopLogParseMsg(task_id=None)
+        if not log_file_model or not getattr(log_file_model, "existed_status", True):
+            raise NotFoundBizException(resource="日志文件")
         if run:
             log_type = getattr(log_file_model, "log_type", "kv-cache") or "kv-cache"
             task_type = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
@@ -514,7 +514,7 @@ class LogFileService:
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(
             log_file_id
         )
-        if not log_file_model:
+        if not log_file_model or not getattr(log_file_model, "existed_status", True):
             raise NotFoundBizException(resource="日志文件")
 
         current_task = await TaskPGManager.get_current_task_by_op_id(
@@ -680,7 +680,7 @@ class LogFileService:
     @staticmethod
     async def get_log_file_by_log_file_id(log_file_id: str) -> GetLogFileMsg:
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
-        if not log_file_model:
+        if not log_file_model or not getattr(log_file_model, "existed_status", True):
             raise NotFoundBizException(resource="日志文件")
         log_type = getattr(log_file_model, "log_type", "kv-cache") or "kv-cache"
         if log_type == "brpc":

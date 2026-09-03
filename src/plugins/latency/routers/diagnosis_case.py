@@ -9,6 +9,7 @@ from latency.schemas.response import (
     SearchDiagnosisCasesResponse,
 )
 from latency.services.diagnosis_case import DiagnosisCaseService
+from latency.services.resource_id import ResourceIdService
 
 
 router = APIRouter(prefix="/diagnosis_case", tags=["Diagnosis Case"])
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/diagnosis_case", tags=["Diagnosis Case"])
 async def create_diagnosis_case(
     req: Annotated[CreateDiagnosisCaseRequest, Body()],
 ) -> CreateDiagnosisCaseResponse:
+    await ResourceIdService.validate_request(req)
     msg = await DiagnosisCaseService.create_case(req)
     return CreateDiagnosisCaseResponse(result=msg)
 
@@ -51,6 +53,7 @@ async def get_diagnosis_case(
 async def search_diagnosis_cases(
     req: Annotated[SearchDiagnosisCasesRequest, Body()],
 ) -> SearchDiagnosisCasesResponse:
+    await ResourceIdService.validate_request(req)
     msg = await DiagnosisCaseService.search_cases(req)
     return SearchDiagnosisCasesResponse(result=msg)
 
@@ -59,5 +62,6 @@ async def search_diagnosis_cases(
 async def mark_diagnosis_case_hit(
     case_id: Annotated[str, Path()],
 ) -> GetDiagnosisCaseResponse:
+    await ResourceIdService.require("diagnosis_case", case_id)
     msg = await DiagnosisCaseService.mark_case_hit(case_id)
     return GetDiagnosisCaseResponse(result=msg)

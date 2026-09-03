@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.schemas.response import BrpcProfilingDataResponse, BrpcProfilingDataMsg
 from latency.exceptions import NotFoundBizException
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/brpc_profiling", tags=["brpc_profiling"])
 
@@ -21,6 +22,7 @@ async def get_brpc_profiling_data(
     返回按 timestamp 排序的完整数据，前端自行按接口名分组。
     可通过 source_file 参数过滤特定源文件的数据。
     """
+    await ResourceIdService.require("log", log_id)
     file_names = await BrpcProfilingResultPGManager.get_file_names_by_log_id(log_id)
 
     all_records = await BrpcProfilingResultPGManager.get_all_by_log_id(
