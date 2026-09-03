@@ -297,7 +297,7 @@ class TestDiagnosisConfig:
     
     def test_get_nonexistent_config(self, base_url, session_client):
         resp = session_client.get(f"{base_url}/diagnosis_config/{str(uuid.uuid4())}", timeout=10)
-        assert resp.status_code == 200
+        assert resp.status_code == 404
     
     def test_update_config(self, base_url, session_client, existing_kb):
         resp = session_client.put(
@@ -324,6 +324,29 @@ class TestDiagnosisConfig:
     def test_reset_config(self, base_url, session_client, existing_kb):
         resp = session_client.post(f"{base_url}/diagnosis_config/{existing_kb}/reset", timeout=10)
         assert resp.status_code == 200
+
+    def test_update_nonexistent_config(self, base_url, session_client):
+        resp = session_client.put(
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}",
+            json={
+                "log_filename_pattern": {
+                    "ds_client_access_log_file": ["*.log"],
+                    "ds_client_info_log_file": ["*.log"],
+                    "ds_worker_access_log_file": ["*.log"],
+                    "ds_worker_info_log_file": ["*.log"],
+                    "resource_log_file": ["*.log"],
+                },
+                "log_analyzer_params": {},
+            },
+            timeout=10,
+        )
+        assert resp.status_code == 404
+
+    def test_reset_nonexistent_config(self, base_url, session_client):
+        resp = session_client.post(
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}/reset", timeout=10
+        )
+        assert resp.status_code == 404
 
 
 class TestDiagnosisCase:

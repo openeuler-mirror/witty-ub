@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 class LogKnowledgePGManager:
     @staticmethod
+    async def exists(kb_id: str) -> bool:
+        """Return whether an active knowledge base exists without loading its data."""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(LogKnowledge.id)
+                .where(
+                    LogKnowledge.id == kb_id,
+                    LogKnowledge.existed_status.is_(True),
+                )
+                .limit(1)
+            )
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
     def _model_to_mapping(log_kb: LogKnowledgeModel) -> dict[str, Any]:
         return {
             "id": log_kb.id,
