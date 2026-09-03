@@ -313,7 +313,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             return {
                 "ds_client_access_log_file": ["ds_client_access*.log", "*_access.log", "*_split_access.log"],
                 "ds_client_info_log_file": ["ds_client*.INFO.log", "*_runtime.log", "*_split_runtime.log"],
-                "ds_worker_access_log_file": ["access.log", "access*.log", "*_access.log", "*_split_access.log"],
+                "ds_worker_access_log_file": ["access*.log", "*_access.log", "*_split_access.log"],
                 "ds_worker_info_log_file": ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "*_runtime.log", "*_split_runtime.log"],
                 "resource_log_file": ["resource.log"],
             }

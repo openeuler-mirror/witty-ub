@@ -252,7 +252,7 @@ pg_max_overflow = 20
 [log_filename_pattern]
 ds_client_access_log_file = ["ds_client_access*.log", "*_access.log", "*_split_access.log"]
 ds_client_info_log_file = ["ds_client*.INFO.log", "*_runtime.log", "*_split_runtime.log"]
-ds_worker_access_log_file = ["access.log", "access*.log", "*_access.log", "*_split_access.log"]
+ds_worker_access_log_file = ["access*.log", "*_access.log", "*_split_access.log"]
 ds_worker_info_log_file = ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "*_runtime.log", "*_split_runtime.log"]
 resource_log_file = ["resource.log"]
 
@@ -275,7 +275,7 @@ Worker 解析日志时，会根据上传日志所在的目录，按以下 key �
 |-----|------|-------------|
 | `ds_client_access_log_file` | SDK 客户端接口日志 | `ds_client_access*.log`、`*_access.log`、`*_split_access.log` |
 | `ds_client_info_log_file` | SDK 客户端信息/运行时日志 | `ds_client*.INFO.log`、`*_runtime.log`、`*_split_runtime.log` |
-| `ds_worker_access_log_file` | Worker 接口日志 | `access.log`、`access*.log`、`*_access.log`、`*_split_access.log` |
+| `ds_worker_access_log_file` | Worker 接口日志 | `access*.log`、`*_access.log`、`*_split_access.log` |
 | `ds_worker_info_log_file` | Worker 信息/运行时日志 | `datasystem_worker.INFO*.log`、`kvcache.INFO*.log`、`*_runtime.log`、`*_split_runtime.log` |
 | `resource_log_file` | 资源日志 | `resource.log` |
 
