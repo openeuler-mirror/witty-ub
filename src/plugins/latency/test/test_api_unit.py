@@ -241,10 +241,10 @@ class TestLogFile:
 class TestTask:
     """任务接口"""
     
-    def test_create_task(self, base_url, session_client, existing_log_file):
+    def test_create_task(self, base_url, session_client, existing_kb, existing_log_file):
         resp = session_client.post(
             f"{base_url}/task/create",
-            json={"task_type": "kv_cache_log_parse_worker", "op_id": existing_log_file},
+            json={"task_type": "kv_cache_log_parse_worker", "op_id": existing_log_file, "kb_id": existing_kb},
             timeout=10
         )
         assert resp.status_code == 200
@@ -254,7 +254,7 @@ class TestTask:
     def test_create_task_invalid_op(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/task/create",
-            json={"task_type": "INVALID_OP", "op_id": existing_kb},
+            json={"task_type": "INVALID_OP", "op_id": existing_kb, "kb_id": existing_kb},
             timeout=10
         )
         assert resp.status_code == 422
@@ -290,18 +290,45 @@ class TestDiagnosisConfig:
     """诊断配置接口"""
     
     def test_get_config(self, base_url, session_client, existing_kb):
-        resp = session_client.get(f"{base_url}/diagnosis_config/{existing_kb}", timeout=10)
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
+        assert data["result"]["log_type"] == "KVCache"
+        assert "brpc_log_file_patterns" not in data["result"]["config"][
+            "log_filename_pattern"
+        ]
+
+    def test_get_ubsocket_config(self, base_url, session_client, existing_kb):
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "UBSocket"},
+            timeout=10,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result"]["log_type"] == "UBSocket"
+        config = data["result"]["config"]
+        assert set(config) == {"log_filename_pattern"}
+        assert set(config["log_filename_pattern"]) == {"brpc_log_file_patterns"}
+        assert config["log_filename_pattern"]["brpc_log_file_patterns"]
     
     def test_get_nonexistent_config(self, base_url, session_client):
-        resp = session_client.get(f"{base_url}/diagnosis_config/{str(uuid.uuid4())}", timeout=10)
-        assert resp.status_code == 200
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
+        assert resp.status_code == 404
     
     def test_update_config(self, base_url, session_client, existing_kb):
         resp = session_client.put(
             f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "KVCache"},
             json={
                 "log_filename_pattern": {
                     "ds_client_access_log_file": ["*.log"],
@@ -322,8 +349,76 @@ class TestDiagnosisConfig:
         assert resp.status_code == 200
     
     def test_reset_config(self, base_url, session_client, existing_kb):
-        resp = session_client.post(f"{base_url}/diagnosis_config/{existing_kb}/reset", timeout=10)
+        resp = session_client.post(
+            f"{base_url}/diagnosis_config/{existing_kb}/reset",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
         assert resp.status_code == 200
+
+    def test_update_ubsocket_config_is_unsupported(
+        self, base_url, session_client, existing_kb
+    ):
+        resp = session_client.put(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "UBSocket"},
+            json={
+                "log_filename_pattern": {
+                    "brpc_log_file_patterns": ["brpc.log"]
+                }
+            },
+            timeout=10,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "UBSocket日志解析暂不支持配置"
+
+    def test_reset_ubsocket_config_is_unsupported(
+        self, base_url, session_client, existing_kb
+    ):
+        resp = session_client.post(
+            f"{base_url}/diagnosis_config/{existing_kb}/reset",
+            params={"log_type": "UBSocket"},
+            timeout=10,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "UBSocket日志解析暂不支持配置"
+
+    def test_update_nonexistent_config(self, base_url, session_client):
+        resp = session_client.put(
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}",
+            params={"log_type": "KVCache"},
+            json={
+                "log_filename_pattern": {
+                    "ds_client_access_log_file": ["*.log"],
+                    "ds_client_info_log_file": ["*.log"],
+                    "ds_worker_access_log_file": ["*.log"],
+                    "ds_worker_info_log_file": ["*.log"],
+                    "resource_log_file": ["*.log"],
+                },
+                "log_analyzer_params": {},
+            },
+            timeout=10,
+        )
+        assert resp.status_code == 404
+
+    def test_reset_nonexistent_config(self, base_url, session_client):
+        resp = session_client.post(
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}/reset",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.parametrize("log_type", ["kv-cache", "brpc", "Other"])
+    def test_reject_unsupported_log_type(
+        self, base_url, session_client, existing_kb, log_type
+    ):
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": log_type},
+            timeout=10,
+        )
+        assert resp.status_code == 422
 
 
 class TestDiagnosisCase:
@@ -343,10 +438,10 @@ class TestDiagnosisCase:
         resp = session_client.get(f"{base_url}/diagnosis_case/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_search_case(self, base_url, session_client):
+    def test_search_case(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/diagnosis_case/search",
-            json={"case_name": "test", "page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "case_name": "test", "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -373,10 +468,10 @@ class TestFailureModeKnowledge:
 class TestSrcDstAggregatedEvent:
     """源目标聚合事件接口"""
     
-    def test_list_events(self, base_url, session_client):
+    def test_list_events(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -387,10 +482,10 @@ class TestSrcDstAggregatedEvent:
         resp = session_client.get(f"{base_url}/aggregated_event/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_list_time_window(self, base_url, session_client):
+    def test_list_time_window(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list_time_window",
-            json={"start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
+            json={"kb_id": existing_kb, "start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
             timeout=10
         )
         assert resp.status_code == 200
@@ -401,18 +496,18 @@ class TestSrcDstAggregatedEvent:
 class TestLogParseResult:
     """日志解析结果接口"""
     
-    def test_list_results(self, base_url, session_client):
+    def test_list_results(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_parse_result/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
-    
-    def test_get_options(self, base_url, session_client):
-        resp = session_client.get(f"{base_url}/log_parse_result/options", timeout=10)
+
+    def test_get_options(self, base_url, session_client, existing_kb):
+        resp = session_client.get(f"{base_url}/log_parse_result/options?kb_id={existing_kb}", timeout=10)
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
@@ -421,20 +516,20 @@ class TestLogParseResult:
         resp = session_client.get(f"{base_url}/log_parse_result/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_list_traces_by_host(self, base_url, session_client):
+    def test_list_traces_by_host(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_parse_result/traces/host/list",
-            json={"host": "localhost"},
+            json={"kb_id": existing_kb, "host": "localhost"},
             timeout=10
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
     
-    def test_get_latency_metrics(self, base_url, session_client):
+    def test_get_latency_metrics(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_parse_result/metrics/latency",
-            json={"trace_id": str(uuid.uuid4())},
+            json={"kb_id": existing_kb, "trace_id": str(uuid.uuid4())},
             timeout=10
         )
         assert resp.status_code == 200
@@ -449,10 +544,10 @@ class TestAnomalousEvent:
         resp = session_client.get(f"{base_url}/anomalous_event/{str(uuid.uuid4())}", timeout=10)
         assert resp.status_code == 200 or resp.status_code == 404
     
-    def test_list_events(self, base_url, session_client):
+    def test_list_events(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/anomalous_event/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -469,10 +564,10 @@ class TestAnomalousEvent:
 class TestAnomalousEventChain:
     """异常事件链接口"""
     
-    def test_list_chains(self, base_url, session_client):
+    def test_list_chains(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/anomalous_event_chain/list",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -483,10 +578,10 @@ class TestAnomalousEventChain:
 class TestLogFailureEventResult:
     """日志失败事件结果接口"""
     
-    def test_list_log_events(self, base_url, session_client):
+    def test_list_log_events(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_log_events",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200
@@ -503,20 +598,20 @@ class TestLogFailureEventResult:
         data = resp.json()
         assert data["code"] == 200
     
-    def test_list_time_aggregated(self, base_url, session_client):
+    def test_list_time_aggregated(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_time_aggregated_failure_events",
-            json={"start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
+            json={"kb_id": existing_kb, "start_time": "2024-01-01 00:00:00", "end_time": "2024-01-02 00:00:00"},
             timeout=10
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
     
-    def test_list_pod_aggregated(self, base_url, session_client):
+    def test_list_pod_aggregated(self, base_url, session_client, existing_kb):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_pod_aggregated_failure_events",
-            json={"page_num": 1, "page_cnt": 10},
+            json={"kb_id": existing_kb, "page_num": 1, "page_cnt": 10},
             timeout=10
         )
         assert resp.status_code == 200

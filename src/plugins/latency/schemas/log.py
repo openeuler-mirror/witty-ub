@@ -5,7 +5,6 @@ from typing import ClassVar, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from latency.schemas.task import TaskModel
-from latency.ENUM.task import TaskStatusEnum
 
 YUANRONG_METRIC_FIELDS = (
     "total_latency_us", "request_mode", "sdk_processing_us", "master_processing_us",
@@ -46,16 +45,19 @@ class LogFileModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="日志文件ID")
     kb_id: str = Field(default="", description="关联的知识ID")
     name: str = Field(default="", description="日志文件名称")
-    parse_status: TaskStatusEnum = Field(
-        default=TaskStatusEnum.PENDING,
-        description="日志文件解析状态，支持查询解析中的日志文件（parsing）、解析成功的日志文件（parsed）和解析失败的日志文件（failed）",
-    )
     file_path: str = Field(default="", description="日志文件路径")
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
     log_type: str = Field(default="kv-cache", description="日志类型：kv-cache 或 brpc")
-    task: TaskModel | None = Field(default=None, description="日志文件关联的任务")
+    task: TaskModel | None = Field(
+        default=None,
+        description="用于生成单条进度文案的摘要任务；其状态不代表日志级总状态",
+    )
+    overall_status: str = Field(
+        default="unknown",
+        description="关联任务聚合后的日志级状态；retrying 表示至少一个任务正在重试",
+    )
     overall_progress: float = Field(
         default=0.0,
         ge=0.0,

@@ -17,7 +17,6 @@ from latency.schemas.log import LogFileModel, LogKnowledgeModel
 from latency.database.managers.log_file import LogFileManager
 from latency.database.managers.log_knowledge import LogKnowledgeManager
 from latency.database.engine import AsyncSQLiteSingleton
-from latency.ENUM.task import TaskStatusEnum
 
 
 async def setup_test_data(log_dir: str) -> tuple[str, str]:
@@ -44,7 +43,6 @@ async def setup_test_data(log_dir: str) -> tuple[str, str]:
         name="test_log_file.log",
         file_path=log_dir,
         file_size=1024,
-        parse_status=TaskStatusEnum.PENDING.value,
         anomaly_cnt=0,
     )
     await LogFileManager.add_log_file(log_file_model)
@@ -96,10 +94,10 @@ def query_task_status(task_id: str) -> str:
         return "未知"
 
 
-def query_task_list():
+def query_task_list(kb_id: str):
     """查询任务列表"""
     url = "http://localhost:9772/task/list"
-    payload = {"page_num": 1, "page_cnt": 5}
+    payload = {"kb_id": kb_id, "page_num": 1, "page_cnt": 5}
     try:
         response = requests.post(url, json=payload)
         response.raise_for_status()
@@ -171,7 +169,7 @@ async def main():
     
     # 4. 查询任务列表
     print("\n[Step 4] 查询任务列表")
-    query_task_list()
+    query_task_list(kb_id)
     
     # 5. 查询任务报告
     print("\n[Step 5] 查询任务报告")

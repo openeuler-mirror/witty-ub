@@ -113,6 +113,37 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/   # 或 5173（vit
 
 ## 其他操作
 
+### 启动 OpenCode Agent
+
+OpenCode 服务支持通过交互菜单或直接运行脚本启动。
+
+通过交互菜单启动时，如果 OpenCode 连接大模型需要读取环境变量，应先 `export` 再打开菜单：
+
+```bash
+# 前端节点还需设置 WITTY_ROLE=frontend 和实际后端地址
+export WITTY_ROLE=frontend
+export WITTY_API_BASE=http://<后端IP>:9772
+export XXX=value
+
+bash deploy/host/deploy.sh
+# 选择“5) 启动 Agent 服务（OpenCode）”
+```
+
+直接运行脚本时，可以先 `export` 再启动：
+
+```bash
+export XXX=value
+bash deploy/deploy_opencode.sh
+```
+
+也可以只为本次启动显式指定变量：
+
+```bash
+XXX=value bash deploy/deploy_opencode.sh
+```
+
+上述环境变量会由 OpenCode 及其子进程继承。若服务已经运行，需要先停止旧进程再使用新环境变量启动。
+
 ### 仅启动服务（已部署过）
 
 ```bash

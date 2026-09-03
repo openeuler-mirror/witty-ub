@@ -62,6 +62,7 @@ def _aligned(epoch: int, interval: int) -> int:
 
 
 def _req(**kwargs) -> ListTimeWindowAggregatedEventRequest:
+    kwargs.setdefault("kb_id", "kb-test")
     return ListTimeWindowAggregatedEventRequest(page_num=1, page_cnt=1000, **kwargs)
 
 

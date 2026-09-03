@@ -59,9 +59,9 @@ def ensure_mock_data():
         lf_id = str(uuid.uuid4())
         db_execute(
             """INSERT INTO log_file_table
-            (id, kb_id, name, parse_status, file_path, file_size, anomaly_cnt, existed_status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (lf_id, kb_id, "mock.log", "pending", "/etc/hostname", 12, 0, 1, now()),
+            (id, kb_id, name, file_path, file_size, anomaly_cnt, existed_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (lf_id, kb_id, "mock.log", "/etc/hostname", 12, 0, 1, now()),
         )
         print(f"  创建 mock log_file: {lf_id}")
     else:
@@ -253,6 +253,7 @@ def main():
     # 4. log_parse_result 接口
     print("\n[log_parse_result]")
     call("POST", "/log_parse_result/list", payload={
+        "kb_id": kb_id,
         "page_cnt": 10, "page_num": 1,
         "src_ip": "192.168", "is_anomalous": False
     }, desc="list_log_parse_results")
@@ -261,6 +262,7 @@ def main():
     # 5. aggregated_event 接口
     print("\n[aggregated_event]")
     call("POST", "/aggregated_event/list", payload={
+        "kb_id": kb_id,
         "page_cnt": 10, "page_num": 1,
         "src_ip": "192.168"
     }, desc="list_aggregated_events")
@@ -273,16 +275,18 @@ def main():
     # 7. anomalous_event_chain 接口
     print("\n[anomalous_event_chain]")
     call("POST", "/anomalous_event_chain/list", payload={
+        "kb_id": kb_id,
         "page_cnt": 10, "page_num": 1
     }, desc="list_anomalous_event_chains")
 
     # 8. task 接口
     print("\n[task]")
-    call("POST", "/task/list", payload={"page_cnt": 10, "page_num": 1}, desc="list_tasks")
+    call("POST", "/task/list", payload={"kb_id": kb_id, "page_cnt": 10, "page_num": 1}, desc="list_tasks")
     call("GET", f"/task/{task_id}", desc="get_task")
     call("POST", "/task/create", payload={
         "task_type": "kv_cache_log_parse_worker",
         "op_id": log_file_id,
+        "kb_id": kb_id,
         "task_name": "test_task"
     }, desc="create_task")
     call("PUT", f"/task/stop/{task_id}", desc="stop_task")

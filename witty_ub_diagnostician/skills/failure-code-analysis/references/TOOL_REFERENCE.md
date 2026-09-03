@@ -140,7 +140,7 @@ vs 全局均匀。
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `trace_ids` | list[str] | **必填**，长度 1~100，来自 `list_trace_events` |
-| `kb_id` | str \| None | 可选，建议传以加速 |
+| `kb_id` | str | — | **必填**，限定知识库范围 |
 | `log_id` | str \| None | 可选，指定单个 log_id 精确查找 |
 
 **返回关键字段**：原始日志全文（含 `src=... dst=...`）、timestamp、trace_id、

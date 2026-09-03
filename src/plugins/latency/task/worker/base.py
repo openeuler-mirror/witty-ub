@@ -9,10 +9,21 @@ from latency.schemas.task import TaskReportModel
 
 logger = logging.getLogger(__name__)
 
-PREPROCESS_TASK_TYPES = {
-    TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-    TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-}
+PREPROCESS_TASK_TYPE_GROUPS = (
+    frozenset(
+        {
+            TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+            TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
+        }
+    ),
+    frozenset(
+        {
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+        }
+    ),
+)
+PREPROCESS_TASK_TYPES = frozenset().union(*PREPROCESS_TASK_TYPE_GROUPS)
 
 
 class BaseWorker:
@@ -107,14 +118,30 @@ class BaseWorker:
             }
         )
         if worker_name in PREPROCESS_TASK_TYPES:
-            await BaseWorker._cleanup_preprocess_dir_if_all_done(task.op_id)
+            await BaseWorker._cleanup_preprocess_dir_if_all_done(
+                task.op_id,
+                worker_name,
+            )
 
     @staticmethod
-    async def _cleanup_preprocess_dir_if_all_done(op_id: str) -> None:
-        """两个日志 worker 都成功完成后清理共享预处理目录。"""
+    async def _cleanup_preprocess_dir_if_all_done(
+        op_id: str,
+        worker_name: TaskTypeEnum,
+    ) -> None:
+        """同一日志类型的两个 worker 都成功后清理共享预处理目录。"""
+        task_types = next(
+            (
+                group
+                for group in PREPROCESS_TASK_TYPE_GROUPS
+                if worker_name in group
+            ),
+            frozenset(),
+        )
+        if not task_types:
+            return
         tasks = [
             await TaskPGManager.get_current_task_by_op_id(op_id, task_type)
-            for task_type in PREPROCESS_TASK_TYPES
+            for task_type in task_types
         ]
         if not all(tasks):
             return

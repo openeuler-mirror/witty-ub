@@ -157,19 +157,14 @@ class TaskHandler:
             if i >= single_batch_limit:
                 break
             try:
-                # BRPC profiling/diagnosis are isolated from the KVCache
-                # preprocessing lifecycle and always read the original LogFile
-                # path directly.
-                log_dir = None
+                # All log workers share the same preprocessing entry point so
+                # local archive paths are expanded before parsing/diagnosis.
+                log_dir = await TaskHandler._preprocess_log_source(task)
                 worker_kwargs = None
                 if task.task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
                     parse_config = TaskHandler.get_task_config(task.id)
                     if parse_config and parse_config.start_time:
                         worker_kwargs = {"start_time": parse_config.start_time}
-                elif task.task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER:
-                    pass
-                else:
-                    log_dir = await TaskHandler._preprocess_log_source(task)
                 flag = await BaseWorker.run(
                     task.id,
                     log_dir=log_dir,

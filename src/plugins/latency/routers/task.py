@@ -11,6 +11,7 @@ from latency.schemas.response import (
     GetTaskResponse,
 )
 from latency.services.task import TaskService
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/task", tags=["task"])
 
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/task", tags=["task"])
 async def create_task(
     req: Annotated[CreateTaskRequest, Body()],
 ) -> CreateTaskResponse:
+    await ResourceIdService.validate_request(req)
     msg = await TaskService.create_task(req)
     return CreateTaskResponse(result=msg)
 
@@ -51,6 +53,7 @@ async def delete_task(
 async def list_tasks(
     req: Annotated[ListTasksRequest, Body()],
 ) -> ListTasksResponse:
+    await ResourceIdService.validate_request(req)
     msg = await TaskService.list_tasks(req)
     return ListTasksResponse(result=msg)
 

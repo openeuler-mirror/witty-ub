@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import shutil
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -32,6 +32,8 @@ from latency.task.worker.kv_cache_log_event_diagnosis_worker import (
     KVCacheLogEventDiagnosisWorker,
 )
 import latency.task.worker.brpc_log_diagnosis_worker as worker_module
+import latency.task.log_preprocessor as log_preprocessor_module
+import latency.task.worker.base as base_worker_module
 import latency.services.log_file as log_file_service_module
 
 
@@ -105,6 +107,7 @@ def _configure_run_dependencies(monkeypatch, log_path):
     log_file = SimpleNamespace(kb_id="kb-id", file_path=str(log_path))
     status_updates = []
     reports = []
+    touch_log_kb = AsyncMock(return_value=1)
 
     async def get_task(_task_id):
         return task
@@ -139,11 +142,16 @@ def _configure_run_dependencies(monkeypatch, log_path):
     )
     monkeypatch.setattr(worker_module.BaseWorker, "report", report)
     monkeypatch.setattr(
+        worker_module.LogKnowledgePGManager,
+        "touch_log_kb",
+        touch_log_kb,
+    )
+    monkeypatch.setattr(
         BrpcLogDiagnosisWorker,
         "_resolve_start_time",
         lambda _task_id: "2026-08-11 10:20:30",
     )
-    return task, status_updates, reports
+    return task, status_updates, reports, touch_log_kb
 
 
 def test_worker_type_and_default_patterns_are_defined():
@@ -157,15 +165,13 @@ def test_worker_type_and_default_patterns_are_defined():
     ]
 
 
-def test_task_handler_dispatches_brpc_without_shared_preprocessing(monkeypatch):
+def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     task = SimpleNamespace(
         id="brpc-task",
         task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
     )
     list_pending = AsyncMock(return_value=[task])
-    preprocess = AsyncMock(
-        side_effect=AssertionError("BRPC must not use KVCache preprocessing")
-    )
+    preprocess = AsyncMock(return_value="/preprocessed/brpc")
     run_worker = AsyncMock(return_value=True)
 
     monkeypatch.setattr(
@@ -183,10 +189,10 @@ def test_task_handler_dispatches_brpc_without_shared_preprocessing(monkeypatch):
 
     _run(TaskHandler.handle_pending_tasks())
 
-    preprocess.assert_not_awaited()
+    preprocess.assert_awaited_once_with(task)
     run_worker.assert_awaited_once_with(
         "brpc-task",
-        log_dir=None,
+        log_dir="/preprocessed/brpc",
         worker_kwargs={"start_time": "2026-08-11 10:20:30"},
     )
 
@@ -219,6 +225,46 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
         "brpc-parse-task",
         "brpc-diagnosis-task",
     ]
+
+
+def test_brpc_preprocess_dir_is_cleaned_after_both_workers_finish(monkeypatch):
+    parse_task = SimpleNamespace(status=TaskStatusEnum.SUCCESSFUL)
+    diagnosis_task = SimpleNamespace(status=TaskStatusEnum.RUNNING)
+
+    async def get_current_task(_op_id, task_type):
+        return {
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER: parse_task,
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER: diagnosis_task,
+        }[task_type]
+
+    cleanup = Mock()
+    monkeypatch.setattr(
+        base_worker_module.TaskPGManager,
+        "get_current_task_by_op_id",
+        get_current_task,
+    )
+    monkeypatch.setattr(
+        log_preprocessor_module,
+        "cleanup_preprocess_dir",
+        cleanup,
+    )
+
+    _run(
+        BaseWorker._cleanup_preprocess_dir_if_all_done(
+            "log-file-id",
+            TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+        )
+    )
+    cleanup.assert_not_called()
+
+    diagnosis_task.status = TaskStatusEnum.SUCCESSFUL
+    _run(
+        BaseWorker._cleanup_preprocess_dir_if_all_done(
+            "log-file-id",
+            TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+        )
+    )
+    cleanup.assert_called_once_with("log-file-id")
 
 
 def test_upload_brpc_creates_one_model_and_two_tasks(monkeypatch, tmp_path):
@@ -391,6 +437,7 @@ def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
         TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
     ]
     assert result.log_file.overall_progress == 60.0
+    assert result.log_file.overall_status == TaskStatusEnum.RUNNING.value
 
 
 def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
@@ -472,6 +519,7 @@ def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
     assert TaskTypeEnum.BRPC_LOG_PARSE_WORKER in queried_task_types
     assert TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER in queried_task_types
     assert result.log_files[0].overall_progress == 60.0
+    assert result.log_files[0].overall_status == TaskStatusEnum.RUNNING.value
 
 
 def test_populate_brpc_counts_sets_profiling_and_diagnosis_counts(monkeypatch):
@@ -539,24 +587,24 @@ def test_populate_brpc_counts_skips_unsuccessful_tasks(monkeypatch):
     _run(LogFileService._populate_brpc_counts(log_file, parse_task, diagnosis_task))
 
     assert log_file.anomaly_cnt == 0
-    assert log_file.trace_failure_event_cnt is None
+    assert log_file.trace_failure_event_cnt == 0
 
 
 @pytest.mark.parametrize(
-    "parse_status,diag_status,expected_task",
+    "parse_task_status,diag_status,expected_task",
     [
         (TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING, "parse"),
         (TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING, "diag"),
         (TaskStatusEnum.SUCCESSFUL, TaskStatusEnum.RUNNING, "diag"),
         (TaskStatusEnum.SUCCESSFUL, TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, "diag"),
-        (TaskStatusEnum.FAILED, TaskStatusEnum.SUCCESSFUL, "diag"),
+        (TaskStatusEnum.FAILED, TaskStatusEnum.SUCCESSFUL, "parse"),
         (TaskStatusEnum.FAILED_PENDING_REMOVE, TaskStatusEnum.FAILED, "parse"),
     ],
 )
-def test_select_brpc_visible_task_priority(parse_status, diag_status, expected_task):
+def test_select_brpc_visible_task_priority(parse_task_status, diag_status, expected_task):
     parse_task = SimpleNamespace(
         id="parse-task",
-        status=parse_status,
+        status=parse_task_status,
         task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
     )
     diagnosis_task = SimpleNamespace(
@@ -566,6 +614,54 @@ def test_select_brpc_visible_task_priority(parse_status, diag_status, expected_t
     )
     selected = LogFileService._select_brpc_visible_task(parse_task, diagnosis_task)
     assert selected.id == ("parse-task" if expected_task == "parse" else "diag-task")
+
+
+@pytest.mark.parametrize(
+    "task_states,expected_status",
+    [
+        ([(TaskStatusEnum.PENDING, 0)], TaskStatusEnum.PENDING.value),
+        ([(TaskStatusEnum.RUNNING, 0), (TaskStatusEnum.PENDING, 0)], TaskStatusEnum.RUNNING.value),
+        (
+            [(TaskStatusEnum.FAILED_PENDING_REMOVE, 0), (TaskStatusEnum.RUNNING, 0)],
+            LogFileService.RETRYING_STATUS,
+        ),
+        ([(TaskStatusEnum.RUNNING, 1)], LogFileService.RETRYING_STATUS),
+        (
+            [(TaskStatusEnum.FAILED, 0), (TaskStatusEnum.RUNNING, 0)],
+            TaskStatusEnum.RUNNING.value,
+        ),
+        (
+            [(TaskStatusEnum.FAILED, 0), (TaskStatusEnum.SUCCESSFUL, 0)],
+            TaskStatusEnum.FAILED.value,
+        ),
+        (
+            [(TaskStatusEnum.CANCELLED, 0), (TaskStatusEnum.SUCCESSFUL, 0)],
+            TaskStatusEnum.CANCELLED.value,
+        ),
+        (
+            [
+                (TaskStatusEnum.SUCCESSFUL, 0),
+                (TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, 0),
+            ],
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+        ),
+        (
+            [(TaskStatusEnum.SUCCESSFUL, 0), (TaskStatusEnum.SUCCESSFUL, 0)],
+            TaskStatusEnum.SUCCESSFUL.value,
+        ),
+    ],
+)
+def test_aggregate_task_status(task_states, expected_status):
+    tasks = [
+        SimpleNamespace(status=status, retry_times=retry_times)
+        for status, retry_times in task_states
+    ]
+
+    assert LogFileService._aggregate_task_status(*tasks) == expected_status
+
+
+def test_aggregate_task_status_is_unknown_without_tasks():
+    assert LogFileService._aggregate_task_status() == "unknown"
 
 
 def test_brpc_worker_is_registered_and_progress_is_recognized():
@@ -812,7 +908,7 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
     log_path.write_text("log", encoding="utf-8")
     output_dir = tmp_path / "witty" / "brpc-diag"
     schema_path, batch_path = _copy_result_files(output_dir)
-    _, status_updates, reports = _configure_run_dependencies(
+    _, status_updates, reports, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
         log_path.parent,
     )
@@ -855,6 +951,40 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
         "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
     }
     assert reports[-1] == ("BRPC 诊断任务成功", 100.0)
+    touch_log_kb.assert_awaited_once_with("kb-id")
+
+
+def test_worker_prefers_preprocessed_log_dir(monkeypatch, tmp_path):
+    original_path = tmp_path / "logs.zip"
+    original_path.write_bytes(b"archive")
+    preprocessed_path = tmp_path / "preprocessed"
+    preprocessed_path.mkdir()
+    (preprocessed_path / "brpc.log").write_text("log", encoding="utf-8")
+    output_dir = tmp_path / "witty" / "brpc-diag"
+    _copy_result_files(output_dir)
+    _configure_run_dependencies(monkeypatch, original_path)
+    commands = []
+
+    monkeypatch.setenv("WITTY_DIR", str(tmp_path / "witty"))
+    monkeypatch.setattr(
+        BrpcLogDiagnosisWorker,
+        "_execute_tool",
+        lambda task_id, command: commands.append((task_id, command)),
+    )
+    monkeypatch.setattr(
+        worker_module.BrpcDiagnosisImporter,
+        "import_result",
+        AsyncMock(return_value=None),
+    )
+
+    assert _run(
+        BrpcLogDiagnosisWorker.run(
+            "task-normal",
+            log_dir=str(preprocessed_path),
+        )
+    ) is True
+    command = commands[0][1]
+    assert command[command.index("--brpc-log") + 1] == str(preprocessed_path)
 
 
 @pytest.mark.parametrize("include_batch,include_schema", [(False, False), (True, False)])
@@ -870,7 +1000,7 @@ def test_missing_output_marks_task_failed(
     output_dir = tmp_path / "witty" / "brpc-diag"
     if include_batch:
         _copy_result_files(output_dir, include_schema=include_schema)
-    _, status_updates, _ = _configure_run_dependencies(
+    _, status_updates, _, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
         log_path.parent,
     )
@@ -897,6 +1027,7 @@ def test_missing_output_marks_task_failed(
     assert status_updates[-1] == {
         "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
     }
+    touch_log_kb.assert_not_awaited()
 
 
 def test_import_failure_marks_task_failed_and_preserves_outputs(
@@ -907,7 +1038,7 @@ def test_import_failure_marks_task_failed_and_preserves_outputs(
     log_path.write_text("log", encoding="utf-8")
     output_dir = tmp_path / "witty" / "brpc-diag"
     schema_path, batch_path = _copy_result_files(output_dir)
-    _, status_updates, _ = _configure_run_dependencies(
+    _, status_updates, _, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
         log_path.parent,
     )
@@ -933,6 +1064,7 @@ def test_import_failure_marks_task_failed_and_preserves_outputs(
     assert status_updates[-1] == {
         "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
     }
+    touch_log_kb.assert_not_awaited()
 
 
 def test_stop_terminates_registered_subprocess(monkeypatch, tmp_path):

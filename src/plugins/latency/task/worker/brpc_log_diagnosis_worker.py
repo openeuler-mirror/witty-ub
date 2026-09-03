@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.task import TaskPGManager
 from latency.schemas.brpc_diagnosis import BrpcDiagBatch
 from latency.schemas.task import TaskModel
@@ -62,10 +63,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await LogFilePGManager.update_log_file(
-            log_file.id,
-            {"parse_status": TaskStatusEnum.PENDING.value},
-        )
         await BaseWorker.report(task.id, "初始化 BRPC 诊断任务", 0.0)
         return task.id
 
@@ -82,10 +79,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 retry_limit,
             )
             return False
-        await LogFilePGManager.update_log_file(
-            task.op_id,
-            {"parse_status": TaskStatusEnum.PENDING.value},
-        )
         await BaseWorker.report(task_id, "重新初始化 BRPC 诊断任务", 0.0)
         return True
 
@@ -374,18 +367,13 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             )
         except Exception:
             logger.exception("failed to update BRPC diagnosis task status")
-        try:
-            task = await TaskPGManager.get_task_by_task_id(task_id)
-            if task is not None:
-                await LogFilePGManager.update_log_file(
-                    task.op_id,
-                    {"parse_status": TaskStatusEnum.FAILED.value},
-                )
-        except Exception:
-            logger.exception("failed to update BRPC diagnosis log status")
 
     @staticmethod
-    async def run(task_id: str, start_time: str | None = None) -> bool:
+    async def run(
+        task_id: str,
+        log_dir: str | None = None,
+        start_time: str | None = None,
+    ) -> bool:
         try:
             task = await TaskPGManager.get_task_by_task_id(task_id)
             if task is None:
@@ -395,10 +383,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 task_id,
                 {"status": TaskStatusEnum.RUNNING.value},
             )
-            await LogFilePGManager.update_log_file(
-                task.op_id,
-                {"parse_status": TaskStatusEnum.RUNNING.value},
-            )
             await BaseWorker.report(task_id, "开始 BRPC 日志诊断", 5.0)
 
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
@@ -406,7 +390,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 raise BrpcDiagnosisWorkerError(
                     f"BRPC diagnosis LogFile does not exist: {task.op_id}"
                 )
-            selected_log = Path(log_file.file_path)
+            selected_log = Path(log_dir or log_file.file_path)
             if not selected_log.exists():
                 raise BrpcDiagnosisWorkerError(
                     f"BRPC diagnosis log path not found: {selected_log}"
@@ -437,13 +421,10 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 expected_task_id=task_id,
             )
             await BaseWorker.report(task_id, "BRPC 诊断结果导入完成", 90.0)
+            await LogKnowledgePGManager.touch_log_kb(log_file.kb_id)
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},
-            )
-            await LogFilePGManager.update_log_file(
-                task.op_id,
-                {"parse_status": TaskStatusEnum.SUCCESSFUL.value},
             )
             await BaseWorker.report(task_id, "BRPC 诊断任务成功", 100.0)
             return True

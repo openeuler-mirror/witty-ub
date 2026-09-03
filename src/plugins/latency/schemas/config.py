@@ -1,7 +1,9 @@
 """系统配置类"""
-from pydantic import BaseModel, Field, model_validator
+from typing import TypeAlias
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from uuid import uuid4
-from latency.ENUM.general import OnlineStatus, LogLevel
+from latency.ENUM.general import DiagnosisConfigLogType, OnlineStatus, LogLevel
 from latency.ENUM.model import ModelProvider, ModelLabel
 
 
@@ -114,6 +116,53 @@ class LogFilenamePatternConfig(BaseModel):
         default_factory=lambda: ["brpc.log", "brpc.log.*", "*brpc*.log"],
         description="BRPC 诊断日志文件匹配模式",
     )
+
+
+class KVCacheLogFilenamePatternConfig(BaseModel):
+    """KVCache 对外暴露的日志文件匹配配置。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ds_client_access_log_file: list[str]
+    ds_client_info_log_file: list[str]
+    ds_worker_access_log_file: list[str]
+    ds_worker_info_log_file: list[str]
+    resource_log_file: list[str]
+
+
+class UBSocketLogFilenamePatternConfig(BaseModel):
+    """UBSocket 对外暴露的日志文件匹配配置。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    brpc_log_file_patterns: list[str]
+
+
+class KVCacheDiagnosisConfig(BaseModel):
+    """KVCache API 配置分组。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    log_filename_pattern: KVCacheLogFilenamePatternConfig
+    log_analyzer_params: DSLogAnalyzerConfig
+
+
+class UBSocketDiagnosisConfig(BaseModel):
+    """UBSocket API 配置分组。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    log_filename_pattern: UBSocketLogFilenamePatternConfig
+
+
+DiagnosisConfigUpdate: TypeAlias = KVCacheDiagnosisConfig | UBSocketDiagnosisConfig
+
+
+class DiagnosisConfigResult(BaseModel):
+    """按日志类型返回的诊断配置。"""
+
+    log_type: DiagnosisConfigLogType
+    config: DiagnosisConfigUpdate
 
 
 class DiagnosisRuntimeConfig(BaseModel):

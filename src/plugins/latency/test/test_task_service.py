@@ -48,7 +48,6 @@ async def setup_mock_data() -> tuple[str, str]:
         name="test_log_file.log",
         file_path="/tmp/test_logs",
         file_size=1024,
-        parse_status=TaskStatusEnum.PENDING.value,
         anomaly_cnt=0,
     )
     await LogFileManager.add_log_file(log_file_model)

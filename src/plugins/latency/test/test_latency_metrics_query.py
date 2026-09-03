@@ -34,17 +34,17 @@ async def test_get_latency_metrics_rejects_unsupported_inputs(monkeypatch):
     # MIN 模式
     with pytest.raises(BadRequestBizException):
         await LogParseResultPGManager.get_latency_metrics(
-            GetLatencyMetricsRequest(sample_mode=SampleMode.MIN, bucket_seconds=60, log_id="lg")
+            GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.MIN, bucket_seconds=60, log_id="lg")
         )
     # 非法 bucket_seconds
     with pytest.raises(BadRequestBizException):
         await LogParseResultPGManager.get_latency_metrics(
-            GetLatencyMetricsRequest(sample_mode=SampleMode.P99, bucket_seconds=999, log_id="lg")
+            GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=999, log_id="lg")
         )
     # IP 维度过滤
     with pytest.raises(BadRequestBizException):
         await LogParseResultPGManager.get_latency_metrics(
-            GetLatencyMetricsRequest(sample_mode=SampleMode.P99, bucket_seconds=60, log_id="lg", src_ip="10.0.0.1")
+            GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60, log_id="lg", src_ip="10.0.0.1")
         )
     assert calls["bucket"] == 0
 
@@ -52,7 +52,7 @@ async def test_get_latency_metrics_rejects_unsupported_inputs(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_latency_metrics_missing_log_id_returns_empty():
     total, rows = await LogParseResultPGManager.get_latency_metrics(
-        GetLatencyMetricsRequest(sample_mode=SampleMode.P99, bucket_seconds=60)
+        GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
     )
     assert total == 0
     assert rows == []
@@ -71,7 +71,7 @@ async def test_get_latency_metrics_valid_request_uses_bucket_table(monkeypatch):
         LogParseResultPGManager, "_query_bucket_stats", staticmethod(_fake_query)
     )
     total, rows = await LogParseResultPGManager.get_latency_metrics(
-        GetLatencyMetricsRequest(sample_mode=SampleMode.P99, bucket_seconds=60, log_id="lg")
+        GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60, log_id="lg")
     )
     assert total == 1
     assert captured == {"table": "LatencyBucket1min", "mode": "p99"}

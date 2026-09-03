@@ -6,6 +6,7 @@ from latency.schemas.response import (
     GetDiagnosisCaseMsg,
     SearchDiagnosisCasesMsg,
 )
+from latency.exceptions import NotFoundBizException
 
 
 class DiagnosisCaseService:
@@ -18,6 +19,8 @@ class DiagnosisCaseService:
     @staticmethod
     async def get_case(case_id: str) -> GetDiagnosisCaseMsg:
         case = await DiagnosisCasePGManager.get_case(case_id)
+        if case is None or not case.existed_status:
+            raise NotFoundBizException(resource="诊断案例")
         return GetDiagnosisCaseMsg(case=case)
 
     @staticmethod

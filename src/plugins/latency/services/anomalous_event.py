@@ -4,6 +4,7 @@ from latency.schemas.response import (
 )
 from latency.schemas.request import ListAnomalousEventRequest
 from latency.database.managers.anomalous_event import AnomalousEventPGManager
+from latency.exceptions import NotFoundBizException
 
 
 class AnomalousEventService:
@@ -12,6 +13,8 @@ class AnomalousEventService:
     @staticmethod
     async def get_anomalous_event_by_id(event_id: str) -> GetAnomalousEventMsg:
         event = await AnomalousEventPGManager.get_anomalous_event_by_id(event_id)
+        if event is None or not event.existed_status:
+            raise NotFoundBizException(resource="异常事件")
         return GetAnomalousEventMsg(event=event)
 
     @staticmethod

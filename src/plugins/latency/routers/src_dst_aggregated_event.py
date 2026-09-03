@@ -12,6 +12,7 @@ from latency.schemas.response import (
     ListTimeWindowAggregatedEventResponse,
 )
 from latency.services.src_dst_aggregated_event import SrcDstAggregatedEventService
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/aggregated_event", tags=["aggregated_event"])
 
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/aggregated_event", tags=["aggregated_event"])
 async def list_aggregated_events(
     req: Annotated[ListSrcDstAggregatedEventRequest, Body()],
 ) -> ListSrcDstAggregatedEventResponse:
+    await ResourceIdService.validate_request(req)
     msg = await SrcDstAggregatedEventService.list_aggregated_events(req)
     return ListSrcDstAggregatedEventResponse(result=msg)
 
@@ -62,5 +64,6 @@ async def get_aggregated_event_by_id(
 async def list_time_window_aggregated_events(
     req: Annotated[ListTimeWindowAggregatedEventRequest, Body()],
 ) -> ListTimeWindowAggregatedEventResponse:
+    await ResourceIdService.validate_request(req)
     msg = await SrcDstAggregatedEventService.list_time_window_events(req)
     return ListTimeWindowAggregatedEventResponse(result=msg)

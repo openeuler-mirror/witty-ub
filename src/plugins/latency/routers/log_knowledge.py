@@ -31,6 +31,7 @@ from latency.schemas.response import (
     GetLogKnowledgeResponse,
 )
 from latency.services.log_knowledge import LogKnowledgeService
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/log_kb", tags=["Knowledge Base"])
 
@@ -47,6 +48,7 @@ async def create_log_kb(
 async def delete_log_kb_by_kb_id(
     kb_id: Annotated[str, Path()],
 ) -> DeleteLogKnowledgeResponse:
+    await ResourceIdService.require("kb", kb_id)
     delete_log_kb_msg = await LogKnowledgeService.delete_log_kb_by_kb_id(kb_id)
     return DeleteLogKnowledgeResponse(result=delete_log_kb_msg)
 
@@ -56,6 +58,7 @@ async def update_log_kb(
     kb_id: Annotated[str, Path()],
     req: Annotated[UpdateLogKnowledgeRequest, Body()],
 ) -> UpdateLogKnowledgeResponse:
+    await ResourceIdService.require("kb", kb_id)
     update_log_kb_msg = await LogKnowledgeService.update_log_kb(kb_id, req)
     return UpdateLogKnowledgeResponse(result=update_log_kb_msg)
 
@@ -72,6 +75,7 @@ async def update_log_kb(
 async def get_log_kb_by_kb_id(
     kb_id: Annotated[str, Path()],
 ) -> GetLogKnowledgeResponse:
+    await ResourceIdService.require("kb", kb_id)
     get_log_kb_msg = await LogKnowledgeService.get_log_kb_by_kb_id(kb_id)
     return GetLogKnowledgeResponse(result=get_log_kb_msg)
 

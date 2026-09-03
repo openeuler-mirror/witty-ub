@@ -17,6 +17,7 @@ from latency.schemas.response import (
     GetErrCodeMetricsResponse
 )
 from latency.services.log_failure_event_result import LogFailureEventResultService
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/log_failure_event_result", tags=["log_failure_event_result"])
 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/log_failure_event_result", tags=["log_failure_event_
 async def list_log_failure_event_results(
     req: Annotated[ListLogFailureEventResultRequest, Body()],
 ) -> ListLogFailureEventResultResponse:
+    await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_log_failure_event_result(req)
     return ListLogFailureEventResultResponse(result=msg)
 
@@ -50,6 +52,7 @@ async def list_log_failure_event_results(
 async def list_trace_failure_event_results(
     req: Annotated[ListTraceFailureEventResultRequest, Body()],
 ) -> ListTraceFailureEventResultResponse:
+    await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_trace_failure_event_result(req=req)
     return ListTraceFailureEventResultResponse(result=msg)
 
@@ -65,6 +68,7 @@ async def list_trace_failure_event_results(
 async def list_time_aggregated_failure_event_results(
     req: Annotated[ListTimeAggregatedFailureEventRequest, Body()],
 ) -> ListTimeAggregatedFailureEventResponse:
+    await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_time_aggregated_failure_event_result(req=req)
     return ListTimeAggregatedFailureEventResponse(result=msg)
 
@@ -80,6 +84,7 @@ async def list_time_aggregated_failure_event_results(
 async def list_pod_aggregated_failure_event_results(
     req: Annotated[ListPodAggregatedFailureEventRequest, Body()],
 ) -> ListPodAggregatedFailureEventResponse:
+    await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_pod_aggregated_failure_event_result(req=req)
     return ListPodAggregatedFailureEventResponse(result=msg)
 
@@ -96,6 +101,7 @@ async def list_pod_aggregated_failure_event_results(
 async def list_src_dst_aggregated_failure_event_results(
     req: Annotated[ListSrcDstAggregatedFailureEventRequest, Body()],
 ) -> ListSrcDstAggregatedFailureEventResponse:
+    await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_src_dst_aggregated_failure_event_result(req=req)
     return ListSrcDstAggregatedFailureEventResponse(result=msg)
 
@@ -113,5 +119,6 @@ async def get_err_code_metrics(
     req: Annotated[GetErrCodeMetricsRequest, Body()],
 ) -> GetErrCodeMetricsResponse:
     """获取延迟指标时间曲线数据（必选指标：total_latency, urma_total_latency, worker_query_meta_latency）"""
+    await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.get_err_code_metrics(req)
     return GetErrCodeMetricsResponse(result=msg)

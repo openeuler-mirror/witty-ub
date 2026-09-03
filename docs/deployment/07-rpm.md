@@ -88,15 +88,19 @@ sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
 sudo witty-ub manager deploy --backend http://<后端IP>:9772
 ```
 
-配置并启动 OpenCode Agent：
+配置 OpenCode，然后通过交互菜单启动 Agent：
 
 ```bash
 npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/zh/download)
 vi ~/.config/opencode/opencode.jsonc   # 参考 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)
 
-set -a; source /etc/witty-ub/web/env; set +a
-bash /var/witty-ub/deploy/deploy_opencode.sh
+# 如果 OpenCode 连接大模型需要读取环境变量，先 export 再打开交互菜单
+export XXX=value
+sudo -E witty-ub manager
+# 依次选择“a) 启动 / 停止 Agent 服务（OpenCode）”和“1) 启动 Agent 服务”
 ```
+
+`sudo -E` 用于将当前 shell 中已 `export` 的环境变量传递给 RPM 管理器及其启动的 OpenCode 进程；是否允许保留环境变量受本机 sudo 策略控制。不需要额外环境变量时，可以直接执行 `sudo witty-ub manager`。
 
 验证：
 
@@ -120,8 +124,8 @@ sudo witty-ub manager config --show        # 查看当前角色与连接配置
 OpenCode 如在运行，需重启以加载新地址：
 
 ```bash
-set -a; source /etc/witty-ub/web/env; set +a
-bash /var/witty-ub/deploy/deploy_opencode.sh
+sudo witty-ub manager
+# 进入“a) 启动 / 停止 Agent 服务（OpenCode）”，先停止再启动 Agent 服务
 ```
 
 ---
