@@ -93,13 +93,53 @@ npm run build-only   # 产物 dist/
 ```bash
 npm i -g opencode-ai   # 或参考 [opencode 官方文档](https://opencode.ai/zh/download)
 vi ~/.config/opencode/opencode.jsonc   # 参考 配置参考手册 · OpenCode 配置
+```
+
+OpenCode 服务支持以下两种启动方式。
+
+#### 方式一：通过交互菜单启动
+
+```bash
+cd witty-ub
+
+# 前端节点需指定后端地址
+export WITTY_ROLE=frontend
+export WITTY_API_BASE=http://<后端IP>:9772
+
+# 如果 OpenCode 连接大模型还需要其他环境变量，先 export 再打开菜单
+export XXX=value
+
+bash deploy/host/deploy.sh
+# 在菜单中选择“5) 启动 Agent 服务（OpenCode）”
+```
+
+通过交互菜单启动时，OpenCode 会继承打开菜单前已 `export` 的环境变量。
+
+#### 方式二：直接运行启动脚本
+
+```bash
+cd witty-ub
 
 # 指向后端节点启动（变量导出给 OpenCode/Agent Bash 子进程）
-cd witty-ub
 WITTY_API_BASE=http://<后端IP>:9772 \
   bash deploy/deploy_opencode.sh
 # 监听 127.0.0.1:4096
 ```
+
+如果 OpenCode 连接大模型还需要其他环境变量，可以先 `export` 再运行脚本：
+
+```bash
+export XXX=value
+bash deploy/deploy_opencode.sh
+```
+
+也可以只为本次启动显式指定变量：
+
+```bash
+XXX=value bash deploy/deploy_opencode.sh
+```
+
+以上两种写法中的环境变量都会由 OpenCode 及其子进程继承。若服务已经运行，需要先停止旧进程再使用新环境变量启动。
 
 `deploy_opencode.sh` 支持的变量：`WITTY_API_BASE`（默认 `http://127.0.0.1:9772`）、`WITTY_NO_PROXY`（默认 `127.0.0.1`）、`OPENCODE_HOST`（默认 `127.0.0.1`）、`OPENCODE_CONFIG` / `OPENCODE_CONFIG_DIR`（自定义 OpenCode 配置，已设置时不覆盖；未设置时使用随包 bundle，详见[配置参考](../usage/03-configuration-reference.md#opencode-配置)）。
 
