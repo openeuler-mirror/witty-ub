@@ -5660,7 +5660,65 @@ button {
 }
 
 .detail-abnormal-trace-frame {
+  --detail-left-scrollbar-height: 10px;
   grid-template-columns: minmax(0, 48%) minmax(0, 1fr) 160px;
+}
+
+.detail-abnormal-trace-left-head,
+.detail-abnormal-trace-left-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.detail-abnormal-trace-left-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: var(--aggregate-header-row-height);
+  background: #f1f5f9;
+}
+
+.detail-abnormal-trace-left-head::-webkit-scrollbar,
+.detail-abnormal-trace-left-body::-webkit-scrollbar {
+  display: none;
+}
+
+.detail-abnormal-trace-left-scrollbar,
+.detail-abnormal-trace-header-scrollbar-spacer {
+  position: sticky;
+  top: var(--aggregate-header-row-height);
+  z-index: 4;
+  height: var(--detail-left-scrollbar-height);
+  background: #ffffff;
+}
+
+.detail-abnormal-trace-left-scrollbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.detail-abnormal-trace-left-scrollbar::-webkit-scrollbar {
+  height: 8px;
+}
+
+.detail-abnormal-trace-left-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.detail-abnormal-trace-left-scrollbar-spacer {
+  height: 1px;
+}
+
+.detail-abnormal-trace-header-scrollbar-spacer {
+  display: none;
+}
+
+.detail-abnormal-trace-left-overflow .detail-abnormal-trace-header-scrollbar-spacer {
+  display: block;
 }
 
 .detail-abnormal-trace-frame .aggregate-latency-scroll {

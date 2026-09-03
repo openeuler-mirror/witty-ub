@@ -2166,18 +2166,28 @@ const DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH = 400
 // Content widths include the horizontal padding of their cells.
 const DETAIL_TRACE_LABEL_COLUMN_WIDTH = 116
 const DETAIL_TRACE_TIME_COLUMN_WIDTH = 160
+const DETAIL_TRACE_POD_COLUMN_MIN_WIDTH = 170
 
-const getDetailLatencyLeftGridColumnWidths = () => {
+const getDetailLatencyLeftGridStyle = () => {
   const [, , traceIdWidth, , , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
+  const widths = [
+    DETAIL_TRACE_LABEL_COLUMN_WIDTH,
+    DETAIL_TRACE_TIME_COLUMN_WIDTH,
+    (traceIdWidth || 220) + 10,
+    DETAIL_TRACE_POD_COLUMN_MIN_WIDTH,
+    clusterWidth || 90,
+    hostWidth || 75,
+  ]
 
-  return [
-    `${DETAIL_TRACE_LABEL_COLUMN_WIDTH}px`,
-    `${DETAIL_TRACE_TIME_COLUMN_WIDTH}px`,
-    `${(traceIdWidth || 220) + 10}px`,
-    'minmax(0, 1fr)',
-    `${clusterWidth || 90}px`,
-    `${hostWidth || 75}px`,
-  ].join(' ')
+  return {
+    gridTemplateColumns: widths
+      .map((width, index) =>
+        index === 3 ? `minmax(${width}px, 1fr)` : `${width}px`,
+      )
+      .join(' '),
+    width: '100%',
+    minWidth: `${widths.reduce((total, width) => total + width, 0)}px`,
+  }
 }
 
 const getDetailLatencyDataGridColumnWidths = () =>
@@ -2680,6 +2690,32 @@ const faultTraceTableRef = ref<HTMLDivElement | null>(null)
 const faultDetailTraceTableRef = ref<HTMLDivElement | null>(null)
 const latencyTraceTableRef = ref<HTMLDivElement | null>(null)
 const hoveredLatencyTraceRowKey = ref('')
+const isDetailLatencyLeftOverflowing = ref(false)
+
+const updateDetailLatencyLeftOverflow = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const leftBody = detailAbnormalTraceTableRef.value?.querySelector<HTMLElement>(
+        '.detail-abnormal-trace-left-body',
+      )
+      isDetailLatencyLeftOverflowing.value = Boolean(
+        leftBody && leftBody.scrollWidth > leftBody.clientWidth + 1,
+      )
+    })
+  })
+}
+
+const syncDetailLatencyLeftScroll = (event: Event) => {
+  const source = event.currentTarget as HTMLElement | null
+  const fixedLeft = source?.closest<HTMLElement>('.aggregate-fixed-left')
+  if (!source || !fixedLeft) return
+
+  fixedLeft.querySelectorAll<HTMLElement>('.detail-abnormal-trace-left-sync').forEach((target) => {
+    if (target !== source && target.scrollLeft !== source.scrollLeft) {
+      target.scrollLeft = source.scrollLeft
+    }
+  })
+}
 
 const syncSplitTableRowHeights = (table: HTMLDivElement | null, scrollRowSelector: string) => {
   if (!table) return
@@ -11874,6 +11910,7 @@ watch(selectedBrpcFaultScale, () => {
 onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
+  window.addEventListener('resize', updateDetailLatencyLeftOverflow)
   if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
     assetDetailResizeObserver = new ResizeObserver(resizeLatencyCharts)
     assetDetailResizeObserver.observe(assetDetailRef.value)
@@ -11884,12 +11921,14 @@ onMounted(() => {
 onUpdated(() => {
   syncAbnormalTraceRowHeights()
   syncDetailAbnormalTraceRowHeights()
+  updateDetailLatencyLeftOverflow()
 })
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
   closeAgentEventStream()
   window.removeEventListener('resize', resizeLatencyCharts)
+  window.removeEventListener('resize', updateDetailLatencyLeftOverflow)
   assetDetailResizeObserver?.disconnect()
   assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
@@ -16904,61 +16943,84 @@ onBeforeUnmount(() => {
               <div
                 ref="detailAbnormalTraceTableRef"
                 class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame"
+                :class="{
+                  'detail-abnormal-trace-left-overflow': isDetailLatencyLeftOverflowing,
+                }"
                 :style="{
                   gridTemplateColumns: getDetailLatencyTraceFrameGridColumnWidths(),
                 }"
               >
                 <div class="aggregate-fixed-left">
                   <div
-                    class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
-                    :style="{ gridTemplateColumns: getDetailLatencyLeftGridColumnWidths() }"
-                  >
-                    <div class="aggregate-cell">标签</div>
-                    <div class="aggregate-cell">时间</div>
-                    <div class="aggregate-cell">Trace ID</div>
-                    <div class="aggregate-cell">Pod IP</div>
-                    <div class="aggregate-cell">集群</div>
-                    <div class="aggregate-cell">主机 IP</div>
-                  </div>
-                  <template
-                    v-if="
-                      !isDetailParseResultsLoading &&
-                      !detailParseResultsError &&
-                      detailParseResultRows.length > 0
-                    "
+                    class="detail-abnormal-trace-left-head detail-abnormal-trace-left-sync"
+                    @scroll="syncDetailLatencyLeftScroll"
                   >
                     <div
-                      v-for="row in detailParseResultRows"
-                      :key="`${row.id}-fixed`"
-                      class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
-                      :style="{
-                        gridTemplateColumns: getDetailLatencyLeftGridColumnWidths(),
-                        height: getTraceRowHeight(row.podIp),
-                      }"
+                      class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
+                      :style="getDetailLatencyLeftGridStyle()"
                     >
-                      <div class="aggregate-cell">
-                        <span
-                          v-for="tag in getTraceTags(row.traceId, 'latency')"
-                          :key="tag.type"
-                          class="trace-type-tag"
-                          :class="`trace-type-tag-${tag.type}`"
-                        >
-                          {{ tag.label }}
-                        </span>
-                      </div>
-                      <div class="aggregate-cell">{{ row.time }}</div>
-                      <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                      <div
-                        class="aggregate-cell multi-line-pod-cell"
-                        :title="getMultiLineCellTitle(row.podIp)"
-                        v-html="row.podIp"
-                      ></div>
-                      <div class="aggregate-cell" :title="row.clusterName">
-                        {{ row.clusterName }}
-                      </div>
-                      <div class="aggregate-cell" :title="row.host">{{ row.host }}</div>
+                      <div class="aggregate-cell">标签</div>
+                      <div class="aggregate-cell">时间</div>
+                      <div class="aggregate-cell">Trace ID</div>
+                      <div class="aggregate-cell">Pod IP</div>
+                      <div class="aggregate-cell">集群</div>
+                      <div class="aggregate-cell">主机 IP</div>
                     </div>
-                  </template>
+                  </div>
+                  <div
+                    v-if="isDetailLatencyLeftOverflowing"
+                    class="detail-abnormal-trace-left-scrollbar detail-abnormal-trace-left-sync"
+                    @scroll="syncDetailLatencyLeftScroll"
+                  >
+                    <div
+                      class="detail-abnormal-trace-left-scrollbar-spacer"
+                      :style="getDetailLatencyLeftGridStyle()"
+                    ></div>
+                  </div>
+                  <div
+                    class="detail-abnormal-trace-left-body detail-abnormal-trace-left-sync"
+                    @scroll="syncDetailLatencyLeftScroll"
+                  >
+                    <template
+                      v-if="
+                        !isDetailParseResultsLoading &&
+                        !detailParseResultsError &&
+                        detailParseResultRows.length > 0
+                      "
+                    >
+                      <div
+                        v-for="row in detailParseResultRows"
+                        :key="`${row.id}-fixed`"
+                        class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
+                        :style="{
+                          ...getDetailLatencyLeftGridStyle(),
+                          height: getTraceRowHeight(row.podIp),
+                        }"
+                      >
+                        <div class="aggregate-cell">
+                          <span
+                            v-for="tag in getTraceTags(row.traceId, 'latency')"
+                            :key="tag.type"
+                            class="trace-type-tag"
+                            :class="`trace-type-tag-${tag.type}`"
+                          >
+                            {{ tag.label }}
+                          </span>
+                        </div>
+                        <div class="aggregate-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
+                        <div
+                          class="aggregate-cell multi-line-pod-cell"
+                          :title="getMultiLineCellTitle(row.podIp)"
+                          v-html="row.podIp"
+                        ></div>
+                        <div class="aggregate-cell" :title="row.clusterName">
+                          {{ row.clusterName }}
+                        </div>
+                        <div class="aggregate-cell" :title="row.host">{{ row.host }}</div>
+                      </div>
+                    </template>
+                  </div>
                 </div>
 
                 <div
@@ -17009,12 +17071,7 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                   </div>
-                  <div
-                    class="aggregate-latency-scrollbar aggregate-latency-sync"
-                    @scroll="syncAggregateLatencyScroll"
-                  >
-                    <div class="aggregate-latency-scrollbar-spacer"></div>
-                  </div>
+                  <div class="detail-abnormal-trace-header-scrollbar-spacer"></div>
                   <div
                     class="aggregate-latency-body aggregate-latency-sync"
                     @scroll="syncAggregateLatencyScroll"
@@ -17061,6 +17118,7 @@ onBeforeUnmount(() => {
 
                 <div class="aggregate-fixed-actions">
                   <div class="aggregate-cell action-cell aggregate-table-header">Trace分析</div>
+                  <div class="detail-abnormal-trace-header-scrollbar-spacer"></div>
                   <template
                     v-if="
                       !isDetailParseResultsLoading &&
