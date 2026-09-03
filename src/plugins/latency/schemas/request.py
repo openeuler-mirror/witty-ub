@@ -180,7 +180,7 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"total_latency\", \"order\": \"desc\"}, {\"field\": \"src_ip\", \"order\": \"asc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
     operation: Optional[str] = Field(
         default=None,
         description="操作类型过滤：GET / SET",
@@ -191,7 +191,7 @@ class ListAnomalousEventChainRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件链")
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
     page_cnt: int = Field(default=10, description="每页的异常事件链数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListLogParseResultRequest(BaseModel):
@@ -276,7 +276,7 @@ class ListTraceFailureEventResultRequest(BaseModel):
         description="排序方向，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListAnomalousEventRequest(BaseModel):
@@ -288,7 +288,7 @@ class ListAnomalousEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"created_at\", \"order\": \"desc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的异常事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListTracesByHostRequest(BaseModel):
@@ -311,7 +311,7 @@ class ListTracesByHostRequest(BaseModel):
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
     )
     page_cnt: int = Field(default=20, description="每页数量")
-    page_num: int = Field(default=1, description="页码")
+    page_num: int = Field(default=1, ge=1, description="页码")
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="desc", description="排序方向")
 
@@ -351,7 +351,7 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 class ListPodAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
@@ -380,7 +380,7 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 class ListSrcDstAggregatedFailureEventRequest(BaseModel):
     kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
@@ -414,7 +414,7 @@ class ListSrcDstAggregatedFailureEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
@@ -524,7 +524,7 @@ class SearchDiagnosisCasesRequest(BaseModel):
     log_keywords: list[str] = Field(default_factory=list, description="待匹配关键日志短语")
     min_confidence: Optional[float] = Field(default=None, description="最低案例置信度")
     page_cnt: int = Field(default=10, description="每页数量")
-    page_num: int = Field(default=1, description="页码")
+    page_num: int = Field(default=1, ge=1, description="页码")
 
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")
@@ -568,7 +568,7 @@ class ListTimeWindowAggregatedEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"start_time\", \"order\": \"asc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的时间窗口数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListTasksRequest(BaseModel):
@@ -589,4 +589,4 @@ class ListTasksRequest(BaseModel):
         description="任务创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的任务数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
