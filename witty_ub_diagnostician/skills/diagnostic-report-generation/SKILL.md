@@ -172,7 +172,7 @@ latency-analysis / failure-code-analysis 附录A中的 `experience_refs`
     {
       "log_id": "<文件ID>",
       "log_name": "<文件名>",
-      "parse_status": "SUCCESS | RUNNING | FAILED",
+      "overall_status": "successful | running | retrying | failed | pending | cancelled | unknown",
       "task_id": "<task_id 或 null>",
       "fault_count_total": <int>
     }
@@ -184,15 +184,15 @@ latency-analysis / failure-code-analysis 附录A中的 `experience_refs`
 
 ### 字段提取来源
 
-全部来自 `POST /log_file/list/{kb_id}` 结果的逐文件统计。若存在 parse_status≠SUCCESS
+全部来自 `POST /log_file/list/{kb_id}` 结果的逐文件统计。若存在 overall_status≠successful
 的文件，追加调用 `GET /task/{task_id}` 补充进度信息。
 
 **integrity_rating 判定规则：**
 
 | 情况 | 评级 |
 |------|------|
-| 100% 文件 parse_status=SUCCESS 且 fault_count > 0 | FULL |
-| 有 RUNNING 或 FAILED 文件，但成功文件占比 ≥ 60% | PARTIAL |
+| 100% 文件 overall_status=successful 且 fault_count > 0 | FULL |
+| 有 running、retrying 或 failed 文件，但成功文件占比 ≥ 60% | PARTIAL |
 | 成功文件 < 60% 或 0 成功文件 | INSUFFICIENT |
 
 ### 自检清单

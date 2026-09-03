@@ -29,11 +29,10 @@
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `parse_status` | str \| None | None | 可传 `"SUCCESS"` / `"RUNNING"` / `"FAILED"` 过滤 |
 | `page_num` | int | 1 | ≥ 1 |
 | `page_cnt` | int | 20 | 1 ~ 100 |
 
-返回中的日志文件 `id` 即后续请求的 `log_id`。
+返回中的 `overall_status` 是文件关联任务的聚合状态，日志文件 `id` 即后续请求的 `log_id`。
 
 ### `GET /task/{task_id}`
 
@@ -42,7 +41,7 @@
 ### `GET /log_parse_result/options`
 
 获取已解析日志中实际存在的 cluster / host / pod 值。**禁止臆测**名称。
-`kb_id` 作为查询参数传入，可选以限定范围。
+`kb_id` 作为查询参数传入，必填，用于限定范围。
 
 ---
 
@@ -153,7 +152,7 @@
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `fault_type` | `"latency"` \| `"connectivity"` \| `"mixed"` \| `"unknown"` | None | 本 Skill 用 `latency` |
-| `kb_id` | str \| None | None | 限定知识库 |
+| `kb_id` | str | — | 必填，限定知识库 |
 | `status_codes` / `failure_mode_ids` | list[str] \| None | [] | 信号量 |
 | `src_ips` / `dst_ips` / `hosts` / `pods` / `clusters` | list[str] \| None | [] | 故障域 |
 | `latency_components` | list[str] \| None | [] | 如 `["worker_query_meta_latency"]` |

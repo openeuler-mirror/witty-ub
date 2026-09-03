@@ -8,6 +8,7 @@ from latency.schemas.response import (
 )
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.common.sampler import LatencyMetricsSampler
+from latency.exceptions import NotFoundBizException
 
 
 class LogParseResultService:
@@ -21,6 +22,8 @@ class LogParseResultService:
     @staticmethod
     async def get_log_parse_result_by_id(result_id: str) -> GetLogParseResultMsg:
         result = await LogParseResultPGManager.get_log_parse_result_by_id(result_id)
+        if result is None or not result.existed_status:
+            raise NotFoundBizException(resource="日志解析结果")
         return GetLogParseResultMsg(log_parse_result=result)
 
     @staticmethod

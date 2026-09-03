@@ -37,6 +37,7 @@ from latency.schemas.response import (
     GetLogFileResponse,
 )
 from latency.services.log_file import LogFileService
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/log_file", tags=["log_file"])
 
@@ -46,6 +47,7 @@ async def upload_log_files(
     kb_id: Annotated[str, Path()],
     request: Request,
 ) -> UploadLogFilesResponse:
+    await ResourceIdService.require("kb", kb_id)
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
@@ -158,6 +160,7 @@ async def list_log_files(
     kb_id: Annotated[str, Path()],
     req: Annotated[ListLogFilesRequest, Body()],
 ) -> ListLogFilesResponse:
+    await ResourceIdService.require("kb", kb_id)
     list_log_files_msg = await LogFileService.list_log_files(kb_id, req)
     return ListLogFilesResponse(result=list_log_files_msg)
 

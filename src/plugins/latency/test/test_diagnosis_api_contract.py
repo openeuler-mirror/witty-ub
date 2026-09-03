@@ -114,15 +114,15 @@ def test_brpc_diagnosis_start_endpoint_is_explicit_and_mutating() -> None:
 
 
 def test_documented_agent_rules_do_not_change_backend_request_models() -> None:
-    latency_events = ListSrcDstAggregatedEventRequest(page_cnt=1000)
-    latency_traces = ListLogParseResultRequest(page_cnt=1000)
+    latency_events = ListSrcDstAggregatedEventRequest(kb_id="kb-1", page_cnt=1000)
+    latency_traces = ListLogParseResultRequest(kb_id="kb-1", page_cnt=1000)
     connectivity_traces = ListTraceFailureEventResultRequest(
         kb_id="kb-1",
         page_cnt=1000,
     )
 
-    assert latency_events.kb_id is None
+    assert ListSrcDstAggregatedEventRequest.model_fields["kb_id"].is_required()
+    assert ListLogParseResultRequest.model_fields["kb_id"].is_required()
     assert latency_events.stat_type == "ave"
-    assert latency_traces.kb_id is None
     assert latency_traces.is_anomalous is None
     assert connectivity_traces.is_anomalous is None

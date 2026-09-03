@@ -188,7 +188,7 @@ async def test_log_parse_result_copy_and_aggregate():
             ]
         )
 
-        req = ListSrcDstAggregatedEventRequest(log_id=log_id)
+        req = ListSrcDstAggregatedEventRequest(kb_id="kb-1", log_id=log_id)
         total, rows = await SrcDstAggregatedEventPGManager.list_aggregated_events(req)
         assert total == 1
         assert rows[0]["id"] == f"{log_id}-sd"

@@ -24,7 +24,6 @@ class LogFilePGManager:
             "id": log_file.id,
             "kb_id": log_file.kb_id,
             "name": log_file.name,
-            "parse_status": log_file.parse_status.value if log_file.parse_status else None,
             "file_path": log_file.file_path,
             "size": log_file.file_size,
             "total_count": 0,
@@ -86,8 +85,6 @@ class LogFilePGManager:
         stmt = select(LogFile).where(LogFile.kb_id == kb_id, LogFile.existed_status.is_(True))
         if req.name:
             stmt = stmt.where(LogFile.name.ilike(f"%{req.name}%"))
-        if req.parse_status:
-            stmt = stmt.where(LogFile.parse_status == req.parse_status.value)
         if req.created_at_start:
             stmt = stmt.where(LogFile.created_at >= req.created_at_start)
         if req.created_at_end:
@@ -115,7 +112,6 @@ class LogFilePGManager:
                 "id": row.id,
                 "kb_id": row.kb_id,
                 "name": row.name,
-                "parse_status": row.parse_status,
                 "file_path": row.file_path,
                 "file_size": row.size,
                 "anomaly_cnt": row.anomalous_count,
@@ -140,7 +136,6 @@ class LogFilePGManager:
             "id": row.id,
             "kb_id": row.kb_id,
             "name": row.name,
-            "parse_status": row.parse_status,
             "file_path": row.file_path,
             "file_size": row.size,
             "anomaly_cnt": row.anomalous_count,

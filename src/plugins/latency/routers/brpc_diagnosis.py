@@ -23,6 +23,7 @@ from latency.schemas.brpc_diagnosis import (
     ListBrpcThreadEventsResponse,
 )
 from latency.services.brpc_diagnosis import BrpcDiagnosisService
+from latency.services.resource_id import ResourceIdService
 
 
 router = APIRouter(prefix="/brpc-diagnosis", tags=["brpc-diagnosis"])
@@ -68,6 +69,7 @@ def _build_metric_sort_fields(
 async def get_batch_by_task_id(
     task_id: Annotated[str, Path(min_length=1)],
 ) -> GetBrpcTaskBatchResponse:
+    await ResourceIdService.require("task", task_id)
     result = await BrpcDiagnosisService.get_batch_by_task_id(task_id)
     return GetBrpcTaskBatchResponse(result=result)
 

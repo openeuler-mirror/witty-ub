@@ -36,7 +36,7 @@ class TaskService:
     async def stop_task(task_id: str) -> StopTaskMsg:
         """停止任务"""
         task = await TaskPGManager.get_task_by_task_id(task_id)
-        if not task:
+        if not task or not task.existed_status:
             raise NotFoundBizException(resource="任务")
         
         if task.status not in [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]:
@@ -49,7 +49,7 @@ class TaskService:
     async def delete_task(task_id: str) -> DeleteTaskMsg:
         """删除任务"""
         task = await TaskPGManager.get_task_by_task_id(task_id)
-        if not task:
+        if not task or not task.existed_status:
             raise NotFoundBizException(resource="任务")
         
         result_id = await TaskHandler.delete_task(task_id)
@@ -109,7 +109,7 @@ class TaskService:
         """查询任务详情"""
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task or not task.existed_status:
-            return GetTaskMsg(task=None)
+            raise NotFoundBizException(resource="任务")
         
         task_reports = await TaskReportPGManager.list_task_reports_by_task_ids([task_id])
         task_reports.sort(key=lambda x: x.created_at, reverse=True)

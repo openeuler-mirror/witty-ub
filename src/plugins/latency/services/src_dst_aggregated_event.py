@@ -19,6 +19,7 @@ from latency.common.aggregate_cache import (
     get_aggregated_events,
     find_aggregated_by_kb_id,
 )
+from latency.exceptions import NotFoundBizException
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,8 @@ class SrcDstAggregatedEventService:
     @staticmethod
     async def get_aggregated_event_by_id(event_id: str) -> GetSrcDstAggregatedEventMsg:
         event = await SrcDstAggregatedEventPGManager.get_aggregated_event_by_id(event_id)
+        if event is None or not event.existed_status:
+            raise NotFoundBizException(resource="聚合事件")
         return GetSrcDstAggregatedEventMsg(event=event)
 
     @staticmethod

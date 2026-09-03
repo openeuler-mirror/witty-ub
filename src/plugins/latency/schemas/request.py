@@ -69,6 +69,14 @@ class CreateLogKnowledgeRequest(BaseModel):
     name: str = Field(..., min_length=1, description="知识名称")
     description: str = Field(..., min_length=1, description="知识描述")
 
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("知识名称不能为空")
+        return value
+
 
 class UpdateLogKnowledgeRequest(BaseModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
@@ -134,10 +142,6 @@ class UpdateLogFileRequest(BaseModel):
 
 class ListLogFilesRequest(BaseModel):
     name: Optional[str] = Field(default=None, description="日志文件名称，支持模糊查询")
-    parse_status: Optional[TaskStatusEnum] = Field(
-        default=None,
-        description="日志文件解析状态，支持查询解析中的日志文件（parsing）、解析成功的日志文件（parsed）和解析失败的日志文件（failed）",
-    )
     created_at_start: Optional[str] = Field(
         default=None,
         description="日志文件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
@@ -161,7 +165,7 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="聚合事件时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
@@ -176,7 +180,7 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"total_latency\", \"order\": \"desc\"}, {\"field\": \"src_ip\", \"order\": \"asc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
     operation: Optional[str] = Field(
         default=None,
         description="操作类型过滤：GET / SET",
@@ -185,15 +189,15 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
 
 class ListAnomalousEventChainRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件链")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     page_cnt: int = Field(default=10, description="每页的异常事件链数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListLogParseResultRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的解析结果")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     trace_id: Optional[str] = Field(default=None, description="Trace ID，用于过滤指定链路的解析结果")
     trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
@@ -228,7 +232,7 @@ class ListLogParseResultRequest(BaseModel):
 
 
 class ListLogFailureEventResultRequest(BaseModel):
-    kb_id: Optional[str] = Field(default=None, description="日志知识库ID，用于过滤指定知识库的结果")
+    kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
     log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")
     trace_ids: list[str] = Field(
         default_factory=list, description="trace_id列表"
@@ -272,24 +276,24 @@ class ListTraceFailureEventResultRequest(BaseModel):
         description="排序方向，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的日志解析结果数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListAnomalousEventRequest(BaseModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     sort_fields: Optional[List[SortField]] = Field(
         default=None,
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"created_at\", \"order\": \"desc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的异常事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListTracesByHostRequest(BaseModel):
     host: str = Field(..., description="主机名或IP地址")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
@@ -307,12 +311,12 @@ class ListTracesByHostRequest(BaseModel):
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
     )
     page_cnt: int = Field(default=20, description="每页数量")
-    page_num: int = Field(default=1, description="页码")
+    page_num: int = Field(default=1, ge=1, description="页码")
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="desc", description="排序方向")
 
 class ListTimeAggregatedFailureEventRequest(BaseModel):
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
@@ -347,10 +351,10 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 class ListPodAggregatedFailureEventRequest(BaseModel):
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     start_time: Optional[str] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
@@ -376,10 +380,10 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 class ListSrcDstAggregatedFailureEventRequest(BaseModel):
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
@@ -410,11 +414,11 @@ class ListSrcDstAggregatedFailureEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"all\", \"order\": \"desc\"}, {\"field\": \"1004\", \"order\": \"asc\"}]",
     )
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 class GetLatencyMetricsRequest(BaseModel):
     """获取延迟指标时间曲线请求"""
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名或 IP 地址，可选")
@@ -488,7 +492,7 @@ class GetErrCodeMetricsRequest(BaseModel):
 
 
 class CreateDiagnosisCaseRequest(BaseModel):
-    kb_id: Optional[str] = Field(default=None, description="来源日志知识库ID")
+    kb_id: str = Field(..., description="来源日志知识库ID")
     fault_type: str = Field(default="unknown", description="故障类型：latency/connectivity/mixed/unknown")
     title: Optional[str] = Field(default=None, description="案例标题")
     symptom_summary: str = Field(..., description="故障现象摘要")
@@ -507,7 +511,7 @@ class CreateDiagnosisCaseRequest(BaseModel):
 
 
 class SearchDiagnosisCasesRequest(BaseModel):
-    kb_id: Optional[str] = Field(default=None, description="知识库ID过滤")
+    kb_id: str = Field(..., description="知识库ID过滤")
     fault_type: Optional[str] = Field(default=None, description="故障类型过滤")
     status_codes: list[str] = Field(default_factory=list, description="待匹配状态码")
     failure_mode_ids: list[str] = Field(default_factory=list, description="待匹配故障模式ID")
@@ -520,18 +524,18 @@ class SearchDiagnosisCasesRequest(BaseModel):
     log_keywords: list[str] = Field(default_factory=list, description="待匹配关键日志短语")
     min_confidence: Optional[float] = Field(default=None, description="最低案例置信度")
     page_cnt: int = Field(default=10, description="每页数量")
-    page_num: int = Field(default=1, description="页码")
+    page_num: int = Field(default=1, ge=1, description="页码")
 
 class CreateTaskRequest(BaseModel):
     task_type: TaskTypeEnum = Field(..., description="任务类型")
     op_id: str = Field(..., description="操作ID，关联的业务对象ID")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID")
+    kb_id: str = Field(..., description="知识库ID")
     task_name: Optional[str] = Field(default=None, description="任务名称")
 
 
 class ListTimeWindowAggregatedEventRequest(BaseModel):
     """时间窗口聚合事件查询请求"""
-    kb_id: Optional[str] = Field(default=None, description="知识库ID，用于过滤")
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
@@ -564,13 +568,13 @@ class ListTimeWindowAggregatedEventRequest(BaseModel):
         description="排序字段配置列表，支持多字段排序。示例：[{\"field\": \"start_time\", \"order\": \"asc\"}]"
     )
     page_cnt: int = Field(default=10, description="每页的时间窗口数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
 class ListTasksRequest(BaseModel):
     task_type: Optional[TaskTypeEnum] = Field(default=None, description="任务类型")
     status: Optional[TaskStatusEnum] = Field(default=None, description="任务状态")
-    kb_id: Optional[str] = Field(default=None, description="知识库ID")
+    kb_id: str = Field(..., description="知识库ID")
     op_id: Optional[str] = Field(default=None, description="操作ID")
     created_at_start: Optional[str] = Field(
         default=None,
@@ -585,4 +589,4 @@ class ListTasksRequest(BaseModel):
         description="任务创建时间排序，True表示降序，False表示升序，默认为True",
     )
     page_cnt: int = Field(default=10, description="每页的任务数量，默认为10")
-    page_num: int = Field(default=1, description="页码，默认为1表示第一页")
+    page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")

@@ -49,9 +49,9 @@ def _wait_parse(lf_id: str) -> dict:
     while time.time() < deadline:
         resp = _api("GET", f"/log_file/{lf_id}")
         lf = _json(resp)["result"]["log_file"]
-        if lf["parse_status"] == "successful":
+        if lf["overall_status"] == "successful":
             return lf
-        if lf["parse_status"] == "failed":
+        if lf["overall_status"] == "failed":
             pytest.fail(f"Pipeline failed: {lf}")
         time.sleep(3)
     pytest.fail(f"Pipeline did not complete within {TIMEOUT}s")
@@ -112,12 +112,12 @@ class TestParsePipeline:
         assert log_file_id is not None and len(log_file_id) > 30
 
     def test_pipeline_completed(self, pipeline_done):
-        assert pipeline_done["parse_status"] == "successful"
+        assert pipeline_done["overall_status"] == "successful"
         assert pipeline_done["overall_progress"] >= 30.0
 
-    def test_parse_results_exist(self, pipeline_done, log_file_id):
+    def test_parse_results_exist(self, pipeline_done, kb_id, log_file_id):
         total = _json(_api("POST", "/log_parse_result/list",
-            json={"log_id": log_file_id, "page_cnt": 5, "page_num": 1}))["result"]["total"]
+            json={"kb_id": kb_id, "log_id": log_file_id, "page_cnt": 5, "page_num": 1}))["result"]["total"]
         assert total > 0, "No parse results found"
 
     def test_parse_latency_reasonable(self, pipeline_done):
@@ -127,9 +127,9 @@ class TestParsePipeline:
 
 
 class TestAggregatedEvents:
-    def test_src_dst_by_log_id(self, pipeline_done, log_file_id):
+    def test_src_dst_by_log_id(self, pipeline_done, kb_id, log_file_id):
         total = _json(_api("POST", "/aggregated_event/list",
-            json={"log_id": log_file_id, "page_cnt": 10, "page_num": 1}))["result"]["total"]
+            json={"kb_id": kb_id, "log_id": log_file_id, "page_cnt": 10, "page_num": 1}))["result"]["total"]
         assert total > 0, "src_dst aggregated events (by log_id) is 0"
 
     def test_src_dst_by_kb_id(self, pipeline_done, kb_id):

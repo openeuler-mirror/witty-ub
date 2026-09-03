@@ -84,7 +84,6 @@ class LogFile(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     kb_id: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[Optional[str]] = mapped_column(Text)
-    parse_status: Mapped[Optional[str]] = mapped_column(String)
     file_path: Mapped[Optional[str]] = mapped_column(Text)
     size: Mapped[Optional[int]] = mapped_column(BigInteger)
     total_count: Mapped[int] = mapped_column(Integer, default=0)

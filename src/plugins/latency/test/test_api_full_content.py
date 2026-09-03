@@ -45,7 +45,6 @@ from latency.schemas.log import (
 from latency.schemas.diagnosis_case import DiagnosisCaseModel
 from latency.schemas.failure_mode import FailureModeModel, StatusCodeKnowledgeModel
 from latency.schemas.config import DiagnosisRuntimeConfig
-from latency.ENUM.task import TaskStatusEnum
 
 
 def now_str() -> str:
@@ -102,7 +101,6 @@ def seeded(base_url):
                 name="test.log",
                 file_path="/tmp/test.log",
                 file_size=1024,
-                parse_status=TaskStatusEnum.SUCCESSFUL.value,
             )
         )
 
@@ -327,7 +325,7 @@ class TestLogParseResultContent:
     def test_list_results_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_parse_result/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -356,7 +354,7 @@ class TestLogParseResultContent:
     def test_list_traces_by_host_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_parse_result/traces/host/list",
-            json={"host": "10.0.0.1", "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "host": "10.0.0.1", "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -366,7 +364,7 @@ class TestLogParseResultContent:
     def test_get_latency_metrics_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_parse_result/metrics/latency",
-            json={"log_id": seeded["log_id"], "max_points": 100},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "max_points": 100},
             timeout=10,
         )
         data = resp.json()
@@ -378,7 +376,7 @@ class TestAggregatedEventContent:
     def test_list_src_dst_events_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -398,7 +396,7 @@ class TestAggregatedEventContent:
     def test_list_time_window_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/aggregated_event/list_time_window",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -418,7 +416,7 @@ class TestAnomalousEventContent:
     def test_list_anomalous_events_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/anomalous_event/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -442,7 +440,7 @@ class TestAnomalousEventChainContent:
     def test_list_chains_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/anomalous_event_chain/list",
-            json={"log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"], "page_num": 1, "page_cnt": 10},
             timeout=10,
         )
         data = resp.json()
@@ -455,7 +453,7 @@ class TestLogFailureEventResultContent:
     def test_list_log_events_content(self, base_url, session_client, seeded):
         resp = session_client.post(
             f"{base_url}/log_failure_event_result/list_log_events",
-            json={"log_id": seeded["log_id"]},
+            json={"kb_id": seeded["kb_id"], "log_id": seeded["log_id"]},
             timeout=10,
         )
         data = resp.json()
@@ -570,16 +568,20 @@ class TestFailureModeKnowledgeContent:
 class TestDiagnosisConfigContent:
     def test_get_config_content(self, base_url, session_client, seeded):
         resp = session_client.get(
-            f"{base_url}/diagnosis_config/{seeded['kb_id']}", timeout=10
+            f"{base_url}/diagnosis_config/{seeded['kb_id']}",
+            params={"log_type": "KVCache"},
+            timeout=10,
         )
         data = resp.json()
         assert resp.status_code == 200
-        assert "log_filename_pattern" in data["result"]
+        assert data["result"]["log_type"] == "KVCache"
+        assert "log_filename_pattern" in data["result"]["config"]
 
     def test_update_and_reset_config_content(self, base_url, session_client, seeded):
         # update
         put_resp = session_client.put(
             f"{base_url}/diagnosis_config/{seeded['kb_id']}",
+            params={"log_type": "KVCache"},
             json={
                 "log_filename_pattern": {
                     "ds_client_access_log_file": ["*.log"],
@@ -608,11 +610,13 @@ class TestDiagnosisConfigContent:
 
         # reset
         reset_resp = session_client.post(
-            f"{base_url}/diagnosis_config/{seeded['kb_id']}/reset", timeout=10
+            f"{base_url}/diagnosis_config/{seeded['kb_id']}/reset",
+            params={"log_type": "KVCache"},
+            timeout=10,
         )
         data = reset_resp.json()
         assert reset_resp.status_code == 200
-        assert "log_filename_pattern" in data["result"]
+        assert "log_filename_pattern" in data["result"]["config"]
 
 
 class TestTaskContent:

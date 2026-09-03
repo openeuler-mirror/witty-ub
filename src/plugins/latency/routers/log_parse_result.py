@@ -1,7 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
 from fastapi import APIRouter, Path, Body, Query
-from typing import Annotated, Optional
+from typing import Annotated
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.schemas.response import (
     ListLogParseResultsResponse,
@@ -11,6 +11,7 @@ from latency.schemas.response import (
     GetLogParseOptionsResponse,
 )
 from latency.services.log_parse_result import LogParseResultService
+from latency.services.resource_id import ResourceIdService
 
 router = APIRouter(prefix="/log_parse_result", tags=["log_parse_result"])
 
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/log_parse_result", tags=["log_parse_result"])
 async def list_log_parse_results(
     req: Annotated[ListLogParseResultRequest, Body()],
 ) -> ListLogParseResultsResponse:
+    await ResourceIdService.validate_request(req)
     msg = await LogParseResultService.list_log_parse_results(req)
     return ListLogParseResultsResponse(result=msg)
 
@@ -41,12 +43,13 @@ async def list_log_parse_results(
     ),
 )
 async def get_log_parse_options(
-    kb_id: Annotated[Optional[str], Query(description="知识库ID，用于过滤")] = None,
+    kb_id: Annotated[str, Query(description="知识库ID，用于过滤")],
 ) -> GetLogParseOptionsResponse:
     """获取日志解析选项（集群和主机名称列表）
 
     返回数据库中已有的集群名称和主机名称列表，用于前端下拉框选项。
     """
+    await ResourceIdService.require("kb", kb_id)
     msg = await LogParseResultService.get_log_parse_options(kb_id)
     return GetLogParseOptionsResponse(result=msg)
 
@@ -71,6 +74,7 @@ async def list_traces_by_host(
     req: Annotated[ListTracesByHostRequest, Body()],
 ) -> ListTracesByHostResponse:
     """根据主机获取trace列表"""
+    await ResourceIdService.validate_request(req)
     msg = await LogParseResultService.list_traces_by_host(req)
     return ListTracesByHostResponse(result=msg)
 
@@ -104,5 +108,6 @@ async def get_latency_metrics(
     - p99: 时间窗口内取 99 百分位（SLA 监控常用）
     - p9999: 时间窗口内取 99.99 百分位（严格 SLA 监控）
     """
+    await ResourceIdService.validate_request(req)
     msg = await LogParseResultService.get_latency_metrics(req)
     return GetLatencyMetricsResponse(result=msg)

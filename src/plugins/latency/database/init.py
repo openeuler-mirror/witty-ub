@@ -321,6 +321,14 @@ async def migrate_brpc_log_type_column() -> None:
         ))
 
 
+async def drop_legacy_log_file_parse_status() -> None:
+    """Remove the obsolete denormalized status now derived from related tasks."""
+    async with PGManager.engine().begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE log_file DROP COLUMN IF EXISTS parse_status"
+        ))
+
+
 async def migrate_trace_failure_event_status_code_to_array() -> None:
     """将 trace_failure_event.status_code 从 VARCHAR 迁移为 VARCHAR[]。
 
@@ -432,8 +440,8 @@ async def create_manual_indexes() -> None:
 async def init_postgresql_database() -> None:
     """Initialize PostgreSQL: create tables, partitions, indexes.
 
-    当前为 PostgreSQL-only 后端，不再做历史 SQLite/schema 迁移；
-    需要保留数据的历史升级请使用外部迁移工具（如 Alembic）。
+    当前为 PostgreSQL-only 后端；这里只执行可重复运行的兼容性迁移，
+    复杂的历史数据升级应使用外部迁移工具（如 Alembic）。
     """
     async with PGManager.engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -445,6 +453,7 @@ async def init_postgresql_database() -> None:
     await migrate_timestamptz_to_timestamp()
     await migrate_yuanrong_metric_columns()
     await migrate_brpc_log_type_column()
+    await drop_legacy_log_file_parse_status()
     await migrate_trace_failure_event_status_code_to_array()
     await create_log_parse_result_partitions()
     await create_time_window_partitions(datetime.now())

@@ -21,7 +21,7 @@ from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.task.worker.base import BaseWorker
 from latency.task.log_preprocessor import cleanup_preprocess_dir, WITTY_DIR_DEFAULT
-from latency.exceptions import NotFoundBizException
+from latency.exceptions import ConflictBizException, NotFoundBizException
 
 logger = logging.getLogger(__name__)
 witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
@@ -32,8 +32,9 @@ class LogKnowledgeService:
     async def create_log_kb(req: CreateLogKnowledgeRequest) -> CreateLogKnowledgeMsg:
         log_kb = await Convertor.create_log_kb_req_to_log_kb_model(req)
         kb_id = await LogKnowledgePGManager.add_log_kb(log_kb)
-        if kb_id:
-            await DiagnosisConfigPGManager.reset(kb_id)
+        if not kb_id:
+            raise ConflictBizException(message="资产库名称已存在")
+        await DiagnosisConfigPGManager.reset(kb_id)
         return CreateLogKnowledgeMsg(kb_id=kb_id)
 
     @staticmethod

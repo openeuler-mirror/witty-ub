@@ -9,9 +9,7 @@ _DEFAULT_SDK_ACCESS_LOG_PATTERNS = [
 ]
 
 _DEFAULT_WORKER_ACCESS_LOG_PATTERNS = [
-    "*worker_*/access.log",
     "*worker_*/access*.log",
-    "*worker_*/access.log.gz",
     "*worker_*/access*.log.gz",
     "*_split_access.log",
 ]

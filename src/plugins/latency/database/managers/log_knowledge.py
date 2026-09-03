@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 class LogKnowledgePGManager:
     @staticmethod
+    async def exists(kb_id: str) -> bool:
+        """Return whether an active knowledge base exists without loading its data."""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(LogKnowledge.id)
+                .where(
+                    LogKnowledge.id == kb_id,
+                    LogKnowledge.existed_status.is_(True),
+                )
+                .limit(1)
+            )
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
     def _model_to_mapping(log_kb: LogKnowledgeModel) -> dict[str, Any]:
         return {
             "id": log_kb.id,
@@ -34,8 +48,31 @@ class LogKnowledgePGManager:
         }
 
     @staticmethod
-    async def add_log_kb(log_kb_model: LogKnowledgeModel) -> str:
+    async def add_log_kb(log_kb_model: LogKnowledgeModel) -> str | None:
         async with PGManager.session() as session:
+            if log_kb_model.name is not None:
+                # Serialize creations of the same active name.  The advisory
+                # lock closes the check/insert race without preventing a name
+                # from being reused after its previous asset library is soft
+                # deleted.
+                await session.execute(
+                    select(
+                        func.pg_advisory_xact_lock(
+                            func.hashtextextended(log_kb_model.name, 0)
+                        )
+                    )
+                )
+                existing_id = await session.scalar(
+                    select(LogKnowledge.id)
+                    .where(
+                        LogKnowledge.name == log_kb_model.name,
+                        LogKnowledge.existed_status.is_(True),
+                    )
+                    .limit(1)
+                )
+                if existing_id is not None:
+                    return None
+
             await session.execute(
                 insert(LogKnowledge), [LogKnowledgePGManager._model_to_mapping(log_kb_model)]
             )
@@ -73,6 +110,16 @@ class LogKnowledgePGManager:
             result = await session.execute(
                 text(f"UPDATE log_knowledge SET {set_clauses}, updated_at = NOW() WHERE id = :id"),
                 params,
+            )
+        return result.rowcount or 0
+
+    @staticmethod
+    async def touch_log_kb(log_kb_id: str) -> int:
+        """Refresh the asset's update time after a task changes its contents."""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :id"),
+                {"id": log_kb_id},
             )
         return result.rowcount or 0
 

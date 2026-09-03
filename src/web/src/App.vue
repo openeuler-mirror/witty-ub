@@ -95,13 +95,13 @@ type LogFileModel = {
   log_file_id?: string
   kb_id: string
   name: string
-  parse_status: string
   file_path: string
   file_size: number
   anomaly_cnt: number
   trace_failure_event_cnt?: number
   log_type?: string
   task: TaskModel | null
+  overall_status: string
   overall_progress?: number
   existed_status: boolean
   created_at: string
@@ -144,6 +144,19 @@ type DiagnosisConfigForm = {
   }
 }
 
+type DiagnosisConfigInputValue = number | string
+
+type DiagnosisConfigDraft = {
+  logFilenamePattern: Record<LogFilenamePatternKey, string[]>
+  logAnalyzerParams: Record<LogAnalyzerThresholdKey, DiagnosisConfigInputValue> & {
+    slidingWindowPairs: Array<{
+      size: DiagnosisConfigInputValue
+      step: DiagnosisConfigInputValue
+    }>
+    zone_anomaly_density_threshold: DiagnosisConfigInputValue
+  }
+}
+
 type DiagnosisConfigApiModel = {
   log_filename_pattern: Record<LogFilenamePatternKey, string[]>
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
@@ -151,6 +164,11 @@ type DiagnosisConfigApiModel = {
     sliding_window_steps: number[]
     zone_anomaly_density_threshold: number
   }
+}
+
+type DiagnosisConfigApiResult = {
+  log_type: 'KVCache'
+  config: DiagnosisConfigApiModel
 }
 
 type LogParseResultModel = {
@@ -818,10 +836,6 @@ type OpenCodeProviderResult = {
 }
 
 type AgentView = 'login' | 'models' | 'providers' | 'new-models' | 'chat'
-
-type GetLogFileResult = {
-  log_file?: LogFileModel | null
-}
 
 type LogParseOptions = {
   clusters?: string[]
@@ -1643,6 +1657,8 @@ const isParseConfigDrawerOpen = ref(false)
 const isDiagnosisConfigLoading = ref(false)
 const isDiagnosisConfigSaving = ref(false)
 const diagnosisConfigError = ref('')
+const diagnosisConfigValidationError = ref('')
+const invalidDiagnosisConfigFields = ref<Set<string>>(new Set())
 const diagnosisConfigResetSnapshot = ref('')
 const diagnosisConfigImportAssets = ref<LogKnowledge[]>([])
 const diagnosisConfigImportAssetId = ref('')
@@ -1726,12 +1742,6 @@ const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
 const logFilesTotal = ref(0)
 const refreshingFileIds = ref<Set<string>>(new Set())
-const taskDetailsById = ref<Record<string, TaskModel>>({})
-const loadingTaskDetailIds = ref<Set<string>>(new Set())
-const logFileAnomalyCntById = ref<Record<string, number>>({})
-const logFileTraceFailureEventCntById = ref<Record<string, number>>({})
-const loadedAnomalyLogFileIds = ref<Set<string>>(new Set())
-const loadingAnomalyLogFileIds = ref<Set<string>>(new Set())
 const latencyMetricsByPercentile = reactive<Record<LatencyPercentileValue, LatencyMetricItem[]>>({
   p99: [],
   p9999: [],
@@ -1782,8 +1792,8 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
   },
 })
 
-const cloneDiagnosisConfig = (config: DiagnosisConfigForm): DiagnosisConfigForm =>
-  JSON.parse(JSON.stringify(config)) as DiagnosisConfigForm
+const cloneDiagnosisConfig = <T extends DiagnosisConfigForm | DiagnosisConfigDraft>(config: T): T =>
+  JSON.parse(JSON.stringify(config)) as T
 
 const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfigForm => ({
   logFilenamePattern: {
@@ -1810,24 +1820,31 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
   },
 })
 
-const toDiagnosisConfigApi = (config: DiagnosisConfigForm): DiagnosisConfigApiModel => ({
+const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiModel => ({
   log_filename_pattern: cloneDiagnosisConfig(config).logFilenamePattern,
   log_analyzer_params: {
-    total_p99_threshold_ms: config.logAnalyzerParams.total_p99_threshold_ms,
-    c2w_p99_threshold_ms: config.logAnalyzerParams.c2w_p99_threshold_ms,
-    w2w_p99_threshold_ms: config.logAnalyzerParams.w2w_p99_threshold_ms,
-    urma_link_p99_threshold_ms: config.logAnalyzerParams.urma_link_p99_threshold_ms,
-    query_meta_p99_threshold_ms: config.logAnalyzerParams.query_meta_p99_threshold_ms,
-    total_p9999_threshold_ms: config.logAnalyzerParams.total_p9999_threshold_ms,
-    total_pmax_threshold_ms: config.logAnalyzerParams.total_pmax_threshold_ms,
-    total_ave_threshold_ms: config.logAnalyzerParams.total_ave_threshold_ms,
-    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) => size),
-    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) => step),
-    zone_anomaly_density_threshold: config.logAnalyzerParams.zone_anomaly_density_threshold,
+    total_p99_threshold_ms: Number(config.logAnalyzerParams.total_p99_threshold_ms),
+    c2w_p99_threshold_ms: Number(config.logAnalyzerParams.c2w_p99_threshold_ms),
+    w2w_p99_threshold_ms: Number(config.logAnalyzerParams.w2w_p99_threshold_ms),
+    urma_link_p99_threshold_ms: Number(config.logAnalyzerParams.urma_link_p99_threshold_ms),
+    query_meta_p99_threshold_ms: Number(config.logAnalyzerParams.query_meta_p99_threshold_ms),
+    total_p9999_threshold_ms: Number(config.logAnalyzerParams.total_p9999_threshold_ms),
+    total_pmax_threshold_ms: Number(config.logAnalyzerParams.total_pmax_threshold_ms),
+    total_ave_threshold_ms: Number(config.logAnalyzerParams.total_ave_threshold_ms),
+    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) =>
+      Number(size),
+    ),
+    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) =>
+      Number(step),
+    ),
+    zone_anomaly_density_threshold: Number(config.logAnalyzerParams.zone_anomaly_density_threshold),
   },
 })
 
-const diagnosisConfigDraft = reactive<DiagnosisConfigForm>(createDefaultDiagnosisConfig())
+const diagnosisConfigDraft = reactive<DiagnosisConfigDraft>(createDefaultDiagnosisConfig())
+
+const getDiagnosisConfigPath = (assetId: string) =>
+  `/diagnosis_config/${encodeURIComponent(assetId)}?log_type=KVCache`
 
 const activeDiagnosisConfig = computed<DiagnosisConfigForm>(() => {
   if (!selectedAssetId.value) return createDefaultDiagnosisConfig()
@@ -1876,6 +1893,8 @@ const openParseConfigDrawer = async () => {
     patternInputs[key as LogFilenamePatternKey] = ''
   })
   diagnosisConfigError.value = ''
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
   diagnosisConfigResetSnapshot.value = ''
   diagnosisConfigImportAssetId.value = ''
   diagnosisConfigImportMessage.value = ''
@@ -1888,9 +1907,9 @@ const openParseConfigDrawer = async () => {
   isDiagnosisConfigLoading.value = true
   try {
     if (!selectedAssetId.value) return
-    const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
-    const result = await request<DiagnosisConfigApiModel>(configPath)
-    const config = fromDiagnosisConfigApi(result)
+    const configPath = getDiagnosisConfigPath(selectedAssetId.value)
+    const result = await request<DiagnosisConfigApiResult>(configPath)
+    const config = fromDiagnosisConfigApi(result.config)
     Object.assign(diagnosisConfigDraft, config)
     if (selectedAssetId.value) {
       diagnosisConfigsByAsset.value = {
@@ -1914,10 +1933,12 @@ const importDiagnosisConfigFromAsset = async () => {
     const sourceAsset = diagnosisConfigImportAssets.value.find(
       ({ id }) => id === diagnosisConfigImportAssetId.value,
     )
-    const result = await request<DiagnosisConfigApiModel>(
-      `/diagnosis_config/${encodeURIComponent(diagnosisConfigImportAssetId.value)}`,
+    const result = await request<DiagnosisConfigApiResult>(
+      getDiagnosisConfigPath(diagnosisConfigImportAssetId.value),
     )
-    Object.assign(diagnosisConfigDraft, fromDiagnosisConfigApi(result))
+    Object.assign(diagnosisConfigDraft, fromDiagnosisConfigApi(result.config))
+    diagnosisConfigValidationError.value = ''
+    invalidDiagnosisConfigFields.value = new Set()
     diagnosisConfigResetSnapshot.value = ''
     diagnosisConfigImportMessage.value = `已导入“${sourceAsset?.name || '所选资产库'}”的配置，保存后生效`
   } catch (error) {
@@ -1934,11 +1955,60 @@ const closeParseConfigDrawer = () => {
 const resetParseConfigDraft = () => {
   Object.assign(diagnosisConfigDraft, createDefaultDiagnosisConfig())
   diagnosisConfigResetSnapshot.value = JSON.stringify(diagnosisConfigDraft)
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
+}
+
+const getSlidingWindowFieldId = (index: number, field: 'size' | 'step') =>
+  `sliding-window-${index}-${field}`
+
+const isPositiveArabicDecimal = (value: DiagnosisConfigInputValue) => {
+  const text = String(value)
+  return /^[0-9]+(?:\.[0-9]+)?$/.test(text) && Number(text) > 0 && Number.isFinite(Number(text))
+}
+
+const isPositiveArabicInteger = (value: DiagnosisConfigInputValue) => {
+  const text = String(value)
+  return /^[0-9]+$/.test(text) && Number(text) > 0 && Number.isFinite(Number(text))
+}
+
+const validateDiagnosisAnalyzerParams = () => {
+  const invalidFields = new Set<string>()
+  analyzerThresholdOptions.forEach(({ key }) => {
+    if (!isPositiveArabicDecimal(diagnosisConfigDraft.logAnalyzerParams[key])) {
+      invalidFields.add(key)
+    }
+  })
+  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
+    if (!isPositiveArabicInteger(size)) {
+      invalidFields.add(getSlidingWindowFieldId(index, 'size'))
+    }
+    if (!isPositiveArabicInteger(step)) {
+      invalidFields.add(getSlidingWindowFieldId(index, 'step'))
+    }
+  })
+  const densityThreshold = diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
+  if (!isPositiveArabicDecimal(densityThreshold) || Number(densityThreshold) > 1) {
+    invalidFields.add('zone_anomaly_density_threshold')
+  }
+
+  invalidDiagnosisConfigFields.value = invalidFields
+  if (invalidFields.size > 0) {
+    diagnosisConfigValidationError.value = '参数填写不合法，请检查红色输入框'
+    return false
+  }
+  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
+    diagnosisConfigValidationError.value = '至少需要配置一组滑动窗口'
+    return false
+  }
+  diagnosisConfigValidationError.value = ''
+  return true
 }
 
 const saveParseConfig = async () => {
   if (!selectedAssetId.value || isDiagnosisConfigSaving.value) return
   diagnosisConfigError.value = ''
+  const analyzerParamsValid = validateDiagnosisAnalyzerParams()
   const emptyPatternType = patternTypeOptions.find(
     ({ key }) => diagnosisConfigDraft.logFilenamePattern[key].length === 0,
   )
@@ -1946,25 +2016,25 @@ const saveParseConfig = async () => {
     diagnosisConfigError.value = `${emptyPatternType.label}至少需要一个 Pattern`
     return
   }
-  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
-    diagnosisConfigError.value = '至少需要配置一组滑动窗口'
-    return
-  }
+  if (!analyzerParamsValid) return
   isDiagnosisConfigSaving.value = true
   try {
-    const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
+    const configPath = getDiagnosisConfigPath(selectedAssetId.value)
     const shouldResetFromTrustedDefault =
       diagnosisConfigResetSnapshot.value !== '' &&
       diagnosisConfigResetSnapshot.value === JSON.stringify(diagnosisConfigDraft)
     const result = shouldResetFromTrustedDefault
-      ? await request<DiagnosisConfigApiModel>(`${configPath}/reset`, {
-          method: 'POST',
-        })
-      : await request<DiagnosisConfigApiModel>(configPath, {
+      ? await request<DiagnosisConfigApiResult>(
+          `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}/reset?log_type=KVCache`,
+          {
+            method: 'POST',
+          },
+        )
+      : await request<DiagnosisConfigApiResult>(configPath, {
           method: 'PUT',
           body: JSON.stringify(toDiagnosisConfigApi(diagnosisConfigDraft)),
         })
-    const savedConfig = fromDiagnosisConfigApi(result)
+    const savedConfig = fromDiagnosisConfigApi(result.config)
     diagnosisConfigsByAsset.value = {
       ...diagnosisConfigsByAsset.value,
       [selectedAssetId.value]: cloneDiagnosisConfig(savedConfig),
@@ -1991,10 +2061,14 @@ const removeFilenamePattern = (key: LogFilenamePatternKey, index: number) => {
 
 const addSlidingWindowPair = () => {
   diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.push({ size: 100, step: 20 })
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
 }
 
 const removeSlidingWindowPair = (index: number) => {
   diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
 }
 
 // 聚合事件列表排序状态
@@ -2170,6 +2244,41 @@ onBeforeUnmount(() => {
 
 const getLatencyLeftGridColumnWidths = () =>
   traceListColumnWidths.latencyLeft.map((w) => `minmax(0, ${w}fr)`).join(' ')
+
+const DETAIL_LATENCY_TOTAL_COLUMN_WIDTH = 100
+const DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH = 400
+// Content widths include the horizontal padding of their cells.
+const DETAIL_TRACE_LABEL_COLUMN_WIDTH = 116
+const DETAIL_TRACE_TIME_COLUMN_WIDTH = 160
+const DETAIL_TRACE_POD_COLUMN_MIN_WIDTH = 170
+
+const getDetailLatencyLeftGridStyle = () => {
+  const [, , traceIdWidth, , , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
+  const widths = [
+    DETAIL_TRACE_LABEL_COLUMN_WIDTH,
+    DETAIL_TRACE_TIME_COLUMN_WIDTH,
+    (traceIdWidth || 220) + 10,
+    DETAIL_TRACE_POD_COLUMN_MIN_WIDTH,
+    clusterWidth || 90,
+    hostWidth || 75,
+  ]
+
+  return {
+    gridTemplateColumns: widths
+      .map((width, index) =>
+        index === 3 ? `minmax(${width}px, 1fr)` : `${width}px`,
+      )
+      .join(' '),
+    width: '100%',
+    minWidth: `${widths.reduce((total, width) => total + width, 0)}px`,
+  }
+}
+
+const getDetailLatencyDataGridColumnWidths = () =>
+  `${DETAIL_LATENCY_TOTAL_COLUMN_WIDTH}px ${DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH}px`
+
+const getDetailLatencyTraceFrameGridColumnWidths = () =>
+  `minmax(0, 1fr) ${DETAIL_LATENCY_TOTAL_COLUMN_WIDTH + DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH}px max-content`
 
 const getFaultLeftGridColumnWidths = () =>
   traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
@@ -2665,6 +2774,32 @@ const faultTraceTableRef = ref<HTMLDivElement | null>(null)
 const faultDetailTraceTableRef = ref<HTMLDivElement | null>(null)
 const latencyTraceTableRef = ref<HTMLDivElement | null>(null)
 const hoveredLatencyTraceRowKey = ref('')
+const isDetailLatencyLeftOverflowing = ref(false)
+
+const updateDetailLatencyLeftOverflow = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const leftBody = detailAbnormalTraceTableRef.value?.querySelector<HTMLElement>(
+        '.detail-abnormal-trace-left-body',
+      )
+      isDetailLatencyLeftOverflowing.value = Boolean(
+        leftBody && leftBody.scrollWidth > leftBody.clientWidth + 1,
+      )
+    })
+  })
+}
+
+const syncDetailLatencyLeftScroll = (event: Event) => {
+  const source = event.currentTarget as HTMLElement | null
+  const fixedLeft = source?.closest<HTMLElement>('.aggregate-fixed-left')
+  if (!source || !fixedLeft) return
+
+  fixedLeft.querySelectorAll<HTMLElement>('.detail-abnormal-trace-left-sync').forEach((target) => {
+    if (target !== source && target.scrollLeft !== source.scrollLeft) {
+      target.scrollLeft = source.scrollLeft
+    }
+  })
+}
 
 const syncSplitTableRowHeights = (table: HTMLDivElement | null, scrollRowSelector: string) => {
   if (!table) return
@@ -3111,10 +3246,13 @@ const latencySeriesConfig = computed(() =>
   selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
 )
 
-const availableLatencySeriesConfig = computed(() =>
+const getAvailableLatencySeriesConfig = (buckets: LatencyChartBucket[]) =>
   latencySeriesConfig.value.filter((series) =>
-    latencyChartBuckets.value.some((bucket) => bucket.values[series.key] != null),
-  ),
+    buckets.some((bucket) => bucket.values[series.key] != null),
+  )
+
+const availableLatencySeriesConfig = computed(() =>
+  getAvailableLatencySeriesConfig(latencyChartBuckets.value),
 )
 
 type LatencyMetricKey =
@@ -3128,7 +3266,10 @@ const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
   'urma_processing_us',
 ])
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
-const selectedLatencySeriesCount = computed(() => visibleLatencyKeys.value.size)
+const visibleLatencySeriesConfig = computed(() =>
+  availableLatencySeriesConfig.value.filter((series) => visibleLatencyKeys.value.has(series.key)),
+)
+const selectedLatencySeriesCount = computed(() => visibleLatencySeriesConfig.value.length)
 const latencySeriesCount = computed(() => availableLatencySeriesConfig.value.length)
 
 const toggleLatencySeriesVisibility = (key: LatencyMetricKey) => {
@@ -3148,7 +3289,8 @@ const selectAllLatencySeries = () => {
 }
 
 const deselectAllLatencySeries = () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([availableLatencySeriesConfig.value[0].key])
+  const firstSeries = availableLatencySeriesConfig.value[0]
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>(firstSeries ? [firstSeries.key] : [])
 }
 
 const latencyPercentileOptions = computed(() => [
@@ -3907,7 +4049,9 @@ const createLatencyEchartsOption = (
   const labels = buckets.map((bucket) => bucket.label)
   const markAreaData = getLatencyMarkAreas(buckets)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
-  const visibleSeries = latencySeriesConfig.value.filter((s) => isLatencySeriesVisible(s.key))
+  const visibleSeries = getAvailableLatencySeriesConfig(buckets).filter((series) =>
+    isLatencySeriesVisible(series.key),
+  )
   const hasLegend = visibleSeries.length > 0
   const gridTop = 70
   const legendWidth = Math.max(320, chartWidth - 88)
@@ -4079,8 +4223,8 @@ const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): ECharts
         fontSize: 12,
       },
     },
-    series: latencySeriesConfig.value
-      .filter((s) => isLatencySeriesVisible(s.key))
+    series: getAvailableLatencySeriesConfig(points)
+      .filter((series) => isLatencySeriesVisible(series.key))
       .map((series, index) => ({
         name: series.label,
         type: 'line',
@@ -4246,7 +4390,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
     itemStyle: { color: segment.color },
     data: rows.map((row) => {
       const value = row.segments[segment.key]
-      return typeof value === 'number' ? value : 0
+      return typeof value === 'number' ? value / 1000 : 0
     }),
   }))
 
@@ -4258,7 +4402,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
       barMaxWidth: 22,
       emphasis: { focus: 'series' as const },
       itemStyle: { color: '#94a3b8' },
-      data: rows.map((row) => row.otherLatency),
+      data: rows.map((row) => row.otherLatency / 1000),
     })
   }
 
@@ -4291,7 +4435,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -4333,7 +4477,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
         lineStyle: { color: '#dc2626', width: 2 },
         itemStyle: { color: '#dc2626' },
         z: 10,
-        data: rows.map((row) => row.totalLatency),
+        data: rows.map((row) => row.totalLatency / 1000),
       },
     ],
   }
@@ -4345,6 +4489,7 @@ const createFaultEchartsOption = (
 ): EChartsOption => {
   const labels = buckets.map((bucket) => bucket.label)
   const seriesNames = codes.map((code) => `故障码${code}`)
+  const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
 
   return {
     tooltip: {
@@ -4367,6 +4512,11 @@ const createFaultEchartsOption = (
       data: labels,
       name: '时间',
       axisLabel: {
+        interval: (index: number) =>
+          labels.length <= 10 ||
+          index === 0 ||
+          index === labels.length - 1 ||
+          index % xAxisLabelStep === 0,
         color: '#64748b',
         fontSize: 12,
         rotate: 38,
@@ -5110,6 +5260,9 @@ const getTraceRowHeight = (podIpHtml: string) => {
   const lineCount = Math.max(1, podIpHtml.split(/<br\s*\/?\s*>/i).length)
   return `${Math.max(59, 24 + lineCount * 20)}px`
 }
+
+const getMultiLineCellTitle = (html: string) =>
+  html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '')
 
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value.map((result) => {
@@ -8411,6 +8564,13 @@ const saveDialog = async () => {
     dialog.error = '请填写资产库描述'
     return
   }
+  if (
+    dialog.mode === 'create' &&
+    assets.value.some((asset) => asset.existed_status !== false && asset.name.trim() === name)
+  ) {
+    dialog.error = '资产库名称已存在'
+    return
+  }
 
   isSaving.value = true
   errorMessage.value = ''
@@ -8480,11 +8640,13 @@ const statusLabel = (s: string) => {
   const map: Record<string, string> = {
     pending: '待解析',
     running: '解析中',
+    retrying: '正在重试',
     cancelled: '已取消',
     successful: '解析成功',
     failed: '解析失败',
-    successful_pending_remove: '解析成功，待移除',
-    failed_pending_remove: '解析失败，待移除',
+    successful_pending_remove: '解析成功，收尾中',
+    failed_pending_remove: '解析失败，准备重试',
+    unknown: '状态未知',
   }
   return map[s] || s
 }
@@ -8493,31 +8655,26 @@ const statusBadgeClass = (s: string) => {
   const map: Record<string, string> = {
     pending: 'status-pending',
     running: 'status-running',
+    retrying: 'status-retrying',
     cancelled: 'status-cancelled',
     successful: 'status-successful',
     failed: 'status-failed',
     successful_pending_remove: 'status-successful-pending-remove',
     failed_pending_remove: 'status-failed-pending-remove',
+    unknown: 'status-unknown',
   }
-  return map[s] || 'status-pending'
+  return map[s] || 'status-unknown'
 }
 
-const terminalTaskStatuses = new Set([
-  'cancelled',
-  'successful',
-  'failed',
-  'successful_pending_remove',
-  'failed_pending_remove',
-])
+// `/log_file/list` already returns the current task together with its reports.
+// Keep that response as the single source of truth: a slower `/task/{id}` request
+// can otherwise overwrite a newer poll result and make failed/running statuses
+// alternate on screen.
+const getDetailedLogFileTask = (file: LogFileModel) => file.task
 
-const isTerminalTaskStatus = (status?: string) =>
-  Boolean(status && terminalTaskStatuses.has(status))
+const getLogFileOverallStatus = (file: LogFileModel) => file.overall_status
 
-const getDetailedLogFileTask = (file: LogFileModel) =>
-  file.task?.id ? (taskDetailsById.value[file.task.id] ?? file.task) : file.task
-
-const getLogFileTaskStatus = (file: LogFileModel) =>
-  getDetailedLogFileTask(file)?.status ?? file.parse_status ?? ''
+const getLogFileDisplayStatus = getLogFileOverallStatus
 
 const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
@@ -8664,24 +8821,27 @@ const humanizeLogFileProgressMessage = (message: string): string => {
 }
 
 const getLogFileProgressMessage = (file: LogFileModel) => {
+  if (getLogFileDisplayStatus(file) === 'retrying') {
+    return '正在重试'
+  }
   const latestProgress = getLatestProgressReport(file)
   const progressMessage = latestProgress?.message?.trim()
   if (progressMessage) return humanizeLogFileProgressMessage(progressMessage)
   const latestMilestone = getLatestLogFileTaskReport(file)
   const milestoneMessage = latestMilestone?.message?.trim()
   if (milestoneMessage) return humanizeLogFileProgressMessage(milestoneMessage)
-  return statusLabel(getLogFileTaskStatus(file))
+  return statusLabel(getLogFileDisplayStatus(file))
 }
 
 const shouldShowLogFileProgress = (file: LogFileModel) =>
-  Boolean(file.task || getLogFileTaskStatus(file))
+  Boolean(file.task || getLogFileOverallStatus(file))
 
 const getLogFileProgressClass = (file: LogFileModel) => {
-  const status = getLogFileTaskStatus(file)
-  if (status === 'failed' || status === 'failed_pending_remove') return 'failed'
+  const status = getLogFileDisplayStatus(file)
+  if (status === 'failed') return 'failed'
   if (status === 'successful' || status === 'successful_pending_remove') return 'successful'
   if (status === 'cancelled') return 'cancelled'
-  if (status === 'running') return 'running'
+  if (status === 'running' || status === 'retrying') return 'running'
   return 'pending'
 }
 
@@ -8694,22 +8854,13 @@ const pickDefaultKvcacheLogFile = (files: LogFileModel[]): LogFileModel | null =
   return files.find(isKvcacheLogFile) ?? files[0]!
 }
 
-const normalizeLogFile = (file: LogFileModel): LogFileModel => {
-  const logFileId = file.log_file_id || file.id
-  return {
-    ...file,
-    log_file_id: logFileId,
-    anomaly_cnt: logFileAnomalyCntById.value[logFileId] ?? file.anomaly_cnt,
-    trace_failure_event_cnt:
-      logFileTraceFailureEventCntById.value[logFileId] ?? file.trace_failure_event_cnt,
-  }
-}
+const normalizeLogFile = (file: LogFileModel): LogFileModel => ({
+  ...file,
+  log_file_id: file.log_file_id || file.id,
+})
 
-const isSuccessfulLogFileTask = (file: LogFileModel) =>
-  ['successful', 'successful_pending_remove'].includes(getLogFileTaskStatus(file))
-
-const isLogFileDetailLoaded = (file: LogFileModel) =>
-  loadedAnomalyLogFileIds.value.has(getLogFileId(file))
+const isSuccessfulLogFile = (file: LogFileModel) =>
+  ['successful', 'successful_pending_remove'].includes(getLogFileOverallStatus(file))
 
 const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
 
@@ -8734,108 +8885,12 @@ const getLogFileTraceFailureEventCountText = (file: LogFileModel) =>
   `通断异常数：${file.trace_failure_event_cnt ?? 0}`
 
 const getLogFileAnomalyCountClass = (file: LogFileModel) => {
-  if (!isLogFileDetailLoaded(file)) return ''
   if (isBrpcLogFile(file)) return 'anomaly-ok'
   return file.anomaly_cnt > 0 ? 'anomaly-danger' : 'anomaly-ok'
 }
 
-const getLogFileTraceFailureEventCountClass = (file: LogFileModel) => {
-  if (!isLogFileDetailLoaded(file)) return ''
-  return (file.trace_failure_event_cnt ?? 0) > 0 ? 'anomaly-danger' : 'anomaly-ok'
-}
-
-const updateLogFileInList = (logFile: LogFileModel) => {
-  const logFileId = getLogFileId(logFile)
-  logFiles.value = logFiles.value.map((file) => {
-    if (getLogFileId(file) !== logFileId && file.id !== logFile.id) return file
-    return normalizeLogFile({
-      ...file,
-      ...logFile,
-      log_file_id: logFileId || getLogFileId(file),
-    })
-  })
-}
-
-const loadLogFileAnomalyCount = async (file: LogFileModel) => {
-  const logFileId = getLogFileId(file)
-  if (!logFileId || loadedAnomalyLogFileIds.value.has(logFileId)) return
-  if (loadingAnomalyLogFileIds.value.has(logFileId)) return
-
-  loadingAnomalyLogFileIds.value = new Set(loadingAnomalyLogFileIds.value).add(logFileId)
-  try {
-    const result = await request<GetLogFileResult>(`/log_file/${logFileId}`)
-    if (result.log_file) {
-      logFileAnomalyCntById.value = {
-        ...logFileAnomalyCntById.value,
-        [logFileId]: result.log_file.anomaly_cnt,
-      }
-      logFileTraceFailureEventCntById.value = {
-        ...logFileTraceFailureEventCntById.value,
-        [logFileId]: result.log_file.trace_failure_event_cnt ?? 0,
-      }
-      updateLogFileInList({
-        ...result.log_file,
-        log_file_id: logFileId,
-      })
-      loadedAnomalyLogFileIds.value = new Set(loadedAnomalyLogFileIds.value).add(logFileId)
-    }
-  } catch {
-  } finally {
-    const next = new Set(loadingAnomalyLogFileIds.value)
-    next.delete(logFileId)
-    loadingAnomalyLogFileIds.value = next
-  }
-}
-
-const loadSuccessfulLogFileAnomalyCounts = (files: LogFileModel[]) => {
-  files.forEach((file) => {
-    if (isSuccessfulLogFileTask(file)) {
-      void loadLogFileAnomalyCount(file)
-    }
-  })
-}
-
-const loadTaskDetail = async (taskId: string) => {
-  if (!taskId || loadingTaskDetailIds.value.has(taskId)) return
-
-  loadingTaskDetailIds.value = new Set(loadingTaskDetailIds.value).add(taskId)
-  try {
-    const result = await request<{ task: TaskModel | null }>(`/task/${taskId}`)
-    if (result.task) {
-      taskDetailsById.value = {
-        ...taskDetailsById.value,
-        [taskId]: result.task,
-      }
-    }
-  } catch {
-  } finally {
-    const next = new Set(loadingTaskDetailIds.value)
-    next.delete(taskId)
-    loadingTaskDetailIds.value = next
-  }
-}
-
-const loadTaskDetailsForLogFiles = (files: LogFileModel[]) => {
-  const taskIds = new Set<string>()
-  const completedTasks: Record<string, TaskModel> = {}
-  files.forEach((file) => {
-    if (!file.task?.id) return
-    if (isTerminalTaskStatus(file.task.status)) {
-      completedTasks[file.task.id] = file.task
-      return
-    }
-    taskIds.add(file.task.id)
-  })
-  if (Object.keys(completedTasks).length > 0) {
-    taskDetailsById.value = {
-      ...taskDetailsById.value,
-      ...completedTasks,
-    }
-  }
-  taskIds.forEach((taskId) => {
-    void loadTaskDetail(taskId)
-  })
-}
+const getLogFileTraceFailureEventCountClass = (file: LogFileModel) =>
+  (file.trace_failure_event_cnt ?? 0) > 0 ? 'anomaly-danger' : 'anomaly-ok'
 
 const loadLogFiles = async (
   kbId: string,
@@ -8890,8 +8945,6 @@ const loadLogFiles = async (
     } else {
       selectedLogFileId.value = null
     }
-    loadTaskDetailsForLogFiles(nextLogFiles)
-    loadSuccessfulLogFileAnomalyCounts(nextLogFiles)
   } catch {
     if (selectedAssetId.value !== kbId) return
     if (!options.silent) {
@@ -9095,6 +9148,9 @@ const brpcAllRows = ref<Record<string, any>[]>([])
 const brpcAllFileRows = ref<Record<string, any>[]>([])
 const brpcFileNames = ref<string[]>([])
 const brpcSelectedFileName = ref('')
+// 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
+// profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
+const hasBrpcProfilingLogFile = computed(() => brpcFileNames.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -10216,7 +10272,7 @@ const loadBrpcLogFiles = async () => {
         id: string
         name: string
         log_type: string
-        parse_status: string
+        overall_status: string
         task?: TaskModel | null
       }>
     }>(`/log_file/list/${assetId}`, {
@@ -10225,7 +10281,11 @@ const loadBrpcLogFiles = async () => {
     })
     if (selectedAssetId.value !== assetId) return
     brpcLogFiles.value = (result.log_files ?? [])
-      .filter((file) => file.log_type === 'brpc' && file.parse_status === 'successful')
+      .filter(
+        (file) =>
+          file.log_type === 'brpc' &&
+          ['successful', 'successful_pending_remove'].includes(file.overall_status),
+      )
       .map((file) => ({
         id: file.id,
         name: file.name,
@@ -10321,7 +10381,7 @@ const loadBrpcMonitorData = async () => {
       brpcFileNames.value.length > 0 &&
       !brpcFileNames.value.includes(brpcSelectedFileName.value)
     ) {
-      brpcSelectedFileName.value = brpcFileNames.value[0]
+      brpcSelectedFileName.value = brpcFileNames.value[0] ?? ''
     }
 
     applyBrpcFileFilter()
@@ -11934,6 +11994,7 @@ watch(selectedBrpcFaultScale, () => {
 onMounted(() => {
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
+  window.addEventListener('resize', updateDetailLatencyLeftOverflow)
   if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
     assetDetailResizeObserver = new ResizeObserver(resizeLatencyCharts)
     assetDetailResizeObserver.observe(assetDetailRef.value)
@@ -11944,12 +12005,14 @@ onMounted(() => {
 onUpdated(() => {
   syncAbnormalTraceRowHeights()
   syncDetailAbnormalTraceRowHeights()
+  updateDetailLatencyLeftOverflow()
 })
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
   closeAgentEventStream()
   window.removeEventListener('resize', resizeLatencyCharts)
+  window.removeEventListener('resize', updateDetailLatencyLeftOverflow)
   assetDetailResizeObserver?.disconnect()
   assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
@@ -12467,9 +12530,9 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
-                  <span class="scale-label">时间尺度：</span>
+                  <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedLatencyScale" aria-label="时间尺度">
+                    <select v-model="selectedLatencyScale" aria-label="时延时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -12493,6 +12556,9 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
+              <p class="chart-scale-hint">
+                横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+              </p>
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
@@ -13585,9 +13651,9 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
-                  <span class="scale-label">时间尺度：</span>
+                  <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedFaultScale" aria-label="故障时间尺度">
+                    <select v-model="selectedFaultScale" aria-label="故障时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -13599,6 +13665,9 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
+              <p class="chart-scale-hint">
+                横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+              </p>
               <div class="latency-chart-panel">
                 <div v-if="isFaultChartLoading" class="chart-state">
                   正在加载故障码计数时序分布...
@@ -14669,7 +14738,7 @@ onBeforeUnmount(() => {
           </header>
 
           <!-- 日志文件选择器 -->
-          <div v-if="brpcFileNames.length > 0" class="brpc-log-selector">
+          <div v-if="hasBrpcProfilingLogFile" class="brpc-log-selector">
             <span class="brpc-log-label">选择日志文件：</span>
             <select v-model="brpcSelectedFileName" class="brpc-log-select" @change="onBrpcFileChange">
               <option v-for="name in brpcFileNames" :key="name" :value="name">
@@ -14737,7 +14806,14 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
-              <div ref="brpcSuccessChartRef" class="chart-box"></div>
+              <div
+                v-if="!brpcDataLoading && !hasBrpcProfilingLogFile"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div v-else ref="brpcSuccessChartRef" class="chart-box"></div>
             </article>
 
             <!-- 图表2：单接口成功率监控 -->
@@ -14795,7 +14871,14 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
-              <div ref="brpcSingleChartRef" class="chart-box"></div>
+              <div
+                v-if="!brpcDataLoading && !hasBrpcProfilingLogFile"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div v-else ref="brpcSingleChartRef" class="chart-box"></div>
             </article>
 
             <!-- 图表3：时延监控 -->
@@ -14853,7 +14936,14 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
-              <div ref="brpcLatencyChartRef" class="chart-box"></div>
+              <div
+                v-if="!brpcDataLoading && !hasBrpcProfilingLogFile"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div v-else ref="brpcLatencyChartRef" class="chart-box"></div>
             </article>
           </div>
         </section>
@@ -14881,9 +14971,12 @@ onBeforeUnmount(() => {
                   >
                     重置
                   </button>
-                  <span class="scale-label">时间尺度：</span>
+                  <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedBrpcFaultScale" aria-label="BRPC 故障时间尺度">
+                    <select
+                      v-model="selectedBrpcFaultScale"
+                      aria-label="BRPC 故障时间聚合尺度"
+                    >
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -14895,6 +14988,9 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
               </div>
+              <p class="chart-scale-hint">
+                横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+              </p>
               <div v-if="brpcFaultSeriesOptions.length > 0" class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
@@ -15795,13 +15891,12 @@ onBeforeUnmount(() => {
                     >
                     <span
                       class="status-badge"
-                      :class="statusBadgeClass(getLogFileTaskStatus(file))"
-                      >{{ statusLabel(getLogFileTaskStatus(file)) }}</span
+                      :class="statusBadgeClass(getLogFileDisplayStatus(file))"
+                      >{{ statusLabel(getLogFileDisplayStatus(file)) }}</span
                     >
                     <span
                       v-if="
-                        isSuccessfulLogFileTask(file) &&
-                        isLogFileDetailLoaded(file) &&
+                        isSuccessfulLogFile(file) &&
                         shouldShowLogFileLatencyAnomalyCount(file)
                       "
                       class="anomaly-badge"
@@ -15810,8 +15905,7 @@ onBeforeUnmount(() => {
                     >
                     <span
                       v-if="
-                        isSuccessfulLogFileTask(file) &&
-                        isLogFileDetailLoaded(file) &&
+                        isSuccessfulLogFile(file) &&
                         shouldShowLogFileConnectionAnomalyCount(file)
                       "
                       class="anomaly-badge"
@@ -16806,6 +16900,9 @@ onBeforeUnmount(() => {
         <header class="side-drawer-header">
           <div class="side-drawer-title">
             <h2>聚合事件详情</h2>
+            <span class="operation-toggle-btn active drawer-operation-tag">
+              {{ selectedOperation.toUpperCase() }}
+            </span>
             <span class="aggregate-detail-hosts">
               {{ selectedAggregatedEvent.sourcePodIp }} → {{ selectedAggregatedEvent.targetPodIp }}
             </span>
@@ -16930,54 +17027,84 @@ onBeforeUnmount(() => {
               <div
                 ref="detailAbnormalTraceTableRef"
                 class="aggregate-table-frame abnormal-trace-frame detail-abnormal-trace-frame"
+                :class="{
+                  'detail-abnormal-trace-left-overflow': isDetailLatencyLeftOverflowing,
+                }"
+                :style="{
+                  gridTemplateColumns: getDetailLatencyTraceFrameGridColumnWidths(),
+                }"
               >
                 <div class="aggregate-fixed-left">
                   <div
-                    class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
-                    :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
-                  >
-                    <div class="aggregate-cell">标签</div>
-                    <div class="aggregate-cell">时间</div>
-                    <div class="aggregate-cell">Trace ID</div>
-                    <div class="aggregate-cell">Pod IP</div>
-                    <div class="aggregate-cell">操作类型</div>
-                    <div class="aggregate-cell">集群</div>
-                    <div class="aggregate-cell">主机 IP</div>
-                  </div>
-                  <template
-                    v-if="
-                      !isDetailParseResultsLoading &&
-                      !detailParseResultsError &&
-                      detailParseResultRows.length > 0
-                    "
+                    class="detail-abnormal-trace-left-head detail-abnormal-trace-left-sync"
+                    @scroll="syncDetailLatencyLeftScroll"
                   >
                     <div
-                      v-for="row in detailParseResultRows"
-                      :key="`${row.id}-fixed`"
-                      class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
-                      :style="{
-                        gridTemplateColumns: getLatencyLeftGridColumnWidths(),
-                        height: getTraceRowHeight(row.podIp),
-                      }"
+                      class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
+                      :style="getDetailLatencyLeftGridStyle()"
                     >
-                      <div class="aggregate-cell">
-                        <span
-                          v-for="tag in getTraceTags(row.traceId, 'latency')"
-                          :key="tag.type"
-                          class="trace-type-tag"
-                          :class="`trace-type-tag-${tag.type}`"
-                        >
-                          {{ tag.label }}
-                        </span>
-                      </div>
-                      <div class="aggregate-cell">{{ row.time }}</div>
-                      <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
-                      <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
-                      <div class="aggregate-cell">{{ row.operation }}</div>
-                      <div class="aggregate-cell">{{ row.clusterName }}</div>
-                      <div class="aggregate-cell">{{ row.host }}</div>
+                      <div class="aggregate-cell">标签</div>
+                      <div class="aggregate-cell">时间</div>
+                      <div class="aggregate-cell">Trace ID</div>
+                      <div class="aggregate-cell">Pod IP</div>
+                      <div class="aggregate-cell">集群</div>
+                      <div class="aggregate-cell">主机 IP</div>
                     </div>
-                  </template>
+                  </div>
+                  <div
+                    v-if="isDetailLatencyLeftOverflowing"
+                    class="detail-abnormal-trace-left-scrollbar detail-abnormal-trace-left-sync"
+                    @scroll="syncDetailLatencyLeftScroll"
+                  >
+                    <div
+                      class="detail-abnormal-trace-left-scrollbar-spacer"
+                      :style="getDetailLatencyLeftGridStyle()"
+                    ></div>
+                  </div>
+                  <div
+                    class="detail-abnormal-trace-left-body detail-abnormal-trace-left-sync"
+                    @scroll="syncDetailLatencyLeftScroll"
+                  >
+                    <template
+                      v-if="
+                        !isDetailParseResultsLoading &&
+                        !detailParseResultsError &&
+                        detailParseResultRows.length > 0
+                      "
+                    >
+                      <div
+                        v-for="row in detailParseResultRows"
+                        :key="`${row.id}-fixed`"
+                        class="abnormal-left-grid latency-anomaly-left-grid aggregate-body-row"
+                        :style="{
+                          ...getDetailLatencyLeftGridStyle(),
+                          height: getTraceRowHeight(row.podIp),
+                        }"
+                      >
+                        <div class="aggregate-cell">
+                          <span
+                            v-for="tag in getTraceTags(row.traceId, 'latency')"
+                            :key="tag.type"
+                            class="trace-type-tag"
+                            :class="`trace-type-tag-${tag.type}`"
+                          >
+                            {{ tag.label }}
+                          </span>
+                        </div>
+                        <div class="aggregate-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
+                        <div
+                          class="aggregate-cell multi-line-pod-cell"
+                          :title="getMultiLineCellTitle(row.podIp)"
+                          v-html="row.podIp"
+                        ></div>
+                        <div class="aggregate-cell" :title="row.clusterName">
+                          {{ row.clusterName }}
+                        </div>
+                        <div class="aggregate-cell" :title="row.host">{{ row.host }}</div>
+                      </div>
+                    </template>
+                  </div>
                 </div>
 
                 <div
@@ -16993,7 +17120,7 @@ onBeforeUnmount(() => {
                     <div
                       class="abnormal-latency-grid aggregate-table-header"
                       :style="{
-                        gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                        gridTemplateColumns: getDetailLatencyDataGridColumnWidths(),
                       }"
                     >
                       <div
@@ -17028,12 +17155,7 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                   </div>
-                  <div
-                    class="aggregate-latency-scrollbar aggregate-latency-sync"
-                    @scroll="syncAggregateLatencyScroll"
-                  >
-                    <div class="aggregate-latency-scrollbar-spacer"></div>
-                  </div>
+                  <div class="detail-abnormal-trace-header-scrollbar-spacer"></div>
                   <div
                     class="aggregate-latency-body aggregate-latency-sync"
                     @scroll="syncAggregateLatencyScroll"
@@ -17050,7 +17172,7 @@ onBeforeUnmount(() => {
                         :key="`${row.id}-latency`"
                         class="abnormal-latency-grid aggregate-body-row"
                         :style="{
-                          gridTemplateColumns: getLatencyDataGridColumnWidths(),
+                          gridTemplateColumns: getDetailLatencyDataGridColumnWidths(),
                           height: getTraceRowHeight(row.podIp),
                         }"
                       >
@@ -17080,6 +17202,7 @@ onBeforeUnmount(() => {
 
                 <div class="aggregate-fixed-actions">
                   <div class="aggregate-cell action-cell aggregate-table-header">Trace分析</div>
+                  <div class="detail-abnormal-trace-header-scrollbar-spacer"></div>
                   <template
                     v-if="
                       !isDetailParseResultsLoading &&
@@ -18197,7 +18320,7 @@ onBeforeUnmount(() => {
 
         <div class="side-drawer-body parse-config-drawer-body">
           <div v-if="logType === 'brpc'" class="parse-config-unsupported" role="status">
-            BRPC 暂时不支持解析配置
+            UBSocket日志解析暂不支持配置
           </div>
           <template v-else>
             <div v-if="diagnosisConfigError" class="diagnosis-config-error" role="alert">
@@ -18335,6 +18458,7 @@ onBeforeUnmount(() => {
               </div>
 
               <h4 class="analyzer-group-title">时延阈值</h4>
+              <p class="analyzer-parameter-hint">输入大于0的数字</p>
               <div class="analyzer-threshold-grid">
                 <label
                   v-for="option in analyzerThresholdOptions"
@@ -18345,10 +18469,13 @@ onBeforeUnmount(() => {
                   <span class="analyzer-field-description">{{ option.description }}</span>
                   <span class="parse-config-input-suffix">
                     <input
-                      v-model.number="diagnosisConfigDraft.logAnalyzerParams[option.key]"
-                      type="number"
-                      min="0"
-                      step="0.1"
+                      v-model="diagnosisConfigDraft.logAnalyzerParams[option.key]"
+                      type="text"
+                      inputmode="decimal"
+                      :class="{
+                        'config-input-invalid': invalidDiagnosisConfigFields.has(option.key),
+                      }"
+                      :aria-invalid="invalidDiagnosisConfigFields.has(option.key)"
                     />
                     <em>ms</em>
                   </span>
@@ -18360,6 +18487,7 @@ onBeforeUnmount(() => {
                 <div>
                   <h4 class="analyzer-group-title">滑动窗口</h4>
                   <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
+                  <p class="analyzer-parameter-hint">输入大于0的整数</p>
                 </div>
                 <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
                   + 添加窗口
@@ -18375,11 +18503,35 @@ onBeforeUnmount(() => {
                   <span class="window-index">{{ index + 1 }}</span>
                   <label>
                     <span>窗口大小</span>
-                    <input v-model.number="windowPair.size" type="number" min="1" step="1" />
+                    <input
+                      v-model="windowPair.size"
+                      type="text"
+                      inputmode="numeric"
+                      :class="{
+                        'config-input-invalid': invalidDiagnosisConfigFields.has(
+                          getSlidingWindowFieldId(index, 'size'),
+                        ),
+                      }"
+                      :aria-invalid="
+                        invalidDiagnosisConfigFields.has(getSlidingWindowFieldId(index, 'size'))
+                      "
+                    />
                   </label>
                   <label>
                     <span>窗口步长</span>
-                    <input v-model.number="windowPair.step" type="number" min="1" step="1" />
+                    <input
+                      v-model="windowPair.step"
+                      type="text"
+                      inputmode="numeric"
+                      :class="{
+                        'config-input-invalid': invalidDiagnosisConfigFields.has(
+                          getSlidingWindowFieldId(index, 'step'),
+                        ),
+                      }"
+                      :aria-invalid="
+                        invalidDiagnosisConfigFields.has(getSlidingWindowFieldId(index, 'step'))
+                      "
+                    />
                   </label>
                   <button
                     type="button"
@@ -18398,16 +18550,19 @@ onBeforeUnmount(() => {
                 <span>
                   <strong>区间异常密度阈值</strong>
                   <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
+                  <small class="analyzer-parameter-hint">输入大于0小于等于1的数字</small>
                 </span>
                 <span class="density-input">
                   <input
-                    v-model.number="
-                      diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
-                    "
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
+                    v-model="diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold"
+                    type="text"
+                    inputmode="decimal"
+                    :class="{
+                      'config-input-invalid': invalidDiagnosisConfigFields.has(
+                        'zone_anomaly_density_threshold',
+                      ),
+                    }"
+                    :aria-invalid="invalidDiagnosisConfigFields.has('zone_anomaly_density_threshold')"
                   />
                   <em>0–1</em>
                 </span>
@@ -18426,6 +18581,13 @@ onBeforeUnmount(() => {
             恢复默认
           </button>
           <div>
+            <span
+              v-if="diagnosisConfigValidationError"
+              class="parse-config-validation-error"
+              role="alert"
+            >
+              {{ diagnosisConfigValidationError }}
+            </span>
             <button
               class="ghost-btn"
               type="button"

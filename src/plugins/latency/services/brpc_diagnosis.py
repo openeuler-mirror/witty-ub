@@ -193,6 +193,17 @@ class BrpcDiagnosisService:
                 end_timestamp=end_timestamp,
                 pod_name=pod_name,
             )
+            if total == 0:
+                thread_total, _ = await BrpcDiagnosisPGManager.list_hits(
+                    session,
+                    batch_id=batch_id,
+                    pod_ip=pod_ip,
+                    thread_id=thread_id,
+                    page_num=1,
+                    page_cnt=1,
+                )
+                if thread_total == 0:
+                    raise NotFoundBizException(resource="BRPC Thread")
 
         return ListBrpcDiagHitsMsg(
             batch_id=batch_id,
@@ -256,18 +267,8 @@ class BrpcDiagnosisService:
             if batch is None:
                 raise NotFoundBizException(resource="BRPC 诊断 batch")
 
-            # Resolve batch → task → log file path
-            task = await TaskPGManager.get_task_by_task_id(batch.task_id)
-            if task is None or not task.op_id:
-                raise NotFoundBizException(resource="BRPC 诊断 task")
-            log_file = await LogFilePGManager.get_log_file_by_log_file_id(
-                task.op_id
-            )
-            if log_file is None or not log_file.file_path:
-                raise NotFoundBizException(resource="BRPC 诊断日志文件")
-
-            # Get fault hits for matching
-            _, hit_rows = await BrpcDiagnosisPGManager.list_hits(
+            # Validate the requested thread before resolving and reading files.
+            thread_total, hit_rows = await BrpcDiagnosisPGManager.list_hits(
                 session,
                 batch_id=batch_id,
                 pod_ip=pod_ip,
@@ -277,13 +278,33 @@ class BrpcDiagnosisService:
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,
             )
+            if thread_total == 0:
+                unfiltered_total, _ = await BrpcDiagnosisPGManager.list_hits(
+                    session,
+                    batch_id=batch_id,
+                    pod_ip=pod_ip,
+                    thread_id=thread_id,
+                    page_num=1,
+                    page_cnt=1,
+                )
+                if unfiltered_total == 0:
+                    raise NotFoundBizException(resource="BRPC Thread")
+
+            # Resolve batch → task → log file path
+            task = await TaskPGManager.get_task_by_task_id(batch.task_id)
+            if task is None or not task.op_id:
+                raise NotFoundBizException(resource="BRPC 诊断 task")
+            log_file = await LogFilePGManager.get_log_file_by_log_file_id(
+                task.op_id
+            )
+            if log_file is None or not log_file.file_path:
+                raise NotFoundBizException(resource="BRPC 诊断日志文件")
+            file_path = log_file.file_path
 
         # Build {timestamp_us: failure_mode_id} for fault matching
         fault_map: dict[int, str] = {}
         for row in hit_rows:
             fault_map[row.timestamp] = row.failure_mode_id
-
-        file_path = log_file.file_path
 
         # Determine which file(s) to read — mirror C++ ForEachBrpcLog:
         # recursive read of all regular files (any extension)
@@ -462,6 +483,16 @@ class BrpcDiagnosisService:
                     pod_name=pod_name,
                 )
             )
+            if interface_id and not aggregates:
+                schema = await BrpcDiagnosisPGManager.get_schema(
+                    session,
+                    batch.schema_id,
+                )
+                if schema is None or not any(
+                    node.node_id == interface_id and node.node_type == "interface"
+                    for node in schema.nodes
+                ):
+                    raise NotFoundBizException(resource="BRPC 接口")
 
         series = BrpcDiagnosisService._zero_fill_timeline(
             aggregates=aggregates,

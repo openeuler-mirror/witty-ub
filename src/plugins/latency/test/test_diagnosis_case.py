@@ -41,6 +41,7 @@ def test_diagnosis_case_extracts_match_signals():
 
 def test_search_request_extracts_match_signals():
     req = SearchDiagnosisCasesRequest(
+        kb_id="kb-1",
         status_codes=["1004"],
         failure_mode_ids=["FM-URMA-LINK"],
         src_ips=["10.0.0.1"],
