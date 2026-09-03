@@ -144,6 +144,19 @@ type DiagnosisConfigForm = {
   }
 }
 
+type DiagnosisConfigInputValue = number | string
+
+type DiagnosisConfigDraft = {
+  logFilenamePattern: Record<LogFilenamePatternKey, string[]>
+  logAnalyzerParams: Record<LogAnalyzerThresholdKey, DiagnosisConfigInputValue> & {
+    slidingWindowPairs: Array<{
+      size: DiagnosisConfigInputValue
+      step: DiagnosisConfigInputValue
+    }>
+    zone_anomaly_density_threshold: DiagnosisConfigInputValue
+  }
+}
+
 type DiagnosisConfigApiModel = {
   log_filename_pattern: Record<LogFilenamePatternKey, string[]>
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
@@ -1639,6 +1652,8 @@ const isParseConfigDrawerOpen = ref(false)
 const isDiagnosisConfigLoading = ref(false)
 const isDiagnosisConfigSaving = ref(false)
 const diagnosisConfigError = ref('')
+const diagnosisConfigValidationError = ref('')
+const invalidDiagnosisConfigFields = ref<Set<string>>(new Set())
 const diagnosisConfigResetSnapshot = ref('')
 const diagnosisConfigImportAssets = ref<LogKnowledge[]>([])
 const diagnosisConfigImportAssetId = ref('')
@@ -1772,8 +1787,8 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
   },
 })
 
-const cloneDiagnosisConfig = (config: DiagnosisConfigForm): DiagnosisConfigForm =>
-  JSON.parse(JSON.stringify(config)) as DiagnosisConfigForm
+const cloneDiagnosisConfig = <T extends DiagnosisConfigForm | DiagnosisConfigDraft>(config: T): T =>
+  JSON.parse(JSON.stringify(config)) as T
 
 const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfigForm => ({
   logFilenamePattern: {
@@ -1800,24 +1815,28 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
   },
 })
 
-const toDiagnosisConfigApi = (config: DiagnosisConfigForm): DiagnosisConfigApiModel => ({
+const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiModel => ({
   log_filename_pattern: cloneDiagnosisConfig(config).logFilenamePattern,
   log_analyzer_params: {
-    total_p99_threshold_ms: config.logAnalyzerParams.total_p99_threshold_ms,
-    c2w_p99_threshold_ms: config.logAnalyzerParams.c2w_p99_threshold_ms,
-    w2w_p99_threshold_ms: config.logAnalyzerParams.w2w_p99_threshold_ms,
-    urma_link_p99_threshold_ms: config.logAnalyzerParams.urma_link_p99_threshold_ms,
-    query_meta_p99_threshold_ms: config.logAnalyzerParams.query_meta_p99_threshold_ms,
-    total_p9999_threshold_ms: config.logAnalyzerParams.total_p9999_threshold_ms,
-    total_pmax_threshold_ms: config.logAnalyzerParams.total_pmax_threshold_ms,
-    total_ave_threshold_ms: config.logAnalyzerParams.total_ave_threshold_ms,
-    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) => size),
-    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) => step),
-    zone_anomaly_density_threshold: config.logAnalyzerParams.zone_anomaly_density_threshold,
+    total_p99_threshold_ms: Number(config.logAnalyzerParams.total_p99_threshold_ms),
+    c2w_p99_threshold_ms: Number(config.logAnalyzerParams.c2w_p99_threshold_ms),
+    w2w_p99_threshold_ms: Number(config.logAnalyzerParams.w2w_p99_threshold_ms),
+    urma_link_p99_threshold_ms: Number(config.logAnalyzerParams.urma_link_p99_threshold_ms),
+    query_meta_p99_threshold_ms: Number(config.logAnalyzerParams.query_meta_p99_threshold_ms),
+    total_p9999_threshold_ms: Number(config.logAnalyzerParams.total_p9999_threshold_ms),
+    total_pmax_threshold_ms: Number(config.logAnalyzerParams.total_pmax_threshold_ms),
+    total_ave_threshold_ms: Number(config.logAnalyzerParams.total_ave_threshold_ms),
+    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) =>
+      Number(size),
+    ),
+    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) =>
+      Number(step),
+    ),
+    zone_anomaly_density_threshold: Number(config.logAnalyzerParams.zone_anomaly_density_threshold),
   },
 })
 
-const diagnosisConfigDraft = reactive<DiagnosisConfigForm>(createDefaultDiagnosisConfig())
+const diagnosisConfigDraft = reactive<DiagnosisConfigDraft>(createDefaultDiagnosisConfig())
 
 const activeDiagnosisConfig = computed<DiagnosisConfigForm>(() => {
   if (!selectedAssetId.value) return createDefaultDiagnosisConfig()
@@ -1866,6 +1885,8 @@ const openParseConfigDrawer = async () => {
     patternInputs[key as LogFilenamePatternKey] = ''
   })
   diagnosisConfigError.value = ''
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
   diagnosisConfigResetSnapshot.value = ''
   diagnosisConfigImportAssetId.value = ''
   diagnosisConfigImportMessage.value = ''
@@ -1908,6 +1929,8 @@ const importDiagnosisConfigFromAsset = async () => {
       `/diagnosis_config/${encodeURIComponent(diagnosisConfigImportAssetId.value)}`,
     )
     Object.assign(diagnosisConfigDraft, fromDiagnosisConfigApi(result))
+    diagnosisConfigValidationError.value = ''
+    invalidDiagnosisConfigFields.value = new Set()
     diagnosisConfigResetSnapshot.value = ''
     diagnosisConfigImportMessage.value = `已导入“${sourceAsset?.name || '所选资产库'}”的配置，保存后生效`
   } catch (error) {
@@ -1924,11 +1947,60 @@ const closeParseConfigDrawer = () => {
 const resetParseConfigDraft = () => {
   Object.assign(diagnosisConfigDraft, createDefaultDiagnosisConfig())
   diagnosisConfigResetSnapshot.value = JSON.stringify(diagnosisConfigDraft)
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
+}
+
+const getSlidingWindowFieldId = (index: number, field: 'size' | 'step') =>
+  `sliding-window-${index}-${field}`
+
+const isPositiveArabicDecimal = (value: DiagnosisConfigInputValue) => {
+  const text = String(value)
+  return /^[0-9]+(?:\.[0-9]+)?$/.test(text) && Number(text) > 0 && Number.isFinite(Number(text))
+}
+
+const isPositiveArabicInteger = (value: DiagnosisConfigInputValue) => {
+  const text = String(value)
+  return /^[0-9]+$/.test(text) && Number(text) > 0 && Number.isFinite(Number(text))
+}
+
+const validateDiagnosisAnalyzerParams = () => {
+  const invalidFields = new Set<string>()
+  analyzerThresholdOptions.forEach(({ key }) => {
+    if (!isPositiveArabicDecimal(diagnosisConfigDraft.logAnalyzerParams[key])) {
+      invalidFields.add(key)
+    }
+  })
+  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
+    if (!isPositiveArabicInteger(size)) {
+      invalidFields.add(getSlidingWindowFieldId(index, 'size'))
+    }
+    if (!isPositiveArabicInteger(step)) {
+      invalidFields.add(getSlidingWindowFieldId(index, 'step'))
+    }
+  })
+  const densityThreshold = diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
+  if (!isPositiveArabicDecimal(densityThreshold) || Number(densityThreshold) > 1) {
+    invalidFields.add('zone_anomaly_density_threshold')
+  }
+
+  invalidDiagnosisConfigFields.value = invalidFields
+  if (invalidFields.size > 0) {
+    diagnosisConfigValidationError.value = '参数填写不合法，请检查红色输入框'
+    return false
+  }
+  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
+    diagnosisConfigValidationError.value = '至少需要配置一组滑动窗口'
+    return false
+  }
+  diagnosisConfigValidationError.value = ''
+  return true
 }
 
 const saveParseConfig = async () => {
   if (!selectedAssetId.value || isDiagnosisConfigSaving.value) return
   diagnosisConfigError.value = ''
+  const analyzerParamsValid = validateDiagnosisAnalyzerParams()
   const emptyPatternType = patternTypeOptions.find(
     ({ key }) => diagnosisConfigDraft.logFilenamePattern[key].length === 0,
   )
@@ -1936,10 +2008,7 @@ const saveParseConfig = async () => {
     diagnosisConfigError.value = `${emptyPatternType.label}至少需要一个 Pattern`
     return
   }
-  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
-    diagnosisConfigError.value = '至少需要配置一组滑动窗口'
-    return
-  }
+  if (!analyzerParamsValid) return
   isDiagnosisConfigSaving.value = true
   try {
     const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
@@ -1981,10 +2050,14 @@ const removeFilenamePattern = (key: LogFilenamePatternKey, index: number) => {
 
 const addSlidingWindowPair = () => {
   diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.push({ size: 100, step: 20 })
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
 }
 
 const removeSlidingWindowPair = (index: number) => {
   diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
+  diagnosisConfigValidationError.value = ''
+  invalidDiagnosisConfigFields.value = new Set()
 }
 
 // 聚合事件列表排序状态
@@ -18374,6 +18447,7 @@ onBeforeUnmount(() => {
               </div>
 
               <h4 class="analyzer-group-title">时延阈值</h4>
+              <p class="analyzer-parameter-hint">输入大于0的数字</p>
               <div class="analyzer-threshold-grid">
                 <label
                   v-for="option in analyzerThresholdOptions"
@@ -18384,10 +18458,13 @@ onBeforeUnmount(() => {
                   <span class="analyzer-field-description">{{ option.description }}</span>
                   <span class="parse-config-input-suffix">
                     <input
-                      v-model.number="diagnosisConfigDraft.logAnalyzerParams[option.key]"
-                      type="number"
-                      min="0"
-                      step="0.1"
+                      v-model="diagnosisConfigDraft.logAnalyzerParams[option.key]"
+                      type="text"
+                      inputmode="decimal"
+                      :class="{
+                        'config-input-invalid': invalidDiagnosisConfigFields.has(option.key),
+                      }"
+                      :aria-invalid="invalidDiagnosisConfigFields.has(option.key)"
                     />
                     <em>ms</em>
                   </span>
@@ -18399,6 +18476,7 @@ onBeforeUnmount(() => {
                 <div>
                   <h4 class="analyzer-group-title">滑动窗口</h4>
                   <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
+                  <p class="analyzer-parameter-hint">输入大于0的整数</p>
                 </div>
                 <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
                   + 添加窗口
@@ -18414,11 +18492,35 @@ onBeforeUnmount(() => {
                   <span class="window-index">{{ index + 1 }}</span>
                   <label>
                     <span>窗口大小</span>
-                    <input v-model.number="windowPair.size" type="number" min="1" step="1" />
+                    <input
+                      v-model="windowPair.size"
+                      type="text"
+                      inputmode="numeric"
+                      :class="{
+                        'config-input-invalid': invalidDiagnosisConfigFields.has(
+                          getSlidingWindowFieldId(index, 'size'),
+                        ),
+                      }"
+                      :aria-invalid="
+                        invalidDiagnosisConfigFields.has(getSlidingWindowFieldId(index, 'size'))
+                      "
+                    />
                   </label>
                   <label>
                     <span>窗口步长</span>
-                    <input v-model.number="windowPair.step" type="number" min="1" step="1" />
+                    <input
+                      v-model="windowPair.step"
+                      type="text"
+                      inputmode="numeric"
+                      :class="{
+                        'config-input-invalid': invalidDiagnosisConfigFields.has(
+                          getSlidingWindowFieldId(index, 'step'),
+                        ),
+                      }"
+                      :aria-invalid="
+                        invalidDiagnosisConfigFields.has(getSlidingWindowFieldId(index, 'step'))
+                      "
+                    />
                   </label>
                   <button
                     type="button"
@@ -18437,16 +18539,19 @@ onBeforeUnmount(() => {
                 <span>
                   <strong>区间异常密度阈值</strong>
                   <small>窗口内异常数据占比达到该值时，将整个区间标记为异常。</small>
+                  <small class="analyzer-parameter-hint">输入大于0小于等于1的数字</small>
                 </span>
                 <span class="density-input">
                   <input
-                    v-model.number="
-                      diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
-                    "
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
+                    v-model="diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold"
+                    type="text"
+                    inputmode="decimal"
+                    :class="{
+                      'config-input-invalid': invalidDiagnosisConfigFields.has(
+                        'zone_anomaly_density_threshold',
+                      ),
+                    }"
+                    :aria-invalid="invalidDiagnosisConfigFields.has('zone_anomaly_density_threshold')"
                   />
                   <em>0–1</em>
                 </span>
@@ -18465,6 +18570,13 @@ onBeforeUnmount(() => {
             恢复默认
           </button>
           <div>
+            <span
+              v-if="diagnosisConfigValidationError"
+              class="parse-config-validation-error"
+              role="alert"
+            >
+              {{ diagnosisConfigValidationError }}
+            </span>
             <button
               class="ghost-btn"
               type="button"
