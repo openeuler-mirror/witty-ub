@@ -9,6 +9,13 @@ class SourceType(StrEnum):
     UPLOAD = "upload"
 
 
+class DiagnosisConfigLogType(StrEnum):
+    """日志诊断配置类型（API 对外取值区分大小写）。"""
+
+    KVCACHE = "KVCache"
+    UBSOCKET = "UBSocket"
+
+
 class LogLevel(StrEnum):
     """日志级别"""
 

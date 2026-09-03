@@ -25,6 +25,7 @@ from latency.schemas.diagnosis_case import (
     DiagnosisCaseMatchModel,
     DiagnosisCaseModel,
 )
+from latency.schemas.config import DiagnosisConfigResult
 from latency.schemas.task import TaskModel
 
 
@@ -32,6 +33,10 @@ class ResponseBase(BaseModel):
     code: int = Field(default=200, description="响应状态码")
     message: str = Field(default="success", description="响应消息")
     result: Any = Field(..., description="响应结果")
+
+
+class DiagnosisConfigResponse(ResponseBase):
+    result: DiagnosisConfigResult = Field(..., description="指定日志类型的诊断配置")
 
 
 class CreateLogKnowledgeMsg(BaseModel):

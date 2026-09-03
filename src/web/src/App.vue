@@ -166,6 +166,11 @@ type DiagnosisConfigApiModel = {
   }
 }
 
+type DiagnosisConfigApiResult = {
+  log_type: 'KVCache'
+  config: DiagnosisConfigApiModel
+}
+
 type LogParseResultModel = {
   id: string
   anomalous_event_id?: string | null
@@ -1838,6 +1843,9 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiM
 
 const diagnosisConfigDraft = reactive<DiagnosisConfigDraft>(createDefaultDiagnosisConfig())
 
+const getDiagnosisConfigPath = (assetId: string) =>
+  `/diagnosis_config/${encodeURIComponent(assetId)}?log_type=KVCache`
+
 const activeDiagnosisConfig = computed<DiagnosisConfigForm>(() => {
   if (!selectedAssetId.value) return createDefaultDiagnosisConfig()
   return diagnosisConfigsByAsset.value[selectedAssetId.value] ?? createDefaultDiagnosisConfig()
@@ -1899,9 +1907,9 @@ const openParseConfigDrawer = async () => {
   isDiagnosisConfigLoading.value = true
   try {
     if (!selectedAssetId.value) return
-    const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
-    const result = await request<DiagnosisConfigApiModel>(configPath)
-    const config = fromDiagnosisConfigApi(result)
+    const configPath = getDiagnosisConfigPath(selectedAssetId.value)
+    const result = await request<DiagnosisConfigApiResult>(configPath)
+    const config = fromDiagnosisConfigApi(result.config)
     Object.assign(diagnosisConfigDraft, config)
     if (selectedAssetId.value) {
       diagnosisConfigsByAsset.value = {
@@ -1925,10 +1933,10 @@ const importDiagnosisConfigFromAsset = async () => {
     const sourceAsset = diagnosisConfigImportAssets.value.find(
       ({ id }) => id === diagnosisConfigImportAssetId.value,
     )
-    const result = await request<DiagnosisConfigApiModel>(
-      `/diagnosis_config/${encodeURIComponent(diagnosisConfigImportAssetId.value)}`,
+    const result = await request<DiagnosisConfigApiResult>(
+      getDiagnosisConfigPath(diagnosisConfigImportAssetId.value),
     )
-    Object.assign(diagnosisConfigDraft, fromDiagnosisConfigApi(result))
+    Object.assign(diagnosisConfigDraft, fromDiagnosisConfigApi(result.config))
     diagnosisConfigValidationError.value = ''
     invalidDiagnosisConfigFields.value = new Set()
     diagnosisConfigResetSnapshot.value = ''
@@ -2011,19 +2019,22 @@ const saveParseConfig = async () => {
   if (!analyzerParamsValid) return
   isDiagnosisConfigSaving.value = true
   try {
-    const configPath = `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}`
+    const configPath = getDiagnosisConfigPath(selectedAssetId.value)
     const shouldResetFromTrustedDefault =
       diagnosisConfigResetSnapshot.value !== '' &&
       diagnosisConfigResetSnapshot.value === JSON.stringify(diagnosisConfigDraft)
     const result = shouldResetFromTrustedDefault
-      ? await request<DiagnosisConfigApiModel>(`${configPath}/reset`, {
-          method: 'POST',
-        })
-      : await request<DiagnosisConfigApiModel>(configPath, {
+      ? await request<DiagnosisConfigApiResult>(
+          `/diagnosis_config/${encodeURIComponent(selectedAssetId.value)}/reset?log_type=KVCache`,
+          {
+            method: 'POST',
+          },
+        )
+      : await request<DiagnosisConfigApiResult>(configPath, {
           method: 'PUT',
           body: JSON.stringify(toDiagnosisConfigApi(diagnosisConfigDraft)),
         })
-    const savedConfig = fromDiagnosisConfigApi(result)
+    const savedConfig = fromDiagnosisConfigApi(result.config)
     diagnosisConfigsByAsset.value = {
       ...diagnosisConfigsByAsset.value,
       [selectedAssetId.value]: cloneDiagnosisConfig(savedConfig),
@@ -18309,7 +18320,7 @@ onBeforeUnmount(() => {
 
         <div class="side-drawer-body parse-config-drawer-body">
           <div v-if="logType === 'brpc'" class="parse-config-unsupported" role="status">
-            BRPC 暂时不支持解析配置
+            UBSocket日志解析暂不支持配置
           </div>
           <template v-else>
             <div v-if="diagnosisConfigError" class="diagnosis-config-error" role="alert">

@@ -290,18 +290,45 @@ class TestDiagnosisConfig:
     """诊断配置接口"""
     
     def test_get_config(self, base_url, session_client, existing_kb):
-        resp = session_client.get(f"{base_url}/diagnosis_config/{existing_kb}", timeout=10)
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
+        assert data["result"]["log_type"] == "KVCache"
+        assert "brpc_log_file_patterns" not in data["result"]["config"][
+            "log_filename_pattern"
+        ]
+
+    def test_get_ubsocket_config(self, base_url, session_client, existing_kb):
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "UBSocket"},
+            timeout=10,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result"]["log_type"] == "UBSocket"
+        config = data["result"]["config"]
+        assert set(config) == {"log_filename_pattern"}
+        assert set(config["log_filename_pattern"]) == {"brpc_log_file_patterns"}
+        assert config["log_filename_pattern"]["brpc_log_file_patterns"]
     
     def test_get_nonexistent_config(self, base_url, session_client):
-        resp = session_client.get(f"{base_url}/diagnosis_config/{str(uuid.uuid4())}", timeout=10)
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
         assert resp.status_code == 404
     
     def test_update_config(self, base_url, session_client, existing_kb):
         resp = session_client.put(
             f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "KVCache"},
             json={
                 "log_filename_pattern": {
                     "ds_client_access_log_file": ["*.log"],
@@ -322,12 +349,44 @@ class TestDiagnosisConfig:
         assert resp.status_code == 200
     
     def test_reset_config(self, base_url, session_client, existing_kb):
-        resp = session_client.post(f"{base_url}/diagnosis_config/{existing_kb}/reset", timeout=10)
+        resp = session_client.post(
+            f"{base_url}/diagnosis_config/{existing_kb}/reset",
+            params={"log_type": "KVCache"},
+            timeout=10,
+        )
         assert resp.status_code == 200
+
+    def test_update_ubsocket_config_is_unsupported(
+        self, base_url, session_client, existing_kb
+    ):
+        resp = session_client.put(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": "UBSocket"},
+            json={
+                "log_filename_pattern": {
+                    "brpc_log_file_patterns": ["brpc.log"]
+                }
+            },
+            timeout=10,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "UBSocket日志解析暂不支持配置"
+
+    def test_reset_ubsocket_config_is_unsupported(
+        self, base_url, session_client, existing_kb
+    ):
+        resp = session_client.post(
+            f"{base_url}/diagnosis_config/{existing_kb}/reset",
+            params={"log_type": "UBSocket"},
+            timeout=10,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["message"] == "UBSocket日志解析暂不支持配置"
 
     def test_update_nonexistent_config(self, base_url, session_client):
         resp = session_client.put(
             f"{base_url}/diagnosis_config/{str(uuid.uuid4())}",
+            params={"log_type": "KVCache"},
             json={
                 "log_filename_pattern": {
                     "ds_client_access_log_file": ["*.log"],
@@ -344,9 +403,22 @@ class TestDiagnosisConfig:
 
     def test_reset_nonexistent_config(self, base_url, session_client):
         resp = session_client.post(
-            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}/reset", timeout=10
+            f"{base_url}/diagnosis_config/{str(uuid.uuid4())}/reset",
+            params={"log_type": "KVCache"},
+            timeout=10,
         )
         assert resp.status_code == 404
+
+    @pytest.mark.parametrize("log_type", ["kv-cache", "brpc", "Other"])
+    def test_reject_unsupported_log_type(
+        self, base_url, session_client, existing_kb, log_type
+    ):
+        resp = session_client.get(
+            f"{base_url}/diagnosis_config/{existing_kb}",
+            params={"log_type": log_type},
+            timeout=10,
+        )
+        assert resp.status_code == 422
 
 
 class TestDiagnosisCase:

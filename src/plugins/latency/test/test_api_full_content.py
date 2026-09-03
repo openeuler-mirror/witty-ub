@@ -568,16 +568,20 @@ class TestFailureModeKnowledgeContent:
 class TestDiagnosisConfigContent:
     def test_get_config_content(self, base_url, session_client, seeded):
         resp = session_client.get(
-            f"{base_url}/diagnosis_config/{seeded['kb_id']}", timeout=10
+            f"{base_url}/diagnosis_config/{seeded['kb_id']}",
+            params={"log_type": "KVCache"},
+            timeout=10,
         )
         data = resp.json()
         assert resp.status_code == 200
-        assert "log_filename_pattern" in data["result"]
+        assert data["result"]["log_type"] == "KVCache"
+        assert "log_filename_pattern" in data["result"]["config"]
 
     def test_update_and_reset_config_content(self, base_url, session_client, seeded):
         # update
         put_resp = session_client.put(
             f"{base_url}/diagnosis_config/{seeded['kb_id']}",
+            params={"log_type": "KVCache"},
             json={
                 "log_filename_pattern": {
                     "ds_client_access_log_file": ["*.log"],
@@ -606,11 +610,13 @@ class TestDiagnosisConfigContent:
 
         # reset
         reset_resp = session_client.post(
-            f"{base_url}/diagnosis_config/{seeded['kb_id']}/reset", timeout=10
+            f"{base_url}/diagnosis_config/{seeded['kb_id']}/reset",
+            params={"log_type": "KVCache"},
+            timeout=10,
         )
         data = reset_resp.json()
         assert reset_resp.status_code == 200
-        assert "log_filename_pattern" in data["result"]
+        assert "log_filename_pattern" in data["result"]["config"]
 
 
 class TestTaskContent:
