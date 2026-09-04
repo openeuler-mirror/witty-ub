@@ -103,9 +103,9 @@ UbCState Str2UbCState(string ubCState)
     return strToUbCStateMap[ubCState];
 }
 
-string UbcState2Str(UbCState ubcState)
+string UbcState2Str(UbCState ubCState)
 {
-    return ubCStateToStrMap[ubcState];
+    return ubCStateToStrMap[ubCState];
 }
 
 PortState Str2PortState(string portState)

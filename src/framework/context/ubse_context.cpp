@@ -43,7 +43,8 @@ RackResult UbseContext::CreateWittyDir()
 
 RackResult UbseContext::ParseArgs(int argc, char *argv[])
 {
-    for (int i = 1; i < argc; i++) {
+    int i = 1;
+    while (i < argc) {
         std::string arg = argv[i];
         if (arg.substr(0, DASH_PREFIX_LEN) != "--") {
             LOG_ERROR << "UbseContext::ParseArgs-Error: parsing arguments " << arg;
@@ -62,6 +63,7 @@ RackResult UbseContext::ParseArgs(int argc, char *argv[])
             return RACK_FAIL;
         }
         argMap[key] = value;
+        i++;
     }
     LOG_INFO << "UbseContext::ParseArgs-Args ";
     for (const auto &it : argMap) {
@@ -164,7 +166,8 @@ RackResult UbseContext::Run(int argc, char *argv[])
 std::vector<std::string> split(const std::string &s, char delimiter)
 {
     std::vector<std::string> tokens;
-    size_t start = 0, end = 0;
+    size_t start = 0;
+    size_t end = 0;
     while ((end = s.find(delimiter, start)) != std::string::npos) {
         tokens.push_back(s.substr(start, end - start));
         start = end + 1;
@@ -238,10 +241,14 @@ RackResult UbseContext::ParseTopoToolsArgs(int argc, char *argv[])
     std::string umqLogPath;
     std::string podId;
 
-    bool hasNetworkMode = false, hasPodMode = false, hasUmqLogPath = false, hasPodId = false;
+    bool hasNetworkMode = false;
+    bool hasPodMode = false;
+    bool hasUmqLogPath = false;
+    bool hasPodId = false;
     std::map<std::string, std::string> path_map;
     std::vector<std::string> pod_id_list;
-    for (int i = 1; i < argc; ++i) {
+    int i = 1;
+    while (i < argc) {
         std::string arg = argv[i];
         if (arg == "--network-mode") {
             if (i + 1 >= argc) {
@@ -287,6 +294,7 @@ RackResult UbseContext::ParseTopoToolsArgs(int argc, char *argv[])
             LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: parsing topo tools arguments " << arg;
             return RACK_FAIL;
         }
+        i++;
     }
 
     if (!hasNetworkMode) {
