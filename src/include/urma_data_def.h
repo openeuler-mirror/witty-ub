@@ -12,50 +12,56 @@
 
 #ifndef URMA_DATA_DEF_H_
 #define URMA_DATA_DEF_H_
-#include <iostream>
 #include <json/json.h>
+#include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-
 namespace topology::urma {
 struct Pod {
-  std::string podId;
-  Pod(std::string podId) : podId(podId) {}
+    std::string podId;
+    Pod(std::string podId) : podId(podId) {}
 };
 struct Jetty {
-  std::string localJettyId;
-  std::string localDevEid;
-  std::string remoteJettyId;
-  std::string remoteDevId;
-  std::optional<std::string> podId;
-  Jetty(std::string localJettyId, std::string localDevEid,
-        std::string remoteJettyId, std::string remoteDevId,
-        std::optional<std::string> podId = std::nullopt)
-      : localJettyId(localJettyId), localDevEid(localDevEid),
-        remoteJettyId(remoteJettyId), remoteDevId(remoteDevId), podId(podId) {}
+    std::string localJettyId;
+    std::string localDevEid;
+    std::string remoteJettyId;
+    std::string remoteDevId;
+    std::optional<std::string> podId;
+    Jetty(std::string localJettyId, std::string localDevEid, std::string remoteJettyId, std::string remoteDevId,
+          std::optional<std::string> podId = std::nullopt)
+        : localJettyId(localJettyId),
+          localDevEid(localDevEid),
+          remoteJettyId(remoteJettyId),
+          remoteDevId(remoteDevId),
+          podId(podId)
+    {
+    }
 };
-struct URMADevice{
+struct URMADevice {
     std::string devEid;
-    URMADevice(std::string devEid):devEid(devEid) {}
+    URMADevice(std::string devEid) : devEid(devEid) {}
 };
-inline void to_json(Json::Value& j, const Pod& p) {
+inline void to_json(Json::Value &j, const Pod &p)
+{
     j["pod_id"] = p.podId;
 }
 
-inline void to_json(Json::Value& j, const Jetty& y) {
+inline void to_json(Json::Value &j, const Jetty &y)
+{
     j["local_jetty_id"] = y.localJettyId;
     j["local_eid"] = y.localDevEid;
     j["remote_jetty_id"] = y.remoteJettyId;
     j["remote_eid"] = y.remoteDevId;
-    if(y.podId.has_value()){
+    if (y.podId.has_value()) {
         j["pod_id"] = y.podId.value();
     }
 }
-inline void to_json(Json::Value& j, const URMADevice& y) {
+inline void to_json(Json::Value &j, const URMADevice &y)
+{
     j["device_id"] = y.devEid;
 }
 } // namespace topology::urma

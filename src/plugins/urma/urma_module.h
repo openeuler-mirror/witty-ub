@@ -14,14 +14,14 @@
 #define URMA_MODULE_H
 
 #include <memory>
-#include "rack_module.h"
 #include "rack_error.h"
+#include "rack_module.h"
 #include "urma_topology.h"
 #include "witty_json.h"
 
 namespace urma::module {
 using namespace rack::module;
-class URMAModule : public RackModule{
+class URMAModule : public RackModule {
 public:
     URMAModule()
     {
@@ -32,9 +32,10 @@ public:
     void UnInitialize() override;
     RackResult Start() override;
     void Stop() override;
+
 private:
     std::shared_ptr<urma::topo::URMATopology> urmaTopology;
 };
-}
+} // namespace urma::module
 
 #endif //URMA_MODULE_H

@@ -15,9 +15,9 @@
 
 #include <memory>
 #include <string>
+#include "ubse_context.h"
 #include "urma_error.h"
 #include "witty_json_module.h"
-#include "ubse_context.h"
 namespace urma::topo {
 constexpr const char *URMA_JSON_PATH = "/var/witty-ub/urma-topology.json";
 constexpr mode_t URMA_JSON_PATH_PERM_640 = 0640;
@@ -42,22 +42,23 @@ struct SessionKey {
     std::string toString() const
     {
         return "local eid=" + local_eid + ", local jetty_id=" + local_jetty_id + ", remote eid=" + remote_eid +
-            ", remote jetty_id=" + remote_jetty_id;
+               ", remote jetty_id=" + remote_jetty_id;
     }
 };
 
 class URMATopology {
 public:
-    URMATopology(){
-        jsonModule =
-            ubse::context::UbseContext::GetInstance().GetModule<witty_json::module::JSONModule>();
+    URMATopology()
+    {
+        jsonModule = ubse::context::UbseContext::GetInstance().GetModule<witty_json::module::JSONModule>();
     };
     URMAResult ParseUMQLog(std::string file_path, std::map<SessionKey, std::string> &activeSessions);
     URMAResult CreateTopology(ubse::context::TopoToolsArgs &args);
+
 private:
     std::shared_ptr<witty_json::module::JSONModule> jsonModule;
-    std::vector<std::string> CollectLogFiles(const std::string& file_path);
-    URMAResult ProcessLogFile(const std::string& logFile, std::map<SessionKey, std::string> &activeSessions);
+    std::vector<std::string> CollectLogFiles(const std::string &file_path);
+    URMAResult ProcessLogFile(const std::string &logFile, std::map<SessionKey, std::string> &activeSessions);
 };
 } // namespace urma::topo
 #endif
