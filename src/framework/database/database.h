@@ -21,7 +21,7 @@
 
 namespace database {
 using namespace std;
-enum OP_RET {
+enum class OP_RET {
     SUCCESS = 0,
     FAIL = 1,
     NOT_FOUND = 2,
