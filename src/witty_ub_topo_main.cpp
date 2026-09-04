@@ -27,7 +27,10 @@ using namespace topology::node;
 using namespace lcne::module;
 using namespace urma::module;
 using namespace witty_json::module;
+
+namespace {
 UbseContext &g_rackContext = UbseContext::GetInstance();
+
 void RegisterModules()
 {
     g_rackContext.RegisterModule<LcneModule>();
@@ -79,6 +82,9 @@ void UnInitializeAndStopModules()
         }
     }
 }
+
+} // namespace
+
 int main(int argc, char *argv[])
 {
     rack::logger::init(argv[0]);

@@ -21,6 +21,7 @@
 using namespace ubse::context;
 using namespace failure::log;
 
+namespace {
 UbseContext &g_rackContext = UbseContext::GetInstance();
 
 void RegisterModules()
@@ -64,6 +65,8 @@ void UnInitializeAndStopModules()
         }
     }
 }
+
+} // namespace
 
 int main(int argc, char *argv[])
 {

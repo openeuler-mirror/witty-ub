@@ -10,11 +10,13 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#include <cstdint>
-
 #ifndef URMA_ERROR_H
 #define URMA_ERROR_H
+#include <cstdint>
+
+namespace urma {
 using URMAResult = uint32_t;
 constexpr URMAResult URMA_SUCCESS = 0;
 constexpr URMAResult URMA_FAIL = 1;
+} // namespace urma
 #endif // URMA_ERROR_H
