@@ -6,7 +6,19 @@ from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Numeric, String, and_, cast, delete, func, or_, select
+from sqlalchemy import (
+    Numeric,
+    String,
+    and_,
+    cast,
+    delete,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from latency.database.models import (
@@ -15,6 +27,7 @@ from latency.database.models import (
     BrpcDiagFailureInterface as BrpcDiagFailureInterfaceRow,
     BrpcDiagFailureSubgraph as BrpcDiagFailureSubgraphRow,
     BrpcDiagHit as BrpcDiagHitRow,
+    BrpcDiagInterfaceBucket as BrpcDiagInterfaceBucketRow,
     BrpcDiagNode as BrpcDiagNodeRow,
     BrpcDiagSchema as BrpcDiagSchemaRow,
 )
@@ -32,6 +45,12 @@ from latency.schemas.brpc_diagnosis import (
 
 UNRESOLVED_INTERFACE_ID = "__unresolved__"
 UNRESOLVED_INTERFACE_NAME = "未确定接口"
+BRPC_TIMELINE_WINDOW_US = (
+    10_000_000,
+    60_000_000,
+    600_000_000,
+    3_600_000_000,
+)
 
 
 class BrpcDiagnosisPGManager:
@@ -131,8 +150,6 @@ class BrpcDiagnosisPGManager:
             BrpcDiagHitRow.timestamp >= start_timestamp,
             BrpcDiagHitRow.timestamp < end_timestamp,
         ]
-        if interface_component is not None:
-            filters.append(BrpcDiagHitRow.component == interface_component)
         if interface_id is not None:
             filters.append(
                 BrpcDiagHitRow.interface_id.is_(None)
@@ -154,6 +171,11 @@ class BrpcDiagnosisPGManager:
             BrpcDiagNodeRow.name, UNRESOLVED_INTERFACE_NAME
         )
         function_name = func.coalesce(BrpcDiagNodeRow.function_name, "")
+        if interface_component is not None:
+            # A cross-component failure can resolve to an interface belonging
+            # to another component. Filter by the resolved interface metadata,
+            # which is also what the response exposes.
+            filters.append(component == interface_component)
         statement = (
             select(
                 window_start_timestamp,
@@ -189,6 +211,164 @@ class BrpcDiagnosisPGManager:
         )
         result = await session.execute(statement)
         return [dict(row) for row in result.mappings().all()]
+
+    @staticmethod
+    async def get_interface_timeline_bucket_aggregates(
+        session: AsyncSession,
+        *,
+        batch_id: str,
+        start_timestamp: int,
+        end_timestamp: int,
+        window_us: int,
+        interface_component: str | None = None,
+        interface_id: str | None = None,
+        pod_ip: str | None = None,
+        pod_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Read fully-contained windows from the import-time bucket table."""
+        filters = [
+            BrpcDiagInterfaceBucketRow.batch_id == batch_id,
+            BrpcDiagInterfaceBucketRow.window_seconds == window_us // 1_000_000,
+            BrpcDiagInterfaceBucketRow.window_start_timestamp >= start_timestamp,
+            BrpcDiagInterfaceBucketRow.window_start_timestamp < end_timestamp,
+        ]
+        if interface_component is not None:
+            filters.append(
+                BrpcDiagInterfaceBucketRow.component == interface_component
+            )
+        if interface_id is not None:
+            filters.append(BrpcDiagInterfaceBucketRow.interface_id == interface_id)
+        if pod_ip is not None:
+            filters.append(BrpcDiagInterfaceBucketRow.pod_ip == pod_ip)
+        if pod_name is not None:
+            filters.append(BrpcDiagInterfaceBucketRow.pod_name == pod_name)
+
+        statement = (
+            select(
+                BrpcDiagInterfaceBucketRow.window_start_timestamp,
+                BrpcDiagInterfaceBucketRow.component,
+                BrpcDiagInterfaceBucketRow.interface_id,
+                BrpcDiagInterfaceBucketRow.interface_name,
+                BrpcDiagInterfaceBucketRow.function_name,
+                func.sum(BrpcDiagInterfaceBucketRow.interface_hit_count).label(
+                    "interface_hit_count"
+                ),
+            )
+            .where(*filters)
+            .group_by(
+                BrpcDiagInterfaceBucketRow.window_start_timestamp,
+                BrpcDiagInterfaceBucketRow.component,
+                BrpcDiagInterfaceBucketRow.interface_id,
+                BrpcDiagInterfaceBucketRow.interface_name,
+                BrpcDiagInterfaceBucketRow.function_name,
+            )
+            .order_by(
+                BrpcDiagInterfaceBucketRow.component,
+                BrpcDiagInterfaceBucketRow.interface_id,
+                BrpcDiagInterfaceBucketRow.window_start_timestamp,
+            )
+        )
+        result = await session.execute(statement)
+        return [dict(row) for row in result.mappings().all()]
+
+    @staticmethod
+    async def rebuild_interface_timeline_buckets(
+        session: AsyncSession,
+        batch_id: str,
+    ) -> None:
+        """Build all four timeline granularities inside the import transaction."""
+        # Match the startup migration for newly imported results: a failure
+        # mode with exactly one candidate interface can be resolved immediately
+        # and should appear in the component-specific overview without waiting
+        # for a service restart.
+        await session.execute(
+            text(
+                "UPDATE brpc_diag_hit AS hit "
+                "SET interface_id = candidate.interface_id, "
+                "interface_resolution = 'static_unique' "
+                "FROM ("
+                "SELECT schema_id, failure_mode_id, "
+                "MIN(interface_id) AS interface_id "
+                "FROM brpc_diag_failure_interface "
+                "GROUP BY schema_id, failure_mode_id HAVING COUNT(*) = 1"
+                ") AS candidate "
+                "WHERE hit.batch_id = :batch_id "
+                "AND hit.schema_id = candidate.schema_id "
+                "AND hit.failure_mode_id = candidate.failure_mode_id "
+                "AND hit.interface_id IS NULL"
+            ),
+            {"batch_id": batch_id},
+        )
+        await session.execute(
+            delete(BrpcDiagInterfaceBucketRow).where(
+                BrpcDiagInterfaceBucketRow.batch_id == batch_id
+            )
+        )
+        for window_us in BRPC_TIMELINE_WINDOW_US:
+            window_start_timestamp = (
+                func.floor(cast(BrpcDiagHitRow.timestamp, Numeric) / window_us)
+                * window_us
+            )
+            component = func.coalesce(BrpcDiagNodeRow.component, "unknown")
+            interface_id = func.coalesce(
+                BrpcDiagHitRow.interface_id, UNRESOLVED_INTERFACE_ID
+            )
+            interface_name = func.coalesce(
+                BrpcDiagNodeRow.name, UNRESOLVED_INTERFACE_NAME
+            )
+            function_name = func.coalesce(BrpcDiagNodeRow.function_name, "")
+            pod_ip = func.coalesce(BrpcDiagHitRow.pod_ip, "")
+            pod_name = func.coalesce(BrpcDiagHitRow.pod_name, "")
+            bucket_select = (
+                select(
+                    BrpcDiagHitRow.batch_id,
+                    literal(window_us // 1_000_000),
+                    window_start_timestamp,
+                    component,
+                    interface_id,
+                    interface_name,
+                    function_name,
+                    pod_ip,
+                    pod_name,
+                    func.count(BrpcDiagHitRow.hit_id),
+                )
+                .select_from(BrpcDiagHitRow)
+                .outerjoin(
+                    BrpcDiagNodeRow,
+                    and_(
+                        BrpcDiagNodeRow.schema_id == BrpcDiagHitRow.schema_id,
+                        BrpcDiagNodeRow.node_id == BrpcDiagHitRow.interface_id,
+                    ),
+                )
+                .where(BrpcDiagHitRow.batch_id == batch_id)
+                .group_by(
+                    BrpcDiagHitRow.batch_id,
+                    window_start_timestamp,
+                    component,
+                    interface_id,
+                    interface_name,
+                    function_name,
+                    pod_ip,
+                    pod_name,
+                )
+            )
+            await session.execute(
+                insert(BrpcDiagInterfaceBucketRow).from_select(
+                    [
+                        "batch_id",
+                        "window_seconds",
+                        "window_start_timestamp",
+                        "component",
+                        "interface_id",
+                        "interface_name",
+                        "function_name",
+                        "pod_ip",
+                        "pod_name",
+                        "interface_hit_count",
+                    ],
+                    bucket_select,
+                )
+            )
 
     @staticmethod
     def _scope_filters(
@@ -1034,6 +1214,9 @@ class BrpcDiagnosisPGManager:
         ]
         session.add_all(hit_rows)
         await session.flush()
+        await BrpcDiagnosisPGManager.rebuild_interface_timeline_buckets(
+            session, batch.batch_id
+        )
 
     @staticmethod
     async def delete_batch(session: AsyncSession, batch_id: str) -> bool:

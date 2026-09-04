@@ -470,19 +470,54 @@ class BrpcDiagnosisService:
             batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
             if batch is None:
                 raise NotFoundBizException(resource="BRPC 诊断 batch")
-            aggregates = (
-                await BrpcDiagnosisPGManager.get_interface_timeline_aggregates(
-                    session,
-                    batch_id=batch_id,
-                    start_timestamp=start_timestamp,
-                    end_timestamp=end_timestamp,
-                    window_us=window_us,
-                    interface_component=component,
-                    interface_id=interface_id,
-                    pod_ip=pod_ip,
-                    pod_name=pod_name,
+            # Precomputed buckets preserve the fast scale-switching behavior of
+            # the KVC timeline. Only incomplete edge windows need to touch raw
+            # hits so the public [start, end) contract remains exact.
+            first_full_window = (
+                (start_timestamp + window_us - 1) // window_us
+            ) * window_us
+            after_last_full_window = (end_timestamp // window_us) * window_us
+            query_args = {
+                "session": session,
+                "batch_id": batch_id,
+                "window_us": window_us,
+                "interface_component": component,
+                "interface_id": interface_id,
+                "pod_ip": pod_ip,
+                "pod_name": pod_name,
+            }
+            if first_full_window < after_last_full_window:
+                aggregates = await (
+                    BrpcDiagnosisPGManager.get_interface_timeline_bucket_aggregates(
+                        start_timestamp=first_full_window,
+                        end_timestamp=after_last_full_window,
+                        **query_args,
+                    )
                 )
-            )
+                if start_timestamp < first_full_window:
+                    aggregates.extend(
+                        await BrpcDiagnosisPGManager.get_interface_timeline_aggregates(
+                            start_timestamp=start_timestamp,
+                            end_timestamp=first_full_window,
+                            **query_args,
+                        )
+                    )
+                if after_last_full_window < end_timestamp:
+                    aggregates.extend(
+                        await BrpcDiagnosisPGManager.get_interface_timeline_aggregates(
+                            start_timestamp=after_last_full_window,
+                            end_timestamp=end_timestamp,
+                            **query_args,
+                        )
+                    )
+            else:
+                aggregates = (
+                    await BrpcDiagnosisPGManager.get_interface_timeline_aggregates(
+                        start_timestamp=start_timestamp,
+                        end_timestamp=end_timestamp,
+                        **query_args,
+                    )
+                )
             if interface_id and not aggregates:
                 schema = await BrpcDiagnosisPGManager.get_schema(
                     session,

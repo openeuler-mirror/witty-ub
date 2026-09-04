@@ -9222,6 +9222,7 @@ const brpcFaultBatch = ref<BrpcDiagnosisBatch | null>(null)
 const brpcFaultResolvedLogId = ref('')
 let brpcFaultTimelineChartInstance: echarts.ECharts | null = null
 let brpcFaultTimelineRequestSequence = 0
+let brpcFaultTimelineRequestController: AbortController | null = null
 
 // BRPC 聚合事件列表
 const activeBrpcFaultTab = ref<'event' | 'thread'>('event')
@@ -9377,6 +9378,8 @@ const resetAssetScopedMonitorData = () => {
   // and all derived data are scoped to the currently selected knowledge base.
   brpcProfilingRequestSequence += 1
   brpcFaultTimelineRequestSequence += 1
+  brpcFaultTimelineRequestController?.abort()
+  brpcFaultTimelineRequestController = null
   brpcAggregatedEventsRequestSequence += 1
   brpcAbnormalThreadsRequestSequence += 1
   brpcAbnormalThreadDetailRequestSequence += 1
@@ -10697,17 +10700,13 @@ const renderBrpcFaultTimelineChart = () => {
   }
   brpcFaultTimelineChartInstance ??= echarts.init(element)
 
-  const timestamps = [
-    ...new Set(
-      brpcFaultTimelineSeries.value.flatMap((series) =>
-        series.points.map((point) => point.window_start_time),
-      ),
-    ),
-  ].sort((first, second) => {
-    const firstTime = parseDateAsLocal(first)?.getTime() ?? 0
-    const secondTime = parseDateAsLocal(second)?.getTime() ?? 0
-    return firstTime - secondTime
-  })
+  // The API zero-fills every returned series over the same ordered time axis.
+  // Reuse that shared axis instead of flattening, deduplicating and repeatedly
+  // parsing every timestamp from every interface.
+  const timestamps =
+    displayableBrpcFaultTimelineSeries.value[0]?.timeline.points.map(
+      (point) => point.window_start_time,
+    ) ?? []
   const labels = timestamps.map((timestamp) => {
     const date = parseDateAsLocal(timestamp)
     return date ? formatFullTimeLabel(date) : timestamp
@@ -10754,14 +10753,14 @@ const renderBrpcFaultTimelineChart = () => {
         },
       },
       series: visibleSeries.map(({ timeline, index }) => {
-        const pointsByTime = new Map(
-          timeline.points.map((point) => [point.window_start_time, point.interface_hit_count]),
-        )
         return {
           name: getBrpcFaultSeriesLabel(timeline),
           type: 'line' as const,
-          data: timestamps.map((timestamp) => pointsByTime.get(timestamp) ?? 0),
-          smooth: true,
+          data: timeline.points.map((point) => point.interface_hit_count),
+          smooth: timestamps.length <= 2000,
+          showSymbol: false,
+          sampling: 'lttb' as const,
+          animation: false,
           itemStyle: { color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] },
         }
       }),
@@ -10947,6 +10946,8 @@ const loadBrpcFaultTimeline = async () => {
   const selectedLogId = brpcFaultSelectedLogId.value
   if (!selectedLogId) {
     brpcFaultTimelineRequestSequence += 1
+    brpcFaultTimelineRequestController?.abort()
+    brpcFaultTimelineRequestController = null
     brpcFaultTimelineSeries.value = []
     brpcFaultTimelineError.value = ''
     isBrpcFaultTimelineLoading.value = false
@@ -10954,6 +10955,9 @@ const loadBrpcFaultTimeline = async () => {
   }
 
   const requestSequence = ++brpcFaultTimelineRequestSequence
+  brpcFaultTimelineRequestController?.abort()
+  const requestController = new AbortController()
+  brpcFaultTimelineRequestController = requestController
   isBrpcFaultTimelineLoading.value = true
   brpcFaultTimelineError.value = ''
 
@@ -10972,11 +10976,13 @@ const loadBrpcFaultTimeline = async () => {
       start_time: formatFullTimeLabel(startDate),
       end_time: formatFullTimeLabel(endDate),
       window_size: windowSizeByScale[selectedBrpcFaultScale.value] ?? '1m',
+      component: 'ubsocket',
     })
     const podIp = appliedFilters.value.podIps.at(-1)
     if (podIp) query.set('pod_ip', podIp)
     const result = await request<{ series: BrpcInterfaceTimelineSeries[] }>(
       `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${query.toString()}`,
+      { signal: requestController.signal },
     )
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
     brpcFaultTimelineSeries.value = result.series ?? []
@@ -10985,11 +10991,13 @@ const loadBrpcFaultTimeline = async () => {
     )
   } catch (error) {
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
+    if (error instanceof DOMException && error.name === 'AbortError') return
     brpcFaultTimelineSeries.value = []
     brpcFaultTimelineError.value =
       error instanceof Error ? error.message : '加载 BRPC 接口故障数时序分布失败'
   } finally {
     if (requestSequence === brpcFaultTimelineRequestSequence) {
+      brpcFaultTimelineRequestController = null
       isBrpcFaultTimelineLoading.value = false
     }
   }
@@ -12032,6 +12040,8 @@ onUpdated(() => {
 onBeforeUnmount(() => {
   stopLogFilesPolling()
   closeAgentEventStream()
+  brpcFaultTimelineRequestController?.abort()
+  brpcFaultTimelineRequestController = null
   window.removeEventListener('resize', resizeLatencyCharts)
   window.removeEventListener('resize', updateDetailLatencyLeftOverflow)
   assetDetailResizeObserver?.disconnect()

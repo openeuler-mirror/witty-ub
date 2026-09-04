@@ -74,6 +74,7 @@ class QueryStore:
         ]
         self.hit_calls = []
         self.timeline_calls = []
+        self.timeline_bucket_calls = []
 
     @asynccontextmanager
     async def session(self):
@@ -96,9 +97,10 @@ def _configure_store(monkeypatch, store: QueryStore):
             return len(store.hits), store.hits
 
         @staticmethod
-        async def get_interface_timeline_aggregates(_session, **kwargs):
+        async def get_interface_timeline_aggregates(session, **kwargs):
+            del session
             store.timeline_calls.append(kwargs)
-            return [
+            rows = [
                 {
                     "window_start_timestamp": 1_786_000_060_000_000,
                     "component": "umq",
@@ -124,6 +126,19 @@ def _configure_store(monkeypatch, store: QueryStore):
                     "interface_hit_count": 2,
                 },
             ]
+            return [
+                row
+                for row in rows
+                if row["window_start_timestamp"] < kwargs["end_timestamp"]
+                and row["window_start_timestamp"] + kwargs["window_us"]
+                > kwargs["start_timestamp"]
+            ]
+
+        @staticmethod
+        async def get_interface_timeline_bucket_aggregates(session, **kwargs):
+            del session
+            store.timeline_bucket_calls.append(kwargs)
+            return []
 
     monkeypatch.setattr(
         service_module,
@@ -345,6 +360,16 @@ def test_interface_timeline_is_epoch_aligned_and_zero_filled(monkeypatch):
     ] == [2, 0, 0]
     assert series_by_id["umq.interface.send"].function_name == "umq_send"
     assert series_by_id["umq.interface.publish"].function_name == "umq_publish"
+    assert len(store.timeline_bucket_calls) == 1
+    assert (
+        store.timeline_bucket_calls[0]["start_timestamp"]
+        == 1_786_000_070_000_000
+    )
+    assert (
+        store.timeline_bucket_calls[0]["end_timestamp"]
+        == 1_786_000_080_000_000
+    )
+    assert len(store.timeline_calls) == 2
     assert store.timeline_calls[0]["batch_id"] == BATCH_ID
     assert store.timeline_calls[0]["window_us"] == 10_000_000
     assert store.timeline_calls[0]["pod_ip"] == POD_IP
@@ -393,6 +418,7 @@ def test_minimal_query_routes_are_registered_and_batch_scoped():
         "/brpc-diagnosis/task/{task_id}/batch",
         "/brpc-diagnosis/batch/{batch_id}",
         "/brpc-diagnosis/batch/{batch_id}/hits",
+        "/brpc-diagnosis/batch/{batch_id}/thread-logs",
         "/brpc-diagnosis/batch/{batch_id}/interface-timeline",
         "/brpc-diagnosis/batch/{batch_id}/pod-events",
         "/brpc-diagnosis/batch/{batch_id}/pod-events/{event_id}",
@@ -588,6 +614,50 @@ def test_interface_timeline_sql_uses_each_hits_resolved_interface_once():
     assert "brpc_diag_hit.interface_id = 'umq.interface.send'" in compiled
     assert "LEFT OUTER JOIN brpc_diag_node" in compiled
     assert "floor" in compiled
+
+
+def test_interface_timeline_bucket_sql_uses_precomputed_rows():
+    class EmptyMappingsResult:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return []
+
+    class CaptureSession:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyMappingsResult()
+
+    session = CaptureSession()
+    result = asyncio.run(
+        BrpcDiagnosisPGManager.get_interface_timeline_bucket_aggregates(
+            session,
+            batch_id=BATCH_ID,
+            start_timestamp=100,
+            end_timestamp=200,
+            window_us=60_000_000,
+            interface_component="ubsocket",
+            pod_ip=POD_IP,
+        )
+    )
+
+    assert result == []
+    compiled = str(
+        session.statement.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "FROM brpc_diag_interface_bucket" in compiled
+    assert "brpc_diag_hit" not in compiled
+    assert "window_seconds = 60" in compiled
+    assert "window_start_timestamp >= 100" in compiled
+    assert "window_start_timestamp < 200" in compiled
+    assert "component = 'ubsocket'" in compiled
+    assert f"pod_ip = '{POD_IP}'" in compiled
 
 
 def test_hit_sql_filters_by_pod_and_thread_key():
