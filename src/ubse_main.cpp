@@ -33,6 +33,8 @@ using namespace topology::mem;
 using namespace lcne::module;
 using namespace obmm::module;
 using namespace failure::log;
+
+namespace {
 UbseContext &g_rackContext = UbseContext::GetInstance();
 // Give the module names to be loaded as command line arguments
 
@@ -40,12 +42,12 @@ void RegisterModules(string role)
 {
     if (role == "analyzer") {
         g_rackContext.RegisterModule<NodeGlobalCollectorModule>();
-        //g_rackContext.RegisterModule<MemGlobalCollectorModule>();
+        // g_rackContext.RegisterModule<MemGlobalCollectorModule>();
     } else if (role == "collector") {
         g_rackContext.RegisterModule<LcneModule>();
-        //g_rackContext.RegisterModule<ObmmModule>();
+        // g_rackContext.RegisterModule<ObmmModule>();
         g_rackContext.RegisterModule<NodeLocalCollectorModule>();
-        //g_rackContext.RegisterModule<MemLocalCollectorModule>();
+        // g_rackContext.RegisterModule<MemLocalCollectorModule>();
         g_rackContext.RegisterModule<LogLocalCollectorModule>();
     } else {
         std::cerr << "RegisterModules-Error: role " << role << " not supported" << std::endl;
@@ -56,13 +58,13 @@ void InitDependencies()
 {
     g_rackContext.AddModuleDependencies<DatabaseModule>();
     g_rackContext.AddModuleDependencies<rack::com::HttpModule>();
-    //g_rackContext.AddModuleDependencies<NodeGlobalCollectorModule>();
+    // g_rackContext.AddModuleDependencies<NodeGlobalCollectorModule>();
     g_rackContext.AddModuleDependencies<NodeLocalCollectorModule>();
-    //g_rackContext.AddModuleDependencies<MemLocalCollectorModule>();
-    //g_rackContext.AddModuleDependencies<MemGlobalCollectorModule>();
+    // g_rackContext.AddModuleDependencies<MemLocalCollectorModule>();
+    // g_rackContext.AddModuleDependencies<MemGlobalCollectorModule>();
     g_rackContext.AddModuleDependencies<LcneModule>();
     g_rackContext.AddModuleDependencies<LogLocalCollectorModule>();
-    //g_rackContext.AddModuleDependencies<ObmmModule>();
+    // g_rackContext.AddModuleDependencies<ObmmModule>();
 }
 
 void CreateModules()
@@ -111,9 +113,11 @@ void UnInitializeAndStopModules()
         }
     }
 }
+} // namespace
+
 int main(int argc, char *argv[])
 {
-    //Init log first
+    // Init log first
     rack::logger::init(argv[0]);
     LOG_DEBUG << "Start InitDependencies";
     // For all possible modules, add the dependencies as shown below

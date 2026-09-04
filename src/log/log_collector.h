@@ -10,7 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef LOG_COLLECTOR_H
+#define LOG_COLLECTOR_H
 
 #include <atomic>
 #include <condition_variable>
@@ -98,3 +99,5 @@ private:
     std::mutex ofsMutex_;
 };
 } // namespace failure::log
+
+#endif // LOG_COLLECTOR_H

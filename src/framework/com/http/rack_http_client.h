@@ -10,6 +10,11 @@
  * See the Mulan PSL v2 for more details.
  */
 
+#ifndef RACK_HTTP_CLIENT_H
+#define RACK_HTTP_CLIENT_H
+
+#include <string>
+
 #include "common/rack_com_context.h"
 #include "http/rack_http_client_handler.h"
 
@@ -24,3 +29,5 @@ private:
     std::string baseUrl_;
 };
 } // namespace rack::com
+
+#endif // RACK_HTTP_CLIENT_H

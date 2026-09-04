@@ -10,7 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef LOG_READER_H
+#define LOG_READER_H
 
 #include <sys/types.h>
 #include <array>
@@ -61,3 +62,5 @@ private:
     std::unique_ptr<LogParser> parser_;
 };
 } // namespace failure::log
+
+#endif // LOG_READER_H
