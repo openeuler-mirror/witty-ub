@@ -19,6 +19,8 @@
 
 namespace failure {
 constexpr std::size_t BUFFER_SIZE = 64;
+constexpr std::size_t DATETIME_SEPARATOR_POS = 10;
+constexpr std::size_t MICROSECOND_DIGITS = 6;
 
 bool FailureEventQuery::Match(const FailureMetadata &metadata, bool podMode) const
 {
@@ -162,7 +164,6 @@ PathCell::PathCell(const std::optional<std::string> &podId, const std::string &p
 void Split(std::vector<std::string> &out, const std::string &str, char delim, bool keepEmpty)
 {
     out.clear();
-    out.reserve(8);
     std::size_t i = 0;
     while (true) {
         size_t j = str.find(delim, i);
@@ -227,7 +228,7 @@ std::optional<int64_t> DatetimeStrToTimestamp(const std::string &datetimeStr, bo
     t.tm_isdst = -1;
     res = strptime(datetimeStr.c_str(), "%Y-%m-%d %H:%M:%S", &t);
     if (res && *res == '\0') {
-        if (datetimeStr[10] != ' ') {
+        if (datetimeStr[DATETIME_SEPARATOR_POS] != ' ') {
             return std::nullopt;
         }
         return validate_and_convert(t, 0);
@@ -246,9 +247,9 @@ std::optional<int64_t> DatetimeStrToTimestamp(const std::string &datetimeStr, bo
             }
             int len = end - res;
             if (len > 0) {
-                std::string fracStr(res, (len > 6 ? 6 : len));
-                if (len < 6)
-                    fracStr.append(6 - len, '0');
+                std::string fracStr(res, (len > MICROSECOND_DIGITS ? MICROSECOND_DIGITS : len));
+                if (len < MICROSECOND_DIGITS)
+                    fracStr.append(MICROSECOND_DIGITS - len, '0');
                 microseconds = std::stoll(fracStr);
             }
             res = end;

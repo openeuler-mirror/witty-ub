@@ -153,7 +153,7 @@ void DataMapToObj(unordered_map<string, string> map, Port &obj)
     obj.primaryCna = map["primaryCna"];
     obj.deviceId = static_cast<uint32_t>(stoi(map["deviceId"]));
     obj.portState = Str2PortState(map["portState"]);
-    //todo 这里解析暂时没有调用到，会有问题
+    // todo 这里解析暂时没有调用到，会有问题
     obj.remotePortId = static_cast<uint32_t>(stoi(map["remotePortIds"]));
     obj.remoteDeviceId = static_cast<uint32_t>(stoi(map["remoteDeviceId"]));
     obj.remoteSlotId = static_cast<uint32_t>(stoi(map["remoteSlotId"]));

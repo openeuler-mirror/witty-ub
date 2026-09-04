@@ -26,10 +26,7 @@ using namespace rack::module;
 using namespace database;
 class NodeLocalCollectorModule : public RackModule {
 public:
-    NodeLocalCollectorModule()
-    {
-        // dependencies.push_back(typeid(DatabaseModule));
-    }
+    NodeLocalCollectorModule() = default;
     ~NodeLocalCollectorModule() override = default;
     RackResult Initialize() override;
     void UnInitialize() override;
@@ -53,4 +50,4 @@ private:
     shared_ptr<NodeCollector> collector;
 };
 } // namespace topology::node
-#endif //NODE_LOCAL_COLLECTOR_MODULE_H
+#endif // NODE_LOCAL_COLLECTOR_MODULE_H

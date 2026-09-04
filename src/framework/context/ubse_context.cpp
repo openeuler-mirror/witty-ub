@@ -27,6 +27,8 @@
 
 namespace ubse::context {
 constexpr const char *WITTY_DIR = "/var/witty-ub";
+constexpr std::size_t DASH_PREFIX_LEN = 2;
+constexpr std::size_t MAX_POD_ID_LEN = 253;
 
 RackResult UbseContext::CreateWittyDir()
 {
@@ -43,11 +45,11 @@ RackResult UbseContext::ParseArgs(int argc, char *argv[])
 {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg.substr(0, 2) != "--") {
+        if (arg.substr(0, DASH_PREFIX_LEN) != "--") {
             LOG_ERROR << "UbseContext::ParseArgs-Error: parsing arguments " << arg;
             return RACK_FAIL;
         }
-        std::string key = arg.substr(2);
+        std::string key = arg.substr(DASH_PREFIX_LEN);
         if (key.empty()) {
             LOG_ERROR << "UbseContext::ParseArgs-Error: parsing arguments " << arg;
             return RACK_FAIL;
@@ -177,7 +179,7 @@ bool IsValidPodId(const std::string &id)
     if (id.empty()) {
         return false;
     }
-    if (id.size() > 253) {
+    if (id.size() > MAX_POD_ID_LEN) {
         return false;
     }
 

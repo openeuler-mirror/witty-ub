@@ -160,7 +160,7 @@ rack::com::RackComResult<rack::com::RackHttpResponse> LcneTopology::LinkNotifyHa
     }
     // todo post to master server
     rack::com::RackHttpResponse resp;
-    resp.status = 200;
+    resp.status = rack::com::OK_200;
     return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
 }
 rack::com::RackComResult<rack::com::RackHttpResponse> LcneTopology::GetLcneTopologyInitHandlerFunc(
@@ -174,7 +174,7 @@ rack::com::RackComResult<rack::com::RackHttpResponse> LcneTopology::GetLcneTopol
         LOG_ERROR << "LcneTopology::GetLcneTopologyInitHandlerFunc-Error: failed "
                      "to create "
                      "topology";
-        resp.status = 404;
+        resp.status = rack::com::NotFound_404;
         return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
     }
     std::vector<std::shared_ptr<topology::node::Node>> cur_nodes;
@@ -188,10 +188,10 @@ rack::com::RackComResult<rack::com::RackHttpResponse> LcneTopology::GetLcneTopol
         LOG_ERROR << "LcneTopology::GetLcneTopologyInitHandlerFunc-Error: failed "
                      "to get his node "
                      "topology";
-        resp.status = 404;
+        resp.status = rack::com::NotFound_404;
         return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
     }
-    resp.status = 200;
+    resp.status = rack::com::OK_200;
     return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
 }
 
@@ -199,7 +199,7 @@ rack::com::RackComResult<rack::com::RackHttpResponse> LcneTopology::GetLcneTopol
     const rack::com::RackComContext &ctx, const rack::com::RackHttpRequest &req)
 {
     rack::com::RackHttpResponse resp;
-    resp.status = 200;
+    resp.status = rack::com::OK_200;
     return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
 }
 
