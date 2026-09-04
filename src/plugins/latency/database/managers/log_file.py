@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import desc, func, insert, select, text
 
 from latency.database.engine import PGManager
+from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.models import LogFile
 from latency.database.utils import format_timestamp, parse_timestamp
 from latency.schemas.log import LogFileModel
@@ -18,6 +19,24 @@ logger = logging.getLogger(__name__)
 
 
 class LogFilePGManager:
+    # All data in these tables is derived from one log file.  Keep this list
+    # close to the aggregate-root deletion below so a log cannot disappear
+    # while leaving queryable parse/diagnosis rows behind.
+    _DERIVED_TABLES_BY_LOG_ID = (
+        "anomalous_event_chain",
+        "anomalous_event",
+        "src_dst_aggregated_event",
+        "time_window_aggregated",
+        "latency_bucket_10s",
+        "latency_bucket_1min",
+        "latency_bucket_10min",
+        "latency_bucket_1h",
+        "log_failure_event",
+        "trace_failure_event",
+        "brpc_profiling_result",
+        "log_parse_result",
+    )
+
     @staticmethod
     def _model_to_mapping(log_file: LogFileModel) -> dict[str, Any]:
         return {
@@ -53,11 +72,112 @@ class LogFilePGManager:
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> bool:
         async with PGManager.session() as session:
-            await session.execute(
+            result = await session.execute(
                 text("DELETE FROM log_file WHERE id = :id"),
                 {"id": log_file_id},
             )
-        return True
+        return bool(result.rowcount)
+
+    @staticmethod
+    async def hard_delete_log_file_with_related_data(log_file_id: str) -> bool:
+        """Hard-delete a log file and every per-log result in one transaction.
+
+        The schema intentionally has few foreign keys because several result
+        tables are partitioned.  Consequently the application owns the
+        cascade.  Using one session here is important: either the complete
+        aggregate is removed, or PGManager rolls the whole operation back.
+        """
+        params = {"log_id": log_file_id}
+        async with PGManager.session() as session:
+            # Read the owning KB before its row disappears so the aggregate
+            # counters can be refreshed at the end of this transaction.
+            kb_id = (
+                await session.execute(
+                    text("SELECT kb_id FROM log_file WHERE id = :log_id"), params
+                )
+            ).scalar_one_or_none()
+
+            # A diagnosis case survives while it still has at least one
+            # remaining source log.  Cases whose every source is this log are
+            # removed entirely (signals first, they have no FK); cases that
+            # also reference other logs only forget this log id.
+            only_source_cond = (
+                "COALESCE(source_log_ids, '[]'::jsonb) "
+                "@> jsonb_build_array(CAST(:log_id AS text)) "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM jsonb_array_elements("
+                "COALESCE(source_log_ids, '[]'::jsonb)) AS elem "
+                "WHERE elem <> to_jsonb(CAST(:log_id AS text)))"
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM diagnosis_case_signal WHERE case_id IN ("
+                    f"SELECT id FROM diagnosis_case WHERE {only_source_cond})"
+                ),
+                params,
+            )
+            await session.execute(
+                text(f"DELETE FROM diagnosis_case WHERE {only_source_cond}"),
+                params,
+            )
+            await session.execute(
+                text(
+                    "UPDATE diagnosis_case SET source_log_ids = ("
+                    "SELECT jsonb_agg(elem ORDER BY ord) FROM "
+                    "jsonb_array_elements(COALESCE(source_log_ids, '[]'::jsonb)) "
+                    "WITH ORDINALITY AS t(elem, ord) "
+                    "WHERE t.elem <> to_jsonb(CAST(:log_id AS text))"
+                    "), updated_at = NOW() "
+                    "WHERE COALESCE(source_log_ids, '[]'::jsonb) "
+                    "@> jsonb_build_array(CAST(:log_id AS text))"
+                ),
+                params,
+            )
+
+            # A BRPC diagnosis is linked through task -> batch -> hit rather
+            # than directly through log_id.  Delete children explicitly so
+            # this also works on databases created before the CASCADE FK was
+            # introduced.
+            await session.execute(
+                text(
+                    "DELETE FROM brpc_diag_hit WHERE batch_id IN ("
+                    "SELECT batch_id FROM brpc_diag_batch WHERE task_id IN ("
+                    "SELECT id FROM task WHERE op_id = :log_id))"
+                ),
+                params,
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM brpc_diag_batch WHERE task_id IN ("
+                    "SELECT id FROM task WHERE op_id = :log_id)"
+                ),
+                params,
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM task_report WHERE task_id IN ("
+                    "SELECT id FROM task WHERE op_id = :log_id)"
+                ),
+                params,
+            )
+            await session.execute(
+                text("DELETE FROM task WHERE op_id = :log_id"),
+                params,
+            )
+
+            for table in LogFilePGManager._DERIVED_TABLES_BY_LOG_ID:
+                await session.execute(
+                    text(f"DELETE FROM {table} WHERE log_id = :log_id"),
+                    params,
+                )
+
+            result = await session.execute(
+                text("DELETE FROM log_file WHERE id = :log_id"),
+                params,
+            )
+            if kb_id:
+                await LogKnowledgePGManager.refresh_kb_counters(kb_id, session=session)
+            return bool(result.rowcount)
 
     @staticmethod
     async def update_log_file(log_file_id: str, log_file_info_dict: dict) -> int:

@@ -14,15 +14,10 @@ from sqlalchemy import select
 from latency.database.engine import PGManager
 from latency.database.models import Task
 from latency.database.managers.log_file import LogFilePGManager
-from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
-from latency.database.managers.anomalous_event import AnomalousEventPGManager
-from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
 from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
 from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
-from latency.database.managers.src_dst_aggregated_event import SrcDstAggregatedEventPGManager
-from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.schemas.log import LogFileModel
 from latency.ENUM.general import FilePath
 from latency.ENUM.general import SourceType
@@ -207,29 +202,6 @@ class LogFileService:
                 logger.warning("failed to get BRPC diagnosis hit count: %s", exc)
 
     @staticmethod
-    async def _delete_brpc_diagnosis_results(tasks) -> None:
-        """Delete BRPC batches for the supplied tasks; batch deletion cascades hits."""
-        brpc_task_ids = [
-            task.id
-            for task in tasks
-            if task.task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value
-        ]
-        if not brpc_task_ids:
-            return
-
-        async with PGManager.session() as session:
-            for task_id in brpc_task_ids:
-                batch_id = await BrpcDiagnosisPGManager.delete_batch_by_task_id(
-                    session,
-                    task_id,
-                )
-                if batch_id:
-                    logger.warning(
-                        "已删除 BRPC 诊断 batch %s (task=%s)",
-                        batch_id,
-                        task_id,
-                    )
-
     @staticmethod
     def get_upload_path(*paths: str) -> str:
         latency_dir = os.path.dirname(os.path.dirname(__file__))
@@ -459,30 +431,12 @@ class LogFileService:
                 await BaseWorker.stop(task.id)
                 logger.warning(f"已停止任务 {task.id}")
 
-        # BRPC batch 必须在 task 之前删除；hit 由 batch 外键级联删除。
-        await LogFileService._delete_brpc_diagnosis_results(tasks)
-        
-        # 删除日志文件（硬删除）
-        await LogFilePGManager.delete_log_file_by_log_file_id(log_file_id)
-        
-        # 删除所有相关数据
-        await LogParseResultPGManager.delete_log_parse_results_by_log_id(log_file_id)
-        await AnomalousEventPGManager.delete_anomalous_events_by_log_id(log_file_id)
-        await AnomalousEventChainPGManager.delete_event_chains_by_log_id(log_file_id)
-        await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_file_id)
-        await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_file_id)
-        await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_file_id)
-        await BrpcProfilingResultPGManager.delete_by_log_id(log_file_id)
-        
-        # 删除任务报告和任务
-        task_ids = [t.id for t in tasks]
-        if task_ids:
-            await TaskReportPGManager.delete_task_reports_by_task_ids(task_ids)
-            await TaskPGManager.delete_tasks_by_task_ids(task_ids)
-        
-        # 等待进程完全释放资源
-        import asyncio
-        await asyncio.sleep(2)
+        # 所有数据库记录在同一事务内硬删除，避免部分提交后留下孤儿诊断数据。
+        deleted = await LogFilePGManager.hard_delete_log_file_with_related_data(
+            log_file_id
+        )
+        if not deleted:
+            raise NotFoundBizException(resource="日志文件")
         
         # 清理临时文件
         preprocess_dir = cleanup_preprocess_dir(log_file_id)

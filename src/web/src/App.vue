@@ -3325,7 +3325,7 @@ const selectedLatencyPercentileConfig = computed(() => {
 
 const latencyAnomalyHint = computed(
   () =>
-    `🔴 红色区域 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
+    `红色背景区间 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
 )
 
 const detailLatencyAbnormalThreshold = 2
@@ -9027,7 +9027,13 @@ const refreshLogFile = async (fileId: string) => {
 const deletingFileIds = reactive(new Set<string>())
 
 const deleteLogFile = async (logFileId: string) => {
-  if (!confirm('确定要删除这个日志文件吗？删除后将无法恢复。')) {
+  const logFile = logFiles.value.find((file) => getLogFileId(file) === logFileId)
+  const logFileName = logFile?.name?.trim() || logFileId
+  if (
+    !window.confirm(
+      `确认永久删除日志文件「${logFileName}」？\n\n该日志的解析结果、异常事件、故障诊断结果及相关任务记录将被一并删除，且无法恢复。`,
+    )
+  ) {
     return
   }
 

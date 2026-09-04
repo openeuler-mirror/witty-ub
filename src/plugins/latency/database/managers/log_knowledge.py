@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from latency.database.engine import PGManager
 from latency.database.models import LogKnowledge
@@ -121,6 +122,41 @@ class LogKnowledgePGManager:
                 text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :id"),
                 {"id": log_kb_id},
             )
+        return result.rowcount or 0
+
+    @staticmethod
+    async def refresh_kb_counters(kb_id: str, session: AsyncSession | None = None) -> int:
+        """Recompute KB-level counters from its active log_file rows.
+
+        The log_file per-log counters are the single source of truth, so both
+        the parse workers and the log-deletion flow converge on the same
+        values: total_count = number of active logs, the rest = SUM over the
+        per-log columns.  Pass ``session`` to run inside an open transaction.
+        """
+        sql = text(
+            """
+            UPDATE log_knowledge AS kb
+            SET total_count = agg.log_cnt,
+                anomalous_count = agg.anomalous_cnt,
+                failure_count = agg.failure_cnt,
+                trace_failure_event_cnt = agg.trace_failure_cnt,
+                updated_at = NOW()
+            FROM (
+                SELECT COUNT(*) AS log_cnt,
+                       COALESCE(SUM(COALESCE(anomalous_count, 0)), 0) AS anomalous_cnt,
+                       COALESCE(SUM(COALESCE(failure_count, 0)), 0) AS failure_cnt,
+                       COALESCE(SUM(COALESCE(failure_count, 0)), 0) AS trace_failure_cnt
+                FROM log_file
+                WHERE kb_id = :kb_id AND existed_status IS TRUE
+            ) AS agg
+            WHERE kb.id = :kb_id
+            """
+        )
+        if session is not None:
+            result = await session.execute(sql, {"kb_id": kb_id})
+            return result.rowcount or 0
+        async with PGManager.session() as own_session:
+            result = await own_session.execute(sql, {"kb_id": kb_id})
         return result.rowcount or 0
 
     @staticmethod
