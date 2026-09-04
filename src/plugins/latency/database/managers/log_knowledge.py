@@ -9,7 +9,7 @@ from sqlalchemy import desc, func, insert, select, text
 
 from latency.database.engine import PGManager
 from latency.database.models import LogKnowledge
-from latency.database.utils import format_timestamp, parse_timestamp
+from latency.database.utils import escape_like, format_timestamp, parse_timestamp
 from latency.schemas.log import LogKnowledgeModel
 from latency.schemas.request import ListLogKnowledgeRequest
 
@@ -127,9 +127,13 @@ class LogKnowledgePGManager:
     async def count_log_kbs(req: ListLogKnowledgeRequest) -> int:
         stmt = select(func.count()).where(LogKnowledge.existed_status.is_(True))
         if req.name:
-            stmt = stmt.where(LogKnowledge.name.ilike(f"%{req.name}%"))
+            stmt = stmt.where(LogKnowledge.name.ilike(f"%{escape_like(req.name)}%", escape="\\"))
         if req.description:
-            stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
+            stmt = stmt.where(
+                LogKnowledge.description.ilike(
+                    f"%{escape_like(req.description)}%", escape="\\"
+                )
+            )
         if req.created_at_start:
             stmt = stmt.where(
                 LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
@@ -154,9 +158,13 @@ class LogKnowledgePGManager:
             LogKnowledge.updated_at,
         ).where(LogKnowledge.existed_status.is_(True))
         if req.name:
-            stmt = stmt.where(LogKnowledge.name.ilike(f"%{req.name}%"))
+            stmt = stmt.where(LogKnowledge.name.ilike(f"%{escape_like(req.name)}%", escape="\\"))
         if req.description:
-            stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
+            stmt = stmt.where(
+                LogKnowledge.description.ilike(
+                    f"%{escape_like(req.description)}%", escape="\\"
+                )
+            )
         if req.created_at_start:
             stmt = stmt.where(
                 LogKnowledge.created_at >= parse_timestamp(req.created_at_start)

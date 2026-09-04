@@ -29,7 +29,14 @@
 | `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent Bash 执行时展开的后端 API 基址（提示词保持原文） |
 | `WITTY_NO_PROXY` | `127.0.0.1` | Agent curl `--noproxy` 参数 |
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | Nginx `/agent-api/` 反代上游 |
+| `WITTY_CORS_ORIGINS` | 空 | FastAPI 允许的跨域前端源，多个源用逗号分隔；经 Nginx 同源反代时无需设置 |
 | `OPENCODE_HOST` | `127.0.0.1` | OpenCode 监听地址（OpenCode 留在后端节点时改 `0.0.0.0`） |
+
+仅当前端浏览器直接访问后端 `9772` 端口时需要设置 `WITTY_CORS_ORIGINS`。源必须包含协议、主机和端口，可在前端页面的浏览器控制台执行 `window.location.origin` 获取，例如：
+
+```bash
+export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
+```
 
 ### 前端运行时配置（config.json）
 

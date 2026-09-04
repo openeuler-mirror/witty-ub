@@ -16,8 +16,8 @@
 #include <sqlite3.h>
 #include <string>
 #include <tuple>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 namespace database {
 using namespace std;
@@ -26,7 +26,7 @@ enum OP_RET {
     FAIL = 1,
     NOT_FOUND = 2,
 };
-using COMP_SYMB = const char*;
+using COMP_SYMB = const char *;
 constexpr COMP_SYMB EQ = "=";
 constexpr COMP_SYMB NEQ = "!=";
 constexpr COMP_SYMB LT = "<";
@@ -34,22 +34,23 @@ constexpr COMP_SYMB LE = "<=";
 constexpr COMP_SYMB GT = ">";
 constexpr COMP_SYMB GE = ">=";
 constexpr COMP_SYMB IN = " IS NOT ";
-
+using DataMap = unordered_map<string, string>;
+using ConditionMap = unordered_map<string, pair<COMP_SYMB, string>>;
+using QueryResult = vector<DataMap>;
+using TableParams = vector<tuple<string, string, bool, bool>>;
 
 class Database {
 public:
     OP_RET OpenDb(string currDbName_, bool enableHis_);
     // name, type, null, primary_key
-    OP_RET CreateTable(string tableName, vector<tuple<string, string, bool, bool>> createTableParams);
-    OP_RET InsertData(string tableName, unordered_map<string, string> data);
-    OP_RET UpdateData(string tableName, unordered_map<string, pair<COMP_SYMB, string>> condition,
-                      unordered_map<string, string> content);
-    OP_RET DeleteData(string tableName, unordered_map<string, pair<COMP_SYMB, string>> data);
-    OP_RET QueryCurrData(string tableName, unordered_map<string, pair<COMP_SYMB, string>> data,
-                         vector<unordered_map<string, string>> *res);
-    OP_RET QueryHisData(string tableName, unordered_map<string, pair<COMP_SYMB, string>> data,
-                        vector<unordered_map<string, string>> *res, int startTimestamp, int endTimestamp);
-    OP_RET CloseDb();
+    OP_RET CreateTable(string tableName, TableParams createTableParams);
+    OP_RET InsertData(string tableName, DataMap data);
+    OP_RET UpdateData(string tableName, ConditionMap condition, DataMap content);
+    OP_RET DeleteData(string tableName, ConditionMap data);
+    OP_RET QueryCurrData(string tableName, ConditionMap data, QueryResult *res);
+    OP_RET QueryHisData(string tableName, ConditionMap data, QueryResult *res, int start, int end);
+    OP_RET Close();
+
 private:
     sqlite3 *currDb;
     sqlite3 *hisDb;
@@ -58,17 +59,16 @@ private:
     bool enableHis;
     unordered_map<string, vector<string>> primaryKeysMap;
     unordered_map<string, unordered_map<string, string>> keysMap;
-    bool KeyIsText(string tableName, string key);
-    int CreateTableOp(sqlite3 *db, string tableName, vector<tuple<string, string, bool, bool>> params,
-                      vector<string> primaryKeys);
-    int InsertDataOp(sqlite3 *db, string tableName, unordered_map<string, string> data);
-    int UpdateDataOp(sqlite3 *db, string tableName, unordered_map<string, pair<COMP_SYMB, string>> condition,
-                     unordered_map<string, string> content);
-    int DeleteDataOp(sqlite3 *db, string tableName, unordered_map<string, pair<COMP_SYMB, string>> data);
-    OP_RET DropTable(sqlite3 *db, string tableName); 
+    bool IsValidTable(string tableName);
+    bool IsValidKey(string tableName, string key);
+    bool AppendConditions(string tableName, ConditionMap conditions, string *sql, vector<string> *binds);
+    int CreateTableOp(sqlite3 *db, string tableName, TableParams params, vector<string> primaryKeys);
+    int InsertDataOp(sqlite3 *db, string tableName, DataMap data);
+    int UpdateDataOp(sqlite3 *db, string tableName, ConditionMap condition, DataMap content);
+    int DeleteDataOp(sqlite3 *db, string tableName, ConditionMap data);
+    OP_RET DropTable(sqlite3 *db, string tableName);
 };
 int GetNowTimestamp();
-}
-
+} // namespace database
 
 #endif // DATABASE_H

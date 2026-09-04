@@ -47,8 +47,9 @@ install_system_deps() {
             # 22.03 无此包 → 先探测存在才装, 避免 dnf 整批失败
             local SYSTEMD_PAM=""
             dnf list systemd-pam >/dev/null 2>&1 && SYSTEMD_PAM="systemd-pam"
-            eval "$PM_UPDATE"
-            eval "$PM_INSTALL ${OPENEULER_PKGS[*]} $SYSTEMD_PAM"
+            [ -n "$SYSTEMD_PAM" ] && OPENEULER_PKGS+=("$SYSTEMD_PAM")
+            $PM_UPDATE
+            $PM_INSTALL "${OPENEULER_PKGS[@]}"
             systemctl enable postgresql 2>/dev/null || true
         else
             _warn "需要 root 权限安装系统包，请运行:"
@@ -59,10 +60,10 @@ install_system_deps() {
         fi
     elif [ "$OS_ID" = "ubuntu" ]; then
         if _is_root || _has_cmd sudo; then
-            local SUDO=""
-            _is_root || SUDO="sudo"
-            eval "$SUDO $PM_UPDATE"
-            eval "$SUDO $PM_INSTALL ${UBUNTU_PKGS[*]}"
+            local SUDO_CMD=()
+            _is_root || SUDO_CMD=(sudo)
+            "${SUDO_CMD[@]}" $PM_UPDATE
+            "${SUDO_CMD[@]}" $PM_INSTALL "${UBUNTU_PKGS[@]}"
         else
             _warn "需要 sudo 权限安装系统包，请运行:"
             echo "  sudo apt-get update && sudo apt-get install -y ${UBUNTU_PKGS[*]}"

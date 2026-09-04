@@ -2,10 +2,13 @@ import requests
 import os
 import aiofiles
 import aiohttp
+import ipaddress
 import logging
 import re
 import shutil
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
 from fastapi import UploadFile
 from sqlalchemy import select
 from latency.database.engine import PGManager
@@ -63,6 +66,23 @@ logger = logging.getLogger(__name__)
 witty_dir = os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)
 
 _PROFILING_TIMESTAMP_RE = re.compile(r"^timeStamp:\s*\S")
+ALLOWED_SCHEMES = {"http", "https"}
+
+
+def _validate_remote_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in ALLOWED_SCHEMES:
+        return False
+    if not parsed.hostname:
+        return False
+    try:
+        for info in socket.getaddrinfo(parsed.hostname, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+    except (socket.gaierror, ValueError):
+        return False
+    return True
 
 
 def _is_profiling_log(file_path: str | Path) -> bool:
@@ -286,7 +306,9 @@ class LogFileService:
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(
-                            upload_log_file_config.source
+                            upload_log_file_config.source,
+                            allow_redirects=False,
+                            timeout=aiohttp.ClientTimeout(total=300),
                         ) as response:
                             response.raise_for_status()
                             content = await response.read()

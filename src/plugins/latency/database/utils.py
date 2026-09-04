@@ -10,6 +10,11 @@ from typing import Any
 from latency.schemas.log import YUANRONG_METRIC_FIELDS
 
 
+def escape_like(value: str) -> str:
+    """Escape SQL LIKE wildcards for patterns using a backslash escape."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def set_db_timezone(tz) -> None:
     """No-op kept for backward compatibility.
 

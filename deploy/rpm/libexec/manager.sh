@@ -86,7 +86,7 @@ _log "部署角色: ${WITTY_ROLE}（服务: ${WITTY_SERVICES[*]:-无}）"
 # ──────────────────── PG 凭据同步 ────────────────────
 
 # 将 /etc/witty-ub/pg.conf 中实际的 PG 凭据写入 diagnosis_config.toml 的 [db] 段。
-# 实测踩坑：仓库 config 默认 pg_password=""，而 deploy_pg.sh 用 pg.conf 的
+# 仓库 config 默认 pg_password="<CHANGE_ME>"，deploy_pg.sh 会生成或读取实际口令，
 # PG_PASSWORD 建库 → 后端 InvalidPasswordError。
 sync_pg_credentials() {
     _load_pg_credentials || {

@@ -11,7 +11,9 @@
 - PostgreSQL 15.x
 - 数据库名：`witty-ub`
 - 用户名：`witty-ub`
-- 密码：`witty-ub`
+- 密码：必须使用唯一的强口令
+
+> 使用部署脚本首次初始化时，可按提示隐藏输入至少 6 位字母数字口令；直接回车或非交互部署会自动生成随机口令。口令会写入部署配置（源码/容器部署为 `deploy/deploy.conf`，RPM 部署为 `/etc/witty-ub/deploy.conf`）。生产部署后必须轮换；手动部署时请将下文的 `<STRONG_PASSWORD>` 替换为唯一的强口令。
 
 ---
 
@@ -39,7 +41,7 @@ docker run -d \
   -p 15432:5432 \
   -v pg15-data:/var/lib/pgsql/data \
   -e POSTGRESQL_USER=witty-ub \
-  -e POSTGRESQL_PASSWORD=witty-ub \
+  -e POSTGRESQL_PASSWORD='<STRONG_PASSWORD>' \
   -e POSTGRESQL_DATABASE=witty-ub \
   -e POSTGRESQL_SHARED_BUFFERS=2GB \
   -e POSTGRESQL_EFFECTIVE_CACHE_SIZE=6GB \
@@ -69,7 +71,7 @@ services:
       - "15432:5432"
     environment:
       - POSTGRESQL_USER=witty-ub
-      - POSTGRESQL_PASSWORD=witty-ub
+      - POSTGRESQL_PASSWORD=<STRONG_PASSWORD>
       - POSTGRESQL_DATABASE=witty-ub
       - POSTGRESQL_SHARED_BUFFERS=2GB
       - POSTGRESQL_EFFECTIVE_CACHE_SIZE=6GB
@@ -140,7 +142,7 @@ sudo systemctl start postgresql-15
 sudo systemctl enable postgresql-15
 
 # 创建用户和数据库
-sudo -u postgres psql -c "CREATE USER witty-ub WITH PASSWORD 'witty-ub';"
+sudo -u postgres psql -c "CREATE USER witty-ub WITH PASSWORD '<STRONG_PASSWORD>';"
 sudo -u postgres psql -c "CREATE DATABASE witty-ub OWNER witty-ub;"
 ```
 

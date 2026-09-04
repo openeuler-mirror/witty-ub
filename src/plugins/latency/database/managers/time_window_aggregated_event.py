@@ -16,7 +16,7 @@ from sqlalchemy import Integer, func, insert, select, text
 from latency.database.engine import PGManager
 from latency.database.init import ensure_time_window_partitions
 from latency.database.models import LogFile, LogParseResult, TimeWindowAggregated
-from latency.database.utils import format_ip, parse_ip, parse_timestamp
+from latency.database.utils import escape_like, format_ip, parse_ip, parse_timestamp
 from latency.schemas.log import TimeWindowAggregatedEventDataclass, YUANRONG_METRIC_FIELDS
 from latency.schemas.request import ListTimeWindowAggregatedEventRequest
 
@@ -519,9 +519,17 @@ class TimeWindowAggregatedEventPGManager:
         if req.end_time:
             filters.append(LogParseResult.timestamp <= parse_timestamp(req.end_time))
         if req.src_ip:
-            filters.append(func.host(LogParseResult.src_ip).like(f"%{req.src_ip}%"))
+            filters.append(
+                func.host(LogParseResult.src_ip).like(
+                    f"%{escape_like(req.src_ip)}%", escape="\\"
+                )
+            )
         if req.dst_ip:
-            filters.append(func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%"))
+            filters.append(
+                func.host(LogParseResult.dst_ip).like(
+                    f"%{escape_like(req.dst_ip)}%", escape="\\"
+                )
+            )
         if req.cluster_name:
             filters.append(LogParseResult.cluster_name == req.cluster_name)
         if req.host:

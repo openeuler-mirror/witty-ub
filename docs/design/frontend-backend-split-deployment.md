@@ -17,7 +17,7 @@
 | 组件 | 端口 | 绑定地址 | 说明 |
 | ------ | ------ | ---------- | ------ |
 | Nginx（前端） | 8080（容器映射 32412）/ 5173（源码方式 vite preview） | 0.0.0.0 | 托管 `src/web/dist` 静态资源 + API 反代 |
-| FastAPI 后端 | 9772 | `0.0.0.0`（`schemas/config.py` 默认） | CORS `allow_origins=["*"]` |
+| FastAPI 后端 | 9772 | `0.0.0.0`（`schemas/config.py` 默认） | CORS 通过 `WITTY_CORS_ORIGINS` 配置可信前端源 |
 | OpenCode（Agent） | 4096 | **`127.0.0.1`**（`docker/entrypoint.sh`、`deploy_opencode.sh` 硬编码） | 前端经 `/agent-api/` 前缀访问 |
 | PostgreSQL | 5432 | — | 仅后端访问（Docker 可映射为宿主机 15432） |
 
@@ -69,7 +69,7 @@
 
 **推荐：前端节点 Nginx 反代（保持同源）**。前端代码无需感知后端地址，`apiBase` 仍为空串；跨机移动后端只改前端节点一处 Nginx 上游配置。CORS、混合内容、大文件上传直连等问题全部消解。
 
-备选：前端直连后端（`apiBase = http://<backend>:9772`）。后端 CORS 已全开，技术上可行，但地址固化进构建产物/运行时配置，且浏览器→后端的网络必须全通，仅作为特殊场景（如前端节点无力跑 Nginx）的兜底。
+备选：前端直连后端（`apiBase = http://<backend>:9772`）。后端需通过 `WITTY_CORS_ORIGINS` 配置前端源，且地址固化进构建产物/运行时配置、浏览器→后端的网络必须全通，仅作为特殊场景（如前端节点无力跑 Nginx）的兜底。
 
 ### 3.2 OpenCode 落位：默认跑在前端节点
 
@@ -140,7 +140,7 @@ Agent bundle（`witty_ub_diagnostician/`）当前在提示词 [agents/witty-ub-d
 ### 4.7 安全
 
 - 跨机明文 HTTP：默认形态下后端机仅需对前端节点开放 9772（4096 留在前端节点本机回环，不出网）；兜底落位 B 才需暴露 4096。后续可迭代 TLS 终止在前端节点 Nginx + 后端 mTLS/静态 Token（本方案先不引入，避免过度设计）。
-- 后端 CORS 由 `allow_origins=["*"]` 收敛为可配置项（`diagnosis_config.toml [service] allow_origins`），分离部署默认配前端节点 origin。
+- 后端 CORS 已由 `allow_origins=["*"]` 收敛为环境变量 `WITTY_CORS_ORIGINS`；仅浏览器直连后端时配置前端节点 origin，同源反代时保持为空。
 - OpenCode 4096 暴露到网络前确认其鉴权（前端 Agent 登录已有账号体系），建议同防火墙收敛。
 
 ## 5. 实施顺序

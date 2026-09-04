@@ -85,6 +85,38 @@ log_ok()    { echo "[OK]    $*"; }
 log_warn()  { echo "[WARN]  $*"; }
 log_error() { echo "[ERROR] $*"; }
 
+ensure_pg_password() {
+    if [ -z "${PG_PASSWORD:-}" ] || [ "$PG_PASSWORD" = "<CHANGE_ME>" ] || [ "$PG_PASSWORD" = "witty-ub" ]; then
+        local input_password=""
+        local confirm_password=""
+        if [ -t 0 ]; then
+            read -r -s -p "请输入 PostgreSQL 密码（至少 6 位字母数字，直接回车自动生成）: " input_password
+            echo ""
+            if [ -n "$input_password" ]; then
+                if [[ ! "$input_password" =~ ^[A-Za-z0-9]{6,}$ ]]; then
+                    log_error "PostgreSQL 密码必须为至少 6 位字母数字"
+                    return 1
+                fi
+                read -r -s -p "请再次输入 PostgreSQL 密码: " confirm_password
+                echo ""
+                if [ "$input_password" != "$confirm_password" ]; then
+                    log_error "两次输入的 PostgreSQL 密码不一致"
+                    return 1
+                fi
+            fi
+        fi
+        if [ -n "$input_password" ]; then
+            PG_PASSWORD="$input_password"
+            log_info "已使用用户输入的 PostgreSQL 密码"
+        else
+            PG_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)"
+            log_warn "已为 PG 自动生成随机口令"
+        fi
+        sed -i "s|^PG_PASSWORD=.*|PG_PASSWORD=\"${PG_PASSWORD}\"|" "$CONF_FILE"
+        log_info "PostgreSQL 密码已保存到 ${CONF_FILE}"
+    fi
+}
+
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
         log_error "This script must be run as root"
@@ -130,6 +162,7 @@ deploy_docker() {
     echo "========================================"
 
     check_docker
+    ensure_pg_password
 
     # ---------- PostgreSQL 镜像候选列表（按优先级从高到低）
     # 每个条目: 镜像地址|用户环境变量|密码环境变量|库名环境变量|容器内数据目录
@@ -320,6 +353,7 @@ deploy_rpm() {
     echo "========================================"
 
     check_root
+    ensure_pg_password
 
     # Step 1: 安装 PostgreSQL
     echo ""
@@ -547,6 +581,7 @@ deploy_apt() {
     echo "========================================"
 
     check_root
+    ensure_pg_password
 
     # Step 1: Install PostgreSQL
     echo ""

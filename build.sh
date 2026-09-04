@@ -96,10 +96,9 @@ fi
 
 create_builder() {
     BUILDKIT_CONFIG="$(dirname "$0")/buildkitd.toml"
+    BUILDKIT_CONFIG_ARGS=()
     if [ -f "$BUILDKIT_CONFIG" ]; then
-        BUILDKIT_CONFIG_ARG="--config $BUILDKIT_CONFIG"
-    else
-        BUILDKIT_CONFIG_ARG=""
+        BUILDKIT_CONFIG_ARGS=(--config "$BUILDKIT_CONFIG")
     fi
 
     if docker buildx ls | grep -q witty-ub-builder; then
@@ -108,7 +107,7 @@ create_builder() {
     fi
 
     echo "Creating buildx builder..."
-    eval docker buildx create --name witty-ub-builder $BUILDKIT_CONFIG_ARG --use
+    docker buildx create --name witty-ub-builder "${BUILDKIT_CONFIG_ARGS[@]}" --use
     docker buildx inspect --bootstrap
 }
 
@@ -206,28 +205,28 @@ build_app() {
         docker build -f Dockerfile -t "$APP_IMAGE" .
     else
         target_image="$APP_IMAGE"
-        build_args=""
+        build_args=()
 
         if [ -n "$REGISTRY" ]; then
             target_image="$REGISTRY:${VERSION}"
             REGISTRY_HOST="${REGISTRY%/*}"
             REPO_NAME="${REGISTRY##*/}"
             base_image_reg="${REGISTRY_HOST}/${REPO_NAME}-base:${VERSION}"
-            build_args="--build-arg BASE_IMAGE=${base_image_reg}"
+            build_args=(--build-arg "BASE_IMAGE=${base_image_reg}")
         fi
 
         if [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
-            eval docker buildx build \
+            docker buildx build \
                 --platform "$PLATFORM" \
                 --push \
-                $build_args \
+                "${build_args[@]}" \
                 -f Dockerfile \
                 -t "$target_image" .
         else
             docker buildx build \
                 --platform "$PLATFORM" \
                 --load \
-                $build_args \
+                "${build_args[@]}" \
                 -f Dockerfile \
                 -t "$target_image" .
         fi

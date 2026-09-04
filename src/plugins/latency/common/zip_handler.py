@@ -2,7 +2,8 @@
 import zipfile
 import os
 import asyncio
-import chardet
+import shutil
+import stat
 from typing import Optional
 import logging
 
@@ -82,24 +83,51 @@ class ZipHandler:
     ) -> None:
         """解压缩文件"""
 
+        def safe_target_path(member: zipfile.ZipInfo) -> str:
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"ZIP文件包含不允许的符号链接: {member.filename}")
+
+            # ZIP成员名使用正斜杠；同时按路径分隔符处理反斜杠，避免跨平台绕过。
+            member_name = member.filename.replace("\\", "/")
+            target_root = os.path.realpath(target_dir)
+            target_path = os.path.realpath(os.path.join(target_root, member_name))
+            try:
+                is_inside_target = os.path.commonpath(
+                    [target_root, target_path]
+                ) == target_root
+            except ValueError:
+                is_inside_target = False
+            if not member_name or not is_inside_target:
+                raise ValueError(f"ZIP文件包含不安全的成员路径: {member.filename}")
+            return target_path
+
         def unzip_file_executor(
             zip_file_path: str, target_dir: str, files_to_extract: list[str] = None
         ) -> None:
-            if not os.path.exists(target_dir):
-                os.makedirs(target_dir)
-
             with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
-                # 尝试自动检测文件名的编码
-                sample_data = zip_ref.read(zip_ref.namelist()[0])
-                detected_encoding = chardet.detect(sample_data)["encoding"]
-
                 if files_to_extract is None:
-                    zip_ref.extractall(target_dir)
+                    members = zip_ref.infolist()
                 else:
-                    files_to_extract = set(files_to_extract)
-                    for file_name in files_to_extract:
-                        if file_name in zip_ref.namelist():
-                            zip_ref.extract(file_name, path=target_dir)
+                    selected_names = set(files_to_extract)
+                    members = [
+                        member
+                        for member in zip_ref.infolist()
+                        if member.filename in selected_names
+                    ]
+
+                # 在创建目录或文件前完成全部校验，避免失败时留下部分解压结果。
+                destinations = [safe_target_path(member) for member in members]
+                os.makedirs(target_dir, exist_ok=True)
+                for member, destination in zip(members, destinations):
+                    if member.is_dir():
+                        os.makedirs(destination, exist_ok=True)
+                        continue
+                    os.makedirs(os.path.dirname(destination), exist_ok=True)
+                    with zip_ref.open(member, "r") as source, open(
+                        destination, "wb"
+                    ) as target:
+                        shutil.copyfileobj(source, target)
 
         try:
             await asyncio.to_thread(
