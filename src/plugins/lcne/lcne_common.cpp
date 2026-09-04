@@ -27,7 +27,7 @@
 #endif
 
 namespace lcne::common {
-std::string getHostname()
+std::string GetHostname()
 {
     char hostname[HOST_NAME_MAX];
     if (gethostname(hostname, sizeof(hostname)) == 0) {
@@ -38,7 +38,7 @@ std::string getHostname()
     return "";
 }
 
-LcneResult getNodeIpInfos(std::vector<std::string> &ipInfos)
+LcneResult GetNodeIpInfos(std::vector<std::string> &ipInfos)
 {
     LcneResult ret = LCNE_FAIL;
     std::ifstream file("/proc/net/fib_trie");
@@ -55,7 +55,7 @@ LcneResult getNodeIpInfos(std::vector<std::string> &ipInfos)
         std::smatch match;
         if (std::regex_search(line, match, ipRegex)) {
             std::string ip = match.str(1);
-            if (!isSpecialIp(ip)) {
+            if (!IsSpecialIp(ip)) {
                 uniqueIPs.insert(ip);
             }
         }
@@ -67,7 +67,7 @@ LcneResult getNodeIpInfos(std::vector<std::string> &ipInfos)
     return ret;
 }
 
-bool isSpecialIp(const std::string &ip)
+bool IsSpecialIp(const std::string &ip)
 {
     return std::regex_match(ip, std::regex(R"(^0\.0\.0\.0$|127\..*|169\.254\..*)$)"));
 }
@@ -101,22 +101,22 @@ LcneResult checkXML(tinyxml2::XMLElement *element)
     return LCNE_SUCCESS;
 }
 
-std::string stringToUpper(const std::string &s)
+std::string StringToUpper(const std::string &s)
 {
     std::string r = s;
     std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) { return std::toupper(c); });
     return r;
 }
 
-LcneResult getHttpData(std::string &resp_body, std::string req_path)
+LcneResult GetHttpData(std::string &respBody, std::string reqPath)
 {
     rack::com::RackHttpClient client(std::string(LCNE_URL) + ":" + std::string(LCNE_PORT));
     rack::com::RackComContext ctx;
     rack::com::RackHttpRequest req;
     req.headers["Content-Type"] = LCNE_CONTENT_TYPE;
     req.method = rack::com::RackHttpMethod::GET;
-    req.path = std::string(req_path);
-    LOG_INFO << "getHttpData-Info: send request to " << std::string(LCNE_URL) + ":" + std::string(LCNE_PORT) + req_path;
+    req.path = std::string(reqPath);
+    LOG_INFO << "getHttpData-Info: send request to " << std::string(LCNE_URL) + ":" + std::string(LCNE_PORT) + reqPath;
     auto res = client.Do(ctx, req);
     if (res.Ok()) {
         const auto &resp = res.value;
@@ -124,15 +124,15 @@ LcneResult getHttpData(std::string &resp_body, std::string req_path)
             LOG_ERROR << "getHttpData-Error: response body is empty";
             return LCNE_FAIL;
         }
-        resp_body = resp->body;
-        LOG_DEBUG << "getHttpData-Debug: response body is " << resp_body;
+        respBody = resp->body;
+        LOG_DEBUG << "getHttpData-Debug: response body is " << respBody;
         return LCNE_SUCCESS;
     }
     LOG_ERROR << "getHttpData-Error: get response failed: response status code is " << res.value->status
               << "and response message is " << res.message;
     return LCNE_FAIL;
 }
-LcneResult generateNotifyReqBody(std::string &req_body)
+LcneResult GenerateNotifyReqBody(std::string &reqBody)
 {
     tinyxml2::XMLDocument doc;
     tinyxml2::XMLElement *root = doc.NewElement("create-subscription");
@@ -167,10 +167,10 @@ LcneResult generateNotifyReqBody(std::string &req_body)
 
     tinyxml2::XMLPrinter printer(nullptr, /* compact = */ true);
     doc.Accept(&printer);
-    req_body = printer.CStr();
+    reqBody = printer.CStr();
     return LCNE_SUCCESS;
 }
-LcneResult postLinkInfoNotify()
+LcneResult PostLinkInfoNotify()
 {
     rack::com::RackHttpClient client(std::string(LCNE_URL) + ":" + std::string(LCNE_PORT));
     rack::com::RackComContext ctx;
@@ -180,7 +180,7 @@ LcneResult postLinkInfoNotify()
     req.method = rack::com::RackHttpMethod::POST;
     req.path = std::string(LCNE_NOTIFY_LINK_REQ_PATH);
     std::string reqBodyStr;
-    if (generateNotifyReqBody(reqBodyStr) == LCNE_FAIL) {
+    if (GenerateNotifyReqBody(reqBodyStr) == LCNE_FAIL) {
         LOG_ERROR << "postLinkInfoNotify-Error: generate notify request body failed";
         return LCNE_FAIL;
     }
@@ -206,7 +206,7 @@ LcneResult postLinkInfoNotify()
     return LCNE_FAIL;
 }
 
-bool mkdirRecursive(const std::string &dir)
+bool MkdirRecursive(const std::string &dir)
 {
     struct stat info;
     if (stat(dir.c_str(), &info) == 0 && S_ISDIR(info.st_mode)) {
@@ -214,7 +214,7 @@ bool mkdirRecursive(const std::string &dir)
     }
     size_t pos = dir.find_last_of('/');
     if (pos != std::string::npos && pos > 0) {
-        if (!mkdirRecursive(dir.substr(0, pos))) {
+        if (!MkdirRecursive(dir.substr(0, pos))) {
             LOG_ERROR << "mkdirRecursive-Error: create directory " << dir.substr(0, pos) << " failed";
             return false;
         }
@@ -222,7 +222,7 @@ bool mkdirRecursive(const std::string &dir)
     return mkdir(dir.c_str(), lcne::common::CONFIG_PATH_PERM_755) == 0 || errno == EEXIST;
 }
 
-LcneResult SaveIpToConfigFile(std::string master_ip)
+LcneResult SaveIpToConfigFile(std::string masterIp)
 {
     tinyxml2::XMLDocument doc;
     string filePath = std::string(lcne::common::CONFIG_PATH) + "/" + std::string(lcne::common::CONFIG_FILE);
@@ -235,7 +235,7 @@ LcneResult SaveIpToConfigFile(std::string master_ip)
         }
         LOG_INFO << "SaveIpToConfigFile-Info: config file " << filePath << " loaded";
     } else {
-        if (!mkdirRecursive(lcne::common::CONFIG_PATH)) {
+        if (!MkdirRecursive(lcne::common::CONFIG_PATH)) {
             LOG_ERROR << "SaveIpToConfigFile-Error: create directory " << lcne::common::CONFIG_PATH << " failed";
             return LCNE_FAIL;
         }
@@ -250,13 +250,13 @@ LcneResult SaveIpToConfigFile(std::string master_ip)
     }
     tinyxml2::XMLElement *ipElem = root->FirstChildElement("ip");
     if (ipElem) {
-        ipElem->SetText(master_ip.c_str());
-        LOG_DEBUG << "SaveIpToConfigFile-Debug: set ip element text to " << master_ip;
+        ipElem->SetText(masterIp.c_str());
+        LOG_DEBUG << "SaveIpToConfigFile-Debug: set ip element text to " << masterIp;
     } else {
         ipElem = doc.NewElement("ip");
-        ipElem->SetText(master_ip.c_str());
+        ipElem->SetText(masterIp.c_str());
         root->InsertEndChild(ipElem);
-        LOG_DEBUG << "SaveIpToConfigFile-Debug: create ip element and set text to " << master_ip;
+        LOG_DEBUG << "SaveIpToConfigFile-Debug: create ip element and set text to " << masterIp;
     }
     tinyxml2::XMLError saveResult = doc.SaveFile(filePath.c_str(), true);
     if (saveResult != tinyxml2::XML_SUCCESS) {

@@ -28,10 +28,10 @@
 namespace ubse::context {
 using namespace rack::module;
 struct TopoToolsArgs {
-    std::string network_mode;
-    std::string pod_mode;
-    // When pod_mode is on, key is pod_id, value is log path.
-    // When pod_mode is off, key is normal, value is log path, default is /var/log/message
+    std::string networkMode;
+    std::string podMode;
+    // When podMode is on, key is pod_id, value is log path.
+    // When podMode is off, key is normal, value is log path, default is /var/log/message
     std::map<std::string, std::string> umq_log_path_map;
     std::vector<std::string> pod_id_list;
 };
