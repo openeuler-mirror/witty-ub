@@ -79,9 +79,11 @@ PG_PORT="15432"                       # 宿主机端口
 PG_HOST_IN_CONTAINER=""               # 容器内访问，留空自动检测
 PG_PORT_IN_CONTAINER=""
 PG_USER="witty-ub"
-PG_PASSWORD="witty-ub"
+PG_PASSWORD="<CHANGE_ME>"             # 仅占位符，实际口令在 /etc/witty-ub/pg.passwd
 PG_DATABASE="witty-ub"
 ```
+
+> **PG 密码**：Docker 部署时口令存放在 `/etc/witty-ub/pg.passwd`（权限 0600），由 `deploy_pg.sh --docker` 生成。`deploy_witty.sh` 将该文件只读挂载到 `/run/secrets/pg_password`，容器入口启动后端前才读取并注入进程环境；密码不会写入 `deploy.conf`、运行时 TOML 或 `docker inspect` 可见的容器环境配置。
 
 ### 环境变量覆盖
 

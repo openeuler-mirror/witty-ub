@@ -135,7 +135,7 @@ Agent bundle（`witty_ub_diagnostician/`）当前在提示词 [agents/witty-ub-d
 - 提示词参数化：仓库内的 `witty-ub-diagnostician.md` 直接保留 `${WITTY_API_BASE}`（默认 `http://127.0.0.1:9772`）/ `${WITTY_NO_PROXY}`。部署脚本不渲染、不复制、不改写提示词；OpenCode 进程导出变量，Agent 执行 Bash 时展开。
 - `docker/entrypoint.sh`、`deploy_opencode.sh` 的 `--hostname` 参数化为 `${OPENCODE_HOST:-127.0.0.1}`（仅兜底落位 B 需要 `0.0.0.0`）。
 - experience 卷（experience.db）与 `OPENCODE_CONFIG_DIR`（LLM key）归属前端节点的 agent 运行时，不随后端角色部署。
-- 顺带修复该 commit 引入的问题：`deploy/pg.conf` 中 `OPENCODE_CONFIG_DIR` 硬编码个人路径 `/home/tsn/opencode`（应回退 `${HOME}/.config/opencode` 默认值）；目录名拼写 `witty_ub_diagnostician` → `witty_ub_diagnostician`（已扩散至 Dockerfile/entrypoint/deploy_opencode.sh/deploy.sh/opencode.json 多处路径，宜尽早统一更名）。
+- 顺带修复该 commit 引入的问题：`deploy/deploy.conf` 中 `OPENCODE_CONFIG_DIR` 硬编码个人路径 `/home/tsn/opencode`（应回退 `${HOME}/.config/opencode` 默认值）；目录名拼写 `witty_ub_diagnostician` → `witty_ub_diagnostician`（已扩散至 Dockerfile/entrypoint/deploy_opencode.sh/deploy.sh/opencode.json 多处路径，宜尽早统一更名）。
 
 ### 4.7 安全
 

@@ -114,35 +114,56 @@ _confirm_clean() {
 # ──────────────────── PG 凭据 ────────────────────
 
 # 解析 deploy.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
-# 与 sync_pg_credentials 同源(deploy.conf 是唯一真实凭据来源)。
+# 密码读取优先级: PG_SECRET_FILE(deploy/pg.passwd) > deploy.conf 的 PG_PASSWORD > 空。
+# 密钥文件是运行时唯一真实口令来源, deploy.conf 保持 <CHANGE_ME> 占位不回写。
 _load_pg_credentials() {
     local PG_CONF_FILE="$SCRIPT_DIR/../deploy.conf"
+    local PG_SECRET_FILE="$SCRIPT_DIR/../pg.passwd"
     [ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="$SCRIPT_DIR/../pg.conf"   # 兼容旧名
-    [ -f "$PG_CONF_FILE" ] || return 1
+    [ -f "$PG_CONF_FILE" ] || [ -f "$PG_SECRET_FILE" ] || return 1
     local CONF_HOST CONF_PORT CONF_USER CONF_DATABASE CONF_PASSWORD
-    CONF_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
     # 宿主机源码部署与 RPM 部署一样连接本机 PostgreSQL；
     # PG_PORT 是 Docker 宿主机映射端口，不能用在这里。
-    CONF_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    CONF_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    CONF_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    CONF_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    CONF_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
     PG_HOST="${PG_HOST:-$CONF_HOST}"
     # 仅接受原生部署专用的 PG_PORT_RPM 覆盖，不读取 Docker PG_PORT。
     PG_PORT="${PG_PORT_RPM:-$CONF_PORT}"
     PG_USER="${PG_USER:-$CONF_USER}"
     PG_DATABASE="${PG_DATABASE:-$CONF_DATABASE}"
-    PG_PASSWORD="${PG_PASSWORD:-$CONF_PASSWORD}"
     [ -z "$PG_HOST" ] && PG_HOST="127.0.0.1"
     [ -z "$PG_PORT" ] && PG_PORT="5432"
     [ -z "$PG_USER" ] && PG_USER="witty-ub"
     [ -z "$PG_DATABASE" ] && PG_DATABASE="witty-ub"
-    [ -n "$PG_PASSWORD" ] && export PGPASSWORD="$PG_PASSWORD"
+    # 优先读密钥文件；deploy.conf 的 PG_PASSWORD 仅作旧部署回退（<CHANGE_ME>/witty-ub 视为未设置）。
+    local SECRET_PASSWORD=""
+    if [ -f "$PG_SECRET_FILE" ]; then
+        SECRET_PASSWORD="$(cat "$PG_SECRET_FILE" 2>/dev/null | tr -d '\r\n')"
+    fi
+    if [ -n "$SECRET_PASSWORD" ]; then
+        PG_PASSWORD="$SECRET_PASSWORD"
+    elif [ -n "$CONF_PASSWORD" ] && [ "$CONF_PASSWORD" != "<CHANGE_ME>" ] && [ "$CONF_PASSWORD" != "witty-ub" ]; then
+        PG_PASSWORD="$CONF_PASSWORD"
+    else
+        PG_PASSWORD=""
+    fi
+    if [ -n "$PG_PASSWORD" ]; then
+        export PGPASSWORD="$PG_PASSWORD"
+    else
+        # 防止调用方环境中残留的 PGPASSWORD 被误用于当前部署。
+        unset PGPASSWORD
+    fi
     return 0
 }
 
 # psql 便捷封装: 使用 _load_pg_credentials 的凭据连接。
 _psql() {
-    _load_pg_credentials
-    psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" "$@"
+    _load_pg_credentials || return 1
+    # --no-password 禁止 libpq 回退到交互式密码询问。部署探测会在密钥文件
+    # 尚未生成时调用本函数；此时应快速返回失败，由后续 PG 初始化生成并
+    # 同步凭据，而不是反复显示含糊的 "Password for user ..."。
+    psql --no-password -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" "$@"
 }

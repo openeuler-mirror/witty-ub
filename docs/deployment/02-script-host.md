@@ -99,7 +99,7 @@ bash deploy/host/deploy.sh --deploy
 | ⑤ 前端编译 | `npm run build-only` 构建 `dist/`（失败回退 dev server，不阻塞部署） |
 | ⑥ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过） |
 | ⑦ 数据文件 | 将故障模式、配置文件复制到 `/var/witty-ub/` |
-| ⑧ 凭据同步 | 将 `deploy/deploy.conf` 的实际 PG 凭据写入 `diagnosis_config.toml` |
+| ⑧ 凭据同步 | 仅将 host/port/user/db 写入 `diagnosis_config.toml`；后端启动时从 `deploy/pg.passwd` 读取密码并注入进程环境 |
 | ⑨ 启动服务 | FastAPI(9772) + 前端（nginx 托管，回退 vite preview 5173）+ OpenCode(4096) |
 
 ### 验证部署
@@ -195,15 +195,18 @@ bash deploy/host/install_deps.sh
 
 ### 配置文件 deploy.conf（后端节点）
 
-部署脚本读取 `deploy/deploy.conf` 的 PostgreSQL 连接配置：
+部署脚本读取 `deploy/deploy.conf` 的 PostgreSQL 连接配置。密码存放在独立密钥文件 `deploy/pg.passwd`（权限 0600），不回写 `deploy.conf`：
 
 ```conf
 PG_HOST="127.0.0.1"
 PG_PORT_RPM="5432"
 PG_DATABASE="witty-ub"
 PG_USER="witty-ub"
-PG_PASSWORD="witty-ub"
+PG_PASSWORD="<CHANGE_ME>"     # 仅占位符，实际口令在 deploy/pg.passwd
 ```
+
+首次部署时 `deploy_pg.sh` 会交互输入或自动生成随机口令，写入 `deploy/pg.passwd`。
+运行时 TOML 不保存密码且权限为 `0600`；systemd 与 nohup 使用统一启动器读取密钥。
 
 ### 环境变量覆盖
 

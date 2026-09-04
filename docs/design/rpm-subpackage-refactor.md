@@ -7,7 +7,7 @@
 | 包 | 内容 |
 | ---- | ---- |
 | `witty-ub` 主包 | 全部负载：FastAPI 代码、C++ 工具链、数据文件、web dist、Agent bundle、`witty-ub-web.service` + `witty-ub-latency.service`、nginx 模板 |
-| `witty-ub-manager` 子包 | `/usr/bin/witty-ub` 派发器、`/usr/libexec/witty-ub-manager/` 脚本、`/etc/witty-ub/deploy.conf` |
+| `witty-ub-manager` 子包 | `/usr/bin/witty-ub` 派发器、`/usr/libexec/witty-ub-manager/` 脚本、`/etc/witty-ub/deploy.conf`（`pg.passwd` 密钥文件由部署时动态生成，不打入 RPM） |
 
 spec 文件在仓外（openEuler 社区打包仓），仓内只有 `deploy/rpm/libexec/` 与 `packaging/`。
 
@@ -44,7 +44,8 @@ spec 文件在仓外（openEuler 社区打包仓），仓内只有 `deploy/rpm/l
 | `/usr/share/witty-ub/nginx/witty-ub-web.conf.template` + `witty-ub-web.service` | | ✓ | | |
 | `/etc/witty-ub/web/env`（前端连接配置，安装默认值） | | ✓ | | |
 | `/usr/bin/witty-ub` + `/usr/libexec/witty-ub-manager/` | | | ✓ | |
-| `/etc/witty-ub/deploy.conf`（PG 凭据） | | | ✓ | |
+| `/etc/witty-ub/deploy.conf`（PG 连接配置，密码为 `<CHANGE_ME>` 占位） | | | ✓ | |
+| `/etc/witty-ub/pg.passwd`（PG 密码密钥文件，mode 0600，部署时生成） | | | ✓ | |
 | 无负载文件，仅 Requires + license | | | | ✓ |
 
 `/var/witty-ub`、`/var/witty-ub/latency{,/deploy}`、`/var/witty-ub/deploy` 等父目录由相关子包共享属主（RPM 允许多包共有一个目录），保证单角色机器上目录齐全。

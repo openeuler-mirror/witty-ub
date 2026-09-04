@@ -13,7 +13,11 @@
 - 用户名：`witty-ub`
 - 密码：必须使用唯一的强口令
 
-> 使用部署脚本首次初始化时，可按提示隐藏输入至少 6 位字母数字口令；直接回车或非交互部署会自动生成随机口令。口令会写入部署配置（源码/容器部署为 `deploy/deploy.conf`，RPM 部署为 `/etc/witty-ub/deploy.conf`）。生产部署后必须轮换；手动部署时请将下文的 `<STRONG_PASSWORD>` 替换为唯一的强口令。
+> 使用部署脚本首次初始化时，可按提示隐藏输入至少 6 位字母数字口令；直接回车或非交互部署会自动生成随机口令。口令写入独立密钥文件（权限 0600），不回写 `deploy.conf` —— 配置文件始终保持 `<CHANGE_ME>` 占位。密钥文件路径按部署形态不同：
+> - **源码 host 部署**（`deploy_pg.sh --rpm/--apt`）：`deploy/pg.passwd`
+> - **Docker 部署**（`deploy_pg.sh --docker`）和 **RPM 包部署**（`witty-ub manager deploy`）：`/etc/witty-ub/pg.passwd`
+>
+> 生产部署后必须轮换；手动部署时请将下文的 `<STRONG_PASSWORD>` 替换为唯一的强口令。
 
 ---
 
@@ -34,25 +38,28 @@ docker network create witty-ub-network
 # 创建数据卷
 docker volume create pg15-data
 
+# 创建密钥（也可运行 bash deploy/deploy_pg.sh --docker 自动生成）
+sudo install -d -m 0700 /etc/witty-ub
+sudo sh -c 'umask 077; printf %s "<STRONG_PASSWORD>" > /etc/witty-ub/pg.passwd'
+
 # 启动 PG 容器
 docker run -d \
   --name postgres \
   --restart unless-stopped \
   -p 15432:5432 \
   -v pg15-data:/var/lib/pgsql/data \
+  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
   -e POSTGRESQL_USER=witty-ub \
-  -e POSTGRESQL_PASSWORD='<STRONG_PASSWORD>' \
   -e POSTGRESQL_DATABASE=witty-ub \
-  -e POSTGRESQL_SHARED_BUFFERS=2GB \
-  -e POSTGRESQL_EFFECTIVE_CACHE_SIZE=6GB \
-  -e POSTGRESQL_MAX_CONNECTIONS=200 \
   --health-cmd="pg_isready -U witty-ub -d witty-ub" \
   --health-interval=30s \
   --health-timeout=10s \
   --health-retries=3 \
   --health-start-period=40s \
   --network witty-ub-network \
-  quay.io/sclorg/postgresql-15-c9s:latest
+  --entrypoint /bin/bash \
+  quay.io/sclorg/postgresql-15-c9s:latest \
+  -c 'export POSTGRESQL_PASSWORD="$(cat /run/secrets/pg_password)"; exec /usr/bin/container-entrypoint /usr/bin/run-postgresql'
 ```
 
 > `shared_buffers` 建议为物理内存的 25%，`effective_cache_size` 建议为 75%。
@@ -71,11 +78,15 @@ services:
       - "15432:5432"
     environment:
       - POSTGRESQL_USER=witty-ub
-      - POSTGRESQL_PASSWORD=<STRONG_PASSWORD>
       - POSTGRESQL_DATABASE=witty-ub
-      - POSTGRESQL_SHARED_BUFFERS=2GB
-      - POSTGRESQL_EFFECTIVE_CACHE_SIZE=6GB
-      - POSTGRESQL_MAX_CONNECTIONS=200
+    secrets:
+      - pg_password
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - >-
+        export POSTGRESQL_PASSWORD="$$(cat /run/secrets/pg_password)";
+        exec /usr/bin/container-entrypoint /usr/bin/run-postgresql
     volumes:
       - pg15-data:/var/lib/pgsql/data
     healthcheck:
@@ -92,6 +103,10 @@ volumes:
 
 networks:
   witty-ub-network:
+
+secrets:
+  pg_password:
+    file: /etc/witty-ub/pg.passwd
 ```
 
 ```bash
