@@ -131,9 +131,13 @@ class LogKnowledgePGManager:
         if req.description:
             stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
         if req.created_at_start:
-            stmt = stmt.where(LogKnowledge.created_at >= req.created_at_start)
+            stmt = stmt.where(
+                LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
+            )
         if req.created_at_end:
-            stmt = stmt.where(LogKnowledge.created_at <= req.created_at_end)
+            stmt = stmt.where(
+                LogKnowledge.created_at <= parse_timestamp(req.created_at_end)
+            )
         async with PGManager.session() as session:
             return (await session.execute(stmt)).scalar() or 0
 
@@ -154,9 +158,13 @@ class LogKnowledgePGManager:
         if req.description:
             stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
         if req.created_at_start:
-            stmt = stmt.where(LogKnowledge.created_at >= req.created_at_start)
+            stmt = stmt.where(
+                LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
+            )
         if req.created_at_end:
-            stmt = stmt.where(LogKnowledge.created_at <= req.created_at_end)
+            stmt = stmt.where(
+                LogKnowledge.created_at <= parse_timestamp(req.created_at_end)
+            )
 
         if req.created_sorted_desc:
             stmt = stmt.order_by(desc(LogKnowledge.created_at))

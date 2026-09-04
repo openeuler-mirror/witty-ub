@@ -86,9 +86,9 @@ class LogFilePGManager:
         if req.name:
             stmt = stmt.where(LogFile.name.ilike(f"%{req.name}%"))
         if req.created_at_start:
-            stmt = stmt.where(LogFile.created_at >= req.created_at_start)
+            stmt = stmt.where(LogFile.created_at >= parse_timestamp(req.created_at_start))
         if req.created_at_end:
-            stmt = stmt.where(LogFile.created_at <= req.created_at_end)
+            stmt = stmt.where(LogFile.created_at <= parse_timestamp(req.created_at_end))
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         async with PGManager.session() as session:
