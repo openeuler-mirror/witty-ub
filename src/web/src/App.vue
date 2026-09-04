@@ -6676,6 +6676,7 @@ const applyGlobalFilters = () => {
   void loadBrpcFaultTimeline()
   void loadBrpcAggregatedEvents(1)
   void loadBrpcAbnormalThreads(1)
+  applyBrpcFileFilter()
 }
 
 const setActiveAggregateTab = (tab: 'event' | 'trace') => {
@@ -10283,15 +10284,36 @@ const getBrpcProfilingFileKey = (file: BrpcProfilingFileOption) =>
 const getBrpcProfilingFileLabel = (file: BrpcProfilingFileOption) =>
   `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
 
+const isBrpcProfilingRowWithinTimeRange = (
+  row: Record<string, any>,
+  filters: GlobalFilterState,
+): boolean => {
+  const raw = row?.timestamp
+  if (!raw || typeof raw !== 'string') return true
+  const rowDate = parseDateAsLocal(raw)
+  if (!rowDate) return true
+  if (filters.startTime) {
+    const startDate = parseDateAsLocal(filters.startTime)
+    if (startDate && rowDate.getTime() < startDate.getTime()) return false
+  }
+  if (filters.endTime) {
+    const endDate = parseDateAsLocal(filters.endTime)
+    if (endDate && rowDate.getTime() > endDate.getTime()) return false
+  }
+  return true
+}
+
 const applyBrpcFileFilter = () => {
   const selectedFile = brpcProfilingFiles.value.find(
     (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
   )
+  const timeFilters = appliedFilters.value
   const rows = selectedFile
     ? brpcAllFileRows.value.filter(
         (row) =>
           row.log_id === selectedFile.log_id &&
-          (row.source_file ?? '') === selectedFile.source_file,
+          (row.source_file ?? '') === selectedFile.source_file &&
+          isBrpcProfilingRowWithinTimeRange(row, timeFilters),
       )
     : []
   brpcAllRows.value = rows
