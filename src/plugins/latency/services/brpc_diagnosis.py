@@ -30,6 +30,7 @@ from latency.schemas.brpc_diagnosis import (
     BrpcInterfaceHit,
     BrpcInterfaceTimelinePoint,
     BrpcInterfaceTimelineSeries,
+    BrpcKnowledgeScopeMsg,
     BrpcMetricSortField,
     BrpcPodAggregatedEvent,
     BrpcSortOrder,
@@ -156,6 +157,32 @@ class BrpcDiagnosisService:
         return GetBrpcBatchMsg(
             batch=BrpcDiagBatchMetadata.model_validate(batch)
         )
+
+    @staticmethod
+    async def get_knowledge_scope(kb_id: str) -> BrpcKnowledgeScopeMsg:
+        async with PGManager.session() as session:
+            batches = await BrpcDiagnosisPGManager.list_batches_by_kb_id(
+                session, kb_id
+            )
+        if not batches:
+            raise NotFoundBizException(resource="资产库 BRPC 诊断数据")
+        return BrpcKnowledgeScopeMsg(
+            kb_id=kb_id,
+            batch_count=len(batches),
+            hit_count=sum(batch.hit_count for batch in batches),
+            start_time=min(batch.start_timestamp for batch in batches),
+            end_time=max(batch.end_timestamp for batch in batches),
+        )
+
+    @staticmethod
+    async def _knowledge_batch_ids(kb_id: str) -> list[str]:
+        async with PGManager.session() as session:
+            batches = await BrpcDiagnosisPGManager.list_batches_by_kb_id(
+                session, kb_id
+            )
+        if not batches:
+            raise NotFoundBizException(resource="资产库 BRPC 诊断数据")
+        return [batch.batch_id for batch in batches]
 
     @staticmethod
     async def list_hits(
@@ -448,6 +475,7 @@ class BrpcDiagnosisService:
         interface_id: str | None = None,
         pod_ip: str | None = None,
         pod_name: str | None = None,
+        _batch_ids: list[str] | None = None,
     ) -> GetBrpcInterfaceTimelineMsg:
         BrpcDiagnosisService._validate_timestamp_range(
             start_timestamp,
@@ -467,9 +495,12 @@ class BrpcDiagnosisService:
             )
 
         async with PGManager.session() as session:
-            batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
-            if batch is None:
-                raise NotFoundBizException(resource="BRPC 诊断 batch")
+            batch = None
+            if _batch_ids is None:
+                batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
+                if batch is None:
+                    raise NotFoundBizException(resource="BRPC 诊断 batch")
+            query_batch_ids: str | list[str] = _batch_ids or batch_id
             # Precomputed buckets preserve the fast scale-switching behavior of
             # the KVC timeline. Only incomplete edge windows need to touch raw
             # hits so the public [start, end) contract remains exact.
@@ -479,7 +510,7 @@ class BrpcDiagnosisService:
             after_last_full_window = (end_timestamp // window_us) * window_us
             query_args = {
                 "session": session,
-                "batch_id": batch_id,
+                "batch_id": query_batch_ids,
                 "window_us": window_us,
                 "interface_component": component,
                 "interface_id": interface_id,
@@ -518,7 +549,7 @@ class BrpcDiagnosisService:
                         **query_args,
                     )
                 )
-            if interface_id and not aggregates:
+            if interface_id and not aggregates and batch is not None:
                 schema = await BrpcDiagnosisPGManager.get_schema(
                     session,
                     batch.schema_id,
@@ -570,6 +601,17 @@ class BrpcDiagnosisService:
         )
 
     @staticmethod
+    async def get_knowledge_interface_timeline(
+        *, kb_id: str, **kwargs
+    ) -> GetBrpcInterfaceTimelineMsg:
+        batch_ids = await BrpcDiagnosisService._knowledge_batch_ids(kb_id)
+        return await BrpcDiagnosisService.get_interface_timeline(
+            batch_id=kb_id,
+            _batch_ids=batch_ids,
+            **kwargs,
+        )
+
+    @staticmethod
     def _interface_hits(rows: list[dict]) -> list[BrpcInterfaceHit]:
         return sorted(
             (BrpcInterfaceHit.model_validate(row) for row in rows),
@@ -599,6 +641,7 @@ class BrpcDiagnosisService:
         page_cnt: int,
         pod_ip: str | None = None,
         pod_name: str | None = None,
+        _batch_ids: list[str] | None = None,
     ) -> ListBrpcPodEventsMsg:
         BrpcDiagnosisService._validate_timestamp_range(
             start_timestamp,
@@ -606,10 +649,11 @@ class BrpcDiagnosisService:
         )
         window_us = AGGREGATE_WINDOW_SIZE_US[window_size]
         async with PGManager.session() as session:
-            await BrpcDiagnosisService._require_batch(session, batch_id)
+            if _batch_ids is None:
+                await BrpcDiagnosisService._require_batch(session, batch_id)
             total, rows = await BrpcDiagnosisPGManager.list_pod_events(
                 session,
-                batch_id=batch_id,
+                batch_id=_batch_ids or batch_id,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,
                 window_us=window_us,
@@ -622,18 +666,19 @@ class BrpcDiagnosisService:
             )
         events = []
         for row in rows:
+            row_batch_id = str(row.get("batch_id") or batch_id)
             window_start_timestamp = int(row["window_start_timestamp"])
             window_end_timestamp = window_start_timestamp + window_us
             pod_ip = str(row["pod_ip"])
             events.append(
                 BrpcPodAggregatedEvent(
                     event_id=BrpcDiagnosisService.pod_event_id(
-                        batch_id,
+                        row_batch_id,
                         window_start_timestamp,
                         window_end_timestamp,
                         pod_ip,
                     ),
-                    batch_id=batch_id,
+                    batch_id=row_batch_id,
                     window_start_time=window_start_timestamp,
                     window_end_time=window_end_timestamp,
                     pod_ip=pod_ip,
@@ -650,6 +695,15 @@ class BrpcDiagnosisService:
         )
 
     @staticmethod
+    async def list_knowledge_pod_events(
+        *, kb_id: str, **kwargs
+    ) -> ListBrpcPodEventsMsg:
+        batch_ids = await BrpcDiagnosisService._knowledge_batch_ids(kb_id)
+        return await BrpcDiagnosisService.list_pod_events(
+            batch_id=kb_id, _batch_ids=batch_ids, **kwargs
+        )
+
+    @staticmethod
     async def list_thread_events(
         *,
         batch_id: str,
@@ -662,6 +716,7 @@ class BrpcDiagnosisService:
         page_cnt: int,
         pod_ip: str | None = None,
         pod_name: str | None = None,
+        _batch_ids: list[str] | None = None,
     ) -> ListBrpcThreadEventsMsg:
         BrpcDiagnosisService._validate_timestamp_range(
             start_timestamp,
@@ -669,10 +724,11 @@ class BrpcDiagnosisService:
         )
         window_us = AGGREGATE_WINDOW_SIZE_US[window_size]
         async with PGManager.session() as session:
-            await BrpcDiagnosisService._require_batch(session, batch_id)
+            if _batch_ids is None:
+                await BrpcDiagnosisService._require_batch(session, batch_id)
             total, rows = await BrpcDiagnosisPGManager.list_thread_events(
                 session,
-                batch_id=batch_id,
+                batch_id=_batch_ids or batch_id,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,
                 window_us=window_us,
@@ -685,6 +741,7 @@ class BrpcDiagnosisService:
             )
         events = []
         for row in rows:
+            row_batch_id = str(row.get("batch_id") or batch_id)
             window_start_timestamp = int(row["window_start_timestamp"])
             window_end_timestamp = window_start_timestamp + window_us
             pod_ip = str(row["pod_ip"])
@@ -692,13 +749,13 @@ class BrpcDiagnosisService:
             events.append(
                 BrpcThreadAggregatedEvent(
                     event_id=BrpcDiagnosisService.thread_event_id(
-                        batch_id,
+                        row_batch_id,
                         window_start_timestamp,
                         window_end_timestamp,
                         pod_ip,
                         thread_id,
                     ),
-                    batch_id=batch_id,
+                    batch_id=row_batch_id,
                     window_start_time=window_start_timestamp,
                     window_end_time=window_end_timestamp,
                     pod_ip=pod_ip,
@@ -713,6 +770,15 @@ class BrpcDiagnosisService:
             batch_id=batch_id,
             total=total,
             events=events,
+        )
+
+    @staticmethod
+    async def list_knowledge_thread_events(
+        *, kb_id: str, **kwargs
+    ) -> ListBrpcThreadEventsMsg:
+        batch_ids = await BrpcDiagnosisService._knowledge_batch_ids(kb_id)
+        return await BrpcDiagnosisService.list_thread_events(
+            batch_id=kb_id, _batch_ids=batch_ids, **kwargs
         )
 
     @staticmethod
@@ -895,16 +961,18 @@ class BrpcDiagnosisService:
         pod_name: str | None = None,
         search: str | None = None,
         metric_sort_fields: list[BrpcMetricSortField] | None = None,
+        _batch_ids: list[str] | None = None,
     ) -> ListBrpcAbnormalThreadsMsg:
         BrpcDiagnosisService._validate_timestamp_range(
             start_timestamp,
             end_timestamp,
         )
         async with PGManager.session() as session:
-            await BrpcDiagnosisService._require_batch(session, batch_id)
+            if _batch_ids is None:
+                await BrpcDiagnosisService._require_batch(session, batch_id)
             total, rows = await BrpcDiagnosisPGManager.list_abnormal_threads(
                 session,
-                batch_id=batch_id,
+                batch_id=_batch_ids or batch_id,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,
                 page_num=page_num,
@@ -915,13 +983,24 @@ class BrpcDiagnosisService:
                 metric_sort_fields=metric_sort_fields or [],
             )
         threads = [
-            BrpcDiagnosisService._abnormal_thread_from_row(batch_id, row)
+            BrpcDiagnosisService._abnormal_thread_from_row(
+                str(row.get("batch_id") or batch_id), row
+            )
             for row in rows
         ]
         return ListBrpcAbnormalThreadsMsg(
             batch_id=batch_id,
             total=total,
             threads=threads,
+        )
+
+    @staticmethod
+    async def list_knowledge_abnormal_threads(
+        *, kb_id: str, **kwargs
+    ) -> ListBrpcAbnormalThreadsMsg:
+        batch_ids = await BrpcDiagnosisService._knowledge_batch_ids(kb_id)
+        return await BrpcDiagnosisService.list_abnormal_threads(
+            batch_id=kb_id, _batch_ids=batch_ids, **kwargs
         )
 
     @staticmethod

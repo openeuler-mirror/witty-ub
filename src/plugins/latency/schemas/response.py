@@ -463,6 +463,7 @@ class ListTimeWindowAggregatedEventResponse(ResponseBase):
 class BrpcProfilingDataMsg(BaseModel):
     interface_names: list[str] = Field(default_factory=list, description="所有接口名列表")
     file_names: list[str] = Field(default_factory=list, description="所有源文件名列表")
+    files: list[dict] = Field(default_factory=list, description="资产库 profiling 文件列表")
     rows: list[dict] = Field(default_factory=list, description="时序数据行")
 
 

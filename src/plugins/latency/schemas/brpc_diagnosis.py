@@ -342,6 +342,18 @@ class GetBrpcBatchResponse(ResponseBase):
     result: GetBrpcBatchMsg
 
 
+class BrpcKnowledgeScopeMsg(BaseModel):
+    kb_id: str
+    batch_count: int = Field(ge=0)
+    hit_count: int = Field(ge=0)
+    start_time: BrpcApiTime
+    end_time: BrpcApiTime
+
+
+class BrpcKnowledgeScopeResponse(ResponseBase):
+    result: BrpcKnowledgeScopeMsg
+
+
 class ListBrpcDiagHitsMsg(BaseModel):
     batch_id: str
     total: int = Field(ge=0)

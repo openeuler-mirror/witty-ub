@@ -255,12 +255,18 @@ type BrpcInterfaceTimelineSeries = {
   points: BrpcInterfaceTimelinePoint[]
 }
 
-type BrpcDiagnosisBatch = {
-  batch_id: string
-  task_id: string
+type BrpcKnowledgeScope = {
+  kb_id: string
+  batch_count: number
+  hit_count: number
   start_time: string
   end_time: string
-  hit_count: number
+}
+
+type BrpcProfilingFileOption = {
+  log_id: string
+  log_name: string
+  source_file: string
 }
 
 type BrpcInterfaceHit = {
@@ -9152,26 +9158,15 @@ const loadFaultPage = async () => {
 // ============================================================
 // BRPC 接口监控
 // ============================================================
-type BrpcLogFileOption = {
-  id: string
-  name: string
-  taskId: string
-  taskType: string
-}
-
-const brpcLogFiles = ref<BrpcLogFileOption[]>([])
-const brpcProfilingLogFiles = computed(() => brpcLogFiles.value)
-const brpcDiagnosisLogFiles = computed(() => brpcLogFiles.value)
-const brpcSelectedLogId = ref('')
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
 const brpcAllRows = ref<Record<string, any>[]>([])
 const brpcAllFileRows = ref<Record<string, any>[]>([])
-const brpcFileNames = ref<string[]>([])
+const brpcProfilingFiles = ref<BrpcProfilingFileOption[]>([])
 const brpcSelectedFileName = ref('')
 // 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
 // profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
-const hasBrpcProfilingLogFile = computed(() => brpcFileNames.value.length > 0)
+const hasBrpcProfilingLogFile = computed(() => brpcProfilingFiles.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -9210,7 +9205,6 @@ const brpcLatencyChartRef = ref<HTMLDivElement | null>(null)
 let brpcLatencyChartInstance: echarts.ECharts | null = null
 
 // BRPC 通断故障监控：接口故障数时序分布
-const brpcFaultSelectedLogId = ref('')
 const selectedBrpcFaultScale = ref<number>(60)
 const brpcFaultChartCenterTime = ref<number | null>(null)
 const brpcFaultTimelineRef = ref<HTMLDivElement | null>(null)
@@ -9218,8 +9212,8 @@ const brpcFaultTimelineSeries = ref<BrpcInterfaceTimelineSeries[]>([])
 const visibleBrpcFaultSeriesIds = ref<Set<string>>(new Set())
 const isBrpcFaultTimelineLoading = ref(false)
 const brpcFaultTimelineError = ref('')
-const brpcFaultBatch = ref<BrpcDiagnosisBatch | null>(null)
-const brpcFaultResolvedLogId = ref('')
+const brpcFaultScope = ref<BrpcKnowledgeScope | null>(null)
+const brpcFaultResolvedAssetId = ref('')
 let brpcFaultTimelineChartInstance: echarts.ECharts | null = null
 let brpcFaultTimelineRequestSequence = 0
 let brpcFaultTimelineRequestController: AbortController | null = null
@@ -9384,25 +9378,22 @@ const resetAssetScopedMonitorData = () => {
   brpcAbnormalThreadsRequestSequence += 1
   brpcAbnormalThreadDetailRequestSequence += 1
   brpcEventDetailRequestSequence += 1
-  brpcLogFiles.value = []
-  brpcSelectedLogId.value = ''
   brpcDataLoading.value = false
   brpcInterfaceNames.value = []
   brpcAllRows.value = []
   brpcAllFileRows.value = []
-  brpcFileNames.value = []
+  brpcProfilingFiles.value = []
   brpcSelectedFileName.value = ''
   brpcSuccessSelectedIfaces.value = []
   brpcLatencySelectedIfaces.value = []
   brpcSingleIface.value = ''
-  brpcFaultSelectedLogId.value = ''
   brpcFaultChartCenterTime.value = null
   brpcFaultTimelineSeries.value = []
   visibleBrpcFaultSeriesIds.value = new Set()
   isBrpcFaultTimelineLoading.value = false
   brpcFaultTimelineError.value = ''
-  brpcFaultBatch.value = null
-  brpcFaultResolvedLogId.value = ''
+  brpcFaultScope.value = null
+  brpcFaultResolvedAssetId.value = ''
   brpcAggregatedEvents.value = []
   brpcAggregatedEventTotal.value = 0
   brpcAggregatedEventPage.value = 1
@@ -10248,7 +10239,7 @@ const renderBrpcThreadFailureGraph = () => {
 const brpcEventWindows = computed<BrpcEventWindow[]>(() => {
   const windows = new Map<string, BrpcEventWindow>()
   brpcAggregatedEvents.value.forEach((event) => {
-    const key = `${event.window_start_time}|${event.window_end_time}`
+    const key = `${event.batch_id}|${event.window_start_time}|${event.window_end_time}`
     const window = windows.get(key) ?? {
       key,
       startTime: event.window_start_time,
@@ -10286,79 +10277,25 @@ const brpcEventInterfaceGridStyle = computed(() => {
   }
 })
 
-const loadBrpcLogFiles = async () => {
-  if (!selectedAssetId.value) return
-  const assetId = selectedAssetId.value
-  try {
-    const result = await request<{
-      total: number
-      log_files: Array<{
-        id: string
-        name: string
-        log_type: string
-        overall_status: string
-        task?: TaskModel | null
-      }>
-    }>(`/log_file/list/${assetId}`, {
-      method: 'POST',
-      body: JSON.stringify({ page_num: 1, page_cnt: 200 }),
-    })
-    if (selectedAssetId.value !== assetId) return
-    brpcLogFiles.value = (result.log_files ?? [])
-      .filter(
-        (file) =>
-          file.log_type === 'brpc' &&
-          ['successful', 'successful_pending_remove'].includes(file.overall_status),
-      )
-      .map((file) => ({
-        id: file.id,
-        name: file.name,
-        taskId: file.task?.id ?? '',
-        taskType: file.task?.task_type ?? '',
-      }))
+const getBrpcProfilingFileKey = (file: BrpcProfilingFileOption) =>
+  JSON.stringify([file.log_id, file.source_file])
 
-    if (!brpcProfilingLogFiles.value.some((file) => file.id === brpcSelectedLogId.value)) {
-      const firstProfilingLog = brpcProfilingLogFiles.value[0]
-      brpcSelectedLogId.value = firstProfilingLog?.id ?? ''
-    }
-    if (!brpcDiagnosisLogFiles.value.some((file) => file.id === brpcFaultSelectedLogId.value)) {
-      brpcFaultTimelineRequestSequence += 1
-      brpcAggregatedEventsRequestSequence += 1
-      brpcAbnormalThreadsRequestSequence += 1
-      brpcFaultResolvedLogId.value = ''
-      brpcFaultBatch.value = null
-      brpcFaultTimelineSeries.value = []
-      brpcAggregatedEvents.value = []
-      brpcAggregatedEventTotal.value = 0
-      brpcAbnormalThreads.value = []
-      brpcAbnormalThreadTotal.value = 0
-      const firstDiagnosisLog = brpcDiagnosisLogFiles.value[0]
-      brpcFaultSelectedLogId.value = firstDiagnosisLog?.id ?? ''
-    }
-  } catch {
-    if (selectedAssetId.value === assetId) {
-      brpcLogFiles.value = []
-    }
-  }
-}
-
-const onBrpcLogChange = async () => {
-  brpcSelectedFileName.value = ''
-  brpcSuccessSelectedIfaces.value = []
-  brpcLatencySelectedIfaces.value = []
-  brpcSingleIface.value = ''
-  await loadBrpcMonitorData()
-}
+const getBrpcProfilingFileLabel = (file: BrpcProfilingFileOption) =>
+  `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
 
 const applyBrpcFileFilter = () => {
-  const file = brpcSelectedFileName.value
-  const rows = file
-    ? brpcAllFileRows.value.filter((r) => (r.source_file ?? '') === file)
-    : brpcAllFileRows.value
+  const selectedFile = brpcProfilingFiles.value.find(
+    (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
+  )
+  const rows = selectedFile
+    ? brpcAllFileRows.value.filter(
+        (row) =>
+          row.log_id === selectedFile.log_id &&
+          (row.source_file ?? '') === selectedFile.source_file,
+      )
+    : []
   brpcAllRows.value = rows
-  brpcInterfaceNames.value = [...new Set(rows.map((r) => r.interface_name))]
-    .filter(Boolean)
-    .sort()
+  brpcInterfaceNames.value = [...new Set(rows.map((r) => r.interface_name))].filter(Boolean).sort()
   brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
   brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
   const firstInterface = brpcInterfaceNames.value.at(0)
@@ -10373,52 +10310,54 @@ const applyBrpcFileFilter = () => {
 }
 
 const onBrpcFileChange = () => {
-  applyBrpcFileFilter()
+  void loadBrpcMonitorData()
 }
 
 const loadBrpcMonitorData = async () => {
-  if (!brpcSelectedLogId.value) return
+  if (!selectedAssetId.value) return
   const assetId = selectedAssetId.value
-  const selectedLogId = brpcSelectedLogId.value
   const requestSequence = ++brpcProfilingRequestSequence
   brpcDataLoading.value = true
   try {
+    const selectedFile = brpcProfilingFiles.value.find(
+      (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
+    )
+    const query = new URLSearchParams()
+    if (selectedFile) {
+      query.set('log_id', selectedFile.log_id)
+      query.set('source_file', selectedFile.source_file)
+    }
+    const queryString = query.size > 0 ? `?${query.toString()}` : ''
     const result = await request<{
-      interface_names: string[]
-      file_names: string[]
+      files: BrpcProfilingFileOption[]
       rows: Record<string, any>[]
-    }>(`/brpc_profiling/${selectedLogId}`)
+    }>(`/brpc_profiling/knowledge/${encodeURIComponent(assetId)}${queryString}`)
 
-    if (
-      requestSequence !== brpcProfilingRequestSequence ||
-      selectedAssetId.value !== assetId ||
-      brpcSelectedLogId.value !== selectedLogId
-    ) {
+    if (requestSequence !== brpcProfilingRequestSequence || selectedAssetId.value !== assetId) {
       return
     }
 
-    brpcFileNames.value = result.file_names ?? []
+    brpcProfilingFiles.value = result.files ?? []
     brpcAllFileRows.value = result.rows ?? []
 
-    // 默认选择第一个源文件
+    // 默认选择资产库内第一个 profiling 文件；日志包 ID 参与 key，避免同名文件混合。
     if (
-      brpcFileNames.value.length > 0 &&
-      !brpcFileNames.value.includes(brpcSelectedFileName.value)
+      brpcProfilingFiles.value.length > 0 &&
+      !brpcProfilingFiles.value.some(
+        (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
+      )
     ) {
-      brpcSelectedFileName.value = brpcFileNames.value[0] ?? ''
+      brpcSelectedFileName.value = getBrpcProfilingFileKey(brpcProfilingFiles.value[0]!)
     }
 
     applyBrpcFileFilter()
   } catch {
-    if (
-      requestSequence === brpcProfilingRequestSequence &&
-      selectedAssetId.value === assetId &&
-      brpcSelectedLogId.value === selectedLogId
-    ) {
+    if (requestSequence === brpcProfilingRequestSequence && selectedAssetId.value === assetId) {
       brpcInterfaceNames.value = []
       brpcAllRows.value = []
       brpcAllFileRows.value = []
-      brpcFileNames.value = []
+      brpcProfilingFiles.value = []
+      brpcSelectedFileName.value = ''
     }
   } finally {
     if (requestSequence === brpcProfilingRequestSequence) {
@@ -10905,31 +10844,25 @@ const resizeBrpcEventDetailTimelineChart = () => {
   brpcEventDetailTimelineChartInstance.resize()
 }
 
-const resolveBrpcFaultBatch = async (selectedLogId: string) => {
-  if (brpcFaultResolvedLogId.value === selectedLogId && brpcFaultBatch.value) {
-    return brpcFaultBatch.value
+const resolveBrpcFaultScope = async (assetId: string) => {
+  if (brpcFaultResolvedAssetId.value === assetId && brpcFaultScope.value) {
+    return brpcFaultScope.value
   }
-  const selectedLog = brpcDiagnosisLogFiles.value.find((file) => file.id === selectedLogId)
-  if (!selectedLog?.taskId) throw new Error('所选日志暂无可用的 BRPC 诊断任务')
-
-  const batchResult = await request<{ task_id: string; batch_id: string }>(
-    `/brpc-diagnosis/task/${encodeURIComponent(selectedLog.taskId)}/batch`,
+  const scope = await request<BrpcKnowledgeScope>(
+    `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/scope`,
   )
-  const metadataResult = await request<{ batch: BrpcDiagnosisBatch }>(
-    `/brpc-diagnosis/batch/${encodeURIComponent(batchResult.batch_id)}`,
-  )
-  if (brpcFaultSelectedLogId.value === selectedLogId) {
-    brpcFaultBatch.value = metadataResult.batch
-    brpcFaultResolvedLogId.value = selectedLogId
+  if (selectedAssetId.value === assetId) {
+    brpcFaultScope.value = scope
+    brpcFaultResolvedAssetId.value = assetId
   }
-  return metadataResult.batch
+  return scope
 }
 
-const getBrpcFaultQueryRange = (batch: BrpcDiagnosisBatch) => {
+const getBrpcFaultQueryRange = (scope: BrpcKnowledgeScope) => {
   const filters = appliedFilters.value
   const chartRange = brpcFaultChartRange.value
-  const batchStart = parseDateAsLocal(batch.start_time)
-  const batchEnd = parseDateAsLocal(batch.end_time)
+  const batchStart = parseDateAsLocal(scope.start_time)
+  const batchEnd = parseDateAsLocal(scope.end_time)
   const filterStart = filters.startTime ? parseDateAsLocal(filters.startTime) : null
   const filterEnd = filters.endTime ? parseDateAsLocal(filters.endTime) : null
   const startDate = chartRange ? new Date(chartRange.startTime) : (filterStart ?? batchStart)
@@ -10943,8 +10876,8 @@ const getBrpcFaultQueryRange = (batch: BrpcDiagnosisBatch) => {
 }
 
 const loadBrpcFaultTimeline = async () => {
-  const selectedLogId = brpcFaultSelectedLogId.value
-  if (!selectedLogId) {
+  const assetId = selectedAssetId.value
+  if (!assetId) {
     brpcFaultTimelineRequestSequence += 1
     brpcFaultTimelineRequestController?.abort()
     brpcFaultTimelineRequestController = null
@@ -10962,9 +10895,9 @@ const loadBrpcFaultTimeline = async () => {
   brpcFaultTimelineError.value = ''
 
   try {
-    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    const scope = await resolveBrpcFaultScope(assetId)
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
-    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const { startDate, endDate } = getBrpcFaultQueryRange(scope)
 
     const windowSizeByScale: Record<number, string> = {
       10: '10s',
@@ -10981,7 +10914,7 @@ const loadBrpcFaultTimeline = async () => {
     const podIp = appliedFilters.value.podIps.at(-1)
     if (podIp) query.set('pod_ip', podIp)
     const result = await request<{ series: BrpcInterfaceTimelineSeries[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${query.toString()}`,
+      `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/interface-timeline?${query.toString()}`,
       { signal: requestController.signal },
     )
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
@@ -11073,8 +11006,8 @@ const toggleBrpcAggregatedEventStartTimeSort = () => {
 }
 
 const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value) => {
-  const selectedLogId = brpcFaultSelectedLogId.value
-  if (!selectedLogId) {
+  const assetId = selectedAssetId.value
+  if (!assetId) {
     brpcAggregatedEventsRequestSequence += 1
     brpcAggregatedEvents.value = []
     brpcAggregatedEventTotal.value = 0
@@ -11095,9 +11028,9 @@ const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value)
   brpcAggregatedEventsError.value = ''
 
   try {
-    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    const scope = await resolveBrpcFaultScope(assetId)
     if (requestSequence !== brpcAggregatedEventsRequestSequence) return
-    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const { startDate, endDate } = getBrpcFaultQueryRange(scope)
     const filters = appliedFilters.value
     const query = new URLSearchParams({
       start_time: formatFullTimeLabel(startDate),
@@ -11113,7 +11046,7 @@ const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value)
 
     const endpoint = brpcEventAggregation.value === 'pod' ? 'pod-events' : 'thread-events'
     const result = await request<{ total: number; events: BrpcAggregatedEvent[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/${endpoint}?${query.toString()}`,
+      `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/${endpoint}?${query.toString()}`,
     )
     if (requestSequence !== brpcAggregatedEventsRequestSequence) return
 
@@ -11154,8 +11087,8 @@ const setActiveBrpcFaultTab = (tab: 'event' | 'thread') => {
 }
 
 const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) => {
-  const selectedLogId = brpcFaultSelectedLogId.value
-  if (!selectedLogId) {
+  const assetId = selectedAssetId.value
+  if (!assetId) {
     brpcAbnormalThreadsRequestSequence += 1
     brpcAbnormalThreads.value = []
     brpcAbnormalThreadTotal.value = 0
@@ -11173,9 +11106,9 @@ const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) =
   isBrpcAbnormalThreadsLoading.value = true
   brpcAbnormalThreadsError.value = ''
   try {
-    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    const scope = await resolveBrpcFaultScope(assetId)
     if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
-    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const { startDate, endDate } = getBrpcFaultQueryRange(scope)
     const query = new URLSearchParams({
       start_time: formatFullTimeLabel(startDate),
       end_time: formatFullTimeLabel(endDate),
@@ -11189,7 +11122,7 @@ const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) =
     }
     appendBrpcMetricSortQuery(query, brpcAbnormalThreadMetricSort.getSortFields.value)
     const result = await request<{ total: number; threads: BrpcAbnormalThread[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads?${query.toString()}`,
+      `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/abnormal-threads?${query.toString()}`,
     )
     if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
     const total = result.total ?? 0
@@ -11290,8 +11223,6 @@ const closeBrpcEventDetail = () => {
 }
 
 const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
-  const batch = brpcFaultBatch.value
-  if (!batch) return
   const requestSequence = ++brpcEventDetailRequestSequence
   isBrpcEventDetailOpen.value = true
   isBrpcEventDetailLoading.value = true
@@ -11325,10 +11256,10 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
     if (event.pod_name) threadQuery.set('pod_name', event.pod_name)
 
     const detailPromise = request<BrpcAggregatedEventDetail>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/${endpoint}/${encodeURIComponent(event.event_id)}?${detailQuery.toString()}`,
+      `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/${endpoint}/${encodeURIComponent(event.event_id)}?${detailQuery.toString()}`,
     )
     const threadsPromise = request<{ total: number; threads: BrpcAbnormalThread[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads?${threadQuery.toString()}`,
+      `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/abnormal-threads?${threadQuery.toString()}`,
     )
 
     const timelineWindowSize =
@@ -11360,7 +11291,7 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
         })
         if (event.pod_name) timelineQuery.set('pod_name', event.pod_name)
         const threadDetail = await request<BrpcAbnormalThreadDetail>(
-          `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads/${encodeURIComponent(selectedThread.thread_key)}?${timelineQuery.toString()}`,
+          `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/abnormal-threads/${encodeURIComponent(selectedThread.thread_key)}?${timelineQuery.toString()}`,
         )
         timeline = threadDetail.interface_timeline ?? []
       }
@@ -11373,7 +11304,7 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
       })
       if (event.pod_name) timelineQuery.set('pod_name', event.pod_name)
       const timelineResult = await request<BrpcInterfaceTimelineResult>(
-        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${timelineQuery.toString()}`,
+        `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/interface-timeline?${timelineQuery.toString()}`,
       )
       timeline = timelineResult.series ?? []
     }
@@ -11408,7 +11339,7 @@ const closeBrpcAbnormalThreadDetail = () => {
 }
 
 const loadBrpcAbnormalThreadHits = async (
-  batch: BrpcDiagnosisBatch,
+  batchId: string,
   thread: BrpcAbnormalThread,
   startTime: string,
   endTime: string,
@@ -11426,7 +11357,7 @@ const loadBrpcAbnormalThreadHits = async (
     })
     if (thread.pod_name) query.set('pod_name', thread.pod_name)
     const result = await request<{ total: number; hits: BrpcDiagHitLog[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/thread-logs?${query.toString()}`,
+      `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/thread-logs?${query.toString()}`,
     )
     if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
     brpcAbnormalThreadHits.value = result.hits ?? []
@@ -11442,8 +11373,8 @@ const loadBrpcAbnormalThreadHits = async (
 }
 
 const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
-  const batch = brpcFaultBatch.value
-  if (!batch) return
+  const scope = brpcFaultScope.value
+  if (!scope) return
   const requestSequence = ++brpcAbnormalThreadDetailRequestSequence
   isBrpcAbnormalThreadDetailOpen.value = true
   isBrpcAbnormalThreadDetailLoading.value = true
@@ -11453,7 +11384,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
   selectedBrpcThreadGraphNodeId.value = ''
   selectedBrpcThreadChildFailureModeId.value = ''
 
-  const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+  const { startDate, endDate } = getBrpcFaultQueryRange(scope)
   const startTime = formatFullTimeLabel(startDate)
   const endTime = formatFullTimeLabel(endDate)
   const windowSizeByScale: Record<number, string> = {
@@ -11476,7 +11407,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
   const detailPromise = (async () => {
     try {
       const detail = await request<BrpcAbnormalThreadDetail>(
-        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads/${encodeURIComponent(thread.thread_key)}?${query.toString()}`,
+        `/brpc-diagnosis/batch/${encodeURIComponent(thread.batch_id)}/abnormal-threads/${encodeURIComponent(thread.thread_key)}?${query.toString()}`,
       )
       if (requestSequence === brpcAbnormalThreadDetailRequestSequence) {
         selectedBrpcAbnormalThreadDetail.value = detail
@@ -11494,7 +11425,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
 
   await Promise.all([
     detailPromise,
-    loadBrpcAbnormalThreadHits(batch, thread, startTime, endTime, requestSequence),
+    loadBrpcAbnormalThreadHits(thread.batch_id, thread, startTime, endTime, requestSequence),
   ])
 }
 
@@ -11759,24 +11690,13 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   activePage.value = 'abnormal'
 
   if (targetProduct === 'brpc') {
-    await loadBrpcLogFiles()
-    if (!brpcSelectedLogId.value) {
-      brpcSelectedLogId.value = brpcProfilingLogFiles.value[0]?.id ?? ''
-    }
-    if (!brpcFaultSelectedLogId.value) {
-      brpcFaultSelectedLogId.value = brpcDiagnosisLogFiles.value[0]?.id ?? ''
-    }
     await nextTick()
-    if (brpcSelectedLogId.value) {
-      await loadBrpcMonitorData()
-    }
-    if (brpcFaultSelectedLogId.value) {
-      const loadActiveBrpcFaultList =
-        activeBrpcFaultTab.value === 'thread'
-          ? loadBrpcAbnormalThreads(1)
-          : loadBrpcAggregatedEvents(1)
-      await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
-    }
+    await loadBrpcMonitorData()
+    const loadActiveBrpcFaultList =
+      activeBrpcFaultTab.value === 'thread'
+        ? loadBrpcAbnormalThreads(1)
+        : loadBrpcAggregatedEvents(1)
+    await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
     document
       .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
       ?.scrollIntoView({
@@ -14768,12 +14688,20 @@ onBeforeUnmount(() => {
             </p>
           </header>
 
-          <!-- 日志文件选择器 -->
+          <!-- profiling 文件选择器 -->
           <div v-if="hasBrpcProfilingLogFile" class="brpc-log-selector">
-            <span class="brpc-log-label">选择日志文件：</span>
-            <select v-model="brpcSelectedFileName" class="brpc-log-select" @change="onBrpcFileChange">
-              <option v-for="name in brpcFileNames" :key="name" :value="name">
-                {{ name }}
+            <span class="brpc-log-label">选择 profiling 文件：</span>
+            <select
+              v-model="brpcSelectedFileName"
+              class="brpc-log-select"
+              @change="onBrpcFileChange"
+            >
+              <option
+                v-for="file in brpcProfilingFiles"
+                :key="getBrpcProfilingFileKey(file)"
+                :value="getBrpcProfilingFileKey(file)"
+              >
+                {{ getBrpcProfilingFileLabel(file) }}
               </option>
             </select>
             <span v-if="brpcDataLoading" class="brpc-loading">加载中...</span>
@@ -15067,9 +14995,7 @@ onBeforeUnmount(() => {
                 <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
                   {{ brpcFaultTimelineError }}
                 </div>
-                <div v-else-if="brpcDiagnosisLogFiles.length === 0" class="chart-state">
-                  暂无 BRPC 接口故障数据
-                </div>
+                <div v-else-if="!brpcFaultScope" class="chart-state">暂无 BRPC 接口故障数据</div>
                 <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
                   暂无 BRPC 接口故障数时序数据
                 </div>

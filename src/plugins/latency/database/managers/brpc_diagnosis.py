@@ -21,6 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.database.models import (
     BrpcDiagBatch as BrpcDiagBatchRow,
     BrpcDiagEdge as BrpcDiagEdgeRow,
@@ -30,6 +31,8 @@ from latency.database.models import (
     BrpcDiagInterfaceBucket as BrpcDiagInterfaceBucketRow,
     BrpcDiagNode as BrpcDiagNodeRow,
     BrpcDiagSchema as BrpcDiagSchemaRow,
+    LogFile,
+    Task,
 )
 from latency.schemas.brpc_diagnosis import (
     BRPC_TOTAL_SORT_FIELD,
@@ -85,6 +88,40 @@ class BrpcDiagnosisPGManager:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def list_batches_by_kb_id(
+        session: AsyncSession, kb_id: str
+    ) -> list[BrpcDiagBatchRow]:
+        """Return every live diagnosis batch owned by a knowledge base."""
+        result = await session.execute(
+            select(BrpcDiagBatchRow)
+            .join(Task, Task.id == BrpcDiagBatchRow.task_id)
+            .join(LogFile, LogFile.id == Task.op_id)
+            .where(
+                Task.kb_id == kb_id,
+                Task.task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value,
+                Task.status.in_(
+                    (
+                        TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+                        TaskStatusEnum.SUCCESSFUL.value,
+                    )
+                ),
+                Task.existed_status.is_(True),
+                LogFile.existed_status.is_(True),
+            )
+            .order_by(
+                BrpcDiagBatchRow.start_timestamp,
+                BrpcDiagBatchRow.batch_id,
+            )
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    def _batch_filter(column, batch_id: str | Sequence[str]):
+        if isinstance(batch_id, str):
+            return column == batch_id
+        return column.in_(list(batch_id))
+
+    @staticmethod
     async def list_hits(
         session: AsyncSession,
         *,
@@ -130,7 +167,7 @@ class BrpcDiagnosisPGManager:
     async def get_interface_timeline_aggregates(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         window_us: int,
@@ -146,7 +183,7 @@ class BrpcDiagnosisPGManager:
             * window_us
         ).label("window_start_timestamp")
         filters = [
-            BrpcDiagHitRow.batch_id == batch_id,
+            BrpcDiagnosisPGManager._batch_filter(BrpcDiagHitRow.batch_id, batch_id),
             BrpcDiagHitRow.timestamp >= start_timestamp,
             BrpcDiagHitRow.timestamp < end_timestamp,
         ]
@@ -216,7 +253,7 @@ class BrpcDiagnosisPGManager:
     async def get_interface_timeline_bucket_aggregates(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         window_us: int,
@@ -227,7 +264,9 @@ class BrpcDiagnosisPGManager:
     ) -> list[dict[str, Any]]:
         """Read fully-contained windows from the import-time bucket table."""
         filters = [
-            BrpcDiagInterfaceBucketRow.batch_id == batch_id,
+            BrpcDiagnosisPGManager._batch_filter(
+                BrpcDiagInterfaceBucketRow.batch_id, batch_id
+            ),
             BrpcDiagInterfaceBucketRow.window_seconds == window_us // 1_000_000,
             BrpcDiagInterfaceBucketRow.window_start_timestamp >= start_timestamp,
             BrpcDiagInterfaceBucketRow.window_start_timestamp < end_timestamp,
@@ -373,7 +412,7 @@ class BrpcDiagnosisPGManager:
     @staticmethod
     def _scope_filters(
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         pod_ip: str | None = None,
@@ -381,7 +420,7 @@ class BrpcDiagnosisPGManager:
         thread_id: int | None = None,
     ) -> list[Any]:
         filters: list[Any] = [
-            BrpcDiagHitRow.batch_id == batch_id,
+            BrpcDiagnosisPGManager._batch_filter(BrpcDiagHitRow.batch_id, batch_id),
             BrpcDiagHitRow.timestamp >= start_timestamp,
             BrpcDiagHitRow.timestamp < end_timestamp,
         ]
@@ -397,7 +436,7 @@ class BrpcDiagnosisPGManager:
     async def get_interface_hit_counts(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         pod_ip: str | None = None,
@@ -453,7 +492,7 @@ class BrpcDiagnosisPGManager:
     async def get_failure_mode_hit_counts(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         pod_ip: str | None = None,
@@ -529,7 +568,7 @@ class BrpcDiagnosisPGManager:
     async def list_pod_events(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         window_us: int,
@@ -559,9 +598,13 @@ class BrpcDiagnosisPGManager:
             for index, sort_field in enumerate(metric_sort_fields)
         ]
         window_keys = (
-            select(window_start_timestamp, *metric_columns)
+            select(
+                BrpcDiagHitRow.batch_id.label("batch_id"),
+                window_start_timestamp,
+                *metric_columns,
+            )
             .where(*scope, BrpcDiagHitRow.pod_ip.is_not(None))
-            .group_by(window_start_timestamp)
+            .group_by(BrpcDiagHitRow.batch_id, window_start_timestamp)
             .subquery()
         )
         total_result = await session.execute(
@@ -579,14 +622,14 @@ class BrpcDiagnosisPGManager:
             sort_order,
         )
         paged_windows = (
-            select(window_keys.c.window_start_timestamp)
+            select(window_keys.c.batch_id, window_keys.c.window_start_timestamp)
             .add_columns(
                 *[
                     window_keys.c[f"sort_metric_{index}"]
                     for index in range(len(metric_sort_fields))
                 ]
             )
-            .order_by(*window_metric_order, window_time_order)
+            .order_by(*window_metric_order, window_time_order, window_keys.c.batch_id)
             .limit(page_cnt)
             .offset((page_num - 1) * page_cnt)
             .subquery()
@@ -602,6 +645,7 @@ class BrpcDiagnosisPGManager:
         function_name = func.coalesce(BrpcDiagNodeRow.function_name, "")
         interface_rows = (
             select(
+                BrpcDiagHitRow.batch_id.label("batch_id"),
                 window_start_timestamp,
                 BrpcDiagHitRow.pod_ip.label("pod_ip"),
                 func.max(BrpcDiagHitRow.pod_name).label("pod_name"),
@@ -626,6 +670,7 @@ class BrpcDiagnosisPGManager:
                 BrpcDiagHitRow.pod_ip.is_not(None),
             )
             .group_by(
+                BrpcDiagHitRow.batch_id,
                 window_start_timestamp,
                 BrpcDiagHitRow.pod_ip,
                 component,
@@ -637,6 +682,7 @@ class BrpcDiagnosisPGManager:
         )
         statement = (
             select(
+                interface_rows.c.batch_id,
                 interface_rows.c.window_start_timestamp,
                 interface_rows.c.pod_ip,
                 func.max(interface_rows.c.pod_name).label("pod_name"),
@@ -657,10 +703,14 @@ class BrpcDiagnosisPGManager:
             )
             .join(
                 paged_windows,
-                interface_rows.c.window_start_timestamp
-                == paged_windows.c.window_start_timestamp,
+                and_(
+                    interface_rows.c.batch_id == paged_windows.c.batch_id,
+                    interface_rows.c.window_start_timestamp
+                    == paged_windows.c.window_start_timestamp,
+                ),
             )
             .group_by(
+                interface_rows.c.batch_id,
                 interface_rows.c.window_start_timestamp,
                 interface_rows.c.pod_ip,
                 *[
@@ -680,6 +730,7 @@ class BrpcDiagnosisPGManager:
                     interface_rows.c.window_start_timestamp,
                     sort_order,
                 ),
+                interface_rows.c.batch_id,
                 interface_rows.c.pod_ip,
             )
         )
@@ -692,7 +743,7 @@ class BrpcDiagnosisPGManager:
     async def list_thread_events(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         window_us: int,
@@ -726,9 +777,13 @@ class BrpcDiagnosisPGManager:
             for index, sort_field in enumerate(metric_sort_fields)
         ]
         window_keys = (
-            select(window_start_timestamp, *metric_columns)
+            select(
+                BrpcDiagHitRow.batch_id.label("batch_id"),
+                window_start_timestamp,
+                *metric_columns,
+            )
             .where(*scope, *required)
-            .group_by(window_start_timestamp)
+            .group_by(BrpcDiagHitRow.batch_id, window_start_timestamp)
             .subquery()
         )
         total_result = await session.execute(
@@ -746,14 +801,14 @@ class BrpcDiagnosisPGManager:
             sort_order,
         )
         paged_windows = (
-            select(window_keys.c.window_start_timestamp)
+            select(window_keys.c.batch_id, window_keys.c.window_start_timestamp)
             .add_columns(
                 *[
                     window_keys.c[f"sort_metric_{index}"]
                     for index in range(len(metric_sort_fields))
                 ]
             )
-            .order_by(*window_metric_order, window_time_order)
+            .order_by(*window_metric_order, window_time_order, window_keys.c.batch_id)
             .limit(page_cnt)
             .offset((page_num - 1) * page_cnt)
             .subquery()
@@ -769,6 +824,7 @@ class BrpcDiagnosisPGManager:
         function_name = func.coalesce(BrpcDiagNodeRow.function_name, "")
         interface_rows = (
             select(
+                BrpcDiagHitRow.batch_id.label("batch_id"),
                 window_start_timestamp,
                 BrpcDiagHitRow.pod_ip.label("pod_ip"),
                 func.max(BrpcDiagHitRow.pod_name).label("pod_name"),
@@ -791,6 +847,7 @@ class BrpcDiagnosisPGManager:
             )
             .where(*scope, *required)
             .group_by(
+                BrpcDiagHitRow.batch_id,
                 window_start_timestamp,
                 BrpcDiagHitRow.pod_ip,
                 BrpcDiagHitRow.thread_id,
@@ -803,6 +860,7 @@ class BrpcDiagnosisPGManager:
         )
         statement = (
             select(
+                interface_rows.c.batch_id,
                 interface_rows.c.window_start_timestamp,
                 interface_rows.c.pod_ip,
                 func.max(interface_rows.c.pod_name).label("pod_name"),
@@ -824,10 +882,14 @@ class BrpcDiagnosisPGManager:
             )
             .join(
                 paged_windows,
-                interface_rows.c.window_start_timestamp
-                == paged_windows.c.window_start_timestamp,
+                and_(
+                    interface_rows.c.batch_id == paged_windows.c.batch_id,
+                    interface_rows.c.window_start_timestamp
+                    == paged_windows.c.window_start_timestamp,
+                ),
             )
             .group_by(
+                interface_rows.c.batch_id,
                 interface_rows.c.window_start_timestamp,
                 interface_rows.c.pod_ip,
                 interface_rows.c.thread_id,
@@ -848,6 +910,7 @@ class BrpcDiagnosisPGManager:
                     interface_rows.c.window_start_timestamp,
                     sort_order,
                 ),
+                interface_rows.c.batch_id,
                 interface_rows.c.pod_ip,
                 interface_rows.c.thread_id,
             )
@@ -861,7 +924,7 @@ class BrpcDiagnosisPGManager:
     async def list_abnormal_threads(
         session: AsyncSession,
         *,
-        batch_id: str,
+        batch_id: str | Sequence[str],
         start_timestamp: int,
         end_timestamp: int,
         page_num: int,
@@ -903,11 +966,13 @@ class BrpcDiagnosisPGManager:
         ]
         keys = (
             select(
+                BrpcDiagHitRow.batch_id,
                 BrpcDiagHitRow.pod_ip,
                 BrpcDiagHitRow.thread_id,
             )
             .where(*scope, *required)
             .group_by(
+                BrpcDiagHitRow.batch_id,
                 BrpcDiagHitRow.pod_ip,
                 BrpcDiagHitRow.thread_id,
             )
@@ -924,6 +989,7 @@ class BrpcDiagnosisPGManager:
         function_name = func.coalesce(BrpcDiagNodeRow.function_name, "")
         interface_rows = (
             select(
+                BrpcDiagHitRow.batch_id.label("batch_id"),
                 BrpcDiagHitRow.pod_ip.label("pod_ip"),
                 func.max(BrpcDiagHitRow.pod_name).label("pod_name"),
                 BrpcDiagHitRow.thread_id.label("thread_id"),
@@ -947,6 +1013,7 @@ class BrpcDiagnosisPGManager:
             )
             .where(*scope, *required)
             .group_by(
+                BrpcDiagHitRow.batch_id,
                 BrpcDiagHitRow.pod_ip,
                 BrpcDiagHitRow.thread_id,
                 component,
@@ -974,6 +1041,7 @@ class BrpcDiagnosisPGManager:
             )
         statement = (
             select(
+                interface_rows.c.batch_id,
                 interface_rows.c.pod_ip,
                 func.max(interface_rows.c.pod_name).label("pod_name"),
                 interface_rows.c.thread_id,
@@ -1002,12 +1070,14 @@ class BrpcDiagnosisPGManager:
                 ).label("interface_hits"),
             )
             .group_by(
+                interface_rows.c.batch_id,
                 interface_rows.c.pod_ip,
                 interface_rows.c.thread_id,
             )
             .order_by(
                 *metric_order,
                 func.max(interface_rows.c.last_hit_timestamp).desc(),
+                interface_rows.c.batch_id,
                 interface_rows.c.pod_ip,
                 interface_rows.c.thread_id,
             )

@@ -409,7 +409,7 @@ def test_invalid_query_intervals_are_rejected_before_database_access():
         )
 
 
-def test_minimal_query_routes_are_registered_and_batch_scoped():
+def test_query_routes_are_registered_for_batch_and_knowledge_scopes():
     app = FastAPI()
     app.include_router(router)
     paths = app.openapi()["paths"]
@@ -426,6 +426,11 @@ def test_minimal_query_routes_are_registered_and_batch_scoped():
         "/brpc-diagnosis/batch/{batch_id}/thread-events/{event_id}",
         "/brpc-diagnosis/batch/{batch_id}/abnormal-threads",
         "/brpc-diagnosis/batch/{batch_id}/abnormal-threads/{thread_key}",
+        "/brpc-diagnosis/knowledge/{kb_id}/scope",
+        "/brpc-diagnosis/knowledge/{kb_id}/interface-timeline",
+        "/brpc-diagnosis/knowledge/{kb_id}/pod-events",
+        "/brpc-diagnosis/knowledge/{kb_id}/thread-events",
+        "/brpc-diagnosis/knowledge/{kb_id}/abnormal-threads",
     }
     timeline_parameters = paths[
         "/brpc-diagnosis/batch/{batch_id}/interface-timeline"
