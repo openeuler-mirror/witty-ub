@@ -45,7 +45,13 @@ from latency.task.task_handler import TaskHandler
 from latency.task.progress import parallel_overall_progress, task_progress
 from latency.task.worker.base import BaseWorker
 from latency.task.worker.brpc_log_diagnosis_worker import BrpcLogDiagnosisWorker
-from latency.task.log_preprocessor import cleanup_preprocess_dir, WITTY_DIR_DEFAULT
+from latency.task.log_preprocessor import (
+    ARCHIVE_EXTENSIONS,
+    WITTY_DIR_DEFAULT,
+    cleanup_preprocess_dir,
+    get_archive_extension,
+    is_valid_archive_file,
+)
 from latency.common.zip_handler import ZipHandler
 from latency.exceptions import (
     BadRequestBizException,
@@ -212,6 +218,16 @@ class LogFileService:
         return full_path
 
     @staticmethod
+    def remove_local_file(file_path: str) -> None:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                logger.error(
+                    f"删除临时ZIP文件失败，ZIP文件路径: {file_path}, 错误信息: {str(e)}"
+                )
+
+    @staticmethod
     async def get_readable_dir_size(folder_path: str) -> int:
         total = 0
         for root, _, files in os.walk(folder_path):
@@ -252,6 +268,21 @@ class LogFileService:
                     raise BadRequestBizException(message=f"路径既不是文件也不是目录: {source}")
             elif upload_log_file_config.source_type == SourceType.REMOTE:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
+                if not _validate_remote_url(upload_log_file_config.source):
+                    raise BadRequestBizException(
+                        message=f"不允许的远程日志URL: {upload_log_file_config.source}"
+                    )
+                archive_extension = get_archive_extension(
+                    urlparse(upload_log_file_config.source).path
+                )
+                if archive_extension is None:
+                    supported_formats = "、".join(ARCHIVE_EXTENSIONS)
+                    raise BadRequestBizException(
+                        message=f"远程日志文件仅支持以下压缩格式: {supported_formats}"
+                    )
+                local_archive_file_path = LogFileService.get_upload_path(
+                    log_file_model.id + archive_extension
+                )
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(
@@ -259,41 +290,32 @@ class LogFileService:
                         ) as response:
                             response.raise_for_status()
                             content = await response.read()
-                    local_zip_file_path = LogFileService.get_upload_path(
-                        log_file_model.id + ".zip"
-                    )
-                    async with aiofiles.open(local_zip_file_path, "wb") as f:
+                    async with aiofiles.open(local_archive_file_path, "wb") as f:
                         await f.write(content)
                 except Exception as e:
                     logger.error(
                         f"下载远程日志文件失败，URL: {upload_log_file_config.source}, 错误信息: {str(e)}"
                     )
-                    continue
-                if not ZipHandler.is_zip_file(local_zip_file_path):
+                    LogFileService.remove_local_file(local_archive_file_path)
+                    raise BadRequestBizException(
+                        message=f"下载远程日志文件失败，请检查URL是否可访问: {upload_log_file_config.source}"
+                    ) from e
+                if not is_valid_archive_file(local_archive_file_path):
                     logger.error(
-                        f"下载的远程日志文件不是有效的ZIP文件，URL: {upload_log_file_config.source}"
+                        "下载的远程日志文件不是有效的%s压缩包，URL: %s",
+                        archive_extension,
+                        upload_log_file_config.source,
                     )
-                    continue
-                extracted_file_path = LogFileService.get_upload_path(
-                    log_file_model.id, ""
-                )
-                try:
-                    await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
-                    log_file_model.file_path = extracted_file_path
-                    log_file_model.file_size = (
-                        await LogFileService.get_readable_dir_size(extracted_file_path)
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"解压远程日志文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
-                    )
-                if os.path.exists(local_zip_file_path):
-                    try:
-                        os.remove(local_zip_file_path)
-                    except Exception as e:
-                        logger.error(
-                            f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
+                    LogFileService.remove_local_file(local_archive_file_path)
+                    raise BadRequestBizException(
+                        message=(
+                            f"远程日志文件不是有效的{archive_extension}压缩包: "
+                            f"{upload_log_file_config.source}"
                         )
+                    )
+                # 与服务端本地归档路径保持一致，由任务预处理统一解压。
+                log_file_model.file_path = local_archive_file_path
+                log_file_model.file_size = os.path.getsize(local_archive_file_path)
             elif upload_log_file_config.source_type == SourceType.UPLOAD:
                 uploaded_file: UploadFile = upload_log_file_config.source
                 local_zip_file_path = LogFileService.get_upload_path(

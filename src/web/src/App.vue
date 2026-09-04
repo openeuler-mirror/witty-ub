@@ -8634,6 +8634,17 @@ const detectSourceType = (input: string): 'local' | 'remote' | null => {
   return null
 }
 
+const remoteArchiveExtensions = ['.tar.gz', '.tgz', '.zip']
+
+const isRemoteArchiveUrl = (input: string) => {
+  try {
+    const pathname = new URL(input).pathname.toLowerCase()
+    return remoteArchiveExtensions.some((extension) => pathname.endsWith(extension))
+  } catch {
+    return true
+  }
+}
+
 const statusLabel = (s: string) => {
   if (!s) return '-'
 
@@ -9053,7 +9064,11 @@ const submitLogSource = async () => {
   const sourceType = detectSourceType(input)
   if (!sourceType) {
     uploadLogError.value =
-      '请输入有效的本地路径（如 /var/log/）或远程 URL（如 https://example.com/log.zip）'
+      '请输入有效的本地路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）'
+    return
+  }
+  if (sourceType === 'remote' && !isRemoteArchiveUrl(input)) {
+    uploadLogError.value = '远程 URL 支持 .zip、.tar.gz、.tgz 压缩包'
     return
   }
 
@@ -15846,7 +15861,7 @@ onBeforeUnmount(() => {
               v-model="logSourceInput"
               type="text"
               class="log-source-input"
-              placeholder="添加日志：输入目录路径（如 /var/log/）或远程 URL（如 https://example.com/log.zip）"
+              placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
               :disabled="isUploadingLog"
               @keydown.enter="submitLogSource"
             />
