@@ -27,6 +27,11 @@
 #include "urma_topology.h"
 namespace urma::topo {
 using namespace ubse::context;
+constexpr std::size_t LOCAL_EID_GROUP = 1;
+constexpr std::size_t LOCAL_JETTY_ID_GROUP = 2;
+constexpr std::size_t REMOTE_EID_GROUP = 3;
+constexpr std::size_t REMOTE_JETTY_ID_GROUP = 4;
+constexpr std::size_t EXPECTED_MATCH_COUNT = 5;
 // 解析函数：提取local eid, local jetty_id, remote eid, remote jetty_id
 bool ParseLogLine(const std::string &line, SessionKey &key)
 {
@@ -35,11 +40,11 @@ bool ParseLogLine(const std::string &line, SessionKey &key)
     std::regex re(pattern);
     std::smatch m;
     if (std::regex_search(line, m, re)) {
-        if (m.size() == 5) {
-            key.localEid = m[1].str();
-            key.localJettyId = m[2].str();
-            key.remoteEid = m[3].str();
-            key.remoteJettyId = m[4].str();
+        if (m.size() == EXPECTED_MATCH_COUNT) {
+            key.localEid = m[LOCAL_EID_GROUP].str();
+            key.localJettyId = m[LOCAL_JETTY_ID_GROUP].str();
+            key.remoteEid = m[REMOTE_EID_GROUP].str();
+            key.remoteJettyId = m[REMOTE_JETTY_ID_GROUP].str();
             return true;
         }
     }

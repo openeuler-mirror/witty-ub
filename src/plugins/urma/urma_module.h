@@ -38,4 +38,4 @@ private:
 };
 } // namespace urma::module
 
-#endif //URMA_MODULE_H
+#endif // URMA_MODULE_H

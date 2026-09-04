@@ -115,5 +115,5 @@ public:
         return RACK_OK;
     }
 };
-} //namespace witty_json::io
+} // namespace witty_json::io
 #endif // WITTY_JSON_H
