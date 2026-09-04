@@ -153,10 +153,10 @@ bool Database::AppendConditions(string tableName, ConditionMap conditions, strin
     }
     return true;
 }
-OP_RET Database::OpenDb(string currDbName_, bool enableHis_)
+OP_RET Database::OpenDb(string currDbName, bool enableHis)
 {
-    currDbName = currDbName_;
-    enableHis = enableHis_;
+    this->currDbName = currDbName;
+    this->enableHis = enableHis;
     int rc1 = sqlite3_open(currDbName.c_str(), &currDb);
     int rc2 = 0;
     if (enableHis) {

@@ -32,7 +32,7 @@ LcneResult LcneNodeCollector::GetCurrNodeAllDataMap(std::vector<std::shared_ptr<
 LcneResult LcneNodeCollector::GetCurrNodeDeviceDataMap(std::vector<std::shared_ptr<topology::node::Node>> &nodes)
 {
     LcneResult ret = LCNE_SUCCESS;
-    std::map<lcne::handler::lcne_key, lcne::handler::xmlNode> xml_nodes;
+    std::map<lcne::handler::LcneKey, lcne::handler::XmlNode> xml_nodes;
     ret = lcne::handler::getXMLNodes(lcne::common::LCNE_NODES_REQ_PATH, xml_nodes);
     if (ret != LCNE_SUCCESS) {
         LOG_ERROR << "LcneNodeCollector::GetCurrNodeDeviceDataMap-Error: failed to get node xml data";
@@ -48,9 +48,9 @@ LcneResult LcneNodeCollector::GetCurrNodeDeviceDataMap(std::vector<std::shared_p
 LcneResult LcneNodeCollector::GetCurrNodeUbCDataMap(std::vector<std::shared_ptr<topology::node::UbController>> &ubcs)
 {
     LcneResult ret = LCNE_SUCCESS;
-    std::map<lcne::handler::lcne_key, lcne::handler::xmlNode> xml_nodes;
-    std::map<lcne::handler::lcne_key, lcne::handler::xmlIouInfo> xml_iou_infos;
-    std::shared_ptr<lcne::handler::xmlLogicEntity> xml_logic_entities;
+    std::map<lcne::handler::LcneKey, lcne::handler::XmlNode> xml_nodes;
+    std::map<lcne::handler::LcneKey, lcne::handler::XmlIouInfo> xml_iou_infos;
+    std::shared_ptr<lcne::handler::XmlLogicEntity> xml_logic_entities;
     ret = lcne::handler::getXMLNodes(lcne::common::LCNE_NODES_REQ_PATH, xml_nodes);
     if (ret != LCNE_SUCCESS) {
         LOG_ERROR << "LcneNodeCollector::GetCurrNodeUbCDataMap-Error: failed to get ubc xml data";
@@ -61,7 +61,7 @@ LcneResult LcneNodeCollector::GetCurrNodeUbCDataMap(std::vector<std::shared_ptr<
         LOG_ERROR << "LcneNodeCollector::GetCurrNodeUbCDataMap-Error: failed to get iou info xml data";
         return ret;
     }
-    ret = lcne::handler::getXMLLogicEntities(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, xml_logic_entities);
+    ret = lcne::handler::GetXmlLogicEntities(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, xml_logic_entities);
     if (ret != LCNE_SUCCESS) {
         LOG_ERROR << "LcneNodeCollector::GetCurrNodeUbCDataMap-Error: failed to get logic entity xml data";
         return ret;
@@ -77,8 +77,8 @@ LcneResult LcneNodeCollector::GetCurrNodeUbCDataMap(std::vector<std::shared_ptr<
 LcneResult LcneNodeCollector::GetCurrNodePortDataMap(std::vector<std::shared_ptr<topology::node::Port>> &ports)
 {
     LcneResult ret = LCNE_SUCCESS;
-    std::map<lcne::handler::lcne_key, lcne::handler::xmlNode> xml_nodes;
-    std::map<lcne::handler::lcne_key, lcne::handler::xmlAddress> xml_addresses;
+    std::map<lcne::handler::LcneKey, lcne::handler::XmlNode> xml_nodes;
+    std::map<lcne::handler::LcneKey, lcne::handler::XmlAddress> xml_addresses;
     ret = lcne::handler::getXMLNodes(lcne::common::LCNE_NODES_REQ_PATH, xml_nodes);
     if (ret != LCNE_SUCCESS) {
         LOG_ERROR << "LcneNodeCollector::GetCurrNodePortDataMap-Error: failed to get port xml data";

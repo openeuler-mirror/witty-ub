@@ -69,9 +69,9 @@ tinyxml2::XMLElement *getElement(string &xml_content, Args &&...args)
     return current;
 }
 
-std::string getHostname();
-LcneResult getNodeIpInfos(std::vector<std::string> &ipInfos);
-bool isSpecialIp(const std::string &ip);
+std::string GetHostname();
+LcneResult GetNodeIpInfos(std::vector<std::string> &ipInfos);
+bool IsSpecialIp(const std::string &ip);
 
 LcneResult checkXML(tinyxml2::XMLElement *element);
 
@@ -107,7 +107,7 @@ LcneResult convertTextToUint(tinyxml2::XMLElement *element, T &result)
 }
 
 template <typename T>
-LcneResult convertTextToOptionalUint(tinyxml2::XMLElement *element, std::optional<T> &result)
+LcneResult ConvertTextToOptionalUint(tinyxml2::XMLElement *element, std::optional<T> &result)
 {
     static_assert(std::is_unsigned_v<T>, "T must be unsigned integer type");
     LcneResult ret = LCNE_FAIL;
@@ -136,9 +136,9 @@ LcneResult convertTextToOptionalUint(tinyxml2::XMLElement *element, std::optiona
     }
 }
 LcneResult getTextAsString(tinyxml2::XMLElement *element, std::string &str);
-std::string stringToUpper(const std::string &s);
-LcneResult getHttpData(std::string &resp_body, std::string req_path);
-LcneResult postLinkInfoNotify();
-LcneResult SaveIpToConfigFile(std::string master_ip);
+std::string StringToUpper(const std::string &s);
+LcneResult GetHttpData(std::string &respBody, std::string reqPath);
+LcneResult PostLinkInfoNotify();
+LcneResult SaveIpToConfigFile(std::string masterIp);
 } // namespace lcne::common
 #endif

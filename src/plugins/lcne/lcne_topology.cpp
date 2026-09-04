@@ -51,7 +51,7 @@ LcneResult LcneTopology::CreateTopolgy()
 
     // Check if network mode is clos, if so, clear remote fields in ports
     auto topoArgs = ubse::context::UbseContext::GetInstance().GetTopoToolsArgs();
-    if (topoArgs.network_mode == "clos") {
+    if (topoArgs.networkMode == "clos") {
         for (auto &port : ports_vec) {
             port.remotePortId.reset();
             port.remoteSlotId.reset();
@@ -139,7 +139,7 @@ LcneResult LcneTopology::GetCurTopolgy(std::vector<std::shared_ptr<topology::nod
 
 LcneResult LcneTopology::SubTopolgyChanges()
 {
-    return lcne::common::postLinkInfoNotify();
+    return lcne::common::PostLinkInfoNotify();
 }
 
 LcneResult LcneTopology::RegLinkNotifyHttpHandler()
