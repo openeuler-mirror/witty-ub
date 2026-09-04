@@ -11,21 +11,21 @@
  */
 
 #define MODULE_NAME "Witty-UB"
-#include <string>
 #include <iostream>
-#include "ubse_context.h"
-#include "rack_module.h"
+#include <string>
 #include "rack_error.h"
+#include "rack_module.h"
+#include "database_module.h"
+#include "http/rack_http_module.h"
+#include "lcne_module.h"
+#include "log_local_collector_module.h"
+#include "logger.h"
+#include "mem_global_collector_module.h"
+#include "mem_local_collector_module.h"
 #include "node_global_collector_module.h"
 #include "node_local_collector_module.h"
-#include "mem_local_collector_module.h"
-#include "mem_global_collector_module.h"
-#include "log_local_collector_module.h"
-#include "database_module.h"
-#include "lcne_module.h"
 #include "obmm_module.h"
-#include "logger.h"
-#include "http/rack_http_module.h"
+#include "ubse_context.h"
 
 using namespace ubse::context;
 using namespace topology::node;
@@ -33,7 +33,7 @@ using namespace topology::mem;
 using namespace lcne::module;
 using namespace obmm::module;
 using namespace failure::log;
-UbseContext& g_rackContext = UbseContext::GetInstance();
+UbseContext &g_rackContext = UbseContext::GetInstance();
 // Give the module names to be loaded as command line arguments
 
 void RegisterModules(string role)
@@ -41,15 +41,13 @@ void RegisterModules(string role)
     if (role == "analyzer") {
         g_rackContext.RegisterModule<NodeGlobalCollectorModule>();
         //g_rackContext.RegisterModule<MemGlobalCollectorModule>();
-    }
-    else if (role == "collector") {
+    } else if (role == "collector") {
         g_rackContext.RegisterModule<LcneModule>();
         //g_rackContext.RegisterModule<ObmmModule>();
         g_rackContext.RegisterModule<NodeLocalCollectorModule>();
         //g_rackContext.RegisterModule<MemLocalCollectorModule>();
         g_rackContext.RegisterModule<LogLocalCollectorModule>();
-    }
-    else {
+    } else {
         std::cerr << "RegisterModules-Error: role " << role << " not supported" << std::endl;
     }
 }
@@ -74,32 +72,23 @@ void CreateModules()
         LOG_INFO << "UbseContext::CreateModules: Creating module " << type.name();
         if (type == typeid(DatabaseModule)) {
             g_rackContext.InitModule<DatabaseModule>(RackModule::CreateModule<DatabaseModule>());
-        }
-        else if (type == typeid(NodeLocalCollectorModule)) {
+        } else if (type == typeid(NodeLocalCollectorModule)) {
             g_rackContext.InitModule<NodeLocalCollectorModule>(RackModule::CreateModule<NodeLocalCollectorModule>());
-        }
-        else if (type == typeid(NodeGlobalCollectorModule)) {
+        } else if (type == typeid(NodeGlobalCollectorModule)) {
             g_rackContext.InitModule<NodeGlobalCollectorModule>(RackModule::CreateModule<NodeGlobalCollectorModule>());
-        }
-        else if (type == typeid(LcneModule)) {
+        } else if (type == typeid(LcneModule)) {
             g_rackContext.InitModule<LcneModule>(RackModule::CreateModule<LcneModule>());
-        }
-        else if (type == typeid(ObmmModule)) {
+        } else if (type == typeid(ObmmModule)) {
             g_rackContext.InitModule<ObmmModule>(RackModule::CreateModule<ObmmModule>());
-        }
-        else if (type == typeid(MemLocalCollectorModule)) {
+        } else if (type == typeid(MemLocalCollectorModule)) {
             g_rackContext.InitModule<MemLocalCollectorModule>(RackModule::CreateModule<MemLocalCollectorModule>());
-        }
-        else if (type == typeid(MemGlobalCollectorModule)) {
+        } else if (type == typeid(MemGlobalCollectorModule)) {
             g_rackContext.InitModule<MemGlobalCollectorModule>(RackModule::CreateModule<MemGlobalCollectorModule>());
-        }
-        else if (type == typeid(LogLocalCollectorModule)) {
+        } else if (type == typeid(LogLocalCollectorModule)) {
             g_rackContext.InitModule<LogLocalCollectorModule>(RackModule::CreateModule<LogLocalCollectorModule>());
-        }
-        else if (type == typeid(rack::com::HttpModule)) {
+        } else if (type == typeid(rack::com::HttpModule)) {
             g_rackContext.InitModule<rack::com::HttpModule>(RackModule::CreateModule<rack::com::HttpModule>());
-        }
-        else {
+        } else {
             std::cerr << "CreateModule-Error: module " << type.name() << " not defined" << std::endl;
         }
     }
@@ -122,7 +111,7 @@ void UnInitializeAndStopModules()
         }
     }
 }
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     //Init log first
     rack::logger::init(argv[0]);

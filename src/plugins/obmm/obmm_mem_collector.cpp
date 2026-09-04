@@ -10,27 +10,30 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#include <vector>
-#include <unordered_map>
-#include <string>
-#include <iostream>
 #include "obmm_mem_collector.h"
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 namespace obmm::collector {
-ObmmResult ObmmMemCollector::GetCurrMemAllDataMap(std::vector<std::unordered_map<std::string, std::string>> &exportMemories,
-                                                 std::vector<std::unordered_map<std::string, std::string>> &importMemories)
+ObmmResult ObmmMemCollector::GetCurrMemAllDataMap(
+    std::vector<std::unordered_map<std::string, std::string>> &exportMemories,
+    std::vector<std::unordered_map<std::string, std::string>> &importMemories)
 {
     ObmmResult ret = GetCurrMemExportMemoryDataMap(exportMemories);
     ret = ret || GetCurrMemImportMemoryDataMap(importMemories);
     return ret;
 }
-ObmmResult ObmmMemCollector::GetCurrMemExportMemoryDataMap(std::vector<std::unordered_map<std::string, std::string>> &exportMemories)
+ObmmResult ObmmMemCollector::GetCurrMemExportMemoryDataMap(
+    std::vector<std::unordered_map<std::string, std::string>> &exportMemories)
 {
     ObmmResult ret = SUCCESS;
     return ret;
 }
-ObmmResult ObmmMemCollector::GetCurrMemImportMemoryDataMap(std::vector<std::unordered_map<std::string, std::string>> &importMemories)
+ObmmResult ObmmMemCollector::GetCurrMemImportMemoryDataMap(
+    std::vector<std::unordered_map<std::string, std::string>> &importMemories)
 {
     ObmmResult ret = SUCCESS;
     return ret;
 }
-}
+} // namespace obmm::collector
