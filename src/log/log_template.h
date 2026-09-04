@@ -23,7 +23,7 @@
 namespace failure::log {
     class LogTemplate {
     public:
-        LogTemplate(const FailureMode& mode);
+        explicit LogTemplate(const FailureMode& mode);
 
         std::optional<std::unordered_map<std::string, std::string>> Match(const std::string& line) const;
         std::optional<FailureEvent> CreateEvent(

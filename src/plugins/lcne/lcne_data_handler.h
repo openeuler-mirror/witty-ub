@@ -126,7 +126,7 @@ struct XmlAddress {
 struct XmlLogicEntity {
     std::string state;
     XmlLogicEntity() = default;
-    XmlLogicEntity(const std::string &state) : state(state) {}
+    explicit XmlLogicEntity(const std::string &state) : state(state) {}
 };
 
 LcneResult getXMLNodes(std::string requestPath, std::map<LcneKey, XmlNode> &xml_nodes);

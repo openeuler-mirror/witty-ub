@@ -62,7 +62,9 @@ LcneResult getXMLNodes(std::string requestPath, std::map<LcneKey, XmlNode> &xml_
             LOG_ERROR << "getXMLNodes-Error: getNodePhysicalPorts failed";
             return ret;
         }
-        uint32_t slot, ubpu, iou;
+        uint32_t slot;
+        uint32_t ubpu;
+        uint32_t iou;
         if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slot) == LCNE_FAIL) {
             LOG_ERROR << "getXMLNodes-Error: convert slot id to uint32 failed";
             return ret;
@@ -106,7 +108,10 @@ LcneResult getNodePhysicalPorts(tinyxml2::XMLElement *element,
         tinyxml2::XMLElement *remote_physical_port_id_ele =
             physical_port_element->FirstChildElement("remote-physical-port-id");
         uint32_t physical_port_id;
-        std::optional<uint32_t> remote_slot, remote_ubpu, remote_iou, remote_physical_port_id;
+        std::optional<uint32_t> remote_slot;
+        std::optional<uint32_t> remote_ubpu;
+        std::optional<uint32_t> remote_iou;
+        std::optional<uint32_t> remote_physical_port_id;
         if (lcne::common::convertTextToUint<uint32_t>(physical_port_id_ele, physical_port_id) == LCNE_FAIL) {
             LOG_ERROR << "getNodePhysicalPorts-Error: convert port num to uint32 failed";
             return ret;
@@ -186,7 +191,9 @@ LcneResult getXMLIouInfo(std::string requestPath, std::map<LcneKey, XmlIouInfo> 
             return ret;
         }
         std::string bus_controller_eid = bus_controller_eid_ele->GetText();
-        uint32_t slot_id, ubpu_id, iou_id;
+        uint32_t slot_id;
+        uint32_t ubpu_id;
+        uint32_t iou_id;
         if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slot_id) == LCNE_FAIL) {
             LOG_ERROR << "getXMLIouInfos-Error: convert slot id to uint32 failed";
             return ret;
@@ -249,7 +256,9 @@ LcneResult getXMLAddress(std::string requestPath, std::map<LcneKey, XmlAddress> 
         tinyxml2::XMLElement *iou_id_ele = address_element->FirstChildElement("iou");
         tinyxml2::XMLElement *bus_primary_cna_ele = address_element->FirstChildElement("bus-primary-cna");
         tinyxml2::XMLElement *physical_ports_ele = address_element->FirstChildElement("physical-ports");
-        uint32_t slot_id, ubpu_id, iou_id;
+        uint32_t slot_id;
+        uint32_t ubpu_id;
+        uint32_t iou_id;
         if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slot_id) == LCNE_FAIL) {
             LOG_ERROR << "getXMLAddress-Error: convert slot id to uint32 failed";
             return ret;

@@ -248,8 +248,9 @@ std::optional<int64_t> DatetimeStrToTimestamp(const std::string &datetimeStr, bo
             int len = end - res;
             if (len > 0) {
                 std::string fracStr(res, (len > MICROSECOND_DIGITS ? MICROSECOND_DIGITS : len));
-                if (len < MICROSECOND_DIGITS)
+                if (len < MICROSECOND_DIGITS) {
                     fracStr.append(MICROSECOND_DIGITS - len, '0');
+                }
                 microseconds = std::stoll(fracStr);
             }
             res = end;

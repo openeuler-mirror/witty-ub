@@ -30,12 +30,15 @@ struct SessionKey {
     // 定义排序规则，使map能够存储
     bool operator<(const SessionKey &other) const
     {
-        if (localEid != other.localEid)
+        if (localEid != other.localEid) {
             return localEid < other.localEid;
-        if (localJettyId != other.localJettyId)
+        }
+        if (localJettyId != other.localJettyId) {
             return localJettyId < other.localJettyId;
-        if (remoteEid != other.remoteEid)
+        }
+        if (remoteEid != other.remoteEid) {
             return remoteEid < other.remoteEid;
+        }
         return remoteJettyId < other.remoteJettyId;
     }
 
