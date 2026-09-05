@@ -15,6 +15,7 @@ from latency.schemas.response import (
 )
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.common.convertor import Convertor
+from latency.database.engine import PGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
@@ -31,10 +32,12 @@ class LogKnowledgeService:
     @staticmethod
     async def create_log_kb(req: CreateLogKnowledgeRequest) -> CreateLogKnowledgeMsg:
         log_kb = await Convertor.create_log_kb_req_to_log_kb_model(req)
-        kb_id = await LogKnowledgePGManager.add_log_kb(log_kb)
-        if not kb_id:
-            raise ConflictBizException(message="资产库名称已存在")
-        await DiagnosisConfigPGManager.reset(kb_id)
+        # The asset and its default configuration must commit or roll back together.
+        async with PGManager.session() as session:
+            kb_id = await LogKnowledgePGManager.add_log_kb(log_kb, session=session)
+            if not kb_id:
+                raise ConflictBizException(message="资产库名称已存在")
+            await DiagnosisConfigPGManager.reset(kb_id, session=session)
         return CreateLogKnowledgeMsg(kb_id=kb_id)
 
     @staticmethod

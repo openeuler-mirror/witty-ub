@@ -49,34 +49,39 @@ class LogKnowledgePGManager:
         }
 
     @staticmethod
-    async def add_log_kb(log_kb_model: LogKnowledgeModel) -> str | None:
-        async with PGManager.session() as session:
-            if log_kb_model.name is not None:
-                # Serialize creations of the same active name.  The advisory
-                # lock closes the check/insert race without preventing a name
-                # from being reused after its previous asset library is soft
-                # deleted.
-                await session.execute(
-                    select(
-                        func.pg_advisory_xact_lock(
-                            func.hashtextextended(log_kb_model.name, 0)
-                        )
-                    )
-                )
-                existing_id = await session.scalar(
-                    select(LogKnowledge.id)
-                    .where(
-                        LogKnowledge.name == log_kb_model.name,
-                        LogKnowledge.existed_status.is_(True),
-                    )
-                    .limit(1)
-                )
-                if existing_id is not None:
-                    return None
-
+    async def add_log_kb(
+        log_kb_model: LogKnowledgeModel, session: AsyncSession | None = None
+    ) -> str | None:
+        """Insert using the caller transaction, or commit a standalone insert."""
+        if session is None:
+            async with PGManager.session() as own_session:
+                return await LogKnowledgePGManager.add_log_kb(log_kb_model, own_session)
+        if log_kb_model.name is not None:
+            # Serialize creations of the same active name.  The advisory
+            # lock closes the check/insert race without preventing a name
+            # from being reused after its previous asset library is soft
+            # deleted.
             await session.execute(
-                insert(LogKnowledge), [LogKnowledgePGManager._model_to_mapping(log_kb_model)]
+                select(
+                    func.pg_advisory_xact_lock(
+                        func.hashtextextended(log_kb_model.name, 0)
+                    )
+                )
             )
+            existing_id = await session.scalar(
+                select(LogKnowledge.id)
+                .where(
+                    LogKnowledge.name == log_kb_model.name,
+                    LogKnowledge.existed_status.is_(True),
+                )
+                .limit(1)
+            )
+            if existing_id is not None:
+                return None
+
+        await session.execute(
+            insert(LogKnowledge), [LogKnowledgePGManager._model_to_mapping(log_kb_model)]
+        )
         return log_kb_model.id
 
     @staticmethod
