@@ -87,9 +87,9 @@ class BrpcProfilingResultPGManager:
                 f"[PG] 写入 BRPC profiling 结果: {len(models)} 条, log_id={log_id}"
             )
             return True
-        except Exception as e:
-            logger.error(f"[PG] 写入 BRPC profiling 结果失败: {e}")
-            return False
+        except Exception:
+            logger.exception("[PG] 写入 BRPC profiling 结果失败")
+            raise
 
     @staticmethod
     async def delete_by_log_id(log_id: str) -> bool:
