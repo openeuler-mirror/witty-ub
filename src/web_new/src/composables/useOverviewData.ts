@@ -1780,3 +1780,894 @@ function createOverviewState() {
         children: [
           sub('Worker内部', 'local_worker_internal_us', ['__worker_internal']),
           sub('URMA', 'urma_processing_us', ['urma_processing_us']),
+        ],
+      },
+    ]
+    const workerStage = stages[4]
+    if (workerStage && workerStage.children[0] && workerInternal > 0) {
+      workerStage.children[0].value = workerInternal
+    }
+    // 主条分母 = 出现的各阶段之和（归一化到 100%）
+    const total = stages.reduce((sum, s) => sum + (s.value ?? 0), 0) || 1
+    const toMs = (v: number | null) => (v != null ? +(v / 1000).toFixed(2) : null)
+    return {
+      maxChildren: Math.max(0, ...stages.map((s) => s.children.length)),
+      stages: stages.map((s) => ({
+        ...s,
+        pct: s.value != null ? (s.value / total) * 100 : 0,
+        valueMs: toMs(s.value),
+        children: s.children.map((c) => ({
+          ...c,
+          valueMs: toMs(c.value),
+          // 子项相对父阶段的比例（网络+框架≈父，内部/URMA 可能≈父，因重叠）
+          rel: s.value != null && c.value != null ? Math.min(100, (c.value / s.value) * 100) : 0,
+        })),
+      })),
+    }
+  }
+
+  const _podStageFlowTitle = (stat: any) => {
+    const flow = podStageFlow(stat)
+    const lines = flow.stages.flatMap((s) => [
+      `${s.label} ${s.valueMs != null ? s.valueMs + 'ms' : '-'} (${s.pct.toFixed(0)}%)`,
+      ...s.children.filter((c) => c.valueMs != null).map((c) => `  └ ${c.label} ${c.valueMs}ms`),
+    ])
+    return lines.join('\n')
+  }
+
+  const traceBoard = ref<string[]>([])
+  const addTraceBoard = (row: any) => {
+    if (!row.trace_id || traceBoard.value.includes(row.trace_id)) return
+    traceBoard.value.push(row.trace_id)
+    toast(`Trace ${row.trace_id.slice(0, 8)}… 已加入看板`, 'info')
+  }
+  const removeTraceBoard = (id: string) => {
+    traceBoard.value = traceBoard.value.filter((item) => item !== id)
+  }
+
+  const tracePageSize = 10
+  const tracePage = ref(1)
+  const tracePages = computed(() => Math.max(1, Math.ceil(traceRows.value.length / tracePageSize)))
+  const pagedTraceRows = computed(() => paginate(traceRows.value, tracePage.value, tracePageSize))
+
+  watch([traceSearch, traceCluster], () => {
+    tracePage.value = 1
+  })
+
+  // ---------- 通断故障监控 ----------
+
+  const faultChartData = computed(() => scopeData.value.faultChart || {})
+  const faultTraces = computed(() => scopeData.value.faultTraces || [])
+  const faultTimeRange = ref<{ start: string; end: string } | null>(null)
+  const clearFaultRange = () => {
+    faultTimeRange.value = null
+    const el = faultChartRef.value
+    const chart = el && getInstanceByDom(el)
+    if (chart) chart.dispatchAction({ type: 'brush', areas: [] })
+  }
+
+  const faultPodAgg = computed(() => {
+    const map = new Map<string, { ip: string; faults: number; codes: Set<string> }>()
+    faultTraces.value.forEach((trace) => {
+      const ips = [
+        ...new Set([trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean)),
+      ]
+      ips.forEach((ip: string) => {
+        if (!ip) return
+        if (!map.has(ip)) map.set(ip, { ip, faults: 0, codes: new Set() })
+        const stat = map.get(ip)!
+        stat.faults += 1
+        normalizeFaultCodes(trace.status_code).forEach((code) => stat.codes.add(code))
+      })
+    })
+    return [...map.values()]
+      .sort((a, b) => b.faults - a.faults)
+      .slice(0, 10)
+      .map((stat) => ({ ip: stat.ip, faults: stat.faults, codes: [...stat.codes] }))
+  })
+
+  const filteredFaultTraces = computed(() => {
+    const rows = faultTraces.value
+    if (!faultTimeRange.value) return rows
+    return rows.filter((row) => {
+      const time = (row.timestamp || '').slice(11, 19)
+      return time >= faultTimeRange.value!.start && time <= faultTimeRange.value!.end
+    })
+  })
+
+  const faultTracePageSize = 10
+  const faultTracePage = ref(1)
+  const faultTracePages = computed(() =>
+    Math.max(1, Math.ceil(filteredFaultTraces.value.length / faultTracePageSize)),
+  )
+  const pagedFaultTraces = computed(() =>
+    paginate(filteredFaultTraces.value, faultTracePage.value, faultTracePageSize),
+  )
+
+  watch([faultTimeRange, currentOp], () => {
+    faultTracePage.value = 1
+  })
+
+  // ---------- Pod 详情（轻量版：聚合 + 相关 Trace） ----------
+
+  const podDetailOpen = ref(false)
+  const podDetailIp = ref('')
+  const podDetailSearch = ref('')
+  const podDetailPage = ref(1)
+  const podDetailPageSize = 10
+
+  const podDetailRows = computed(() => {
+    const ip = podDetailIp.value
+    const rows = [
+      ...(scopeData.value.faultTraces || []),
+      ...(scopeData.value.abnormal || []),
+    ].filter(
+      (row) =>
+        (row.pod_ips || []).includes(ip) ||
+        (row.pod_names || []).includes(ip) ||
+        row.src_ip === ip ||
+        row.dst_ip === ip,
+    )
+    const seen = new Set<string>()
+    const deduped = rows.filter((row) => {
+      const key = row.trace_id || row.id || `${row.timestamp}-${row.src_ip}-${row.dst_ip}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    const keyword = podDetailSearch.value.trim().toLowerCase()
+    if (keyword) {
+      return deduped.filter(
+        (row) =>
+          String(row.trace_id || '')
+            .toLowerCase()
+            .includes(keyword) ||
+          String(row.timestamp || '')
+            .toLowerCase()
+            .includes(keyword),
+      )
+    }
+    return deduped
+  })
+
+  const podDetailSummary = computed(() => {
+    const rows = podDetailRows.value
+    return {
+      total: rows.length,
+      src: rows.filter((row) => row.src_ip === podDetailIp.value).length,
+      dst: rows.filter((row) => row.dst_ip === podDetailIp.value).length,
+      anomaly: rows.filter(
+        (row) => row.is_anomalous || normalizeFaultCodes(row.status_code).length > 0,
+      ).length,
+    }
+  })
+
+  const podDetailPages = computed(() =>
+    Math.max(1, Math.ceil(podDetailRows.value.length / podDetailPageSize)),
+  )
+  const pagedPodDetailRows = computed(() =>
+    paginate(podDetailRows.value, podDetailPage.value, podDetailPageSize),
+  )
+
+  const enterPodDetail = async (ip: string) => {
+    const op = realOp.value
+    const latencyKey = `${op}:${trendPercentile.value}`
+    const needTrend =
+      !sectionCaches.abnormal.has(op) ||
+      !sectionCaches.topSlow.has(op) ||
+      !sectionCaches.latency.has(latencyKey)
+    const needFault = !sectionCaches.faultTraces.has(op)
+    if (needTrend) await loadTrendSection(op, trendPercentile.value)
+    if (needFault) await loadFaultSection(op)
+    podDetailIp.value = ip
+    podDetailSearch.value = ''
+    podDetailPage.value = 1
+    podDetailOpen.value = true
+  }
+
+  // ---------- Trace 抽屉 / 故障模式 ----------
+
+  const detailDrawerOpen = ref(false)
+  const detailDrawerRow = ref<any>(null)
+  const drawerKind = ref<'log' | 'trace'>('log')
+  const traceDrawerLogs = ref<any[]>([])
+
+  const openTraceDrawer = async (row: any) => {
+    detailDrawerRow.value = row
+    drawerKind.value = 'trace'
+    detailDrawerOpen.value = true
+    traceDrawerLogs.value = []
+    const asset = selectedAsset.value
+    if (!asset || !row?.trace_id) return
+    try {
+      const result = await fetchTraceLogs(asset.id, [row.trace_id])
+      traceDrawerLogs.value = result.log_failure_event_results ?? []
+    } catch {
+      traceDrawerLogs.value = []
+    }
+    if (!row.total_latency && !row.total_latency_us) {
+      try {
+        const latencyRow = await fetchTraceLatency(asset.id, row.trace_id)
+        if (latencyRow) {
+          detailDrawerRow.value = { ...row, ...latencyRow }
+        }
+      } catch {
+        // 无时延明细时保持原样
+      }
+    }
+  }
+
+  const failureModeCache = reactive<Record<string, any>>({})
+  const loadFailureMode = async (id: string) => {
+    if (id in failureModeCache) return
+    try {
+      const result = await fetchFailureMode(id)
+      failureModeCache[id] = result.failure_mode ?? result.failure_mode_knowledge ?? null
+    } catch {
+      failureModeCache[id] = null
+    }
+  }
+  const failureModeOf = (id?: string | null) => {
+    if (!id) return null
+    if (!(id in failureModeCache)) void loadFailureMode(id)
+    return failureModeCache[id] ?? null
+  }
+
+  const traceStageRows = (row: any) => {
+    const defs = [
+      { name: '总时延', key: 'total_latency' },
+      { name: '查询元数据时延', key: 'worker_query_meta_latency' },
+      { name: 'URMA总时延', key: 'urma_total_latency' },
+      { name: 'URMA建链时延', key: 'urma_link_latency' },
+      { name: 'C2W URMA时延', key: 'c2w_urma_latency' },
+      { name: 'W2W URMA时延', key: 'w2w_urma_latency' },
+      { name: 'SDK处理时延', key: 'sdk_process' },
+      { name: 'SDK RPC时延', key: 'sdk_rpc' },
+      { name: '本地Worker处理时延', key: 'local_worker_cost' },
+      { name: '本地Worker锁时延', key: 'local_worker_lock' },
+      { name: '远端Worker处理时延', key: 'remote_worker_cost' },
+      { name: '远端Worker RPC时延', key: 'remote_worker_rpc' },
+      { name: 'Master处理时延', key: 'master_process' },
+      { name: 'Master RPC总时延', key: 'master_rpc_total' },
+    ]
+    return defs.map((def) => {
+      const value = row ? row[def.key] : null
+      const status = value == null ? '未解析' : row.is_anomalous ? '异常' : '正常'
+      return { name: def.name, value, status }
+    })
+  }
+
+  // ---------- 图表渲染 ----------
+
+  const topoRef = ref<HTMLElement | null>(null)
+  const pieRefs: Record<string, HTMLElement | null> = {}
+  const ipRowRefs: Record<string, HTMLElement | null> = {}
+  const trendRef = ref<HTMLElement | null>(null)
+  const slowRef = ref<HTMLElement | null>(null)
+  const faultChartRef = ref<HTMLElement | null>(null)
+  const faultPodRef = ref<HTMLElement | null>(null)
+  const faultTopoRef = ref<HTMLElement | null>(null)
+  const faultPieRefs: Record<string, HTMLElement | null> = {}
+  const brpcSuccessRef = ref<HTMLElement | null>(null)
+  const brpcP99Ref = ref<HTMLElement | null>(null)
+  const brpcFaultTimelineRef = ref<HTMLElement | null>(null)
+
+  const getChart = (element: HTMLElement) => getInstanceByDom(element) || init(element)
+
+  const setChartOption = (chart: ECharts, option: any) => {
+    chart.setOption(option, { replaceMerge: ['series', 'legend'] })
+  }
+
+  const highlightRow = (ip: string) => {
+    const el = ipRowRefs[ip]
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('highlight-row')
+    window.setTimeout(() => el.classList.remove('highlight-row'), 2000)
+  }
+
+  const jumpToPod = (ip: string) => {
+    if (!podIpStats.value.some((stat) => stat.ip === ip)) {
+      toast(`未找到 Pod IP ${ip}`, 'info')
+      return
+    }
+    if (!filteredPodStats.value.some((stat) => stat.ip === ip)) {
+      selectedPodIps.value = []
+      podIpCbPage.value = 1
+      toast('目标 Pod 不在当前筛选内，已显示全部 Pod IP', 'info')
+    }
+    nextTick(() => {
+      const index = filteredPodStats.value.findIndex((stat) => stat.ip === ip)
+      if (index < 0) return
+      podPage.value = Math.floor(index / podPageSize) + 1
+      nextTick(() => highlightRow(ip))
+    })
+  }
+
+  // 拓扑边异常率色阶：保证一般异常和高异常率在浅色画布上都有足够对比度。
+  const severityColor = (ratio: number, healthy: string) =>
+    ratio > 0.1 ? '#DC2626' : ratio > 0.02 ? '#EA580C' : ratio > 0 ? '#D97706' : healthy
+
+  const topoNodeLimit = 30
+  const topoShowAll = ref(false)
+  const topoHiddenCount = ref(0)
+  const topoTotalCount = ref(0)
+  const selectedTopologyLinkKey = ref('')
+  const selectedTopologyNodeIp = ref('')
+  let topologyBlankClickHandler: ((event: any) => void) | null = null
+
+  type TopologyLink = {
+    key: string
+    source: string
+    target: string
+    action: string
+    totalCount: number
+    anomalyCount: number
+    anomalyRate: number
+    queryMeta: number | null | undefined
+    urmaTotal: number | null | undefined
+    urmaLink: number | null | undefined
+    c2w: number | null | undefined
+    w2w: number | null | undefined
+  }
+
+  // 将多个时间桶内同一方向的 IP 对合并为一条可比较链路，供图、排名和详情共用。
+  const topologyLinks = computed<TopologyLink[]>(() => {
+    const links = new Map<string, TopologyLink>()
+    activePairs.value.forEach((pair) => {
+      const key = `${pair.src}→${pair.dst}`
+      const totalCount = currentOp.value === 'GET' ? pair.get : pair.set
+      if (!totalCount) return
+      const anomalyCount = pair.anomaly
+      const current = links.get(key)
+      if (!current) {
+        links.set(key, {
+          key,
+          source: pair.src,
+          target: pair.dst,
+          action: currentOp.value,
+          totalCount,
+          anomalyCount,
+          anomalyRate: totalCount ? anomalyCount / totalCount : 0,
+          queryMeta: pair.queryMeta,
+          urmaTotal: pair.urmaTotal,
+          urmaLink: pair.urmaLink,
+          c2w: pair.c2w,
+          w2w: pair.w2w,
+        })
+        return
+      }
+      ;(['queryMeta', 'urmaTotal', 'urmaLink', 'c2w', 'w2w'] as const).forEach((field) => {
+        const previousValue = current[field]
+        const nextValue = pair[field]
+        if (typeof previousValue === 'number' && typeof nextValue === 'number') {
+          current[field] =
+            (previousValue * current.totalCount + nextValue * totalCount) /
+            (current.totalCount + totalCount)
+        } else if (typeof nextValue === 'number') {
+          current[field] = nextValue
+        }
+      })
+      current.totalCount += totalCount
+      current.anomalyCount += anomalyCount
+      current.anomalyRate = current.totalCount ? current.anomalyCount / current.totalCount : 0
+    })
+    return [...links.values()].sort(
+      (a, b) =>
+        b.anomalyCount - a.anomalyCount ||
+        b.anomalyRate - a.anomalyRate ||
+        b.totalCount - a.totalCount ||
+        a.key.localeCompare(b.key),
+    )
+  })
+
+  const visibleTopologyLinks = computed(() => {
+    if (!selectedPodIps.value.length) return topologyLinks.value
+    const selected = new Set(selectedPodIps.value)
+    return topologyLinks.value.filter(
+      (link) => selected.has(link.source) || selected.has(link.target),
+    )
+  })
+
+  const topologySummary = computed(() => {
+    const links = visibleTopologyLinks.value
+    const nodes = new Set(links.flatMap((link) => [link.source, link.target]))
+    return {
+      nodeCount: nodes.size,
+      linkCount: links.length,
+      totalCount: links.reduce((sum, link) => sum + link.totalCount, 0),
+      anomalyCount: links.reduce((sum, link) => sum + link.anomalyCount, 0),
+    }
+  })
+
+  const selectedTopologyLink = computed(
+    () => topologyLinks.value.find((link) => link.key === selectedTopologyLinkKey.value) ?? null,
+  )
+  const selectedTopologyNode = computed(
+    () => podIpStats.value.find((node) => node.ip === selectedTopologyNodeIp.value) ?? null,
+  )
+  const selectTopologyLink = (link: TopologyLink) => {
+    selectedTopologyLinkKey.value = selectedTopologyLinkKey.value === link.key ? '' : link.key
+    selectedTopologyNodeIp.value = ''
+  }
+  const selectTopologyNode = (ip: string) => {
+    selectedTopologyNodeIp.value = selectedTopologyNodeIp.value === ip ? '' : ip
+    selectedTopologyLinkKey.value = ''
+  }
+  const filterTopologyLink = (link: TopologyLink) => {
+    selectedPodIps.value = [link.source, link.target]
+  }
+
+  // 等比环形布局：坐标始终落在正方形绘图区，避免横向画布将圆环和节点拉伸变形。
+  const layoutTopoNodes = (nodes: { ip: string; total: number; src: number; dst: number }[]) => {
+    const ordered = [...nodes].sort((a, b) => b.total - a.total || a.ip.localeCompare(b.ip))
+    const positions = new Map<string, { x: number; y: number }>()
+    ordered.forEach((node, index) => {
+      const angle = -Math.PI / 2 + (index / Math.max(ordered.length, 1)) * Math.PI * 2
+      positions.set(node.ip, { x: Math.cos(angle), y: Math.sin(angle) })
+    })
+    return positions
+  }
+
+  const renderTopology = () => {
+    nextTick(() => {
+      const el = topoRef.value
+      if (!el) return
+      const chart = getChart(el)
+
+      const nodeMap = new Map<string, any>()
+      visibleTopologyLinks.value.forEach((link) => {
+        ;(
+          [
+            ['src', link.source],
+            ['dst', link.target],
+          ] as const
+        ).forEach(([role, ip]) => {
+          if (!nodeMap.has(ip)) nodeMap.set(ip, { ip, total: 0, anomaly: 0, src: 0, dst: 0 })
+          const node = nodeMap.get(ip)
+          node.total += link.totalCount
+          node.anomaly += link.anomalyCount
+          if (role === 'src') node.src += link.totalCount
+          else node.dst += link.totalCount
+        })
+      })
+
+      let aggregatedLinks: any[] = visibleTopologyLinks.value.map((link) => ({
+        ...link,
+        value: link.totalCount,
+      }))
+
+      // 节点过多时只保留通信量 Top N，其余连同边隐藏
+      const involved = new Set(aggregatedLinks.flatMap((link) => [link.source, link.target]))
+      const allNodes = [...nodeMap.values()].filter((node) => involved.has(node.ip))
+      let visibleNodes = allNodes
+      if (!topoShowAll.value && allNodes.length > topoNodeLimit) {
+        const keep = new Set(
+          [...allNodes]
+            .sort((a, b) => b.total - a.total || a.ip.localeCompare(b.ip))
+            .slice(0, topoNodeLimit)
+            .map((node) => node.ip),
+        )
+        visibleNodes = allNodes.filter((node) => keep.has(node.ip))
+        aggregatedLinks = aggregatedLinks.filter(
+          (link) => keep.has(link.source) && keep.has(link.target),
+        )
+      }
+      topoTotalCount.value = allNodes.length
+      topoHiddenCount.value = topoShowAll.value ? 0 : allNodes.length - visibleNodes.length
+
+      // 边宽轻量表达通信量，色彩表达异常率；双向边反向弯曲避免重叠。
+      if (aggregatedLinks.length > 0) {
+        const counts = aggregatedLinks.map((link) => link.totalCount)
+        const minCount = Math.min(...counts)
+        const maxCount = Math.max(...counts)
+        aggregatedLinks.forEach((link) => {
+          const normalized =
+            Math.log1p(link.totalCount - minCount) / Math.log1p(maxCount - minCount || 1)
+          const width = 3.5 + normalized * 2
+          const ratio = link.anomalyRate
+          const healthy = ratio <= 0
+          const selected = selectedTopologyLinkKey.value === link.key
+          link.lineStyle = {
+            color: selected ? '#6D28D9' : severityColor(ratio, '#64748B'),
+            width: selected ? width + 2 : healthy ? Math.max(2.5, width * 0.75) : width,
+            opacity: selected ? 1 : healthy ? 0.65 : 0.9,
+            curveness: link.source < link.target ? 0.08 : -0.08,
+            shadowBlur: selected ? 6 : 0,
+            shadowColor: selected ? 'rgba(109,40,217,0.35)' : 'transparent',
+          }
+          link.symbolSize = [0, Math.min(13, Math.max(10, Math.round(width + 7)))]
+        })
+      }
+
+      const positions = layoutTopoNodes(visibleNodes)
+      const graphSize = Math.max(220, Math.min(el.clientWidth - 150, el.clientHeight - 70))
+      const graphLeft = Math.max(75, (el.clientWidth - graphSize) / 2)
+      const graphTop = Math.max(35, (el.clientHeight - graphSize) / 2)
+      const maxTotal = Math.max(...visibleNodes.map((node) => node.total), 1)
+      const nodes = visibleNodes.map((node) => {
+        const pos = positions.get(node.ip)
+        const selectedLink = selectedTopologyLink.value
+        const focused =
+          selectedTopologyNodeIp.value === node.ip ||
+          selectedLink?.source === node.ip ||
+          selectedLink?.target === node.ip
+        const size = 34 + Math.sqrt(node.total / maxTotal) * 12
+        return {
+          name: node.ip,
+          x: pos?.x,
+          y: pos?.y,
+          total: node.total,
+          anomaly: node.anomaly,
+          src: node.src,
+          dst: node.dst,
+          symbol: 'circle',
+          symbolSize: size,
+          cursor: 'pointer',
+          itemStyle: {
+            color: focused ? '#1E40AF' : '#4F8EF7',
+            borderColor: focused ? '#172554' : '#1D4ED8',
+            borderWidth: focused ? 4 : 2,
+            shadowBlur: focused ? 12 : 5,
+            shadowColor: focused ? 'rgba(30,64,175,0.45)' : 'rgba(29,78,216,0.24)',
+          },
+          label: {
+            show: true,
+            position:
+              pos && pos.x > 0.35
+                ? 'right'
+                : pos && pos.x < -0.35
+                  ? 'left'
+                  : pos && pos.y > 0
+                    ? 'bottom'
+                    : 'top',
+            distance: 7,
+            formatter: node.ip,
+            color: '#1E293B',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: 11,
+            fontWeight: 600,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderRadius: 3,
+            padding: [2, 4],
+          },
+        }
+      })
+
+      setChartOption(chart, {
+        animation: false,
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => {
+            if (params.dataType === 'node') {
+              const data = params.data
+              return `<b>${data.name}</b><br/>总通信次数: ${data.total.toLocaleString()}<br/>出方向(源): ${data.src.toLocaleString()} &nbsp; 入方向(目标): ${data.dst.toLocaleString()}<br/>异常数: ${data.anomaly}<br/>异常率: ${data.total ? ((data.anomaly / data.total) * 100).toFixed(1) : 0}%`
+            }
+            if (params.dataType === 'edge') {
+              const data = params.data
+              const fmt = (value: unknown) =>
+                value == null || value === '-' ? '-' : Number(value).toFixed(1)
+              return `<b>${data.action} · ${data.source} → ${data.target}</b><br/>通信次数: ${data.totalCount.toLocaleString()}<br/>异常数: ${data.anomalyCount} (${data.totalCount ? ((data.anomalyCount / data.totalCount) * 100).toFixed(1) : 0}%)<br/><br/>时延指标 (ms):<br/>查询元数据: ${fmt(data.queryMeta)}<br/>URMA总: ${fmt(data.urmaTotal)}<br/>URMA建链: ${fmt(data.urmaLink)}<br/>C2W: ${fmt(data.c2w)}<br/>W2W: ${fmt(data.w2w)}`
+            }
+            return ''
+          },
+        },
+        series: [
+          {
+            type: 'graph',
+            layout: 'none',
+            roam: true,
+            draggable: false,
+            cursor: 'pointer',
+            left: graphLeft,
+            top: graphTop,
+            width: graphSize,
+            height: graphSize,
+            edgeSymbol: ['none', 'arrow'],
+            labelLayout: { hideOverlap: true },
+            data: nodes,
+            links: aggregatedLinks,
+            emphasis: {
+              focus: 'adjacency',
+              lineStyle: { opacity: 0.95, width: 4.8 },
+              itemStyle: { shadowBlur: 16 },
+            },
+          },
+        ],
+      })
+
+      // 点击只查看详情并高亮，不隐式缩小图；筛选必须由用户显式触发。
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        if (params.dataType === 'edge') {
+          selectTopologyLink(params.data)
+        } else if (params.dataType === 'node') {
+          selectTopologyNode(params.data.name)
+        }
+      })
+      if (topologyBlankClickHandler) {
+        chart.getZr().off('click', topologyBlankClickHandler)
+      }
+      topologyBlankClickHandler = (event: any) => {
+        if (!event.target) {
+          selectedTopologyLinkKey.value = ''
+          selectedTopologyNodeIp.value = ''
+        }
+      }
+      chart.getZr().on('click', topologyBlankClickHandler)
+    })
+  }
+
+  const resetTopologyFilter = () => {
+    selectedPodIps.value = []
+    topoShowAll.value = false
+    selectedTopologyLinkKey.value = ''
+    selectedTopologyNodeIp.value = ''
+    podIpCbPage.value = 1
+  }
+
+  const pctToIndex = (pct: number, n: number) =>
+    Math.max(0, Math.min(n - 1, Math.round((pct / 100) * (n - 1))))
+
+  const renderAnomalyChart = () => {
+    nextTick(() => {
+      const el = anomalyRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const buckets = anomalySeries.value
+      if (!buckets.length) {
+        chart.clear()
+        overviewBrushRange.value = null
+        return
+      }
+      const times = buckets.map((b) => b.time)
+      const n = buckets.length
+      const toPct = (time: number) => {
+        if (!times.length) return [0, 100] as const
+        const min = times[0] ?? 0
+        const max = times[n - 1] ?? min
+        const span = max - min || 1
+        const start = Math.max(0, ((time - min) / span) * 100)
+        return [start, 100] as const
+      }
+      const [pctStart, pctEnd] = overviewBrushRange.value
+        ? toPct(overviewBrushRange.value.start)
+        : ([0, 100] as const)
+      const statLabelMap: Record<string, string> = {
+        ave: '均值',
+        p95: 'P95',
+        p99: 'P99',
+        min: '最小',
+        max: '最大',
+      }
+      const statLabel = statLabelMap[overview.statType] || '均值'
+
+      setChartOption(chart, {
+        animation: false,
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          formatter: (params: any) => {
+            const index = (Array.isArray(params) ? params : [])[0]?.dataIndex
+            const bucket = buckets[index]
+            if (!bucket) return ''
+            return `<b>${bucket.start} ~ ${bucket.end}</b><br/>请求数: ${bucket.total}<br/>异常请求数: <span style="color:#EF4444">${bucket.anomaly}</span><br/>总时延(${statLabel}): ${bucket.statValue != null ? bucket.statValue.toFixed(2) + ' ms' : '-'}`
+          },
+        },
+        grid: { left: 54, right: 70, top: 48, bottom: 56 },
+        xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+        yAxis: [
+          {
+            type: 'value',
+            name: '异常数',
+            nameTextStyle: { color: '#EF4444' },
+            minInterval: 1,
+            axisLabel: { fontSize: 10 },
+          },
+          {
+            type: 'value',
+            name: '总时延(ms)',
+            nameTextStyle: { color: '#1E6FFF' },
+            axisLabel: { fontSize: 10 },
+            splitLine: { show: false },
+          },
+        ],
+        legend: {
+          top: 0,
+          right: 8,
+          itemWidth: 14,
+          itemHeight: 8,
+          itemGap: 12,
+          textStyle: { fontSize: 10 },
+        },
+        dataZoom: [
+          {
+            type: 'inside',
+            start: pctStart,
+            end: pctEnd,
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+          },
+          { type: 'slider', start: pctStart, end: pctEnd, bottom: 12, height: 18 },
+        ],
+        series: [
+          {
+            name: '异常请求数',
+            type: 'bar',
+            barMaxWidth: 28,
+            itemStyle: { color: '#EF4444', borderRadius: [3, 3, 0, 0] },
+            data: buckets.map((b) => [b.time, b.anomaly]),
+          },
+          {
+            name: `总时延·${statLabel}`,
+            type: 'line',
+            yAxisIndex: 1,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 5,
+            data: buckets.map((b) => [b.time, b.statValue]),
+            lineStyle: { color: '#1E6FFF', width: 2 },
+            itemStyle: { color: '#1E6FFF' },
+            z: 3,
+          },
+        ],
+      })
+
+      chart.off('datazoom')
+      chart.on('datazoom', (params: any) => {
+        const batch = (params && (params.batch || [params])[0]) || {}
+        const start = typeof batch.start === 'number' ? batch.start : 0
+        const end = typeof batch.end === 'number' ? batch.end : 100
+        if (start <= 0.5 && end >= 99.5) {
+          overviewBrushRange.value = null
+        } else {
+          const i0 = pctToIndex(start, n)
+          const i1 = pctToIndex(end, n)
+          const startTime = times[i0] ?? times[0] ?? 0
+          const endTime = times[i1] ?? times[n - 1] ?? startTime
+          const prev = times[Math.max(0, i1 - 1)] ?? endTime
+          overviewBrushRange.value = {
+            start: startTime,
+            end: endTime + (endTime - prev || 1),
+          }
+        }
+        renderTopology()
+      })
+    })
+  }
+
+  const renderPieCharts = () => {
+    renderAnomalyChart()
+    renderTopology()
+  }
+
+  const renderTrendChart = () => {
+    nextTick(() => {
+      const el = trendRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const buckets = trendBuckets.value
+      if (!buckets.length) {
+        chart.clear()
+        return
+      }
+      const labels = buckets.map((bucket) => bucket.label)
+      // 曲线集合与当前桶数据对齐：无数据的指标不渲染（旧前端 2feac6a1 同款口径）
+      const visible = trendMetrics.filter(
+        (metric) =>
+          trendVisible.value.has(metric.key) &&
+          buckets.some((bucket) => bucket.values[metric.key] != null),
+      )
+      const ranges: Array<Array<{ xAxis: number }>> = []
+      let start: number | null = null
+      buckets.forEach((bucket, index) => {
+        if (bucket.abnormal && start === null) start = index
+        if ((!bucket.abnormal || index === buckets.length - 1) && start !== null) {
+          const end = bucket.abnormal && index === buckets.length - 1 ? index : index - 1
+          ranges.push([{ xAxis: start }, { xAxis: end }])
+          start = null
+        }
+      })
+      const xStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
+      // 聚焦窗口：由点击点的时间范围推导 dataZoom 百分比，使 x 轴收窄到该区域
+      let dzStart = 0
+      let dzEnd = 100
+      const range = trendRange.value
+      if (range) {
+        const times = buckets.map((bucket) => bucket.time)
+        let i0 = times.findIndex((t) => t >= range.start)
+        if (i0 < 0) i0 = 0
+        let i1 = 0
+        for (let i = times.length - 1; i >= 0; i--) {
+          if ((times[i] ?? Infinity) <= range.end) {
+            i1 = i
+            break
+          }
+        }
+        const n = buckets.length
+        dzStart = Math.max(0, (i0 / n) * 100)
+        dzEnd = Math.min(100, ((i1 + 1) / n) * 100)
+        if (dzEnd <= dzStart) dzEnd = dzStart + 1
+      }
+      setChartOption(chart, {
+        animation: false,
+        color: visible.map((series) => series.color as string),
+        tooltip: {
+          trigger: 'axis',
+          appendToBody: true,
+          valueFormatter: (value: unknown) =>
+            typeof value === 'number' ? `${value.toFixed(2)} ms` : String(value ?? '-'),
+        },
+        legend: {
+          data: visible.map((series) => series.label),
+          top: 0,
+          itemGap: 18,
+          itemWidth: 18,
+          itemHeight: 10,
+          textStyle: { fontSize: 11 },
+        },
+        grid: { top: 58, right: 68, bottom: 15, left: 54, containLabel: true },
+        xAxis: {
+          type: 'category',
+          data: labels,
+          name: '时间',
+          axisLabel: {
+            interval: (index: number) =>
+              labels.length <= 10 ||
+              index === 0 ||
+              index === labels.length - 1 ||
+              index % xStep === 0,
+            fontSize: 10,
+            rotate: 38,
+            margin: 6,
+          },
+        },
+        yAxis: { type: 'value', name: '时延 (ms)', min: 0, axisLabel: { fontSize: 10 } },
+        dataZoom: [
+          {
+            type: 'inside',
+            start: dzStart,
+            end: dzEnd,
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+          },
+          { type: 'slider', start: dzStart, end: dzEnd, bottom: 14, height: 18 },
+        ],
+        series: visible.map((series, index) => ({
+          name: series.label,
+          type: 'line',
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 6,
+          lineStyle: { width: 2 },
+          data: buckets.map((bucket) => bucket.values[series.key]),
+          ...(index === 0
+            ? {
+                markArea: {
+                  silent: false,
+                  data: ranges,
+                  itemStyle: {
+                    color: 'rgba(239,68,68,0.25)',
+                    borderColor: '#ef4444',
+                    borderWidth: 1,
+                  },
+                },
+              }
+            : {}),
+        })),
+      })
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        if (typeof params.dataIndex === 'number') {
+          const bucket = buckets[params.dataIndex]
+          if (bucket) {
+            trendCenter.value = bucket.time
+            renderTrendChart()
+          }
+        }
+      })
+    })
+  }
+
+  const renderSlowChart = () => {
+    nextTick(() => {
