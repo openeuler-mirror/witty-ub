@@ -1920,6 +1920,10 @@ const isDetailLoading = ref(false)
 const isSaving = ref(false)
 const isQuerying = ref(false)
 const errorMessage = ref('')
+const isAssetServiceUnavailable = ref(false)
+const isInitialDataUnavailable = computed(
+  () => isAssetServiceUnavailable.value && assets.value.length === 0 && !selectedAsset.value,
+)
 
 const logSourceInput = ref('')
 type LogType = 'kv-cache' | 'brpc'
@@ -8705,11 +8709,17 @@ const loadAssets = async () => {
       created_sorted_desc: true,
     })
     assets.value = result.assets
+    isAssetServiceUnavailable.value = false
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '资产库列表加载失败'
+    isAssetServiceUnavailable.value = true
+    errorMessage.value = error instanceof Error ? error.message : '数据服务暂时不可用'
   } finally {
     isListLoading.value = false
   }
+}
+
+const retryInitialDataLoad = () => {
+  void loadAssets()
 }
 
 const handleAssetClick = (assetId: string) => {
@@ -12424,6 +12434,9 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="isListLoading" class="state-text">正在加载资产库...</div>
+        <div v-else-if="isAssetServiceUnavailable && assets.length === 0" class="state-text">
+          资产数据暂不可用
+        </div>
         <div v-else-if="assets.length === 0" class="state-text">暂无资产库</div>
 
         <div v-else class="nav-list">
@@ -12766,9 +12779,21 @@ onBeforeUnmount(() => {
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
-      <div v-if="errorMessage" class="error-banner">{{ errorMessage }}</div>
+      <div v-if="errorMessage && !isInitialDataUnavailable" class="error-banner">
+        {{ errorMessage }}
+      </div>
 
-      <div v-if="activePage === 'abnormal'" class="monitor-page">
+      <section v-if="isInitialDataUnavailable" class="service-unavailable" role="alert">
+        <div class="service-unavailable-icon" aria-hidden="true">!</div>
+        <h1>数据服务暂时不可用</h1>
+        <p>当前无法加载资产库和任务状态，请稍后重试或联系管理员。</p>
+        <p class="service-unavailable-hint">服务恢复后可继续使用，任务状态以重新连接后的结果为准。</p>
+        <button type="button" :disabled="isListLoading" @click="retryInitialDataLoad">
+          {{ isListLoading ? '正在重试...' : '重新加载' }}
+        </button>
+      </section>
+
+      <div v-else-if="activePage === 'abnormal'" class="monitor-page">
         <section v-if="activeMonitorProduct === 'kvcache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">

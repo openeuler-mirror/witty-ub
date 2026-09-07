@@ -11,6 +11,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import uvicorn
 import fastapi
@@ -46,6 +48,30 @@ from latency.exceptions import BaseBizException, NotFoundBizException, ConflictB
 from pydantic import ValidationError
 
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)
+
+DATABASE_UNAVAILABLE_MESSAGE = "数据服务暂时不可用，请稍后重试或联系管理员"
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_exception_handler(request: fastapi.Request, exc: SQLAlchemyError):
+    """Keep database outages from leaking driver errors to API clients."""
+    from fastapi.responses import JSONResponse
+
+    logger.error(
+        "Database request failed: %s %s",
+        request.method,
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "code": 503,
+            "message": DATABASE_UNAVAILABLE_MESSAGE,
+            "result": None,
+            "retryable": True,
+        },
+    )
 
 
 @app.exception_handler(NotFoundBizException)
@@ -144,6 +170,22 @@ async def serve_index():
 
 @app.get("/health_check")
 async def health_check():
+    from fastapi.responses import JSONResponse
+
+    try:
+        async with PGManager.connection() as connection:
+            await connection.execute(text("SELECT 1"))
+    except (SQLAlchemyError, RuntimeError):
+        logger.warning("Health check failed: PostgreSQL is unavailable", exc_info=True)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "code": 503,
+                "message": DATABASE_UNAVAILABLE_MESSAGE,
+                "retryable": True,
+            },
+        )
     return {"status": "ok"}
 
 

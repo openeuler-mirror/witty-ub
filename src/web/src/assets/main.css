@@ -1749,6 +1749,65 @@ button {
   padding: 10px 14px;
 }
 
+.service-unavailable {
+  display: flex;
+  min-height: calc(100vh - 56px);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 48px 24px;
+  color: #475569;
+  text-align: center;
+}
+
+.service-unavailable-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.service-unavailable h1 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 1.35rem;
+}
+
+.service-unavailable p {
+  max-width: 520px;
+  margin: 12px 0 0;
+  line-height: 1.7;
+}
+
+.service-unavailable .service-unavailable-hint {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.service-unavailable button {
+  margin-top: 22px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 22px;
+}
+
+.service-unavailable button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .empty-detail {
   display: grid;
   min-height: 120px;
