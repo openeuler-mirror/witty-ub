@@ -25,7 +25,7 @@ OP_RET NodeCollector::InitDb(std::shared_ptr<Database> db_)
 {
     db = db_;
     LOG_INFO << "Init database";
-    return SUCCESS;
+    return OP_RET::SUCCESS;
 }
 OP_RET NodeCollector::StartDb()
 {
@@ -35,7 +35,7 @@ OP_RET NodeCollector::StartDb()
                        make_tuple("hostname", "TEXT", false, false), make_tuple("ipAddrs", "TEXT", false, false),
                        make_tuple("chipNum", "TEXT", true, false), make_tuple("dieNum", "TEXT", true, false),
                        make_tuple("chipType", "TEXT", false, false)}));
-    if (ret != SUCCESS) {
+    if (ret != OP_RET::SUCCESS) {
         return ret;
     }
     ret = db->CreateTable(
@@ -46,7 +46,7 @@ OP_RET NodeCollector::StartDb()
              make_tuple("chipId", "TEXT", true, false), make_tuple("dieId", "TEXT", true, false),
              make_tuple("primaryCna", "TEXT", true, true), make_tuple("portIds", "TEXT", true, false),
              make_tuple("dieState", "TEXT", true, false), make_tuple("ubcState", "TEXT", true, false)}));
-    if (ret != SUCCESS) {
+    if (ret != OP_RET::SUCCESS) {
         return ret;
     }
     ret = db->CreateTable(
@@ -56,10 +56,10 @@ OP_RET NodeCollector::StartDb()
                      make_tuple("portState", "TEXT", true, false), make_tuple("remotePortId", "TEXT", true, false),
                      make_tuple("remoteDeviceId", "TEXT", true, false), make_tuple("remoteSlotId", "TEXT", true, false),
                      make_tuple("remoteUbpuId", "TEXT", true, false), make_tuple("remoteIouId", "TEXT", true, false)}));
-    if (ret != SUCCESS) {
+    if (ret != OP_RET::SUCCESS) {
         return ret;
     }
-    return SUCCESS;
+    return OP_RET::SUCCESS;
 }
 shared_ptr<Database> NodeCollector::GetDb()
 {
