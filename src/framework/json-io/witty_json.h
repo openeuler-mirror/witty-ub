@@ -50,33 +50,33 @@ public:
         std::filesystem::path file_path(filename);
         std::filesystem::path temp_path =
             file_path.parent_path() / (file_path.stem().string() + ".tmp" + file_path.extension().string());
-        std::string temp_filename = temp_path.string();
+        std::string tempFilename = temp_path.string();
 
         // Create a dedicated lock file path
-        std::string lock_filename = filename + ".lock";
+        std::string lockFilename = filename + ".lock";
 
         // Acquire file lock on the dedicated lock file
-        int lock_fd = open(lock_filename.c_str(), O_WRONLY | O_CREAT, 0644);
-        if (lock_fd == -1) {
-            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open lock file " << lock_filename;
+        int lockFd = open(lockFilename.c_str(), O_WRONLY | O_CREAT, 0644);
+        if (lockFd == -1) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open lock file " << lockFilename;
             return RACK_FAIL;
         }
 
         // Wait for exclusive lock (blocking)
-        if (flock(lock_fd, LOCK_EX) == -1) {
-            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to acquire lock on " << lock_filename;
-            close(lock_fd);
+        if (flock(lockFd, LOCK_EX) == -1) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to acquire lock on " << lockFilename;
+            close(lockFd);
             return RACK_FAIL;
         }
 
-        LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: acquired lock on " << lock_filename;
+        LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: acquired lock on " << lockFilename;
 
         // Open temporary file for writing
-        std::ofstream output(temp_filename);
+        std::ofstream output(tempFilename);
         if (!output.is_open()) {
-            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open temporary file " << temp_filename;
-            flock(lock_fd, LOCK_UN);
-            close(lock_fd);
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open temporary file " << tempFilename;
+            flock(lockFd, LOCK_UN);
+            close(lockFd);
             return RACK_FAIL;
         }
 
@@ -90,25 +90,25 @@ public:
 
         // Atomically rename temporary file to target file
         try {
-            std::filesystem::rename(temp_filename, filename);
+            std::filesystem::rename(tempFilename, filename);
             LOG_INFO << "WittyJson::WriteVectorsTofile-Info: successfully write to file " << filename;
         } catch (const std::filesystem::filesystem_error &e) {
             LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to rename temporary file to " << filename
                       << ", error: " << e.what();
-            flock(lock_fd, LOCK_UN);
-            close(lock_fd);
-            std::filesystem::remove(temp_filename);
+            flock(lockFd, LOCK_UN);
+            close(lockFd);
+            std::filesystem::remove(tempFilename);
             return RACK_FAIL;
         }
 
         // Release file lock
-        if (flock(lock_fd, LOCK_UN) == -1) {
-            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to release lock on " << lock_filename;
+        if (flock(lockFd, LOCK_UN) == -1) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to release lock on " << lockFilename;
         }
-        close(lock_fd);
+        close(lockFd);
 
         // Remove the lock file (optional, but keeps filesystem clean)
-        std::filesystem::remove(lock_filename);
+        std::filesystem::remove(lockFilename);
 
         LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: released lock and cleaned up lock file";
 
