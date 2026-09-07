@@ -66,7 +66,8 @@ latency/
 
 **Memory Optimization**: Tiered dataclasses with `slots=True`: `LogParseResultDataclass`(36), `C2WLogParseResultDataclass`(18 fields + ClassVar[None] for unused Worker), `SparseLogParseResultDataclass`(15 + ClassVar[None]). `LogParseResultBatch(all_sparse=True)` batch hint. Batch UUID via `os.urandom(N*16)`, shared `created_at`.
 
-**Task System**: APScheduler 5s → `TaskHandler.handle_tasks()` → 3 queues (successed/failed/pending). 7-state FSM: PENDING→RUNNING→SUCCESSFUL_PENDING_REMOVE→SUCCESSFUL (or →FAILED). `ProcessHandler` with `cpu_limit`, `multiprocessing.spawn`. Restart recovery: RUNNING→PENDING.
+**Task System**: APScheduler 5s → `TaskHandler.handle_tasks()` → 3 queues (successed/failed/pending). 7-state FSM: PENDING→RUNNING→SUCCESSFUL_PENDING_REMOVE→SUCCESSFUL (or →FAILED). `ProcessHandler` with `cpu_limit`, `multiprocessing.spawn`. Restart recovery: RUNNING→FAILED_PENDING_REMOVE→reinit/cleanup→PENDING.
+Task execution options are persisted in `task.task_config` (JSONB) and explicitly passed to spawned workers; do not rely on `TaskHandler._task_configs` across a process or service boundary.
 
 **Worker Reflection**: `__subclasses__()` to match `TaskTypeEnum`. New worker: `name` attr, implement `init/run/stop/delete/reinit/deinit`. **DB batch**: 4-channel `insert_batch` (minimal/sparse/c2w/full) via `executemany`, WAL mode.
 

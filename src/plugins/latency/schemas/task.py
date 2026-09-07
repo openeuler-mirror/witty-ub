@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
@@ -28,6 +29,9 @@ class TaskModel(BaseModel):
         default_factory=list, description="任务进度报告列表"
     )
     status: TaskStatusEnum = Field(..., description="任务状态")
+    task_config: dict[str, Any] | None = Field(
+        default=None, description="任务执行参数，用于失败重试和服务重启恢复"
+    )
     existed_status: bool = Field(
         True, description="任务是否存在的状态，默认为True表示存在"
     )

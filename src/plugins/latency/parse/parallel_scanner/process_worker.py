@@ -30,7 +30,6 @@ from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType, TupleField
 from latency.schemas.request import ParseConfig
 from latency.common.ds_log_io import open_log
-from latency.common.disk import detect_disk_type
 from latency.parse.base_parser import (
     ACCESS_LOG_MIN_PARTS,
     AccessLogParser,

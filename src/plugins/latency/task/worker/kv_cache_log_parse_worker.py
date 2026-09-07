@@ -37,8 +37,7 @@ from latency.parse.worker_info_parser import (
     MASTER_RPC_LABEL,
     TIMED_LABELS,
 )
-from latency.ENUM.ds_log import EntryType
-from latency.schemas.ds_log import TupleField
+from latency.ENUM.ds_log import EntryType, TupleField
 from latency.parse.parallel_scanner import ParallelFileScanner
 from latency.parse.parallel_scanner.trace_frame import build_trace_frame
 from latency.ENUM.task import TaskSplitStrategy
@@ -1172,7 +1171,11 @@ class KVCacheLogParseWorker(BaseWorker):
             return None
 
     @staticmethod
-    async def run(task_id: str, log_dir: str | None = None) -> bool:
+    async def run(
+        task_id: str,
+        log_dir: str | None = None,
+        parse_config: ParseConfig | None = None,
+    ) -> bool:
         """运行任务"""
         try:
             task = await TaskPGManager.get_task_by_task_id(task_id)
@@ -1191,9 +1194,6 @@ class KVCacheLogParseWorker(BaseWorker):
             progress = StageProgress(task_id)
             await progress.report("scan", 0.0, detail="task started")
 
-            # 从 TaskHandler 获取解析配置
-            from latency.task.task_handler import TaskHandler
-            parse_config = TaskHandler.get_task_config(task_id)
             if parse_config:
                 logger.info(f"[Task {task_id}] Using parse config: {parse_config}")
 

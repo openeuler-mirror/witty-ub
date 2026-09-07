@@ -359,6 +359,52 @@ def test_upload_brpc_directory_creates_two_tasks(monkeypatch, tmp_path):
     ]
 
 
+def test_upload_cleans_new_log_when_task_initialization_fails(monkeypatch, tmp_path):
+    log_path = tmp_path / "brpc.log"
+    log_path.write_text("brpc log content", encoding="utf-8")
+    log_file_ids = []
+
+    async def add_log_files(models):
+        log_file_ids.extend(model.id for model in models)
+        return list(log_file_ids)
+
+    monkeypatch.setattr(
+        log_file_service_module.LogFilePGManager,
+        "add_log_files",
+        add_log_files,
+    )
+    monkeypatch.setattr(
+        log_file_service_module.TaskHandler,
+        "init_task",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    hard_delete = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        log_file_service_module.LogFilePGManager,
+        "hard_delete_log_file_with_related_data",
+        hard_delete,
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        _run(
+            LogFileService.upload_log_files(
+                "kb-id",
+                UpLoadLogFilesRequest(
+                    upload_log_file_configs=[
+                        UpLoadLogFileConfig(
+                            name=log_path.name,
+                            source_type=SourceType.LOCAL,
+                            source=str(log_path),
+                            log_type="brpc",
+                        )
+                    ]
+                ),
+            )
+        )
+
+    hard_delete.assert_awaited_once_with(log_file_ids[0])
+
+
 def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
     log_file = LogFileModel(
         id="log-file-id",
@@ -588,6 +634,50 @@ def test_populate_brpc_counts_skips_unsuccessful_tasks(monkeypatch):
 
     assert log_file.anomaly_cnt == 0
     assert log_file.trace_failure_event_cnt == 0
+
+
+@pytest.mark.parametrize(
+    "overall_status",
+    [
+        "unknown",
+        TaskStatusEnum.PENDING.value,
+        TaskStatusEnum.RUNNING.value,
+        LogFileService.RETRYING_STATUS,
+        TaskStatusEnum.FAILED.value,
+        TaskStatusEnum.CANCELLED.value,
+    ],
+)
+def test_mask_counts_until_complete_hides_non_final_counts(overall_status):
+    log_file = LogFileModel(
+        anomaly_cnt=3,
+        trace_failure_event_cnt=42,
+        overall_status=overall_status,
+    )
+
+    LogFileService._mask_counts_until_complete(log_file)
+
+    assert log_file.anomaly_cnt == 0
+    assert log_file.trace_failure_event_cnt == 0
+
+
+@pytest.mark.parametrize(
+    "overall_status",
+    [
+        TaskStatusEnum.SUCCESSFUL.value,
+        TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+    ],
+)
+def test_mask_counts_until_complete_keeps_final_counts(overall_status):
+    log_file = LogFileModel(
+        anomaly_cnt=3,
+        trace_failure_event_cnt=42,
+        overall_status=overall_status,
+    )
+
+    LogFileService._mask_counts_until_complete(log_file)
+
+    assert log_file.anomaly_cnt == 3
+    assert log_file.trace_failure_event_cnt == 42
 
 
 @pytest.mark.parametrize(

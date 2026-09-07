@@ -1,4 +1,5 @@
 import io
+import errno
 import tarfile
 import zipfile
 from types import SimpleNamespace
@@ -80,6 +81,61 @@ def test_split_unmatched_plain_text_file(tmp_path):
     assert (
         tmp_path / "mixed-output_split_access.log"
     ).read_text(encoding="utf-8") == access_line
+
+
+def test_preprocess_propagates_disk_full(monkeypatch, tmp_path):
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+    (source_path / "access.log").write_text("log", encoding="utf-8")
+    output_dir = tmp_path / "preprocessed"
+
+    monkeypatch.setattr(
+        preprocessor_module.shutil,
+        "copy2",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError(errno.ENOSPC, "No space left on device")
+        ),
+    )
+
+    with pytest.raises(OSError) as exc_info:
+        preprocess_log_dir(str(source_path), str(output_dir))
+
+    assert exc_info.value.errno == errno.ENOSPC
+
+
+def test_split_propagates_disk_full(monkeypatch, tmp_path):
+    source_path = tmp_path / "unmatched.log"
+    source_path.write_text(" | ".join(str(i) for i in range(8)), encoding="utf-8")
+    real_open = open
+
+    def open_with_disk_full(path, mode="r", *args, **kwargs):
+        if "w" in mode:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(preprocessor_module, "open", open_with_disk_full, raising=False)
+
+    with pytest.raises(OSError) as exc_info:
+        split_unmatched_log_files(str(tmp_path), {"known": ["known.log"]})
+
+    assert exc_info.value.errno == errno.ENOSPC
+
+
+def test_archive_extraction_propagates_disk_full(monkeypatch, tmp_path):
+    source_path = tmp_path / "logs.zip"
+    source_path.write_bytes(b"archive")
+    monkeypatch.setattr(
+        preprocessor_module,
+        "_extract_zip",
+        lambda *_args: (_ for _ in ()).throw(
+            OSError(errno.ENOSPC, "No space left on device")
+        ),
+    )
+
+    with pytest.raises(OSError) as exc_info:
+        preprocessor_module._extract_archive(str(source_path), str(tmp_path / "output"))
+
+    assert exc_info.value.errno == errno.ENOSPC
 
 
 @pytest.mark.parametrize("suffix", [".zip", ".tar.gz", ".tgz"])

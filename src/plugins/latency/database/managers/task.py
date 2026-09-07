@@ -2,12 +2,13 @@
 """PostgreSQL-specific manager for task."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
 
 from latency.database.engine import PGManager
-from latency.database.models import Task
+from latency.database.models import Task, TaskReport
 from latency.database.utils import parse_timestamp
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.task import TaskModel
@@ -24,6 +25,7 @@ class TaskPGManager:
             "task_name": task.task_name,
             "task_type": task.task_type.value,
             "status": task.status.value,
+            "task_config": task.task_config,
             "existed_status": task.existed_status,
             "created_at": parse_timestamp(task.created_at),
             "completed_at": parse_timestamp(task.completed_at),
@@ -86,15 +88,42 @@ class TaskPGManager:
         return True
 
     @staticmethod
-    async def update_running_tasks_to_pending_tasks() -> bool:
+    async def mark_failed_with_report(task_id: str, message: str) -> bool:
+        """Persist the terminal state and its user-facing reason atomically."""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text("UPDATE task SET status = :status WHERE id = :id"),
+                {"id": task_id, "status": TaskStatusEnum.FAILED.value},
+            )
+            await session.execute(
+                insert(TaskReport),
+                [
+                    {
+                        "task_id": task_id,
+                        "progress": 100.0,
+                        "message": message,
+                        "existed_status": True,
+                        "created_at": datetime.now(),
+                    }
+                ],
+            )
+        return bool(result.rowcount)
+
+    @staticmethod
+    async def mark_interrupted_running_tasks_for_retry() -> bool:
+        """Route tasks left RUNNING by a crashed service through reinit().
+
+        Re-queuing them directly as PENDING would bypass each worker's cleanup
+        hook and could mix a partial previous attempt with the new one.
+        """
         async with PGManager.session() as session:
             await session.execute(
                 text(
-                    "UPDATE task SET status = :pending_status "
+                    "UPDATE task SET status = :retry_status "
                     "WHERE status = :running_status"
                 ),
                 {
-                    "pending_status": TaskStatusEnum.PENDING.value,
+                    "retry_status": TaskStatusEnum.FAILED_PENDING_REMOVE.value,
                     "running_status": TaskStatusEnum.RUNNING.value,
                 },
             )
@@ -110,6 +139,7 @@ class TaskPGManager:
             task_name=row.task_name or "",
             task_type=TaskTypeEnum(row.task_type),
             status=TaskStatusEnum(row.status),
+            task_config=row.task_config,
             existed_status=row.existed_status if row.existed_status is not None else True,
             created_at=row.created_at,
             completed_at=row.completed_at,

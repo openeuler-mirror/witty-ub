@@ -1,23 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from re import L
-
-from fastapi import (
-    APIRouter,
-    Depends,
-    Path,
-    Query,
-    Body,
-    File,
-    UploadFile,
-    HTTPException,
-    status,
-)
-from fastapi.responses import StreamingResponse, HTMLResponse, Response
-from typing import Annotated, Optional
-import urllib
-from httpx import AsyncClient
-import os
+from fastapi import APIRouter, Body, Path
+from typing import Annotated
 from latency.schemas.request import (
     CreateLogKnowledgeRequest,
     UpdateLogKnowledgeRequest,

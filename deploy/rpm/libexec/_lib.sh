@@ -78,8 +78,7 @@ _psql_as_postgres() {
 detect_os() {
     if _has_cmd dnf; then
         OS_ID="rpm"
-        PM_INSTALL="dnf install -y --allowerasing"
-        PM_UPDATE="dnf update -y --allowerasing"
+        PM_INSTALL="dnf install -y"
         _log "检测到 dnf 包管理器"
     elif _has_cmd yum; then
         OS_ID="rpm"
