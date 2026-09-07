@@ -47,47 +47,38 @@ void NodeLocalCollectorModule::Stop()
 }
 RackResult NodeLocalCollectorModule::InsertDeviceData(vector<std::shared_ptr<topology::node::Node>> &nodes)
 {
-    RackResult ret = collector->InsertDeviceData(nodes);
-    return ret;
+    return static_cast<RackResult>(collector->InsertDeviceData(nodes));
 }
 RackResult NodeLocalCollectorModule::InsertUbCData(vector<std::shared_ptr<topology::node::UbController>> &ubcs)
 {
-    RackResult ret = collector->InsertUbCData(ubcs);
-    return ret;
+    return static_cast<RackResult>(collector->InsertUbCData(ubcs));
 }
 RackResult NodeLocalCollectorModule::InsertPortData(vector<std::shared_ptr<topology::node::Port>> &ports)
 {
-    RackResult ret = collector->InsertPortData(ports);
-    return ret;
+    return static_cast<RackResult>(collector->InsertPortData(ports));
 }
 RackResult NodeLocalCollectorModule::QueryCurDeviceData(vector<std::shared_ptr<topology::node::Node>> &nodes)
 {
-    RackResult ret = collector->QueryCurDeviceData(nodes);
-    return ret;
+    return static_cast<RackResult>(collector->QueryCurDeviceData(nodes));
 }
 RackResult NodeLocalCollectorModule::QueryHisDeviceData(vector<std::shared_ptr<topology::node::Node>> &nodes)
 {
-    RackResult ret = collector->QueryHisNodeData(nodes);
-    return ret;
+    return static_cast<RackResult>(collector->QueryHisNodeData(nodes));
 }
 RackResult NodeLocalCollectorModule::QueryCurUbCData(vector<std::shared_ptr<topology::node::UbController>> &ubcs)
 {
-    RackResult ret = collector->QueryCurUbCData(ubcs);
-    return ret;
+    return static_cast<RackResult>(collector->QueryCurUbCData(ubcs));
 }
 RackResult NodeLocalCollectorModule::QueryHisUbCData(vector<std::shared_ptr<topology::node::UbController>> &ubcs)
 {
-    RackResult ret = collector->QueryHisUbCData(ubcs);
-    return ret;
+    return static_cast<RackResult>(collector->QueryHisUbCData(ubcs));
 }
 RackResult NodeLocalCollectorModule::QueryCurPortData(vector<std::shared_ptr<topology::node::Port>> &ports)
 {
-    RackResult ret = collector->QueryCurPortData(ports);
-    return ret;
+    return static_cast<RackResult>(collector->QueryCurPortData(ports));
 }
 RackResult NodeLocalCollectorModule::QueryHisPortData(vector<std::shared_ptr<topology::node::Port>> &ports)
 {
-    RackResult ret = collector->QueryHisPortData(ports);
-    return ret;
+    return static_cast<RackResult>(collector->QueryHisPortData(ports));
 }
 } // namespace topology::node
