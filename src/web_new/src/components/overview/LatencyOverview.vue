@@ -599,3 +599,603 @@ onBeforeUnmount(() => {
               <span class="text-link" @click="enterPodDetail(stat.ip)">{{ stat.ip }}</span>
             </td>
             <td>{{ stat.srcCount.toLocaleString() }}</td>
+            <td>{{ stat.dstCount.toLocaleString() }}</td>
+            <td>{{ stat.total.toLocaleString() }}</td>
+            <td :style="{ color: stat.anomaly > 10 ? 'var(--danger)' : '' }">{{ stat.anomaly }}</td>
+            <td class="stage-td">
+              <div
+                v-if="podStageFlow(stat).stages.some((s: any) => s.valueMs != null)"
+                class="stage-zone"
+              >
+                <div class="stage-flow">
+                  <div
+                    v-for="s in podStageFlow(stat).stages"
+                    :key="s.key"
+                    class="stage-col"
+                    :style="{ flex: '0 0 ' + s.pct + '%' }"
+                  >
+                    <div
+                      class="stage-col-bar"
+                      :style="{ background: s.color }"
+                      :title="
+                        s.label +
+                        ' ' +
+                        (s.valueMs != null ? s.valueMs + 'ms' : '-') +
+                        (' (' + s.pct.toFixed(0) + '%)')
+                      "
+                    ></div>
+                    <div class="stage-col-sub">
+                      <div
+                        v-for="c in s.children"
+                        :key="c.label"
+                        class="stage-sub"
+                        :title="c.label + ' ' + (c.valueMs != null ? c.valueMs + 'ms' : '-')"
+                      >
+                        <span class="stage-sub-track"
+                          ><i :style="{ width: c.rel + '%', background: c.color }"></i
+                        ></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="stage-values">
+                  <span
+                    v-for="s in podStageFlow(stat).stages"
+                    :key="'v' + s.key"
+                    class="sv-item"
+                    :title="s.label + ' ' + (s.valueMs != null ? s.valueMs + 'ms' : '-')"
+                  >
+                    <i :style="{ background: s.color }"></i>{{ s.label }}
+                    {{ s.valueMs != null ? s.valueMs + 'ms' : '-' }}
+                    <template v-if="s.children.some((c: any) => c.valueMs != null)">
+                      <span class="sv-subs">
+                        (<span
+                          v-for="c in s.children.filter((x: any) => x.valueMs != null)"
+                          :key="'s' + c.label"
+                          class="sv-sub"
+                          :title="c.label + ' ' + c.valueMs + 'ms'"
+                          >{{ c.label }} {{ c.valueMs }}ms</span
+                        >)
+                      </span>
+                    </template>
+                  </span>
+                </div>
+              </div>
+              <div v-else style="font-size: 12px; color: var(--text3)">-</div>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-primary" @click="enterPodDetail(stat.ip)">
+                进入 →
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div
+      style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 12px;
+        font-size: 13px;
+        color: var(--text2);
+      "
+    >
+      <span>共 {{ filteredPodStats.length }} 个 Pod IP，每页 {{ podPageSize }} 个</span>
+      <PageNav
+        v-if="podPages > 1"
+        :page="podPage"
+        :pages="podPages"
+        @update:page="podPage = $event"
+      />
+    </div>
+  </template>
+</template>
+
+<style scoped>
+.select-bucket {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  cursor: pointer;
+  background: var(--bg);
+  transition: all 0.15s;
+}
+.select-bucket::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text3);
+}
+.select-bucket.active {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+.select-bucket.active::before {
+  background: #ef4444;
+}
+.stage-flow {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+.stage-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stage-col-bar {
+  height: 14px;
+  min-width: 2px;
+  transition: filter 0.12s;
+  cursor: default;
+}
+.stage-col:hover .stage-col-bar {
+  filter: brightness(0.85);
+}
+.stage-col-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+}
+.stage-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  cursor: default;
+}
+.stage-sub-track {
+  display: block;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.stage-sub-track i {
+  display: block;
+  height: 100%;
+}
+.stage-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.stage-td {
+  vertical-align: middle;
+  padding: 6px 12px;
+}
+.stage-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  align-items: baseline;
+  font-size: 10px;
+}
+.sv-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: monospace;
+}
+.sv-item > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: inline-block;
+}
+.sv-subs {
+  display: inline-flex;
+  gap: 6px;
+  color: var(--text2);
+}
+.sv-sub {
+  white-space: nowrap;
+}
+.legend-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.legend-strip-item {
+  font-size: 11px;
+  color: var(--text2);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.legend-strip-item i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.topology-card {
+  overflow: hidden;
+}
+.topology-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.topology-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.topology-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.topology-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  color: var(--text2);
+  font-size: 11px;
+}
+.topology-summary b {
+  color: var(--text);
+  font-size: 12px;
+}
+.topology-summary .danger,
+.topology-summary .danger b {
+  color: var(--danger);
+}
+.topology-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+.topology-identity-note {
+  color: var(--text3);
+  font-size: 10px;
+  text-align: right;
+}
+.topology-identity-note code {
+  color: var(--text2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.topo-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.topo-legend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text2);
+  font-size: 10px;
+}
+.legend-node {
+  width: 10px;
+  height: 10px;
+  border: 1px solid #1d4ed8;
+  border-radius: 50%;
+  background: #4f8ef7;
+}
+.legend-line {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+}
+.legend-line.thin {
+  width: 10px;
+  height: 2px;
+  background: #64748b;
+}
+.legend-line.thick {
+  width: 10px;
+  height: 4px;
+  margin-left: -5px;
+  background: #475569;
+}
+.legend-line.warning {
+  background: #ea580c;
+}
+.legend-line.critical {
+  background: #dc2626;
+}
+.topology-filter-panel {
+  margin: 10px 20px;
+  padding: 10px;
+  border: 1px solid #e1e8f1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.topology-limit-note {
+  padding: 6px 20px;
+  border-bottom: 1px solid #e5eaf1;
+  color: var(--text2);
+  background: #fbfcfe;
+  font-size: 11px;
+}
+.topology-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  height: 560px;
+  background: #fff;
+}
+.topology-canvas-wrap {
+  position: relative;
+  min-width: 0;
+  height: 532px;
+  margin: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.topology-canvas {
+  height: 100%;
+}
+.topology-canvas-hint {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  color: var(--text3);
+  font-size: 10px;
+  pointer-events: none;
+}
+.topology-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 560px;
+  padding: 14px 14px 14px 0;
+  overflow: hidden;
+  background: #fff;
+}
+.topology-ranking-section {
+  flex: 0 0 348px;
+  min-height: 0;
+}
+.topology-panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  color: #273449;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.topology-panel-title small {
+  color: var(--text3);
+  font-weight: 400;
+}
+.topology-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.topology-rank-item {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 51px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.topology-rank-item:hover,
+.topology-rank-item.active {
+  border-color: #4f79d8;
+  background: #f1f5ff;
+  box-shadow: none;
+}
+.topology-rank-item.active {
+  box-shadow: inset 3px 0 #6d28d9;
+}
+.topology-rank-item .rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  color: #718096;
+  background: #f0f3f7;
+  font-weight: 700;
+  text-align: center;
+}
+.topology-rank-item .route,
+.topology-rank-item .rank-metric {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 11px;
+}
+.topology-rank-item .route b,
+.topology-rank-item .route span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topology-rank-item .route b {
+  color: #26364e;
+}
+.topology-rank-item .route span {
+  margin-top: 2px;
+  color: #758297;
+}
+.rate-track {
+  width: 100%;
+  height: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0f4;
+}
+.rate-track > i {
+  display: block;
+  max-width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ea580c, #dc2626);
+}
+.topology-rank-item .rank-metric {
+  align-items: flex-end;
+  color: #d74455;
+}
+.topology-rank-item .rank-metric small {
+  color: var(--text2);
+}
+.topology-detail {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.topology-rank-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 28px;
+  margin-top: 6px;
+  color: var(--text2);
+  font-size: 11px;
+}
+.topology-rank-pagination button,
+.topology-clear-selection {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text2);
+  cursor: pointer;
+}
+.topology-rank-pagination button {
+  width: 26px;
+  height: 24px;
+}
+.topology-rank-pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.topology-clear-selection {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 400;
+}
+.topology-clear-selection:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.topology-route-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+.topology-route-title span {
+  color: var(--primary);
+}
+.topology-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.topology-detail-grid span {
+  display: flex;
+  flex-direction: column;
+  padding: 7px;
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text2);
+  font-size: 11px;
+}
+.topology-detail-grid b {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 13px;
+}
+.topology-detail-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.topology-detail-placeholder,
+.topology-empty {
+  padding: 14px 8px;
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 1000px) {
+  .topology-header,
+  .topology-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .topology-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .topology-identity-note {
+    text-align: left;
+  }
+  .topology-workbench {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .topology-canvas-wrap {
+    height: 430px;
+  }
+  .topology-inspector {
+    height: 560px;
+    padding: 0 14px 14px;
+  }
+}
+</style>
