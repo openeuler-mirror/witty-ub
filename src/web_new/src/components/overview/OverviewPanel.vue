@@ -19,6 +19,7 @@ const props = defineProps<{ asset: LogKnowledge | null; logFiles: LogFileModel[]
 const emit = defineEmits<{
   (e: 'edit-asset', asset: LogKnowledge | null): void
   (e: 'create-task'): void
+  (e: 'open-parse-config'): void
 }>()
 
 const {
@@ -171,6 +172,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </template>
+        <button class="btn btn-default btn-sm" @click="emit('open-parse-config')">解析配置</button>
         <button class="btn btn-default btn-sm" @click="emit('edit-asset', selectedAsset)">
           编辑资产
         </button>

@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { formatTime } from './utils/format'
 import { useToast } from './composables/useToast'
 import { useAssets } from './composables/useAssets'
 import { useTasks } from './composables/useTasks'
+import { useOverviewData } from './composables/useOverviewData'
 import AssetModal from './components/AssetModal.vue'
 import CreateTaskModal from './components/CreateTaskModal.vue'
 import BrpcDiagnosisModal from './components/BrpcDiagnosisModal.vue'
+import ParseConfigDrawer from './components/common/ParseConfigDrawer.vue'
 
 const OverviewPanel = defineAsyncComponent(() => import('./components/overview/OverviewPanel.vue'))
 
@@ -89,6 +91,10 @@ const createTaskFromOverview = () => {
   assetTab.value = 'tasks'
   nextTick(() => openCreateTask())
 }
+
+// P1.1 资产级日志解析配置抽屉
+const { assetTypeFilter } = useOverviewData()
+const parseConfigOpen = ref(false)
 
 let pollTimer: number | null = null
 
@@ -232,6 +238,7 @@ onBeforeUnmount(() => {
           :log-files="logFiles"
           @edit-asset="openAssetModal($event)"
           @create-task="createTaskFromOverview"
+          @open-parse-config="parseConfigOpen = true"
         />
       </template>
 
@@ -239,6 +246,7 @@ onBeforeUnmount(() => {
       <template v-else>
         <div class="operate-bar">
           <button class="btn btn-primary" @click="openCreateTask">+ 创建任务</button>
+          <button class="btn btn-default" @click="parseConfigOpen = true">解析配置</button>
           <div class="operate-right">
             <select class="select" v-model="taskTypeFilter">
               <option value="">全部类型</option>
@@ -395,6 +403,11 @@ onBeforeUnmount(() => {
   <AssetModal />
   <CreateTaskModal />
   <BrpcDiagnosisModal />
+  <ParseConfigDrawer
+    :asset="selectedAsset"
+    :asset-type="assetTypeFilter"
+    v-model:open="parseConfigOpen"
+  />
 
   <div class="toast">
     <div v-for="item in toasts" :key="item.id" :class="['toast-item', `toast-${item.type}`]">
