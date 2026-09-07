@@ -48,18 +48,16 @@ void SplitView(std::vector<std::string_view> &out, std::string_view str, std::st
         return;
     }
     std::size_t i = 0;
-    while (true) {
-        const std::size_t j = str.find(delim, i);
-        if (j == std::string_view::npos) {
-            if (keepEmpty || i < str.size()) {
-                out.emplace_back(str.substr(i));
-            }
-            break;
-        }
+    std::size_t j = str.find(delim, i);
+    while (j != std::string_view::npos) {
         if (keepEmpty || j > i) {
             out.emplace_back(str.substr(i, j - i));
         }
         i = j + delim.size();
+        j = str.find(delim, i);
+    }
+    if (keepEmpty || i < str.size()) {
+        out.emplace_back(str.substr(i));
     }
 }
 
@@ -87,11 +85,8 @@ bool IsTimestampTAt(std::string_view line, std::size_t pos)
 std::string_view FindTimestampT(std::string_view line)
 {
     std::size_t searchPos = 0;
-    while (true) {
-        const std::size_t tPos = line.find(TIMESTAMP_T_SEPARATOR, searchPos);
-        if (tPos == std::string_view::npos) {
-            return {};
-        }
+    std::size_t tPos = line.find(TIMESTAMP_T_SEPARATOR, searchPos);
+    while (tPos != std::string_view::npos) {
         if (tPos >= TIMESTAMP_DATE_SIZE) {
             const std::size_t timestampPos = tPos - TIMESTAMP_DATE_SIZE;
             if (IsTimestampTAt(line, timestampPos)) {
@@ -99,7 +94,9 @@ std::string_view FindTimestampT(std::string_view line)
             }
         }
         searchPos = tPos + 1;
+        tPos = line.find(TIMESTAMP_T_SEPARATOR, searchPos);
     }
+    return {};
 }
 
 std::string ToTimestampTBound(std::string timestamp)

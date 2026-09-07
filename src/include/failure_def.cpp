@@ -165,22 +165,45 @@ void Split(std::vector<std::string> &out, const std::string &str, char delim, bo
 {
     out.clear();
     std::size_t i = 0;
-    while (true) {
-        size_t j = str.find(delim, i);
-        if (j == std::string::npos) {
-            auto part = str.substr(i);
-            if (keepEmpty || !part.empty()) {
-                out.emplace_back(part);
-            }
-            break;
-        }
+    std::size_t j = str.find(delim, i);
+    while (j != std::string::npos) {
         auto part = str.substr(i, j - i);
         if (keepEmpty || !part.empty()) {
             out.emplace_back(part);
         }
         i = j + 1;
+        j = str.find(delim, i);
+    }
+    auto lastPart = str.substr(i);
+    if (keepEmpty || !lastPart.empty()) {
+        out.emplace_back(lastPart);
     }
 }
+
+namespace {
+int64_t ParseMicroseconds(const char *&res)
+{
+    if (*res != '.') {
+        return 0;
+    }
+    res++;
+    const char *end = res;
+    while (std::isdigit(*end)) {
+        end++;
+    }
+    int len = end - res;
+    int64_t microseconds = 0;
+    if (len > 0) {
+        std::string fracStr(res, (len > MICROSECOND_DIGITS ? MICROSECOND_DIGITS : len));
+        if (len < MICROSECOND_DIGITS) {
+            fracStr.append(MICROSECOND_DIGITS - len, '0');
+        }
+        microseconds = std::stoll(fracStr);
+    }
+    res = end;
+    return microseconds;
+}
+} // namespace
 
 std::optional<int64_t> DatetimeStrToTimestamp(const std::string &datetimeStr, bool allowFuture)
 {
@@ -238,23 +261,7 @@ std::optional<int64_t> DatetimeStrToTimestamp(const std::string &datetimeStr, bo
     t.tm_isdst = -1;
     res = strptime(datetimeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &t);
     if (res) {
-        int64_t microseconds = 0;
-        if (*res == '.') {
-            res++;
-            const char *end = res;
-            while (std::isdigit(*end)) {
-                end++;
-            }
-            int len = end - res;
-            if (len > 0) {
-                std::string fracStr(res, (len > MICROSECOND_DIGITS ? MICROSECOND_DIGITS : len));
-                if (len < MICROSECOND_DIGITS) {
-                    fracStr.append(MICROSECOND_DIGITS - len, '0');
-                }
-                microseconds = std::stoll(fracStr);
-            }
-            res = end;
-        }
+        int64_t microseconds = ParseMicroseconds(res);
         return validate_and_convert(t, microseconds);
     }
     return std::nullopt;

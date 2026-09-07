@@ -107,7 +107,7 @@ LcneResult convertTextToUint(tinyxml2::XMLElement *element, T &result)
 }
 
 template <typename T>
-LcneResult ConvertTextToOptionalUint(tinyxml2::XMLElement *element, std::optional<T> &result)
+inline LcneResult ConvertTextToOptionalUint(tinyxml2::XMLElement *element, std::optional<T> &result)
 {
     static_assert(std::is_unsigned_v<T>, "T must be unsigned integer type");
     LcneResult ret = LCNE_FAIL;

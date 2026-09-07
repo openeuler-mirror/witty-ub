@@ -234,19 +234,22 @@ bool IsValidPathEntry(const std::string &entry, std::string &outPodId, std::stri
 
     return true;
 }
-RackResult UbseContext::ParseTopoToolsArgs(int argc, char *argv[])
-{
+namespace {
+struct ParsedTopoArgs {
     std::string networkMode;
     std::string podMode;
     std::string umqLogPath;
     std::string podId;
-
     bool hasNetworkMode = false;
     bool hasPodMode = false;
     bool hasUmqLogPath = false;
     bool hasPodId = false;
-    std::map<std::string, std::string> path_map;
-    std::vector<std::string> pod_id_list;
+    std::map<std::string, std::string> pathMap;
+    std::vector<std::string> podIdList;
+};
+
+RackResult ParseTopoArgsLoop(int argc, char *argv[], ParsedTopoArgs &parsed)
+{
     int i = 1;
     while (i < argc) {
         std::string arg = argv[i];
@@ -255,109 +258,144 @@ RackResult UbseContext::ParseTopoToolsArgs(int argc, char *argv[])
                 LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing network mode value";
                 return RACK_FAIL;
             }
-            networkMode = argv[++i];
-            if (networkMode != "fullmesh" && networkMode != "clos") {
-                LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: invalid network mode value " << networkMode;
+            parsed.networkMode = argv[++i];
+            if (parsed.networkMode != "fullmesh" && parsed.networkMode != "clos") {
+                LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: invalid network mode value "
+                          << parsed.networkMode;
                 return RACK_FAIL;
             }
-            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: network mode is " << networkMode;
-            hasNetworkMode = true;
+            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: network mode is " << parsed.networkMode;
+            parsed.hasNetworkMode = true;
         } else if (arg == "--pod-mode") {
             if (i + 1 >= argc) {
                 LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing pod mode value";
                 return RACK_FAIL;
             }
-            podMode = argv[++i];
-            if (podMode != "on" && podMode != "off") {
-                LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: invalid pod mode value " << podMode;
+            parsed.podMode = argv[++i];
+            if (parsed.podMode != "on" && parsed.podMode != "off") {
+                LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: invalid pod mode value " << parsed.podMode;
                 return RACK_FAIL;
             }
-            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: pod mode is " << podMode;
-            hasPodMode = true;
+            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: pod mode is " << parsed.podMode;
+            parsed.hasPodMode = true;
         } else if (arg == "--umq-log-path") {
             if (i + 1 >= argc) {
                 LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing umq log path value";
                 return RACK_FAIL;
             }
-            umqLogPath = argv[++i];
-            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: umq log path is " << umqLogPath;
-            hasUmqLogPath = true;
+            parsed.umqLogPath = argv[++i];
+            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: umq log path is " << parsed.umqLogPath;
+            parsed.hasUmqLogPath = true;
         } else if (arg == "--pod-id") {
             if (i + 1 >= argc) {
                 LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing pod id value";
                 return RACK_FAIL;
             }
-            podId = argv[++i];
-            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: pod id is " << podId;
-            hasPodId = true;
+            parsed.podId = argv[++i];
+            LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: pod id is " << parsed.podId;
+            parsed.hasPodId = true;
         } else {
             LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: parsing topo tools arguments " << arg;
             return RACK_FAIL;
         }
         i++;
     }
+    return RACK_OK;
+}
 
-    if (!hasNetworkMode) {
-        LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing network mode";
+RackResult ParsePathEntries(const std::string &umqLogPath, ParsedTopoArgs &parsed)
+{
+    auto entries = split(umqLogPath, ',');
+    if (entries.empty()) {
+        LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: umq log path is empty";
         return RACK_FAIL;
     }
-    if (!hasPodMode) {
-        LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing pod mode";
-        return RACK_FAIL;
+    for (const auto &entry : entries) {
+        std::string podId, pathPart, error;
+        if (!IsValidPathEntry(entry, podId, pathPart, error)) {
+            LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: invalid umq log path entry " << entry << " - "
+                      << error;
+            return RACK_FAIL;
+        }
+        if (parsed.pathMap.count(podId)) {
+            LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: pod id " << podId << " is duplicated in umq log path";
+            return RACK_FAIL;
+        }
+        parsed.pathMap[podId] = pathPart;
     }
-    if (podMode == "on") {
-        if (!hasUmqLogPath) {
+    return RACK_OK;
+}
+
+RackResult ValidatePodIdList(ParsedTopoArgs &parsed)
+{
+    parsed.podIdList = split(parsed.podId, ',');
+    std::set<std::string> allowed;
+    for (const auto &[podId, _] : parsed.pathMap) {
+        allowed.insert(podId);
+    }
+    for (const auto &d : parsed.podIdList) {
+        if (d.empty()) {
+            LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: empty pod id in pod id list";
+            return RACK_FAIL;
+        }
+        if (allowed.find(d) == allowed.end()) {
+            LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: pod id " << d << " not found in umq log path";
+            return RACK_FAIL;
+        }
+    }
+    return RACK_OK;
+}
+
+RackResult BuildPathMap(ParsedTopoArgs &parsed)
+{
+    if (parsed.podMode == "on") {
+        if (!parsed.hasUmqLogPath) {
             LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: umq log path is required when pod mode is on";
             return RACK_FAIL;
         }
-        auto entries = split(umqLogPath, ',');
-        if (entries.empty()) {
-            LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: umq log path is empty";
+        if (ParsePathEntries(parsed.umqLogPath, parsed) != RACK_OK) {
             return RACK_FAIL;
         }
-        for (const auto &entry : entries) {
-            std::string podId, pathPart, error;
-            if (!IsValidPathEntry(entry, podId, pathPart, error)) {
-                LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: invalid umq log path entry " << entry << " - "
-                          << error;
-                return RACK_FAIL;
-            }
-            if (path_map.count(podId)) {
-                LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: pod id " << podId
-                          << " is duplicated in umq log path";
-                return RACK_FAIL;
-            }
-            path_map[podId] = pathPart;
-        }
-
-        if (hasPodId) {
-            pod_id_list = split(podId, ',');
-            std::set<std::string> allowed;
-            for (const auto &[podId, _] : path_map) {
-                allowed.insert(podId);
-            }
-            for (const auto &d : pod_id_list) {
-                if (d.empty()) {
-                    LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: empty pod id in pod id list";
-                    return RACK_FAIL;
-                }
-                if (allowed.find(d) == allowed.end()) {
-                    LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: pod id " << d << " not found in umq log path";
-                    return RACK_FAIL;
-                }
-            }
+        if (parsed.hasPodId && ValidatePodIdList(parsed) != RACK_OK) {
+            return RACK_FAIL;
         }
     } else {
-        if (!hasUmqLogPath) {
-            umqLogPath = "/var/log/messages";
+        if (!parsed.hasUmqLogPath) {
+            parsed.umqLogPath = "/var/log/messages";
         }
-        path_map["normal"] = umqLogPath;
-        LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: normal log path is " << umqLogPath;
+        parsed.pathMap["normal"] = parsed.umqLogPath;
+        LOG_DEBUG << "UbseConetext::ParseTopoToolsArgs-Debug: normal log path is " << parsed.umqLogPath;
     }
-    topoArgs.networkMode = networkMode;
-    topoArgs.podMode = podMode;
-    topoArgs.umq_log_path_map = path_map;
-    topoArgs.pod_id_list = pod_id_list;
+    return RACK_OK;
+}
+
+RackResult ValidateTopoArgs(ParsedTopoArgs &parsed)
+{
+    if (!parsed.hasNetworkMode) {
+        LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing network mode";
+        return RACK_FAIL;
+    }
+    if (!parsed.hasPodMode) {
+        LOG_ERROR << "UbseConetext::ParseTopoToolsArgs-Error: missing pod mode";
+        return RACK_FAIL;
+    }
+    return BuildPathMap(parsed);
+}
+} // namespace
+
+RackResult UbseContext::ParseTopoToolsArgs(int argc, char *argv[])
+{
+    ParsedTopoArgs parsed;
+    if (ParseTopoArgsLoop(argc, argv, parsed) != RACK_OK) {
+        return RACK_FAIL;
+    }
+    if (ValidateTopoArgs(parsed) != RACK_OK) {
+        return RACK_FAIL;
+    }
+    topoArgs.networkMode = parsed.networkMode;
+    topoArgs.podMode = parsed.podMode;
+    topoArgs.umq_log_path_map = parsed.pathMap;
+    topoArgs.pod_id_list = parsed.podIdList;
     LOG_INFO << "UbseConetext::ParseTopoToolsArgs-Info: Validation passed, ready to run ";
     return RACK_OK;
 }
