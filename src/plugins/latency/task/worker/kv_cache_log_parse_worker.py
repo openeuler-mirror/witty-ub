@@ -37,8 +37,7 @@ from latency.parse.worker_info_parser import (
     MASTER_RPC_LABEL,
     TIMED_LABELS,
 )
-from latency.ENUM.ds_log import EntryType
-from latency.schemas.ds_log import TupleField
+from latency.ENUM.ds_log import EntryType, TupleField
 from latency.parse.parallel_scanner import ParallelFileScanner
 from latency.parse.parallel_scanner.trace_frame import build_trace_frame
 from latency.ENUM.task import TaskSplitStrategy

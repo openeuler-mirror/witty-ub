@@ -128,7 +128,6 @@ install_missing() {
         [ "$WITTY_ROLE" != "frontend" ] && PKGS+=(postgresql-server postgresql python3 python3-pip)
         [ "$WITTY_ROLE" != "backend" ] && PKGS+=(nginx nodejs)
         _info "安装 RPM 系统依赖: ${PKGS[*]}"
-        "${SUDO_CMD[@]}" $PM_UPDATE
         "${SUDO_CMD[@]}" $PM_INSTALL "${PKGS[@]}" || {
             _err "依赖补装失败"
             return 1

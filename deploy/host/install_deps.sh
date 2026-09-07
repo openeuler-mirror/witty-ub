@@ -48,7 +48,6 @@ install_system_deps() {
             local SYSTEMD_PAM=""
             dnf list systemd-pam >/dev/null 2>&1 && SYSTEMD_PAM="systemd-pam"
             [ -n "$SYSTEMD_PAM" ] && RPM_PKGS+=("$SYSTEMD_PAM")
-            $PM_UPDATE
             $PM_INSTALL "${RPM_PKGS[@]}"
             systemctl enable postgresql 2>/dev/null || true
         else
