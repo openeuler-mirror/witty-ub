@@ -37,11 +37,13 @@ import type {
   TimeWindowBucket,
 } from '../types'
 import {
+  epochMsToTs,
   errorText,
   formatChartTs,
   formatFullTimeLabel,
   normalizeFaultCodes,
   paginate,
+  tsToEpochMs,
 } from '../utils/format'
 import {
   fetchAbnormalTraces,
@@ -54,8 +56,10 @@ import {
   fetchBrpcThreadLogs,
   fetchFailureMode,
   fetchFaultChart,
+  fetchFaultTracePage,
   fetchFaultTracesByTraceIds,
   fetchFaultTraces,
+  fetchLatencyTracePage,
   fetchLatencyTracesByTraceIds,
   fetchLatencyMetrics,
   fetchParseResultTotal,
@@ -64,6 +68,7 @@ import {
   fetchTraceLatency,
   fetchTraceLogs,
 } from '../api/analysis'
+import { createAnalysisFilter, type AnalysisFocus } from './useAnalysisFilter'
 
 export type UseOverviewDataOptions = {
   getAsset: () => LogKnowledge | null
@@ -155,7 +160,6 @@ function createOverviewState() {
   const realOp = computed<'get' | 'set'>(() => currentOp.value.toLowerCase() as 'get' | 'set')
   const isAssetMode = computed(() => view.value === 'home' && assetTab.value === 'overview')
   const isBrpcTask = computed(() => assetTypeFilter.value === 'brpc')
-  const hasRealData = true
   const scopeTasks = computed(() =>
     logFiles.value.filter(
       (file) =>
@@ -169,6 +173,17 @@ function createOverviewState() {
     if (analysisTab.value === 'latency') latencyOp.value = op
     else faultOp.value = op
   }
+
+  // ============ 统一分析过滤器：时延与通断各自持有实例 ============
+  const latencyFilter = createAnalysisFilter()
+  const disconnectFilter = createAnalysisFilter()
+  watch(realOp, (op) => {
+    latencyFilter.scaleSec.value = overviewScale.value as 10 | 60 | 600 | 3600
+    void op
+  })
+
+  // 全域时间轴是否被截断（total 超出加载上限）
+  const timelineTruncated = ref(false)
 
   const toAggregatedPairs = (events: TimeWindowBucket[], op: 'get' | 'set'): AggregatedPair[] => {
     const pairs: AggregatedPair[] = []
@@ -222,7 +237,11 @@ function createOverviewState() {
       overviewLoading.value = true
       overviewError.value = ''
       try {
-        timeWindows = await fetchTimeWindowAggregated(asset.id, op, overviewScale.value)
+        const { rows, truncated } = await fetchTimeWindowAggregated(asset.id, op, {
+          interval: overviewScale.value,
+        })
+        timeWindows = rows
+        timelineTruncated.value = truncated
         sectionCaches.timeWindows.set(scaleKey, timeWindows)
       } finally {
         overviewLoading.value = false
@@ -757,14 +776,12 @@ function createOverviewState() {
   }
 
   const overview = reactive({ topK: 10, operation: '', sortBy: '', statType: 'p99' })
-  const showMetricCb = ref(false)
   const showPodIpCb = ref(false)
-  const selectedPodIps = ref<string[]>([])
   const podIpCbPage = ref(1)
   const podIpCbPageSize = 20
 
   const timeBuckets = computed(() => scopeData.value.timeWindows[realOp.value] || [])
-  const epochOf = (value: string) => new Date(String(value).replace(' ', 'T')).getTime()
+  const epochOf = (value: string) => tsToEpochMs(String(value))
 
   const overviewScaleOptions = [
     { value: 10, label: '10秒' },
@@ -774,25 +791,77 @@ function createOverviewState() {
   ]
   const overviewScale = ref(600)
   const anomalyRef = ref<HTMLElement | null>(null)
-  /** 框选聚焦的时间范围（epoch ms） */
-  const overviewBrushRange = ref<{ start: number; end: number } | null>(null)
-
-  const timeRangeLabel = computed(() => {
-    if (!overviewBrushRange.value) return '全部时段'
-    const fmt = (ms: number) => {
-      const d = new Date(ms)
-      const p = (n: number) => String(n).padStart(2, '0')
-      return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-    }
-    return `${fmt(overviewBrushRange.value.start)} ~ ${fmt(overviewBrushRange.value.end)}`
+  // 粒度下拉是 AnalysisFilter.scaleSec 的写入口
+  watch(overviewScale, (value) => {
+    latencyFilter.scaleSec.value = value as 10 | 60 | 600 | 3600
   })
 
-  const clearOverviewBrush = () => {
-    overviewBrushRange.value = null
+  /**
+   * 两层时间数据（P0.3）：
+   * - timelineData（timeBuckets）：全域导航数据，不随 time 选择自我收窄
+   * - analysisWindowBuckets：按 time 重新请求的数据，驱动拓扑/排名/Pod 表/inspector
+   * time.mode = 'all' 时复用 timelineData。
+   */
+  const analysisWindowBuckets = ref<TimeWindowBucket[] | null>(null)
+  const analysisWindowLoading = ref(false)
+  let analysisWindowSeq = 0
+  let analysisWindowTimer: ReturnType<typeof setTimeout> | null = null
+
+  const loadAnalysisWindow = async () => {
+    const window = latencyFilter.timeWindow.value
+    if (!window) {
+      analysisWindowBuckets.value = null
+      return
+    }
+    const asset = selectedAsset.value
+    if (!asset) return
+    const seq = ++analysisWindowSeq
+    analysisWindowLoading.value = true
+    try {
+      const { rows } = await fetchTimeWindowAggregated(asset.id, realOp.value, {
+        interval: overviewScale.value,
+        startTime: epochMsToTs(window.start),
+        endTime: epochMsToTs(window.end),
+      })
+      if (seq === analysisWindowSeq) analysisWindowBuckets.value = rows
+    } catch (error) {
+      if (seq === analysisWindowSeq) {
+        analysisWindowBuckets.value = []
+        overviewError.value = errorText(error)
+      }
+    } finally {
+      if (seq === analysisWindowSeq) analysisWindowLoading.value = false
+    }
   }
-  const applyOverviewBrush = (range: { start: number; end: number }) => {
-    overviewBrushRange.value = range
+
+  // dataZoom 防抖：快速缩放时只加载最后一次选择
+  const scheduleAnalysisWindow = () => {
+    if (analysisWindowTimer) clearTimeout(analysisWindowTimer)
+    analysisWindowTimer = setTimeout(() => void loadAnalysisWindow(), 300)
   }
+
+  const clearAnalysisTime = () => {
+    latencyFilter.clearTime()
+    if (analysisWindowTimer) clearTimeout(analysisWindowTimer)
+    void loadAnalysisWindow()
+  }
+
+  /** 当前范围（time 选择）内的桶：all 复用全域，range/bucket 用服务端窗口结果 */
+  const analysisWindowData = computed(() => analysisWindowBuckets.value ?? timeBuckets.value)
+
+  const timeRangeLabel = computed(() => latencyFilter.timeLabel.value)
+
+  /** 按当前窗过滤后的全域桶（用于时间轴高亮等本地场景） */
+  const filteredTimeBuckets = computed(() => {
+    const window = latencyFilter.timeWindow.value
+    if (!window) return timeBuckets.value
+    return timeBuckets.value.filter((bucket) => {
+      const t = epochOf(bucket.start_time)
+      return t >= window.start && t < window.end
+    })
+  })
+
+  const activePairs = computed(() => toAggregatedPairs(analysisWindowData.value, realOp.value))
 
   /** 当前可用的指标：跨所有时段任一 ip_pair 出现过合法值（µs/计数） */
   const availableMetrics = computed(() =>
@@ -815,19 +884,7 @@ function createOverviewState() {
       .filter((cat) => cat.metrics.length > 0)
   })
 
-  /** 按框选范围过滤后的时段 */
-  const filteredTimeBuckets = computed(() => {
-    const range = overviewBrushRange.value
-    if (!range) return timeBuckets.value
-    return timeBuckets.value.filter((bucket) => {
-      const t = epochOf(bucket.start_time)
-      return t >= range.start && t < range.end
-    })
-  })
-
-  const activePairs = computed(() => toAggregatedPairs(filteredTimeBuckets.value, realOp.value))
-
-  /** 时段异常强度（供 brush 时间轴使用，含 epoch） */
+  /** 时段异常强度（时间轴数据源 = 全域导航数据） */
   const statFieldMap: Record<string, string> = {
     ave: 'ave_total_latency',
     p95: 'p95_total_latency',
@@ -842,138 +899,13 @@ function createOverviewState() {
       time: epochOf(bucket.start_time),
       start: bucket.start_time,
       end: bucket.end_time,
-      label: String(bucket.start_time).slice(11, 19),
+      label: formatChartTs(bucket.start_time),
       total: bucket.total_cnt ?? 0,
       anomaly: bucket.anomaly_cnt ?? 0,
       p99: bucket.p99_total_latency ?? null,
       statValue: bucket[overviewStatField.value] ?? null,
     })),
   )
-
-  /** 故障类型过滤：all / latency / disconnect */
-  const faultTypeFilter = ref<'all' | 'latency' | 'disconnect'>('all')
-
-  /** 统一故障时序：在每个时延桶上叠加「时延异常数 + 通断故障数」，并给 P99 */
-  const _unifiedFaultSeries = computed(() => {
-    const disconnectByTime = new Map<number, number>()
-    Object.values(scopeData.value.faultChart || {}).forEach((points) => {
-      ;(points || []).forEach((p) => {
-        const t = epochOf(String(p.time || ''))
-        if (Number.isNaN(t)) return
-        disconnectByTime.set(t, (disconnectByTime.get(t) || 0) + (p.err_cnt || 0))
-      })
-    })
-    return timeBuckets.value.map((bucket) => {
-      const start = epochOf(bucket.start_time)
-      const end = epochOf(bucket.end_time)
-      let disconnect = 0
-      disconnectByTime.forEach((cnt, t) => {
-        if (t >= start && t < end) disconnect += cnt
-      })
-      return {
-        time: start,
-        start: bucket.start_time,
-        end: bucket.end_time,
-        label: String(bucket.start_time).slice(11, 19),
-        total: bucket.total_cnt ?? 0,
-        latencyAnomaly: bucket.anomaly_cnt ?? 0,
-        disconnect,
-        p99: bucket.p99_total_latency ?? null,
-      }
-    })
-  })
-
-  const epochInRange = (t: number) => {
-    const range = overviewBrushRange.value
-    return !range || (t >= range.start && t < range.end)
-  }
-
-  const pairMetricValues = (pair: any) => {
-    const out: Record<string, number | null> = {}
-    allMetrics.forEach((metric) => {
-      const value = pair[`ave_${metric.key}`]
-      out[metric.key] = typeof value === 'number' && Number.isFinite(value) ? value : null
-    })
-    return out
-  }
-
-  /** 统一的聚合故障事件：按(时间窗, src→dst)聚合「时延异常」与「通断故障」，做唯一明细源 */
-  const _aggregatedFaultEvents = computed(() => {
-    const events: any[] = []
-    const bucketInRange = (start: number, _end: number) => {
-      const range = overviewBrushRange.value
-      return !range || start >= range.start
-    }
-    if (faultTypeFilter.value !== 'disconnect') {
-      timeBuckets.value.forEach((bucket) => {
-        const start = epochOf(bucket.start_time)
-        const end = epochOf(bucket.end_time)
-        if (!bucketInRange(start, end)) return
-        ;(bucket.ip_pairs || []).forEach((pair) => {
-          if (!pair.src_ip || !pair.dst_ip) return
-          events.push({
-            key: `lat-${bucket.start_time}-${pair.src_ip}-${pair.dst_ip}`,
-            type: 'latency',
-            timeMs: start,
-            timeLabel: `${bucket.start_time} ~ ${bucket.end_time}`,
-            src: pair.src_ip,
-            dst: pair.dst_ip,
-            total: pair.log_parse_result_cnt ?? 0,
-            anomaly: pair.anomaly_cnt ?? 0,
-            valueMs: pair.p99_total_latency ?? pair.ave_total_latency,
-            codes: pair.anomaly_cnt > 0 ? ['异常'] : [],
-            metricValues: pairMetricValues(pair),
-            raw: pair,
-          })
-        })
-      })
-    }
-    if (faultTypeFilter.value !== 'latency') {
-      const map = new Map<string, any>()
-      ;(scopeData.value.faultTraces || []).forEach((r) => {
-        const t = epochOf(String(r.timestamp || r.window_start_time || ''))
-        if (Number.isNaN(t) || !epochInRange(t)) return
-        const src = r.src_ip || ''
-        const dst = r.dst_ip || ''
-        const key = `${t}-${src}-${dst}`
-        if (!map.has(key)) {
-          map.set(key, {
-            key: `fault-${t}-${src}-${dst}`,
-            type: 'disconnect',
-            timeMs: t,
-            timeLabel: String(r.timestamp || r.window_start_time || ''),
-            src,
-            dst,
-            total: 0,
-            anomaly: 0,
-            valueMs: null,
-            codes: new Set<string>(),
-            metricValues: null,
-            traces: [],
-          })
-        }
-        const e = map.get(key)!
-        e.total += 1
-        e.anomaly += 1
-        normalizeFaultCodes(r.status_code).forEach((code) => e.codes.add(code))
-        e.traces.push(r)
-      })
-      map.forEach((e) => {
-        events.push({ ...e, codes: [...e.codes] })
-      })
-    }
-    let result = events.sort((a, b) => b.timeMs - a.timeMs)
-    if (selectedPodIps.value.length > 0) {
-      const selected = new Set(selectedPodIps.value)
-      result = result.filter((e) => selected.has(e.src) || selected.has(e.dst))
-    }
-    return result
-  })
-
-  const selectedFaultEvent = ref<any>(null)
-  const _selectFaultEvent = (event: any) => {
-    selectedFaultEvent.value = event
-  }
 
   const podIpStats = computed(() => {
     const map = new Map<string, any>()
@@ -1054,9 +986,6 @@ function createOverviewState() {
 
   const filteredPodStats = computed(() => {
     let list = podIpStats.value
-    if (selectedPodIps.value.length > 0) {
-      list = list.filter((stat) => selectedPodIps.value.includes(stat.ip))
-    }
     if (overview.sortBy) {
       const parts = overview.sortBy.split('_')
       const field = parts[0] ?? ''
@@ -1064,6 +993,9 @@ function createOverviewState() {
       list = [...list].sort((a, b) =>
         order === 'desc' ? (b[field] || 0) - (a[field] || 0) : (a[field] || 0) - (b[field] || 0),
       )
+    } else {
+      // 默认按异常数排序（P0.6）：「结果数」不表达故障严重度
+      list = [...list].sort((a, b) => b.anomaly - a.anomaly || b.total - a.total)
     }
     if (overview.topK > 0 && overview.topK < list.length) {
       list = list.slice(0, overview.topK)
@@ -1086,27 +1018,43 @@ function createOverviewState() {
     }
     if (analysisTab.value === 'disconnect') {
       const codes = Object.keys(scopeData.value.faultChart || {})
+      const endpoints = new Set<string>()
+      const endpointFaults = new Map<string, number>()
+      faultTraces.value.forEach((trace) => {
+        ;[trace.src_ip, trace.dst_ip].forEach((ip) => {
+          if (!ip) return
+          endpoints.add(ip)
+          endpointFaults.set(ip, (endpointFaults.get(ip) || 0) + 1)
+        })
+      })
+      const worst = [...endpointFaults.entries()].sort((a, b) => b[1] - a[1])[0]
       return {
         totalTraces: scopeData.value.kpi.faultTraceSetTotal || 0,
         anomalyTraces: codes.length,
         anomalyRate: '—' as string | number,
-        podIpCount: kpi.podCount || 0,
-        worstPodIp: codes.length ? '故障码 ' + codes.join(' / ') : '—',
-        worstP99: codes.length ? 'SET' : '',
+        endpointCount: endpoints.size,
+        worstEndpoint: worst?.[0] ?? '-',
+        worstEndpointAnomaly: worst?.[1] ?? 0,
       }
     }
     const rate = kpi.traceTotal ? ((kpi.anomalyTotal / kpi.traceTotal) * 100).toFixed(1) : '0.0'
-    const worst = activePairs.value.reduce(
-      (best, pair) => (Number(pair.urmaTotal) > Number(best.urmaTotal) ? pair : best),
-      activePairs.value[0] || ({} as AggregatedPair),
-    )
+    // 「当前范围端点数 / 最差端点」：跟随 time/dimensions，不随 focus（P0.6 口径）
+    const endpointSet = new Set<string>()
+    const endpointAnomaly = new Map<string, number>()
+    activePairs.value.forEach((pair) => {
+      endpointSet.add(pair.src)
+      endpointSet.add(pair.dst)
+      endpointAnomaly.set(pair.src, (endpointAnomaly.get(pair.src) || 0) + pair.anomaly)
+      endpointAnomaly.set(pair.dst, (endpointAnomaly.get(pair.dst) || 0) + pair.anomaly)
+    })
+    const worst = [...endpointAnomaly.entries()].sort((a, b) => b[1] - a[1])[0]
     return {
       totalTraces: kpi.traceTotal,
       anomalyTraces: kpi.anomalyTotal,
       anomalyRate: rate,
-      podIpCount: kpi.podCount,
-      worstPodIp: worst.src || '-',
-      worstP99: worst.urmaTotal != null ? String(worst.urmaTotal) : '-',
+      endpointCount: endpointSet.size,
+      worstEndpoint: worst?.[0] ?? '-',
+      worstEndpointAnomaly: worst?.[1] ?? 0,
     }
   })
 
@@ -1115,13 +1063,10 @@ function createOverviewState() {
     overview.operation = ''
     overview.sortBy = ''
     overview.statType = 'p99'
-    selectedPodIps.value = []
+    latencyFilter.reset()
     overviewScale.value = 600
-    overviewBrushRange.value = null
-    faultTypeFilter.value = 'all'
+    analysisWindowBuckets.value = null
     topoShowAll.value = false
-    selectedTopologyLinkKey.value = ''
-    selectedTopologyNodeIp.value = ''
     podIpCbPage.value = 1
     podPage.value = 1
   }
@@ -1215,20 +1160,6 @@ function createOverviewState() {
     const percentile = trendPercentile.value as 'p99' | 'p9999' | 'pmax' | 'ave'
     return scopeData.value.latency[realOp.value]?.[percentile] || []
   })
-
-  const getAdaptiveBucketMs = (times: number[]) => {
-    if (times.length <= 1) return 10000
-    const span = Math.max(Math.max(...times) - Math.min(...times), 10000)
-    const candidates = [1000, 2000, 5000, 10000, 30000, 60000, 300000, 600000, 1800000, 3600000]
-    return (
-      candidates.find((bucket) => {
-        const count = Math.ceil(span / bucket)
-        return count >= 2 && count <= 120
-      }) ??
-      candidates.find((bucket) => Math.ceil(span / bucket) <= 120) ??
-      3600000
-    )
-  }
 
   const formatFullTime = (time: number) => {
     const date = new Date(time)
@@ -1815,16 +1746,6 @@ function createOverviewState() {
     return lines.join('\n')
   }
 
-  const traceBoard = ref<string[]>([])
-  const addTraceBoard = (row: any) => {
-    if (!row.trace_id || traceBoard.value.includes(row.trace_id)) return
-    traceBoard.value.push(row.trace_id)
-    toast(`Trace ${row.trace_id.slice(0, 8)}… 已加入看板`, 'info')
-  }
-  const removeTraceBoard = (id: string) => {
-    traceBoard.value = traceBoard.value.filter((item) => item !== id)
-  }
-
   const tracePageSize = 10
   const tracePage = ref(1)
   const tracePages = computed(() => Math.max(1, Math.ceil(traceRows.value.length / tracePageSize)))
@@ -1841,6 +1762,8 @@ function createOverviewState() {
   const faultTimeRange = ref<{ start: string; end: string } | null>(null)
   const clearFaultRange = () => {
     faultTimeRange.value = null
+    // 通断域 time 与框选同步（P0.7）
+    disconnectFilter.clearTime()
     const el = faultChartRef.value
     const chart = el && getInstanceByDom(el)
     if (chart) chart.dispatchAction({ type: 'brush', areas: [] })
@@ -1888,67 +1811,98 @@ function createOverviewState() {
     faultTracePage.value = 1
   })
 
-  // ---------- Pod 详情（轻量版：聚合 + 相关 Trace） ----------
+  // ---------- 对象详情（窗 × 端点/链路，服务端分页，P0.5） ----------
 
-  const podDetailOpen = ref(false)
-  const podDetailIp = ref('')
-  const podDetailSearch = ref('')
-  const podDetailPage = ref(1)
-  const podDetailPageSize = 10
+  type ObjectDetailDomain = 'latency' | 'disconnect'
 
-  const podDetailRows = computed(() => {
-    const ip = podDetailIp.value
-    const rows = [
-      ...(scopeData.value.faultTraces || []),
-      ...(scopeData.value.abnormal || []),
-    ].filter(
-      (row) =>
-        (row.pod_ips || []).includes(ip) ||
-        (row.pod_names || []).includes(ip) ||
-        row.src_ip === ip ||
-        row.dst_ip === ip,
-    )
-    const seen = new Set<string>()
-    const deduped = rows.filter((row) => {
-      const key = row.trace_id || row.id || `${row.timestamp}-${row.src_ip}-${row.dst_ip}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    const keyword = podDetailSearch.value.trim().toLowerCase()
-    if (keyword) {
-      return deduped.filter(
-        (row) =>
-          String(row.trace_id || '')
-            .toLowerCase()
-            .includes(keyword) ||
-          String(row.timestamp || '')
-            .toLowerCase()
-            .includes(keyword),
-      )
-    }
-    return deduped
+  const objectDetail = reactive({
+    open: false,
+    domain: 'latency' as ObjectDetailDomain,
+    title: '',
+    windowLabel: '全部时段',
+    loading: false,
+    error: '',
+    rows: [] as any[],
+    total: 0,
+    page: 1,
+    pageSize: 10,
   })
+  let objectDetailSeq = 0
 
-  const podDetailSummary = computed(() => {
-    const rows = podDetailRows.value
-    return {
-      total: rows.length,
-      src: rows.filter((row) => row.src_ip === podDetailIp.value).length,
-      dst: rows.filter((row) => row.dst_ip === podDetailIp.value).length,
-      anomaly: rows.filter(
-        (row) => row.is_anomalous || normalizeFaultCodes(row.status_code).length > 0,
-      ).length,
-    }
-  })
-
-  const podDetailPages = computed(() =>
-    Math.max(1, Math.ceil(podDetailRows.value.length / podDetailPageSize)),
-  )
-  const pagedPodDetailRows = computed(() =>
-    paginate(podDetailRows.value, podDetailPage.value, podDetailPageSize),
+  const objectDetailPages = computed(() =>
+    Math.max(1, Math.ceil(objectDetail.total / objectDetail.pageSize)),
   )
 
+  const fetchObjectDetailPage = async () => {
+    const asset = selectedAsset.value
+    if (!asset) return
+    const filter = objectDetail.domain === 'latency' ? latencyFilter : disconnectFilter
+    const focus = filter.focus.value
+    const window = filter.timeWindow.value
+    const seq = ++objectDetailSeq
+    objectDetail.loading = true
+    objectDetail.error = ''
+    try {
+      const query = {
+        op: realOp.value,
+        startTime: window ? epochMsToTs(window.start) : undefined,
+        endTime: window ? epochMsToTs(window.end) : undefined,
+        srcIp: focus.kind === 'link' ? focus.src : undefined,
+        dstIp: focus.kind === 'link' ? focus.dst : undefined,
+        endpointIp: focus.kind === 'pod' ? focus.ip : undefined,
+        pageNum: objectDetail.page,
+        pageCnt: objectDetail.pageSize,
+      }
+      const result =
+        objectDetail.domain === 'latency'
+          ? await fetchLatencyTracePage(asset.id, query)
+          : await fetchFaultTracePage(asset.id, query)
+      if (seq !== objectDetailSeq) return
+      objectDetail.rows = result.rows
+      objectDetail.total = result.total
+    } catch (error) {
+      if (seq !== objectDetailSeq) return
+      objectDetail.error = errorText(error)
+      objectDetail.rows = []
+      objectDetail.total = 0
+    } finally {
+      if (seq === objectDetailSeq) objectDetail.loading = false
+    }
+  }
+
+  const openObjectDetail = (domain: ObjectDetailDomain, focus: AnalysisFocus) => {
+    if (focus.kind === 'none') {
+      toast('请先在拓扑或列表中选择端点或链路', 'info')
+      return
+    }
+    const filter = domain === 'latency' ? latencyFilter : disconnectFilter
+    if (focus.kind === 'pod') filter.setFocusPod(focus.ip)
+    else if (focus.kind === 'link') filter.setFocusLink(focus.src, focus.dst)
+    objectDetail.domain = domain
+    objectDetail.title =
+      focus.kind === 'pod'
+        ? `端点 ${focus.ip}`
+        : focus.kind === 'link'
+          ? `链路 ${focus.src} → ${focus.dst}`
+          : '对象详情'
+    objectDetail.windowLabel = filter.timeLabel.value
+    objectDetail.page = 1
+    objectDetail.rows = []
+    objectDetail.total = 0
+    objectDetail.error = ''
+    objectDetail.open = true
+    void fetchObjectDetailPage()
+  }
+
+  const objectDetailGoPage = (page: number) => {
+    objectDetail.page = page
+    void fetchObjectDetailPage()
+  }
+  const closeObjectDetail = () => {
+    objectDetail.open = false
+  }
+
+  // 时延域：预加载跨域标签所需数据后打开详情（保持 podRowTags 口径完整）
   const enterPodDetail = async (ip: string) => {
     const op = realOp.value
     const latencyKey = `${op}:${trendPercentile.value}`
@@ -1959,11 +1913,39 @@ function createOverviewState() {
     const needFault = !sectionCaches.faultTraces.has(op)
     if (needTrend) await loadTrendSection(op, trendPercentile.value)
     if (needFault) await loadFaultSection(op)
-    podDetailIp.value = ip
-    podDetailSearch.value = ''
-    podDetailPage.value = 1
-    podDetailOpen.value = true
+    openObjectDetail('latency', { kind: 'pod', ip })
   }
+
+  const enterLinkDetail = (src: string, dst: string) => {
+    openObjectDetail('latency', { kind: 'link', src, dst })
+  }
+
+  // 通断域入口（P0.7）：按通断接口真实字段发送 endpoint_ip / src+dst
+  const enterFaultDetail = (ip: string) => {
+    openObjectDetail('disconnect', { kind: 'pod', ip })
+  }
+  const enterFaultLinkDetail = (src: string, dst: string) => {
+    openObjectDetail('disconnect', { kind: 'link', src, dst })
+  }
+
+  /** 点节点时 inspector 的 src/dst 对列表（旧「展开行」，仅选中后出现） */
+  const focusPairs = computed(() => {
+    const focus = latencyFilter.focus.value
+    if (focus.kind !== 'pod') return []
+    const map = new Map<string, { src: string; dst: string; total: number; anomaly: number }>()
+    activePairs.value.forEach((pair) => {
+      if (pair.src !== focus.ip && pair.dst !== focus.ip) return
+      const key = `${pair.src}→${pair.dst}`
+      const current = map.get(key)
+      if (current) {
+        current.total += pair.total
+        current.anomaly += pair.anomaly
+      } else {
+        map.set(key, { src: pair.src, dst: pair.dst, total: pair.total, anomaly: pair.anomaly })
+      }
+    })
+    return [...map.values()].sort((a, b) => b.anomaly - a.anomaly || b.total - a.total)
+  })
 
   // ---------- Trace 抽屉 / 故障模式 ----------
 
@@ -2040,7 +2022,6 @@ function createOverviewState() {
   // ---------- 图表渲染 ----------
 
   const topoRef = ref<HTMLElement | null>(null)
-  const pieRefs: Record<string, HTMLElement | null> = {}
   const ipRowRefs: Record<string, HTMLElement | null> = {}
   const trendRef = ref<HTMLElement | null>(null)
   const slowRef = ref<HTMLElement | null>(null)
@@ -2068,13 +2049,13 @@ function createOverviewState() {
 
   const jumpToPod = (ip: string) => {
     if (!podIpStats.value.some((stat) => stat.ip === ip)) {
-      toast(`未找到 Pod IP ${ip}`, 'info')
+      toast(`未找到端点 IP ${ip}`, 'info')
       return
     }
     if (!filteredPodStats.value.some((stat) => stat.ip === ip)) {
-      selectedPodIps.value = []
+      latencyFilter.clearWhitelist()
       podIpCbPage.value = 1
-      toast('目标 Pod 不在当前筛选内，已显示全部 Pod IP', 'info')
+      toast('目标端点不在当前筛选内，已显示全部端点', 'info')
     }
     nextTick(() => {
       const index = filteredPodStats.value.findIndex((stat) => stat.ip === ip)
@@ -2092,8 +2073,6 @@ function createOverviewState() {
   const topoShowAll = ref(false)
   const topoHiddenCount = ref(0)
   const topoTotalCount = ref(0)
-  const selectedTopologyLinkKey = ref('')
-  const selectedTopologyNodeIp = ref('')
   let topologyBlankClickHandler: ((event: any) => void) | null = null
 
   type TopologyLink = {
@@ -2162,10 +2141,11 @@ function createOverviewState() {
   })
 
   const visibleTopologyLinks = computed(() => {
-    if (!selectedPodIps.value.length) return topologyLinks.value
-    const selected = new Set(selectedPodIps.value)
+    // nodeWhitelist 只控制本地可视化，不冒充服务端过滤（P0.2）
+    if (!latencyFilter.nodeWhitelist.value.length) return topologyLinks.value
+    const allowed = new Set(latencyFilter.nodeWhitelist.value)
     return topologyLinks.value.filter(
-      (link) => selected.has(link.source) || selected.has(link.target),
+      (link) => allowed.has(link.source) || allowed.has(link.target),
     )
   })
 
@@ -2180,22 +2160,40 @@ function createOverviewState() {
     }
   })
 
-  const selectedTopologyLink = computed(
-    () => topologyLinks.value.find((link) => link.key === selectedTopologyLinkKey.value) ?? null,
-  )
-  const selectedTopologyNode = computed(
-    () => podIpStats.value.find((node) => node.ip === selectedTopologyNodeIp.value) ?? null,
-  )
+  // focus 是当前分析对象的唯一事实源（P0.4）：点节点/边/空白都在写它
+  const selectedTopologyLink = computed(() => {
+    const focus = latencyFilter.focus.value
+    if (focus.kind !== 'link') return null
+    return topologyLinks.value.find((link) => link.key === `${focus.src}→${focus.dst}`) ?? null
+  })
+  const selectedTopologyNode = computed(() => {
+    const focus = latencyFilter.focus.value
+    if (focus.kind !== 'pod') return null
+    return podIpStats.value.find((node) => node.ip === focus.ip) ?? null
+  })
   const selectTopologyLink = (link: TopologyLink) => {
-    selectedTopologyLinkKey.value = selectedTopologyLinkKey.value === link.key ? '' : link.key
-    selectedTopologyNodeIp.value = ''
+    const focus = latencyFilter.focus.value
+    if (focus.kind === 'link' && focus.src === link.source && focus.dst === link.target) {
+      latencyFilter.clearFocus()
+    } else {
+      latencyFilter.setFocusLink(link.source, link.target)
+    }
   }
   const selectTopologyNode = (ip: string) => {
-    selectedTopologyNodeIp.value = selectedTopologyNodeIp.value === ip ? '' : ip
-    selectedTopologyLinkKey.value = ''
+    const focus = latencyFilter.focus.value
+    if (focus.kind === 'pod' && focus.ip === ip) {
+      latencyFilter.clearFocus()
+    } else {
+      latencyFilter.setFocusPod(ip)
+    }
   }
-  const filterTopologyLink = (link: TopologyLink) => {
-    selectedPodIps.value = [link.source, link.target]
+  const clearTopologyFocus = () => {
+    // 点空白：清对象，保留 time（P0.4）
+    latencyFilter.clearFocus()
+  }
+  const showLinkEndsOnly = (link: TopologyLink) => {
+    // 「只显示两端节点」：仅改变拓扑可见节点，不改变服务端查询
+    latencyFilter.showOnlyNodes([link.source, link.target])
   }
 
   // 等比环形布局：坐标始终落在正方形绘图区，避免横向画布将圆环和节点拉伸变形。
@@ -2267,7 +2265,7 @@ function createOverviewState() {
           const width = 3.5 + normalized * 2
           const ratio = link.anomalyRate
           const healthy = ratio <= 0
-          const selected = selectedTopologyLinkKey.value === link.key
+          const selected = selectedTopologyLink.value?.key === link.key
           link.lineStyle = {
             color: selected ? '#6D28D9' : severityColor(ratio, '#64748B'),
             width: selected ? width + 2 : healthy ? Math.max(2.5, width * 0.75) : width,
@@ -2289,7 +2287,7 @@ function createOverviewState() {
         const pos = positions.get(node.ip)
         const selectedLink = selectedTopologyLink.value
         const focused =
-          selectedTopologyNodeIp.value === node.ip ||
+          selectedTopologyNode.value?.ip === node.ip ||
           selectedLink?.source === node.ip ||
           selectedLink?.target === node.ip
         const size = 34 + Math.sqrt(node.total / maxTotal) * 12
@@ -2376,7 +2374,7 @@ function createOverviewState() {
         ],
       })
 
-      // 点击只查看详情并高亮，不隐式缩小图；筛选必须由用户显式触发。
+      // 点击即分析（P0.4）：点节点/边写 focus，点空白清 focus（保留 time）
       chart.off('click')
       chart.on('click', (params: any) => {
         if (params.dataType === 'edge') {
@@ -2390,8 +2388,7 @@ function createOverviewState() {
       }
       topologyBlankClickHandler = (event: any) => {
         if (!event.target) {
-          selectedTopologyLinkKey.value = ''
-          selectedTopologyNodeIp.value = ''
+          clearTopologyFocus()
         }
       }
       chart.getZr().on('click', topologyBlankClickHandler)
@@ -2399,10 +2396,8 @@ function createOverviewState() {
   }
 
   const resetTopologyFilter = () => {
-    selectedPodIps.value = []
+    latencyFilter.clearWhitelist()
     topoShowAll.value = false
-    selectedTopologyLinkKey.value = ''
-    selectedTopologyNodeIp.value = ''
     podIpCbPage.value = 1
   }
 
@@ -2417,7 +2412,6 @@ function createOverviewState() {
       const buckets = anomalySeries.value
       if (!buckets.length) {
         chart.clear()
-        overviewBrushRange.value = null
         return
       }
       const times = buckets.map((b) => b.time)
@@ -2430,9 +2424,8 @@ function createOverviewState() {
         const start = Math.max(0, ((time - min) / span) * 100)
         return [start, 100] as const
       }
-      const [pctStart, pctEnd] = overviewBrushRange.value
-        ? toPct(overviewBrushRange.value.start)
-        : ([0, 100] as const)
+      const timeWindow = latencyFilter.timeWindow.value
+      const [pctStart, pctEnd] = timeWindow ? toPct(timeWindow.start) : ([0, 100] as const)
       const statLabelMap: Record<string, string> = {
         ave: '均值',
         p95: 'P95',
@@ -2441,6 +2434,9 @@ function createOverviewState() {
         max: '最大',
       }
       const statLabel = statLabelMap[overview.statType] || '均值'
+      // 粗粒度 P95/P99 是 10 秒桶分位值的再聚合近似（P0.3 文案口径）
+      const approximate = overviewScale.value >= 60 && ['p95', 'p99'].includes(overview.statType)
+      const statSuffix = approximate ? '，粗粒度近似' : ''
 
       setChartOption(chart, {
         animation: false,
@@ -2451,7 +2447,7 @@ function createOverviewState() {
             const index = (Array.isArray(params) ? params : [])[0]?.dataIndex
             const bucket = buckets[index]
             if (!bucket) return ''
-            return `<b>${bucket.start} ~ ${bucket.end}</b><br/>请求数: ${bucket.total}<br/>异常请求数: <span style="color:#EF4444">${bucket.anomaly}</span><br/>总时延(${statLabel}): ${bucket.statValue != null ? bucket.statValue.toFixed(2) + ' ms' : '-'}`
+            return `<b>开始 ${formatChartTs(bucket.start)}<br/>结束 ${formatChartTs(bucket.end)}</b><br/>请求数: ${bucket.total}<br/>异常请求数: <span style="color:#EF4444">${bucket.anomaly}</span><br/>总时延(${statLabel}${statSuffix}): ${bucket.statValue != null ? bucket.statValue.toFixed(2) + ' ms' : '-'}<br/><span style="color:#94a3b8">点击柱体选中该时段</span>`
           },
         },
         grid: { left: 54, right: 70, top: 48, bottom: 56 },
@@ -2495,6 +2491,7 @@ function createOverviewState() {
             name: '异常请求数',
             type: 'bar',
             barMaxWidth: 28,
+            cursor: 'pointer',
             itemStyle: { color: '#EF4444', borderRadius: [3, 3, 0, 0] },
             data: buckets.map((b) => [b.time, b.anomaly]),
           },
@@ -2513,32 +2510,37 @@ function createOverviewState() {
         ],
       })
 
+      // 点柱 = 选中该窗（time.mode = 'bucket'）
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        const index = params?.dataIndex
+        const bucket = buckets[index]
+        if (!bucket) return
+        latencyFilter.setTimeBucket(epochOf(bucket.start), epochOf(bucket.end))
+        void loadAnalysisWindow()
+      })
+
+      // dataZoom → time.mode = 'range'；防抖后按窗重新请求，不覆盖全域 timelineData
       chart.off('datazoom')
       chart.on('datazoom', (params: any) => {
         const batch = (params && (params.batch || [params])[0]) || {}
         const start = typeof batch.start === 'number' ? batch.start : 0
         const end = typeof batch.end === 'number' ? batch.end : 100
         if (start <= 0.5 && end >= 99.5) {
-          overviewBrushRange.value = null
+          latencyFilter.clearTime()
+          void loadAnalysisWindow()
         } else {
           const i0 = pctToIndex(start, n)
           const i1 = pctToIndex(end, n)
           const startTime = times[i0] ?? times[0] ?? 0
           const endTime = times[i1] ?? times[n - 1] ?? startTime
           const prev = times[Math.max(0, i1 - 1)] ?? endTime
-          overviewBrushRange.value = {
-            start: startTime,
-            end: endTime + (endTime - prev || 1),
-          }
+          latencyFilter.setTimeRange(startTime, endTime + (endTime - prev || 1))
+          scheduleAnalysisWindow()
         }
         renderTopology()
       })
     })
-  }
-
-  const renderPieCharts = () => {
-    renderAnomalyChart()
-    renderTopology()
   }
 
   const renderTrendChart = () => {
@@ -2898,6 +2900,16 @@ function createOverviewState() {
           },
         ],
       })
+
+      // P0.7：点节点/边进入「窗 + 端点/链路」的故障 Trace（按通断接口字段发送）
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        if (params.dataType === 'edge') {
+          enterFaultLinkDetail(params.data.source, params.data.target)
+        } else if (params.dataType === 'node') {
+          enterFaultDetail(params.data.name)
+        }
+      })
     })
   }
 
@@ -3018,7 +3030,7 @@ function createOverviewState() {
       })
       chart.off('click')
       chart.on('click', (params: any) => {
-        if (params.name) enterPodDetail(params.name)
+        if (params.name) enterFaultDetail(params.name)
       })
     })
   }
@@ -3113,6 +3125,12 @@ function createOverviewState() {
             start: startTime.slice(11, 19),
             end: endTime.slice(11, 19),
           }
+          // 通断域 time 同步为半开区间 [start, end)：end 取下一桶起点
+          const nextTime = times[endIndex + 1]
+          const step = nextTime
+            ? Math.max(1000, tsToEpochMs(nextTime) - tsToEpochMs(endTime))
+            : 60000
+          disconnectFilter.setTimeRange(tsToEpochMs(startTime), tsToEpochMs(endTime) + step)
         }
       })
     })
@@ -3213,7 +3231,11 @@ function createOverviewState() {
       ],
       () => {
         if (!isAssetMode.value) return
-        overviewBrushRange.value = null
+        // 操作/粒度/页签切换：重置时延域时间与对象，恢复全域时间轴
+        latencyFilter.clearTime()
+        latencyFilter.clearFocus()
+        latencyFilter.clearWhitelist()
+        analysisWindowBuckets.value = null
         void loadOverviewForTab()
       },
     )
@@ -3257,18 +3279,6 @@ function createOverviewState() {
       { deep: true },
     )
 
-    // 故障类型过滤变化 → 重绘统一时序（聚合事件表为响应式）
-    watch(faultTypeFilter, () => {
-      if (
-        isAssetMode.value &&
-        !isBrpcTask.value &&
-        analysisTab.value === 'latency' &&
-        analysisModule.latency === 'overview'
-      ) {
-        renderAnomalyChart()
-      }
-    })
-
     // 统计方式变化 → 重绘时段异常强度（总时延线）
     watch(
       () => overview.statType,
@@ -3299,7 +3309,7 @@ function createOverviewState() {
 
     // 拓扑输入或查看焦点变化 → 重绘拓扑
     watch(
-      [visibleTopologyLinks, overviewBrushRange, selectedTopologyLinkKey, selectedTopologyNodeIp],
+      [visibleTopologyLinks, () => latencyFilter.time.value, () => latencyFilter.focus.value],
       () => {
         if (!isAssetMode.value || isBrpcTask.value) return
         if (analysisTab.value === 'latency' && analysisModule.latency === 'overview') {
@@ -3343,10 +3353,8 @@ function createOverviewState() {
     selectedAsset,
     view,
     assetTab,
-    pieRefs,
     ipRowRefs,
     activePairs,
-    addTraceBoard,
     allMetrics,
     analysisModule,
     analysisTab,
@@ -3379,11 +3387,14 @@ function createOverviewState() {
     faultPieRefs,
     renderFaultTopology,
     renderFaultPieCharts,
-    clearOverviewBrush,
-    applyOverviewBrush,
+    latencyFilter,
+    disconnectFilter,
+    clearAnalysisTime,
+    analysisWindowData,
+    analysisWindowLoading,
+    timelineTruncated,
     overviewScale,
     overviewScaleOptions,
-    overviewBrushRange,
     timeRangeLabel,
     availableMetrics,
     availableMetricCats,
@@ -3420,6 +3431,14 @@ function createOverviewState() {
     detailDrawerRow,
     drawerKind,
     enterPodDetail,
+    enterLinkDetail,
+    enterFaultDetail,
+    enterFaultLinkDetail,
+    objectDetail,
+    objectDetailPages,
+    objectDetailGoPage,
+    closeObjectDetail,
+    focusPairs,
     failureModeCache,
     failureModeOf,
     faultChartData,
@@ -3435,11 +3454,9 @@ function createOverviewState() {
     filteredFaultTraces,
     filteredPodStats,
     formatFullTime,
-    getAdaptiveBucketMs,
     getChart,
     goBrpcFaultEventsPage,
     goBrpcFaultThreadsPage,
-    hasRealData,
     highlightRow,
     isAssetMode,
     isBrpcTask,
@@ -3458,18 +3475,9 @@ function createOverviewState() {
     overviewError,
     overviewLoading,
     pagedFaultTraces,
-    pagedPodDetailRows,
     pagedPodIpsCb,
     pagedPodStats,
     pagedTraceRows,
-    podDetailIp,
-    podDetailOpen,
-    podDetailPage,
-    podDetailPageSize,
-    podDetailPages,
-    podDetailRows,
-    podDetailSearch,
-    podDetailSummary,
     podBreakdownSegments,
     podBreakdownTotal,
     podBreakdownTitle,
@@ -3488,13 +3496,11 @@ function createOverviewState() {
     podPageSize,
     podPages,
     realOp,
-    removeTraceBoard,
     renderAnalysisModules,
     renderBrpcCharts,
     renderBrpcFaultTimeline,
     renderFaultChart,
     renderFaultPodChart,
-    renderPieCharts,
     renderSlowChart,
     renderTopology,
     renderTrendChart,
@@ -3507,15 +3513,13 @@ function createOverviewState() {
     scopeTasks,
     selectAllTrend,
     selectedMetrics,
-    selectedPodIps,
     selectedTopologyLink,
     selectedTopologyNode,
     selectTopologyLink,
     selectTopologyNode,
-    filterTopologyLink,
+    showLinkEndsOnly,
     setChartOption,
     setCurrentOp,
-    showMetricCb,
     showPodIpCb,
     slowChartRows,
     slowRef,
@@ -3532,7 +3536,6 @@ function createOverviewState() {
     visibleTopologyLinks,
     topologySummary,
     topoRef,
-    traceBoard,
     traceBreakdownKeys,
     traceBreakdownTitle,
     traceCluster,

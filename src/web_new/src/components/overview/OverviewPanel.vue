@@ -22,175 +22,39 @@ const emit = defineEmits<{
 }>()
 
 const {
-  toast,
   bindOverviewWatchers,
   selectedAsset,
-  view,
   assetTab,
-  pieRefs,
-  ipRowRefs,
-  activePairs,
-  addTraceBoard,
-  allMetrics,
   analysisModule,
   analysisTab,
   assetTypeFilter,
-  brpcAbnormalThreadPage,
-  brpcAbnormalThreadTotal,
-  brpcAbnormalThreads,
-  brpcAggregatedEventPage,
-  brpcAggregatedEventTotal,
-  brpcAggregatedEvents,
-  brpcEventHitTotal,
-  brpcFaultBatch,
   brpcFaultDetail,
   brpcThreadLogs,
   brpcThreadLogsLoading,
   brpcThreadLogsError,
-  brpcFaultError,
-  brpcFaultEventPages,
-  brpcFaultLoading,
-  brpcFaultLogOptions,
-  brpcFaultPageSize,
-  brpcFaultQueryRange,
-  brpcFaultSelectedLogId,
-  brpcFaultTab,
-  brpcFaultThreadPages,
-  brpcFaultTimelineRef,
-  brpcFaultTimelineSeries,
-  brpcInterfaces,
-  brpcKpi,
   brpcLoading,
   brpcMonitorError,
   brpcMonitorTab,
-  brpcP99Ref,
-  brpcScopeTasks,
-  brpcSuccessRef,
-  brpcTrend,
-  changeBrpcFaultLog,
-  clearFaultRange,
-  clearTrend,
+  closeObjectDetail,
   currentOp,
   detailDrawerOpen,
   detailDrawerRow,
-  drawerKind,
-  enterPodDetail,
-  failureModeCache,
   failureModeOf,
-  faultChartData,
-  faultChartRef,
-  faultOp,
-  faultPodAgg,
-  faultPodRef,
-  faultTimeRange,
-  faultTracePage,
-  faultTracePageSize,
-  faultTracePages,
-  faultTraces,
-  filteredFaultTraces,
-  filteredPodStats,
-  formatFullTime,
-  getAdaptiveBucketMs,
-  getChart,
-  goBrpcFaultEventsPage,
-  goBrpcFaultThreadsPage,
-  hasRealData,
-  highlightRow,
-  isAssetMode,
   isBrpcTask,
-  jumpToPod,
   kpiData,
-  latencyOp,
-  loadBrpcData,
   loadBrpcFaultData,
-  loadFailureMode,
-  loadOverviewForTab,
-  metricCats,
-  metricLabel,
-  openBrpcFaultDetail,
+  objectDetail,
+  objectDetailGoPage,
+  objectDetailPages,
   openTraceDrawer,
-  overview,
   overviewError,
   overviewLoading,
-  pagedFaultTraces,
-  pagedPodDetailRows,
-  pagedPodIpsCb,
-  pagedPodStats,
-  pagedTraceRows,
-  podDetailIp,
-  podDetailOpen,
-  podDetailPage,
-  podDetailPageSize,
-  podDetailPages,
-  podDetailRows,
-  podDetailSearch,
-  podDetailSummary,
-  podIpCbPage,
-  podIpCbPageSize,
-  podIpCbPages,
-  podIpStats,
-  podPage,
-  podPageSize,
-  podPages,
-  realOp,
-  removeTraceBoard,
-  renderAnalysisModules,
-  renderBrpcCharts,
-  renderBrpcFaultTimeline,
-  renderFaultChart,
-  renderFaultPodChart,
-  renderPieCharts,
-  renderSlowChart,
-  renderTopology,
-  renderTrendChart,
-  resetOverviewFilter,
-  resetTrend,
-  resolveBrpcFaultBatch,
-  scopeData,
-  scopeTaskCount,
-  scopeTasks,
-  selectAllTrend,
-  selectedMetrics,
-  selectedPodIps,
-  setChartOption,
-  setCurrentOp,
-  showMetricCb,
-  showPodIpCb,
-  slowChartRows,
-  slowRef,
-  slowRows,
-  slowTotal,
-  toAggregatedPairs,
-  toggleTrendSeries,
-  topSlowSegmentConfig,
-  topoRef,
-  traceBoard,
-  traceBreakdownKeys,
-  traceBreakdownTitle,
-  traceCluster,
-  traceClusters,
-  traceDrawerLogs,
-  tracePage,
-  tracePageSize,
-  tracePages,
-  traceRows,
-  traceSearch,
-  traceSegments,
-  traceStageRows,
-  trendAnomalyHint,
-  trendBuckets,
-  trendCenter,
-  trendChartData,
-  trendMetrics,
-  trendPercentile,
-  trendPercentileOptions,
-  trendRange,
-  trendRef,
-  trendScale,
-  trendScaleOptions,
-  trendVisible,
-  uniquePodIps,
   podRowTags,
+  renderAnalysisModules,
+  scopeTaskCount,
+  setCurrentOp,
+  traceDrawerLogs,
+  traceStageRows,
 } = useOverviewData({
   getAsset: () => props.asset,
   getLogFiles: () => props.logFiles,
@@ -198,9 +62,14 @@ const {
 
 bindOverviewWatchers()
 
+const openBrpcFaultTab = () => {
+  brpcMonitorTab.value = 'fault'
+  void loadBrpcFaultData()
+}
+
 const onKeydown = (event: KeyboardEvent) => {
   if (event.key !== 'Escape') return
-  podDetailOpen.value = false
+  closeObjectDetail()
   detailDrawerOpen.value = false
   brpcFaultDetail.value = null
 }
@@ -338,18 +207,20 @@ onBeforeUnmount(() => {
           <div class="kpi-label">异常率</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-num">{{ kpiData.podIpCount }}</div>
-          <div class="kpi-label">Pod IP 数量</div>
+          <div class="kpi-num">{{ kpiData.endpointCount }}</div>
+          <div class="kpi-label">
+            {{ analysisTab === 'disconnect' ? '故障端点数' : '当前范围端点数' }}
+          </div>
         </div>
         <div class="kpi-card">
           <div class="kpi-num" style="font-size: 15px; color: var(--danger)">
-            {{ kpiData.worstPodIp }}
+            {{ kpiData.worstEndpoint }}
           </div>
           <div class="kpi-label">
             {{
               analysisTab === 'disconnect'
-                ? '故障码分布'
-                : '最差 Pod IP P99:' + kpiData.worstP99 + 'ms'
+                ? '故障最多端点 · ' + kpiData.worstEndpointAnomaly + ' 次'
+                : '当前范围最差端点 · 异常 ' + kpiData.worstEndpointAnomaly
             }}
           </div>
         </div>
@@ -391,13 +262,7 @@ onBeforeUnmount(() => {
           >
             接口监控
           </div>
-          <div
-            :class="['tab', { active: brpcMonitorTab === 'fault' }]"
-            @click="
-              brpcMonitorTab = 'fault'
-              void loadBrpcFaultData()
-            "
-          >
+          <div :class="['tab', { active: brpcMonitorTab === 'fault' }]" @click="openBrpcFaultTab">
             通断故障监控
           </div>
         </div>
@@ -502,42 +367,33 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <!-- ============ Pod IP 详情弹窗 ============ -->
-  <div class="modal-overlay" v-if="podDetailOpen" @click.self="podDetailOpen = false">
+  <!-- ============ 对象详情弹窗（窗 × 端点/链路，服务端分页） ============ -->
+  <div class="modal-overlay" v-if="objectDetail.open" @click.self="closeObjectDetail">
     <div
       class="modal"
       style="width: 80vw; height: 80vh; max-height: 90vh; display: flex; flex-direction: column"
     >
       <div class="modal-header">
-        Pod IP 详情：{{ podDetailIp }}
-        <button class="modal-close" @click="podDetailOpen = false">✕</button>
+        {{ objectDetail.title }} · {{ objectDetail.windowLabel }}
+        <button class="modal-close" @click="closeObjectDetail">✕</button>
       </div>
       <div class="modal-body" style="overflow-y: auto; flex: 1; min-height: 0">
         <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap">
           <span class="stat-pill"
-            >相关 Trace <b>{{ podDetailSummary.total }}</b></span
+            >异常 Trace <b>{{ objectDetail.total }}</b></span
           >
-          <span class="stat-pill"
-            >作为源 IP <b>{{ podDetailSummary.src }}</b></span
-          >
-          <span class="stat-pill"
-            >作为目标 IP <b>{{ podDetailSummary.dst }}</b></span
-          >
-          <span class="stat-pill" style="color: var(--danger)"
-            >异常 <b>{{ podDetailSummary.anomaly }}</b></span
-          >
+          <span class="stat-pill">{{
+            objectDetail.domain === 'latency' ? '时延异常口径' : '通断故障口径'
+          }}</span>
         </div>
-        <div class="filter-bar" style="margin-bottom: 12px">
-          <input
-            class="input"
-            style="width: 260px; height: 32px"
-            v-model="podDetailSearch"
-            placeholder="搜索 Trace ID / 时间"
-          />
+        <div v-if="objectDetail.error" class="error-banner">{{ objectDetail.error }}</div>
+        <div v-else-if="objectDetail.loading" class="empty" style="padding: 28px 0">
+          <div class="icon">⏳</div>
+          <div>正在加载 Trace...</div>
         </div>
-        <div v-if="podDetailRows.length === 0" class="empty" style="padding: 28px 0">
+        <div v-else-if="objectDetail.rows.length === 0" class="empty" style="padding: 28px 0">
           <div class="icon">📭</div>
-          <div>该 Pod 暂无相关 Trace</div>
+          <div>当前时段 × 对象没有异常 Trace</div>
         </div>
         <div v-else class="table-wrap">
           <table>
@@ -552,7 +408,7 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in pagedPodDetailRows" :key="row.trace_id">
+              <tr v-for="row in objectDetail.rows" :key="row.trace_id || row.id">
                 <td style="font-size: 12px; font-family: monospace">
                   {{ (row.timestamp || '').slice(0, 19) }}
                 </td>
@@ -587,13 +443,16 @@ onBeforeUnmount(() => {
             align-items: center;
             margin-top: 12px;
           "
-          v-if="podDetailPages > 1"
+          v-if="objectDetailPages > 1"
         >
-          <span style="font-size: 13px; color: var(--text2)">共 {{ podDetailRows.length }} 条</span>
+          <span style="font-size: 13px; color: var(--text2)"
+            >共 {{ objectDetail.total }} 条 · 第 {{ objectDetail.page }} /
+            {{ objectDetailPages }} 页</span
+          >
           <PageNav
-            :page="podDetailPage"
-            :pages="podDetailPages"
-            @update:page="podDetailPage = $event"
+            :page="objectDetail.page"
+            :pages="objectDetailPages"
+            @update:page="objectDetailGoPage($event)"
           />
         </div>
       </div>

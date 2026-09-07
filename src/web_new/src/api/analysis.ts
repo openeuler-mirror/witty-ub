@@ -1,5 +1,10 @@
 import { request } from './http'
-import { extractArray, formatFullTimeLabel, normalizeTraceRow, toQueryString } from '../utils/format'
+import {
+  extractArray,
+  formatFullTimeLabel,
+  normalizeTraceRow,
+  toQueryString,
+} from '../utils/format'
 import type { LatencyPoint } from '../types'
 
 const LATENCY_SAMPLE_MODES: Record<string, string> = {
@@ -16,22 +21,19 @@ export const fetchLatencyMetrics = async (
   logId?: string,
   bucketSeconds = 60,
 ) => {
-  const result = await request<{ metrics: LatencyPoint[] }>(
-    '/log_parse_result/metrics/latency',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        kb_id: kbId,
-        max_points: 1000,
-        sample_mode: LATENCY_SAMPLE_MODES[pct] ?? pct,
-        sort_by: 'timestamp',
-        sort_order: 'asc',
-        operation: op.toUpperCase(),
-        bucket_seconds: bucketSeconds,
-        log_id: logId,
-      }),
-    },
-  )
+  const result = await request<{ metrics: LatencyPoint[] }>('/log_parse_result/metrics/latency', {
+    method: 'POST',
+    body: JSON.stringify({
+      kb_id: kbId,
+      max_points: 1000,
+      sample_mode: LATENCY_SAMPLE_MODES[pct] ?? pct,
+      sort_by: 'timestamp',
+      sort_order: 'asc',
+      operation: op.toUpperCase(),
+      bucket_seconds: bucketSeconds,
+      log_id: logId,
+    }),
+  })
   return (result.metrics ?? []).map((metric) => ({
     ...metric,
     time: metric.time ?? metric.timestamp ?? metric.created_at,
@@ -61,7 +63,11 @@ export const fetchTopSlow = async (kbId: string, op: 'get' | 'set') => {
   }
 }
 
-export const fetchParseResultTotal = async (kbId: string, op: 'get' | 'set', isAnomalous?: boolean) => {
+export const fetchParseResultTotal = async (
+  kbId: string,
+  op: 'get' | 'set',
+  isAnomalous?: boolean,
+) => {
   const result = await request<{ total: number }>('/log_parse_result/list', {
     method: 'POST',
     body: JSON.stringify({
@@ -95,28 +101,138 @@ export const fetchAbnormalTraces = async (kbId: string, op: 'get' | 'set') => {
   }
 }
 
+export interface TimeWindowQuery {
+  interval?: number
+  startTime?: string
+  endTime?: string
+}
+
+const TIME_WINDOW_PAGE_CNT = 2000
+// 短期完整加载上限：5 页 × 2000。超过则标记截断，UI 不得宣称全域最高值
+const TIME_WINDOW_MAX_PAGES = 5
+
+// 返回 total 与 rows：按 total 分页取全（短期方案），超出上限时标记截断
 export const fetchTimeWindowAggregated = async (
   kbId: string,
   op: 'get' | 'set',
-  interval = 60,
+  query: TimeWindowQuery = {},
 ) => {
-  const result = await request<unknown>('/aggregated_event/list_time_window', {
-    method: 'POST',
-    body: JSON.stringify({
-      kb_id: kbId,
-      page_num: 1,
-      page_cnt: 2000,
-      interval,
-      stat_type: 'p99',
-      operation: op.toUpperCase(),
-    }),
-  })
-  return extractArray<any>(result, ['events', 'items', 'list', 'time_window_events'])
+  const interval = query.interval ?? 60
+  const baseBody = {
+    kb_id: kbId,
+    page_cnt: TIME_WINDOW_PAGE_CNT,
+    interval,
+    stat_type: 'p99',
+    operation: op.toUpperCase(),
+    start_time: query.startTime,
+    end_time: query.endTime,
+  }
+  const readPage = async (pageNum: number) => {
+    const result = await request<{ total?: number } & Record<string, unknown>>(
+      '/aggregated_event/list_time_window',
+      {
+        method: 'POST',
+        body: JSON.stringify({ ...baseBody, page_num: pageNum }),
+      },
+    )
+    const rows = extractArray<any>(result, ['events', 'items', 'list', 'time_window_events'])
+    const total =
+      typeof (result as any)?.total === 'number'
+        ? (result as any).total
+        : (result as any)?.result?.total
+    return { total: total ?? 0, rows }
+  }
+
+  const first = await readPage(1)
+  const rows = [...first.rows]
+  const totalPages = Math.min(Math.ceil(first.total / TIME_WINDOW_PAGE_CNT), TIME_WINDOW_MAX_PAGES)
+  for (let page = 2; page <= totalPages; page++) {
+    const next = await readPage(page)
+    rows.push(...next.rows)
+  }
+  return { total: first.total, rows, truncated: rows.length < first.total }
+}
+
+// 对象详情（窗 × Pod/链路）的服务端分页时延 Trace 查询
+export interface LatencyTracePageQuery {
+  op?: 'get' | 'set'
+  startTime?: string
+  endTime?: string
+  srcIp?: string
+  dstIp?: string
+  endpointIp?: string
+  pageNum: number
+  pageCnt: number
+}
+
+export const fetchLatencyTracePage = async (kbId: string, query: LatencyTracePageQuery) => {
+  const result = await request<{ total?: number; log_parse_results?: any[] }>(
+    '/log_parse_result/list',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: kbId,
+        is_anomalous: true,
+        operation: query.op ? query.op.toUpperCase() : undefined,
+        start_time: query.startTime,
+        end_time: query.endTime,
+        src_ip: query.srcIp,
+        dst_ip: query.dstIp,
+        endpoint_ip: query.endpointIp,
+        page_num: query.pageNum,
+        page_cnt: query.pageCnt,
+      }),
+    },
+  )
+  return {
+    total: result.total ?? 0,
+    rows: (result.log_parse_results ?? []).map(normalizeTraceRow),
+  }
+}
+
+// 通断对象详情（窗 × 端点/链路）的服务端分页故障 Trace 查询
+export interface FaultTracePageQuery {
+  op?: 'get' | 'set'
+  startTime?: string
+  endTime?: string
+  srcIp?: string
+  dstIp?: string
+  endpointIp?: string
+  pageNum: number
+  pageCnt: number
+}
+
+export const fetchFaultTracePage = async (kbId: string, query: FaultTracePageQuery) => {
+  const result = await request<{ total?: number; trace_failure_event_results?: any[] }>(
+    '/log_failure_event_result/list_trace_events',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: kbId,
+        is_anomalous: true,
+        operation: query.op ? query.op.toUpperCase() : undefined,
+        start_time: query.startTime,
+        end_time: query.endTime,
+        src_ip: query.srcIp,
+        dst_ip: query.dstIp,
+        endpoint_ip: query.endpointIp,
+        page_num: query.pageNum,
+        page_cnt: query.pageCnt,
+      }),
+    },
+  )
+  return {
+    total: result.total ?? 0,
+    rows: result.trace_failure_event_results ?? [],
+  }
 }
 
 export const fetchFaultChart = async (kbId: string, op: 'get' | 'set') => {
   const result = await request<{
-    metrics: Record<string, Array<{ time?: string; timestamp?: string; err_cnt?: number; count?: number }>>
+    metrics: Record<
+      string,
+      Array<{ time?: string; timestamp?: string; err_cnt?: number; count?: number }>
+    >
   }>('/log_failure_event_result/metrics/err_code', {
     method: 'POST',
     body: JSON.stringify({ kb_id: kbId, max_points: 1000, operation: op.toUpperCase() }),
@@ -265,7 +381,13 @@ export const fetchBrpcAbnormalThreads = (
 // 线程全部运行日志（含正常行；故障行带 failure_mode_id）
 export const fetchBrpcThreadLogs = (
   batchId: string,
-  params: { pod_ip: string; thread_id: number; start_time: string; end_time: string; pod_name?: string },
+  params: {
+    pod_ip: string
+    thread_id: number
+    start_time: string
+    end_time: string
+    pod_name?: string
+  },
 ) =>
   request<{ total: number; hits: any[] }>(
     `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/thread-logs?${toQueryString(params)}`,

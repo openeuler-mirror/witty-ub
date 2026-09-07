@@ -3,193 +3,62 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import PageNav from '../common/PageNav.vue'
 
+// P0.1：只注入时延/拓扑/Pod 所需状态
 const {
-  toast,
-  selectedAsset,
-  view,
-  assetTab,
-  ipRowRefs,
-  activePairs,
-  addTraceBoard,
-  anomalyRef,
-  availableMetricCats,
-  availableMetrics,
   analysisModule,
-  analysisTab,
-  assetTypeFilter,
-  brpcAbnormalThreadPage,
-  brpcAbnormalThreadTotal,
-  brpcAbnormalThreads,
-  brpcAggregatedEventPage,
-  brpcAggregatedEventTotal,
-  brpcAggregatedEvents,
-  brpcEventHitTotal,
-  brpcFaultBatch,
-  brpcFaultDetail,
-  brpcFaultError,
-  brpcFaultEventPages,
-  brpcFaultLoading,
-  brpcFaultLogOptions,
-  brpcFaultPageSize,
-  brpcFaultQueryRange,
-  brpcFaultSelectedLogId,
-  brpcFaultTab,
-  brpcFaultThreadPages,
-  brpcFaultTimelineRef,
-  brpcFaultTimelineSeries,
-  brpcInterfaces,
-  brpcKpi,
-  brpcLoading,
-  brpcMonitorError,
-  brpcMonitorTab,
-  brpcP99Ref,
-  brpcScopeTasks,
-  brpcSuccessRef,
-  brpcTrend,
-  changeBrpcFaultLog,
-  clearFaultRange,
-  clearTrend,
-  clearOverviewBrush,
+  analysisWindowLoading,
+  anomalyRef,
+  clearAnalysisTime,
   currentOp,
-  detailDrawerOpen,
-  detailDrawerRow,
-  drawerKind,
+  enterLinkDetail,
   enterPodDetail,
-  failureModeCache,
-  failureModeOf,
-  faultChartData,
-  faultChartRef,
-  faultOp,
-  faultPodAgg,
-  faultPodRef,
-  faultTimeRange,
-  faultTracePage,
-  faultTracePageSize,
-  faultTracePages,
-  faultTraces,
-  filteredFaultTraces,
   filteredPodStats,
-  formatFullTime,
-  getAdaptiveBucketMs,
-  goBrpcFaultEventsPage,
-  goBrpcFaultThreadsPage,
-  hasRealData,
-  highlightRow,
-  isAssetMode,
-  isBrpcTask,
-  jumpToPod,
-  kpiData,
-  latencyOp,
-  loadBrpcData,
-  loadBrpcFaultData,
-  loadFailureMode,
-  loadOverviewForTab,
-  openBrpcFaultDetail,
-  openTraceDrawer,
-  overviewBrushRange,
+  focusPairs,
+  ipRowRefs,
+  latencyFilter,
+  overview,
   overviewScale,
   overviewScaleOptions,
-  overview,
-  overviewError,
-  overviewLoading,
-  pagedFaultTraces,
-  pagedPodDetailRows,
   pagedPodIpsCb,
   pagedPodStats,
-  pagedTraceRows,
-  podDetailIp,
-  podDetailOpen,
-  podDetailPage,
-  podDetailPageSize,
-  podDetailPages,
-  podDetailRows,
-  podDetailSearch,
-  podDetailSummary,
-  podBreakdownTotal,
-  podStageFlow,
-  podStageFullLegend,
   podIpCbPage,
-  podIpCbPageSize,
   podIpCbPages,
-  podIpStats,
   podPage,
   podPageSize,
   podPages,
-  realOp,
-  removeTraceBoard,
-  renderAnalysisModules,
+  podStageFlow,
+  podStageFullLegend,
   renderAnomalyChart,
-  renderBrpcCharts,
-  renderBrpcFaultTimeline,
-  renderFaultChart,
-  renderFaultPodChart,
-  renderSlowChart,
   renderTopology,
-  renderTrendChart,
   resetOverviewFilter,
   resetTopologyFilter,
-  resetTrend,
-  resolveBrpcFaultBatch,
-  scopeData,
-  scopeTaskCount,
-  scopeTasks,
-  selectAllTrend,
-  selectedMetrics,
-  selectedPodIps,
   selectedTopologyLink,
   selectedTopologyNode,
   selectTopologyLink,
   selectTopologyNode,
-  filterTopologyLink,
-  setChartOption,
-  setCurrentOp,
-  showMetricCb,
+  showLinkEndsOnly,
   showPodIpCb,
-  slowChartRows,
-  slowRef,
-  slowRows,
-  slowTotal,
-  toAggregatedPairs,
-  toggleTrendSeries,
-  topSlowSegmentConfig,
+  timeRangeLabel,
+  timelineTruncated,
   topoHiddenCount,
   topoNodeLimit,
+  topoRef,
   topoShowAll,
   topoTotalCount,
-  topoRef,
   topologySummary,
-  visibleTopologyLinks,
-  timeRangeLabel,
-  traceBoard,
-  traceBreakdownKeys,
-  traceBreakdownTitle,
-  traceCluster,
-  traceClusters,
-  traceDrawerLogs,
-  tracePage,
-  tracePageSize,
-  tracePages,
-  traceRows,
-  traceSearch,
-  traceSegments,
-  traceStageRows,
-  trendAnomalyHint,
-  trendBuckets,
-  trendCenter,
-  trendChartData,
-  trendMetrics,
-  trendPercentile,
-  trendPercentileOptions,
-  trendRange,
-  trendRef,
-  trendScale,
-  trendScaleOptions,
-  trendVisible,
   uniquePodIps,
+  visibleTopologyLinks,
 } = useOverviewData()
 
 const topologyRankPage = ref(1)
 const topologyRankPageSize = 5
+
+// 模板桥接：AnalysisFilter 内嵌 ref 在模板中不自动解包
+const timeMode = computed(() => latencyFilter.time.value.mode)
+const nodeWhitelist = computed<string[]>({
+  get: () => latencyFilter.nodeWhitelist.value,
+  set: (value) => latencyFilter.showOnlyNodes(value),
+})
 const topologyRankPages = computed(() =>
   Math.max(1, Math.ceil(visibleTopologyLinks.value.length / topologyRankPageSize)),
 )
@@ -258,31 +127,39 @@ onBeforeUnmount(() => {
         </option>
       </select>
       <div style="margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center">
-        <button v-if="overviewBrushRange" class="btn btn-sm btn-text" @click="clearOverviewBrush">
+        <span v-if="analysisWindowLoading" style="font-size: 12px; color: var(--text3)"
+          >按窗加载中…</span
+        >
+        <button v-if="timeMode !== 'all'" class="btn btn-sm btn-text" @click="clearAnalysisTime">
           全时段
         </button>
         <button class="btn btn-sm btn-text" @click="resetOverviewFilter">重置</button>
-        <button class="btn btn-sm btn-default" @click="toast('已导出 CSV', 'info')">📥 CSV</button>
       </div>
     </div>
 
-    <!-- 时段异常强度：时间控制器 -->
+    <!-- 时段异常强度：时间控制器（P0.3） -->
     <p class="chart-scale-hint">
-      横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+      缩放时间范围（滚轮/滑块）或点击柱体选中该时段，下方拓扑与端点列表随所选时段联动；点击「全时段」恢复全域
     </p>
     <div class="chart-box" style="margin-bottom: 12px">
       <div class="chart-title">
         各时段异常请求数与总时延走势（{{ currentOp }}）
         <span
           class="select-bucket"
-          :class="{ active: overviewBrushRange }"
-          @click="clearOverviewBrush"
+          :class="{ active: timeMode !== 'all' }"
+          title="点击恢复全部时段"
+          @click="clearAnalysisTime"
         >
           {{ timeRangeLabel }}
         </span>
-        <span class="hint" style="margin-left: auto"
-          >拖动底部滑块/滚轮框选时段，下方拓扑与 POD 列表随所选时段联动</span
+        <span
+          v-if="timelineTruncated"
+          class="hint"
+          style="color: var(--warning)"
+          title="时间窗总数超出单次加载上限，当前仅加载部分异常桶，不得据此下结论全局最高值"
+          >⏳ 数据已截断，仅部分时段入图</span
         >
+        <span class="hint" style="margin-left: auto">缩放时间范围 / 点击柱体选中该时段</span>
       </div>
       <div ref="anomalyRef" style="height: 190px"></div>
     </div>
@@ -293,21 +170,21 @@ onBeforeUnmount(() => {
         <span>IP 通信拓扑（{{ currentOp }} · {{ timeRangeLabel }}）</span>
         <div class="topology-actions">
           <span
-            v-for="ip in selectedPodIps"
+            v-for="ip in nodeWhitelist"
             :key="ip"
             class="topo-chip"
-            :title="'点击移除筛选：' + ip"
-            @click="selectedPodIps = selectedPodIps.filter((item) => item !== ip)"
+            :title="'点击移除显示过滤：' + ip"
+            @click="nodeWhitelist = nodeWhitelist.filter((item) => item !== ip)"
           >
             {{ ip }} ×
           </span>
           <button class="btn btn-sm btn-text" @click="showPodIpCb = !showPodIpCb">
-            {{ showPodIpCb ? '▼' : '▶' }} 筛选 Pod {{ selectedPodIps.length }}/{{
+            {{ showPodIpCb ? '▼' : '▶' }} 只显示节点 {{ nodeWhitelist.length }}/{{
               uniquePodIps.length
             }}
           </button>
           <button
-            v-if="selectedPodIps.length"
+            v-if="nodeWhitelist.length"
             class="btn btn-sm btn-text"
             @click="resetTopologyFilter"
           >
@@ -324,7 +201,7 @@ onBeforeUnmount(() => {
             >异常链路 <b>{{ topologySummary.linkCount }}</b></span
           >
           <span
-            >通信 <b>{{ topologySummary.totalCount.toLocaleString() }}</b></span
+            >异常桶内请求 <b>{{ topologySummary.totalCount.toLocaleString() }}</b></span
           >
           <span class="danger"
             >异常 Trace <b>{{ topologySummary.anomalyCount.toLocaleString() }}</b></span
@@ -338,22 +215,23 @@ onBeforeUnmount(() => {
         <div class="topo-legend">
           <span class="lg"><i class="legend-node"></i>IP 端点</span>
           <span class="lg"
-            ><i class="legend-line thin"></i><i class="legend-line thick"></i>线宽 = 通信量</span
+            ><i class="legend-line thin"></i><i class="legend-line thick"></i>线宽 =
+            异常桶内请求量</span
           >
           <span class="lg"><i class="legend-line warning"></i>一般异常</span>
           <span class="lg"><i class="legend-line critical"></i>高异常率</span>
           <span
             class="lg"
             style="cursor: help"
-            title="点击节点或连线只会高亮并显示固定详情，不会自动过滤；滚轮缩放，拖动画布平移"
+            title="点击节点或连线即选中该对象（点空白取消）；下方 inspector 显示当前时段 × 当前对象；勾选「只显示节点」仅改变图上可见节点"
             >ⓘ 说明</span
           >
         </div>
       </div>
-      <!-- Pod IP 筛选面板（就近拓扑） -->
+      <!-- 只显示节点面板（本地可视化白名单，不影响服务端查询） -->
       <div v-if="showPodIpCb" class="cb-group topology-filter-panel">
         <label v-for="ip in pagedPodIpsCb" :key="ip">
-          <input type="checkbox" v-model="selectedPodIps" :value="ip" /> {{ ip }}
+          <input type="checkbox" v-model="nodeWhitelist" :value="ip" /> {{ ip }}
         </label>
         <div
           style="
@@ -367,10 +245,10 @@ onBeforeUnmount(() => {
           "
         >
           <div style="display: flex; gap: 4px">
-            <button class="btn btn-sm btn-text" @click="selectedPodIps = uniquePodIps.slice()">
+            <button class="btn btn-sm btn-text" @click="nodeWhitelist = uniquePodIps.slice()">
               全选
             </button>
-            <button class="btn btn-sm btn-text" @click="selectedPodIps = []">清空勾选</button>
+            <button class="btn btn-sm btn-text" @click="nodeWhitelist = []">清空勾选</button>
           </div>
           <div class="pagination" style="margin-top: 0" v-if="podIpCbPages > 1">
             <button :disabled="podIpCbPage === 1" @click="podIpCbPage--">‹</button>
@@ -465,7 +343,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="topology-detail-grid">
                 <span
-                  >通信次数<b>{{ selectedTopologyLink.totalCount.toLocaleString() }}</b></span
+                  >异常桶内请求<b>{{ selectedTopologyLink.totalCount.toLocaleString() }}</b></span
                 >
                 <span
                   >异常数<b>{{ selectedTopologyLink.anomalyCount.toLocaleString() }}</b></span
@@ -483,10 +361,16 @@ onBeforeUnmount(() => {
               </div>
               <div class="topology-detail-actions">
                 <button
-                  class="btn btn-sm btn-default"
-                  @click="filterTopologyLink(selectedTopologyLink)"
+                  class="btn btn-sm btn-primary"
+                  @click="enterLinkDetail(selectedTopologyLink.source, selectedTopologyLink.target)"
                 >
-                  筛选此链路
+                  查看 Trace
+                </button>
+                <button
+                  class="btn btn-sm btn-default"
+                  @click="showLinkEndsOnly(selectedTopologyLink)"
+                >
+                  只显示两端节点
                 </button>
                 <button
                   class="btn btn-sm btn-text"
@@ -521,11 +405,29 @@ onBeforeUnmount(() => {
                   >入方向<b>{{ selectedTopologyNode.dstCount.toLocaleString() }}</b></span
                 >
                 <span
-                  >通信总数<b>{{ selectedTopologyNode.total.toLocaleString() }}</b></span
+                  >异常桶内请求<b>{{ selectedTopologyNode.total.toLocaleString() }}</b></span
                 >
                 <span
                   >异常数<b>{{ selectedTopologyNode.anomaly.toLocaleString() }}</b></span
                 >
+              </div>
+              <div v-if="focusPairs.length" class="focus-pairs">
+                <div class="topology-panel-title">该时段通信对（旧展开行）</div>
+                <button
+                  v-for="pair in focusPairs"
+                  :key="pair.src + '→' + pair.dst"
+                  class="topology-rank-item"
+                  @click="enterLinkDetail(pair.src, pair.dst)"
+                >
+                  <span class="route">
+                    <b>{{ pair.src }}</b>
+                    <span>→ {{ pair.dst }}</span>
+                  </span>
+                  <span class="rank-metric">
+                    <b>{{ pair.anomaly }} 异常</b>
+                    <small>{{ pair.total }} 请求</small>
+                  </span>
+                </button>
               </div>
               <button
                 class="btn btn-sm btn-primary"
@@ -535,28 +437,30 @@ onBeforeUnmount(() => {
               </button>
             </template>
             <div v-else class="topology-detail-placeholder">
-              点击图中节点、连线或上方排名，在这里查看完整 IP 与异常指标。
+              点击图中节点、连线或上方排名，查看「当前时段 × 当前对象」指标；点空白取消选中。
             </div>
           </section>
         </aside>
       </div>
     </div>
 
-    <!-- POD IP 时延故障列表（Pod 视角 + 时间窗联动） -->
+    <!-- 端点时延故障列表（索引视图 + 时间窗联动） -->
     <div style="margin: 16px 0 4px; font-weight: 600; font-size: 14px">
-      POD IP 时延故障列表（{{ currentOp }} · {{ timeRangeLabel }}）
+      端点时延故障列表（{{ currentOp }} · {{ timeRangeLabel }}）
     </div>
     <div style="font-size: 12px; color: var(--text3); margin-bottom: 8px">
-      行 = 单个 Pod IP（当前时间段内作为源/目标汇总）；各阶段时延 =
-      <b>所选时间段内按请求数加权的阶段平均耗时(均值)</b
-      >，范围随上方框选时段联动；阶段指标后端仅提供均值（无每阶段 P99/min/max）。悬停彩色条查看数值
+      行 = 单个端点
+      IP（当前时段内作为源/目标汇总，默认按异常数排序）；「请求数」为异常桶内请求量，不代表故障严重度；各阶段时延
+      =
+      <b>所选时间段内按请求数加权的阶段平均耗时(均值)</b>；阶段指标后端仅提供均值（无每阶段
+      P99/min/max）。悬停彩色条查看数值
     </div>
     <div
-      v-if="selectedPodIps.length"
+      v-if="nodeWhitelist.length"
       style="font-size: 12px; color: var(--text2); margin-bottom: 8px"
     >
-      已按拓扑筛选 {{ selectedPodIps.length }} 个 Pod ·
-      <span class="text-link" @click="selectedPodIps = []">清除</span>
+      拓扑图仅显示 {{ nodeWhitelist.length }} 个勾选节点（不影响下方列表与查询） ·
+      <span class="text-link" @click="nodeWhitelist = []">清除</span>
     </div>
     <div class="legend-strip">
       <span v-for="lg in podStageFullLegend" :key="lg.label" class="legend-strip-item">
@@ -576,10 +480,10 @@ onBeforeUnmount(() => {
         </colgroup>
         <thead>
           <tr>
-            <th>POD IP</th>
+            <th>端点 IP</th>
             <th>出方向</th>
             <th>入方向</th>
-            <th>结果数</th>
+            <th>请求数</th>
             <th>异常数</th>
             <th>各阶段时延（ms）</th>
             <th>操作</th>
@@ -589,6 +493,7 @@ onBeforeUnmount(() => {
           <tr
             v-for="stat in pagedPodStats"
             :key="stat.ip"
+            :class="{ 'focus-row': selectedTopologyNode?.ip === stat.ip }"
             :ref="
               (el) => {
                 if (el) ipRowRefs[stat.ip] = el as HTMLElement
@@ -596,7 +501,9 @@ onBeforeUnmount(() => {
             "
           >
             <td>
-              <span class="text-link" @click="enterPodDetail(stat.ip)">{{ stat.ip }}</span>
+              <span class="text-link" title="点击选中该端点" @click="selectTopologyNode(stat.ip)">{{
+                stat.ip
+              }}</span>
             </td>
             <td>{{ stat.srcCount.toLocaleString() }}</td>
             <td>{{ stat.dstCount.toLocaleString() }}</td>
@@ -665,7 +572,7 @@ onBeforeUnmount(() => {
             </td>
             <td>
               <button class="btn btn-sm btn-primary" @click="enterPodDetail(stat.ip)">
-                进入 →
+                查看 Trace
               </button>
             </td>
           </tr>
@@ -682,7 +589,7 @@ onBeforeUnmount(() => {
         color: var(--text2);
       "
     >
-      <span>共 {{ filteredPodStats.length }} 个 Pod IP，每页 {{ podPageSize }} 个</span>
+      <span>共 {{ filteredPodStats.length }} 个端点，每页 {{ podPageSize }} 个</span>
       <PageNav
         v-if="podPages > 1"
         :page="podPage"
@@ -694,6 +601,21 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.focus-row {
+  background: rgba(79, 142, 247, 0.08);
+}
+.focus-pairs {
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.focus-pairs .topology-rank-item {
+  width: 100%;
+  text-align: left;
+}
 .select-bucket {
   display: inline-flex;
   align-items: center;

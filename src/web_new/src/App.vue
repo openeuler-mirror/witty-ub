@@ -53,7 +53,6 @@ const {
   isPending,
   isRunning,
   isFailed,
-  isSuccess,
   brpcDiagStatusOf,
   canRunBrpcDiagnosis,
   brpcModalOpen,
@@ -224,9 +223,6 @@ onBeforeUnmount(() => {
         <div :class="['tab', { active: assetTab === 'tasks' }]" @click="assetTab = 'tasks'">
           任务管理 <span class="count">{{ filteredTasks.length }}</span>
         </div>
-        <div class="tab disabled" title="当前后端暂不支持成员管理，入口已置灰">
-          人员管理 <span class="count">—</span>
-        </div>
       </div>
 
       <!-- ====== 总览 ====== -->
@@ -335,14 +331,6 @@ onBeforeUnmount(() => {
                     <template v-else-if="isFailed(file)">
                       <button class="btn btn-sm btn-text" @click="runLogFile(file)">↻ 重试</button>
                     </template>
-                    <button
-                      v-if="isSuccess(file)"
-                      class="btn btn-sm btn-primary"
-                      disabled
-                      title="当前后端暂不支持进入分析"
-                    >
-                      进入分析 →
-                    </button>
                     <button
                       v-if="canRunBrpcDiagnosis(file)"
                       class="btn btn-sm btn-default"

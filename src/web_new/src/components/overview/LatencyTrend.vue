@@ -1,164 +1,31 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
-import { formatTime, normalizeTraceOperation } from '../../utils/format'
+import { normalizeTraceOperation } from '../../utils/format'
 import PageNav from '../common/PageNav.vue'
 
+// P0.1：只注入趋势/最慢/Trace 列表所需状态
 const {
-  toast,
-  selectedAsset,
-  view,
-  assetTab,
-  pieRefs,
-  ipRowRefs,
-  activePairs,
-  addTraceBoard,
-  allMetrics,
-  analysisModule,
-  analysisTab,
-  assetTypeFilter,
-  brpcAbnormalThreadPage,
-  brpcAbnormalThreadTotal,
-  brpcAbnormalThreads,
-  brpcAggregatedEventPage,
-  brpcAggregatedEventTotal,
-  brpcAggregatedEvents,
-  brpcEventHitTotal,
-  brpcFaultBatch,
-  brpcFaultDetail,
-  brpcFaultError,
-  brpcFaultEventPages,
-  brpcFaultLoading,
-  brpcFaultLogOptions,
-  brpcFaultPageSize,
-  brpcFaultQueryRange,
-  brpcFaultSelectedLogId,
-  brpcFaultTab,
-  brpcFaultThreadPages,
-  brpcFaultTimelineRef,
-  brpcFaultTimelineSeries,
-  brpcInterfaces,
-  brpcKpi,
-  brpcLoading,
-  brpcMonitorError,
-  brpcMonitorTab,
-  brpcP99Ref,
-  brpcScopeTasks,
-  brpcSuccessRef,
-  brpcTrend,
-  changeBrpcFaultLog,
-  clearFaultRange,
-  clearTrend,
   currentOp,
-  detailDrawerOpen,
-  detailDrawerRow,
-  drawerKind,
-  enterPodDetail,
-  failureModeCache,
-  failureModeOf,
-  faultChartData,
-  faultChartRef,
-  faultOp,
-  faultPodAgg,
-  faultPodRef,
-  faultTimeRange,
-  faultTracePage,
-  faultTracePageSize,
-  faultTracePages,
-  faultTraces,
-  filteredFaultTraces,
-  filteredPodStats,
-  formatFullTime,
-  getAdaptiveBucketMs,
-  getChart,
-  goBrpcFaultEventsPage,
-  goBrpcFaultThreadsPage,
-  hasRealData,
-  highlightRow,
-  isAssetMode,
-  isBrpcTask,
-  jumpToPod,
-  kpiData,
-  latencyOp,
-  loadBrpcData,
-  loadBrpcFaultData,
-  loadFailureMode,
-  loadOverviewForTab,
-  metricCats,
-  metricLabel,
-  openBrpcFaultDetail,
   openTraceDrawer,
-  overview,
-  overviewError,
-  overviewLoading,
-  pagedFaultTraces,
-  pagedPodDetailRows,
-  pagedPodIpsCb,
-  pagedPodStats,
   pagedTraceRows,
-  podDetailIp,
-  podDetailOpen,
-  podDetailPage,
-  podDetailPageSize,
-  podDetailPages,
-  podDetailRows,
-  podDetailSearch,
-  podDetailSummary,
-  podIpCbPage,
-  podIpCbPageSize,
-  podIpCbPages,
-  podIpStats,
-  podPage,
-  podPageSize,
-  podPages,
-  realOp,
-  removeTraceBoard,
-  renderAnalysisModules,
-  renderBrpcCharts,
-  renderBrpcFaultTimeline,
-  renderFaultChart,
-  renderFaultPodChart,
-  renderPieCharts,
   renderSlowChart,
-  renderTopology,
   renderTrendChart,
-  resetOverviewFilter,
   resetTrend,
-  resolveBrpcFaultBatch,
-  scopeData,
-  scopeTaskCount,
-  scopeTasks,
   selectAllTrend,
-  selectedMetrics,
-  selectedPodIps,
-  setChartOption,
-  setCurrentOp,
-  showMetricCb,
-  showPodIpCb,
-  slowChartRows,
   slowRef,
   slowRows,
   slowTotal,
-  toAggregatedPairs,
-  toggleTrendSeries,
-  topSlowSegmentConfig,
-  topoRef,
-  traceBoard,
-  traceBreakdownKeys,
-  traceBreakdownTitle,
   traceCluster,
   traceClusters,
-  traceDrawerLogs,
+  traceBreakdownTitle,
   tracePage,
-  tracePageSize,
   tracePages,
   traceRows,
   traceSearch,
   traceSegments,
-  traceStageRows,
+  traceTags,
   trendAnomalyHint,
-  trendBuckets,
-  trendCenter,
   trendChartData,
   trendMetrics,
   trendPercentile,
@@ -168,8 +35,8 @@ const {
   trendScale,
   trendScaleOptions,
   trendVisible,
-  uniquePodIps,
-  traceTags,
+  clearTrend,
+  toggleTrendSeries,
 } = useOverviewData()
 
 onMounted(() => {
@@ -183,165 +50,210 @@ const podIpsOf = (row: any) =>
 const visiblePodIps = (row: any) => podIpsOf(row).slice(0, 2)
 
 const podIpCount = (row: any) => podIpsOf(row).length
-
 </script>
 
 <template>
-          <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
-              指标趋势、最慢请求时序分解、异常 Trace 列表同页展示
-            </div>
-            <div class="section-card">
-              <div class="section-card-title">
-                关键时延指标趋势
-                <span class="hint">{{ currentOp }} · {{ trendChartData.length }} 个采样点 · {{ trendAnomalyHint }}</span>
-              </div>
-              <div class="filter-bar" style="margin-bottom: 10px">
-                <label>时间聚合尺度:</label>
-                <select class="select" v-model.number="trendScale" aria-label="时延时间聚合尺度">
-                  <option v-for="option in trendScaleOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-                <label>百分位:</label>
-                <select class="select" v-model="trendPercentile">
-                  <option v-for="option in trendPercentileOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-                <button v-if="trendRange" class="btn btn-sm btn-text" @click="resetTrend">重置时间范围</button>
-                <div style="margin-left: auto; display: flex; gap: 4px">
-                  <button class="btn btn-sm btn-text" @click="selectAllTrend">全选</button>
-                  <button class="btn btn-sm btn-text" @click="clearTrend">清空</button>
-                </div>
-              </div>
-              <p class="chart-scale-hint">横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果</p>
-              <div class="cb-group" style="background: var(--bg); border-radius: var(--radius-md); padding: 8px 12px">
-                <label v-for="metric in trendMetrics" :key="metric.key">
-                  <input
-                    type="checkbox"
-                    :checked="trendVisible.has(metric.key)"
-                    @change="toggleTrendSeries(metric.key)"
-                  /> {{ metric.label }}
-                </label>
-              </div>
-              <div ref="trendRef" style="height: 400px"></div>
-              <div style="font-size: 12px; color: var(--text3); margin-top: 6px">
-                点击数据点：以该时间为中心按当前尺度缩小范围（可继续下钻）；“重置时间范围”恢复全量。
-              </div>
-            </div>
+  <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
+    指标趋势、最慢请求时序分解、异常 Trace 列表同页展示
+  </div>
+  <div class="section-card">
+    <div class="section-card-title">
+      关键时延指标趋势
+      <span class="hint"
+        >{{ currentOp }} · {{ trendChartData.length }} 个采样点 · {{ trendAnomalyHint }}</span
+      >
+    </div>
+    <div class="filter-bar" style="margin-bottom: 10px">
+      <label>时间聚合尺度:</label>
+      <select class="select" v-model.number="trendScale" aria-label="时延时间聚合尺度">
+        <option v-for="option in trendScaleOptions" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+      <label>百分位:</label>
+      <select class="select" v-model="trendPercentile">
+        <option v-for="option in trendPercentileOptions" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+      <button v-if="trendRange" class="btn btn-sm btn-text" @click="resetTrend">
+        重置时间范围
+      </button>
+      <div style="margin-left: auto; display: flex; gap: 4px">
+        <button class="btn btn-sm btn-text" @click="selectAllTrend">全选</button>
+        <button class="btn btn-sm btn-text" @click="clearTrend">清空</button>
+      </div>
+    </div>
+    <p class="chart-scale-hint">
+      横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
+    </p>
+    <div
+      class="cb-group"
+      style="background: var(--bg); border-radius: var(--radius-md); padding: 8px 12px"
+    >
+      <label v-for="metric in trendMetrics" :key="metric.key">
+        <input
+          type="checkbox"
+          :checked="trendVisible.has(metric.key)"
+          @change="toggleTrendSeries(metric.key)"
+        />
+        {{ metric.label }}
+      </label>
+    </div>
+    <div ref="trendRef" style="height: 400px"></div>
+    <div style="font-size: 12px; color: var(--text3); margin-top: 6px">
+      点击数据点：以该时间为中心按当前尺度缩小范围（可继续下钻）；“重置时间范围”恢复全量。
+    </div>
+  </div>
 
-            <div class="section-card">
-              <div class="section-card-title">
-                最慢请求时序分解（Top 1000）
-                <span class="hint">{{ currentOp }} · 图表展示 {{ slowRows.length }} 条 / 符合条件 {{ slowTotal.toLocaleString() }} 条</span>
-              </div>
-              <div style="font-size: 12px; color: var(--text3); margin-bottom: 8px">
-                按总时延选出最慢请求，再按发生时间排列；柱体为 18 个可解析阶段（栈式）+ 其他，红线为真实总时延。
-              </div>
-              <div ref="slowRef" style="height: 360px"></div>
-            </div>
+  <div class="section-card">
+    <div class="section-card-title">
+      最慢请求时序分解（Top 1000）
+      <span class="hint"
+        >{{ currentOp }} · 图表展示 {{ slowRows.length }} 条 / 符合条件
+        {{ slowTotal.toLocaleString() }} 条</span
+      >
+    </div>
+    <div style="font-size: 12px; color: var(--text3); margin-bottom: 8px">
+      按总时延选出最慢请求，再按发生时间排列；柱体为 18 个可解析阶段（栈式）+
+      其他，红线为真实总时延。
+    </div>
+    <div ref="slowRef" style="height: 360px"></div>
+  </div>
 
-            <div class="section-card">
-              <div class="section-card-title">
-                异常 Trace 列表
-                <span class="hint">点击“查看链路”查看该 Trace 的原始日志与失败模式；点击“➕筛选”加入 Trace 看板</span>
+  <div class="section-card">
+    <div class="section-card-title">
+      异常 Trace 列表
+      <span class="hint">点击“查看链路”查看该 Trace 的原始日志与失败模式</span>
+    </div>
+    <div class="filter-bar" style="margin-bottom: 10px">
+      <input
+        class="input"
+        style="width: 240px"
+        v-model="traceSearch"
+        placeholder="搜索 Trace ID / Pod IP"
+      />
+      <select class="select" v-model="traceCluster">
+        <option value="">全部集群</option>
+        <option v-for="cluster in traceClusters" :key="cluster" :value="cluster">
+          {{ cluster }}
+        </option>
+      </select>
+      <span class="hint" style="margin-left: auto">共 {{ traceRows.length }} 条</span>
+    </div>
+    <div class="table-wrap">
+      <table
+        class="trace-compact-table"
+        style="table-layout: fixed; width: 100%; min-width: 1240px"
+      >
+        <colgroup>
+          <col style="width: 72px" />
+          <col style="width: 132px" />
+          <col style="width: 132px" />
+          <col style="width: 150px" />
+          <col style="width: 60px" />
+          <col style="width: 96px" />
+          <col style="width: 96px" />
+          <col style="width: 72px" />
+          <col style="width: 250px" />
+          <col style="width: 140px" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>故障类型</th>
+            <th>时间</th>
+            <th>Trace ID</th>
+            <th>Pod IP</th>
+            <th>操作类型</th>
+            <th>集群</th>
+            <th>主机</th>
+            <th>总时延(ms)</th>
+            <th>各阶段时延分解（P99）</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in pagedTraceRows" :key="row.trace_id">
+            <td>
+              <div class="task-actions">
+                <span
+                  v-for="tag in traceTags(row.trace_id, 'latency')"
+                  :key="tag.type"
+                  :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
+                  >{{ tag.label }}</span
+                >
               </div>
-              <div v-if="traceBoard.length" style="margin-bottom: 10px; background: var(--bg); border-radius: var(--radius-md); padding: 8px 12px">
-                <span style="font-size: 13px; color: var(--text2)">Trace 看板：</span>
-                <span class="trace-chip" v-for="id in traceBoard" :key="id">
-                  {{ id.slice(0, 12) }}
-                  <span style="cursor: pointer; color: var(--danger)" @click="removeTraceBoard(id)">×</span>
+            </td>
+            <td style="font-size: 12px; font-family: monospace">
+              {{ (row.timestamp || '').slice(0, 19) }}
+            </td>
+            <td>
+              <span class="trace-chip" :title="row.trace_id">{{ row.trace_id.slice(0, 10) }}…</span>
+            </td>
+            <td>
+              <div class="trace-pod-cell" :title="podIpsOf(row).join('\n')">
+                <span v-for="ip in visiblePodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
+                <span v-if="podIpCount(row) > visiblePodIps(row).length" class="trace-chip more">
+                  +{{ podIpCount(row) - visiblePodIps(row).length }}
                 </span>
               </div>
-              <div class="filter-bar" style="margin-bottom: 10px">
-                <input class="input" style="width: 240px" v-model="traceSearch" placeholder="搜索 Trace ID / Pod IP" />
-                <select class="select" v-model="traceCluster">
-                  <option value="">全部集群</option>
-                  <option v-for="cluster in traceClusters" :key="cluster" :value="cluster">{{ cluster }}</option>
-                </select>
-                <span class="hint" style="margin-left: auto">共 {{ traceRows.length }} 条</span>
+            </td>
+            <td>{{ normalizeTraceOperation(row.operation) }}</td>
+            <td>{{ row.cluster_name || '-' }}</td>
+            <td>{{ row.host || '-' }}</td>
+            <td :style="{ color: Number(row.total_latency_us) / 1000 > 50 ? 'var(--danger)' : '' }">
+              {{ (Number(row.total_latency_us) / 1000).toFixed(2) }}
+            </td>
+            <td>
+              <div class="latency-breakdown" :title="traceBreakdownTitle(row)">
+                <div class="latency-breakdown-bar">
+                  <span
+                    v-for="segment in traceSegments(row)"
+                    :key="segment.key"
+                    class="latency-breakdown-segment"
+                    :style="{ width: segment.width + '%', background: segment.color }"
+                  ></span>
+                  <span
+                    v-if="traceSegments(row).length === 0"
+                    class="latency-breakdown-empty"
+                    style="width: 100%; background: var(--bg)"
+                  ></span>
+                </div>
+                <div class="latency-breakdown-values" style="flex-wrap: wrap">
+                  <span
+                    v-for="segment in traceSegments(row).slice(0, 3)"
+                    :key="segment.key"
+                    class="latency-breakdown-value"
+                  >
+                    <i :style="{ background: segment.color }"></i>{{ segment.shortLabel }}
+                    {{ (segment.value / 1000).toFixed(2) }}
+                  </span>
+                </div>
               </div>
-              <div class="table-wrap">
-                <table class="trace-compact-table" style="table-layout: fixed; width: 100%; min-width: 1240px">
-                  <colgroup>
-                    <col style="width: 72px" /><col style="width: 132px" /><col style="width: 132px" />
-                    <col style="width: 150px" /><col style="width: 60px" /><col style="width: 96px" />
-                    <col style="width: 96px" /><col style="width: 72px" /><col style="width: 250px" /><col style="width: 140px" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>故障类型</th><th>时间</th><th>Trace ID</th><th>Pod IP</th><th>操作类型</th>
-                      <th>集群</th><th>主机</th><th>总时延(ms)</th><th>各阶段时延分解（P99）</th><th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="row in pagedTraceRows" :key="row.trace_id">
-                      <td>
-                        <div class="task-actions">
-                          <span
-                            v-for="tag in traceTags(row.trace_id, 'latency')"
-                            :key="tag.type"
-                            :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
-                          >{{ tag.label }}</span>
-                        </div>
-                      </td>
-                      <td style="font-size: 12px; font-family: monospace">{{ (row.timestamp || '').slice(0, 19) }}</td>
-                      <td><span class="trace-chip" :title="row.trace_id">{{ row.trace_id.slice(0, 10) }}…</span></td>
-                      <td>
-                        <div
-                          class="trace-pod-cell"
-                          :title="podIpsOf(row).join('\n')"
-                        >
-                          <span
-                            v-for="ip in visiblePodIps(row)"
-                            :key="ip"
-                            class="trace-chip"
-                          >{{ ip }}</span>
-                          <span v-if="podIpCount(row) > visiblePodIps(row).length" class="trace-chip more">
-                            +{{ podIpCount(row) - visiblePodIps(row).length }}
-                          </span>
-                        </div>
-                      </td>
-                      <td>{{ normalizeTraceOperation(row.operation) }}</td>
-                      <td>{{ row.cluster_name || '-' }}</td>
-                      <td>{{ row.host || '-' }}</td>
-                      <td :style="{ color: Number(row.total_latency_us) / 1000 > 50 ? 'var(--danger)' : '' }">
-                        {{ (Number(row.total_latency_us) / 1000).toFixed(2) }}
-                      </td>
-                      <td>
-                        <div class="latency-breakdown" :title="traceBreakdownTitle(row)">
-                          <div class="latency-breakdown-bar">
-                            <span
-                              v-for="segment in traceSegments(row)"
-                              :key="segment.key"
-                              class="latency-breakdown-segment"
-                              :style="{ width: segment.width + '%', background: segment.color }"
-                            ></span>
-                            <span v-if="traceSegments(row).length === 0" class="latency-breakdown-empty" style="width: 100%; background: var(--bg)"></span>
-                          </div>
-                          <div class="latency-breakdown-values" style="flex-wrap: wrap">
-                            <span v-for="segment in traceSegments(row).slice(0, 3)" :key="segment.key" class="latency-breakdown-value">
-                              <i :style="{ background: segment.color }"></i>{{ segment.shortLabel }} {{ (segment.value / 1000).toFixed(2) }}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="task-actions">
-                          <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">查看链路</button>
-                          <button class="btn btn-sm btn-text" @click="addTraceBoard(row)">➕筛选</button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+            </td>
+            <td>
+              <div class="task-actions">
+                <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
+                  查看链路
+                </button>
               </div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px">
-                <span style="font-size: 13px; color: var(--text2)">共 {{ traceRows.length }} 条</span>
-                <PageNav
-                  v-if="tracePages > 1"
-                  :page="tracePage"
-                  :pages="tracePages"
-                  @update:page="tracePage = $event"
-                />
-              </div>
-            </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div
+      style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
+    >
+      <span style="font-size: 13px; color: var(--text2)">共 {{ traceRows.length }} 条</span>
+      <PageNav
+        v-if="tracePages > 1"
+        :page="tracePage"
+        :pages="tracePages"
+        @update:page="tracePage = $event"
+      />
+    </div>
+  </div>
 </template>
 
 <style scoped>
