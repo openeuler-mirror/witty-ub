@@ -2046,11 +2046,12 @@ function createOverviewState() {
   }
 
   // 相关故障：子故障 children ∩ trace 已命中模式；交集为空时只在已命中模式中筛同码项
-  // （排除自身），不从知识库收集全量同码故障
+  // （排除自身），不从知识库收集全量同码故障。
+  // KVCache 时延 trace 行没有 failure_mode 字段，主模式回退为 trace 命中集合的第一个。
   const relatedFailureModeIdsOf = (row: any): string[] => {
-    const primaryId = splitFailureModeIds(row?.failure_mode)[0]
-    const primary = failureModeOf(primaryId)
     const traceIds = traceFailureModeIdsOf(row)
+    const primaryId = splitFailureModeIds(row?.failure_mode)[0] ?? traceIds[0]
+    const primary = failureModeOf(primaryId)
     const childIds = splitFailureModeIds(primary?.children_failure_mode_ids).filter((id) =>
       traceIds.includes(id),
     )

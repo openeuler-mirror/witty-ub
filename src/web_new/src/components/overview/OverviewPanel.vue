@@ -58,6 +58,7 @@ const {
   scopeTasks,
   setCurrentOp,
   traceDrawerLogs,
+  traceFailureModeIdsOf,
   traceStageRows,
 } = useOverviewData({
   getAsset: () => props.asset,
@@ -81,10 +82,20 @@ const onKeydown = (event: KeyboardEvent) => {
 // 抽屉故障码：access 口径数组 + 故障模式知识库显示码（含 FATAL 回退），去重
 const drawerFaultCodes = (row: any) => {
   const codes = normalizeFaultCodes(row?.status_code)
-  const modeCode = failureModeDisplayCode(failureModeOf(row?.failure_mode))
+  const modeCode = failureModeDisplayCode(primaryFailureMode.value)
   if (modeCode && !codes.includes(modeCode)) codes.push(modeCode)
   return codes
 }
+
+// P1.2：主模式优先取 trace 行 failure_mode，KVCache 行无该字段时回退命中集合第一个
+const primaryFailureMode = computed(() => {
+  const row = detailDrawerRow.value
+  const primaryId =
+    String(row?.failure_mode ?? '')
+      .split(',')[0]
+      ?.trim() || traceFailureModeIdsOf(row)[0]
+  return primaryId ? failureModeOf(primaryId) : null
+})
 
 // P1.2：相关故障折叠列表（默认收起，切换 trace 时重置）
 const relatedFaultsOpen = ref(false)
@@ -586,7 +597,7 @@ onBeforeUnmount(() => {
 
         <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">🗃️ 故障模式详情</div>
         <div
-          v-if="detailDrawerRow.failure_mode && failureModeOf(detailDrawerRow.failure_mode)"
+          v-if="primaryFailureMode"
           style="
             border: 1px solid #fecaca;
             background: #fef2f2;
@@ -596,7 +607,7 @@ onBeforeUnmount(() => {
           "
         >
           <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
-            {{ failureModeOf(detailDrawerRow.failure_mode).name }}
+            {{ primaryFailureMode.name }}
             <span
               v-for="code in drawerFaultCodes(detailDrawerRow)"
               :key="code"
@@ -605,9 +616,9 @@ onBeforeUnmount(() => {
             >
           </div>
           <div style="font-size: 12px; color: var(--text2); line-height: 1.7">
-            症状：{{ failureModeOf(detailDrawerRow.failure_mode).symptom }}<br />
-            根因：{{ failureModeOf(detailDrawerRow.failure_mode).root_cause }}<br />
-            解决：{{ failureModeOf(detailDrawerRow.failure_mode).solution }}
+            症状：{{ primaryFailureMode.symptom }}<br />
+            根因：{{ primaryFailureMode.root_cause }}<br />
+            解决：{{ primaryFailureMode.solution }}
           </div>
         </div>
         <div
