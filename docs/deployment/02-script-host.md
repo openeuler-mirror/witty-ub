@@ -16,7 +16,7 @@
 
 ### 后端节点
 
-- openEuler 24.03 LTS 或 Ubuntu 24.04 / WSL
+- Linux（脚本按实际可用的 dnf、yum 或 apt-get 选择依赖安装方式，不限定发行版及版本）
 - sudo 权限、git、内存至少 8GB，Python 依赖安装和 C++ 编译内存占用较高
 - 软件源已配置：yum/dnf 源与 pypi 源，pypi 源通过 `~/.pip/pip.conf` 的 `index-url` 指定。内网或无外网环境必须提前配置
 - 数据文件位于仓库 `data/`，或挂载数据卷到 `/var/witty-ub/data`
@@ -92,7 +92,7 @@ bash deploy/host/deploy.sh --deploy
 
 | 步骤 | 内容 |
 | ------ | ------ |
-| ① OS 检测 | 自动识别 openEuler / Ubuntu，选择对应包管理器 (dnf / apt) |
+| ① 包管理器检测 | 自动识别 dnf / yum / apt-get，选择 RPM 或 APT 依赖安装路径 |
 | ② 系统依赖 | 安装 cmake, gcc-c++, PostgreSQL, Python3, Node.js, nginx 等 |
 | ③ PostgreSQL | 调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 5432 端口 |
 | ④ Python 环境 | 创建 `.venv` 虚拟环境，安装 FastAPI/SQLAlchemy/asyncpg/polars 等依赖 |

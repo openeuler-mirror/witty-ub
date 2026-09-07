@@ -8,7 +8,7 @@
 #   /usr/libexec/witty-ub-manager/deploy_pg.sh
 #
 # 由 manager.sh 的 deploy 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
-# 跳过创建。仅支持 openEuler (RPM) / Ubuntu (APT)，不支持 Docker 模式。
+# 跳过创建。按 RPM/APT 包管理器选择安装方式，不支持 Docker 模式。
 #
 # 配置来源: /etc/witty-ub/pg.conf（由 witty-ub-manager 子包安装）
 
@@ -378,7 +378,7 @@ deploy_apt() {
 
 detect_os || exit 1
 case "$OS_ID" in
-    openeuler) deploy_rpm ;;
-    ubuntu)    deploy_apt ;;
-    *)         _err "不支持的 OS: $OS_ID"; exit 1 ;;
+    rpm) deploy_rpm ;;
+    apt) deploy_apt ;;
+    *)   _err "不支持的包管理器: $OS_ID"; exit 1 ;;
 esac

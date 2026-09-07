@@ -76,19 +76,23 @@ _psql_as_postgres() {
 # ──────────────────── OS 检测 ────────────────────
 
 detect_os() {
-    if [ -f /etc/openEuler-release ] || grep -qi 'openeuler' /etc/os-release 2>/dev/null; then
-        OS_ID="openeuler"
+    if _has_cmd dnf; then
+        OS_ID="rpm"
         PM_INSTALL="dnf install -y --allowerasing"
         PM_UPDATE="dnf update -y --allowerasing"
-        _log "检测到 openEuler"
-    elif grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
-        OS_ID="ubuntu"
+        _log "检测到 dnf 包管理器"
+    elif _has_cmd yum; then
+        OS_ID="rpm"
+        PM_INSTALL="yum install -y"
+        PM_UPDATE="yum update -y"
+        _log "检测到 yum 包管理器"
+    elif _has_cmd apt-get; then
+        OS_ID="apt"
         PM_INSTALL="apt-get install -y"
         PM_UPDATE="apt-get update -y"
-        _log "检测到 Ubuntu"
+        _log "检测到 apt-get 包管理器"
     else
-        _err "不支持的操作系统，需要 openEuler 或 Ubuntu"
-        _info "当前 OS: $(cut -d$'\n' -f1-3 /etc/os-release 2>/dev/null)"
+        _err "未检测到受支持的包管理器（dnf/yum/apt-get）"
         return 1
     fi
 }

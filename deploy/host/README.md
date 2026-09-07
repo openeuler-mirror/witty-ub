@@ -108,7 +108,7 @@ deploy.sh
 
 脚本自动完成以下步骤：
 
-1. **OS 检测**：自动识别 openEuler / Ubuntu，选择对应包管理器（dnf / apt）
+1. **包管理器检测**：自动识别 dnf / yum / apt-get，不限定 OS 发行版或版本
 2. **系统依赖**：安装 cmake、gcc-c++、PostgreSQL、Python3、Node.js 等（openEuler 24.03+ 另装 `systemd-pam`）
 3. **PostgreSQL**：调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，默认监听 5432 端口
 4. **Python 环境**：创建 `.venv` 虚拟环境，安装 FastAPI / SQLAlchemy / asyncpg / polars 等依赖

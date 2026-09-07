@@ -123,22 +123,22 @@ install_missing() {
     _is_root || SUDO_CMD=(sudo)
 
     case "$OS_ID" in
-    openeuler)
+    rpm)
         local PKGS=(curl)
         [ "$WITTY_ROLE" != "frontend" ] && PKGS+=(postgresql-server postgresql python3 python3-pip)
         [ "$WITTY_ROLE" != "backend" ] && PKGS+=(nginx nodejs)
-        _info "安装 openEuler 系统依赖: ${PKGS[*]}"
+        _info "安装 RPM 系统依赖: ${PKGS[*]}"
         "${SUDO_CMD[@]}" $PM_UPDATE
         "${SUDO_CMD[@]}" $PM_INSTALL "${PKGS[@]}" || {
             _err "依赖补装失败"
             return 1
         }
         ;;
-    ubuntu)
+    apt)
         local PKGS=(curl)
         [ "$WITTY_ROLE" != "frontend" ] && PKGS+=(postgresql postgresql-client python3 python3-venv)
         [ "$WITTY_ROLE" != "backend" ] && PKGS+=(nginx nodejs)
-        _info "安装 Ubuntu 系统依赖: ${PKGS[*]}"
+        _info "安装 APT 系统依赖: ${PKGS[*]}"
         "${SUDO_CMD[@]}" $PM_UPDATE
         "${SUDO_CMD[@]}" $PM_INSTALL "${PKGS[@]}" || {
             _err "依赖补装失败"

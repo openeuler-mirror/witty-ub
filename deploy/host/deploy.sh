@@ -3,7 +3,7 @@
 # witty-ub is licensed under the Mulan PSL v2.
 #
 # witty-ub 宿主机/裸金属 一键部署脚本
-# 支持 openEuler 24.03-LTS / Ubuntu 24.04 / WSL (Ubuntu)
+# 支持使用 dnf/yum 或 apt-get 的 Linux 发行版
 #
 # 用法:
 #   bash deploy/host/deploy.sh          # 交互式菜单（默认）
@@ -74,7 +74,7 @@ setup_postgresql() {
     fi
 
     case "$OS_ID" in
-    openeuler)
+    rpm)
         _info "调用 deploy/deploy_pg.sh --rpm 部署/对齐 PostgreSQL..."
         if _is_root; then
             bash "$DEPLOY_PG_SCRIPT" --rpm
@@ -85,7 +85,7 @@ setup_postgresql() {
             return 1
         fi
         ;;
-    ubuntu)
+    apt)
         _info "调用 deploy/deploy_pg.sh --apt 部署/对齐 PostgreSQL..."
         if _is_root; then
             bash "$DEPLOY_PG_SCRIPT" --apt

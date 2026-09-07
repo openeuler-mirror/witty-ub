@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/_lib.sh"
 install_system_deps() {
     _step_header "安装系统依赖"
 
-    local OPENEULER_PKGS=(
+    local RPM_PKGS=(
         cmake gcc-c++ make
         log4cplus-devel cpp-httplib sqlite-devel
         jsoncpp-devel tinyxml2-devel openssl-devel
@@ -30,7 +30,7 @@ install_system_deps() {
         nodejs npm git curl nginx
     )
 
-    local UBUNTU_PKGS=(
+    local APT_PKGS=(
         cmake g++ make
         liblog4cplus-dev libcpp-httplib-dev libsqlite3-dev
         libjsoncpp-dev libtinyxml2-dev libssl-dev
@@ -41,32 +41,30 @@ install_system_deps() {
         libpam-systemd
     )
 
-    if [ "$OS_ID" = "openeuler" ]; then
+    if [ "$OS_ID" = "rpm" ]; then
         if _is_root; then
             # systemd-pam (24.03+): pam_systemd.so 缺失 → systemctl --user 全不可用
             # 22.03 无此包 → 先探测存在才装, 避免 dnf 整批失败
             local SYSTEMD_PAM=""
             dnf list systemd-pam >/dev/null 2>&1 && SYSTEMD_PAM="systemd-pam"
-            [ -n "$SYSTEMD_PAM" ] && OPENEULER_PKGS+=("$SYSTEMD_PAM")
+            [ -n "$SYSTEMD_PAM" ] && RPM_PKGS+=("$SYSTEMD_PAM")
             $PM_UPDATE
-            $PM_INSTALL "${OPENEULER_PKGS[@]}"
+            $PM_INSTALL "${RPM_PKGS[@]}"
             systemctl enable postgresql 2>/dev/null || true
         else
             _warn "需要 root 权限安装系统包，请运行:"
-            echo "  sudo dnf install -y ${OPENEULER_PKGS[*]}"
-            _info "openEuler 24.03+ 另需 systemd-pam (systemctl --user 依赖):"
-            echo "  sudo dnf install -y systemd-pam"
+            echo "  sudo $PM_INSTALL ${RPM_PKGS[*]}"
             _info "跳过系统包安装，假设已手动安装"
         fi
-    elif [ "$OS_ID" = "ubuntu" ]; then
+    elif [ "$OS_ID" = "apt" ]; then
         if _is_root || _has_cmd sudo; then
             local SUDO_CMD=()
             _is_root || SUDO_CMD=(sudo)
             "${SUDO_CMD[@]}" $PM_UPDATE
-            "${SUDO_CMD[@]}" $PM_INSTALL "${UBUNTU_PKGS[@]}"
+            "${SUDO_CMD[@]}" $PM_INSTALL "${APT_PKGS[@]}"
         else
             _warn "需要 sudo 权限安装系统包，请运行:"
-            echo "  sudo apt-get update && sudo apt-get install -y ${UBUNTU_PKGS[*]}"
+            echo "  sudo apt-get update && sudo apt-get install -y ${APT_PKGS[*]}"
             _info "跳过系统包安装，假设已手动安装"
         fi
     fi

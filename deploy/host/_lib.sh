@@ -70,27 +70,26 @@ _check_node() {
 # ──────────────────── OS 检测 ────────────────────
 
 detect_os() {
-    if [ -f /etc/openEuler-release ] || grep -qi 'openeuler' /etc/os-release 2>/dev/null; then
-        OS_ID="openeuler"
+    if _has_cmd dnf; then
+        OS_ID="rpm"
         PM_INSTALL="dnf install -y --allowerasing"
         PM_UPDATE="dnf update -y --allowerasing"
-        _log "检测到 openEuler"
-        if [ "$(uname -m)" = "aarch64" ]; then
-            _info "架构: aarch64"
-        fi
-    elif grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
-        OS_ID="ubuntu"
+        _log "检测到 dnf 包管理器"
+    elif _has_cmd yum; then
+        OS_ID="rpm"
+        PM_INSTALL="yum install -y"
+        PM_UPDATE="yum update -y"
+        _log "检测到 yum 包管理器"
+    elif _has_cmd apt-get; then
+        OS_ID="apt"
         PM_INSTALL="apt-get install -y"
         PM_UPDATE="apt-get update -y"
-        _log "检测到 Ubuntu"
-        if grep -qi 'microsoft' /proc/version 2>/dev/null; then
-            _info "运行在 WSL 环境"
-        fi
+        _log "检测到 apt-get 包管理器"
     else
-        _err "不支持的操作系统，需要 openEuler 或 Ubuntu"
-        _info "当前 OS: $(cat /etc/os-release 2>/dev/null | head -3)"
+        _err "未检测到受支持的包管理器（dnf/yum/apt-get）"
         exit 1
     fi
+    _info "架构: $(uname -m)"
 }
 
 # ──────────────────── 交互确认 ────────────────────
