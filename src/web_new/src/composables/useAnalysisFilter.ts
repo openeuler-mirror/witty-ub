@@ -3,9 +3,10 @@ import { epochMsToTs } from '../utils/format'
 
 /**
  * 统一分析过滤器（P0）：
- * - op / scaleSec / logId / dimensions：服务端查询口径
+ * - op / scaleSec / logId：服务端查询口径
  * - time：all / range / bucket 三态互斥，epoch ms 半开区间 [start, end)
  * - focus：当前分析对象（Pod 或链路），驱动 inspector 与 Trace 详情
+ *   （P1.4 决策：不做集群/主机/Pod 维度过滤条，对象定位由 focus 承担）
  * - nodeWhitelist：仅控制客户端拓扑可见节点，不冒充服务端过滤
  * 时延与通断各自持有实例，切 Tab 不串状态。
  */
