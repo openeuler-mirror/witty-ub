@@ -153,7 +153,7 @@ URMAResult URMATopology::CreatePodModeTopology(const TopoToolsArgs &args, std::v
         }
     }
     for (auto [pod_id, path] : target_log_path) {
-        //获取这个pod对应的日志文件中的所有符合格式日志的参数存在sessionKey中
+        // 获取这个pod对应的日志文件中的所有符合格式日志的参数存在sessionKey中
         std::map<SessionKey, std::string> activeSessions;
         URMAResult ret = ParseUMQLog(path, activeSessions);
         if (ret != URMA_SUCCESS) {

@@ -153,14 +153,14 @@ bool Database::AppendConditions(string tableName, ConditionMap conditions, strin
     }
     return true;
 }
-OP_RET Database::OpenDb(string currDbName, bool enableHis)
+OP_RET Database::OpenDb(string dbName, bool enableHisFlag)
 {
-    this->currDbName = currDbName;
-    this->enableHis = enableHis;
-    int rc1 = sqlite3_open(currDbName.c_str(), &currDb);
+    this->currDbName = dbName;
+    this->enableHis = enableHisFlag;
+    int rc1 = sqlite3_open(dbName.c_str(), &currDb);
     int rc2 = 0;
-    if (enableHis) {
-        hisDbName = currDbName + "_history";
+    if (enableHisFlag) {
+        hisDbName = dbName + "_history";
         rc2 = sqlite3_open(hisDbName.c_str(), &hisDb);
     }
     if (rc1 != SQLITE_OK || rc2 != SQLITE_OK) {

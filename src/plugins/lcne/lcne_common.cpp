@@ -165,7 +165,8 @@ LcneResult GenerateNotifyReqBody(std::string &reqBody)
     url->SetText(LCNE_NOTIFY_TOPO_PATH);
     root->InsertEndChild(url);
 
-    tinyxml2::XMLPrinter printer(nullptr, /* compact = */ true);
+    // compact = true
+    tinyxml2::XMLPrinter printer(nullptr, true);
     doc.Accept(&printer);
     reqBody = printer.CStr();
     return LCNE_SUCCESS;
