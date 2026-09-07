@@ -1,0 +1,395 @@
+import { computed, reactive, ref, watch } from 'vue'
+import type { LogFileModel } from '../types'
+import { clampProgress, errorText, paginate, toDatetimeString } from '../utils/format'
+import { useToast } from './useToast'
+import { useAssets } from './useAssets'
+import {
+  deleteLogFile as deleteLogFileApi,
+  listAllLogFiles,
+  runBrpcDiagnosis as runBrpcDiagnosisApi,
+  runLogFile as runLogFileApi,
+  uploadLogFilesJson,
+  uploadLogFilesMultipart,
+} from '../api/logFile'
+import { listTasks } from '../api/task'
+
+let state: ReturnType<typeof createTasksState> | null = null
+
+export function useTasks() {
+  if (!state) state = createTasksState()
+  return state
+}
+
+function createTasksState() {
+  const { toast } = useToast()
+  const assets = useAssets()
+
+  const logFiles = ref<LogFileModel[]>([])
+  const logFilesTotal = ref(0)
+  const logFilesLoading = ref(false)
+  const logFilesError = ref('')
+
+  const getLogFileId = (file: LogFileModel) => file.id
+
+  const statusOf = (file: LogFileModel) => file.overall_status || 'unknown'
+
+  const progressOf = (file: LogFileModel) => {
+    const reports = file.task?.task_reports ?? []
+    const lastReport = reports.length > 0 ? reports[reports.length - 1] : undefined
+    const progress = file.overall_progress ?? lastReport?.progress ?? 0
+    return clampProgress(progress)
+  }
+
+  const statusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      pending: '待解析',
+      running: '解析中',
+      retrying: '正在重试',
+      cancelled: '已取消',
+      successful: '已完成',
+      successful_pending_remove: '已完成，收尾中',
+      failed: '失败',
+      failed_pending_remove: '失败，准备重试',
+      unknown: '状态未知',
+    }
+    return labels[status] || status
+  }
+
+  const statusBadgeClass = (status: string) => {
+    const classes: Record<string, string> = {
+      pending: 'badge-pending',
+      running: 'badge-running',
+      retrying: 'badge-running',
+      cancelled: 'badge-cancelled',
+      successful: 'badge-success',
+      successful_pending_remove: 'badge-success',
+      failed: 'badge-failed',
+      failed_pending_remove: 'badge-failed',
+      unknown: 'badge-cancelled',
+    }
+    return classes[status] || 'badge-cancelled'
+  }
+
+  const isPendingStatus = (status: string) => status === 'pending' || status === 'cancelled'
+  const isRunningStatus = (status: string) => status === 'running' || status === 'retrying'
+  const isFailedStatus = (status: string) => status === 'failed'
+  const isSuccessStatus = (status: string) =>
+    status === 'successful' || status === 'successful_pending_remove'
+
+  const isPending = (file: LogFileModel) => isPendingStatus(statusOf(file))
+  const isRunning = (file: LogFileModel) => isRunningStatus(statusOf(file))
+  const isFailed = (file: LogFileModel) => isFailedStatus(statusOf(file))
+  const isSuccess = (file: LogFileModel) => isSuccessStatus(statusOf(file))
+
+  const brpcDiagStatusByFile = ref<Record<string, string>>({})
+
+  const loadBrpcDiagnosisStatuses = async () => {
+    const asset = assets.selectedAsset.value
+    if (!asset) return
+    const targets = logFiles.value.filter((file) => file.log_type === 'brpc' && isSuccess(file))
+    const next: Record<string, string> = {}
+    await Promise.all(
+      targets.map(async (file) => {
+        try {
+          const result = await listTasks({
+            kb_id: asset.id,
+            op_id: file.id,
+            task_type: 'brpc_log_diagnosis_worker',
+            page_cnt: 10,
+            page_num: 1,
+          })
+          const task = result.tasks?.find(
+            (item) => item.op_id === file.id && item.task_type === 'brpc_log_diagnosis_worker',
+          )
+          next[file.id] = task?.status || 'none'
+        } catch {
+          next[file.id] = 'none'
+        }
+      }),
+    )
+    brpcDiagStatusByFile.value = next
+  }
+
+  const loadLogFiles = async (kbId: string, silent = false) => {
+    if (!silent) logFilesLoading.value = true
+    logFilesError.value = ''
+    try {
+      const files = await listAllLogFiles(kbId)
+      logFiles.value = files
+      logFilesTotal.value = files.length
+      await loadBrpcDiagnosisStatuses()
+    } catch (error) {
+      logFilesError.value = errorText(error)
+    } finally {
+      if (!silent) logFilesLoading.value = false
+    }
+  }
+
+  const refreshLogFiles = async (silent = false) => {
+    const asset = assets.selectedAsset.value
+    if (!asset) return
+    if (!silent) logFilesLoading.value = true
+    try {
+      await loadLogFiles(asset.id, silent)
+    } finally {
+      if (!silent) logFilesLoading.value = false
+    }
+  }
+
+  const runLogFile = async (file: LogFileModel) => {
+    try {
+      await runLogFileApi(getLogFileId(file), true)
+      toast('解析任务已启动', 'success')
+      await refreshLogFiles()
+    } catch (error) {
+      toast(errorText(error), 'error')
+    }
+  }
+
+  const stopLogFile = async (file: LogFileModel) => {
+    if (!window.confirm('确定停止解析？已完成的结果将保留。')) return
+    try {
+      await runLogFileApi(getLogFileId(file), false)
+      toast('解析任务已停止', 'info')
+      await refreshLogFiles()
+    } catch (error) {
+      toast(errorText(error), 'error')
+    }
+  }
+
+  const deleteLogFile = async (file: LogFileModel) => {
+    if (!window.confirm('确定删除该日志文件？关联的解析结果将被清空。')) return
+    try {
+      await deleteLogFileApi(getLogFileId(file))
+      toast('日志文件已删除', 'success')
+      await Promise.all([refreshLogFiles(), assets.loadAssets()])
+    } catch (error) {
+      toast(errorText(error), 'error')
+    }
+  }
+
+  const brpcDiagStatusOf = (file: LogFileModel) => brpcDiagStatusByFile.value[file.id] || 'none'
+
+  const canRunBrpcDiagnosis = (file: LogFileModel) => {
+    if (file.log_type !== 'brpc' || !isSuccess(file)) return false
+    return ['none', 'failed', 'cancelled'].includes(brpcDiagStatusOf(file))
+  }
+
+  const brpcModalOpen = ref(false)
+  const brpcTargetFile = ref<LogFileModel | null>(null)
+  const brpcStartTime = ref('')
+  const brpcSaving = ref(false)
+  const brpcError = ref('')
+
+  const openBrpcDiagnosis = (file: LogFileModel) => {
+    brpcTargetFile.value = file
+    brpcStartTime.value = ''
+    brpcError.value = ''
+    brpcModalOpen.value = true
+  }
+
+  const runBrpcDiagnosis = async () => {
+    const file = brpcTargetFile.value
+    if (!file) return
+    const startTime = toDatetimeString(brpcStartTime.value)
+    if (!startTime) {
+      brpcError.value = '请选择 UBSocket 日志扫描开始时间'
+      return
+    }
+    brpcSaving.value = true
+    brpcError.value = ''
+    try {
+      await runBrpcDiagnosisApi(getLogFileId(file), startTime)
+      brpcModalOpen.value = false
+      toast('UBSocket 诊断任务已创建', 'success')
+      await refreshLogFiles()
+    } catch (error) {
+      brpcError.value = errorText(error)
+    } finally {
+      brpcSaving.value = false
+    }
+  }
+
+  const taskTypeFilter = ref('')
+  const taskFilterStatus = ref('')
+  const taskSearch = ref('')
+  const taskPage = ref(1)
+  const taskPageSize = 10
+
+  const filteredTasks = computed(() => {
+    let list = logFiles.value
+    if (taskTypeFilter.value) {
+      list = list.filter((file) => (file.log_type || 'kv-cache') === taskTypeFilter.value)
+    }
+    if (taskFilterStatus.value) {
+      list = list.filter((file) => statusOf(file) === taskFilterStatus.value)
+    }
+    const keyword = taskSearch.value.trim().toLowerCase()
+    if (keyword) {
+      list = list.filter(
+        (file) =>
+          file.name.toLowerCase().includes(keyword) ||
+          (file.file_path || '').toLowerCase().includes(keyword),
+      )
+    }
+    return [...list].sort((a, b) =>
+      String(b.created_at || '').localeCompare(String(a.created_at || '')),
+    )
+  })
+
+  const taskPages = computed(() =>
+    Math.max(1, Math.ceil(filteredTasks.value.length / taskPageSize)),
+  )
+  const pagedTasks = computed(() => paginate(filteredTasks.value, taskPage.value, taskPageSize))
+
+  watch([taskTypeFilter, taskFilterStatus, taskSearch], () => {
+    taskPage.value = 1
+  })
+
+  watch([assets.view, assets.assetTab], () => {
+    taskPage.value = 1
+  })
+
+  const showCreateTask = ref(false)
+  const savingTask = ref(false)
+  const taskError = ref('')
+  const newTask = reactive({
+    name: '',
+    taskType: 'kv-cache' as 'kv-cache' | 'brpc',
+    sourceType: 'local' as 'local' | 'remote' | 'upload',
+    source: '',
+    uploadFiles: [] as File[],
+    advanced: false,
+    timeStart: '',
+    timeEnd: '',
+    minElapsedMs: null as number | null,
+  })
+
+  const openCreateTask = () => {
+    newTask.name = ''
+    newTask.taskType = 'kv-cache'
+    newTask.sourceType = 'local'
+    newTask.source = ''
+    newTask.uploadFiles = []
+    newTask.advanced = false
+    newTask.timeStart = ''
+    newTask.timeEnd = ''
+    newTask.minElapsedMs = null
+    taskError.value = ''
+    showCreateTask.value = true
+  }
+
+  const closeCreateTask = () => {
+    if (savingTask.value) return
+    showCreateTask.value = false
+  }
+
+  const onTaskFilesChange = (event: Event) => {
+    const input = event.target as HTMLInputElement
+    newTask.uploadFiles = Array.from(input.files ?? [])
+  }
+
+  const canSubmitTask = computed(() => {
+    if (newTask.sourceType === 'upload') return newTask.uploadFiles.length > 0
+    return newTask.source.trim().length > 0
+  })
+
+  const createTask = async () => {
+    const asset = assets.selectedAsset.value
+    if (!asset || !canSubmitTask.value) return
+
+    const parseConfig: Record<string, unknown> = {}
+    const startTime = toDatetimeString(newTask.timeStart)
+    const endTime = toDatetimeString(newTask.timeEnd)
+    if (startTime) parseConfig.start_time = startTime
+    if (endTime) parseConfig.end_time = endTime
+    if (newTask.minElapsedMs != null && newTask.minElapsedMs > 0) {
+      parseConfig.min_elapsed_ms = newTask.minElapsedMs
+    }
+
+    savingTask.value = true
+    taskError.value = ''
+    try {
+      if (newTask.sourceType === 'upload') {
+        const configs = newTask.uploadFiles.map((file) => ({
+          name: file.name,
+          source_type: 'upload',
+          source: file.name,
+          log_type: newTask.taskType,
+        }))
+        await uploadLogFilesMultipart(asset.id, configs, newTask.uploadFiles, parseConfig)
+      } else {
+        const source = newTask.source.trim()
+        const name = newTask.name.trim() || source.split('/').pop() || source
+        await uploadLogFilesJson(
+          asset.id,
+          [
+            {
+              name,
+              source_type: newTask.sourceType,
+              source,
+              log_type: newTask.taskType,
+            },
+          ],
+          parseConfig,
+        )
+      }
+      showCreateTask.value = false
+      toast('任务创建成功，等待解析', 'success')
+      await Promise.all([refreshLogFiles(), assets.loadAssets()])
+    } catch (error) {
+      taskError.value = errorText(error)
+    } finally {
+      savingTask.value = false
+    }
+  }
+
+  return {
+    logFiles,
+    logFilesTotal,
+    logFilesLoading,
+    logFilesError,
+    getLogFileId,
+    statusOf,
+    progressOf,
+    statusLabel,
+    statusBadgeClass,
+    isRunningStatus,
+    isPending,
+    isRunning,
+    isFailed,
+    isSuccess,
+    brpcDiagStatusByFile,
+    brpcDiagStatusOf,
+    canRunBrpcDiagnosis,
+    brpcModalOpen,
+    brpcTargetFile,
+    brpcStartTime,
+    brpcSaving,
+    brpcError,
+    openBrpcDiagnosis,
+    runBrpcDiagnosis,
+    loadLogFiles,
+    refreshLogFiles,
+    runLogFile,
+    stopLogFile,
+    deleteLogFile,
+    taskTypeFilter,
+    taskFilterStatus,
+    taskSearch,
+    taskPage,
+    taskPageSize,
+    filteredTasks,
+    taskPages,
+    pagedTasks,
+    showCreateTask,
+    savingTask,
+    taskError,
+    newTask,
+    openCreateTask,
+    closeCreateTask,
+    onTaskFilesChange,
+    canSubmitTask,
+    createTask,
+  }
+}
