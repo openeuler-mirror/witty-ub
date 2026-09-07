@@ -9,6 +9,7 @@ import AssetModal from './components/AssetModal.vue'
 import CreateTaskModal from './components/CreateTaskModal.vue'
 import BrpcDiagnosisModal from './components/BrpcDiagnosisModal.vue'
 import ParseConfigDrawer from './components/common/ParseConfigDrawer.vue'
+import AgentChatPanel from './components/agent/AgentChatPanel.vue'
 
 const OverviewPanel = defineAsyncComponent(() => import('./components/overview/OverviewPanel.vue'))
 
@@ -408,6 +409,8 @@ onBeforeUnmount(() => {
     :asset-type="assetTypeFilter"
     v-model:open="parseConfigOpen"
   />
+  <!-- P1.3 AI 故障诊断助手：仅分析页（总览）显示 FAB -->
+  <AgentChatPanel v-if="view === 'home' && assetTab === 'overview'" :asset="selectedAsset" />
 
   <div class="toast">
     <div v-for="item in toasts" :key="item.id" :class="['toast-item', `toast-${item.type}`]">
