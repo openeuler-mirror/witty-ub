@@ -1448,11 +1448,10 @@ class KVCacheLogParseWorker(BaseWorker):
                 task.op_id, {"anomalous_count": len(anomalous_tids)}
             )
             
-            # 更新关联的知识库统计
+            # 重新聚合知识库统计：多日志共存时按剩余日志求和，
+            # 直接写本日志的计数会覆盖其它日志的贡献。
             if kb_id:
-                await LogKnowledgePGManager.update_log_kb(
-                    kb_id, {"anomalous_count": len(anomalous_tids)}
-                )
+                await LogKnowledgePGManager.refresh_kb_counters(kb_id)
             
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}

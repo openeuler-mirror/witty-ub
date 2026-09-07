@@ -119,6 +119,50 @@ async def _backfill_brpc_unique_interfaces() -> None:
         ))
 
 
+async def _backfill_brpc_interface_buckets() -> None:
+    """Populate timeline buckets for batches imported before this table existed."""
+    async with PGManager.engine().begin() as conn:
+        for window_seconds in (10, 60, 600, 3600):
+            window_us = window_seconds * 1_000_000
+            await conn.execute(text(
+                "WITH missing_batches AS ("
+                "SELECT batch.batch_id FROM brpc_diag_batch AS batch "
+                "WHERE batch.hit_count > 0 AND NOT EXISTS ("
+                "SELECT 1 FROM brpc_diag_interface_bucket AS existing "
+                "WHERE existing.batch_id = batch.batch_id "
+                "AND existing.window_seconds = :window_seconds"
+                ")) INSERT INTO brpc_diag_interface_bucket ("
+                "batch_id, window_seconds, window_start_timestamp, component, "
+                "interface_id, interface_name, function_name, pod_ip, pod_name, "
+                "interface_hit_count"
+                ") SELECT hit.batch_id, :window_seconds, "
+                "FLOOR(CAST(hit.timestamp AS NUMERIC) / :window_us) * :window_us, "
+                "COALESCE(node.component, 'unknown'), "
+                "COALESCE(hit.interface_id, '__unresolved__'), "
+                "COALESCE(node.name, '未确定接口'), "
+                "COALESCE(node.function_name, ''), "
+                "COALESCE(hit.pod_ip, ''), COALESCE(hit.pod_name, ''), "
+                "COUNT(hit.hit_id) "
+                "FROM brpc_diag_hit AS hit "
+                "JOIN missing_batches USING (batch_id) "
+                "LEFT JOIN brpc_diag_node AS node "
+                "ON node.schema_id = hit.schema_id "
+                "AND node.node_id = hit.interface_id "
+                "GROUP BY hit.batch_id, "
+                "FLOOR(CAST(hit.timestamp AS NUMERIC) / :window_us) * :window_us, "
+                "COALESCE(node.component, 'unknown'), "
+                "COALESCE(hit.interface_id, '__unresolved__'), "
+                "COALESCE(node.name, '未确定接口'), "
+                "COALESCE(node.function_name, ''), "
+                "COALESCE(hit.pod_ip, ''), COALESCE(hit.pod_name, '') "
+                "ON CONFLICT ON CONSTRAINT "
+                "uq_brpc_diag_interface_bucket_scope DO NOTHING"
+            ), {
+                "window_seconds": window_seconds,
+                "window_us": window_us,
+            })
+
+
 def _month_iter(start: datetime, end: datetime):
     """Yield the first day of every month from start to end (inclusive)."""
     y, m = start.year, start.month
@@ -228,6 +272,12 @@ BRPC_DIAG_INDEX_DDL = (
     "CREATE INDEX IF NOT EXISTS idx_brpc_diag_failure_interface_lookup "
     "ON brpc_diag_failure_interface "
     "(schema_id, failure_mode_id, interface_id)",
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_bucket_batch_window_time "
+    "ON brpc_diag_interface_bucket "
+    "(batch_id, window_seconds, window_start_timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_brpc_diag_bucket_batch_pod_window_time "
+    "ON brpc_diag_interface_bucket "
+    "(batch_id, pod_ip, window_seconds, window_start_timestamp)",
 )
 
 
@@ -450,6 +500,7 @@ async def init_postgresql_database() -> None:
     await _backfill_brpc_batch_hit_count()
     await _backfill_brpc_batch_time_range()
     await _backfill_brpc_unique_interfaces()
+    await _backfill_brpc_interface_buckets()
     await migrate_timestamptz_to_timestamp()
     await migrate_yuanrong_metric_columns()
     await migrate_brpc_log_type_column()

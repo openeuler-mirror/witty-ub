@@ -135,7 +135,13 @@ class BrpcLogParseWorker(BaseWorker):
             all_records.extend(records)
 
         if all_records and log_id:
-            await BrpcProfilingResultPGManager.add_profiling_results(log_id, all_records)
+            stored = await BrpcProfilingResultPGManager.add_profiling_results(
+                log_id, all_records
+            )
+            if not stored:
+                raise RuntimeError(
+                    f"Failed to store BRPC profiling results for log {log_id}"
+                )
 
         return len(all_records)
 
@@ -161,10 +167,14 @@ class BrpcLogParseWorker(BaseWorker):
             t_parse = time.perf_counter() - t_run_start
 
             if record_count == 0:
-                await BaseWorker.report(task.id, "无 BRPC profiling 文件，跳过 profiling 解析", 100.0)
                 await LogKnowledgePGManager.touch_log_kb(task.kb_id)
                 await TaskPGManager.update_task(
                     task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
+                )
+                await BaseWorker.report(
+                    task.id,
+                    "无 BRPC profiling 文件，跳过 profiling 解析",
+                    100.0,
                 )
                 return True
 
@@ -174,11 +184,11 @@ class BrpcLogParseWorker(BaseWorker):
                 90.0,
             )
 
-            await BaseWorker.report(task.id, "BRPC task completed successfully", 100.0)
             await LogKnowledgePGManager.touch_log_kb(task.kb_id)
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
+            await BaseWorker.report(task.id, "BRPC task completed successfully", 100.0)
 
             logger.info(
                 f"BRPC task {task_id} completed: {record_count} records, "

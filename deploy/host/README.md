@@ -108,14 +108,14 @@ deploy.sh
 
 脚本自动完成以下步骤：
 
-1. **OS 检测**：自动识别 openEuler / Ubuntu，选择对应包管理器（dnf / apt）
+1. **包管理器检测**：自动识别 dnf / yum / apt-get，不限定 OS 发行版或版本
 2. **系统依赖**：安装 cmake、gcc-c++、PostgreSQL、Python3、Node.js 等（openEuler 24.03+ 另装 `systemd-pam`）
 3. **PostgreSQL**：调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，默认监听 5432 端口
 4. **Python 环境**：创建 `.venv` 虚拟环境，安装 FastAPI / SQLAlchemy / asyncpg / polars 等依赖
 5. **前端编译**：`npm run build-only` 构建 `dist/`（编译失败回退 dev server，不阻塞部署）
 6. **C++ 编译**：编译 `witty-ub-diag-tool` / `witty-ub-brpc-diag` 诊断工具（源码或 `CMakeLists.txt` 比二进制新则重编；`FORCE_REBUILD_CPP=1` 强制重编）
 7. **数据文件**：将故障模式树、配置文件复制到 `/var/witty-ub/`
-8. **凭据同步**：将 `deploy/deploy.conf` 的实际 PG 凭据写入 `/var/witty-ub/config/diagnosis_config.toml` 运行时副本，不改写仓库源配置
+8. **凭据同步**：仅将 PG 非敏感连接参数写入运行时 TOML；密码由后端启动器从 `deploy/pg.passwd` 注入进程环境
 9. **启动服务**：启动 FastAPI 后端 (9772) + Vite 前端 (5173)，等待健康检查通过
 
 ---
@@ -132,11 +132,15 @@ PG_HOST="127.0.0.1"        # 宿主机访问地址
 PG_PORT_RPM="5432"         # 宿主机源码/RPM 部署监听端口
 PG_DATABASE="witty-ub"
 PG_USER="witty-ub"
-PG_PASSWORD="witty-ub"
+PG_PASSWORD="<CHANGE_ME>"   # 占位符，实际口令在 deploy/pg.passwd
 
 # ---------- RPM 部署专用 ----------
 # PG_DATA_DIR=""           # 数据目录（留空自动探测）
 ```
+
+`deploy/pg.passwd` 权限为 `0600` 且已被 Git 忽略。数据库密码不会写入
+`/var/witty-ub/config/diagnosis_config.toml`；systemd 与 nohup 均通过
+`deploy/host/run_backend.sh` 在启动后端时读取密钥，并仅注入后端进程环境。
 
 ### 环境变量覆盖
 

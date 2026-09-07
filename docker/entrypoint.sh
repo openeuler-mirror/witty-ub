@@ -25,6 +25,27 @@ export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 
 echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}"
 
+# Docker 部署通过只读 bind mount / Compose secret 传入口令，避免将密码
+# 写入镜像配置或 docker inspect 可见的容器环境配置。只在后端角色中加载。
+load_pg_secret() {
+    [ "$WITTY_ROLE" = "frontend" ] && return 0
+    local secret_file="${PG_SECRET_FILE:-/run/secrets/pg_password}"
+    if [ -z "${PG_PASSWORD:-}" ]; then
+        if [ ! -r "$secret_file" ]; then
+            echo "[ERROR] PostgreSQL secret is missing or unreadable: ${secret_file}"
+            exit 1
+        fi
+        PG_PASSWORD="$(tr -d '\r\n' <"$secret_file")"
+        if [ -z "$PG_PASSWORD" ]; then
+            echo "[ERROR] PostgreSQL secret is empty: ${secret_file}"
+            exit 1
+        fi
+        export PG_PASSWORD
+    fi
+}
+
+load_pg_secret
+
 # ── 后端数据同步（all / backend 角色） ──────────────────────────────
 sync_backend_data() {
     # Refresh packaged rules on every start. Docker only initializes a named

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from latency.config.config import Config
 from latency.database.engine import PGManager
@@ -34,8 +35,11 @@ class DiagnosisConfigPGManager:
 
     @staticmethod
     async def upsert(
-        kb_id: str, config: DiagnosisRuntimeConfig
+        kb_id: str, config: DiagnosisRuntimeConfig, session: AsyncSession | None = None
     ) -> DiagnosisRuntimeConfig:
+        if session is None:
+            async with PGManager.session() as own_session:
+                return await DiagnosisConfigPGManager.upsert(kb_id, config, own_session)
         now = datetime.now()
         mapping = {
             "kb_id": kb_id,
@@ -43,24 +47,25 @@ class DiagnosisConfigPGManager:
             "created_at": now,
             "updated_at": now,
         }
-        async with PGManager.session() as session:
-            await session.execute(
-                insert(DiagnosisConfig)
-                .values(mapping)
-                .on_conflict_do_update(
-                    index_elements=[DiagnosisConfig.kb_id],
-                    set_={
-                        "config_json": mapping["config_json"],
-                        "updated_at": mapping["updated_at"],
-                    },
-                )
+        await session.execute(
+            insert(DiagnosisConfig)
+            .values(mapping)
+            .on_conflict_do_update(
+                index_elements=[DiagnosisConfig.kb_id],
+                set_={
+                    "config_json": mapping["config_json"],
+                    "updated_at": mapping["updated_at"],
+                },
             )
+        )
         return config.model_copy(deep=True)
 
     @staticmethod
-    async def reset(kb_id: str) -> DiagnosisRuntimeConfig:
+    async def reset(
+        kb_id: str, session: AsyncSession | None = None
+    ) -> DiagnosisRuntimeConfig:
         return await DiagnosisConfigPGManager.upsert(
-            kb_id, DiagnosisConfigPGManager.get_default_config()
+            kb_id, DiagnosisConfigPGManager.get_default_config(), session=session
         )
 
     @staticmethod

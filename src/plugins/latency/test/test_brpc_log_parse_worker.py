@@ -2,6 +2,8 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from latency.task.worker.base import BaseWorker
 from latency.task.worker.brpc_log_parse_worker import BrpcLogParseWorker
 import latency.task.worker.brpc_log_parse_worker as worker_module
@@ -60,11 +62,47 @@ def test_reinit_stops_at_retry_limit(monkeypatch):
     report.assert_not_awaited()
 
 
+def test_parse_log_fails_when_results_are_not_stored(monkeypatch, tmp_path):
+    profiling_file = tmp_path / "ubsocket_profiling.txt"
+    profiling_file.write_text("timeStamp: 2026-01-01T00:00:00\n", encoding="utf-8")
+    record = SimpleNamespace()
+
+    monkeypatch.setattr(
+        worker_module.LogFilePGManager,
+        "get_log_file_by_log_file_id",
+        AsyncMock(return_value=SimpleNamespace(file_path=str(profiling_file))),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "BrpcProfilingParser",
+        lambda: SimpleNamespace(parse_file=lambda path: [record]),
+    )
+    monkeypatch.setattr(
+        worker_module.BrpcProfilingResultPGManager,
+        "add_profiling_results",
+        AsyncMock(return_value=False),
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to store BRPC profiling results"):
+        _run(BrpcLogParseWorker.parse_log("log-id"))
+
+
 def test_run_refreshes_asset_update_time_on_success(monkeypatch):
     task = SimpleNamespace(id="task-id", op_id="log-id", kb_id="kb-id")
+    events = []
     get_task = AsyncMock(return_value=task)
-    update_task = AsyncMock(return_value=1)
-    report = AsyncMock(return_value=True)
+    update_task = AsyncMock(
+        side_effect=lambda task_id, values: events.append(
+            ("update", values["status"])
+        )
+        or 1
+    )
+    report = AsyncMock(
+        side_effect=lambda task_id, message, progress: events.append(
+            ("report", progress)
+        )
+        or True
+    )
     parse_log = AsyncMock(return_value=12)
     touch_log_kb = AsyncMock(return_value=1)
 
@@ -84,6 +122,9 @@ def test_run_refreshes_asset_update_time_on_success(monkeypatch):
     assert update_task.await_args_list[-1].args == (
         "task-id",
         {"status": "successful_pending_remove"},
+    )
+    assert events.index(("update", "successful_pending_remove")) < events.index(
+        ("report", 100.0)
     )
 
 

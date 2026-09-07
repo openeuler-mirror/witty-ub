@@ -14,8 +14,8 @@
 
 #include <httplib.h>
 
-#include "http/rack_http_server_handler.h"
 #include "rack_error.h"
+#include "http/rack_http_server_handler.h"
 
 namespace rack::com {
 class RackHttpServer {
@@ -24,7 +24,8 @@ public:
     static bool Initialize(int port = 8080);
     RackHttpServer(const RackHttpServer &) = delete;
     RackHttpServer &operator=(const RackHttpServer &) = delete;
-    ~RackHttpServer(){
+    ~RackHttpServer()
+    {
         Stop();
     }
     void HandlerRequest(const httplib::Request &req, httplib::Response &res);
@@ -35,7 +36,9 @@ public:
     void Run();
 
 private:
-    RackHttpServer(int port):port_(port){}
+    void ConfigureRoutes();
+    void EnsurePortAvailable() const;
+    explicit RackHttpServer(int port) : port_(port) {}
 
     int port_;
     httplib::Server server_;

@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <sys/types.h>
 #include <array>
 #include <memory>
 #include <optional>
@@ -22,36 +23,41 @@
 #include "log_parser.h"
 
 namespace failure::log {
-    class LogReader {
-    public:
-        LogReader(DataSourceOption option, const PathCell& pathCell, int64_t startTime, int64_t endTime);
-        ~LogReader();
+class LogReader {
+public:
+    LogReader(DataSourceOption option, const PathCell &pathCell, int64_t startTime, int64_t endTime);
+    ~LogReader();
 
-        void CreateHandle();
-        void DestroyHandle();
-        void AddFailureMode(const FailureMode& mode);
-        std::optional<FailureEvent> ReadOnce();
+    void CreateHandle();
+    void DestroyHandle();
+    void AddFailureMode(const FailureMode &mode);
+    std::optional<FailureEvent> ReadOnce();
 
-    private:
-        std::optional<std::string> ReadNextLine();
-        void ConfigureHandle(DataSourceOption option);
+private:
+    std::optional<std::string> ReadNextLine();
+    std::string CollectContinuationLines(const LogTemplate &tmpl, const std::string &identifier, std::string lines);
+    FILE *OpenKernelLog(const std::string &path);
+    FILE *OpenUserLog(const std::string &path);
+    void CloseLog(FILE *stream);
+    void ConfigureHandle(DataSourceOption option);
 
-    private:
-        static constexpr std::size_t readBufSize_ = 4096;
+private:
+    static constexpr std::size_t readBufSize_ = 4096;
 
-        DataSourceOption option_;
-        PathCell pathCell_;
-        int64_t startTime_;
-        int64_t endTime_;
-        std::vector<std::string> keywords_;
+    DataSourceOption option_;
+    PathCell pathCell_;
+    int64_t startTime_;
+    int64_t endTime_;
+    std::vector<std::string> keywords_;
 
-        FILE* handle_;
-        std::function<FILE* (const std::string&)> opener_;
-        std::function<void(FILE*)> closer_;
+    FILE *handle_;
+    std::function<FILE *(const std::string &)> opener_;
+    std::function<void(FILE *)> closer_;
+    std::vector<pid_t> childPids_;
 
-        std::optional<std::string> cachedLine_;
-        std::array<char, readBufSize_> readBuffer_{};
-        std::string lineBuffer_;
-        std::unique_ptr<LogParser> parser_;
-    };
-}
+    std::optional<std::string> cachedLine_;
+    std::array<char, readBufSize_> readBuffer_{};
+    std::string lineBuffer_;
+    std::unique_ptr<LogParser> parser_;
+};
+} // namespace failure::log

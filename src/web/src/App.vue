@@ -47,6 +47,24 @@ type AgentChatPart = {
   collapsed?: boolean
 }
 
+type OpenCodeSession = {
+  id: string
+  title?: string
+  time?: { created?: number; updated?: number }
+}
+
+type OpenCodeMessage = {
+  info: {
+    id?: string
+    role?: string
+  }
+  parts?: Array<{
+    id?: string
+    type?: string
+    text?: string
+  }>
+}
+
 type OpenCodeEvent = {
   type: string
   properties?: {
@@ -255,12 +273,18 @@ type BrpcInterfaceTimelineSeries = {
   points: BrpcInterfaceTimelinePoint[]
 }
 
-type BrpcDiagnosisBatch = {
-  batch_id: string
-  task_id: string
+type BrpcKnowledgeScope = {
+  kb_id: string
+  batch_count: number
+  hit_count: number
   start_time: string
   end_time: string
-  hit_count: number
+}
+
+type BrpcProfilingFileOption = {
+  log_id: string
+  log_name: string
+  source_file: string
 }
 
 type BrpcInterfaceHit = {
@@ -864,6 +888,9 @@ const agentServerAddress = ref('')
 const agentApiBase = ref(defaultAgentApiBase)
 const agentAuthHeader = ref('')
 const agentProviders = ref<OpenCodeProviderResult | null>(null)
+const agentDefaultModel = ref('')
+const agentDefaultModelStorageKey = 'witty-ub.agent-default-model'
+const agentConnectionStorageKey = 'witty-ub.agent-connection'
 const selectedAgentProvider = ref<OpenCodeProvider | null>(null)
 const selectedAgentModel = ref<OpenCodeModel | null>(null)
 const providerSearch = ref('')
@@ -880,6 +907,11 @@ const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('c
 const isAgentLoggingIn = ref(false)
 const agentChatMessages = ref<AgentChatMessage[]>([])
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
+const agentSessions = ref<OpenCodeSession[]>([])
+const agentSessionSearch = ref('')
+const isAgentSessionsLoading = ref(false)
+const agentSessionAssetIndex = ref<Record<string, string>>({})
+const agentSessionIndexStorageKey = 'witty-ub.agent-session-assets'
 const isAgentConnectionUnavailable = computed(() => agentConnectionState.value !== 'connected')
 const connectedAgentModels = computed(() => {
   const data = agentProviders.value
@@ -912,6 +944,22 @@ const availableAgentProviders = computed(() => {
 const newProviderModels = computed(() =>
   selectedAgentProvider.value ? Object.values(selectedAgentProvider.value.models) : [],
 )
+const getAgentSessionAssetName = (sessionId: string) => {
+  const assetId = agentSessionAssetIndex.value[sessionId]
+  return assets.value.find((asset) => asset.id === assetId)?.name || assetId || '未知资产库'
+}
+const filteredAgentSessions = computed(() => {
+  const query = agentSessionSearch.value.trim().toLocaleLowerCase()
+  return agentSessions.value
+    .filter((session) => {
+      if (!query) return true
+      return (
+        (session.title || '').toLocaleLowerCase().includes(query) ||
+        getAgentSessionAssetName(session.id).toLocaleLowerCase().includes(query)
+      )
+    })
+    .sort((left, right) => (right.time?.updated || 0) - (left.time?.updated || 0))
+})
 const assistantMessageIds = new Set<string>()
 let agentEventController: AbortController | null = null
 let isAgentEventStreamConnected = false
@@ -1155,6 +1203,222 @@ const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
   return payload as T
 }
 
+const loadAgentSessionAssetIndex = () => {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(agentSessionIndexStorageKey) || '{}')
+    if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+      agentSessionAssetIndex.value = stored as Record<string, string>
+    }
+  } catch {
+    agentSessionAssetIndex.value = {}
+  }
+}
+
+const loadAgentDefaultModel = () => {
+  try {
+    agentDefaultModel.value = window.localStorage.getItem(agentDefaultModelStorageKey) || ''
+  } catch {
+    agentDefaultModel.value = ''
+  }
+}
+
+const saveAgentDefaultModel = (model: string) => {
+  agentDefaultModel.value = model
+  try {
+    window.localStorage.setItem(agentDefaultModelStorageKey, model)
+  } catch {
+    // Keep the selected default model for the lifetime of the current page.
+  }
+}
+
+const saveAgentConnection = () => {
+  try {
+    window.sessionStorage.setItem(
+      agentConnectionStorageKey,
+      JSON.stringify({ apiBase: agentApiBase.value, authHeader: agentAuthHeader.value }),
+    )
+  } catch {
+    // Connection remains available until this page is unloaded.
+  }
+}
+
+const restoreAgentConnection = () => {
+  try {
+    const stored = JSON.parse(
+      window.sessionStorage.getItem(agentConnectionStorageKey) || 'null',
+    ) as { apiBase?: string; authHeader?: string } | null
+    if (stored?.apiBase) void connectAgent(stored.apiBase, stored.authHeader || '')
+  } catch {
+    // Invalid or unavailable session storage falls back to the login page.
+  }
+}
+
+const saveAgentSessionAssetIndex = () => {
+  try {
+    window.localStorage.setItem(
+      agentSessionIndexStorageKey,
+      JSON.stringify(agentSessionAssetIndex.value),
+    )
+  } catch {
+    // The current page can still manage sessions when localStorage is unavailable.
+  }
+}
+
+const indexAgentSession = (sessionId: string) => {
+  if (!selectedAssetId.value) return
+  agentSessionAssetIndex.value = {
+    ...agentSessionAssetIndex.value,
+    [sessionId]: selectedAssetId.value,
+  }
+  saveAgentSessionAssetIndex()
+}
+
+const loadAgentSessions = async () => {
+  if (agentConnectionState.value !== 'connected') return
+  isAgentSessionsLoading.value = true
+  try {
+    agentSessions.value = await requestAgentApi<OpenCodeSession[]>('/session')
+  } catch (error) {
+    agentConnectionError.value = error instanceof Error ? error.message : '会话列表加载失败。'
+  } finally {
+    isAgentSessionsLoading.value = false
+  }
+}
+
+const resetAgentConversation = () => {
+  agentRequestSequence += 1
+  closeAgentEventStream()
+  agentSessionId.value = ''
+  agentChatMessages.value = []
+  assistantMessageIds.clear()
+  isAgentSending.value = false
+  isAgentAborting.value = false
+  shouldIgnoreNextAgentAbortError = false
+  agentConnectionError.value = ''
+}
+
+const createAgentSession = async () => {
+  if (!selectedAssetId.value) throw new Error('请先选择资产库。')
+  const created = await requestAgentApi<OpenCodeSession>('/session', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  if (!created?.id) throw new Error('Agent 服务没有返回会话 ID。')
+  agentSessionId.value = created.id
+  indexAgentSession(created.id)
+  const session = await requestAgentApi<OpenCodeSession>(
+    `/session/${encodeURIComponent(created.id)}`,
+  )
+  agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)]
+  return session
+}
+
+const newAgentConversation = async () => {
+  if (isAgentSending.value) await abortAgentSession()
+  resetAgentConversation()
+  await scrollAgentChatToBottom()
+}
+
+const refreshAgentSession = async (sessionId: string) => {
+  try {
+    const session = await requestAgentApi<OpenCodeSession>(
+      `/session/${encodeURIComponent(sessionId)}`,
+    )
+    const index = agentSessions.value.findIndex((item) => item.id === sessionId)
+    if (index >= 0) agentSessions.value[index] = session
+    else agentSessions.value.unshift(session)
+  } catch {
+    // The conversation remains usable if its list metadata cannot be refreshed.
+  }
+}
+
+const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
+  messages
+    .filter((message) => message.info?.role === 'user' || message.info?.role === 'assistant')
+    .map((message) => {
+      const role = message.info.role as AgentChatMessage['role']
+      const parts: AgentChatPart[] = (message.parts || [])
+        .filter((part) => part.type === 'reasoning' || part.type === 'text')
+        .map((part, index) => ({
+          id: `${part.type}:${part.id || index}`,
+          type: part.type as AgentChatPart['type'],
+          text: part.text || '',
+          collapsed: part.type === 'reasoning',
+        }))
+      let text = parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n\n')
+      if (role === 'user') {
+        text = text.replace(/^当前(?:页面选中|会话对应)的知识库 ID 是 [^。]+。\n\n/, '')
+      }
+      return {
+        id: message.info.id || nextAgentLocalMessageId(),
+        role,
+        reasoning: parts
+          .filter((part) => part.type === 'reasoning')
+          .map((part) => part.text)
+          .join('\n\n'),
+        parts: role === 'assistant' ? parts : undefined,
+        reasoningCollapsed: true,
+        content: text,
+        status: 'done',
+        messageId: message.info.id,
+      }
+    })
+
+const openAgentSession = async (session: OpenCodeSession) => {
+  if (isAgentSending.value) await abortAgentSession()
+  resetAgentConversation()
+  agentSessionId.value = session.id
+  try {
+    const messages = await requestAgentApi<OpenCodeMessage[]>(
+      `/session/${encodeURIComponent(session.id)}/message`,
+    )
+    agentChatMessages.value = toAgentChatMessages(messages)
+    messages.forEach((message) => {
+      if (message.info.role === 'assistant' && message.info.id) {
+        assistantMessageIds.add(message.info.id)
+      }
+    })
+    await connectAgentEvents()
+    await scrollAgentChatToBottom()
+  } catch (error) {
+    agentConnectionError.value = error instanceof Error ? error.message : '会话加载失败。'
+  }
+}
+
+const renameAgentSession = async (session: OpenCodeSession) => {
+  const title = window.prompt('请输入新的会话标题', session.title || '')?.trim()
+  if (!title || title === session.title) return
+  try {
+    const updated = await requestAgentApi<OpenCodeSession>(
+      `/session/${encodeURIComponent(session.id)}`,
+      { method: 'PATCH', body: JSON.stringify({ title }) },
+    )
+    Object.assign(session, updated || { title })
+  } catch (error) {
+    agentConnectionError.value = error instanceof Error ? error.message : '修改会话标题失败。'
+  }
+}
+
+const deleteAgentSession = async (session: OpenCodeSession) => {
+  if (!window.confirm(`确认删除会话「${session.title || '无标题会话'}」？`)) return
+  try {
+    await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}`, {
+      method: 'DELETE',
+    })
+    agentSessions.value = agentSessions.value.filter((item) => item.id !== session.id)
+    const nextIndex = { ...agentSessionAssetIndex.value }
+    delete nextIndex[session.id]
+    agentSessionAssetIndex.value = nextIndex
+    saveAgentSessionAssetIndex()
+    if (agentSessionId.value === session.id) resetAgentConversation()
+  } catch (error) {
+    agentConnectionError.value = error instanceof Error ? error.message : '删除会话失败。'
+  }
+}
+
 const normalizeAgentServerAddress = (address: string) => {
   const value = address.trim().replace(/\/+$/, '')
   if (!value) return defaultAgentApiBase
@@ -1166,6 +1430,31 @@ const normalizeAgentServerAddress = (address: string) => {
 const getAgentRequestModelId = (provider: OpenCodeProvider, model: OpenCodeModel) => {
   const providerPrefix = `${provider.id}/`
   return model.id.startsWith(providerPrefix) ? model.id.slice(providerPrefix.length) : model.id
+}
+
+const selectDefaultAgentModel = () => {
+  const providers = agentProviders.value
+  if (!providers) return false
+  const connected = new Set(providers.connected)
+  const configuredAgentModel = agentDefaultModel.value
+  for (const provider of providers.all) {
+    if (!connected.has(provider.id)) continue
+    const configuredModelId = configuredAgentModel?.startsWith(`${provider.id}/`)
+      ? configuredAgentModel.slice(provider.id.length + 1)
+      : providers.default[provider.id]
+    const model =
+      (configuredModelId &&
+        (provider.models[configuredModelId] ||
+          Object.values(provider.models).find(
+            (item) => getAgentRequestModelId(provider, item) === configuredModelId,
+          ))) ||
+      Object.values(provider.models)[0]
+    if (!model) continue
+    selectedAgentProvider.value = provider
+    selectedAgentModel.value = { ...model, id: getAgentRequestModelId(provider, model) }
+    return true
+  }
+  return false
 }
 
 const connectAgent = async (serverAddress: string, authHeader = '') => {
@@ -1180,7 +1469,10 @@ const connectAgent = async (serverAddress: string, authHeader = '') => {
     if (!health?.healthy) throw new Error('OpenCode Server 健康检查未通过。')
     agentProviders.value = await requestAgentApi<OpenCodeProviderResult>('/provider')
     agentConnectionState.value = 'connected'
-    agentView.value = 'models'
+    agentView.value = selectDefaultAgentModel() ? 'chat' : 'models'
+    resetAgentConversation()
+    await loadAgentSessions()
+    saveAgentConnection()
   } catch (error) {
     agentConnectionState.value = 'disconnected'
     agentConnectionError.value = error instanceof Error ? error.message : '登录失败。'
@@ -1207,15 +1499,13 @@ const loginAgent = async () => {
 }
 
 const chooseAgentModel = async (provider: OpenCodeProvider, model: OpenCodeModel) => {
+  const modelId = getAgentRequestModelId(provider, model)
+  agentConnectionError.value = ''
+  saveAgentDefaultModel(`${provider.id}/${modelId}`)
   selectedAgentProvider.value = provider
-  selectedAgentModel.value = { ...model, id: getAgentRequestModelId(provider, model) }
+  selectedAgentModel.value = { ...model, id: modelId }
   agentView.value = 'chat'
-  agentSessionId.value = ''
   await scrollAgentChatToBottom()
-  ensureAgentSession().catch((error: unknown) => {
-    agentConnectionState.value = 'disconnected'
-    agentConnectionError.value = error instanceof Error ? error.message : '无法创建 Agent 会话。'
-  })
 }
 
 const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
@@ -1228,8 +1518,6 @@ const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
       body: JSON.stringify({ type: 'api', key: providerApiKey.value.trim() }),
     })
     closeAgentEventStream()
-    agentSessionId.value = ''
-    assistantMessageIds.clear()
     await requestAgentApi<boolean>('/instance/dispose', { method: 'POST' })
     agentProviders.value = await requestAgentApi<OpenCodeProviderResult>('/provider')
     agentConnectionState.value = 'connected'
@@ -1350,6 +1638,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       pending.reasoningCollapsed = true
     }
     isAgentSending.value = false
+    if (agentSessionId.value) void refreshAgentSession(agentSessionId.value)
     void scrollAgentChatToBottom()
     return
   }
@@ -1467,12 +1756,7 @@ const connectAgentEvents = async () => {
 
 const ensureAgentSession = async () => {
   if (!agentSessionId.value) {
-    const session = await requestAgentApi<{ id: string }>('/session', {
-      method: 'POST',
-      body: JSON.stringify({ title: 'KVC 时延与通断故障诊断' }),
-    })
-    if (!session?.id) throw new Error('Agent 服务没有返回会话 ID。')
-    agentSessionId.value = session.id
+    await createAgentSession()
   }
   if (!isAgentEventStreamConnected) {
     await connectAgentEvents()
@@ -1489,8 +1773,10 @@ const toggleAgentChat = () => {
 const goBackAgentView = () => {
   agentView.value =
     agentView.value === 'models'
-      ? 'login'
-      : agentView.value === 'chat' || agentView.value === 'providers'
+      ? selectedAgentModel.value
+        ? 'chat'
+        : 'login'
+      : agentView.value === 'providers'
         ? 'models'
         : 'providers'
 }
@@ -1536,8 +1822,10 @@ const sendAgentMessage = async () => {
   try {
     await ensureAgentSession()
     if (requestSequence !== agentRequestSequence) return
-    const contextPrefix = selectedAssetId.value
-      ? `当前页面选中的知识库 ID 是 ${selectedAssetId.value}。`
+    const conversationAssetId =
+      agentSessionAssetIndex.value[agentSessionId.value] || selectedAssetId.value
+    const contextPrefix = conversationAssetId
+      ? `当前会话对应的知识库 ID 是 ${conversationAssetId}。`
       : ''
     await requestAgentApi<void>(
       `/session/${encodeURIComponent(agentSessionId.value)}/prompt_async`,
@@ -1611,6 +1899,11 @@ const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
 const selectedAssetId = ref<string | null>(null)
 let assetSelectionRequestSequence = 0
+watch(selectedAssetId, (nextAssetId, previousAssetId) => {
+  if (!previousAssetId || nextAssetId === previousAssetId) return
+  resetAgentConversation()
+  agentSessionSearch.value = ''
+})
 const activePage = ref<'asset' | 'abnormal'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
 type MonitorProduct = 'kvcache' | 'brpc'
@@ -2265,9 +2558,7 @@ const getDetailLatencyLeftGridStyle = () => {
 
   return {
     gridTemplateColumns: widths
-      .map((width, index) =>
-        index === 3 ? `minmax(${width}px, 1fr)` : `${width}px`,
-      )
+      .map((width, index) => (index === 3 ? `minmax(${width}px, 1fr)` : `${width}px`))
       .join(' '),
     width: '100%',
     minWidth: `${widths.reduce((total, width) => total + width, 0)}px`,
@@ -3162,6 +3453,9 @@ const faultTraceEventsPageWindow = computed(() =>
   getPageWindow(faultTraceEventsPage.value, faultTraceEventsPageCount.value),
 )
 const isAbnormalMonitorPage = computed(() => activePage.value === 'abnormal')
+watch(isAbnormalMonitorPage, () => {
+  isAgentChatOpen.value = false
+})
 const isLatencyEventListFilterMode = computed(
   () => isAbnormalMonitorPage.value && activeAggregateTab.value === 'event',
 )
@@ -3294,10 +3588,27 @@ const deselectAllLatencySeries = () => {
 }
 
 const latencyPercentileOptions = computed(() => [
-  { value: 'p99' as const, label: 'P99', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ?? 5.0 },
-  { value: 'p9999' as const, label: 'P9999', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ?? 5.0 },
-  { value: 'pmax' as const, label: 'Pmax', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ?? 5.0 },
-  { value: 'ave' as const, label: '均值', abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ?? 5.0 },
+  {
+    value: 'p99' as const,
+    label: 'P99',
+    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ?? 5.0,
+  },
+  {
+    value: 'p9999' as const,
+    label: 'P9999',
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ?? 5.0,
+  },
+  {
+    value: 'pmax' as const,
+    label: 'Pmax',
+    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ?? 5.0,
+  },
+  {
+    value: 'ave' as const,
+    label: '均值',
+    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ?? 5.0,
+  },
 ])
 
 const latencySampleModeMap: Record<LatencyPercentileValue, string> = {
@@ -3325,7 +3636,7 @@ const selectedLatencyPercentileConfig = computed(() => {
 
 const latencyAnomalyHint = computed(
   () =>
-    `🔴 红色区域 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
+    `红色背景区间 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
 )
 
 const detailLatencyAbnormalThreshold = 2
@@ -3334,9 +3645,7 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
   const totalLatency = values.total_latency
   const threshold = selectedLatencyPercentileConfig.value.abnormalThreshold ?? 5.0
   const abnormal =
-    typeof totalLatency === 'number' &&
-    Number.isFinite(totalLatency) &&
-    totalLatency > threshold
+    typeof totalLatency === 'number' && Number.isFinite(totalLatency) && totalLatency > threshold
   if (abnormal) {
     console.log('[LatencyAbnormal] Detected abnormal point:', {
       totalLatency,
@@ -4134,7 +4443,8 @@ const createLatencyEchartsOption = (
       type: 'value',
       name: '延迟(ms)',
       min: 0,
-      max: (value: { max: number }) => (Number.isFinite(value.max) && value.max > 0 ? value.max : 100),
+      max: (value: { max: number }) =>
+        Number.isFinite(value.max) && value.max > 0 ? value.max : 100,
       splitLine: {
         lineStyle: {
           color: '#e2e8f0',
@@ -5720,10 +6030,7 @@ const getFailureModeChildren = (failureMode?: FailureModeKnowledgeModel | null) 
 const normalizeFailureModeErrorCode = (rawErrorCode: string | number | null | undefined) => {
   if (rawErrorCode === null || rawErrorCode === undefined) return ''
   const errorCode = String(rawErrorCode).trim()
-  if (
-    !errorCode ||
-    ['NULL', 'NULLPTR', 'NONE', 'N/A', 'NA', '-'].includes(errorCode.toUpperCase())
-  )
+  if (!errorCode || ['NULL', 'NULLPTR', 'NONE', 'N/A', 'NA', '-'].includes(errorCode.toUpperCase()))
     return ''
   if (/^K_OK\(\s*\+?0+\s*\)$/i.test(errorCode)) return '0'
   const numericSuffix = errorCode.match(/\(\s*([-+]?\d+)\s*\)\s*$/)?.[1]
@@ -5778,9 +6085,7 @@ const hasFailureModeDetailResult = (failureModeId: string) =>
 
 const getFailureModeDetailStateLabel = (failureModeId: string) => {
   if (!failureModeId) return '点击运行日志中的故障模式标签查看详情'
-  return hasFailureModeDetailResult(failureModeId)
-    ? '暂无故障模式详情'
-    : '正在加载故障模式详情...'
+  return hasFailureModeDetailResult(failureModeId) ? '暂无故障模式详情' : '正在加载故障模式详情...'
 }
 
 const getRelatedFailureModeLabel = (failureModeId: string, isAccessFailure: boolean) => {
@@ -5958,9 +6263,7 @@ const toFaultTraceTableRow = (
         .filter(Boolean),
     ),
   ]
-  const failureDomains = [
-    ...new Set(failureModes.map((failureMode) => failureMode.failureDomain)),
-  ]
+  const failureDomains = [...new Set(failureModes.map((failureMode) => failureMode.failureDomain))]
 
   return {
     id: getRecordString(record, ['id', 'trace_id', 'traceId']),
@@ -6670,6 +6973,7 @@ const applyGlobalFilters = () => {
   void loadBrpcFaultTimeline()
   void loadBrpcAggregatedEvents(1)
   void loadBrpcAbnormalThreads(1)
+  applyBrpcFileFilter()
 }
 
 const setActiveAggregateTab = (tab: 'event' | 'trace') => {
@@ -8634,6 +8938,17 @@ const detectSourceType = (input: string): 'local' | 'remote' | null => {
   return null
 }
 
+const remoteArchiveExtensions = ['.tar.gz', '.tgz', '.zip']
+
+const isRemoteArchiveUrl = (input: string) => {
+  try {
+    const pathname = new URL(input).pathname.toLowerCase()
+    return remoteArchiveExtensions.some((extension) => pathname.endsWith(extension))
+  } catch {
+    return true
+  }
+}
+
 const statusLabel = (s: string) => {
   if (!s) return '-'
 
@@ -9016,7 +9331,13 @@ const refreshLogFile = async (fileId: string) => {
 const deletingFileIds = reactive(new Set<string>())
 
 const deleteLogFile = async (logFileId: string) => {
-  if (!confirm('确定要删除这个日志文件吗？删除后将无法恢复。')) {
+  const logFile = logFiles.value.find((file) => getLogFileId(file) === logFileId)
+  const logFileName = logFile?.name?.trim() || logFileId
+  if (
+    !window.confirm(
+      `确认永久删除日志文件「${logFileName}」？\n\n该日志的解析结果、异常事件、故障诊断结果及相关任务记录将被一并删除，且无法恢复。`,
+    )
+  ) {
     return
   }
 
@@ -9053,7 +9374,11 @@ const submitLogSource = async () => {
   const sourceType = detectSourceType(input)
   if (!sourceType) {
     uploadLogError.value =
-      '请输入有效的本地路径（如 /var/log/）或远程 URL（如 https://example.com/log.zip）'
+      '请输入有效的本地路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）'
+    return
+  }
+  if (sourceType === 'remote' && !isRemoteArchiveUrl(input)) {
+    uploadLogError.value = '远程 URL 支持 .zip、.tar.gz、.tgz 压缩包'
     return
   }
 
@@ -9131,26 +9456,15 @@ const loadFaultPage = async () => {
 // ============================================================
 // BRPC 接口监控
 // ============================================================
-type BrpcLogFileOption = {
-  id: string
-  name: string
-  taskId: string
-  taskType: string
-}
-
-const brpcLogFiles = ref<BrpcLogFileOption[]>([])
-const brpcProfilingLogFiles = computed(() => brpcLogFiles.value)
-const brpcDiagnosisLogFiles = computed(() => brpcLogFiles.value)
-const brpcSelectedLogId = ref('')
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
 const brpcAllRows = ref<Record<string, any>[]>([])
 const brpcAllFileRows = ref<Record<string, any>[]>([])
-const brpcFileNames = ref<string[]>([])
+const brpcProfilingFiles = ref<BrpcProfilingFileOption[]>([])
 const brpcSelectedFileName = ref('')
 // 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
 // profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
-const hasBrpcProfilingLogFile = computed(() => brpcFileNames.value.length > 0)
+const hasBrpcProfilingLogFile = computed(() => brpcProfilingFiles.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -9189,7 +9503,6 @@ const brpcLatencyChartRef = ref<HTMLDivElement | null>(null)
 let brpcLatencyChartInstance: echarts.ECharts | null = null
 
 // BRPC 通断故障监控：接口故障数时序分布
-const brpcFaultSelectedLogId = ref('')
 const selectedBrpcFaultScale = ref<number>(60)
 const brpcFaultChartCenterTime = ref<number | null>(null)
 const brpcFaultTimelineRef = ref<HTMLDivElement | null>(null)
@@ -9197,10 +9510,11 @@ const brpcFaultTimelineSeries = ref<BrpcInterfaceTimelineSeries[]>([])
 const visibleBrpcFaultSeriesIds = ref<Set<string>>(new Set())
 const isBrpcFaultTimelineLoading = ref(false)
 const brpcFaultTimelineError = ref('')
-const brpcFaultBatch = ref<BrpcDiagnosisBatch | null>(null)
-const brpcFaultResolvedLogId = ref('')
+const brpcFaultScope = ref<BrpcKnowledgeScope | null>(null)
+const brpcFaultResolvedAssetId = ref('')
 let brpcFaultTimelineChartInstance: echarts.ECharts | null = null
 let brpcFaultTimelineRequestSequence = 0
+let brpcFaultTimelineRequestController: AbortController | null = null
 
 // BRPC 聚合事件列表
 const activeBrpcFaultTab = ref<'event' | 'thread'>('event')
@@ -9356,29 +9670,28 @@ const resetAssetScopedMonitorData = () => {
   // and all derived data are scoped to the currently selected knowledge base.
   brpcProfilingRequestSequence += 1
   brpcFaultTimelineRequestSequence += 1
+  brpcFaultTimelineRequestController?.abort()
+  brpcFaultTimelineRequestController = null
   brpcAggregatedEventsRequestSequence += 1
   brpcAbnormalThreadsRequestSequence += 1
   brpcAbnormalThreadDetailRequestSequence += 1
   brpcEventDetailRequestSequence += 1
-  brpcLogFiles.value = []
-  brpcSelectedLogId.value = ''
   brpcDataLoading.value = false
   brpcInterfaceNames.value = []
   brpcAllRows.value = []
   brpcAllFileRows.value = []
-  brpcFileNames.value = []
+  brpcProfilingFiles.value = []
   brpcSelectedFileName.value = ''
   brpcSuccessSelectedIfaces.value = []
   brpcLatencySelectedIfaces.value = []
   brpcSingleIface.value = ''
-  brpcFaultSelectedLogId.value = ''
   brpcFaultChartCenterTime.value = null
   brpcFaultTimelineSeries.value = []
   visibleBrpcFaultSeriesIds.value = new Set()
   isBrpcFaultTimelineLoading.value = false
   brpcFaultTimelineError.value = ''
-  brpcFaultBatch.value = null
-  brpcFaultResolvedLogId.value = ''
+  brpcFaultScope.value = null
+  brpcFaultResolvedAssetId.value = ''
   brpcAggregatedEvents.value = []
   brpcAggregatedEventTotal.value = 0
   brpcAggregatedEventPage.value = 1
@@ -9829,10 +10142,7 @@ const findBrpcThreadFailureGraphComponents = (
     const componentEdges: BrpcFailureGraphEdge[] = []
     const componentEdgeIndices: number[] = []
     graph.edges.forEach((edge, edgeIndex) => {
-      if (
-        componentNodeIds.has(edge.source_node_id) &&
-        componentNodeIds.has(edge.target_node_id)
-      ) {
+      if (componentNodeIds.has(edge.source_node_id) && componentNodeIds.has(edge.target_node_id)) {
         componentEdges.push(edge)
         componentEdgeIndices.push(edgeIndex)
       }
@@ -9873,7 +10183,10 @@ const layoutBrpcThreadFailureGraphComponent = (
 
   levels.forEach(([, levelNodes], levelIndex) => {
     const levelHeight =
-      levelNodes.reduce((height, node) => height + (nodeLayouts.get(node.node_id)?.height ?? 0), 0) +
+      levelNodes.reduce(
+        (height, node) => height + (nodeLayouts.get(node.node_id)?.height ?? 0),
+        0,
+      ) +
       Math.max(0, levelNodes.length - 1) * BRPC_THREAD_GRAPH_NODE_GAP
     let top = -levelHeight / 2
     levelNodes.forEach((node) => {
@@ -10015,7 +10328,10 @@ const layoutBrpcThreadFailureGraphComponent = (
 
 const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
   const components = findBrpcThreadFailureGraphComponents(graph)
-  const nodeLayouts = new Map<string, ReturnType<typeof getBrpcThreadFailureGraphNodeMetrics> & { x: number; y: number }>()
+  const nodeLayouts = new Map<
+    string,
+    ReturnType<typeof getBrpcThreadFailureGraphNodeMetrics> & { x: number; y: number }
+  >()
   const edgeCurveness = new Map<number, number>()
   const curveYExtents: number[] = []
   let yOffset = 0
@@ -10224,7 +10540,7 @@ const renderBrpcThreadFailureGraph = () => {
 const brpcEventWindows = computed<BrpcEventWindow[]>(() => {
   const windows = new Map<string, BrpcEventWindow>()
   brpcAggregatedEvents.value.forEach((event) => {
-    const key = `${event.window_start_time}|${event.window_end_time}`
+    const key = `${event.batch_id}|${event.window_start_time}|${event.window_end_time}`
     const window = windows.get(key) ?? {
       key,
       startTime: event.window_start_time,
@@ -10262,79 +10578,46 @@ const brpcEventInterfaceGridStyle = computed(() => {
   }
 })
 
-const loadBrpcLogFiles = async () => {
-  if (!selectedAssetId.value) return
-  const assetId = selectedAssetId.value
-  try {
-    const result = await request<{
-      total: number
-      log_files: Array<{
-        id: string
-        name: string
-        log_type: string
-        overall_status: string
-        task?: TaskModel | null
-      }>
-    }>(`/log_file/list/${assetId}`, {
-      method: 'POST',
-      body: JSON.stringify({ page_num: 1, page_cnt: 200 }),
-    })
-    if (selectedAssetId.value !== assetId) return
-    brpcLogFiles.value = (result.log_files ?? [])
-      .filter(
-        (file) =>
-          file.log_type === 'brpc' &&
-          ['successful', 'successful_pending_remove'].includes(file.overall_status),
-      )
-      .map((file) => ({
-        id: file.id,
-        name: file.name,
-        taskId: file.task?.id ?? '',
-        taskType: file.task?.task_type ?? '',
-      }))
+const getBrpcProfilingFileKey = (file: BrpcProfilingFileOption) =>
+  JSON.stringify([file.log_id, file.source_file])
 
-    if (!brpcProfilingLogFiles.value.some((file) => file.id === brpcSelectedLogId.value)) {
-      const firstProfilingLog = brpcProfilingLogFiles.value[0]
-      brpcSelectedLogId.value = firstProfilingLog?.id ?? ''
-    }
-    if (!brpcDiagnosisLogFiles.value.some((file) => file.id === brpcFaultSelectedLogId.value)) {
-      brpcFaultTimelineRequestSequence += 1
-      brpcAggregatedEventsRequestSequence += 1
-      brpcAbnormalThreadsRequestSequence += 1
-      brpcFaultResolvedLogId.value = ''
-      brpcFaultBatch.value = null
-      brpcFaultTimelineSeries.value = []
-      brpcAggregatedEvents.value = []
-      brpcAggregatedEventTotal.value = 0
-      brpcAbnormalThreads.value = []
-      brpcAbnormalThreadTotal.value = 0
-      const firstDiagnosisLog = brpcDiagnosisLogFiles.value[0]
-      brpcFaultSelectedLogId.value = firstDiagnosisLog?.id ?? ''
-    }
-  } catch {
-    if (selectedAssetId.value === assetId) {
-      brpcLogFiles.value = []
-    }
+const getBrpcProfilingFileLabel = (file: BrpcProfilingFileOption) =>
+  `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
+
+const isBrpcProfilingRowWithinTimeRange = (
+  row: Record<string, any>,
+  filters: GlobalFilterState,
+): boolean => {
+  const raw = row?.timestamp
+  if (!raw || typeof raw !== 'string') return true
+  const rowDate = parseDateAsLocal(raw)
+  if (!rowDate) return true
+  if (filters.startTime) {
+    const startDate = parseDateAsLocal(filters.startTime)
+    if (startDate && rowDate.getTime() < startDate.getTime()) return false
   }
-}
-
-const onBrpcLogChange = async () => {
-  brpcSelectedFileName.value = ''
-  brpcSuccessSelectedIfaces.value = []
-  brpcLatencySelectedIfaces.value = []
-  brpcSingleIface.value = ''
-  await loadBrpcMonitorData()
+  if (filters.endTime) {
+    const endDate = parseDateAsLocal(filters.endTime)
+    if (endDate && rowDate.getTime() > endDate.getTime()) return false
+  }
+  return true
 }
 
 const applyBrpcFileFilter = () => {
-  const file = brpcSelectedFileName.value
-  const rows = file
-    ? brpcAllFileRows.value.filter((r) => (r.source_file ?? '') === file)
-    : brpcAllFileRows.value
+  const selectedFile = brpcProfilingFiles.value.find(
+    (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
+  )
+  const timeFilters = appliedFilters.value
+  const rows = selectedFile
+    ? brpcAllFileRows.value.filter(
+        (row) =>
+          row.log_id === selectedFile.log_id &&
+          (row.source_file ?? '') === selectedFile.source_file &&
+          isBrpcProfilingRowWithinTimeRange(row, timeFilters),
+      )
+    : []
   brpcAllRows.value = rows
-  brpcInterfaceNames.value = [...new Set(rows.map((r) => r.interface_name))]
-    .filter(Boolean)
-    .sort()
+  brpcInterfaceNames.value = [...new Set(rows.map((r) => r.interface_name))].filter(Boolean).sort()
   brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
   brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
   const firstInterface = brpcInterfaceNames.value.at(0)
@@ -10349,52 +10632,54 @@ const applyBrpcFileFilter = () => {
 }
 
 const onBrpcFileChange = () => {
-  applyBrpcFileFilter()
+  void loadBrpcMonitorData()
 }
 
 const loadBrpcMonitorData = async () => {
-  if (!brpcSelectedLogId.value) return
+  if (!selectedAssetId.value) return
   const assetId = selectedAssetId.value
-  const selectedLogId = brpcSelectedLogId.value
   const requestSequence = ++brpcProfilingRequestSequence
   brpcDataLoading.value = true
   try {
+    const selectedFile = brpcProfilingFiles.value.find(
+      (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
+    )
+    const query = new URLSearchParams()
+    if (selectedFile) {
+      query.set('log_id', selectedFile.log_id)
+      query.set('source_file', selectedFile.source_file)
+    }
+    const queryString = query.size > 0 ? `?${query.toString()}` : ''
     const result = await request<{
-      interface_names: string[]
-      file_names: string[]
+      files: BrpcProfilingFileOption[]
       rows: Record<string, any>[]
-    }>(`/brpc_profiling/${selectedLogId}`)
+    }>(`/brpc_profiling/knowledge/${encodeURIComponent(assetId)}${queryString}`)
 
-    if (
-      requestSequence !== brpcProfilingRequestSequence ||
-      selectedAssetId.value !== assetId ||
-      brpcSelectedLogId.value !== selectedLogId
-    ) {
+    if (requestSequence !== brpcProfilingRequestSequence || selectedAssetId.value !== assetId) {
       return
     }
 
-    brpcFileNames.value = result.file_names ?? []
+    brpcProfilingFiles.value = result.files ?? []
     brpcAllFileRows.value = result.rows ?? []
 
-    // 默认选择第一个源文件
+    // 默认选择资产库内第一个 profiling 文件；日志包 ID 参与 key，避免同名文件混合。
     if (
-      brpcFileNames.value.length > 0 &&
-      !brpcFileNames.value.includes(brpcSelectedFileName.value)
+      brpcProfilingFiles.value.length > 0 &&
+      !brpcProfilingFiles.value.some(
+        (file) => getBrpcProfilingFileKey(file) === brpcSelectedFileName.value,
+      )
     ) {
-      brpcSelectedFileName.value = brpcFileNames.value[0] ?? ''
+      brpcSelectedFileName.value = getBrpcProfilingFileKey(brpcProfilingFiles.value[0]!)
     }
 
     applyBrpcFileFilter()
   } catch {
-    if (
-      requestSequence === brpcProfilingRequestSequence &&
-      selectedAssetId.value === assetId &&
-      brpcSelectedLogId.value === selectedLogId
-    ) {
+    if (requestSequence === brpcProfilingRequestSequence && selectedAssetId.value === assetId) {
       brpcInterfaceNames.value = []
       brpcAllRows.value = []
       brpcAllFileRows.value = []
-      brpcFileNames.value = []
+      brpcProfilingFiles.value = []
+      brpcSelectedFileName.value = ''
     }
   } finally {
     if (requestSequence === brpcProfilingRequestSequence) {
@@ -10676,17 +10961,13 @@ const renderBrpcFaultTimelineChart = () => {
   }
   brpcFaultTimelineChartInstance ??= echarts.init(element)
 
-  const timestamps = [
-    ...new Set(
-      brpcFaultTimelineSeries.value.flatMap((series) =>
-        series.points.map((point) => point.window_start_time),
-      ),
-    ),
-  ].sort((first, second) => {
-    const firstTime = parseDateAsLocal(first)?.getTime() ?? 0
-    const secondTime = parseDateAsLocal(second)?.getTime() ?? 0
-    return firstTime - secondTime
-  })
+  // The API zero-fills every returned series over the same ordered time axis.
+  // Reuse that shared axis instead of flattening, deduplicating and repeatedly
+  // parsing every timestamp from every interface.
+  const timestamps =
+    displayableBrpcFaultTimelineSeries.value[0]?.timeline.points.map(
+      (point) => point.window_start_time,
+    ) ?? []
   const labels = timestamps.map((timestamp) => {
     const date = parseDateAsLocal(timestamp)
     return date ? formatFullTimeLabel(date) : timestamp
@@ -10733,14 +11014,14 @@ const renderBrpcFaultTimelineChart = () => {
         },
       },
       series: visibleSeries.map(({ timeline, index }) => {
-        const pointsByTime = new Map(
-          timeline.points.map((point) => [point.window_start_time, point.interface_hit_count]),
-        )
         return {
           name: getBrpcFaultSeriesLabel(timeline),
           type: 'line' as const,
-          data: timestamps.map((timestamp) => pointsByTime.get(timestamp) ?? 0),
-          smooth: true,
+          data: timeline.points.map((point) => point.interface_hit_count),
+          smooth: timestamps.length <= 2000,
+          showSymbol: false,
+          sampling: 'lttb' as const,
+          animation: false,
           itemStyle: { color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] },
         }
       }),
@@ -10885,31 +11166,25 @@ const resizeBrpcEventDetailTimelineChart = () => {
   brpcEventDetailTimelineChartInstance.resize()
 }
 
-const resolveBrpcFaultBatch = async (selectedLogId: string) => {
-  if (brpcFaultResolvedLogId.value === selectedLogId && brpcFaultBatch.value) {
-    return brpcFaultBatch.value
+const resolveBrpcFaultScope = async (assetId: string) => {
+  if (brpcFaultResolvedAssetId.value === assetId && brpcFaultScope.value) {
+    return brpcFaultScope.value
   }
-  const selectedLog = brpcDiagnosisLogFiles.value.find((file) => file.id === selectedLogId)
-  if (!selectedLog?.taskId) throw new Error('所选日志暂无可用的 BRPC 诊断任务')
-
-  const batchResult = await request<{ task_id: string; batch_id: string }>(
-    `/brpc-diagnosis/task/${encodeURIComponent(selectedLog.taskId)}/batch`,
+  const scope = await request<BrpcKnowledgeScope>(
+    `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/scope`,
   )
-  const metadataResult = await request<{ batch: BrpcDiagnosisBatch }>(
-    `/brpc-diagnosis/batch/${encodeURIComponent(batchResult.batch_id)}`,
-  )
-  if (brpcFaultSelectedLogId.value === selectedLogId) {
-    brpcFaultBatch.value = metadataResult.batch
-    brpcFaultResolvedLogId.value = selectedLogId
+  if (selectedAssetId.value === assetId) {
+    brpcFaultScope.value = scope
+    brpcFaultResolvedAssetId.value = assetId
   }
-  return metadataResult.batch
+  return scope
 }
 
-const getBrpcFaultQueryRange = (batch: BrpcDiagnosisBatch) => {
+const getBrpcFaultQueryRange = (scope: BrpcKnowledgeScope) => {
   const filters = appliedFilters.value
   const chartRange = brpcFaultChartRange.value
-  const batchStart = parseDateAsLocal(batch.start_time)
-  const batchEnd = parseDateAsLocal(batch.end_time)
+  const batchStart = parseDateAsLocal(scope.start_time)
+  const batchEnd = parseDateAsLocal(scope.end_time)
   const filterStart = filters.startTime ? parseDateAsLocal(filters.startTime) : null
   const filterEnd = filters.endTime ? parseDateAsLocal(filters.endTime) : null
   const startDate = chartRange ? new Date(chartRange.startTime) : (filterStart ?? batchStart)
@@ -10923,9 +11198,11 @@ const getBrpcFaultQueryRange = (batch: BrpcDiagnosisBatch) => {
 }
 
 const loadBrpcFaultTimeline = async () => {
-  const selectedLogId = brpcFaultSelectedLogId.value
-  if (!selectedLogId) {
+  const assetId = selectedAssetId.value
+  if (!assetId) {
     brpcFaultTimelineRequestSequence += 1
+    brpcFaultTimelineRequestController?.abort()
+    brpcFaultTimelineRequestController = null
     brpcFaultTimelineSeries.value = []
     brpcFaultTimelineError.value = ''
     isBrpcFaultTimelineLoading.value = false
@@ -10933,13 +11210,16 @@ const loadBrpcFaultTimeline = async () => {
   }
 
   const requestSequence = ++brpcFaultTimelineRequestSequence
+  brpcFaultTimelineRequestController?.abort()
+  const requestController = new AbortController()
+  brpcFaultTimelineRequestController = requestController
   isBrpcFaultTimelineLoading.value = true
   brpcFaultTimelineError.value = ''
 
   try {
-    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    const scope = await resolveBrpcFaultScope(assetId)
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
-    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const { startDate, endDate } = getBrpcFaultQueryRange(scope)
 
     const windowSizeByScale: Record<number, string> = {
       10: '10s',
@@ -10951,11 +11231,13 @@ const loadBrpcFaultTimeline = async () => {
       start_time: formatFullTimeLabel(startDate),
       end_time: formatFullTimeLabel(endDate),
       window_size: windowSizeByScale[selectedBrpcFaultScale.value] ?? '1m',
+      component: 'ubsocket',
     })
     const podIp = appliedFilters.value.podIps.at(-1)
     if (podIp) query.set('pod_ip', podIp)
     const result = await request<{ series: BrpcInterfaceTimelineSeries[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${query.toString()}`,
+      `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/interface-timeline?${query.toString()}`,
+      { signal: requestController.signal },
     )
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
     brpcFaultTimelineSeries.value = result.series ?? []
@@ -10964,11 +11246,13 @@ const loadBrpcFaultTimeline = async () => {
     )
   } catch (error) {
     if (requestSequence !== brpcFaultTimelineRequestSequence) return
+    if (error instanceof DOMException && error.name === 'AbortError') return
     brpcFaultTimelineSeries.value = []
     brpcFaultTimelineError.value =
       error instanceof Error ? error.message : '加载 BRPC 接口故障数时序分布失败'
   } finally {
     if (requestSequence === brpcFaultTimelineRequestSequence) {
+      brpcFaultTimelineRequestController = null
       isBrpcFaultTimelineLoading.value = false
     }
   }
@@ -11044,8 +11328,8 @@ const toggleBrpcAggregatedEventStartTimeSort = () => {
 }
 
 const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value) => {
-  const selectedLogId = brpcFaultSelectedLogId.value
-  if (!selectedLogId) {
+  const assetId = selectedAssetId.value
+  if (!assetId) {
     brpcAggregatedEventsRequestSequence += 1
     brpcAggregatedEvents.value = []
     brpcAggregatedEventTotal.value = 0
@@ -11066,9 +11350,9 @@ const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value)
   brpcAggregatedEventsError.value = ''
 
   try {
-    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    const scope = await resolveBrpcFaultScope(assetId)
     if (requestSequence !== brpcAggregatedEventsRequestSequence) return
-    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const { startDate, endDate } = getBrpcFaultQueryRange(scope)
     const filters = appliedFilters.value
     const query = new URLSearchParams({
       start_time: formatFullTimeLabel(startDate),
@@ -11084,7 +11368,7 @@ const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value)
 
     const endpoint = brpcEventAggregation.value === 'pod' ? 'pod-events' : 'thread-events'
     const result = await request<{ total: number; events: BrpcAggregatedEvent[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/${endpoint}?${query.toString()}`,
+      `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/${endpoint}?${query.toString()}`,
     )
     if (requestSequence !== brpcAggregatedEventsRequestSequence) return
 
@@ -11125,8 +11409,8 @@ const setActiveBrpcFaultTab = (tab: 'event' | 'thread') => {
 }
 
 const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) => {
-  const selectedLogId = brpcFaultSelectedLogId.value
-  if (!selectedLogId) {
+  const assetId = selectedAssetId.value
+  if (!assetId) {
     brpcAbnormalThreadsRequestSequence += 1
     brpcAbnormalThreads.value = []
     brpcAbnormalThreadTotal.value = 0
@@ -11144,9 +11428,9 @@ const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) =
   isBrpcAbnormalThreadsLoading.value = true
   brpcAbnormalThreadsError.value = ''
   try {
-    const batch = await resolveBrpcFaultBatch(selectedLogId)
+    const scope = await resolveBrpcFaultScope(assetId)
     if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
-    const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+    const { startDate, endDate } = getBrpcFaultQueryRange(scope)
     const query = new URLSearchParams({
       start_time: formatFullTimeLabel(startDate),
       end_time: formatFullTimeLabel(endDate),
@@ -11160,7 +11444,7 @@ const loadBrpcAbnormalThreads = async (pageNum = brpcAbnormalThreadPage.value) =
     }
     appendBrpcMetricSortQuery(query, brpcAbnormalThreadMetricSort.getSortFields.value)
     const result = await request<{ total: number; threads: BrpcAbnormalThread[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads?${query.toString()}`,
+      `/brpc-diagnosis/knowledge/${encodeURIComponent(assetId)}/abnormal-threads?${query.toString()}`,
     )
     if (requestSequence !== brpcAbnormalThreadsRequestSequence) return
     const total = result.total ?? 0
@@ -11261,8 +11545,6 @@ const closeBrpcEventDetail = () => {
 }
 
 const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
-  const batch = brpcFaultBatch.value
-  if (!batch) return
   const requestSequence = ++brpcEventDetailRequestSequence
   isBrpcEventDetailOpen.value = true
   isBrpcEventDetailLoading.value = true
@@ -11296,10 +11578,10 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
     if (event.pod_name) threadQuery.set('pod_name', event.pod_name)
 
     const detailPromise = request<BrpcAggregatedEventDetail>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/${endpoint}/${encodeURIComponent(event.event_id)}?${detailQuery.toString()}`,
+      `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/${endpoint}/${encodeURIComponent(event.event_id)}?${detailQuery.toString()}`,
     )
     const threadsPromise = request<{ total: number; threads: BrpcAbnormalThread[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads?${threadQuery.toString()}`,
+      `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/abnormal-threads?${threadQuery.toString()}`,
     )
 
     const timelineWindowSize =
@@ -11331,7 +11613,7 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
         })
         if (event.pod_name) timelineQuery.set('pod_name', event.pod_name)
         const threadDetail = await request<BrpcAbnormalThreadDetail>(
-          `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads/${encodeURIComponent(selectedThread.thread_key)}?${timelineQuery.toString()}`,
+          `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/abnormal-threads/${encodeURIComponent(selectedThread.thread_key)}?${timelineQuery.toString()}`,
         )
         timeline = threadDetail.interface_timeline ?? []
       }
@@ -11344,7 +11626,7 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
       })
       if (event.pod_name) timelineQuery.set('pod_name', event.pod_name)
       const timelineResult = await request<BrpcInterfaceTimelineResult>(
-        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/interface-timeline?${timelineQuery.toString()}`,
+        `/brpc-diagnosis/batch/${encodeURIComponent(event.batch_id)}/interface-timeline?${timelineQuery.toString()}`,
       )
       timeline = timelineResult.series ?? []
     }
@@ -11379,7 +11661,7 @@ const closeBrpcAbnormalThreadDetail = () => {
 }
 
 const loadBrpcAbnormalThreadHits = async (
-  batch: BrpcDiagnosisBatch,
+  batchId: string,
   thread: BrpcAbnormalThread,
   startTime: string,
   endTime: string,
@@ -11397,7 +11679,7 @@ const loadBrpcAbnormalThreadHits = async (
     })
     if (thread.pod_name) query.set('pod_name', thread.pod_name)
     const result = await request<{ total: number; hits: BrpcDiagHitLog[] }>(
-      `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/thread-logs?${query.toString()}`,
+      `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/thread-logs?${query.toString()}`,
     )
     if (requestSequence !== brpcAbnormalThreadDetailRequestSequence) return
     brpcAbnormalThreadHits.value = result.hits ?? []
@@ -11413,8 +11695,8 @@ const loadBrpcAbnormalThreadHits = async (
 }
 
 const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
-  const batch = brpcFaultBatch.value
-  if (!batch) return
+  const scope = brpcFaultScope.value
+  if (!scope) return
   const requestSequence = ++brpcAbnormalThreadDetailRequestSequence
   isBrpcAbnormalThreadDetailOpen.value = true
   isBrpcAbnormalThreadDetailLoading.value = true
@@ -11424,7 +11706,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
   selectedBrpcThreadGraphNodeId.value = ''
   selectedBrpcThreadChildFailureModeId.value = ''
 
-  const { startDate, endDate } = getBrpcFaultQueryRange(batch)
+  const { startDate, endDate } = getBrpcFaultQueryRange(scope)
   const startTime = formatFullTimeLabel(startDate)
   const endTime = formatFullTimeLabel(endDate)
   const windowSizeByScale: Record<number, string> = {
@@ -11447,7 +11729,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
   const detailPromise = (async () => {
     try {
       const detail = await request<BrpcAbnormalThreadDetail>(
-        `/brpc-diagnosis/batch/${encodeURIComponent(batch.batch_id)}/abnormal-threads/${encodeURIComponent(thread.thread_key)}?${query.toString()}`,
+        `/brpc-diagnosis/batch/${encodeURIComponent(thread.batch_id)}/abnormal-threads/${encodeURIComponent(thread.thread_key)}?${query.toString()}`,
       )
       if (requestSequence === brpcAbnormalThreadDetailRequestSequence) {
         selectedBrpcAbnormalThreadDetail.value = detail
@@ -11465,7 +11747,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
 
   await Promise.all([
     detailPromise,
-    loadBrpcAbnormalThreadHits(batch, thread, startTime, endTime, requestSequence),
+    loadBrpcAbnormalThreadHits(thread.batch_id, thread, startTime, endTime, requestSequence),
   ])
 }
 
@@ -11730,24 +12012,13 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   activePage.value = 'abnormal'
 
   if (targetProduct === 'brpc') {
-    await loadBrpcLogFiles()
-    if (!brpcSelectedLogId.value) {
-      brpcSelectedLogId.value = brpcProfilingLogFiles.value[0]?.id ?? ''
-    }
-    if (!brpcFaultSelectedLogId.value) {
-      brpcFaultSelectedLogId.value = brpcDiagnosisLogFiles.value[0]?.id ?? ''
-    }
     await nextTick()
-    if (brpcSelectedLogId.value) {
-      await loadBrpcMonitorData()
-    }
-    if (brpcFaultSelectedLogId.value) {
-      const loadActiveBrpcFaultList =
-        activeBrpcFaultTab.value === 'thread'
-          ? loadBrpcAbnormalThreads(1)
-          : loadBrpcAggregatedEvents(1)
-      await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
-    }
+    await loadBrpcMonitorData()
+    const loadActiveBrpcFaultList =
+      activeBrpcFaultTab.value === 'thread'
+        ? loadBrpcAbnormalThreads(1)
+        : loadBrpcAggregatedEvents(1)
+    await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
     document
       .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
       ?.scrollIntoView({
@@ -11992,6 +12263,9 @@ watch(selectedBrpcFaultScale, () => {
 })
 
 onMounted(() => {
+  loadAgentSessionAssetIndex()
+  loadAgentDefaultModel()
+  restoreAgentConnection()
   void loadAssets()
   window.addEventListener('resize', resizeLatencyCharts)
   window.addEventListener('resize', updateDetailLatencyLeftOverflow)
@@ -12011,6 +12285,8 @@ onUpdated(() => {
 onBeforeUnmount(() => {
   stopLogFilesPolling()
   closeAgentEventStream()
+  brpcFaultTimelineRequestController?.abort()
+  brpcFaultTimelineRequestController = null
   window.removeEventListener('resize', resizeLatencyCharts)
   window.removeEventListener('resize', updateDetailLatencyLeftOverflow)
   assetDetailResizeObserver?.disconnect()
@@ -14737,12 +15013,20 @@ onBeforeUnmount(() => {
             </p>
           </header>
 
-          <!-- 日志文件选择器 -->
+          <!-- profiling 文件选择器 -->
           <div v-if="hasBrpcProfilingLogFile" class="brpc-log-selector">
-            <span class="brpc-log-label">选择日志文件：</span>
-            <select v-model="brpcSelectedFileName" class="brpc-log-select" @change="onBrpcFileChange">
-              <option v-for="name in brpcFileNames" :key="name" :value="name">
-                {{ name }}
+            <span class="brpc-log-label">选择 profiling 文件：</span>
+            <select
+              v-model="brpcSelectedFileName"
+              class="brpc-log-select"
+              @change="onBrpcFileChange"
+            >
+              <option
+                v-for="file in brpcProfilingFiles"
+                :key="getBrpcProfilingFileKey(file)"
+                :value="getBrpcProfilingFileKey(file)"
+              >
+                {{ getBrpcProfilingFileLabel(file) }}
               </option>
             </select>
             <span v-if="brpcDataLoading" class="brpc-loading">加载中...</span>
@@ -14771,7 +15055,9 @@ onBeforeUnmount(() => {
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
-                  已选 {{ brpcSuccessSelectedIfaces.length }}/{{ brpcSuccessAvailableIfaces.length }}
+                  已选 {{ brpcSuccessSelectedIfaces.length }}/{{
+                    brpcSuccessAvailableIfaces.length
+                  }}
                 </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
@@ -14836,7 +15122,9 @@ onBeforeUnmount(() => {
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">指标选择：</span>
                 <span class="latency-series-toggle-count">
-                  已选 {{ brpcSingleSelectedMetrics.length }}/{{ brpcSingleAvailableMetrics.length }}
+                  已选 {{ brpcSingleSelectedMetrics.length }}/{{
+                    brpcSingleAvailableMetrics.length
+                  }}
                 </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
@@ -14901,7 +15189,9 @@ onBeforeUnmount(() => {
               <div class="latency-series-toggle">
                 <span class="latency-series-toggle-label">曲线选择：</span>
                 <span class="latency-series-toggle-count">
-                  已选 {{ brpcLatencySelectedIfaces.length }}/{{ brpcLatencyAvailableIfaces.length }}
+                  已选 {{ brpcLatencySelectedIfaces.length }}/{{
+                    brpcLatencyAvailableIfaces.length
+                  }}
                 </span>
                 <button
                   class="latency-series-toggle-btn latency-series-toggle-all"
@@ -14973,10 +15263,7 @@ onBeforeUnmount(() => {
                   </button>
                   <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select
-                      v-model="selectedBrpcFaultScale"
-                      aria-label="BRPC 故障时间聚合尺度"
-                    >
+                    <select v-model="selectedBrpcFaultScale" aria-label="BRPC 故障时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -15036,9 +15323,7 @@ onBeforeUnmount(() => {
                 <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
                   {{ brpcFaultTimelineError }}
                 </div>
-                <div v-else-if="brpcDiagnosisLogFiles.length === 0" class="chart-state">
-                  暂无 BRPC 接口故障数据
-                </div>
+                <div v-else-if="!brpcFaultScope" class="chart-state">暂无 BRPC 接口故障数据</div>
                 <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
                   暂无 BRPC 接口故障数时序数据
                 </div>
@@ -15846,7 +16131,7 @@ onBeforeUnmount(() => {
               v-model="logSourceInput"
               type="text"
               class="log-source-input"
-              placeholder="添加日志：输入目录路径（如 /var/log/）或远程 URL（如 https://example.com/log.zip）"
+              placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
               :disabled="isUploadingLog"
               @keydown.enter="submitLogSource"
             />
@@ -15895,18 +16180,14 @@ onBeforeUnmount(() => {
                       >{{ statusLabel(getLogFileDisplayStatus(file)) }}</span
                     >
                     <span
-                      v-if="
-                        isSuccessfulLogFile(file) &&
-                        shouldShowLogFileLatencyAnomalyCount(file)
-                      "
+                      v-if="isSuccessfulLogFile(file) && shouldShowLogFileLatencyAnomalyCount(file)"
                       class="anomaly-badge"
                       :class="getLogFileAnomalyCountClass(file)"
                       >{{ getLogFileAnomalyCountText(file) }}</span
                     >
                     <span
                       v-if="
-                        isSuccessfulLogFile(file) &&
-                        shouldShowLogFileConnectionAnomalyCount(file)
+                        isSuccessfulLogFile(file) && shouldShowLogFileConnectionAnomalyCount(file)
                       "
                       class="anomaly-badge"
                       :class="getLogFileTraceFailureEventCountClass(file)"
@@ -17839,14 +18120,14 @@ onBeforeUnmount(() => {
                           </button>
                         </div>
                         <div
-                          v-if="
-                            selectedTraceRelatedFailureModeIds.length > traceSubFaultBatchSize
-                          "
+                          v-if="selectedTraceRelatedFailureModeIds.length > traceSubFaultBatchSize"
                           class="trace-sub-fault-toolbar"
                         >
                           <span>
                             已展示
-                            {{ getVisibleRelatedFailureModeCount(selectedTraceRelatedFailureModeIds) }}
+                            {{
+                              getVisibleRelatedFailureModeCount(selectedTraceRelatedFailureModeIds)
+                            }}
                             / {{ selectedTraceRelatedFailureModeIds.length }}
                           </span>
                           <div class="trace-sub-fault-toolbar-actions">
@@ -17872,7 +18153,9 @@ onBeforeUnmount(() => {
                               "
                               type="button"
                               class="trace-sub-fault-action"
-                              @click="collapseRelatedFailureModes(selectedTraceRelatedFailureModeIds)"
+                              @click="
+                                collapseRelatedFailureModes(selectedTraceRelatedFailureModeIds)
+                              "
                             >
                               收起
                             </button>
@@ -18040,7 +18323,10 @@ onBeforeUnmount(() => {
 
           <section>
             <h3 class="trace-section-title">🗃️ 故障模式详情</h3>
-            <div v-if="selectedFaultTraceFailureModeIds.length === 0" class="trace-fault-detail-list">
+            <div
+              v-if="selectedFaultTraceFailureModeIds.length === 0"
+              class="trace-fault-detail-list"
+            >
               <div class="trace-fault-detail-item trace-fault-detail-wide">
                 <span class="trace-fault-detail-value">暂无故障模式</span>
               </div>
@@ -18562,7 +18848,9 @@ onBeforeUnmount(() => {
                         'zone_anomaly_density_threshold',
                       ),
                     }"
-                    :aria-invalid="invalidDiagnosisConfigFields.has('zone_anomaly_density_threshold')"
+                    :aria-invalid="
+                      invalidDiagnosisConfigFields.has('zone_anomaly_density_threshold')
+                    "
                   />
                   <em>0–1</em>
                 </span>
@@ -18617,7 +18905,7 @@ onBeforeUnmount(() => {
     >
       <header class="agent-chat-header">
         <button
-          v-if="agentView !== 'login'"
+          v-if="agentView !== 'login' && agentView !== 'chat'"
           class="agent-auth-back"
           type="button"
           aria-label="返回上一级"
@@ -18634,10 +18922,21 @@ onBeforeUnmount(() => {
           <div>
             <strong>AI 故障诊断助手</strong>
             <span v-if="agentView === 'chat' && selectedAgentModel">
-              {{ selectedAgentProvider?.name }} · {{ selectedAgentModel.name }}
+              当前模型：{{ selectedAgentProvider?.name }} · {{ selectedAgentModel.name }}
             </span>
             <span v-else>时延与通断故障分析</span>
           </div>
+        </div>
+        <div v-if="agentView === 'chat'" class="agent-session-header-actions">
+          <button
+            type="button"
+            class="agent-model-switch"
+            title="切换当前会话使用的模型"
+            @click="agentView = 'models'"
+          >
+            <span aria-hidden="true">⇄</span>
+            模型切换
+          </button>
         </div>
       </header>
 
@@ -18783,95 +19082,151 @@ onBeforeUnmount(() => {
       </main>
 
       <div
-        v-if="agentView === 'chat'"
-        ref="agentChatMessagesRef"
-        class="agent-chat-messages"
-        aria-live="polite"
+        v-if="agentConnectionError && agentView !== 'chat'"
+        class="agent-chat-error"
+        role="alert"
       >
-        <div v-if="agentChatMessages.length === 0" class="agent-chat-welcome">
-          <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
-          <strong>你好，我是故障诊断助手</strong>
-          <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
-        </div>
-
-        <article
-          v-for="message in agentChatMessages"
-          :key="message.id"
-          class="agent-chat-message"
-          :class="message.role"
-        >
-          <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
-            AI
-          </div>
-          <div class="agent-chat-bubble">
-            <template v-if="message.role === 'assistant'">
-              <section
-                v-for="part in getAgentDisplayParts(message)"
-                :key="part.id"
-                :class="part.type === 'reasoning' ? 'agent-reasoning' : 'agent-final-answer'"
-              >
-                <template v-if="part.type === 'reasoning'">
-                  <button
-                    type="button"
-                    class="agent-response-label agent-reasoning-toggle"
-                    :aria-expanded="!part.collapsed"
-                    @click="part.collapsed = !part.collapsed"
-                  >
-                    <span>思考过程</span>
-                    <span
-                      v-if="message.status === 'thinking'"
-                      class="agent-thinking-dots"
-                      aria-label="思考中"
-                    >
-                      <i></i><i></i><i></i>
-                    </span>
-                    <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-                  </button>
-                  <div v-show="!part.collapsed">
-                    <p v-if="part.text">{{ part.text }}</p>
-                    <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-                  </div>
-                </template>
-                <div v-else class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
-              </section>
-            </template>
-            <p v-else-if="message.role === 'user'">{{ message.content }}</p>
-          </div>
-        </article>
-      </div>
-
-      <div v-if="agentConnectionError" class="agent-chat-error" role="alert">
         {{ agentConnectionError }}
       </div>
 
-      <form
-        v-if="agentView === 'chat'"
-        class="agent-chat-composer"
-        @submit.prevent="sendAgentMessage"
-      >
-        <textarea
-          v-model="agentChatInput"
-          rows="1"
-          aria-label="输入诊断问题"
-          placeholder="输入你想诊断的问题…"
-          :disabled="isAgentSending || isAgentAborting"
-          @keydown.enter.exact.prevent="sendAgentMessage"
-        ></textarea>
-        <button
-          type="submit"
-          :class="{ stop: isAgentSending }"
-          :aria-label="isAgentSending ? '停止本次会话' : '发送消息'"
-          :title="isAgentSending ? '停止本次会话' : '发送消息'"
-          :disabled="isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting"
-        >
-          <svg v-if="isAgentSending" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="7" y="7" width="10" height="10" rx="2" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-            <path d="m4 4 17 8-17 8 3-8-3-8Zm3.8 7h7.4L7 7.1 7.8 11Zm-.8 5.9 8.2-3.9H7.8L7 16.9Z" />
-          </svg>
-        </button>
-      </form>
+      <div v-if="agentView === 'chat'" class="agent-conversation-layout">
+        <aside class="agent-session-manager" aria-label="会话列表">
+          <div class="agent-session-manager-title">
+            <div>
+              <strong>会话</strong>
+            </div>
+            <button type="button" @click="newAgentConversation">＋ 新建</button>
+          </div>
+          <input
+            v-model.trim="agentSessionSearch"
+            class="agent-search"
+            placeholder="搜索会话标题或资产库名称"
+            aria-label="搜索会话标题或资产库名称"
+          />
+          <div class="agent-session-list">
+            <p v-if="isAgentSessionsLoading" class="agent-empty-options">正在加载会话…</p>
+            <article
+              v-for="session in filteredAgentSessions"
+              v-else
+              :key="session.id"
+              class="agent-session-item"
+              :class="{ active: session.id === agentSessionId }"
+              :title="session.title || '无标题会话'"
+            >
+              <button class="agent-session-open" type="button" @click="openAgentSession(session)">
+                <strong>{{ session.title || '无标题会话' }}</strong>
+                <span>{{ getAgentSessionAssetName(session.id) }}</span>
+              </button>
+              <div class="agent-session-item-actions">
+                <button type="button" title="修改标题" @click="renameAgentSession(session)">
+                  ✎
+                </button>
+                <button type="button" title="删除会话" @click="deleteAgentSession(session)">
+                  ×
+                </button>
+              </div>
+            </article>
+            <p
+              v-if="!isAgentSessionsLoading && filteredAgentSessions.length === 0"
+              class="agent-empty-options"
+            >
+              没有找到会话
+            </p>
+          </div>
+        </aside>
+
+        <section class="agent-conversation-main">
+          <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
+            <div v-if="agentChatMessages.length === 0" class="agent-chat-welcome">
+              <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
+              <strong>你好，我是故障诊断助手</strong>
+              <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
+            </div>
+
+            <article
+              v-for="message in agentChatMessages"
+              :key="message.id"
+              class="agent-chat-message"
+              :class="message.role"
+            >
+              <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
+                AI
+              </div>
+              <div class="agent-chat-bubble">
+                <template v-if="message.role === 'assistant'">
+                  <section
+                    v-for="part in getAgentDisplayParts(message)"
+                    :key="part.id"
+                    :class="part.type === 'reasoning' ? 'agent-reasoning' : 'agent-final-answer'"
+                  >
+                    <template v-if="part.type === 'reasoning'">
+                      <button
+                        type="button"
+                        class="agent-response-label agent-reasoning-toggle"
+                        :aria-expanded="!part.collapsed"
+                        @click="part.collapsed = !part.collapsed"
+                      >
+                        <span>思考过程</span>
+                        <span
+                          v-if="message.status === 'thinking'"
+                          class="agent-thinking-dots"
+                          aria-label="思考中"
+                        >
+                          <i></i><i></i><i></i>
+                        </span>
+                        <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
+                      </button>
+                      <div v-show="!part.collapsed">
+                        <p v-if="part.text">{{ part.text }}</p>
+                        <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
+                      </div>
+                    </template>
+                    <div
+                      v-else
+                      class="agent-markdown"
+                      v-html="renderAgentMarkdown(part.text)"
+                    ></div>
+                  </section>
+                </template>
+                <p v-else-if="message.role === 'user'">{{ message.content }}</p>
+              </div>
+            </article>
+          </div>
+
+          <div v-if="agentConnectionError" class="agent-chat-error" role="alert">
+            {{ agentConnectionError }}
+          </div>
+
+          <form class="agent-chat-composer" @submit.prevent="sendAgentMessage">
+            <textarea
+              v-model="agentChatInput"
+              rows="1"
+              aria-label="输入诊断问题"
+              placeholder="输入你想诊断的问题…"
+              :disabled="isAgentSending || isAgentAborting"
+              @keydown.enter.exact.prevent="sendAgentMessage"
+            ></textarea>
+            <button
+              type="submit"
+              :class="{ stop: isAgentSending }"
+              :aria-label="isAgentSending ? '停止本次会话' : '发送消息'"
+              :title="isAgentSending ? '停止本次会话' : '发送消息'"
+              :disabled="
+                isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting
+              "
+            >
+              <svg v-if="isAgentSending" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="7" y="7" width="10" height="10" rx="2" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="m4 4 17 8-17 8 3-8-3-8Zm3.8 7h7.4L7 7.1 7.8 11Zm-.8 5.9 8.2-3.9H7.8L7 16.9Z"
+                />
+              </svg>
+            </button>
+          </form>
+        </section>
+      </div>
     </aside>
 
     <button

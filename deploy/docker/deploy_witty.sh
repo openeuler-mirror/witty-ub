@@ -67,6 +67,27 @@ fi
 [ -n "$_SAVED_IMAGE" ] && WITTY_IMAGE="$_SAVED_IMAGE"
 unset _SAVED_HOST_PORT _SAVED_EXTRA_MOUNTS _SAVED_IMAGE
 
+# PG 密码只通过只读挂载传给容器入口，不写入容器环境配置。
+PG_SECRET_FILE="${PG_SECRET_FILE:-/etc/witty-ub/pg.passwd}"
+if [ -f "$PG_SECRET_FILE" ]; then
+    chmod 0600 "$PG_SECRET_FILE" 2>/dev/null || {
+        log_error "无法将 PG 密钥文件权限收紧为 0600: ${PG_SECRET_FILE}"
+        exit 1
+    }
+    _SECRET_PW="$(cat "$PG_SECRET_FILE" 2>/dev/null | tr -d '\r\n')"
+    if [ -n "$_SECRET_PW" ]; then
+        log_info "PG 密钥文件已就绪: ${PG_SECRET_FILE}"
+    else
+        log_error "PG 密钥文件为空: ${PG_SECRET_FILE}"
+        exit 1
+    fi
+    unset _SECRET_PW
+else
+    log_error "PG 密钥文件不存在: ${PG_SECRET_FILE}"
+    log_error "请先运行: bash deploy/deploy_pg.sh --docker"
+    exit 1
+fi
+
 # witty-ub 默认值（未在 pg.conf 中配置的项）
 WITTY_CONTAINER_NAME="${WITTY_CONTAINER_NAME:-witty-ub}"
 WITTY_HOST_PORT="${WITTY_HOST_PORT:-32412}"
@@ -322,6 +343,7 @@ docker run -d \
     -v witty-ub-logs:/var/log/witty-ub \
     -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
     -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
+    -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
     -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
     "${EXTRA_MOUNT_ARGS[@]}" \
     -e PYTHONPATH=/var/witty-ub \
@@ -330,7 +352,6 @@ docker run -d \
     -e PG_PORT="${PG_IN_CONTAINER_PORT}" \
     -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
     -e PG_USER="${PG_USER:-witty-ub}" \
-    -e PG_PASSWORD="${PG_PASSWORD:-witty-ub}" \
     --health-cmd="curl -f http://localhost:9772/health_check" \
     --health-interval=30s \
     --health-timeout=10s \

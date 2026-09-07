@@ -3,7 +3,7 @@
 # witty-ub is licensed under the Mulan PSL v2.
 #
 # witty-ub 宿主机/裸金属 一键部署脚本
-# 支持 openEuler 24.03-LTS / Ubuntu 24.04 / WSL (Ubuntu)
+# 支持使用 dnf/yum 或 apt-get 的 Linux 发行版
 #
 # 用法:
 #   bash deploy/host/deploy.sh          # 交互式菜单（默认）
@@ -66,11 +66,6 @@ setup_postgresql() {
     local PG_HOST="${PG_HOST:-127.0.0.1}"
     local PG_PORT="${PG_PORT:-5432}"
 
-    if _has_cmd pg_isready && pg_isready -h "$PG_HOST" -p "$PG_PORT" 2>/dev/null; then
-        _log "PostgreSQL 已运行在 $PG_HOST:$PG_PORT，跳过初始化"
-        return 0
-    fi
-
     local DEPLOY_PG_SCRIPT="$SCRIPT_DIR/../deploy_pg.sh"
 
     if [ ! -f "$DEPLOY_PG_SCRIPT" ]; then
@@ -79,8 +74,8 @@ setup_postgresql() {
     fi
 
     case "$OS_ID" in
-    openeuler)
-        _info "调用 deploy/deploy_pg.sh --rpm 部署 PostgreSQL..."
+    rpm)
+        _info "调用 deploy/deploy_pg.sh --rpm 部署/对齐 PostgreSQL..."
         if _is_root; then
             bash "$DEPLOY_PG_SCRIPT" --rpm
         elif _has_cmd sudo; then
@@ -90,8 +85,8 @@ setup_postgresql() {
             return 1
         fi
         ;;
-    ubuntu)
-        _info "调用 deploy/deploy_pg.sh --apt 部署 PostgreSQL..."
+    apt)
+        _info "调用 deploy/deploy_pg.sh --apt 部署/对齐 PostgreSQL..."
         if _is_root; then
             bash "$DEPLOY_PG_SCRIPT" --apt
         elif _has_cmd sudo; then
@@ -259,7 +254,7 @@ sync_pg_credentials() {
         return 0
     fi
 
-    local PHOST P PORT PUSER PDB PPASS
+    local PHOST PORT PUSER PDB PPASS
     PHOST="$PG_HOST"
     PORT="$PG_PORT"
     PUSER="$PG_USER"
@@ -283,14 +278,20 @@ sync_pg_credentials() {
         _warn "运行时配置不存在，跳过凭据同步: $CONF"
         return 0
     }
+    # 密码不写入 TOML；后端启动时由 run_backend.sh 从 mode 0600 的
+    # deploy/pg.passwd 读取，并通过 PG_PASSWORD 仅注入后端进程。
     $SUDO sed -i \
         -e "s|^pg_host = .*|pg_host = \"$PHOST\"|" \
         -e "s|^pg_port = .*|pg_port = $PORT|" \
         -e "s|^pg_database = .*|pg_database = \"$PDB\"|" \
         -e "s|^pg_user = .*|pg_user = \"$PUSER\"|" \
-        -e "s|^pg_password = .*|pg_password = \"$PPASS\"|" \
+        -e 's|^pg_password = .*|pg_password = ""|' \
         "$CONF"
-    _log "已同步 PG 凭据到运行时配置 $CONF (host=$PHOST port=$PORT db=$PDB user=$PUSER)"
+    # 文件由 sudo cp/sed 创建时可能归 root；交还当前部署用户后再收紧权限，
+    # 确保 systemd --user 能读取配置，同时其他本机用户不可读。
+    $SUDO chown "$(id -u):$(id -g)" "$CONF"
+    $SUDO chmod 0600 "$CONF"
+    _log "已同步 PG 非敏感配置到 $CONF (host=$PHOST port=$PORT db=$PDB user=$PUSER；密码由密钥文件注入)"
 }
 
 prepare_runtime_diagnosis_config() {
@@ -548,7 +549,7 @@ start_services() {
             export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
             export CONFIG="${CONFIG:-$WITTY_DIR/config/diagnosis_config.toml}"
             export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
-            nohup "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py" \
+            nohup "$SCRIPT_DIR/run_backend.sh" \
                 >"$LOG_DIR/backend.log" 2>&1 &
             echo $! >"$LOG_DIR/backend.pid"
         fi

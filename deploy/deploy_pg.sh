@@ -79,11 +79,95 @@ elif [ -n "$PG_PORT_OVERRIDE" ]; then
     PG_PORT="$PG_PORT_OVERRIDE"
 fi
 
+# PG 密码独立密钥文件（mode 0600）：ensure_pg_password 生成/写入，不回写 deploy.conf。
+# Docker 部署 → /etc/witty-ub/pg.passwd（系统级稳定路径，不依赖仓库目录）；
+# 源码 host 部署（--rpm/--apt）→ deploy/pg.passwd（仓库目录内，开发/源码部署场景）。
+# 环境变量 PG_SECRET_FILE 可覆盖（测试/自定义路径）。
+if [ "$DEPLOY_MODE" = "docker" ]; then
+    PG_SECRET_FILE="${PG_SECRET_FILE:-/etc/witty-ub/pg.passwd}"
+else
+    PG_SECRET_FILE="${PG_SECRET_FILE:-${DEPLOY_DIR}/pg.passwd}"
+fi
+
 # ---------- 公共工具函数 ----------
 log_info()  { echo "[INFO]  $*"; }
 log_ok()    { echo "[OK]    $*"; }
 log_warn()  { echo "[WARN]  $*"; }
 log_error() { echo "[ERROR] $*"; }
+
+ensure_pg_password() {
+    # 密码存放于独立密钥文件 PG_SECRET_FILE（mode 0600），
+    # 不回写 deploy.conf —— 配置文件保持 <CHANGE_ME> 占位，杜绝污染源码/RPM 安装文件。
+    # Docker 模式: /etc/witty-ub/pg.passwd；源码 host 模式: deploy/pg.passwd。
+    #
+    # 优先级: 已存在的密钥文件 > deploy.conf 中已设置的口令(一次性迁移) > 交互输入/自动生成。
+    if [ -f "$PG_SECRET_FILE" ]; then
+        local cached
+        cached="$(cat "$PG_SECRET_FILE" 2>/dev/null | tr -d '\r\n')"
+        if [ -n "$cached" ]; then
+            PG_PASSWORD="$cached"
+            _secure_pg_secret_permissions
+            log_info "PostgreSQL 密码已从密钥文件加载: ${PG_SECRET_FILE}"
+            return 0
+        fi
+    fi
+
+    # 迁移路径: 旧部署已把口令写进 deploy.conf，一次性搬到密钥文件，之后不再回写配置。
+    if [ -n "${PG_PASSWORD:-}" ] && [ "$PG_PASSWORD" != "<CHANGE_ME>" ] && [ "$PG_PASSWORD" != "witty-ub" ]; then
+        log_info "将 deploy.conf 中的旧口令迁移到密钥文件 ${PG_SECRET_FILE}"
+        _write_pg_secret "$PG_PASSWORD" || return 1
+        log_info "PostgreSQL 密码已迁移到密钥文件"
+        return 0
+    fi
+
+    local input_password=""
+    local confirm_password=""
+    if [ -t 0 ]; then
+        read -r -s -p "请输入 PostgreSQL 密码（至少 6 位字母数字，直接回车自动生成）: " input_password
+        echo ""
+        if [ -n "$input_password" ]; then
+            if [[ ! "$input_password" =~ ^[A-Za-z0-9]{6,}$ ]]; then
+                log_error "PostgreSQL 密码必须为至少 6 位字母数字"
+                return 1
+            fi
+            read -r -s -p "请再次输入 PostgreSQL 密码: " confirm_password
+            echo ""
+            if [ "$input_password" != "$confirm_password" ]; then
+                log_error "两次输入的 PostgreSQL 密码不一致"
+                return 1
+            fi
+        fi
+    fi
+    if [ -n "$input_password" ]; then
+        PG_PASSWORD="$input_password"
+        log_info "已使用用户输入的 PostgreSQL 密码"
+    else
+        PG_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)"
+        log_warn "已为 PG 自动生成随机口令"
+    fi
+    _write_pg_secret "$PG_PASSWORD" || return 1
+    log_info "PostgreSQL 密码已保存到密钥文件: ${PG_SECRET_FILE}"
+}
+
+# 源码部署通常由普通用户通过 sudo 初始化 PG。密钥需要归还给该部署用户，
+# 否则 systemd --user / nohup 后端无法读取；Docker/RPM 系统密钥仍归 root。
+_secure_pg_secret_permissions() {
+    chmod 0600 "$PG_SECRET_FILE" 2>/dev/null || true
+    if [ "$DEPLOY_MODE" != "docker" ] && [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then
+        chown "${SUDO_UID}:${SUDO_GID}" "$PG_SECRET_FILE"
+    fi
+}
+
+# 将口令写入密钥文件（mode 0600，仅属主可读）。不修改任何配置文件。
+_write_pg_secret() {
+    local password="$1"
+    local secret_dir
+    secret_dir="$(dirname "$PG_SECRET_FILE")"
+    [ -d "$secret_dir" ] || mkdir -p "$secret_dir"
+    ( umask 077 && printf '%s' "$password" > "$PG_SECRET_FILE" )
+    _secure_pg_secret_permissions
+    log_info "密钥文件已写入: ${PG_SECRET_FILE} (mode 0600)"
+}
 
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
@@ -130,13 +214,13 @@ deploy_docker() {
     echo "========================================"
 
     check_docker
+    ensure_pg_password
 
-    # ---------- PostgreSQL 镜像候选列表（按优先级从高到低）
+    # SCL 镜像不支持 *_PASSWORD_FILE，因此用 bash 入口从只读密钥挂载读取
+    # 密码后再 exec 原入口。保留既有镜像和数据目录，避免升级时迁移数据卷。
     # 每个条目: 镜像地址|用户环境变量|密码环境变量|库名环境变量|容器内数据目录
     declare -a PG_IMAGE_CANDIDATES=(
         "quay.io/sclorg/postgresql-15-c9s:latest|POSTGRESQL_USER|POSTGRESQL_PASSWORD|POSTGRESQL_DATABASE|/var/lib/pgsql/data"
-        "postgres:15|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|/var/lib/postgresql/data"
-        "postgres:latest|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|/var/lib/postgresql/data"
     )
 
     parse_image_entry() {
@@ -242,8 +326,8 @@ deploy_docker() {
         --restart unless-stopped \
         -p "${PG_PORT}:5432" \
         -v "${PG_VOLUME}:${PG_CONTAINER_DATA_DIR}" \
+        -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -e "${SELECTED_ENV_USER}=${PG_USER}" \
-        -e "${SELECTED_ENV_PASS}=${PG_PASSWORD}" \
         -e "${SELECTED_ENV_DB}=${PG_DATABASE}" \
         --health-cmd="pg_isready -U ${PG_USER} -d ${PG_DATABASE}" \
         --health-interval="${PG_HEALTH_INTERVAL}" \
@@ -251,7 +335,9 @@ deploy_docker() {
         --health-retries="${PG_HEALTH_RETRIES}" \
         --health-start-period="${PG_HEALTH_START_PERIOD}" \
         --network "${PG_NETWORK}" \
-        "${SELECTED_IMAGE}"
+        --entrypoint /bin/bash \
+        "${SELECTED_IMAGE}" \
+        -c 'export POSTGRESQL_PASSWORD="$(tr -d '\''\r\n'\'' </run/secrets/pg_password)"; [ -n "$POSTGRESQL_PASSWORD" ] || exit 1; exec /usr/bin/container-entrypoint /usr/bin/run-postgresql'
     log_ok "Container ${PG_CONTAINER_NAME} started"
 
     # Step 6: 等待健康 + 验证
@@ -320,6 +406,7 @@ deploy_rpm() {
     echo "========================================"
 
     check_root
+    ensure_pg_password
 
     # Step 1: 安装 PostgreSQL
     echo ""
@@ -547,6 +634,7 @@ deploy_apt() {
     echo "========================================"
 
     check_root
+    ensure_pg_password
 
     # Step 1: Install PostgreSQL
     echo ""

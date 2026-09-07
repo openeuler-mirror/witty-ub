@@ -13,6 +13,7 @@ from latency.database.models import (
     BrpcDiagFailureInterface,
     BrpcDiagFailureSubgraph,
     BrpcDiagHit,
+    BrpcDiagInterfaceBucket,
     BrpcDiagNode,
     BrpcDiagSchema,
 )
@@ -29,6 +30,7 @@ class FakeWriteSession:
         self.flush_count = 0
         self.pending_rows = []
         self.flushed_row_types = []
+        self.executed_statements = []
 
     def add_all(self, rows):
         rows = list(rows)
@@ -41,6 +43,9 @@ class FakeWriteSession:
             tuple(type(row) for row in self.pending_rows)
         )
         self.pending_rows.clear()
+
+    async def execute(self, statement, parameters=None):
+        self.executed_statements.append((statement, parameters))
 
 
 class FakeScalarResult:
@@ -86,6 +91,7 @@ def test_brpc_diagnosis_tables_are_registered():
         "brpc_diag_failure_subgraph",
         "brpc_diag_batch",
         "brpc_diag_hit",
+        "brpc_diag_interface_bucket",
     }
 
     assert expected_tables <= set(Base.metadata.tables)
@@ -173,7 +179,7 @@ def test_brpc_foreign_keys_and_batch_hit_cascade():
 def test_all_recommended_brpc_indexes_are_declared():
     ddl = "\n".join(BRPC_DIAG_INDEX_DDL)
 
-    assert len(BRPC_DIAG_INDEX_DDL) == 5
+    assert len(BRPC_DIAG_INDEX_DDL) == 7
     assert "brpc_diag_hit (batch_id, timestamp)" in ddl
     assert "brpc_diag_hit (batch_id, pod_ip, timestamp)" in ddl
     assert (
@@ -185,6 +191,16 @@ def test_all_recommended_brpc_indexes_are_declared():
     assert (
         "brpc_diag_failure_interface "
         "(schema_id, failure_mode_id, interface_id)"
+        in ddl
+    )
+    assert (
+        "brpc_diag_interface_bucket "
+        "(batch_id, window_seconds, window_start_timestamp)"
+        in ddl
+    )
+    assert (
+        "brpc_diag_interface_bucket "
+        "(batch_id, pod_ip, window_seconds, window_start_timestamp)"
         in ddl
     )
 
@@ -233,6 +249,7 @@ def test_manager_expands_schema_and_batch_in_caller_session():
         BrpcDiagBatch: 1,
         BrpcDiagHit: len(parsed_batch.hits),
     }
+    assert len(session.executed_statements) == 6
     assert session.flush_count == 5
     assert set(session.flushed_row_types[0]) == {BrpcDiagSchema}
     assert set(session.flushed_row_types[1]) == {BrpcDiagNode}
@@ -261,3 +278,21 @@ def test_manager_expands_schema_and_batch_in_caller_session():
     )
     assert loaded_schema is not None
     assert loaded_schema.model_dump() == schema.model_dump()
+
+
+def test_brpc_interface_bucket_schema_keeps_query_dimensions():
+    columns = BrpcDiagInterfaceBucket.__table__.columns
+
+    assert set(columns.keys()) >= {
+        "batch_id",
+        "window_seconds",
+        "window_start_timestamp",
+        "component",
+        "interface_id",
+        "pod_ip",
+        "pod_name",
+        "interface_hit_count",
+    }
+    batch_fk = next(iter(columns["batch_id"].foreign_keys))
+    assert batch_fk.target_fullname == "brpc_diag_batch.batch_id"
+    assert batch_fk.ondelete == "CASCADE"

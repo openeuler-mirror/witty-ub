@@ -6,10 +6,11 @@ import logging
 from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from latency.database.engine import PGManager
 from latency.database.models import LogKnowledge
-from latency.database.utils import format_timestamp, parse_timestamp
+from latency.database.utils import escape_like, format_timestamp, parse_timestamp
 from latency.schemas.log import LogKnowledgeModel
 from latency.schemas.request import ListLogKnowledgeRequest
 
@@ -48,34 +49,39 @@ class LogKnowledgePGManager:
         }
 
     @staticmethod
-    async def add_log_kb(log_kb_model: LogKnowledgeModel) -> str | None:
-        async with PGManager.session() as session:
-            if log_kb_model.name is not None:
-                # Serialize creations of the same active name.  The advisory
-                # lock closes the check/insert race without preventing a name
-                # from being reused after its previous asset library is soft
-                # deleted.
-                await session.execute(
-                    select(
-                        func.pg_advisory_xact_lock(
-                            func.hashtextextended(log_kb_model.name, 0)
-                        )
-                    )
-                )
-                existing_id = await session.scalar(
-                    select(LogKnowledge.id)
-                    .where(
-                        LogKnowledge.name == log_kb_model.name,
-                        LogKnowledge.existed_status.is_(True),
-                    )
-                    .limit(1)
-                )
-                if existing_id is not None:
-                    return None
-
+    async def add_log_kb(
+        log_kb_model: LogKnowledgeModel, session: AsyncSession | None = None
+    ) -> str | None:
+        """Insert using the caller transaction, or commit a standalone insert."""
+        if session is None:
+            async with PGManager.session() as own_session:
+                return await LogKnowledgePGManager.add_log_kb(log_kb_model, own_session)
+        if log_kb_model.name is not None:
+            # Serialize creations of the same active name.  The advisory
+            # lock closes the check/insert race without preventing a name
+            # from being reused after its previous asset library is soft
+            # deleted.
             await session.execute(
-                insert(LogKnowledge), [LogKnowledgePGManager._model_to_mapping(log_kb_model)]
+                select(
+                    func.pg_advisory_xact_lock(
+                        func.hashtextextended(log_kb_model.name, 0)
+                    )
+                )
             )
+            existing_id = await session.scalar(
+                select(LogKnowledge.id)
+                .where(
+                    LogKnowledge.name == log_kb_model.name,
+                    LogKnowledge.existed_status.is_(True),
+                )
+                .limit(1)
+            )
+            if existing_id is not None:
+                return None
+
+        await session.execute(
+            insert(LogKnowledge), [LogKnowledgePGManager._model_to_mapping(log_kb_model)]
+        )
         return log_kb_model.id
 
     @staticmethod
@@ -124,16 +130,59 @@ class LogKnowledgePGManager:
         return result.rowcount or 0
 
     @staticmethod
+    async def refresh_kb_counters(kb_id: str, session: AsyncSession | None = None) -> int:
+        """Recompute KB-level counters from its active log_file rows.
+
+        The log_file per-log counters are the single source of truth, so both
+        the parse workers and the log-deletion flow converge on the same
+        values: total_count = number of active logs, the rest = SUM over the
+        per-log columns.  Pass ``session`` to run inside an open transaction.
+        """
+        sql = text(
+            """
+            UPDATE log_knowledge AS kb
+            SET total_count = agg.log_cnt,
+                anomalous_count = agg.anomalous_cnt,
+                failure_count = agg.failure_cnt,
+                trace_failure_event_cnt = agg.trace_failure_cnt,
+                updated_at = NOW()
+            FROM (
+                SELECT COUNT(*) AS log_cnt,
+                       COALESCE(SUM(COALESCE(anomalous_count, 0)), 0) AS anomalous_cnt,
+                       COALESCE(SUM(COALESCE(failure_count, 0)), 0) AS failure_cnt,
+                       COALESCE(SUM(COALESCE(failure_count, 0)), 0) AS trace_failure_cnt
+                FROM log_file
+                WHERE kb_id = :kb_id AND existed_status IS TRUE
+            ) AS agg
+            WHERE kb.id = :kb_id
+            """
+        )
+        if session is not None:
+            result = await session.execute(sql, {"kb_id": kb_id})
+            return result.rowcount or 0
+        async with PGManager.session() as own_session:
+            result = await own_session.execute(sql, {"kb_id": kb_id})
+        return result.rowcount or 0
+
+    @staticmethod
     async def count_log_kbs(req: ListLogKnowledgeRequest) -> int:
         stmt = select(func.count()).where(LogKnowledge.existed_status.is_(True))
         if req.name:
-            stmt = stmt.where(LogKnowledge.name.ilike(f"%{req.name}%"))
+            stmt = stmt.where(LogKnowledge.name.ilike(f"%{escape_like(req.name)}%", escape="\\"))
         if req.description:
-            stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
+            stmt = stmt.where(
+                LogKnowledge.description.ilike(
+                    f"%{escape_like(req.description)}%", escape="\\"
+                )
+            )
         if req.created_at_start:
-            stmt = stmt.where(LogKnowledge.created_at >= req.created_at_start)
+            stmt = stmt.where(
+                LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
+            )
         if req.created_at_end:
-            stmt = stmt.where(LogKnowledge.created_at <= req.created_at_end)
+            stmt = stmt.where(
+                LogKnowledge.created_at <= parse_timestamp(req.created_at_end)
+            )
         async with PGManager.session() as session:
             return (await session.execute(stmt)).scalar() or 0
 
@@ -150,13 +199,21 @@ class LogKnowledgePGManager:
             LogKnowledge.updated_at,
         ).where(LogKnowledge.existed_status.is_(True))
         if req.name:
-            stmt = stmt.where(LogKnowledge.name.ilike(f"%{req.name}%"))
+            stmt = stmt.where(LogKnowledge.name.ilike(f"%{escape_like(req.name)}%", escape="\\"))
         if req.description:
-            stmt = stmt.where(LogKnowledge.description.ilike(f"%{req.description}%"))
+            stmt = stmt.where(
+                LogKnowledge.description.ilike(
+                    f"%{escape_like(req.description)}%", escape="\\"
+                )
+            )
         if req.created_at_start:
-            stmt = stmt.where(LogKnowledge.created_at >= req.created_at_start)
+            stmt = stmt.where(
+                LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
+            )
         if req.created_at_end:
-            stmt = stmt.where(LogKnowledge.created_at <= req.created_at_end)
+            stmt = stmt.where(
+                LogKnowledge.created_at <= parse_timestamp(req.created_at_end)
+            )
 
         if req.created_sorted_desc:
             stmt = stmt.order_by(desc(LogKnowledge.created_at))

@@ -23,6 +23,9 @@ latency.db-wal
 .deploy-logs/
 .deploy-run/
 
+# PG 密码密钥文件（由 deploy_pg.sh 自动生成，不入库）
+deploy/pg.passwd
+
 # 本地构建依赖包
 *.deb
 

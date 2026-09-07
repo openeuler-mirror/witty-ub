@@ -7,6 +7,8 @@ import pytest
 
 import latency.task.log_preprocessor as preprocessor_module
 from latency.task.log_preprocessor import (
+    get_archive_extension,
+    is_valid_archive_file,
     needs_preprocess,
     preprocess_log_dir,
     split_unmatched_log_files,
@@ -112,3 +114,38 @@ def test_preprocess_local_archive_file_path(monkeypatch, tmp_path, suffix):
 
     assert result.extracted_count == 1
     assert (output_dir / member_name).read_bytes() == content
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("logs.zip", ".zip"),
+        ("logs.TAR.GZ", ".tar.gz"),
+        ("logs.tgz", ".tgz"),
+        ("logs.rar", ".rar"),
+        ("logs.gz", None),
+        ("logs.tar", None),
+    ],
+)
+def test_get_archive_extension(path, expected):
+    assert get_archive_extension(path) == expected
+
+
+@pytest.mark.parametrize("suffix", [".tar.gz", ".tgz"])
+def test_is_valid_archive_file_for_tar_gzip(tmp_path, suffix):
+    archive_path = tmp_path / f"logs{suffix}"
+    content = b"log content\n"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        member = tarfile.TarInfo("nested/service.log")
+        member.size = len(content)
+        archive.addfile(member, io.BytesIO(content))
+
+    assert is_valid_archive_file(str(archive_path)) is True
+
+
+def test_is_valid_archive_file_for_zip(tmp_path):
+    archive_path = tmp_path / "logs.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("nested/service.log", b"log content\n")
+
+    assert is_valid_archive_file(str(archive_path)) is True

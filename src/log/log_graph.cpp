@@ -10,7 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#define MODULE_NAME "DIAGNOSIS"
+#define MODULE_NAME "LOG"
 
 #include "log_graph.h"
 
@@ -29,6 +29,34 @@ namespace failure::log {
 using namespace failure::graph;
 constexpr const char *OVERALL_CALLSTACK_PATH = "/var/witty-ub/callstack-analysis/overall_callstack.json";
 constexpr const char *KEY_FUNCTIONS_PATH = "/var/witty-ub/keyfunc-analysis/keyfunc.json";
+
+bool ParseEventType(const std::string &domain, EventTypeOption &eventType)
+{
+    if (domain == "bind") {
+        eventType = EventTypeOption::BIND;
+    } else if (domain == "unbind") {
+        eventType = EventTypeOption::UNBIND;
+    } else if (domain == "post" || domain == "poll") {
+        eventType = EventTypeOption::POST;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+void SetKeyFunctionRole(const std::string &funcName, EventTypeOption eventType, KeyFuncRoleMap &keyFuncRoleMap)
+{
+    if (eventType != EventTypeOption::POST) {
+        return;
+    }
+    if (funcName.find("tx") != std::string::npos) {
+        keyFuncRoleMap[funcName] = "tx";
+    } else if (funcName.find("rx") != std::string::npos) {
+        keyFuncRoleMap[funcName] = "rx";
+    } else {
+        keyFuncRoleMap[funcName] = "null";
+    }
+}
 
 void LogGraph::CollectUpstreamNodes(size_t start, std::unordered_set<size_t> &selected) const
 {
@@ -296,27 +324,12 @@ RackResult log::LogGraph::InitKeyFuncMap(const Json::Value &root, KeyFuncEventTy
         }
 
         EventTypeOption eventType;
-        if (domain == "bind") {
-            eventType = EventTypeOption::BIND;
-        } else if (domain == "unbind") {
-            eventType = EventTypeOption::UNBIND;
-        } else if (domain == "post" || domain == "poll") {
-            eventType = EventTypeOption::POST;
-        } else {
+        if (!ParseEventType(domain, eventType)) {
             LOG_ERROR << "invalid domain in keyfunc json, index=" << i << ", domain=" << domain;
             return RACK_FAIL;
         }
         keyFuncEventTypeMap[funcName] = eventType;
-
-        if (eventType == EventTypeOption::POST) {
-            if (funcName.find("tx") != std::string::npos) {
-                keyFuncRoleMap[funcName] = "tx";
-            } else if (funcName.find("rx") != std::string::npos) {
-                keyFuncRoleMap[funcName] = "rx";
-            } else {
-                keyFuncRoleMap[funcName] = "null";
-            }
-        }
+        SetKeyFunctionRole(funcName, eventType, keyFuncRoleMap);
     }
 
     return RACK_OK;

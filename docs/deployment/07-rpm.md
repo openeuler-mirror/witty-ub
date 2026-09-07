@@ -2,7 +2,7 @@
 
 ## 概述
 
-适用于 openEuler 原生部署场景，通过 systemd 管理服务。**前后端默认支持分离部署**：RPM 拆分为四个子包，按节点角色安装所需负载，管理工具 `witty-ub manager` 自动探测本机角色并只操作本机服务。
+适用于可安装 witty-ub RPM 包的 Linux 发行版，通过 systemd 管理服务。**前后端默认支持分离部署**：RPM 拆分为四个子包，按节点角色安装所需负载，管理工具 `witty-ub manager` 自动探测本机角色并只操作本机服务。
 
 | 包名 | 内容 | 安装位置 |
 | ------ | ------ | ------ |
@@ -23,7 +23,8 @@
 
 ## 前置条件
 
-- openEuler 24.03 LTS SP3 / SP4
+- Linux（不限定发行版及版本；需具备 dnf/yum 和 systemd）
+- 与当前系统架构及依赖 ABI 兼容的 witty-ub RPM 包或软件仓库
 - root 或 sudo 权限
 
 > PostgreSQL 不需要预装，`witty-ub manager deploy` 会自动初始化（仅后端节点需要）。
@@ -34,7 +35,7 @@
 
 两台机器均需配置（或使用离线 rpm 包安装）：
 
-### openEuler 24.03-LTS-SP3
+### openEuler 24.03-LTS-SP3 示例
 
 ```bash
 sudo tee /etc/yum.repos.d/witty-ub.repo <<'EOF'
@@ -46,7 +47,7 @@ gpgcheck=0
 EOF
 ```
 
-### openEuler 24.03-LTS-SP4
+### openEuler 24.03-LTS-SP4 示例
 
 ```bash
 sudo tee /etc/yum.repos.d/witty-ub.repo <<'EOF'
@@ -145,9 +146,13 @@ sudo witty-ub manager deploy
 
 ## PG 连接配置（后端节点）
 
-PG 凭据位于 `/etc/witty-ub/deploy.conf`，旧安装的 `pg.conf` 自动兼容。默认值：`host=127.0.0.1 port=5432 db/user/pass=witty-ub`。
+PG 连接配置位于 `/etc/witty-ub/deploy.conf`（旧安装的 `pg.conf` 自动兼容）。默认值：`host=127.0.0.1 port=5432 db/user=witty-ub`。
 
-如需修改，例如指向外部 PG，编辑后重新执行 `sudo witty-ub manager deploy` 即可同步生效。
+密码存放在独立密钥文件 `/etc/witty-ub/pg.passwd`（权限 0600），由 `deploy_pg.sh` 首次部署时交互输入或自动生成随机口令。`deploy.conf` 中的 `PG_PASSWORD` 仅为 `<CHANGE_ME>` 占位符，不存放实际口令。
+
+`diagnosis_config.toml` 只保存非敏感连接参数且权限为 `0600`。systemd 启动后端时由 `/var/witty-ub/latency/deploy/run_backend.sh` 读取密钥并仅注入后端进程环境。
+
+如需修改，例如指向外部 PG，编辑 `deploy.conf` 的 host/port/user/db 后重新执行 `sudo witty-ub manager deploy`；如需轮换密码，删除 `/etc/witty-ub/pg.passwd` 后重新部署即可。
 
 ---
 
@@ -210,7 +215,7 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 | 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager deploy` |
 | 前端 8080 起不来 | `ss -tlnp \| grep 8080` 查端口占用；检查 `/etc/witty-ub/web/nginx.conf` 是否已渲染后端地址 |
 | 前端页面接口 502 | 确认后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙 |
-| psql 连不上 | `systemctl status postgresql`；`cat /etc/witty-ub/deploy.conf` |
+| psql 连不上 | `systemctl status postgresql`；`stat -c '%a %U:%G' /etc/witty-ub/pg.passwd` 检查密钥权限，再查看后端日志 |
 | 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager deploy` |
 
 ---

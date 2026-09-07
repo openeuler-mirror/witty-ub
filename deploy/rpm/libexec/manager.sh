@@ -85,9 +85,8 @@ _log "部署角色: ${WITTY_ROLE}（服务: ${WITTY_SERVICES[*]:-无}）"
 
 # ──────────────────── PG 凭据同步 ────────────────────
 
-# 将 /etc/witty-ub/pg.conf 中实际的 PG 凭据写入 diagnosis_config.toml 的 [db] 段。
-# 实测踩坑：仓库 config 默认 pg_password=""，而 deploy_pg.sh 用 pg.conf 的
-# PG_PASSWORD 建库 → 后端 InvalidPasswordError。
+# 仅将 PG 非敏感连接参数同步到 diagnosis_config.toml。密码保留在
+# /etc/witty-ub/pg.passwd，由后端启动器读取并注入进程环境。
 sync_pg_credentials() {
     _load_pg_credentials || {
         _warn "无法加载 PG 凭据，跳过同步"
@@ -104,9 +103,10 @@ sync_pg_credentials() {
         -e "s|^pg_port = .*|pg_port = $PG_PORT|" \
         -e "s|^pg_database = .*|pg_database = \"$PG_DATABASE\"|" \
         -e "s|^pg_user = .*|pg_user = \"$PG_USER\"|" \
-        -e "s|^pg_password = .*|pg_password = \"$PG_PASSWORD\"|" \
+        -e 's|^pg_password = .*|pg_password = ""|' \
         "$DIAG_CONFIG_FILE" 2>/dev/null || true
-    _log "PG 凭据已同步到 $DIAG_CONFIG_FILE (host=$PG_HOST port=$PG_PORT db=$PG_DATABASE user=$PG_USER)"
+    chmod 0600 "$DIAG_CONFIG_FILE"
+    _log "PG 非敏感配置已同步到 $DIAG_CONFIG_FILE (host=$PG_HOST port=$PG_PORT db=$PG_DATABASE user=$PG_USER；密码由密钥文件注入)"
 }
 
 # ──────────────────── 访问信息 ────────────────────

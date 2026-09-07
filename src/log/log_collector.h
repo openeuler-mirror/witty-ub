@@ -19,9 +19,11 @@
 #include <thread>
 
 #include "rack_module.h"
+
 #include "log_graph.h"
-#include "log_view.h"
 #include "log_reader.h"
+#include "log_view.h"
+
 #include "log_collector.h"
 
 namespace failure::log {
@@ -56,6 +58,10 @@ private:
     void ReaderLoopOnce(const std::shared_ptr<LogReader> &reader,
                         std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
                         std::mutex &eventsMapMutex);
+#ifdef ENABLE_TOOL_FEATURE
+    void RunReadersOnce(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
+                        std::mutex &eventsMapMutex);
+#endif
     void CollectMetadata(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
                          std::vector<FailureMetadata> &metadata);
     void CollectCorrelatedLogs(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,

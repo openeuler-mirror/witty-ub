@@ -11,9 +11,9 @@
  */
 
 #define MODULE_NAME "HTTP_MODULE"
+#include "rack_http_server.h"
 #include "http/rack_http_server.h"
 #include "logger.h"
-#include "rack_http_server.h"
 
 namespace rack::com {
 
@@ -50,7 +50,7 @@ void RackHttpServerHandler::Use(RackHttpMiddleware middleware)
 }
 
 RackComResult<RackHttpResponse> RackHttpServerHandler::Dispatch(const RackComContext &context,
-    const RackHttpRequest &request) const
+                                                                const RackHttpRequest &request) const
 {
     if (context.cancelled && context.cancelled->load(std::memory_order_relaxed)) {
         return RackComResult<RackHttpResponse>::Error(RackComError::CANCELLED, "cancelled");
@@ -63,7 +63,6 @@ RackComResult<RackHttpResponse> RackHttpServerHandler::Dispatch(const RackComCon
     RackHttpHandler const *best = nullptr;
     size_t bestPrefixLen = 0;
 
-    
     for (const auto &[k, h] : routes_) {
         const auto pos = k.find(' ');
         if (pos == std::string::npos) {
@@ -97,7 +96,7 @@ std::string RackHttpServerHandler::MakeKey(RackHttpMethod method, std::string pa
     if (path.empty()) {
         path = "/";
     }
-    if (path[0] = '/') {
+    if (path[0] != '/') {
         path = "/" + path;
     }
     return MethodToString(method) + " " + path;

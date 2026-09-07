@@ -10,9 +10,9 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#include <memory>
-#include <iostream>
 #include "database_module.h"
+#include <iostream>
+#include <memory>
 #include "rack_error.h"
 
 namespace database {
@@ -30,7 +30,7 @@ void DatabaseModule::UnInitialize()
 }
 RackResult DatabaseModule::Start()
 {
-    OP_RET rc = db -> OpenDb("euler_copilot_ub", true);
+    OP_RET rc = db->OpenDb("/var/witty-ub/euler_copilot_ub", true);
     if (rc == OP_RET::FAIL) {
         std::cout << "DatabaseModule Started Fail" << std::endl;
         return RACK_FAIL;
@@ -41,7 +41,9 @@ RackResult DatabaseModule::Start()
 }
 void DatabaseModule::Stop()
 {
-    //OP_RET rc = db -> CloseDb();
+    if (db) {
+        db->Close();
+    }
     return;
 }
 shared_ptr<Database> DatabaseModule::GetDatabase()
@@ -49,4 +51,4 @@ shared_ptr<Database> DatabaseModule::GetDatabase()
     cout << "Get Database" << endl;
     return db;
 }
-}
+} // namespace database

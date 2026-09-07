@@ -19,6 +19,9 @@ WITTY_CONFIG_DIR="${WITTY_CONFIG_DIR:-${WITTY_DIR}/config}"
 WITTY_ETC_DIR="${WITTY_ETC_DIR:-/etc/witty-ub}"
 PG_CONF_FILE="${PG_CONF_FILE:-${WITTY_ETC_DIR}/deploy.conf}"
 [ -f "$PG_CONF_FILE" ] || PG_CONF_FILE="${WITTY_ETC_DIR}/pg.conf" # 兼容旧安装
+# PG 密码独立密钥文件（mode 0600），deploy_pg.sh 生成/写入，不回写 deploy.conf。
+# _load_pg_credentials 优先读密钥文件，回退到 deploy.conf 的 PG_PASSWORD（旧部署兼容）。
+PG_SECRET_FILE="${PG_SECRET_FILE:-${WITTY_ETC_DIR}/pg.passwd}"
 DIAG_CONFIG_FILE="${DIAG_CONFIG_FILE:-${WITTY_CONFIG_DIR}/diagnosis_config.toml}"
 
 # 前端连接配置（witty-ub-web 子包安装默认值，manager config 管理）
@@ -73,19 +76,23 @@ _psql_as_postgres() {
 # ──────────────────── OS 检测 ────────────────────
 
 detect_os() {
-    if [ -f /etc/openEuler-release ] || grep -qi 'openeuler' /etc/os-release 2>/dev/null; then
-        OS_ID="openeuler"
+    if _has_cmd dnf; then
+        OS_ID="rpm"
         PM_INSTALL="dnf install -y --allowerasing"
         PM_UPDATE="dnf update -y --allowerasing"
-        _log "检测到 openEuler"
-    elif grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
-        OS_ID="ubuntu"
+        _log "检测到 dnf 包管理器"
+    elif _has_cmd yum; then
+        OS_ID="rpm"
+        PM_INSTALL="yum install -y"
+        PM_UPDATE="yum update -y"
+        _log "检测到 yum 包管理器"
+    elif _has_cmd apt-get; then
+        OS_ID="apt"
         PM_INSTALL="apt-get install -y"
         PM_UPDATE="apt-get update -y"
-        _log "检测到 Ubuntu"
+        _log "检测到 apt-get 包管理器"
     else
-        _err "不支持的操作系统，需要 openEuler 或 Ubuntu"
-        _info "当前 OS: $(cut -d$'\n' -f1-3 /etc/os-release 2>/dev/null)"
+        _err "未检测到受支持的包管理器（dnf/yum/apt-get）"
         return 1
     fi
 }
@@ -109,30 +116,48 @@ _confirm() {
 
 # ──────────────────── PG 凭据 ────────────────────
 
-# 解析 /etc/witty-ub/pg.conf 的 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
-# 与 sync_pg_credentials 同源(pg.conf 是唯一真实凭据来源)。
+# 解析 PG 凭据并导出 PGPASSWORD, 供脚本内 psql 免密使用。
+# 密码读取优先级: PG_SECRET_FILE(/etc/witty-ub/pg.passwd) > deploy.conf 的 PG_PASSWORD > 空。
+# sync_pg_credentials 同源: 密钥文件是运行时唯一真实口令来源, deploy.conf 保持 <CHANGE_ME> 占位。
 _load_pg_credentials() {
-    [ -f "$PG_CONF_FILE" ] || {
-        _warn "pg.conf 不存在: $PG_CONF_FILE"
+    [ -f "$PG_CONF_FILE" ] || [ -f "$PG_SECRET_FILE" ] || {
+        _warn "PG 配置/密钥文件均不存在: $PG_CONF_FILE / $PG_SECRET_FILE"
         return 1
     }
-    PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
-    PG_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" | head -1 | cut -d= -f2 | tr -d '"')"
+    PG_HOST="$(grep -E '^PG_HOST=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    PG_PORT="$(grep -E '^PG_PORT_RPM=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    PG_USER="$(grep -E '^PG_USER=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    PG_DATABASE="$(grep -E '^PG_DATABASE=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
+    local CONF_PASSWORD
+    CONF_PASSWORD="$(grep -E '^PG_PASSWORD=' "$PG_CONF_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')"
     [ -z "$PG_HOST" ] && PG_HOST="127.0.0.1"
     [ -z "$PG_PORT" ] && PG_PORT="5432"
     [ -z "$PG_USER" ] && PG_USER="witty-ub"
     [ -z "$PG_DATABASE" ] && PG_DATABASE="witty-ub"
-    [ -n "$PG_PASSWORD" ] && export PGPASSWORD="$PG_PASSWORD"
+    # 优先读密钥文件；deploy.conf 的 PG_PASSWORD 仅作旧部署回退（<CHANGE_ME>/witty-ub 视为未设置）。
+    local SECRET_PASSWORD=""
+    if [ -f "$PG_SECRET_FILE" ]; then
+        SECRET_PASSWORD="$(cat "$PG_SECRET_FILE" 2>/dev/null | tr -d '\r\n')"
+    fi
+    if [ -n "$SECRET_PASSWORD" ]; then
+        PG_PASSWORD="$SECRET_PASSWORD"
+    elif [ -n "$CONF_PASSWORD" ] && [ "$CONF_PASSWORD" != "<CHANGE_ME>" ] && [ "$CONF_PASSWORD" != "witty-ub" ]; then
+        PG_PASSWORD="$CONF_PASSWORD"
+    else
+        PG_PASSWORD=""
+    fi
+    if [ -n "$PG_PASSWORD" ]; then
+        export PGPASSWORD="$PG_PASSWORD"
+    else
+        unset PGPASSWORD
+    fi
     return 0
 }
 
 # psql 便捷封装: 使用 _load_pg_credentials 的凭据连接 witty-ub 业务库。
 _psql() {
     _load_pg_credentials || return 1
-    psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" "$@"
+    psql --no-password -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" "$@"
 }
 
 # ──────────────────── 角色探测 ────────────────────

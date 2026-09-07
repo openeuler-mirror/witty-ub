@@ -82,12 +82,17 @@ services:
       - witty-ub-data:/var/witty-ub/data
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
+    secrets:
+      - pg_password
     environment:
       - PG_HOST=<PG地址>
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
       - PG_USER=witty-ub
-      - PG_PASSWORD=witty-ub
+
+secrets:
+  pg_password:
+    file: /etc/witty-ub/pg.passwd
 ```
 
 ### 方式二：docker run（分角色）
@@ -105,12 +110,12 @@ docker run -d \
   -v witty-ub-data:/var/witty-ub/data \
   -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
   -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
+  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
   -e PYTHONPATH=/var/witty-ub \
   -e PG_HOST=172.18.0.1 \
   -e PG_PORT=5432 \
   -e PG_DATABASE=witty-ub \
   -e PG_USER=witty-ub \
-  -e PG_PASSWORD=witty-ub \
   --network witty-ub-network \
   witty-ub:backend
 ```
@@ -171,6 +176,8 @@ services:
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       - ~/.config/opencode:/root/.config/opencode
+    secrets:
+      - pg_password
     environment:
       - PYTHONPATH=/var/witty-ub
       - LOG_LEVEL=info
@@ -178,7 +185,6 @@ services:
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
       - PG_USER=witty-ub
-      - PG_PASSWORD=witty-ub
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -197,6 +203,10 @@ volumes:
 networks:
   witty-ub-network:
     driver: bridge
+
+secrets:
+  pg_password:
+    file: /etc/witty-ub/pg.passwd
 ```
 
 ```bash
@@ -221,13 +231,13 @@ docker run -d \
   -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
   -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
   -v ~/.config/opencode:/root/.config/opencode \
+  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
   -e PYTHONPATH=/var/witty-ub \
   -e LOG_LEVEL=info \
   -e PG_HOST=postgres \
   -e PG_PORT=5432 \
   -e PG_DATABASE=witty-ub \
   -e PG_USER=witty-ub \
-  -e PG_PASSWORD=witty-ub \
   --health-cmd="curl -f http://localhost:9772/health_check" \
   --health-interval=30s \
   --health-timeout=10s \
@@ -316,7 +326,7 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `PG_PORT` | `5432` | PG 端口 |
 | `PG_DATABASE` | `witty-ub` | PG 数据库名 |
 | `PG_USER` | `witty-ub` | PG 用户名 |
-| `PG_PASSWORD` | `witty-ub` | PG 密码 |
+| `PG_PASSWORD` | （见密钥文件） | PG 密码；脚本部署时从 `/etc/witty-ub/pg.passwd` 读取注入，手动部署替换为唯一强口令 |
 | `LOG_LEVEL` | `info` | 日志级别 |
 
 ---
