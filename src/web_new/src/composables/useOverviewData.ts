@@ -2671,3 +2671,892 @@ function createOverviewState() {
 
   const renderSlowChart = () => {
     nextTick(() => {
+      const el = slowRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const rows = slowChartRows.value
+      const labels = rows.map((row) => row.timestampLabel)
+      const initialEnd = Math.min(100, (50 / rows.length) * 100)
+      const hasOther = rows.some((row) => row.otherLatency > 0)
+      const barSeries = topSlowSegmentConfig.map((segment) => ({
+        name: segment.label,
+        type: 'bar',
+        stack: 'latency-components',
+        barMaxWidth: 22,
+        emphasis: { focus: 'series' },
+        itemStyle: { color: segment.color },
+        data: rows.map((row) => {
+          const value = row.segments[segment.key]
+          return typeof value === 'number' ? value / 1000 : 0
+        }),
+      }))
+      if (hasOther) {
+        barSeries.push({
+          name: '其他',
+          type: 'bar',
+          stack: 'latency-components',
+          barMaxWidth: 22,
+          emphasis: { focus: 'series' },
+          itemStyle: { color: '#94a3b8' },
+          data: rows.map((row) => row.otherLatency / 1000),
+        })
+      }
+      const formatLatency = (value: number) => `${value.toFixed(2)} ms`
+      // 计数类分段（如 URMA并发数）堆叠值同样被 /1000 缩放到不可见，tooltip 展示原始个数
+      const formatMetric = (seriesName: string | undefined, value: number) => {
+        const segment = topSlowSegmentConfig.find((item) => item.label === seriesName)
+        return segment?.unit === 'count' ? `${Math.round(value * 1000)} 个` : formatLatency(value)
+      }
+      setChartOption(chart, {
+        animation: rows.length <= 300,
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          appendToBody: true,
+          formatter: (params: any) => {
+            const items = Array.isArray(params) ? params : []
+            const row = rows[items[0]?.dataIndex]
+            if (!row) return ''
+            const details = items
+              .filter(
+                (item: any) =>
+                  item.seriesName !== '总时延' &&
+                  typeof item.value === 'number' &&
+                  Number.isFinite(item.value) &&
+                  item.value > 0,
+              )
+              .map(
+                (item: any) =>
+                  `<div style="display:flex;justify-content:space-between;gap:16px"><span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:6px"></i>${item.seriesName}</span><b>${formatMetric(item.seriesName, item.value)}</b></div>`,
+              )
+              .join('')
+            return `<div style="min-width:260px"><strong>${row.timestampLabel}</strong><br/><small>${row.traceId} · ${row.operation}</small><div style="margin:6px 0;border-top:1px solid #D9E0E8"></div>${details}<div style="margin-top:6px;display:flex;justify-content:space-between"><span>总时延</span><b style="color:#EF4444">${formatLatency(row.totalLatency / 1000)}</b></div></div>`
+          },
+        },
+        legend: {
+          type: 'scroll',
+          top: 0,
+          left: 8,
+          right: 8,
+          data: [
+            ...topSlowSegmentConfig.map((segment) => segment.label),
+            ...(hasOther ? ['其他'] : []),
+            '总时延',
+          ],
+          textStyle: { fontSize: 11 },
+        },
+        grid: { top: 58, right: 24, bottom: 92, left: 62, containLabel: true },
+        xAxis: {
+          type: 'category',
+          data: labels,
+          axisLabel: { fontSize: 10, rotate: 42, interval: 0 },
+        },
+        yAxis: { type: 'value', name: '时延 (ms)', min: 0, axisLabel: { fontSize: 10 } },
+        dataZoom: [
+          {
+            type: 'inside',
+            start: 0,
+            end: initialEnd,
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+          },
+          { type: 'slider', start: 0, end: initialEnd, bottom: 48, height: 20 },
+        ],
+        series: [
+          ...barSeries,
+          {
+            name: '总时延',
+            type: 'line',
+            symbol: 'none',
+            lineStyle: { color: '#dc2626', width: 2 },
+            itemStyle: { color: '#dc2626' },
+            z: 10,
+            data: rows.map((row) => row.totalLatency / 1000),
+          },
+        ],
+      })
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        const row = rows[params.dataIndex]
+        if (row && row.raw && row.raw.trace_id) void openTraceDrawer(row.raw)
+      })
+    })
+  }
+
+  const faultActivePairs = computed(() => {
+    const map = new Map<string, { src: string; dst: string; faults: number; codes: string[] }>()
+    faultTraces.value.forEach((trace) => {
+      const src = trace.src_ip
+      const dst = trace.dst_ip
+      if (!src || !dst) return
+      const key = `${src}|${dst}`
+      if (!map.has(key)) map.set(key, { src, dst, faults: 0, codes: [] })
+      const pair = map.get(key)!
+      pair.faults += 1
+      normalizeFaultCodes(trace.status_code).forEach((code) => {
+        if (!pair.codes.includes(code)) pair.codes.push(code)
+      })
+    })
+    return [...map.values()].sort((a, b) => b.faults - a.faults)
+  })
+
+  const faultPodStats = computed(() => {
+    const map = new Map<
+      string,
+      { ip: string; faults: number; src: number; dst: number; codes: string[] }
+    >()
+    faultTraces.value.forEach((trace) => {
+      const ips = [
+        ...new Set([trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean)),
+      ]
+      ips.forEach((ip: string) => {
+        if (!map.has(ip)) map.set(ip, { ip, faults: 0, src: 0, dst: 0, codes: [] })
+        const stat = map.get(ip)!
+        stat.faults += 1
+        if (trace.src_ip === ip) stat.src += 1
+        if (trace.dst_ip === ip) stat.dst += 1
+        normalizeFaultCodes(trace.status_code).forEach((code) => {
+          if (!stat.codes.includes(code)) stat.codes.push(code)
+        })
+      })
+    })
+    return [...map.values()].sort((a, b) => b.faults - a.faults)
+  })
+
+  const renderFaultTopology = () => {
+    nextTick(() => {
+      const el = faultTopoRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const nodeMap = new Map<string, { ip: string; faults: number; src: number; dst: number }>()
+      faultActivePairs.value.forEach((pair) => {
+        ;(
+          [
+            ['src', pair.src],
+            ['dst', pair.dst],
+          ] as const
+        ).forEach(([role, ip]) => {
+          if (!nodeMap.has(ip)) nodeMap.set(ip, { ip, faults: 0, src: 0, dst: 0 })
+          const node = nodeMap.get(ip)!
+          node.faults += pair.faults
+          if (role === 'src') node.src += pair.faults
+          else node.dst += pair.faults
+        })
+      })
+      const maxFaults = Math.max(...[...nodeMap.values()].map((node) => node.faults), 1)
+      const nodes = [...nodeMap.values()].map((node) => ({
+        name: node.ip,
+        faults: node.faults,
+        src: node.src,
+        dst: node.dst,
+        symbolSize: 16 + (node.faults / maxFaults) * 44,
+        itemStyle: {
+          color: node.faults > 20 ? '#EF4444' : node.faults > 5 ? '#F59E0B' : '#1E6FFF',
+        },
+        label: { show: true, fontSize: 11, formatter: '{b}' },
+      }))
+      const links = faultActivePairs.value.map((pair) => ({
+        source: pair.src,
+        target: pair.dst,
+        faults: pair.faults,
+        codes: pair.codes,
+        value: pair.faults,
+        lineStyle: {
+          color: '#EF4444',
+          width: 1 + (pair.faults / maxFaults) * 5,
+          curveness: 0.2,
+          opacity: 0.85,
+        },
+      }))
+      setChartOption(chart, {
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => {
+            if (params.dataType === 'node') {
+              const data = params.data
+              return `<b>${data.name}</b><br/>故障次数: ${data.faults}<br/>出方向: ${data.src} &nbsp; 入方向: ${data.dst}`
+            }
+            if (params.dataType === 'edge') {
+              const data = params.data
+              return `<b>${data.source} → ${data.target}</b><br/>故障次数: ${data.faults}<br/>故障码: ${data.codes.join(', ') || '-'}`
+            }
+            return ''
+          },
+        },
+        series: [
+          {
+            type: 'graph',
+            layout: 'force',
+            roam: true,
+            draggable: true,
+            edgeSymbol: ['none', 'arrow'],
+            edgeSymbolSize: 8,
+            force: { repulsion: 520, edgeLength: [130, 280], gravity: 0.12 },
+            data: nodes,
+            links,
+            emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
+          },
+        ],
+      })
+    })
+  }
+
+  const renderFaultPieCharts = () => {
+    nextTick(() => {
+      const faultEl = faultPieRefs['faults']
+      if (faultEl) {
+        const chart = getChart(faultEl)
+        setChartOption(chart, {
+          tooltip: { trigger: 'item', formatter: '{b}<br/>故障: {c} ({d}%)' },
+          series: [
+            {
+              type: 'pie',
+              radius: ['40%', '70%'],
+              data: faultPodStats.value.map((stat) => ({ name: stat.ip, value: stat.faults })),
+              label: { fontSize: 11 },
+            },
+          ],
+        })
+      }
+      const codeEl = faultPieRefs['codes']
+      if (codeEl) {
+        const chart = getChart(codeEl)
+        const codeMap = new Map<string, number>()
+        faultTraces.value.forEach((trace) => {
+          const codes = normalizeFaultCodes(trace.status_code)
+          if (codes.length === 0) {
+            codeMap.set('0', (codeMap.get('0') || 0) + 1)
+            return
+          }
+          codes.forEach((code) => codeMap.set(code, (codeMap.get(code) || 0) + 1))
+        })
+        setChartOption(chart, {
+          tooltip: { trigger: 'item', formatter: '{b}<br/>次数: {c} ({d}%)' },
+          series: [
+            {
+              type: 'pie',
+              radius: ['40%', '70%'],
+              data: [...codeMap.entries()].map(([code, count]) => ({
+                name: code === '0' ? '无故障码' : `故障码 ${code}`,
+                value: count,
+              })),
+              label: { fontSize: 11 },
+            },
+          ],
+        })
+      }
+    })
+  }
+
+  const abnormalTraceIdSet = computed(
+    () => new Set((scopeData.value.abnormal || []).map((row: any) => row.trace_id).filter(Boolean)),
+  )
+  const faultTraceIdSet = computed(
+    () =>
+      new Set((scopeData.value.faultTraces || []).map((row: any) => row.trace_id).filter(Boolean)),
+  )
+
+  const traceTags = (traceId: string, source: 'fault' | 'latency') => {
+    const op = realOp.value
+    const tags: Array<{ type: 'fault' | 'latency'; label: string }> = []
+    if (source === 'fault') {
+      tags.push({ type: 'fault', label: '通断' })
+      if (faultTraceIdsWithLatency[op].has(traceId)) tags.push({ type: 'latency', label: '时延' })
+    } else {
+      tags.push({ type: 'latency', label: '时延' })
+      if (latencyTraceIdsWithFault[op].has(traceId)) tags.push({ type: 'fault', label: '通断' })
+    }
+    return tags
+  }
+
+  const podRowTags = (row: any) => {
+    const op = realOp.value
+    const tags: Array<{ type: 'fault' | 'latency'; label: string }> = []
+    const traceId = row?.trace_id
+    const isFault =
+      normalizeFaultCodes(row?.status_code).length > 0 ||
+      (traceId ? faultTraceIdSet.value.has(traceId) : false)
+    const hasLatency =
+      row?.total_latency ||
+      row?.total_latency_us ||
+      (traceId ? abnormalTraceIdSet.value.has(traceId) : false) ||
+      (traceId ? faultTraceIdsWithLatency[op].has(traceId) : false)
+    if (isFault) tags.push({ type: 'fault', label: '通断' })
+    if (hasLatency) tags.push({ type: 'latency', label: '时延' })
+    return tags
+  }
+
+  const renderFaultPodChart = () => {
+    nextTick(() => {
+      const el = faultPodRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const rows = [...faultPodAgg.value].reverse()
+      setChartOption(chart, {
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => `<b>${params.name}</b><br/>故障次数：${params.value}`,
+        },
+        grid: { left: 118, right: 24, top: 12, bottom: 28 },
+        xAxis: { type: 'value', name: '故障次数', axisLabel: { fontSize: 10 } },
+        yAxis: {
+          type: 'category',
+          data: rows.map((row) => row.ip),
+          axisLabel: { fontSize: 10, fontFamily: 'monospace' },
+        },
+        series: [
+          {
+            type: 'bar',
+            barMaxWidth: 18,
+            data: rows.map((row) => ({
+              name: row.ip,
+              value: row.faults,
+              itemStyle: { color: row.faults > 5 ? '#EF4444' : '#F59E0B' },
+            })),
+          },
+        ],
+      })
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        if (params.name) enterPodDetail(params.name)
+      })
+    })
+  }
+
+  const renderFaultChart = () => {
+    nextTick(() => {
+      const el = faultChartRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const codes = Object.keys(faultChartData.value)
+      if (codes.length === 0) {
+        chart.clear()
+        return
+      }
+      const colors = ['#EF4444', '#F59E0B', '#1E6FFF', '#8B5CF6', '#00B365']
+      const times = [
+        ...new Set(
+          codes.flatMap((code) => (faultChartData.value[code] ?? []).map((point) => point.time)),
+        ),
+      ].sort()
+      const series = codes.map((code, index) => ({
+        name: `故障码 ${code}`,
+        type: 'line',
+        smooth: true,
+        stack: 'fault',
+        lineStyle: { width: 2, color: colors[index % colors.length] ?? '#EF4444' },
+        itemStyle: { color: colors[index % colors.length] ?? '#EF4444' },
+        data: times.map((time) => {
+          const point = (faultChartData.value[code] ?? []).find((item) => item.time === time)
+          return point ? point.err_cnt : 0
+        }),
+      }))
+      const xStep = times.length <= 10 ? 1 : Math.ceil(times.length / 10)
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => time.slice(11, 19)),
+          axisLabel: {
+            interval: (index: number) =>
+              times.length <= 10 ||
+              index === 0 ||
+              index === times.length - 1 ||
+              index % xStep === 0,
+            fontSize: 10,
+            rotate: 30,
+          },
+        },
+        yAxis: { type: 'value', name: '次数', axisLabel: { fontSize: 10 } },
+        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 4 }],
+        series,
+        toolbox: {
+          show: true,
+          feature: {
+            brush: { type: ['rect', 'clear'], title: { rect: '框选时间', clear: '清除框选' } },
+          },
+          right: 8,
+        },
+        brush: {
+          xAxisIndex: 0,
+          brushType: 'rect',
+          brushLink: 'all',
+          throttleType: 'debounce',
+          throttleDelay: 300,
+        },
+      })
+      chart.dispatchAction({
+        type: 'takeGlobalCursor',
+        key: 'brush',
+        brushOption: { brushType: 'rect', brushMode: 'single' },
+      })
+      chart.off('brushEnd')
+      chart.on('brushEnd', (params: any) => {
+        const area = (params.areas || [])[0]
+        if (!area || !Array.isArray(area.coordRange)) {
+          faultTimeRange.value = null
+          return
+        }
+        const xRange = Array.isArray(area.coordRange[0]) ? area.coordRange[0] : area.coordRange
+        const startIndex = Math.max(0, Math.floor(xRange[0]))
+        const endIndex = Math.min(times.length - 1, Math.ceil(xRange[1]))
+        if (startIndex > endIndex || times.length === 0) {
+          faultTimeRange.value = null
+          return
+        }
+        const startTime = times[startIndex]
+        const endTime = times[endIndex]
+        if (startTime && endTime) {
+          faultTimeRange.value = {
+            start: startTime.slice(11, 19),
+            end: endTime.slice(11, 19),
+          }
+        }
+      })
+    })
+  }
+
+  const renderBrpcCharts = () => {
+    nextTick(() => {
+      const trend = brpcTrend.value
+      ;[
+        { ref: brpcSuccessRef, yName: '成功率 %', data: trend.success, color: '#00B365' },
+        { ref: brpcP99Ref, yName: 'P99 (ms)', data: trend.p99, color: '#EF4444' },
+      ].forEach(({ ref, yName, data, color }) => {
+        const el = ref.value
+        if (!el) return
+        const chart = getChart(el)
+        setChartOption(chart, {
+          tooltip: { trigger: 'axis' },
+          grid: { left: 56, right: 20, top: 24, bottom: 40 },
+          xAxis: { type: 'category', data: trend.times, axisLabel: { fontSize: 10 } },
+          yAxis: { type: 'value', name: yName, axisLabel: { fontSize: 10 } },
+          series: [
+            {
+              type: 'line',
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { width: 2, color },
+              itemStyle: { color },
+              data,
+            },
+          ],
+        })
+      })
+    })
+  }
+
+  const renderAnalysisModules = () => {
+    nextTick(() => {
+      if (!isAssetMode.value) return
+      if (isBrpcTask.value) {
+        renderBrpcCharts()
+        return
+      }
+      if (analysisTab.value === 'latency') {
+        if (analysisModule.latency === 'overview') {
+          renderAnomalyChart()
+          renderTopology()
+        } else {
+          renderTrendChart()
+          renderSlowChart()
+        }
+      } else {
+        renderFaultTopology()
+        renderFaultPieCharts()
+        renderFaultChart()
+        renderFaultPodChart()
+      }
+    })
+  }
+
+  const loadOverviewForTab = async () => {
+    if (!isAssetMode.value) return
+    if (assetTypeFilter.value === 'brpc') {
+      await loadBrpcData()
+      if (brpcMonitorTab.value === 'fault') await loadBrpcFaultData()
+      return
+    } else {
+      const op = realOp.value
+      await loadOverviewSection(op)
+      if (analysisTab.value === 'latency') {
+        if (analysisModule.latency === 'trend') {
+          await loadTrendSection(op, trendPercentile.value)
+          renderTrendChart()
+          renderSlowChart()
+        } else {
+          renderAnomalyChart()
+          renderTopology()
+        }
+      } else {
+        await loadFaultSection(op)
+        renderFaultTopology()
+        renderFaultPieCharts()
+        renderFaultChart()
+        renderFaultPodChart()
+      }
+    }
+  }
+
+  const bindOverviewWatchers = () => {
+    watch(
+      [
+        currentOp,
+        assetTypeFilter,
+        assetTab,
+        analysisTab,
+        () => analysisModule.latency,
+        () => analysisModule.fault,
+        overviewScale,
+      ],
+      () => {
+        if (!isAssetMode.value) return
+        overviewBrushRange.value = null
+        void loadOverviewForTab()
+      },
+    )
+
+    watch([trendVisible, trendPercentile, trendScale, trendRange], () => {
+      if (isAssetMode.value && !isBrpcTask.value && analysisModule.latency === 'trend') {
+        void loadTrendSection(realOp.value, trendPercentile.value).then(() => renderTrendChart())
+      }
+    })
+
+    watch(
+      [scopeData, brpcInterfaces, brpcTrend],
+      () => {
+        if (!isAssetMode.value) return
+        // 概览页拓扑/时间图由下方专用 watcher 驱动，避免补数据(如进 Pod 详情)时整图重绘
+        if (
+          !isBrpcTask.value &&
+          analysisTab.value === 'latency' &&
+          analysisModule.latency === 'overview'
+        ) {
+          return
+        }
+        renderAnalysisModules()
+      },
+      { deep: true },
+    )
+
+    // 时间桶变化（数据加载/时间尺度/操作类型）→ 重绘时段异常强度
+    watch(
+      timeBuckets,
+      () => {
+        if (
+          isAssetMode.value &&
+          !isBrpcTask.value &&
+          analysisTab.value === 'latency' &&
+          analysisModule.latency === 'overview'
+        ) {
+          renderAnomalyChart()
+        }
+      },
+      { deep: true },
+    )
+
+    // 故障类型过滤变化 → 重绘统一时序（聚合事件表为响应式）
+    watch(faultTypeFilter, () => {
+      if (
+        isAssetMode.value &&
+        !isBrpcTask.value &&
+        analysisTab.value === 'latency' &&
+        analysisModule.latency === 'overview'
+      ) {
+        renderAnomalyChart()
+      }
+    })
+
+    // 统计方式变化 → 重绘时段异常强度（总时延线）
+    watch(
+      () => overview.statType,
+      () => {
+        if (
+          isAssetMode.value &&
+          !isBrpcTask.value &&
+          analysisTab.value === 'latency' &&
+          analysisModule.latency === 'overview'
+        ) {
+          renderAnomalyChart()
+        }
+      },
+    )
+
+    // TopK / 排序 变化 → 重算 Pod 列表并回到第 1 页
+    watch([overview.topK, overview.sortBy], () => {
+      podPage.value = 1
+      if (
+        isAssetMode.value &&
+        !isBrpcTask.value &&
+        analysisTab.value === 'latency' &&
+        analysisModule.latency === 'overview'
+      ) {
+        renderTopology()
+      }
+    })
+
+    // 拓扑输入或查看焦点变化 → 重绘拓扑
+    watch(
+      [visibleTopologyLinks, overviewBrushRange, selectedTopologyLinkKey, selectedTopologyNodeIp],
+      () => {
+        if (!isAssetMode.value || isBrpcTask.value) return
+        if (analysisTab.value === 'latency' && analysisModule.latency === 'overview') {
+          renderTopology()
+        }
+      },
+      { deep: true },
+    )
+
+    watch(availableMetrics, (list) => {
+      const present = new Set(list.map((metric) => metric.key))
+      const kept = selectedMetrics.value.filter((key) => present.has(key))
+      selectedMetrics.value = kept.length ? kept : list.map((metric) => metric.key)
+    })
+
+    watch(
+      () => dataOptions?.getAsset()?.id,
+      () => {
+        clearSectionCaches()
+        void loadOverviewForTab()
+      },
+      { immediate: true },
+    )
+    watch(
+      () => dataOptions?.getLogFiles(),
+      () => {
+        const files = dataOptions?.getLogFiles() ?? []
+        const key = files.map((file) => `${file.id}:${file.overall_status}`).join('|')
+        if (key !== lastLogFilesKey) {
+          clearSectionCaches()
+          lastLogFilesKey = key
+        }
+        if (isAssetMode.value) void loadOverviewForTab()
+      },
+    )
+  }
+
+  return {
+    toast,
+    bindOverviewWatchers,
+    selectedAsset,
+    view,
+    assetTab,
+    pieRefs,
+    ipRowRefs,
+    activePairs,
+    addTraceBoard,
+    allMetrics,
+    analysisModule,
+    analysisTab,
+    assetTypeFilter,
+    brpcAbnormalThreadPage,
+    brpcAbnormalThreadTotal,
+    brpcAbnormalThreads,
+    brpcAggregatedEventPage,
+    brpcAggregatedEventTotal,
+    brpcAggregatedEvents,
+    brpcEventHitTotal,
+    brpcFaultBatch,
+    brpcFaultDetail,
+    brpcThreadLogs,
+    brpcThreadLogsLoading,
+    brpcThreadLogsError,
+    brpcFaultError,
+    brpcFaultEventPages,
+    brpcFaultLoading,
+    brpcFaultLogOptions,
+    brpcFaultPageSize,
+    brpcFaultQueryRange,
+    brpcFaultSelectedLogId,
+    brpcFaultTab,
+    brpcFaultThreadPages,
+    brpcFaultTimelineRef,
+    faultActivePairs,
+    faultPodStats,
+    faultTopoRef,
+    faultPieRefs,
+    renderFaultTopology,
+    renderFaultPieCharts,
+    clearOverviewBrush,
+    applyOverviewBrush,
+    overviewScale,
+    overviewScaleOptions,
+    overviewBrushRange,
+    timeRangeLabel,
+    availableMetrics,
+    availableMetricCats,
+    anomalySeries,
+    filteredTimeBuckets,
+    anomalyRef,
+    timeBuckets,
+    metricCategoryColor,
+    metricCategoryColorOf,
+    metricCategoryOf,
+    metricIsCount,
+    metricUnit,
+    metricValueText,
+    renderAnomalyChart,
+    faultTraceIdsWithLatency,
+    latencyTraceIdsWithFault,
+    traceTags,
+    podRowTags,
+    brpcFaultTimelineSeries,
+    brpcInterfaces,
+    brpcKpi,
+    brpcLoading,
+    brpcMonitorError,
+    brpcMonitorTab,
+    brpcP99Ref,
+    brpcScopeTasks,
+    brpcSuccessRef,
+    brpcTrend,
+    changeBrpcFaultLog,
+    clearFaultRange,
+    clearTrend,
+    currentOp,
+    detailDrawerOpen,
+    detailDrawerRow,
+    drawerKind,
+    enterPodDetail,
+    failureModeCache,
+    failureModeOf,
+    faultChartData,
+    faultChartRef,
+    faultOp,
+    faultPodAgg,
+    faultPodRef,
+    faultTimeRange,
+    faultTracePage,
+    faultTracePageSize,
+    faultTracePages,
+    faultTraces,
+    filteredFaultTraces,
+    filteredPodStats,
+    formatFullTime,
+    getAdaptiveBucketMs,
+    getChart,
+    goBrpcFaultEventsPage,
+    goBrpcFaultThreadsPage,
+    hasRealData,
+    highlightRow,
+    isAssetMode,
+    isBrpcTask,
+    jumpToPod,
+    kpiData,
+    latencyOp,
+    loadBrpcData,
+    loadBrpcFaultData,
+    loadFailureMode,
+    loadOverviewForTab,
+    metricCats,
+    metricLabel,
+    openBrpcFaultDetail,
+    openTraceDrawer,
+    overview,
+    overviewError,
+    overviewLoading,
+    pagedFaultTraces,
+    pagedPodDetailRows,
+    pagedPodIpsCb,
+    pagedPodStats,
+    pagedTraceRows,
+    podDetailIp,
+    podDetailOpen,
+    podDetailPage,
+    podDetailPageSize,
+    podDetailPages,
+    podDetailRows,
+    podDetailSearch,
+    podDetailSummary,
+    podBreakdownSegments,
+    podBreakdownTotal,
+    podBreakdownTitle,
+    podStageTree,
+    podStageTreeTitle,
+    podStageGrid,
+    podStageLegend,
+    podStageGridTitle,
+    podStageFlow,
+    podStageFullLegend,
+    podIpCbPage,
+    podIpCbPageSize,
+    podIpCbPages,
+    podIpStats,
+    podPage,
+    podPageSize,
+    podPages,
+    realOp,
+    removeTraceBoard,
+    renderAnalysisModules,
+    renderBrpcCharts,
+    renderBrpcFaultTimeline,
+    renderFaultChart,
+    renderFaultPodChart,
+    renderPieCharts,
+    renderSlowChart,
+    renderTopology,
+    renderTrendChart,
+    resetOverviewFilter,
+    resetTopologyFilter,
+    resetTrend,
+    resolveBrpcFaultBatch,
+    scopeData,
+    scopeTaskCount,
+    scopeTasks,
+    selectAllTrend,
+    selectedMetrics,
+    selectedPodIps,
+    selectedTopologyLink,
+    selectedTopologyNode,
+    selectTopologyLink,
+    selectTopologyNode,
+    filterTopologyLink,
+    setChartOption,
+    setCurrentOp,
+    showMetricCb,
+    showPodIpCb,
+    slowChartRows,
+    slowRef,
+    slowRows,
+    slowTotal,
+    toAggregatedPairs,
+    toggleTrendSeries,
+    topSlowSegmentConfig,
+    topoHiddenCount,
+    topoNodeLimit,
+    topoShowAll,
+    topoTotalCount,
+    topologyLinks,
+    visibleTopologyLinks,
+    topologySummary,
+    topoRef,
+    traceBoard,
+    traceBreakdownKeys,
+    traceBreakdownTitle,
+    traceCluster,
+    traceClusters,
+    traceDrawerLogs,
+    tracePage,
+    tracePageSize,
+    tracePages,
+    traceRows,
+    traceSearch,
+    traceSegments,
+    traceStageRows,
+    trendAnomalyHint,
+    trendBuckets,
+    trendCenter,
+    trendChartData,
+    trendMetrics,
+    trendPercentile,
+    trendPercentileOptions,
+    trendRange,
+    trendRef,
+    trendScale,
+    trendScaleOptions,
+    trendVisible,
+    uniquePodIps,
+  }
+}
