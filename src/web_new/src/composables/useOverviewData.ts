@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, shallowRef, watch } from 'vue'
 import { getInstanceByDom, init, use, type ECharts } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, GraphChart, HeatmapChart, LineChart, PieChart } from 'echarts/charts'
@@ -75,18 +75,21 @@ export type UseOverviewDataOptions = {
   getLogFiles: () => LogFileModel[]
 }
 
-let dataOptions: UseOverviewDataOptions | null = null
+// dataOptions 用 shallowRef 承载：computed 依赖它，避免 state 先于 options 创建时
+// 把「options 缺失」的空结果固化进缓存（P1.1 总览外调用 useOverviewData 触发）
+const dataOptionsRef = shallowRef<UseOverviewDataOptions | null>(null)
+const dataOptions = computed(() => dataOptionsRef.value)
 let overviewState: ReturnType<typeof createOverviewState> | null = null
 
 export function useOverviewData(options?: UseOverviewDataOptions) {
-  if (options) dataOptions = options
+  if (options) dataOptionsRef.value = options
   if (!overviewState) overviewState = createOverviewState()
   return overviewState
 }
 
 function createOverviewState() {
-  const selectedAsset = computed(() => dataOptions?.getAsset() ?? null)
-  const logFiles = computed(() => dataOptions?.getLogFiles() ?? [])
+  const selectedAsset = computed(() => dataOptions.value?.getAsset() ?? null)
+  const logFiles = computed(() => dataOptions.value?.getLogFiles() ?? [])
   const view = ref<'assets' | 'home'>('home')
   const assetTab = ref<'overview' | 'tasks'>('overview')
   const { toast } = useToast()
@@ -3367,7 +3370,7 @@ function createOverviewState() {
     })
 
     watch(
-      () => dataOptions?.getAsset()?.id,
+      () => dataOptions.value?.getAsset()?.id,
       () => {
         clearSectionCaches()
         void loadOverviewForTab()
@@ -3375,9 +3378,9 @@ function createOverviewState() {
       { immediate: true },
     )
     watch(
-      () => dataOptions?.getLogFiles(),
+      () => dataOptions.value?.getLogFiles(),
       () => {
-        const files = dataOptions?.getLogFiles() ?? []
+        const files = dataOptions.value?.getLogFiles() ?? []
         const key = files.map((file) => `${file.id}:${file.overall_status}`).join('|')
         // P1.5：默认选中最新成功的 kv-cache 日志；列表变化后失效时校正
         const tasks = scopeTasks.value
