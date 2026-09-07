@@ -41,7 +41,7 @@ using TableParams = vector<tuple<string, string, bool, bool>>;
 
 class Database {
 public:
-    OP_RET OpenDb(string currDbName, bool enableHis);
+    OP_RET OpenDb(string dbName, bool enableHisFlag);
     // name, type, null, primary_key
     OP_RET CreateTable(string tableName, TableParams createTableParams);
     OP_RET InsertData(string tableName, DataMap data);
