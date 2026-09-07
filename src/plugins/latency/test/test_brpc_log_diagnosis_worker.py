@@ -591,6 +591,50 @@ def test_populate_brpc_counts_skips_unsuccessful_tasks(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "overall_status",
+    [
+        "unknown",
+        TaskStatusEnum.PENDING.value,
+        TaskStatusEnum.RUNNING.value,
+        LogFileService.RETRYING_STATUS,
+        TaskStatusEnum.FAILED.value,
+        TaskStatusEnum.CANCELLED.value,
+    ],
+)
+def test_mask_counts_until_complete_hides_non_final_counts(overall_status):
+    log_file = LogFileModel(
+        anomaly_cnt=3,
+        trace_failure_event_cnt=42,
+        overall_status=overall_status,
+    )
+
+    LogFileService._mask_counts_until_complete(log_file)
+
+    assert log_file.anomaly_cnt == 0
+    assert log_file.trace_failure_event_cnt == 0
+
+
+@pytest.mark.parametrize(
+    "overall_status",
+    [
+        TaskStatusEnum.SUCCESSFUL.value,
+        TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+    ],
+)
+def test_mask_counts_until_complete_keeps_final_counts(overall_status):
+    log_file = LogFileModel(
+        anomaly_cnt=3,
+        trace_failure_event_cnt=42,
+        overall_status=overall_status,
+    )
+
+    LogFileService._mask_counts_until_complete(log_file)
+
+    assert log_file.anomaly_cnt == 3
+    assert log_file.trace_failure_event_cnt == 42
+
+
+@pytest.mark.parametrize(
     "parse_task_status,diag_status,expected_task",
     [
         (TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING, "parse"),

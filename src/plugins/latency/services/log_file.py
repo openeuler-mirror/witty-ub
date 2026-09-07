@@ -94,6 +94,16 @@ class LogFileService:
     RETRYING_STATUS = "retrying"
 
     @staticmethod
+    def _mask_counts_until_complete(log_file_model: LogFileModel) -> None:
+        """Expose fault statistics only after the whole log pipeline succeeds."""
+        if log_file_model.overall_status not in {
+            TaskStatusEnum.SUCCESSFUL.value,
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+        }:
+            log_file_model.anomaly_cnt = 0
+            log_file_model.trace_failure_event_cnt = 0
+
+    @staticmethod
     def _is_task_successful(task) -> bool:
         return task and task.status in [
             TaskStatusEnum.SUCCESSFUL,
@@ -666,6 +676,7 @@ class LogFileService:
             log_file_model.overall_status = LogFileService._aggregate_task_status(
                 *aggregate_tasks,
             )
+            LogFileService._mask_counts_until_complete(log_file_model)
             # 和get_log_file_by_log_file_id完全一致：单独查询可见任务的reports并排序
             log_file_model.task = visible_task
             if visible_task:
@@ -756,10 +767,12 @@ class LogFileService:
             log_file_model.overall_status = LogFileService._aggregate_task_status(
                 *aggregate_tasks,
             )
+            LogFileService._mask_counts_until_complete(log_file_model)
             task_model.task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(
                 [task_model.id]
             )
         else:
             log_file_model.overall_status = LogFileService._aggregate_task_status()
+            LogFileService._mask_counts_until_complete(log_file_model)
         log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)
