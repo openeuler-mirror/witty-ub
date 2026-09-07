@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 WITTY_DIR_DEFAULT = "/var/witty-ub"
 _BUFFER_SIZE = 8 * 1024 * 1024
-_ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".zip", ".rar")
+ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".zip", ".rar")
 
 
 @dataclass(frozen=True)
@@ -245,8 +245,33 @@ def _iter_source_files(source_path: str):
 
 
 def _is_archive(path: str) -> bool:
+    return get_archive_extension(path) is not None
+
+
+def get_archive_extension(path: str) -> str | None:
+    """Return the supported archive suffix for a path, longest suffix first."""
     lower_path = path.lower()
-    return lower_path.endswith(_ARCHIVE_EXTENSIONS)
+    return next(
+        (suffix for suffix in ARCHIVE_EXTENSIONS if lower_path.endswith(suffix)),
+        None,
+    )
+
+
+def is_valid_archive_file(path: str) -> bool:
+    """Validate a supported archive using its container format."""
+    extension = get_archive_extension(path)
+    if extension == ".zip":
+        return zipfile.is_zipfile(path)
+    if extension in {".tar.gz", ".tgz"}:
+        return tarfile.is_tarfile(path)
+    if extension == ".rar":
+        try:
+            import rarfile
+        except ImportError:
+            logger.warning("rarfile 模块未安装，无法校验 .rar 文件: %s", path)
+            return False
+        return rarfile.is_rarfile(path)
+    return False
 
 
 def _extract_archive(source_file: str, target_dir: str) -> int:

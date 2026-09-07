@@ -37,6 +37,9 @@ class AdvancedStore:
             batch_id=BATCH_ID,
             task_id="task-normal",
             schema_id=SCHEMA_ID,
+            start_timestamp=START_TIMESTAMP,
+            end_timestamp=END_TIMESTAMP,
+            hit_count=1,
         )
         self.hit = SimpleNamespace(
             hit_id=f"{BATCH_ID}:hit:0",
@@ -81,6 +84,7 @@ def _configure_store(monkeypatch, store: AdvancedStore):
         }
     ]
     summary = {
+        "batch_id": BATCH_ID,
         "pod_ip": POD_IP,
         "pod_name": "brpc-worker-0",
         "thread_id": THREAD_ID,
@@ -96,9 +100,14 @@ def _configure_store(monkeypatch, store: AdvancedStore):
             return store.batch if batch_id == BATCH_ID else None
 
         @staticmethod
+        async def list_batches_by_kb_id(_session, _kb_id):
+            return [store.batch]
+
+        @staticmethod
         async def list_pod_events(_session, **_kwargs):
             return 1, [
                 {
+                    "batch_id": BATCH_ID,
                     "window_start_timestamp": 1_786_000_060_000_000,
                     "pod_ip": POD_IP,
                     "pod_name": "brpc-worker-0",
@@ -110,6 +119,7 @@ def _configure_store(monkeypatch, store: AdvancedStore):
         async def list_thread_events(_session, **_kwargs):
             return 1, [
                 {
+                    "batch_id": BATCH_ID,
                     "window_start_timestamp": 1_786_000_060_000_000,
                     "pod_ip": POD_IP,
                     "pod_name": "brpc-worker-0",
@@ -222,6 +232,34 @@ def test_pod_and_thread_event_lists_return_interface_mappings(monkeypatch):
     assert thread_result.total == 1
     assert thread_result.events[0].thread_id == THREAD_ID
     assert "component" not in thread_result.events[0].model_dump()
+
+
+def test_knowledge_scope_event_list_preserves_origin_batch(monkeypatch):
+    store = AdvancedStore()
+    _configure_store(monkeypatch, store)
+
+    scope = asyncio.run(BrpcDiagnosisService.get_knowledge_scope("kb-a"))
+    result = asyncio.run(
+        BrpcDiagnosisService.list_knowledge_pod_events(
+            kb_id="kb-a",
+            start_timestamp=START_TIMESTAMP,
+            end_timestamp=END_TIMESTAMP,
+            window_size="1m",
+            page_num=1,
+            page_cnt=100,
+        )
+    )
+
+    assert scope.batch_count == 1
+    assert scope.hit_count == 1
+    assert result.batch_id == "kb-a"
+    assert result.events[0].batch_id == BATCH_ID
+    assert result.events[0].event_id == BrpcDiagnosisService.pod_event_id(
+        BATCH_ID,
+        1_786_000_060_000_000,
+        1_786_000_120_000_000,
+        POD_IP,
+    )
 
 
 def test_detail_recomputes_event_id_and_returns_pruned_graph(monkeypatch):

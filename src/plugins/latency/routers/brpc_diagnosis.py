@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from latency.schemas.brpc_diagnosis import (
     BrpcAggregateWindowSize,
     BrpcComponent,
+    BrpcKnowledgeScopeResponse,
     BrpcMetricSortField,
     BrpcQueryTimestamp,
     BrpcSortOrder,
@@ -58,6 +59,200 @@ def _build_metric_sort_fields(
         BrpcMetricSortField(field=field, order=direction)
         for field, direction in zip(fields, directions, strict=True)
     ]
+
+
+@router.get(
+    "/knowledge/{kb_id}/scope",
+    response_model=BrpcKnowledgeScopeResponse,
+    operation_id="get_brpc_knowledge_scope",
+)
+async def get_knowledge_scope(
+    kb_id: Annotated[str, Path(min_length=1)],
+) -> BrpcKnowledgeScopeResponse:
+    await ResourceIdService.require("kb", kb_id)
+    result = await BrpcDiagnosisService.get_knowledge_scope(kb_id)
+    return BrpcKnowledgeScopeResponse(result=result)
+
+
+@router.get(
+    "/knowledge/{kb_id}/interface-timeline",
+    response_model=GetBrpcInterfaceTimelineResponse,
+    operation_id="get_brpc_knowledge_interface_timeline",
+)
+async def get_knowledge_interface_timeline(
+    kb_id: Annotated[str, Path(min_length=1)],
+    start_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    end_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    window_size: Annotated[BrpcWindowSize, Query()],
+    component: Annotated[BrpcComponent | None, Query()] = None,
+    interface_id: Annotated[str | None, Query(min_length=1)] = None,
+    pod_ip: Annotated[str | None, Query(min_length=1)] = None,
+    pod_name: Annotated[str | None, Query(min_length=1)] = None,
+) -> GetBrpcInterfaceTimelineResponse:
+    await ResourceIdService.require("kb", kb_id)
+    result = await BrpcDiagnosisService.get_knowledge_interface_timeline(
+        kb_id=kb_id,
+        start_timestamp=start_time,
+        end_timestamp=end_time,
+        window_size=window_size,
+        component=component,
+        interface_id=interface_id,
+        pod_ip=pod_ip,
+        pod_name=pod_name,
+    )
+    return GetBrpcInterfaceTimelineResponse(result=result)
+
+
+async def _list_knowledge_events(
+    *,
+    kb_id: str,
+    aggregation: str,
+    start_time: int,
+    end_time: int,
+    window_size: BrpcAggregateWindowSize,
+    sort_order: BrpcSortOrder,
+    sort_field: list[str] | None,
+    sort_direction: list[BrpcSortOrder] | None,
+    page_num: int,
+    page_cnt: int,
+    pod_ip: str | None,
+    pod_name: str | None,
+):
+    kwargs = dict(
+        kb_id=kb_id,
+        start_timestamp=start_time,
+        end_timestamp=end_time,
+        window_size=window_size,
+        sort_order=sort_order,
+        metric_sort_fields=_build_metric_sort_fields(sort_field, sort_direction),
+        page_num=page_num,
+        page_cnt=page_cnt,
+        pod_ip=pod_ip,
+        pod_name=pod_name,
+    )
+    if aggregation == "pod":
+        return await BrpcDiagnosisService.list_knowledge_pod_events(**kwargs)
+    return await BrpcDiagnosisService.list_knowledge_thread_events(**kwargs)
+
+
+@router.get(
+    "/knowledge/{kb_id}/pod-events",
+    response_model=ListBrpcPodEventsResponse,
+    operation_id="list_brpc_knowledge_pod_events",
+)
+async def list_knowledge_pod_events(
+    kb_id: Annotated[str, Path(min_length=1)],
+    start_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    end_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    window_size: Annotated[BrpcAggregateWindowSize, Query()],
+    sort_order: Annotated[BrpcSortOrder, Query()] = "asc",
+    sort_field: Annotated[list[str] | None, Query()] = None,
+    sort_direction: Annotated[list[BrpcSortOrder] | None, Query()] = None,
+    page_num: Annotated[int, Query(ge=1)] = 1,
+    page_cnt: Annotated[int, Query(ge=1, le=1000)] = 10,
+    pod_ip: Annotated[str | None, Query(min_length=1)] = None,
+    pod_name: Annotated[str | None, Query(min_length=1)] = None,
+) -> ListBrpcPodEventsResponse:
+    await ResourceIdService.require("kb", kb_id)
+    result = await _list_knowledge_events(
+        kb_id=kb_id,
+        aggregation="pod",
+        start_time=start_time,
+        end_time=end_time,
+        window_size=window_size,
+        sort_order=sort_order,
+        sort_field=sort_field,
+        sort_direction=sort_direction,
+        page_num=page_num,
+        page_cnt=page_cnt,
+        pod_ip=pod_ip,
+        pod_name=pod_name,
+    )
+    return ListBrpcPodEventsResponse(result=result)
+
+
+@router.get(
+    "/knowledge/{kb_id}/thread-events",
+    response_model=ListBrpcThreadEventsResponse,
+    operation_id="list_brpc_knowledge_thread_events",
+)
+async def list_knowledge_thread_events(
+    kb_id: Annotated[str, Path(min_length=1)],
+    start_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    end_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    window_size: Annotated[BrpcAggregateWindowSize, Query()],
+    sort_order: Annotated[BrpcSortOrder, Query()] = "asc",
+    sort_field: Annotated[list[str] | None, Query()] = None,
+    sort_direction: Annotated[list[BrpcSortOrder] | None, Query()] = None,
+    page_num: Annotated[int, Query(ge=1)] = 1,
+    page_cnt: Annotated[int, Query(ge=1, le=1000)] = 10,
+    pod_ip: Annotated[str | None, Query(min_length=1)] = None,
+    pod_name: Annotated[str | None, Query(min_length=1)] = None,
+) -> ListBrpcThreadEventsResponse:
+    await ResourceIdService.require("kb", kb_id)
+    result = await _list_knowledge_events(
+        kb_id=kb_id,
+        aggregation="thread",
+        start_time=start_time,
+        end_time=end_time,
+        window_size=window_size,
+        sort_order=sort_order,
+        sort_field=sort_field,
+        sort_direction=sort_direction,
+        page_num=page_num,
+        page_cnt=page_cnt,
+        pod_ip=pod_ip,
+        pod_name=pod_name,
+    )
+    return ListBrpcThreadEventsResponse(result=result)
+
+
+@router.get(
+    "/knowledge/{kb_id}/abnormal-threads",
+    response_model=ListBrpcAbnormalThreadsResponse,
+    operation_id="list_brpc_knowledge_abnormal_threads",
+)
+async def list_knowledge_abnormal_threads(
+    kb_id: Annotated[str, Path(min_length=1)],
+    start_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    end_time: Annotated[
+        BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
+    ],
+    pod_ip: Annotated[str | None, Query(min_length=1)] = None,
+    pod_name: Annotated[str | None, Query(min_length=1)] = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    sort_field: Annotated[list[str] | None, Query()] = None,
+    sort_direction: Annotated[list[BrpcSortOrder] | None, Query()] = None,
+    page_num: Annotated[int, Query(ge=1)] = 1,
+    page_cnt: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> ListBrpcAbnormalThreadsResponse:
+    await ResourceIdService.require("kb", kb_id)
+    result = await BrpcDiagnosisService.list_knowledge_abnormal_threads(
+        kb_id=kb_id,
+        start_timestamp=start_time,
+        end_timestamp=end_time,
+        page_num=page_num,
+        page_cnt=page_cnt,
+        pod_ip=pod_ip,
+        pod_name=pod_name,
+        search=search,
+        metric_sort_fields=_build_metric_sort_fields(sort_field, sort_direction),
+    )
+    return ListBrpcAbnormalThreadsResponse(result=result)
 
 
 @router.get(

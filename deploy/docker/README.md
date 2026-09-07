@@ -92,7 +92,7 @@ manage.sh
 
 脚本自动完成以下步骤：
 
-1. **拉取镜像**：优先使用本地镜像，否则从 `quay.io/sclorg/postgresql-15-c9s:latest` 拉取
+1. **拉取镜像**：使用 `quay.io/sclorg/postgresql-15-c9s:latest`，由安全入口从密钥挂载读取密码
 2. **创建网络**：创建 Docker 网络 `witty-ub-network`
 3. **创建数据卷**：创建持久化数据卷 `pg15-data`
 4. **启动容器**：启动 PostgreSQL 容器，自动配置性能参数
@@ -126,7 +126,7 @@ PG_HOST="127.0.0.1"
 PG_PORT="15432"
 PG_DATABASE="witty-ub"
 PG_USER="witty-ub"
-PG_PASSWORD="witty-ub"
+PG_PASSWORD="<CHANGE_ME>"    # 占位符，实际口令在 /etc/witty-ub/pg.passwd
 
 # 容器内访问 PG（留空自动检测）
 PG_HOST_IN_CONTAINER=""
@@ -162,7 +162,6 @@ WITTY_EXTRA_MOUNTS="/home:/home:ro"     # 额外挂载（可选）
 | `deploy_witty.sh` | 1 | `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest` |
 | | 2 | `witty-ub:latest` |
 | `deploy_pg.sh` | 1 | `quay.io/sclorg/postgresql-15-c9s:latest` |
-| | 2 | `postgres:15` |
 | | 3 | `postgres:latest` |
 
 > 脚本优先使用本地已有镜像，本地没有时按顺序拉取，拉取失败自动回退到下一个。

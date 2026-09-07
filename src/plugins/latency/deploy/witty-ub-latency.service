@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/var/witty-ub/latency
 Environment=PYTHONPATH=/var/witty-ub
-ExecStart=/var/witty-ub/latency/.venv/bin/python /var/witty-ub/latency/access/fastapi_server.py
+ExecStart=/var/witty-ub/latency/deploy/run_backend.sh
 Restart=on-failure
 RestartSec=5
 

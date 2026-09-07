@@ -711,3 +711,52 @@ class BrpcDiagHit(Base):
     thread_id: Mapped[Optional[int]] = mapped_column(BigInteger)
     trace_id: Mapped[Optional[str]] = mapped_column(String)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class BrpcDiagInterfaceBucket(Base):
+    """Pre-aggregated BRPC interface hit counts for timeline queries.
+
+    Rows retain pod dimensions so both the unfiltered overview and the
+    pod-scoped view can be answered without scanning ``brpc_diag_hit``.
+    Empty strings are used for missing pod values because they participate in
+    the natural uniqueness constraint.
+    """
+
+    __tablename__ = "brpc_diag_interface_bucket"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_id",
+            "window_seconds",
+            "window_start_timestamp",
+            "interface_id",
+            "pod_ip",
+            "pod_name",
+            name="uq_brpc_diag_interface_bucket_scope",
+        ),
+        CheckConstraint(
+            "window_seconds IN (10, 60, 600, 3600)",
+            name="ck_brpc_diag_interface_bucket_window",
+        ),
+        CheckConstraint(
+            "component IN ('ubsocket', 'umq', 'urma', 'unknown')",
+            name="ck_brpc_diag_interface_bucket_component",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1, increment=1), primary_key=True
+    )
+    batch_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("brpc_diag_batch.batch_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    window_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    window_start_timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    component: Mapped[str] = mapped_column(String, nullable=False)
+    interface_id: Mapped[str] = mapped_column(String, nullable=False)
+    interface_name: Mapped[str] = mapped_column(Text, nullable=False)
+    function_name: Mapped[str] = mapped_column(Text, nullable=False)
+    pod_ip: Mapped[str] = mapped_column(String, nullable=False, default="")
+    pod_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    interface_hit_count: Mapped[int] = mapped_column(BigInteger, nullable=False)

@@ -164,6 +164,25 @@ void LogCollector::ReaderLoopOnce(const std::shared_ptr<LogReader> &reader,
     }
 }
 
+#ifdef ENABLE_TOOL_FEATURE
+void LogCollector::RunReadersOnce(std::unordered_map<std::string, std::vector<FailureEvent>> &eventsMap,
+                                  std::mutex &eventsMapMutex)
+{
+    LOG_DEBUG << "LogCollector running in tool mode with per-reader threads (run once)";
+    for (auto reader : readers_) {
+        workerThreads_.emplace_back(
+            [this, &eventsMap, &eventsMapMutex, reader]() { ReaderLoopOnce(reader, eventsMap, eventsMapMutex); });
+    }
+    for (auto &thread : workerThreads_) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    workerThreads_.clear();
+    CorrelateEvents(eventsMap);
+}
+#endif
+
 RackResult LogCollector::Start()
 {
     std::unordered_map<std::string, std::vector<FailureEvent>> eventsMap;
@@ -197,19 +216,7 @@ RackResult LogCollector::Start()
         workerThreads_.reserve(readers_.size());
 
 #ifdef ENABLE_TOOL_FEATURE
-        LOG_DEBUG << "LogCollector running in tool mode with per-reader threads (run once)";
-        for (auto reader : readers_) {
-            workerThreads_.emplace_back(
-                [this, &eventsMap, &eventsMapMutex, reader]() { ReaderLoopOnce(reader, eventsMap, eventsMapMutex); });
-        }
-        for (auto &t : workerThreads_) {
-            if (t.joinable()) {
-                t.join();
-            }
-        }
-        workerThreads_.clear();
-
-        CorrelateEvents(eventsMap);
+        RunReadersOnce(eventsMap, eventsMapMutex);
 #endif
     }
 
@@ -398,7 +405,7 @@ RackResult LogCollector::ParseTimeRange(const std::unordered_map<std::string, st
     const std::string &startTimeStr = startIt->second;
     auto startTime = failure::DatetimeStrToTimestamp(startTimeStr);
     if (!startTime) {
-        LOG_ERROR << "invalid argument start-time: " << startTimeStr;
+        LOG_ERROR << "invalid argument start-time: " << rack::logger::SanitizeForLog(startTimeStr);
         return RACK_FAIL;
     }
     query_.startTime = *startTime;
@@ -411,12 +418,13 @@ RackResult LogCollector::ParseTimeRange(const std::unordered_map<std::string, st
     const std::string &endTimeStr = endIt->second;
     auto endTime = failure::DatetimeStrToTimestamp(endTimeStr);
     if (!endTime) {
-        LOG_ERROR << "invalid argument end-time: " << endTimeStr;
+        LOG_ERROR << "invalid argument end-time: " << rack::logger::SanitizeForLog(endTimeStr);
         return RACK_FAIL;
     }
     query_.endTime = *endTime + 999999LL;
     if (query_.startTime > query_.endTime) {
-        LOG_ERROR << "logic error: start-time (" << startTimeStr << ") is later than end-time (" << endTimeStr << ")";
+        LOG_ERROR << "logic error: start-time (" << rack::logger::SanitizeForLog(startTimeStr)
+                  << ") is later than end-time (" << rack::logger::SanitizeForLog(endTimeStr) << ")";
         return RACK_FAIL;
     }
     return RACK_OK;
@@ -466,12 +474,12 @@ RackResult LogCollector::ParsePodIds(const std::unordered_map<std::string, std::
             return RACK_FAIL;
         }
         if (query_.podIds.find(podId) != query_.podIds.end()) {
-            LOG_ERROR << "duplicated pod-id: " << podId;
+            LOG_ERROR << "duplicated pod-id: " << rack::logger::SanitizeForLog(podId);
             return RACK_FAIL;
         }
         for (const auto &[component, componentPodIds] : allowedPodIds_) {
             if (componentPodIds.find(podId) == componentPodIds.end()) {
-                LOG_ERROR << "pod-id: " << podId << ", not provided in log path";
+                LOG_ERROR << "pod-id: " << rack::logger::SanitizeForLog(podId) << ", not provided in log path";
                 return RACK_FAIL;
             }
         }
@@ -836,15 +844,16 @@ bool LogCollector::IsValidPodId(const std::string &podId) const
         return false;
     }
     if (podId.size() > POD_ID_MAX_LENGTH) {
-        LOG_ERROR << "invalid pod-id: " << podId << ", expected no more than " << POD_ID_MAX_LENGTH
-                  << " characters but got " << podId.size();
+        LOG_ERROR << "invalid pod-id: " << rack::logger::SanitizeForLog(podId) << ", expected no more than "
+                  << POD_ID_MAX_LENGTH << " characters but got " << podId.size();
         return false;
     }
     for (size_t i = 0; i < podId.size(); ++i) {
         char ch = podId[i];
         bool isLowerAlnum = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');
         if (!isLowerAlnum && !(ch == '-' && i != 0 && i != podId.size() - 1)) {
-            LOG_ERROR << "invalid pod-id: " << podId << ", unexpected character: " << ch;
+            LOG_ERROR << "invalid pod-id: " << rack::logger::SanitizeForLog(podId)
+                      << ", unexpected character: " << rack::logger::SanitizeForLog(std::string(1, ch));
             return false;
         }
     }

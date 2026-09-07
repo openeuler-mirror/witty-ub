@@ -98,57 +98,51 @@ void RackHttpServer::Stop()
     }
 }
 
+void RackHttpServer::ConfigureRoutes()
+{
+    server_.new_task_queue = []() {
+        return new httplib::ThreadPool(THREAD_POOL_SIZE, THREAD_POOL_MAX_SIZE);
+    };
+
+    auto handler = [this](const httplib::Request &request, httplib::Response &response) {
+        HandlerRequest(request, response);
+    };
+    server_.Get(".*", handler);
+    server_.Post(".*", handler);
+    server_.Put(".*", handler);
+    server_.Delete(".*", handler);
+    server_.Patch(".*", handler);
+    server_.Options(".*", handler);
+}
+
+void RackHttpServer::EnsurePortAvailable() const
+{
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        throw std::runtime_error("Failed to create socket.");
+    }
+
+    int reuse = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port_);
+    if (bind(sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(sockfd);
+        throw std::runtime_error("Port " + std::to_string(port_) + " is already in use.");
+    }
+    close(sockfd);
+}
+
 void RackHttpServer::Run()
 {
     LOG_INFO << "In run";
     try {
-        server_.new_task_queue = []() -> httplib::ThreadPool* {
-            return new httplib::ThreadPool(THREAD_POOL_SIZE, THREAD_POOL_MAX_SIZE);
-        };
-
-        server_.Get(".*", [this](const httplib::Request &request, httplib::Response &response) {
-            HandlerRequest(request, response);
-        });
-        server_.Post(".*", [this](const httplib::Request &request, httplib::Response &response) {
-            HandlerRequest(request, response);
-        });
-        server_.Put(".*", [this](const httplib::Request &request, httplib::Response &response) {
-            HandlerRequest(request, response);
-        });
-        server_.Delete(".*", [this](const httplib::Request &request, httplib::Response &response) {
-            HandlerRequest(request, response);
-        });
-        server_.Patch(".*", [this](const httplib::Request &request, httplib::Response &response) {
-            HandlerRequest(request, response);
-        });
-        server_.Options(".*", [this](const httplib::Request &request, httplib::Response &response) {
-            HandlerRequest(request, response);
-        });
-
-        // 检查端口是否被占用
-        int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sockfd < 0) {
-            throw std::runtime_error("Failed to create socket.");
-        }
-
-        int reuse = 1;
-        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-        sockaddr_in addr;
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port = htons(port_);
-
-        //尝试绑定
-        if (bind(sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-            close(sockfd);
-            throw std::runtime_error("Port " + std::to_string(port_) + " is already in use.");
-        }
-
-        // 关闭套接字
-        close(sockfd);
+        ConfigureRoutes();
+        EnsurePortAvailable();
         std::string eid = "127.0.0.1";
         server_.listen(eid, port_);
-
     } catch (const std::exception &e) {
         LOG_ERROR << "Error starting server: " << e.what();
     }
@@ -206,7 +200,7 @@ std::string RackHttpServer::GenerateQueryString(const httplib::Params &queryPara
 
 void RackHttpServer::HandlerRequest(const httplib::Request &req, httplib::Response &res)
 {
-    LOG_INFO << "Receive request, url: " << req.path << "method: " << req.method;
+    LOG_INFO << "Receive request, url: " << rack::logger::SanitizeForLog(req.path) << " method: " << req.method;
     RackComContext ctx;
     ctx.cancelled = nullptr;
     ctx.deadline = std::chrono::steady_clock::time_point::max();

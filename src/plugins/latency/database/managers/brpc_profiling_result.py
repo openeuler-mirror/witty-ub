@@ -10,8 +10,9 @@ from typing import Optional
 
 from sqlalchemy import delete, select, func
 
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.database.engine import PGManager
-from latency.database.models import BrpcProfilingResult
+from latency.database.models import BrpcProfilingResult, LogFile, Task
 from latency.parse.brpc_profiling_parser import BrpcProfilingRecord
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,24 @@ logger = logging.getLogger(__name__)
 
 class BrpcProfilingResultPGManager:
     """BRPC profiling 结果 PostgreSQL 管理器"""
+
+    @staticmethod
+    def _has_successful_parse_task(log_id_column):
+        return (
+            select(Task.id)
+            .where(
+                Task.op_id == log_id_column,
+                Task.task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER.value,
+                Task.status.in_(
+                    (
+                        TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+                        TaskStatusEnum.SUCCESSFUL.value,
+                    )
+                ),
+                Task.existed_status.is_(True),
+            )
+            .exists()
+        )
 
     @staticmethod
     async def add_profiling_results(
@@ -68,9 +87,9 @@ class BrpcProfilingResultPGManager:
                 f"[PG] 写入 BRPC profiling 结果: {len(models)} 条, log_id={log_id}"
             )
             return True
-        except Exception as e:
-            logger.error(f"[PG] 写入 BRPC profiling 结果失败: {e}")
-            return False
+        except Exception:
+            logger.exception("[PG] 写入 BRPC profiling 结果失败")
+            raise
 
     @staticmethod
     async def delete_by_log_id(log_id: str) -> bool:
@@ -238,6 +257,80 @@ class BrpcProfilingResultPGManager:
         except Exception as e:
             logger.error(f"[PG] 获取 BRPC profiling 全部结果失败: {e}")
             return []
+
+    @staticmethod
+    async def get_file_options_by_kb_id(kb_id: str) -> list[dict[str, str]]:
+        """获取资产库 profiling 文件，保留所属上传日志以区分同名文件。"""
+        async with PGManager.session() as session:
+            source_file = func.coalesce(BrpcProfilingResult.source_file, "")
+            stmt = (
+                select(
+                    BrpcProfilingResult.log_id,
+                    LogFile.name.label("log_name"),
+                    source_file.label("source_file"),
+                    LogFile.created_at.label("created_at"),
+                )
+                .join(LogFile, LogFile.id == BrpcProfilingResult.log_id)
+                .where(
+                    LogFile.kb_id == kb_id,
+                    LogFile.existed_status.is_(True),
+                    BrpcProfilingResultPGManager._has_successful_parse_task(
+                        LogFile.id
+                    ),
+                    BrpcProfilingResult.existed_status.is_(True),
+                )
+                .distinct()
+                .order_by(
+                    LogFile.created_at.desc(),
+                    LogFile.name,
+                    source_file,
+                    BrpcProfilingResult.log_id,
+                )
+            )
+            result = await session.execute(stmt)
+            return [
+                {
+                    "log_id": row["log_id"],
+                    "log_name": row["log_name"],
+                    "source_file": row["source_file"],
+                }
+                for row in result.mappings().all()
+            ]
+
+    @staticmethod
+    async def get_all_by_kb_id(
+        kb_id: str,
+        source_file: str | None = None,
+        log_id: str | None = None,
+    ) -> list[BrpcProfilingResult]:
+        """获取资产库内所有有效日志的 profiling 解析结果。"""
+        async with PGManager.session() as session:
+            stmt = (
+                select(BrpcProfilingResult)
+                .join(LogFile, LogFile.id == BrpcProfilingResult.log_id)
+                .where(
+                    LogFile.kb_id == kb_id,
+                    LogFile.existed_status.is_(True),
+                    BrpcProfilingResultPGManager._has_successful_parse_task(
+                        LogFile.id
+                    ),
+                    BrpcProfilingResult.existed_status.is_(True),
+                )
+            )
+            if source_file is not None:
+                stmt = stmt.where(
+                    func.coalesce(BrpcProfilingResult.source_file, "")
+                    == source_file
+                )
+            if log_id is not None:
+                stmt = stmt.where(BrpcProfilingResult.log_id == log_id)
+            stmt = stmt.order_by(
+                BrpcProfilingResult.timestamp,
+                BrpcProfilingResult.interface_name,
+                BrpcProfilingResult.log_id,
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
     @staticmethod
     async def get_by_log_id_and_timestamp(

@@ -83,6 +83,49 @@ class TestDeployConf:
         assert r.returncode == 0, r.stderr
         assert r.stdout.strip() == "5432"
 
+    def test_host_psql_wrapper_never_prompts_for_database_password(self):
+        src = (_DEPLOY_DIR / "host/_lib.sh").read_text()
+        wrapper = src.split("_psql() {", 1)[1].split("}", 1)[0]
+        assert "--no-password" in wrapper
+
+    def test_host_backend_loads_password_from_secret_file(self):
+        deploy_src = (_DEPLOY_DIR / "host/deploy.sh").read_text()
+        runner_src = (_DEPLOY_DIR / "host/run_backend.sh").read_text()
+        unit_src = (_DEPLOY_DIR / "host/systemd/witty-ub-backend.service").read_text()
+        assert 'pg_password = ""' in deploy_src
+        assert 'chown "$(id -u):$(id -g)" "$CONF"' in deploy_src
+        assert 'chmod 0600 "$CONF"' in deploy_src
+        assert "PG_SECRET_FILE" in runner_src
+        assert "export PG_PASSWORD" in runner_src
+        assert "run_backend.sh" in unit_src
+        pg_deploy_src = (_DEPLOY_DIR / "deploy_pg.sh").read_text()
+        assert "_secure_pg_secret_permissions" in pg_deploy_src
+        assert 'chown "${SUDO_UID}:${SUDO_GID}"' in pg_deploy_src
+
+    def test_rpm_backend_loads_password_from_secret_file(self):
+        manager = (_DEPLOY_DIR / "rpm/libexec/manager.sh").read_text()
+        runner = (_PROJECT_ROOT / "src/plugins/latency/deploy/run_backend.sh").read_text()
+        unit = (_PROJECT_ROOT / "src/plugins/latency/deploy/witty-ub-latency.service").read_text()
+        assert 'pg_password = ""' in manager
+        assert 'chmod 0600 "$DIAG_CONFIG_FILE"' in manager
+        assert "/etc/witty-ub/pg.passwd" in runner
+        assert "export PG_PASSWORD" in runner
+        assert "deploy/run_backend.sh" in unit
+
+    def test_docker_uses_secret_mount_instead_of_password_environment(self):
+        app_deploy = (_DEPLOY_DIR / "docker/deploy_witty.sh").read_text()
+        pg_deploy = (_DEPLOY_DIR / "deploy_pg.sh").read_text()
+        entrypoint = (_PROJECT_ROOT / "docker/entrypoint.sh").read_text()
+        compose = (_PROJECT_ROOT / "docker-compose.yml").read_text()
+        assert '${PG_SECRET_FILE}:/run/secrets/pg_password:ro' in app_deploy
+        assert '-e PG_PASSWORD=' not in app_deploy
+        assert '${PG_SECRET_FILE}:/run/secrets/pg_password:ro' in pg_deploy
+        assert "exec /usr/bin/container-entrypoint /usr/bin/run-postgresql" in pg_deploy
+        assert "load_pg_secret" in entrypoint
+        assert "PG_PASSWORD=witty-ub" not in compose
+        assert "POSTGRESQL_PASSWORD=witty-ub" not in compose
+        assert "secrets:" in compose and "/run/secrets/pg_password" in compose
+
 
 class TestDeployPgSh:
     """deploy/deploy_pg.sh mode flags and --help."""
@@ -108,6 +151,16 @@ class TestDeployPgSh:
     def test_native_modes_do_not_fall_back_to_docker_port(self):
         src = (_DEPLOY_DIR / "deploy_pg.sh").read_text()
         assert 'PG_PORT="${PG_PORT_RPM_OVERRIDE:-${PG_PORT_RPM:-5432}}"' in src
+
+    def test_host_deploy_does_not_skip_provisioning_when_pg_is_ready(self):
+        """A running package-installed PG still needs its app role/password reconciled."""
+        src = (_DEPLOY_DIR / "host/deploy.sh").read_text()
+        setup = src.split("setup_postgresql() {", 1)[1].split(
+            "# ──────────────────── C++ 编译", 1
+        )[0]
+        assert "deploy_pg.sh --rpm" in setup
+        assert "deploy_pg.sh --apt" in setup
+        assert "pg_isready" not in setup
 
 
 class TestOpenCodePromptConfig:

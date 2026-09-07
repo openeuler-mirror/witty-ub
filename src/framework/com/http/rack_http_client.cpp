@@ -29,11 +29,20 @@ httplib::Result SendWithBody(httplib::Headers &headers, Sender &&sender)
 }
 
 namespace rack::com {
+constexpr int CONNECTION_TIMEOUT_SECONDS = 10;
+constexpr int READ_TIMEOUT_SECONDS = 60;
+
 RackHttpClient::RackHttpClient(std::string baseUrl) : baseUrl_(baseUrl) {}
 
 RackComResult<RackHttpResponse> RackHttpClient::Do(const RackComContext &context, const RackHttpRequest &request)
 {
     httplib::Client cli(baseUrl_);
+    if (baseUrl_.rfind("https", 0) == 0) {
+        cli.enable_server_certificate_verification(true);
+        cli.set_ca_cert_path("/etc/ssl/certs/ca-bundle.crt");
+    }
+    cli.set_connection_timeout(CONNECTION_TIMEOUT_SECONDS);
+    cli.set_read_timeout(READ_TIMEOUT_SECONDS);
     httplib::Headers headers;
     for (const auto &[k, v] : request.headers)
         headers.emplace(k, v);

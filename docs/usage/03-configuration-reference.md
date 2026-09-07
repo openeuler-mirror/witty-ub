@@ -2,6 +2,8 @@
 
 本文档汇总 witty-ub 系统的所有配置项，包括环境变量、端口映射、数据卷、Nginx 配置、OpenCode 配置和 deploy.conf 配置。
 
+> **PG 密码**：`deploy.conf` 中 `PG_PASSWORD` 仅为 `<CHANGE_ME>` 占位符。实际口令只存放在独立密钥文件（源码 host 部署为 `deploy/pg.passwd`，Docker/RPM 部署为 `/etc/witty-ub/pg.passwd`，权限 0600），不写入运行时 TOML。源码/RPM 启动器或 Docker 容器入口仅在启动后端时读取并注入进程环境；Docker 使用 `/run/secrets/pg_password` 只读挂载，不在容器配置中设置 `PG_PASSWORD`。
+
 ---
 
 ## 环境变量
@@ -16,7 +18,7 @@
 | `PG_PORT` | `5432` | PostgreSQL 端口 |
 | `PG_DATABASE` | `witty-ub` | PostgreSQL 数据库名 |
 | `PG_USER` | `witty-ub` | PostgreSQL 用户名 |
-| `PG_PASSWORD` | `witty-ub` | PostgreSQL 密码 |
+| `PG_PASSWORD` | （进程启动时注入） | PostgreSQL 密码；容器入口从 `/run/secrets/pg_password` 读取，不写入容器配置 |
 
 ### 前后端分离部署环境变量
 
@@ -29,7 +31,14 @@
 | `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent Bash 执行时展开的后端 API 基址（提示词保持原文） |
 | `WITTY_NO_PROXY` | `127.0.0.1` | Agent curl `--noproxy` 参数 |
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | Nginx `/agent-api/` 反代上游 |
+| `WITTY_CORS_ORIGINS` | 空 | FastAPI 允许的跨域前端源，多个源用逗号分隔；经 Nginx 同源反代时无需设置 |
 | `OPENCODE_HOST` | `127.0.0.1` | OpenCode 监听地址（OpenCode 留在后端节点时改 `0.0.0.0`） |
+
+仅当前端浏览器直接访问后端 `9772` 端口时需要设置 `WITTY_CORS_ORIGINS`。源必须包含协议、主机和端口，可在前端页面的浏览器控制台执行 `window.location.origin` 获取，例如：
+
+```bash
+export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
+```
 
 ### 前端运行时配置（config.json）
 
@@ -52,7 +61,7 @@
 | 变量名 | 默认值 | 说明 |
 | -------- | -------- | ------ |
 | `POSTGRESQL_USER` | `witty-ub` | 数据库用户 |
-| `POSTGRESQL_PASSWORD` | `witty-ub` | 数据库密码 |
+| `POSTGRESQL_PASSWORD` | （见密钥文件） | 数据库密码；由部署脚本从 `pg.passwd` 密钥文件读取后注入 PG 容器 |
 | `POSTGRESQL_DATABASE` | `witty-ub` | 数据库名称 |
 | `POSTGRESQL_SHARED_BUFFERS` | `2GB` | 共享缓冲区大小 |
 | `POSTGRESQL_EFFECTIVE_CACHE_SIZE` | `6GB` | 有效缓存大小 |
@@ -242,7 +251,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | `PG_PORT_RPM` | `5432` | PostgreSQL 监听端口，源码/RPM 部署使用 |
 | `PG_DATABASE` | `witty-ub` | 数据库名 |
 | `PG_USER` | `witty-ub` | 用户名 |
-| `PG_PASSWORD` | `witty-ub` | 密码 |
+| `PG_PASSWORD` | `<CHANGE_ME>` | 密码占位符；实际口令存于密钥文件 `pg.passwd`（源码 host: `deploy/pg.passwd`，Docker/RPM: `/etc/witty-ub/pg.passwd`），不回写本文件 |
 | `PG_POOL_SIZE` | `10` | 连接池大小 |
 | `PG_MAX_OVERFLOW` | `20` | 连接池最大溢出数 |
 
@@ -277,7 +286,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | 配置项 | 默认值 | 说明 |
 | -------- | -------- | ------ |
 | `PG_CONTAINER_NAME` | `postgres` | PostgreSQL 容器名称 |
-| `PG_IMAGE` | `quay.io/sclorg/postgresql-15-c9s:latest` | PostgreSQL 镜像 |
+| `PG_IMAGE` | `quay.io/sclorg/postgresql-15-c9s:latest` | PostgreSQL 镜像；部署入口从只读 secret mount 加载密码 |
 | `PG_NETWORK` | `witty-ub-network` | Docker 网络名称 |
 | `PG_VOLUME` | `pg15-data` | 数据卷名称 |
 | `PG_CONTAINER_DATA_DIR` | `/var/lib/pgsql/data` | 容器内数据目录 |

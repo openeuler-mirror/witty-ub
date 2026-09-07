@@ -528,13 +528,8 @@ class StoreTraceContextLogsWorker(BaseWorker):
             )
 
             if log_file.kb_id:
-                from sqlalchemy import text
-                from latency.database.engine import PGManager
-                async with PGManager.session() as session:
-                    await session.execute(
-                        text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :kb_id"),
-                        {"kb_id": log_file.kb_id}
-                    )
+                # failure_count 刚更新到 log_file，重新聚合保证 KB 计数同步。
+                await LogKnowledgePGManager.refresh_kb_counters(log_file.kb_id)
 
             cleanup_temp_dirs(output_log_path, log_file_id)
             await BaseWorker.report(task.id, "Task completed successfully", 100.0)

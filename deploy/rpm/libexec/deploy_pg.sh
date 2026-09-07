@@ -8,7 +8,7 @@
 #   /usr/libexec/witty-ub-manager/deploy_pg.sh
 #
 # 由 manager.sh 的 deploy 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
-# 跳过创建。仅支持 openEuler (RPM) / Ubuntu (APT)，不支持 Docker 模式。
+# 跳过创建。按 RPM/APT 包管理器选择安装方式，不支持 Docker 模式。
 #
 # 配置来源: /etc/witty-ub/pg.conf（由 witty-ub-manager 子包安装）
 
@@ -19,12 +19,80 @@ source "$SCRIPT_DIR/_lib.sh"
 
 # ──────────────────── 公共 PG 工具 ────────────────────
 
+ensure_pg_password() {
+    # 密码存放于独立密钥文件 PG_SECRET_FILE（/etc/witty-ub/pg.passwd, mode 0600），
+    # 不回写 deploy.conf —— 配置文件保持 <CHANGE_ME> 占位，杜绝污染源码/RPM 安装文件。
+    #
+    # 优先级: 已存在的密钥文件 > deploy.conf 中已设置的口令(一次性迁移) > 交互输入/自动生成。
+    if [ -f "$PG_SECRET_FILE" ]; then
+        local cached
+        cached="$(cat "$PG_SECRET_FILE" 2>/dev/null | tr -d '\r\n')"
+        if [ -n "$cached" ]; then
+            chmod 0600 "$PG_SECRET_FILE"
+            PG_PASSWORD="$cached"
+            export PGPASSWORD="$PG_PASSWORD"
+            _log "PostgreSQL 密码已从密钥文件加载: $PG_SECRET_FILE"
+            return 0
+        fi
+    fi
+
+    # 迁移路径: 旧部署已把口令写进 deploy.conf，一次性搬到密钥文件，之后不再回写配置。
+    if [ -n "${PG_PASSWORD:-}" ] && [ "$PG_PASSWORD" != "<CHANGE_ME>" ] && [ "$PG_PASSWORD" != "witty-ub" ]; then
+        _info "将 deploy.conf 中的旧口令迁移到密钥文件 $PG_SECRET_FILE"
+        _write_pg_secret "$PG_PASSWORD" || return 1
+        export PGPASSWORD="$PG_PASSWORD"
+        _log "PostgreSQL 密码已迁移到密钥文件"
+        return 0
+    fi
+
+    local input_password=""
+    local confirm_password=""
+    if [ -t 0 ]; then
+        read -r -s -p "请输入 PostgreSQL 密码（至少 6 位字母数字，直接回车自动生成）: " input_password
+        echo ""
+        if [ -n "$input_password" ]; then
+            if [[ ! "$input_password" =~ ^[A-Za-z0-9]{6,}$ ]]; then
+                _err "PostgreSQL 密码必须为至少 6 位字母数字"
+                return 1
+            fi
+            read -r -s -p "请再次输入 PostgreSQL 密码: " confirm_password
+            echo ""
+            if [ "$input_password" != "$confirm_password" ]; then
+                _err "两次输入的 PostgreSQL 密码不一致"
+                return 1
+            fi
+        fi
+    fi
+    if [ -n "$input_password" ]; then
+        PG_PASSWORD="$input_password"
+        _info "已使用用户输入的 PostgreSQL 密码"
+    else
+        PG_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)"
+        _warn "已为 PG 自动生成随机口令"
+    fi
+    _write_pg_secret "$PG_PASSWORD" || return 1
+    export PGPASSWORD="$PG_PASSWORD"
+    _info "PostgreSQL 密码已保存到密钥文件: $PG_SECRET_FILE"
+}
+
+# 将口令写入密钥文件（mode 0600，仅属主可读）。不修改任何配置文件。
+_write_pg_secret() {
+    local password="$1"
+    local secret_dir
+    secret_dir="$(dirname "$PG_SECRET_FILE")"
+    [ -d "$secret_dir" ] || mkdir -p "$secret_dir"
+    # umask 兜底: 即便 install -m 失败, 文件也不会变成 0644。
+    ( umask 077 && printf '%s' "$password" > "$PG_SECRET_FILE" )
+    chmod 0600 "$PG_SECRET_FILE" 2>/dev/null || true
+    _log "密钥文件已写入: $PG_SECRET_FILE (mode 0600)"
+}
+
 # 以 postgres 用户身份执行 psql（自动处理 root/sudo）
 psql_as_postgres() {
     if _is_root; then
-        su - postgres -c "psql -p ${PG_PORT} $*"
+        runuser -u postgres -- psql -p "${PG_PORT}" "$@"
     else
-        sudo su - postgres -c "psql -p ${PG_PORT} $*"
+        sudo -u postgres -- psql -p "${PG_PORT}" "$@"
     fi
 }
 
@@ -85,7 +153,7 @@ wait_pg_ready() {
         if _has_cmd pg_isready && pg_isready -p "${PG_PORT}" >/dev/null 2>&1; then
             return 0
         fi
-        if psql_as_postgres "-c 'SELECT 1'" >/dev/null 2>&1; then
+        if psql_as_postgres -c "SELECT 1" >/dev/null 2>&1; then
             return 0
         fi
         sleep 1
@@ -98,21 +166,32 @@ create_user_and_db() {
     _info "创建用户 ${PG_USER} 和数据库 ${PG_DATABASE}..."
 
     local user_exists
-    user_exists=$(printf "SELECT 1 FROM pg_roles WHERE rolname='%s';\n" "${PG_USER}" | psql_as_postgres "-tA" 2>/dev/null || echo "")
+    user_exists=$(printf "SELECT 1 FROM pg_roles WHERE rolname = :'user';\n" | \
+        psql_as_postgres -v "user=${PG_USER}" -tA 2>/dev/null || echo "")
     if [ "$user_exists" = "1" ]; then
         _info "用户已存在，更新密码..."
-        printf 'ALTER USER "%s" WITH PASSWORD '\''%s'\'';\n' "${PG_USER}" "${PG_PASSWORD}" | psql_as_postgres
+        psql_as_postgres -v ON_ERROR_STOP=1 -v "user=${PG_USER}" -v "password=${PG_PASSWORD}" <<'SQL'
+SELECT format('ALTER USER %I WITH PASSWORD %L', :'user', :'password')
+\gexec
+SQL
     else
-        printf 'CREATE USER "%s" WITH PASSWORD '\''%s'\'';\n' "${PG_USER}" "${PG_PASSWORD}" | psql_as_postgres
+        psql_as_postgres -v ON_ERROR_STOP=1 -v "user=${PG_USER}" -v "password=${PG_PASSWORD}" <<'SQL'
+SELECT format('CREATE USER %I WITH PASSWORD %L', :'user', :'password')
+\gexec
+SQL
     fi
     _log "用户 ${PG_USER} 就绪"
 
     local db_exists
-    db_exists=$(printf "SELECT 1 FROM pg_database WHERE datname='%s';\n" "${PG_DATABASE}" | psql_as_postgres "-tA" 2>/dev/null || echo "")
+    db_exists=$(printf "SELECT 1 FROM pg_database WHERE datname = :'database';\n" | \
+        psql_as_postgres -v "database=${PG_DATABASE}" -tA 2>/dev/null || echo "")
     if [ "$db_exists" = "1" ]; then
         _log "数据库 ${PG_DATABASE} 已存在"
     else
-        printf 'CREATE DATABASE "%s" OWNER "%s";\n' "${PG_DATABASE}" "${PG_USER}" | psql_as_postgres
+        psql_as_postgres -v ON_ERROR_STOP=1 -v "database=${PG_DATABASE}" -v "user=${PG_USER}" <<'SQL'
+SELECT format('CREATE DATABASE %I OWNER %I', :'database', :'user')
+\gexec
+SQL
         _log "数据库 ${PG_DATABASE} 已创建"
     fi
 }
@@ -124,6 +203,7 @@ deploy_rpm() {
 
     _require_root || return 1
     _load_pg_credentials || { _err "无法加载 PG 凭据（/etc/witty-ub/pg.conf）"; return 1; }
+    ensure_pg_password
 
     # Step 1: 安装 PostgreSQL
     local PG_PKG_CANDIDATES=("postgresql15-server" "postgresql-server")
@@ -137,10 +217,10 @@ deploy_rpm() {
     done
 
     if [ -z "$INSTALLED_PKG" ]; then
-        local SUDO=""; _is_root || SUDO="sudo"
+        local SUDO_CMD=(); _is_root || SUDO_CMD=(sudo)
         for pkg in "${PG_PKG_CANDIDATES[@]}"; do
             _info "尝试安装 $pkg ..."
-            if eval "$SUDO yum install -y --allowerasing $pkg" 2>&1 | tail -3; then
+            if "${SUDO_CMD[@]}" yum install -y --allowerasing "$pkg" 2>&1 | tail -3; then
                 INSTALLED_PKG="$pkg"
                 break
             fi
@@ -149,8 +229,8 @@ deploy_rpm() {
     fi
 
     command -v psql >/dev/null 2>&1 || {
-        local SUDO=""; _is_root || SUDO="sudo"
-        eval "$SUDO yum install -y --allowerasing postgresql" >/dev/null 2>&1 || true
+        local SUDO_CMD=(); _is_root || SUDO_CMD=(sudo)
+        "${SUDO_CMD[@]}" yum install -y --allowerasing postgresql >/dev/null 2>&1 || true
     }
     _log "PostgreSQL client: $(psql --version 2>&1 | head -1)"
 
@@ -215,6 +295,7 @@ deploy_apt() {
 
     _require_root || return 1
     _load_pg_credentials || { _err "无法加载 PG 凭据（/etc/witty-ub/pg.conf）"; return 1; }
+    ensure_pg_password
 
     # Step 1: 安装 PostgreSQL
     local PG_PKG_CANDIDATES=("postgresql" "postgresql-15")
@@ -228,16 +309,16 @@ deploy_apt() {
     done
 
     if [ -z "$INSTALLED_PKG" ]; then
-        local SUDO=""; _is_root || SUDO="sudo"
+        local SUDO_CMD=(); _is_root || SUDO_CMD=(sudo)
         _info "安装 postgresql ..."
-        eval "$SUDO apt-get update -y" >/dev/null 2>&1 || true
-        eval "$SUDO apt-get install -y postgresql postgresql-client" || { _err "安装失败"; return 1; }
+        "${SUDO_CMD[@]}" apt-get update -y >/dev/null 2>&1 || true
+        "${SUDO_CMD[@]}" apt-get install -y postgresql postgresql-client || { _err "安装失败"; return 1; }
         INSTALLED_PKG="postgresql"
     fi
 
     command -v psql >/dev/null 2>&1 || {
-        local SUDO=""; _is_root || SUDO="sudo"
-        eval "$SUDO apt-get install -y postgresql-client" >/dev/null 2>&1 || true
+        local SUDO_CMD=(); _is_root || SUDO_CMD=(sudo)
+        "${SUDO_CMD[@]}" apt-get install -y postgresql-client >/dev/null 2>&1 || true
     }
     _log "PostgreSQL client: $(psql --version 2>&1 | head -1)"
 
@@ -297,7 +378,7 @@ deploy_apt() {
 
 detect_os || exit 1
 case "$OS_ID" in
-    openeuler) deploy_rpm ;;
-    ubuntu)    deploy_apt ;;
-    *)         _err "不支持的 OS: $OS_ID"; exit 1 ;;
+    rpm) deploy_rpm ;;
+    apt) deploy_apt ;;
+    *)   _err "不支持的包管理器: $OS_ID"; exit 1 ;;
 esac

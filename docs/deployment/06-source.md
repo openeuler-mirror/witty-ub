@@ -52,7 +52,8 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src/plugins
 cd src/plugins/latency
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r deploy/requirements.txt
-python3 access/fastapi_server.py
+cd ../../..
+deploy/host/run_backend.sh
 # 监听 0.0.0.0:9772, 需对前端节点可达
 ```
 
@@ -63,8 +64,9 @@ export PG_HOST=127.0.0.1
 export PG_PORT=5432         # 源码/RPM 部署统一使用 PostgreSQL 标准端口
 export PG_DATABASE=witty-ub
 export PG_USER=witty-ub
-export PG_PASSWORD=witty-ub
 ```
+
+> 口令由 `deploy/host/run_backend.sh` 从权限为 `0600` 的 `deploy/pg.passwd` 读取，无需也不建议手动 export。
 
 ### 验证与防火墙
 
