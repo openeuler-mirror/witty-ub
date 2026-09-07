@@ -376,7 +376,8 @@ PENDING ──[run]──▶ RUNNING ──[success]──▶ SUCCESSFUL_PENDING
 2. `handle_failed_tasks`: `FAILED_PENDING_REMOVE` via `reinit` → `PENDING` (retry) or `FAILED` (final)
 3. `handle_pending_tasks`: `PENDING` → `RUNNING`
 
-**Service restart recovery**: On startup, tasks in `RUNNING` state are automatically restored to `PENDING` to prevent tasks from getting stuck after an unexpected restart.
+**Service restart recovery**: On startup, tasks left in `RUNNING` are moved to `FAILED_PENDING_REMOVE`, passed through the worker's cleanup/retry hook, and then run again from the beginning.
+Task-level parse options are stored in the `task.task_config` JSONB column, so KVCache time/elapsed filters and the BRPC diagnosis start time survive subprocess spawning and service restarts.
 
 #### 2. BaseWorker Layer (`task/worker/base.py`)
 

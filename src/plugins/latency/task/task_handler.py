@@ -12,6 +12,7 @@ from latency.task.log_preprocessor import (
     needs_preprocess,
     preprocess_log_dir,
 )
+from latency.schemas.request import ParseConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,8 @@ class TaskHandler:
 
     @staticmethod
     async def init_task_queue():
-        """初始化任务队列"""
-        await TaskPGManager.update_running_tasks_to_pending_tasks()
+        """恢复因服务异常退出而中断的任务。"""
+        await TaskPGManager.mark_interrupted_running_tasks_for_retry()
 
     @staticmethod
     async def init_task(task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None) -> str:
@@ -35,6 +36,16 @@ class TaskHandler:
             task_id = await BaseWorker.init(task_type, op_id)
             if task_id:
                 TaskHandler._task_configs[task_id] = parse_config
+                await TaskPGManager.update_task(
+                    task_id,
+                    {
+                        "task_config": (
+                            parse_config.model_dump(mode="json")
+                            if parse_config is not None
+                            else None
+                        )
+                    },
+                )
             return task_id
         except Exception as e:
             err = f"[TaskQueueService] 初始化任务失败 {e}"
@@ -161,8 +172,15 @@ class TaskHandler:
                 # local archive paths are expanded before parsing/diagnosis.
                 log_dir = await TaskHandler._preprocess_log_source(task)
                 worker_kwargs = None
+                persisted_config = getattr(task, "task_config", None)
+                parse_config = (
+                    ParseConfig.model_validate(persisted_config)
+                    if persisted_config is not None
+                    else TaskHandler.get_task_config(task.id)
+                )
+                if task.task_type == TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER:
+                    worker_kwargs = {"parse_config": parse_config}
                 if task.task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
-                    parse_config = TaskHandler.get_task_config(task.id)
                     if parse_config and parse_config.start_time:
                         worker_kwargs = {"start_time": parse_config.start_time}
                 flag = await BaseWorker.run(

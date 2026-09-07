@@ -173,6 +173,9 @@ async def startup_event():
 
     await FailureModeKnowledge().init_failure_mode_knowledge()
     await backfill_trace_failure_event_status_codes()
+    # 子进程不会随服务重启恢复。遗留的 RUNNING 任务必须先走 worker.reinit()
+    # 清理上一次尝试的半成品，再由任务调度器从头执行。
+    await TaskHandler.init_task_queue()
     # 任务状态查询和迁移不是数据库原子抢占；同一轮处理必须串行，避免两个
     # handle_tasks 实例同时 reinit/启动同一个任务。coalesce 合并执行期间积压的 tick。
     scheduler.add_job(
