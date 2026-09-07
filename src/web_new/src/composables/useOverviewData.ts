@@ -42,6 +42,7 @@ import {
   formatChartTs,
   formatFullTimeLabel,
   normalizeFaultCodes,
+  normalizeFailureModeErrorCode,
   paginate,
   tsToEpochMs,
 } from '../utils/format'
@@ -2027,6 +2028,41 @@ function createOverviewState() {
     return failureModeCache[id] ?? null
   }
 
+  // ---------- P1.2 Trace 抽屉相关故障语义 ----------
+  // 该 trace 已命中的故障模式 id：trace 行 failure_mode + 运行日志事件 failure_mode_id
+  const splitFailureModeIds = (value: unknown): string[] =>
+    String(value ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+  const traceFailureModeIdsOf = (row: any): string[] => {
+    const ids = new Set<string>()
+    splitFailureModeIds(row?.failure_mode).forEach((id) => ids.add(id))
+    traceDrawerLogs.value.forEach((log) => {
+      splitFailureModeIds(log?.failure_mode_id ?? log?.failure_mode).forEach((id) => ids.add(id))
+    })
+    return [...ids]
+  }
+
+  // 相关故障：子故障 children ∩ trace 已命中模式；交集为空时只在已命中模式中筛同码项
+  // （排除自身），不从知识库收集全量同码故障
+  const relatedFailureModeIdsOf = (row: any): string[] => {
+    const primaryId = splitFailureModeIds(row?.failure_mode)[0]
+    const primary = failureModeOf(primaryId)
+    const traceIds = traceFailureModeIdsOf(row)
+    const childIds = splitFailureModeIds(primary?.children_failure_mode_ids).filter((id) =>
+      traceIds.includes(id),
+    )
+    if (childIds.length > 0) return childIds
+    const errorCode = normalizeFailureModeErrorCode(primary?.error_code)
+    if (!errorCode) return []
+    return traceIds.filter((id) => {
+      if (id === primaryId) return false
+      return normalizeFailureModeErrorCode(failureModeOf(id)?.error_code) === errorCode
+    })
+  }
+
   const traceStageRows = (row: any) => {
     const defs = [
       { name: '总时延', key: 'total_latency' },
@@ -3608,6 +3644,8 @@ function createOverviewState() {
     traceRows,
     traceSearch,
     traceSegments,
+    relatedFailureModeIdsOf,
+    traceFailureModeIdsOf,
     traceStageRows,
     trendAnomalyHint,
     trendBuckets,

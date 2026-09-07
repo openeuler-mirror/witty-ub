@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import type { LogFileModel, LogKnowledge } from '../../types'
 import {
@@ -52,6 +52,7 @@ const {
   overviewError,
   overviewLoading,
   podRowTags,
+  relatedFailureModeIdsOf,
   renderAnalysisModules,
   scopeTaskCount,
   scopeTasks,
@@ -83,6 +84,20 @@ const drawerFaultCodes = (row: any) => {
   const modeCode = failureModeDisplayCode(failureModeOf(row?.failure_mode))
   if (modeCode && !codes.includes(modeCode)) codes.push(modeCode)
   return codes
+}
+
+// P1.2：相关故障折叠列表（默认收起，切换 trace 时重置）
+const relatedFaultsOpen = ref(false)
+const relatedFaultIds = computed(() => relatedFailureModeIdsOf(detailDrawerRow.value))
+watch(
+  () => detailDrawerRow.value?.trace_id,
+  () => {
+    relatedFaultsOpen.value = false
+  },
+)
+const relatedFaultCodes = (id: string) => {
+  const code = failureModeDisplayCode(failureModeOf(id))
+  return code ? [code] : []
 }
 
 onMounted(() => {
@@ -608,6 +623,57 @@ onBeforeUnmount(() => {
         >
           暂无故障模式
         </div>
+
+        <div
+          style="
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          "
+        >
+          🔗 相关故障（{{ relatedFaultIds.length }}）
+          <button
+            v-if="relatedFaultIds.length > 0"
+            class="btn btn-text btn-sm"
+            @click="relatedFaultsOpen = !relatedFaultsOpen"
+          >
+            {{ relatedFaultsOpen ? '收起' : '展开' }}
+          </button>
+        </div>
+        <div
+          v-if="relatedFaultIds.length === 0"
+          style="color: var(--text3); font-size: 13px; margin-bottom: 16px"
+        >
+          暂无相关故障
+        </div>
+        <template v-else-if="relatedFaultsOpen">
+          <div
+            v-for="id in relatedFaultIds"
+            :key="id"
+            style="
+              border: 1px solid var(--border);
+              border-radius: 4px;
+              padding: 10px 12px;
+              margin-bottom: 8px;
+              font-size: 12px;
+            "
+          >
+            <div style="font-weight: 600; margin-bottom: 4px">
+              {{ failureModeOf(id)?.name || id }}
+              <span v-for="code in relatedFaultCodes(id)" :key="code" class="fault-code-chip"
+                >故障码 {{ code }}</span
+              >
+            </div>
+            <div style="color: var(--text2); line-height: 1.7">
+              症状：{{ failureModeOf(id)?.symptom || '-' }}<br />
+              根因：{{ failureModeOf(id)?.root_cause || '-' }}<br />
+              解决：{{ failureModeOf(id)?.solution || '-' }}
+            </div>
+          </div>
+        </template>
 
         <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">⏱️ 时延明细</div>
         <div class="table-wrap" style="margin-bottom: 8px">
