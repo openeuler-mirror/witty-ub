@@ -1,4 +1,5 @@
 import fnmatch
+import errno
 import gzip
 import logging
 import os
@@ -151,6 +152,8 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
             shutil.copy2(source_file, target_file)
             copied_count += 1
         except OSError as exc:
+            if exc.errno == errno.ENOSPC:
+                raise
             logger.error("复制日志文件 %s 失败: %s", source_file, exc)
 
     filename_patterns = (
@@ -212,6 +215,8 @@ def split_unmatched_log_files(
                             access_file.write(line)
                             access_count += 1
             except OSError as exc:
+                if exc.errno == errno.ENOSPC:
+                    raise
                 logger.error("拆分日志 %s 失败: %s", source_path, exc)
                 continue
 
@@ -286,6 +291,8 @@ def _extract_archive(source_file: str, target_dir: str) -> int:
         if lower_path.endswith(".rar"):
             return _extract_rar(source_file, target_dir)
     except Exception as exc:
+        if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+            raise
         logger.error("解压日志文件 %s 失败: %s", source_file, exc)
     return 0
 

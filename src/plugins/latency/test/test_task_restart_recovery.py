@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock
 from types import SimpleNamespace
+import errno
 
 import pytest
 
@@ -49,6 +50,57 @@ async def test_init_task_persists_parse_config(monkeypatch):
                 "min_elapsed_ms": 20,
             }
         },
+    )
+
+
+@pytest.mark.asyncio
+async def test_init_task_propagates_initialization_failure(monkeypatch):
+    failure = RuntimeError("database unavailable")
+    monkeypatch.setattr(BaseWorker, "init", AsyncMock(side_effect=failure))
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await TaskHandler.init_task(
+            TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+            "log-id",
+        )
+
+
+@pytest.mark.asyncio
+async def test_disk_full_during_preprocess_marks_task_failed(monkeypatch):
+    task = SimpleNamespace(
+        id="task-id",
+        op_id="log-id",
+        task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        task_config=None,
+    )
+    monkeypatch.setattr(
+        TaskPGManager,
+        "get_oldest_tasks_by_status",
+        AsyncMock(return_value=[task]),
+    )
+    monkeypatch.setattr(
+        TaskHandler,
+        "_preprocess_log_source",
+        AsyncMock(side_effect=OSError(errno.ENOSPC, "No space left on device")),
+    )
+    mark_failed = AsyncMock(return_value=True)
+    monkeypatch.setattr(TaskPGManager, "mark_failed_with_report", mark_failed)
+
+    from latency.task import log_preprocessor
+
+    cleanup_calls = []
+    monkeypatch.setattr(
+        log_preprocessor,
+        "cleanup_preprocess_dir",
+        lambda log_id: cleanup_calls.append(log_id),
+    )
+
+    await TaskHandler.handle_pending_tasks()
+
+    assert cleanup_calls == ["log-id"]
+    mark_failed.assert_awaited_once_with(
+        "task-id",
+        "任务失败：服务器磁盘空间不足，请清理空间后重新提交",
     )
 
 

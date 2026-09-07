@@ -382,42 +382,53 @@ class LogFileService:
             )
         log_file_ids = await LogFilePGManager.add_log_files(log_file_models)
 
-        for log_file_id in log_file_ids:
-            task_type = log_file_task_types[log_file_id]
+        try:
+            for log_file_id in log_file_ids:
+                task_type = log_file_task_types[log_file_id]
 
-            if task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER:
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-            elif task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-            else:
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config
-                )
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
+                if task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER:
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                elif task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                else:
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config
+                    )
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+        except Exception:
+            logger.exception("日志任务初始化失败，清理本次创建的日志记录")
+            for log_file_id in log_file_ids:
+                try:
+                    await LogFilePGManager.hard_delete_log_file_with_related_data(
+                        log_file_id
+                    )
+                except Exception:
+                    logger.exception("清理未完成初始化的日志失败: %s", log_file_id)
+            raise
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod

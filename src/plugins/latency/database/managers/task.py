@@ -2,12 +2,13 @@
 """PostgreSQL-specific manager for task."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
 
 from latency.database.engine import PGManager
-from latency.database.models import Task
+from latency.database.models import Task, TaskReport
 from latency.database.utils import parse_timestamp
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.task import TaskModel
@@ -85,6 +86,28 @@ class TaskPGManager:
                 params,
             )
         return True
+
+    @staticmethod
+    async def mark_failed_with_report(task_id: str, message: str) -> bool:
+        """Persist the terminal state and its user-facing reason atomically."""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text("UPDATE task SET status = :status WHERE id = :id"),
+                {"id": task_id, "status": TaskStatusEnum.FAILED.value},
+            )
+            await session.execute(
+                insert(TaskReport),
+                [
+                    {
+                        "task_id": task_id,
+                        "progress": 100.0,
+                        "message": message,
+                        "existed_status": True,
+                        "created_at": datetime.now(),
+                    }
+                ],
+            )
+        return bool(result.rowcount)
 
     @staticmethod
     async def mark_interrupted_running_tasks_for_retry() -> bool:

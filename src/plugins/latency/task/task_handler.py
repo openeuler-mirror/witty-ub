@@ -1,6 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
 import asyncio
 import concurrent.futures
+import errno
 from typing import Optional
 import logging
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -32,24 +33,41 @@ class TaskHandler:
     @staticmethod
     async def init_task(task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None) -> str:
         """初始化任务"""
+        task_id = None
         try:
             task_id = await BaseWorker.init(task_type, op_id)
-            if task_id:
-                TaskHandler._task_configs[task_id] = parse_config
-                await TaskPGManager.update_task(
-                    task_id,
-                    {
-                        "task_config": (
-                            parse_config.model_dump(mode="json")
-                            if parse_config is not None
-                            else None
-                        )
-                    },
-                )
+            if not task_id:
+                raise RuntimeError(f"{task_type.value} 未创建任务记录")
+            TaskHandler._task_configs[task_id] = parse_config
+            await TaskPGManager.update_task(
+                task_id,
+                {
+                    "task_config": (
+                        parse_config.model_dump(mode="json")
+                        if parse_config is not None
+                        else None
+                    )
+                },
+            )
             return task_id
         except Exception as e:
+            if task_id:
+                TaskHandler._task_configs.pop(task_id, None)
             err = f"[TaskQueueService] 初始化任务失败 {e}"
             logger.exception(err)
+            raise
+
+    @staticmethod
+    async def _fail_preprocess_for_insufficient_space(task) -> None:
+        """Remove partial files and persist a user-facing terminal failure."""
+        from latency.task.log_preprocessor import cleanup_preprocess_dir
+
+        cleanup_preprocess_dir(task.op_id)
+        message = "任务失败：服务器磁盘空间不足，请清理空间后重新提交"
+        try:
+            await TaskPGManager.mark_failed_with_report(task.id, message)
+        except Exception:
+            logger.exception("记录磁盘空间不足任务失败状态失败: task_id=%s", task.id)
     
     @staticmethod
     def get_task_config(task_id: str) -> Optional["ParseConfig"]:
@@ -192,6 +210,8 @@ class TaskHandler:
                 flag = False
                 err = f"[TaskQueueService] 处理待处理任务失败 {e}"
                 logger.exception(err)
+                if isinstance(e, OSError) and e.errno == errno.ENOSPC:
+                    await TaskHandler._fail_preprocess_for_insufficient_space(task)
             if not flag:
                 # 任务之间彼此独立：一个 worker 启动失败不应阻断
                 # 同一批次中的其他 worker（尤其是 BRPC parse/diagnosis）。

@@ -9030,7 +9030,10 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return message.startsWith('Trace context logs stored:')
+  return (
+    message.startsWith('Trace context logs stored:') ||
+    message.startsWith('任务失败：')
+  )
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>

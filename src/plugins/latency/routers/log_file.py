@@ -92,7 +92,10 @@ async def upload_log_files(
             raise RequestValidationError(exc.errors())
 
     upload_log_files_msg = await LogFileService.upload_log_files(kb_id, req)
-    return UploadLogFilesResponse(result=upload_log_files_msg)
+    return UploadLogFilesResponse(
+        message="日志解析任务已受理",
+        result=upload_log_files_msg,
+    )
 
 
 @router.post(
