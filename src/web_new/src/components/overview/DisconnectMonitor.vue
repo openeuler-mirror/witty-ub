@@ -18,6 +18,9 @@ const {
   faultTopoRef,
   faultTracePage,
   faultTracePages,
+  faultTraceLoadedCount,
+  faultTraceTotal,
+  faultTracesTruncated,
   filteredFaultTraces,
   openTraceDrawer,
   pagedFaultTraces,
@@ -63,11 +66,20 @@ const faultModeTitle = (row: any) =>
 </script>
 
 <template>
+  <div
+    v-if="faultTracesTruncated"
+    class="section-card"
+    style="margin-bottom: 16px; border-color: #f59e0b; color: #92400e"
+  >
+    当前仅加载 {{ faultTraceLoadedCount }} / {{ faultTraceTotal }} 条故障
+    Trace；本页拓扑、KPI、饼图、端点表与列表均基于已加载数据，不能视为全量结论。
+  </div>
+
   <div class="chart-box" style="height: 440px; margin-bottom: 16px">
     <div class="chart-title">
       通断故障通信拓扑图（有向）
       <span class="hint" style="margin-left: auto"
-        >hover 节点/边查看详情；点击边/节点进入对应 Pod 详情</span
+        >hover 节点/边查看详情；点击边/节点进入对应端点或链路详情</span
       >
     </div>
     <div style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
@@ -111,15 +123,15 @@ const faultModeTitle = (row: any) =>
 
   <div class="section-card">
     <div class="section-card-title">
-      通断故障 Pod 分析
-      <span class="hint">基于故障 Trace 的源/目标 IP 聚合，点击柱体进入 Pod 详情</span>
+      通断故障端点分析
+      <span class="hint">基于当前时间范围内故障 Trace 的源/目标 IP 聚合</span>
     </div>
     <div ref="faultPodRef" style="height: 240px"></div>
     <div class="table-wrap" style="margin-top: 12px">
       <table>
         <thead>
           <tr>
-            <th>Pod IP</th>
+            <th>端点 IP</th>
             <th>故障次数</th>
             <th>故障码</th>
             <th>操作</th>
@@ -148,7 +160,9 @@ const faultModeTitle = (row: any) =>
   <div class="section-card">
     <div class="section-card-title">
       📈 故障码计数时序分布
-      <span class="hint">直接拖拽框选时间范围，下方异常 Trace 列表随之过滤</span>
+      <span class="hint"
+        >直接拖拽框选时间范围，本页拓扑、KPI、饼图、端点表与 Trace 列表随之过滤</span
+      >
       <button v-if="faultTimeRange" class="btn btn-sm btn-text" @click="clearFaultRange">
         清除框选
       </button>
@@ -166,7 +180,7 @@ const faultModeTitle = (row: any) =>
       异常 Trace 列表
       <span class="hint">{{
         faultTimeRange
-          ? '已按框选时间过滤：' + faultTimeRange.start + ' ~ ' + faultTimeRange.end
+          ? '当前范围：' + faultTimeRange.start + ' ~ ' + faultTimeRange.end
           : '未过滤，展示全部'
       }}</span>
     </div>
@@ -280,7 +294,8 @@ const faultModeTitle = (row: any) =>
       style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
     >
       <span style="font-size: 13px; color: var(--text2)"
-        >共 {{ filteredFaultTraces.length }} 条</span
+        >{{ faultTracesTruncated ? '当前范围已加载' : '共' }}
+        {{ filteredFaultTraces.length }} 条</span
       >
       <PageNav
         v-if="faultTracePages > 1"

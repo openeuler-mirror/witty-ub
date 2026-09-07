@@ -247,24 +247,38 @@ export const fetchFaultChart = async (kbId: string, op: 'get' | 'set') => {
   return out
 }
 
+const FAULT_TRACE_PAGE_CNT = 500
+const FAULT_TRACE_MAX_PAGES = 5
+
 export const fetchFaultTraces = async (kbId: string, op: 'get' | 'set') => {
-  const result = await request<{ total: number; trace_failure_event_results: any[] }>(
-    '/log_failure_event_result/list_trace_events',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        kb_id: kbId,
-        page_num: 1,
-        page_cnt: 500,
-        is_anomalous: true,
-        operation: op.toUpperCase(),
-      }),
-    },
-  )
-  return {
-    total: result.total ?? 0,
-    rows: result.trace_failure_event_results ?? [],
+  const readPage = async (pageNum: number) => {
+    const result = await request<{ total: number; trace_failure_event_results: any[] }>(
+      '/log_failure_event_result/list_trace_events',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kb_id: kbId,
+          page_num: pageNum,
+          page_cnt: FAULT_TRACE_PAGE_CNT,
+          is_anomalous: true,
+          operation: op.toUpperCase(),
+        }),
+      },
+    )
+    return {
+      total: result.total ?? 0,
+      rows: result.trace_failure_event_results ?? [],
+    }
   }
+
+  const first = await readPage(1)
+  const rows = [...first.rows]
+  const totalPages = Math.min(Math.ceil(first.total / FAULT_TRACE_PAGE_CNT), FAULT_TRACE_MAX_PAGES)
+  for (let page = 2; page <= totalPages; page++) {
+    const next = await readPage(page)
+    rows.push(...next.rows)
+  }
+  return { total: first.total, rows, truncated: rows.length < first.total }
 }
 
 export const fetchTraceLogs = async (kbId: string, traceIds: string[]) =>
