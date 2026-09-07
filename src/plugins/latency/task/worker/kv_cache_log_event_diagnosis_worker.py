@@ -1,26 +1,15 @@
-import asyncio
 import fnmatch
 import logging
 import os
 import re
 import uuid
 import subprocess
-import time
-from latency.schemas.log_failure_event import TraceFailureEventModel
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.common.ds_log_io import glob_paths, open_log
 from latency.config.config import Config
-from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.task import TaskPGManager
-from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_file import LogFilePGManager
-from latency.database.managers.log_knowledge import LogKnowledgePGManager
-from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.schemas.task import TaskModel
-from latency.schemas.log import (
-    LogFileModel,
-)
 from latency.task.worker.base import BaseWorker
 
 

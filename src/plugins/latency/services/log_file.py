@@ -1,4 +1,3 @@
-import requests
 import os
 import aiofiles
 import aiohttp
@@ -24,7 +23,6 @@ from latency.ENUM.general import SourceType
 from latency.schemas.request import (
     ParseConfig,
     RunBrpcDiagnosisRequest,
-    UpLoadLogFileConfig,
     UpLoadLogFilesRequest,
     UpdateLogFileRequest,
     ListLogFilesRequest,
@@ -40,9 +38,8 @@ from latency.schemas.response import (
 )
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
-from latency.task.progress import parallel_overall_progress, task_progress
+from latency.task.progress import parallel_overall_progress
 from latency.task.worker.base import BaseWorker
-from latency.task.worker.brpc_log_diagnosis_worker import BrpcLogDiagnosisWorker
 from latency.task.log_preprocessor import (
     ARCHIVE_EXTENSIONS,
     WITTY_DIR_DEFAULT,
@@ -92,6 +89,16 @@ def _is_profiling_log(file_path: str | Path) -> bool:
 
 class LogFileService:
     RETRYING_STATUS = "retrying"
+
+    @staticmethod
+    def _mask_counts_until_complete(log_file_model: LogFileModel) -> None:
+        """Expose fault statistics only after the whole log pipeline succeeds."""
+        if log_file_model.overall_status not in {
+            TaskStatusEnum.SUCCESSFUL.value,
+            TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value,
+        }:
+            log_file_model.anomaly_cnt = 0
+            log_file_model.trace_failure_event_cnt = 0
 
     @staticmethod
     def _is_task_successful(task) -> bool:
@@ -372,42 +379,53 @@ class LogFileService:
             )
         log_file_ids = await LogFilePGManager.add_log_files(log_file_models)
 
-        for log_file_id in log_file_ids:
-            task_type = log_file_task_types[log_file_id]
+        try:
+            for log_file_id in log_file_ids:
+                task_type = log_file_task_types[log_file_id]
 
-            if task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER:
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-            elif task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-            else:
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config
-                )
-                await TaskHandler.init_task(
-                    task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
-                    op_id=log_file_id,
-                    parse_config=req.parse_config,
-                )
+                if task_type == TaskTypeEnum.BRPC_LOG_PARSE_WORKER:
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                elif task_type == TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER:
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                else:
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config
+                    )
+                    await TaskHandler.init_task(
+                        task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
+                        op_id=log_file_id,
+                        parse_config=req.parse_config,
+                    )
+        except Exception:
+            logger.exception("日志任务初始化失败，清理本次创建的日志记录")
+            for log_file_id in log_file_ids:
+                try:
+                    await LogFilePGManager.hard_delete_log_file_with_related_data(
+                        log_file_id
+                    )
+                except Exception:
+                    logger.exception("清理未完成初始化的日志失败: %s", log_file_id)
+            raise
         return UploadLogFilesMsg(log_file_ids=log_file_ids)
 
     @staticmethod
@@ -666,6 +684,7 @@ class LogFileService:
             log_file_model.overall_status = LogFileService._aggregate_task_status(
                 *aggregate_tasks,
             )
+            LogFileService._mask_counts_until_complete(log_file_model)
             # 和get_log_file_by_log_file_id完全一致：单独查询可见任务的reports并排序
             log_file_model.task = visible_task
             if visible_task:
@@ -756,10 +775,12 @@ class LogFileService:
             log_file_model.overall_status = LogFileService._aggregate_task_status(
                 *aggregate_tasks,
             )
+            LogFileService._mask_counts_until_complete(log_file_model)
             task_model.task_reports = await TaskReportPGManager.list_task_reports_by_task_ids(
                 [task_model.id]
             )
         else:
             log_file_model.overall_status = LogFileService._aggregate_task_status()
+            LogFileService._mask_counts_until_complete(log_file_model)
         log_file_model.task = task_model
         return GetLogFileMsg(log_file=log_file_model)

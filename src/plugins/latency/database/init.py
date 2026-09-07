@@ -13,6 +13,7 @@ from latency.database.models import Base
 # corresponding ORM model gained the column.  Each entry is a compile-time
 # constant, never derived from untrusted input.
 _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
+    ("task", "task_config", "JSONB"),
     ("trace_failure_event", "operation", "VARCHAR"),
     ("src_dst_aggregated_event", "kb_id", "VARCHAR"),
     ("src_dst_aggregated_event", "operation", "VARCHAR"),

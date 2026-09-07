@@ -663,20 +663,10 @@ type ListTimeAggregatedFailureEventMsg = {
   events: TimeAggregatedFailureEventModel[]
 }
 
-type PodAggregatedFailureEventModel = {
-  pod_name: string
-  status_code_cnt: Record<string, number>
-}
-
 type SrcDstAggregatedFailureEventModel = {
   src_ip: string
   dst_ip: string
   status_code_cnt: Record<string, number>
-}
-
-type ListPodAggregatedFailureEventMsg = {
-  total: number
-  events: PodAggregatedFailureEventModel[]
 }
 
 type ListSrcDstAggregatedFailureEventMsg = {
@@ -964,7 +954,6 @@ const assistantMessageIds = new Set<string>()
 let agentEventController: AbortController | null = null
 let isAgentEventStreamConnected = false
 let agentLocalMessageSequence = 0
-let agentHealthCheckSequence = 0
 let agentRequestSequence = 0
 let agentEventStreamSequence = 0
 let shouldIgnoreNextAgentAbortError = false
@@ -1533,30 +1522,6 @@ const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
   }
 }
 
-const checkAgentHealth = async () => {
-  const checkSequence = ++agentHealthCheckSequence
-  agentConnectionState.value = 'connecting'
-
-  try {
-    const health = await requestAgentApi<OpenCodeHealthResult>('/global/health')
-    if (checkSequence !== agentHealthCheckSequence) return
-
-    if (health?.healthy) {
-      agentConnectionState.value = 'connected'
-      agentConnectionError.value = ''
-    } else {
-      agentConnectionState.value = 'disconnected'
-      agentConnectionError.value = 'OpenCode Server 健康检查未通过。'
-    }
-  } catch (error) {
-    if (checkSequence !== agentHealthCheckSequence) return
-    agentConnectionState.value = 'disconnected'
-    agentConnectionError.value =
-      error instanceof Error
-        ? `无法连接到 OpenCode Server：${error.message}`
-        : '无法连接到 OpenCode Server。'
-  }
-}
 
 const markAgentResponseFailed = (message: string) => {
   const pending = getPendingAssistantMessage()
@@ -1743,7 +1708,6 @@ const connectAgentEvents = async () => {
     agentConnectionError.value = ''
     agentConnectionState.value = 'connected'
     isAgentEventStreamConnected = true
-    agentHealthCheckSequence += 1
     void readAgentEventStream(response, controller, streamSequence)
   } catch (error) {
     window.clearTimeout(timeoutId)
@@ -1920,6 +1884,10 @@ const isDetailLoading = ref(false)
 const isSaving = ref(false)
 const isQuerying = ref(false)
 const errorMessage = ref('')
+const isAssetServiceUnavailable = ref(false)
+const isInitialDataUnavailable = computed(
+  () => isAssetServiceUnavailable.value && assets.value.length === 0 && !selectedAsset.value,
+)
 
 const logSourceInput = ref('')
 type LogType = 'kv-cache' | 'brpc'
@@ -2458,11 +2426,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mouseup', handleFaultTraceScrollColumnResizeEnd)
 })
 
-const getFaultTraceScrollGridColumnWidths = () =>
-  faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' ')
-
 const faultTraceScrollGridStyle = computed(() => {
-  const columnCount = faultTraceScrollColumns.widths.length
   const width = faultTraceScrollColumns.widths.reduce((sum, w) => sum + w, 0)
   return {
     gridTemplateColumns: faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' '),
@@ -2571,9 +2535,6 @@ const getDetailLatencyDataGridColumnWidths = () =>
 const getDetailLatencyTraceFrameGridColumnWidths = () =>
   `minmax(0, 1fr) ${DETAIL_LATENCY_TOTAL_COLUMN_WIDTH + DETAIL_LATENCY_BREAKDOWN_COLUMN_WIDTH}px max-content`
 
-const getFaultLeftGridColumnWidths = () =>
-  traceListColumnWidths.faultLeft.map((w) => `${w}px`).join(' ')
-
 const getLatencyDataGridColumnWidths = () => {
   return `${traceListColumnWidths.latencyData[0] || 55}px ${traceListColumnWidths.latencyData[1] || 180}px`
 }
@@ -2586,14 +2547,8 @@ const getTimeWindowTotalWidth = () => {
   return traceListColumnWidths.latencyData[1] || 480
 }
 
-const getFaultDataGridColumnWidths = () =>
-  traceListColumnWidths.faultData.map((w) => `${w}px`).join(' ')
-
 const getFaultTraceLeftGridColumnWidths = () =>
   traceListColumnWidths.faultTraceLeft.map((w) => `${w}px`).join(' ')
-
-const getFaultTraceActionsGridColumnWidths = () =>
-  traceListColumnWidths.faultTraceActions.map((w) => `${w}px`).join(' ')
 
 const getTimeWindowIpPairPage = (twIdx: number) => timeWindowIpPairPageMap.value[twIdx] ?? 1
 
@@ -3456,15 +3411,6 @@ const isAbnormalMonitorPage = computed(() => activePage.value === 'abnormal')
 watch(isAbnormalMonitorPage, () => {
   isAgentChatOpen.value = false
 })
-const isLatencyEventListFilterMode = computed(
-  () => isAbnormalMonitorPage.value && activeAggregateTab.value === 'event',
-)
-const shouldShowTraceListFilters = computed(
-  () => activePage.value === 'asset' || isAbnormalMonitorPage.value,
-)
-const shouldShowFaultCodeFilter = computed(
-  () => isFaultCodeFeatureEnabled && isAbnormalMonitorPage.value,
-)
 const getLatencySeriesConfig = (
   [
     ['total_latency_us', '总时延', '#d32f2f'],
@@ -3656,14 +3602,6 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
   return abnormal
 }
 
-const isDetailLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
-  const totalLatency = values.total_latency
-  return (
-    typeof totalLatency === 'number' &&
-    Number.isFinite(totalLatency) &&
-    totalLatency > detailLatencyAbnormalThreshold
-  )
-}
 
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
   typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
@@ -4255,35 +4193,6 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
 })
 
-const detailLatencyChartBuckets = computed<LatencyChartBucket[]>(() =>
-  detailLatencyMetrics.value
-    .map((metric) => {
-      const date = parseMetricDate(metric)
-      if (!date) return null
-
-      const values = latencySeriesConfig.value.reduce(
-        (acc, series) => {
-          const value = getFiniteMetricValue(metric, series.key)
-          if (value !== null) {
-            acc[series.key] = value
-          } else {
-            acc[series.key] = null
-          }
-          return acc
-        },
-        {} as Record<LatencyMetricKey, number | null>,
-      )
-
-      return {
-        time: date.getTime(),
-        label: formatFullTimeLabel(date),
-        values,
-        abnormal: isDetailLatencyChartBucketAbnormal(values),
-      }
-    })
-    .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
-    .sort((first, second) => first.time - second.time),
-)
 
 const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
   const operation =
@@ -4495,72 +4404,6 @@ const createLatencyEchartsOption = (
   }
 }
 
-const createDetailLatencyEchartsOption = (points: LatencyChartBucket[]): EChartsOption => {
-  const labels = points.map((point) => point.label)
-  const markAreaData = getLatencyMarkAreas(points)
-
-  return {
-    ...createLatencyEchartsOption(points),
-    xAxis: {
-      type: 'category',
-      data: labels,
-      name: '时间',
-      boundaryGap: false,
-      axisTick: {
-        show: true,
-        alignWithLabel: true,
-        interval: 'auto',
-        length: 6,
-        lineStyle: {
-          color: '#94a3b8',
-          width: 1,
-        },
-      },
-      axisLine: {
-        lineStyle: {
-          color: '#94a3b8',
-        },
-      },
-      axisLabel: {
-        interval: 'auto',
-        color: '#64748b',
-        fontSize: 12,
-        rotate: 38,
-        margin: 6,
-      },
-      nameTextStyle: {
-        color: '#475569',
-        fontSize: 12,
-      },
-    },
-    series: getAvailableLatencySeriesConfig(points)
-      .filter((series) => isLatencySeriesVisible(series.key))
-      .map((series, index) => ({
-        name: series.label,
-        type: 'line',
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        lineStyle: {
-          width: 2,
-        },
-        data: points.map((point) => point.values[series.key]),
-        ...(index === 0
-          ? {
-              markArea: {
-                silent: true,
-                data: markAreaData,
-                itemStyle: {
-                  color: 'rgba(239,68,68,0.25)',
-                  borderColor: '#ef4444',
-                  borderWidth: 1,
-                },
-              },
-            }
-          : {}),
-      })),
-  }
-}
 
 const escapeChartHtml = (value: string) =>
   value
@@ -5215,8 +5058,6 @@ const getFaultAggregatedEventPodPageCount = (row: FaultAggregatedEventRow) =>
   Math.max(1, Math.ceil(getFaultAggregatedEventPodTotal(row) / faultAggregatedEventPodPageSize))
 const getFaultAggregatedEventPodPageWindow = (row: FaultAggregatedEventRow) =>
   getPageWindow(getFaultAggregatedEventPodPage(row), getFaultAggregatedEventPodPageCount(row))
-const getFaultAggregatedEventPodPageInput = (row: FaultAggregatedEventRow) =>
-  faultAggregatedEventPodPageInputsByEventId.value[row.id] ?? ''
 const setFaultAggregatedEventPodPageInput = (row: FaultAggregatedEventRow, value: string) => {
   faultAggregatedEventPodPageInputsByEventId.value = {
     ...faultAggregatedEventPodPageInputsByEventId.value,
@@ -5370,36 +5211,7 @@ const faultDetailChartBuckets = computed<FaultChartBucket[]>(() => {
     }))
 })
 
-const latencyDetailRows = computed<LatencyDetailRow[]>(() => {
-  const rows: LatencyDetailRow[] = []
 
-  aggregatedEvents.value.forEach((event) => {
-    rows.push({
-      id: event.id,
-      sourcePodIp: stripHostPort(event.src_ip),
-      targetPodIp: stripHostPort(event.dst_ip),
-      traceCount: event.log_parse_result_cnt ?? 0,
-      anomalyTraceCount: event.anomaly_log_parse_result_cnt ?? 0,
-      event,
-      operation: event.operation || undefined,
-    })
-  })
-
-  return rows
-})
-
-const stripHostPort = (value?: string | null) => {
-  const host = value?.trim()
-  if (!host || host === '-') return '-'
-
-  const bracketedIpv6 = host.match(/^\[([^\]]+)\](?::\d+)?$/)
-  if (bracketedIpv6?.[1]) return bracketedIpv6[1]
-
-  const hostWithPort = host.match(/^(.+):\d+$/)
-  if (hostWithPort?.[1] && !hostWithPort[1].includes(':')) return hostWithPort[1]
-
-  return host
-}
 
 const getRecordString = (record: Record<string, unknown>, keys: string[], fallback = '-') => {
   for (const key of keys) {
@@ -5550,20 +5362,6 @@ const normalizeTraceOperation = (operation: string) => {
   if (normalized.includes('SET') || normalized.includes('CREATE') || normalized.includes('PUBLISH'))
     return 'SET'
   return '-'
-}
-
-const normalizeTimeText = (value: string) => {
-  let normalized = value.replace('T', ' ').replace(/Z$/i, '')
-  // Strip timezone suffix like +08, +08:00, +0800
-  normalized = normalized.replace(/[+-]\d{2}(?::?\d{2})?$/, '').trim()
-  const match = normalized.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(\.\d+)?$/)
-  if (match) {
-    const base = match[1]
-    const decimals = match[2] || '.000'
-    const trimmedDecimals = decimals.length > 4 ? decimals.substring(0, 4) : decimals.padEnd(4, '0')
-    return base + trimmedDecimals
-  }
-  return normalized
 }
 
 const getTraceRowHeight = (podIpHtml: string) => {
@@ -6147,22 +5945,6 @@ const selectChildFailureMode = async (childId: string) => {
 
 const normalizeFilterText = (value: string) => value.trim()
 
-const parseFilterDate = (value: string) => {
-  if (!value) return null
-  return parseDateAsLocal(value)
-}
-
-const matchesLatencyRowPodIpFilters = (row: LatencyDetailRow) => {
-  const { sourcePodIps, targetPodIps } = appliedFilters.value
-  if (sourcePodIps.length > 0 && !sourcePodIps.includes(row.sourcePodIp)) return false
-  if (targetPodIps.length > 0 && !targetPodIps.includes(row.targetPodIp)) return false
-  return true
-}
-
-const getFilteredLatencyRows = () =>
-  isLatencyEventListFilterMode.value
-    ? latencyDetailRows.value
-    : latencyDetailRows.value.filter(matchesLatencyRowPodIpFilters)
 
 const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
   const filters = appliedFilters.value
@@ -7518,65 +7300,6 @@ const loadTopSlowChart = async () => {
   }
 }
 
-const loadDetailLatencyChart = async (row: LatencyDetailRow) => {
-  if (!selectedAssetId.value) {
-    detailLatencyMetrics.value = []
-    detailLatencyChartError.value = ''
-    isDetailLatencyChartLoading.value = false
-    return
-  }
-
-  const assetId = selectedAssetId.value
-  isDetailLatencyChartLoading.value = true
-  detailLatencyChartError.value = ''
-  detailLatencyMetrics.value = []
-
-  try {
-    const currentDetailLogFile = logFiles.value.find(
-      (f) => getLogFileId(f) === selectedLogFileId.value,
-    )
-    const detailLogId =
-      currentDetailLogFile && isKvcacheLogFile(currentDetailLogFile)
-        ? selectedLogFileId.value
-        : (pickDefaultKvcacheLogFile(logFiles.value)?.log_file_id ?? undefined)
-    const requestBody: Record<string, unknown> = {
-      kb_id: assetId,
-      src_ip: row.sourcePodIp === '-' ? undefined : row.sourcePodIp,
-      dst_ip: row.targetPodIp === '-' ? undefined : row.targetPodIp,
-      max_points: 30,
-      sort_by: 'timestamp',
-      sort_order: 'asc',
-      bucket_seconds: selectedLatencyScale.value,
-      log_id: detailLogId,
-    }
-    if (row.startTime) {
-      requestBody.start_time = row.startTime
-    }
-    if (row.endTime) {
-      requestBody.end_time = row.endTime
-    }
-    const result = await request<{ total: number; metrics: LatencyMetricItem[] }>(
-      '/log_parse_result/metrics/latency',
-      {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-      },
-    )
-    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
-      detailLatencyMetrics.value = result.metrics ?? []
-    }
-  } catch (error) {
-    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
-      detailLatencyMetrics.value = []
-      detailLatencyChartError.value =
-        error instanceof Error ? error.message : '加载明细延迟趋势失败'
-    }
-  } finally {
-    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
-      isDetailLatencyChartLoading.value = false
-    }
-  }
-}
 
 const loadDetailParseResults = async (
   row: LatencyDetailRow,
@@ -7688,7 +7411,7 @@ const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = result.log_parse_results ?? []
     }
-  } catch (error) {
+  } catch {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = []
     }
@@ -8513,16 +8236,6 @@ const goFaultAggregatedEventPodPage = (row: FaultAggregatedEventRow, pageNum: nu
   void loadFaultAggregatedEventPodRows(row, nextPage)
 }
 
-const jumpFaultAggregatedEventPodPage = (row: FaultAggregatedEventRow) => {
-  const nextPage = normalizePageInput(
-    getFaultAggregatedEventPodPageInput(row),
-    getFaultAggregatedEventPodPageCount(row),
-  )
-  if (nextPage === null) return
-  setFaultAggregatedEventPodPageInput(row, '')
-  goFaultAggregatedEventPodPage(row, nextPage)
-}
-
 const loadFaultAggregatedEvents = async (pageNum = faultAggregatedEventPage.value) => {
   if (!selectedAssetId.value) {
     faultAggregatedEventsError.value = ''
@@ -8705,11 +8418,17 @@ const loadAssets = async () => {
       created_sorted_desc: true,
     })
     assets.value = result.assets
+    isAssetServiceUnavailable.value = false
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '资产库列表加载失败'
+    isAssetServiceUnavailable.value = true
+    errorMessage.value = error instanceof Error ? error.message : '数据服务暂时不可用'
   } finally {
     isListLoading.value = false
   }
+}
+
+const retryInitialDataLoad = () => {
+  void loadAssets()
 }
 
 const handleAssetClick = (assetId: string) => {
@@ -9030,7 +8749,10 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return message.startsWith('Trace context logs stored:')
+  return (
+    message.startsWith('Trace context logs stored:') ||
+    message.startsWith('任务失败：')
+  )
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>
@@ -12421,6 +12143,9 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="isListLoading" class="state-text">正在加载资产库...</div>
+        <div v-else-if="isAssetServiceUnavailable && assets.length === 0" class="state-text">
+          资产数据暂不可用
+        </div>
         <div v-else-if="assets.length === 0" class="state-text">暂无资产库</div>
 
         <div v-else class="nav-list">
@@ -12763,9 +12488,21 @@ onBeforeUnmount(() => {
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
-      <div v-if="errorMessage" class="error-banner">{{ errorMessage }}</div>
+      <div v-if="errorMessage && !isInitialDataUnavailable" class="error-banner">
+        {{ errorMessage }}
+      </div>
 
-      <div v-if="activePage === 'abnormal'" class="monitor-page">
+      <section v-if="isInitialDataUnavailable" class="service-unavailable" role="alert">
+        <div class="service-unavailable-icon" aria-hidden="true">!</div>
+        <h1>数据服务暂时不可用</h1>
+        <p>当前无法加载资产库和任务状态，请稍后重试或联系管理员。</p>
+        <p class="service-unavailable-hint">服务恢复后可继续使用，任务状态以重新连接后的结果为准。</p>
+        <button type="button" :disabled="isListLoading" @click="retryInitialDataLoad">
+          {{ isListLoading ? '正在重试...' : '重新加载' }}
+        </button>
+      </section>
+
+      <div v-else-if="activePage === 'abnormal'" class="monitor-page">
         <section v-if="activeMonitorProduct === 'kvcache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">

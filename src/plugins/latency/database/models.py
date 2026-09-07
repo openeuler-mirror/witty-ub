@@ -455,6 +455,7 @@ class Task(Base):
     task_name: Mapped[Optional[str]] = mapped_column(String)
     task_type: Mapped[Optional[str]] = mapped_column(String)
     status: Mapped[Optional[str]] = mapped_column(String)
+    task_config: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=lambda: datetime.now()

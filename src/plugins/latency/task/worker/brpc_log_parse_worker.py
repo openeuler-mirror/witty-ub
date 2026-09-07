@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Optional
 
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
@@ -18,7 +17,6 @@ from latency.parse.brpc_profiling_parser import BrpcProfilingParser
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.task import TaskPGManager
-from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.schemas.task import TaskModel
 from latency.task.worker.base import BaseWorker

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from latency.ENUM.ds_log import EntryType, TupleField as TupleField
+from latency.ENUM.ds_log import EntryType
 
 
 @dataclass(slots=True)

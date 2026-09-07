@@ -13,7 +13,7 @@ from latency.schemas.response import (
     ListLogKnowledgeMsg,
     GetLogKnowledgeMsg,
 )
-from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
+from latency.ENUM.task import TaskStatusEnum
 from latency.common.convertor import Convertor
 from latency.database.engine import PGManager
 from latency.database.managers.task import TaskPGManager

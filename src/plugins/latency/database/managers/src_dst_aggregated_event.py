@@ -15,7 +15,6 @@ from typing import Any
 from sqlalchemy import Integer, case, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
-from latency.config.config import Config
 from latency.database.engine import PGManager
 from latency.database.models import LogFile, LogParseResult, SrcDstAggregatedEvent
 from latency.database.utils import format_ip, format_timestamp, parse_ip, parse_timestamp
