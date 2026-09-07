@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include "ubse_context.h"
+#include "urma_data_def.h"
 #include "urma_error.h"
 #include "witty_json_module.h"
 namespace urma::topo {
@@ -62,6 +63,12 @@ private:
     std::shared_ptr<witty_json::module::JSONModule> jsonModule;
     std::vector<std::string> CollectLogFiles(const std::string &filePath);
     URMAResult ProcessLogFile(const std::string &logFile, std::map<SessionKey, std::string> &activeSessions);
+    URMAResult CreatePodModeTopology(const ubse::context::TopoToolsArgs &args, std::vector<topology::urma::Pod> &pods,
+                                     std::vector<topology::urma::Jetty> &jetties,
+                                     std::vector<topology::urma::URMADevice> &urma_devices);
+    URMAResult CreateNormalModeTopology(const std::map<std::string, std::string> &input_umq_log_path,
+                                        std::vector<topology::urma::Jetty> &jetties,
+                                        std::vector<topology::urma::URMADevice> &urma_devices);
 };
 } // namespace urma::topo
 #endif

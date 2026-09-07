@@ -35,6 +35,61 @@ std::vector<T> convertPtrVectorToValueVector(const std::vector<std::shared_ptr<T
     }
     return result;
 }
+namespace {
+void ClearRemotePortFields(std::vector<topology::node::Port> &ports_vec)
+{
+    for (auto &port : ports_vec) {
+        port.remotePortId.reset();
+        port.remoteSlotId.reset();
+        port.remoteUbpuId.reset();
+        port.remoteIouId.reset();
+    }
+}
+
+LcneResult WriteTopologyToJson(witty_json::module::JSONModule *jsonModule,
+                               const std::vector<topology::node::UbController> &ubcs_vec,
+                               const std::vector<topology::node::Port> &ports_vec)
+{
+    auto ubcs_pair = jsonModule->GetJsonPair("iodie", ubcs_vec);
+    auto port_pair = jsonModule->GetJsonPair("port", ports_vec);
+    auto json_ret = jsonModule->WriteVectorsToFile(lcne::common::JSON_OUTPUT_FILE, ubcs_pair, port_pair);
+    if (json_ret == RACK_FAIL) {
+        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to write json file";
+        return LCNE_FAIL;
+    }
+    if (::chmod(lcne::common::JSON_OUTPUT_FILE, lcne::common::JSON_OUTPUT_FILE_PERM_640) != 0) {
+        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to set file mode 0640 for output file "
+                  << lcne::common::JSON_OUTPUT_FILE;
+        return LCNE_FAIL;
+    }
+    return LCNE_SUCCESS;
+}
+
+#ifdef ENABLE_DAEMON_FEATURE
+LcneResult InsertTopologyData(topology::node::NodeLocalCollectorModule *nodeLocalCollectorModule,
+                              const std::vector<std::shared_ptr<topology::node::Node>> &nodes,
+                              const std::vector<std::shared_ptr<topology::node::UbController>> &ubcs,
+                              const std::vector<std::shared_ptr<topology::node::Port>> &ports)
+{
+    LcneResult ret = nodeLocalCollectorModule->InsertDeviceData(nodes);
+    if (ret != LCNE_SUCCESS) {
+        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to update node topology";
+        return ret;
+    }
+    ret = nodeLocalCollectorModule->InsertUbCData(ubcs);
+    if (ret != LCNE_SUCCESS) {
+        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to update ubc topology";
+        return ret;
+    }
+    ret = nodeLocalCollectorModule->InsertPortData(ports);
+    if (ret != LCNE_SUCCESS) {
+        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to update port topology";
+        return ret;
+    }
+    return LCNE_SUCCESS;
+}
+#endif
+} // namespace
 LcneResult LcneTopology::CreateTopolgy()
 {
     std::vector<std::shared_ptr<topology::node::Node>> nodes;
@@ -52,40 +107,16 @@ LcneResult LcneTopology::CreateTopolgy()
     // Check if network mode is clos, if so, clear remote fields in ports
     auto topoArgs = ubse::context::UbseContext::GetInstance().GetTopoToolsArgs();
     if (topoArgs.networkMode == "clos") {
-        for (auto &port : ports_vec) {
-            port.remotePortId.reset();
-            port.remoteSlotId.reset();
-            port.remoteUbpuId.reset();
-            port.remoteIouId.reset();
-        }
+        ClearRemotePortFields(ports_vec);
     }
 
-    auto ubcs_pair = jsonModule->GetJsonPair("iodie", ubcs_vec);
-    auto port_pair = jsonModule->GetJsonPair("port", ports_vec);
-    auto json_ret = jsonModule->WriteVectorsToFile(lcne::common::JSON_OUTPUT_FILE, ubcs_pair, port_pair);
-    if (json_ret == RACK_FAIL) {
-        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to write json file";
-        return LCNE_FAIL;
-    }
-    if (::chmod(lcne::common::JSON_OUTPUT_FILE, lcne::common::JSON_OUTPUT_FILE_PERM_640) != 0) {
-        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to set file mode 0640 for output file "
-                  << lcne::common::JSON_OUTPUT_FILE;
-        return LCNE_FAIL;
+    ret = WriteTopologyToJson(jsonModule.get(), ubcs_vec, ports_vec);
+    if (ret != LCNE_SUCCESS) {
+        return ret;
     }
 #ifdef ENABLE_DAEMON_FEATURE
-    ret = nodeLocalCollectorModule->InsertDeviceData(nodes);
+    ret = InsertTopologyData(nodeLocalCollectorModule.get(), nodes, ubcs, ports);
     if (ret != LCNE_SUCCESS) {
-        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to update node topology";
-        return ret;
-    }
-    ret = nodeLocalCollectorModule->InsertUbCData(ubcs);
-    if (ret != LCNE_SUCCESS) {
-        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to update ubc topology";
-        return ret;
-    }
-    ret = nodeLocalCollectorModule->InsertPortData(ports);
-    if (ret != LCNE_SUCCESS) {
-        LOG_ERROR << "LcneTopology::CreateTopolgy-Error: failed to update port topology";
         return ret;
     }
 #endif

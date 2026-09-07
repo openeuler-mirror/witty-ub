@@ -95,12 +95,8 @@ void LogTemplate::CreateRegexCaptor(const std::string &manifest)
 {
     std::string patternStr;
     size_t pos = 0;
-    while (true) {
-        size_t start = manifest.find("<", pos);
-        if (start == std::string::npos) {
-            patternStr += Escape(manifest.substr(pos));
-            break;
-        }
+    size_t start = manifest.find("<", pos);
+    while (start != std::string::npos) {
         patternStr += Escape(manifest.substr(pos, start - pos));
         size_t end = manifest.find(">", start + 1);
         if (end == std::string::npos) {
@@ -115,6 +111,10 @@ void LogTemplate::CreateRegexCaptor(const std::string &manifest)
         }
 
         pos = end + 1;
+        start = manifest.find("<", pos);
+    }
+    if (start == std::string::npos) {
+        patternStr += Escape(manifest.substr(pos));
     }
     pattern_ = std::make_unique<re2::RE2>(patternStr, re2::RE2::Options());
     if (!pattern_->ok()) {
