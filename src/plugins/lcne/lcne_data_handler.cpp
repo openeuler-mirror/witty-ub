@@ -37,12 +37,12 @@ LcneResult ParseXmlPhysicalPort(tinyxml2::XMLElement *physical_port_element,
     tinyxml2::XMLElement *remote_iou_ele = physical_port_element->FirstChildElement("remote-iou");
     tinyxml2::XMLElement *remote_physical_port_id_ele =
         physical_port_element->FirstChildElement("remote-physical-port-id");
-    uint32_t physical_port_id;
+    uint32_t physicalPortId;
     std::optional<uint32_t> remote_slot;
     std::optional<uint32_t> remote_ubpu;
     std::optional<uint32_t> remote_iou;
     std::optional<uint32_t> remote_physical_port_id;
-    if (lcne::common::convertTextToUint<uint32_t>(physical_port_id_ele, physical_port_id) == LCNE_FAIL) {
+    if (lcne::common::convertTextToUint<uint32_t>(physical_port_id_ele, physicalPortId) == LCNE_FAIL) {
         LOG_ERROR << "getNodePhysicalPorts-Error: convert port num to uint32 failed";
         return ret;
     }
@@ -50,7 +50,7 @@ LcneResult ParseXmlPhysicalPort(tinyxml2::XMLElement *physical_port_element,
         LOG_ERROR << "getNodePhysicalPorts-Error: check physical port status element failed";
         return ret;
     }
-    std::string physical_port_status = physical_port_status_ele->GetText();
+    std::string physicalPortStatus = physical_port_status_ele->GetText();
     if (lcne::common::ConvertTextToOptionalUint<uint32_t>(remote_slot_ele, remote_slot) == LCNE_FAIL) {
         LOG_ERROR << "getNodePhysicalPorts-Error: convert remote slot to uint32 failed";
         return ret;
@@ -68,7 +68,7 @@ LcneResult ParseXmlPhysicalPort(tinyxml2::XMLElement *physical_port_element,
         LOG_ERROR << "getNodePhysicalPorts-Error: convert remote physical port id to uint32 failed";
         return ret;
     }
-    xml_physical_ports[physical_port_id] = XmlPhysicalPort(physical_port_id, physical_port_status, remote_slot,
+    xml_physical_ports[physicalPortId] = XmlPhysicalPort(physicalPortId, physicalPortStatus, remote_slot,
                                                            remote_ubpu, remote_iou, remote_physical_port_id);
     return LCNE_SUCCESS;
 }
@@ -105,9 +105,9 @@ LcneResult ParseXmlNode(tinyxml2::XMLElement *node_element, std::map<LcneKey, Xm
         LOG_ERROR << "getXMLNodes-Error: check ubpu type element failed";
         return ret;
     }
-    std::string ubpu_type = ubpu_type_ele->GetText();
+    std::string ubpuType = ubpu_type_ele->GetText();
     LcneKey node_key = std::make_tuple(slot, ubpu, iou);
-    xml_nodes[node_key] = XmlNode(slot, ubpu, iou, ubpu_type, physical_ports);
+    xml_nodes[node_key] = XmlNode(slot, ubpu, iou, ubpuType, physical_ports);
     return LCNE_SUCCESS;
 }
 
@@ -130,19 +130,19 @@ LcneResult ParseXmlIouInfo(tinyxml2::XMLElement *iou_info_element, std::map<Lcne
         LOG_ERROR << "getXMLIouInfos-Error: check bus controller eid element failed";
         return ret;
     }
-    std::string bus_controller_eid = bus_controller_eid_ele->GetText();
-    uint32_t slot_id;
-    uint32_t ubpu_id;
-    uint32_t iou_id;
-    if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slot_id) == LCNE_FAIL) {
+    std::string busControllerEid = bus_controller_eid_ele->GetText();
+    uint32_t slotId;
+    uint32_t ubpuId;
+    uint32_t iouId;
+    if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slotId) == LCNE_FAIL) {
         LOG_ERROR << "getXMLIouInfos-Error: convert slot id to uint32 failed";
         return ret;
     }
-    if (lcne::common::convertTextToUint<uint32_t>(ubpu_id_ele, ubpu_id) == LCNE_FAIL) {
+    if (lcne::common::convertTextToUint<uint32_t>(ubpu_id_ele, ubpuId) == LCNE_FAIL) {
         LOG_ERROR << "getXMLIouInfos-Error: convert ubpu id to uint32 failed";
         return ret;
     }
-    if (lcne::common::convertTextToUint<uint32_t>(iou_id_ele, iou_id) == LCNE_FAIL) {
+    if (lcne::common::convertTextToUint<uint32_t>(iou_id_ele, iouId) == LCNE_FAIL) {
         LOG_ERROR << "getXMLIouInfos-Error: convert iou id to uint32 failed";
         return ret;
     }
@@ -150,15 +150,15 @@ LcneResult ParseXmlIouInfo(tinyxml2::XMLElement *iou_info_element, std::map<Lcne
         LOG_ERROR << "getXMLIouInfos-Error: check primary cna element failed";
         return ret;
     }
-    std::string primary_cna = primary_cna_ele->GetText();
+    std::string primaryCna = primary_cna_ele->GetText();
     if (lcne::common::checkXML(iou_status_ele) == LCNE_FAIL) {
         LOG_ERROR << "getXMLIouInfos-Error: check iou status element failed";
         return ret;
     }
-    std::string iou_status = iou_status_ele->GetText();
-    LcneKey iou_info_key = std::make_tuple(slot_id, ubpu_id, iou_id);
+    std::string iouStatus = iou_status_ele->GetText();
+    LcneKey iou_info_key = std::make_tuple(slotId, ubpuId, iouId);
     xml_iou_infos[iou_info_key] =
-        XmlIouInfo(guid, bus_controller_eid, slot_id, ubpu_id, iou_id, primary_cna, iou_status);
+        XmlIouInfo(guid, busControllerEid, slotId, ubpuId, iouId, primaryCna, iouStatus);
     return LCNE_SUCCESS;
 }
 
@@ -170,29 +170,29 @@ LcneResult ParseXmlAddress(tinyxml2::XMLElement *address_element, std::map<LcneK
     tinyxml2::XMLElement *iou_id_ele = address_element->FirstChildElement("iou");
     tinyxml2::XMLElement *bus_primary_cna_ele = address_element->FirstChildElement("bus-primary-cna");
     tinyxml2::XMLElement *physical_ports_ele = address_element->FirstChildElement("physical-ports");
-    uint32_t slot_id;
-    uint32_t ubpu_id;
-    uint32_t iou_id;
-    if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slot_id) == LCNE_FAIL) {
+    uint32_t slotId;
+    uint32_t ubpuId;
+    uint32_t iouId;
+    if (lcne::common::convertTextToUint<uint32_t>(slot_id_ele, slotId) == LCNE_FAIL) {
         LOG_ERROR << "getXMLAddress-Error: convert slot id to uint32 failed";
         return ret;
     }
-    if (lcne::common::convertTextToUint<uint32_t>(ubpu_id_ele, ubpu_id) == LCNE_FAIL) {
+    if (lcne::common::convertTextToUint<uint32_t>(ubpu_id_ele, ubpuId) == LCNE_FAIL) {
         LOG_ERROR << "getXMLAddress-Error: convert ubpu id to uint32 failed";
         return ret;
     }
-    if (lcne::common::convertTextToUint<uint32_t>(iou_id_ele, iou_id) == LCNE_FAIL) {
+    if (lcne::common::convertTextToUint<uint32_t>(iou_id_ele, iouId) == LCNE_FAIL) {
         LOG_ERROR << "getXMLAddress-Error: convert iou id to uint32 failed";
         return ret;
     }
-    std::string bus_primary_cna = bus_primary_cna_ele->GetText();
+    std::string busPrimaryCna = bus_primary_cna_ele->GetText();
     std::unordered_map<uint32_t, XmlAddressPhysicalPort> xml_physical_ports;
     if (getAddressPhysicalPorts(physical_ports_ele, xml_physical_ports) == LCNE_FAIL) {
         LOG_ERROR << "getXMLAddress-Error: getAddressPhysicalPorts failed";
         return ret;
     }
-    LcneKey address_key = std::make_tuple(slot_id, ubpu_id, iou_id);
-    xml_addresses[address_key] = XmlAddress(slot_id, ubpu_id, iou_id, bus_primary_cna, xml_physical_ports);
+    LcneKey address_key = std::make_tuple(slotId, ubpuId, iouId);
+    xml_addresses[address_key] = XmlAddress(slotId, ubpuId, iouId, busPrimaryCna, xml_physical_ports);
     return LCNE_SUCCESS;
 }
 } // namespace
@@ -334,8 +334,8 @@ LcneResult getAddressPhysicalPorts(tinyxml2::XMLElement *element,
         tinyxml2::XMLElement *physical_port_id_ele = physical_port_element->FirstChildElement("physical-port-id");
         tinyxml2::XMLElement *port_cna_ele = physical_port_element->FirstChildElement("port-cna");
         tinyxml2::XMLElement *bus_port_cna_ele = physical_port_element->FirstChildElement("bus-port-cna");
-        uint32_t physical_port_id;
-        if (lcne::common::convertTextToUint<uint32_t>(physical_port_id_ele, physical_port_id) == LCNE_FAIL) {
+        uint32_t physicalPortId;
+        if (lcne::common::convertTextToUint<uint32_t>(physical_port_id_ele, physicalPortId) == LCNE_FAIL) {
             LOG_ERROR << "getAddressPhysicalPorts-Error: convert port num to uint32 failed";
             return ret;
         }
@@ -349,7 +349,7 @@ LcneResult getAddressPhysicalPorts(tinyxml2::XMLElement *element,
             return ret;
         }
         std::string bus_port_cna = bus_port_cna_ele->GetText();
-        xml_physical_ports[physical_port_id] = XmlAddressPhysicalPort(physical_port_id, port_cna, bus_port_cna);
+        xml_physical_ports[physicalPortId] = XmlAddressPhysicalPort(physicalPortId, port_cna, bus_port_cna);
     }
     ret = LCNE_SUCCESS;
     return ret;
@@ -398,13 +398,13 @@ LcneResult generateLcneNodes(const std::map<LcneKey, XmlNode> &xml_nodes,
     for (const auto &xml_node_pair : xml_nodes) {
         const auto &xml_node = xml_node_pair.second;
         uint32_t device_id = xml_node.slot;
-        uint32_t slot_id = xml_node.slot;
+        uint32_t slotId = xml_node.slot;
         uint32_t chip_num = xml_node.ubpu;
         uint32_t die_num = xml_node.iou;
         std::vector<std::string> ip_infos;
         std::string hostname = lcne::common::GetHostname();
         topology::node::ChipType chip_type = topology::node::strToChipTypeMap[xml_node.ubpuType];
-        auto node = std::make_shared<topology::node::Node>(device_id, slot_id, hostname, ip_infos, chip_num, die_num,
+        auto node = std::make_shared<topology::node::Node>(device_id, slotId, hostname, ip_infos, chip_num, die_num,
                                                            chip_type);
         nodes.push_back(node);
     }
@@ -420,10 +420,10 @@ LcneResult generateLcneUBController(const std::map<LcneKey, XmlNode> &xml_nodes,
         std::string die_guid = xml_iou_info.guid;
         std::string ubc_eid = xml_iou_info.busControllerEid;
         uint32_t device_id = xml_iou_info.slotId;
-        uint32_t slot_id = xml_iou_info.slotId;
+        uint32_t slotId = xml_iou_info.slotId;
         uint32_t chip_id = xml_iou_info.ubpuId;
-        uint32_t iou_id = xml_iou_info.iouId;
-        std::string primary_cna = xml_iou_info.primaryCna;
+        uint32_t iouId = xml_iou_info.iouId;
+        std::string primaryCna = xml_iou_info.primaryCna;
 
         auto it = xml_nodes.find(xml_iou_info_key);
         if (it == xml_nodes.end()) {
@@ -453,7 +453,7 @@ LcneResult generateLcneUBController(const std::map<LcneKey, XmlNode> &xml_nodes,
         topology::node::UbCState ubc_state = ubc_state_it->second;
 
         auto ub_controller = std::make_shared<topology::node::UbController>(
-            die_guid, ubc_eid, device_id, slot_id, chip_id, iou_id, primary_cna, port_ids, die_state, ubc_state);
+            die_guid, ubc_eid, device_id, slotId, chip_id, iouId, primaryCna, port_ids, die_state, ubc_state);
         ub_controllers.push_back(ub_controller);
     }
     return LCNE_SUCCESS;
@@ -465,9 +465,9 @@ LcneResult generateLcnePort(const std::map<LcneKey, XmlNode> &xml_nodes,
 {
     for (const auto &[xml_address_key, xml_address] : xml_addresses) {
         for (const auto &[port_id, physical_port] : xml_address.physicalPorts) {
-            uint32_t physical_port_id = physical_port.physicalPortId;
+            uint32_t physicalPortId = physical_port.physicalPortId;
             std::string port_cna = physical_port.portCna;
-            std::string primary_cna = xml_address.primaryCna;
+            std::string primaryCna = xml_address.primaryCna;
             uint32_t device_id = std::get<0>(xml_address_key);
             auto nodes_it = xml_nodes.find(xml_address_key);
             if (nodes_it == xml_nodes.end()) {
@@ -475,7 +475,7 @@ LcneResult generateLcnePort(const std::map<LcneKey, XmlNode> &xml_nodes,
                 continue;
             }
             XmlNode node = nodes_it->second;
-            auto node_port_it = node.physicalPorts.find(physical_port_id);
+            auto node_port_it = node.physicalPorts.find(physicalPortId);
             if (node_port_it == node.physicalPorts.end()) {
                 LOG_ERROR << "generateLcnePort-Error: xml physical port not found, key: " << port_id;
                 continue;
@@ -492,7 +492,7 @@ LcneResult generateLcnePort(const std::map<LcneKey, XmlNode> &xml_nodes,
             std::optional<uint32_t> remote_ubpu = node_physical_port.remoteUbpu;
             std::optional<uint32_t> remote_iou = node_physical_port.remoteIou;
             std::optional<uint32_t> remote_physical_port_id = node_physical_port.remotePhysicalPortId;
-            auto port = std::make_shared<topology::node::Port>(physical_port_id, port_cna, primary_cna, device_id,
+            auto port = std::make_shared<topology::node::Port>(physicalPortId, port_cna, primaryCna, device_id,
                                                                port_state, remote_physical_port_id, remote_slot,
                                                                remote_slot, remote_ubpu, remote_iou);
             ports.push_back(port);
