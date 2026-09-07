@@ -178,6 +178,8 @@ function createOverviewState() {
   // ============ 统一分析过滤器：时延与通断各自持有实例 ============
   const latencyFilter = createAnalysisFilter()
   const disconnectFilter = createAnalysisFilter()
+  // P1.5：初始默认选中最新成功的 kv-cache 日志文件（列表异步就绪后由 watcher 校正）
+  latencyFilter.logId.value = scopeTasks.value[0]?.id
   watch(realOp, (op) => {
     latencyFilter.scaleSec.value = overviewScale.value as 10 | 60 | 600 | 3600
     void op
@@ -233,7 +235,9 @@ function createOverviewState() {
     const asset = selectedAsset.value
     if (!asset) return
 
-    const scaleKey = `${op}:${overviewScale.value}`
+    // P1.5：KVCache 时延域按日志文件收窄，logId 参与 key 与请求
+    const logId = latencyFilter.logId.value
+    const scaleKey = `${op}:${overviewScale.value}:${logId ?? ''}`
     let timeWindows = sectionCaches.timeWindows.get(scaleKey)
     if (!timeWindows) {
       overviewLoading.value = true
@@ -241,6 +245,7 @@ function createOverviewState() {
       try {
         const { rows, truncated } = await fetchTimeWindowAggregated(asset.id, op, {
           interval: overviewScale.value,
+          logId,
         })
         timeWindows = rows
         timelineTruncated.value = truncated
@@ -262,7 +267,7 @@ function createOverviewState() {
       }
     }
 
-    let kpi = sectionCaches.kpi.get(op)
+    let kpi = sectionCaches.kpi.get(scaleKey)
     if (!kpi) {
       const podSet = new Set<string>()
       aggregated.forEach((pair) => {
@@ -270,11 +275,11 @@ function createOverviewState() {
         podSet.add(pair.dst)
       })
       const [traceTotal, anomalyTotal] = await Promise.all([
-        fetchParseResultTotal(asset.id, op),
-        fetchParseResultTotal(asset.id, op, true),
+        fetchParseResultTotal(asset.id, op, undefined, logId),
+        fetchParseResultTotal(asset.id, op, true, logId),
       ])
       kpi = { traceTotal, anomalyTotal, podCount: podSet.size }
-      sectionCaches.kpi.set(op, kpi)
+      sectionCaches.kpi.set(scaleKey, kpi)
     }
 
     scopeData.value = {
@@ -295,24 +300,26 @@ function createOverviewState() {
     const asset = selectedAsset.value
     if (!asset) return
 
-    const latencyKey = `${op}:${pct}:${trendScale.value}`
+    // P1.5：与总览共用 latencyFilter.logId，参与 key 与请求
+    const logId = latencyFilter.logId.value
+    const latencyKey = `${op}:${pct}:${trendScale.value}:${logId ?? ''}`
     let latency = sectionCaches.latency.get(latencyKey)
     if (!latency) {
-      const latencyLogId = scopeTasks.value[0]?.id
-      latency = await fetchLatencyMetrics(asset.id, op, pct, latencyLogId, trendScale.value)
+      latency = await fetchLatencyMetrics(asset.id, op, pct, logId, trendScale.value)
       sectionCaches.latency.set(latencyKey, latency)
     }
 
-    let topSlow = sectionCaches.topSlow.get(op)
+    const trendListKey = `${op}:${logId ?? ''}`
+    let topSlow = sectionCaches.topSlow.get(trendListKey)
     if (!topSlow) {
-      topSlow = await fetchTopSlow(asset.id, op)
-      sectionCaches.topSlow.set(op, topSlow)
+      topSlow = await fetchTopSlow(asset.id, op, logId)
+      sectionCaches.topSlow.set(trendListKey, topSlow)
     }
 
-    let abnormal = sectionCaches.abnormal.get(op)
+    let abnormal = sectionCaches.abnormal.get(trendListKey)
     if (!abnormal) {
-      abnormal = await fetchAbnormalTraces(asset.id, op)
-      sectionCaches.abnormal.set(op, abnormal)
+      abnormal = await fetchAbnormalTraces(asset.id, op, logId)
+      sectionCaches.abnormal.set(trendListKey, abnormal)
     }
     if (overlapLoadedFor.latency !== op) {
       const traceIds = (abnormal?.rows ?? [])
@@ -826,6 +833,7 @@ function createOverviewState() {
         interval: overviewScale.value,
         startTime: epochMsToTs(window.start),
         endTime: epochMsToTs(window.end),
+        logId: latencyFilter.logId.value,
       })
       if (seq === analysisWindowSeq) analysisWindowBuckets.value = rows
     } catch (error) {
@@ -1861,7 +1869,7 @@ function createOverviewState() {
     objectDetail.loading = true
     objectDetail.error = ''
     try {
-      const query = {
+      const baseQuery = {
         op: realOp.value,
         startTime: window ? epochMsToTs(window.start) : undefined,
         endTime: window ? epochMsToTs(window.end) : undefined,
@@ -1873,8 +1881,11 @@ function createOverviewState() {
       }
       const result =
         objectDetail.domain === 'latency'
-          ? await fetchLatencyTracePage(asset.id, query)
-          : await fetchFaultTracePage(asset.id, query)
+          ? await fetchLatencyTracePage(asset.id, {
+              ...baseQuery,
+              logId: latencyFilter.logId.value,
+            })
+          : await fetchFaultTracePage(asset.id, baseQuery)
       if (seq !== objectDetailSeq) return
       objectDetail.rows = result.rows
       objectDetail.total = result.total
@@ -3368,6 +3379,12 @@ function createOverviewState() {
       () => {
         const files = dataOptions?.getLogFiles() ?? []
         const key = files.map((file) => `${file.id}:${file.overall_status}`).join('|')
+        // P1.5：默认选中最新成功的 kv-cache 日志；列表变化后失效时校正
+        const tasks = scopeTasks.value
+        const current = latencyFilter.logId.value
+        if (!current || !tasks.some((file) => file.id === current)) {
+          latencyFilter.logId.value = tasks[0]?.id
+        }
         if (key !== lastLogFilesKey) {
           clearSectionCaches()
           lastLogFilesKey = key
@@ -3375,6 +3392,14 @@ function createOverviewState() {
         if (isAssetMode.value) void loadOverviewForTab()
       },
     )
+
+    // P1.5：用户切换日志文件 → 清缓存并按当前页签重载
+    watch(latencyFilter.logId, (logId, oldLogId) => {
+      if (logId === oldLogId || oldLogId === undefined) return
+      if (!isAssetMode.value || isBrpcTask.value) return
+      clearSectionCaches()
+      void loadOverviewForTab()
+    })
   }
 
   return {

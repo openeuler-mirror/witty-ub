@@ -42,6 +42,7 @@ const {
   failureModeOf,
   isBrpcTask,
   kpiData,
+  latencyFilter,
   loadBrpcFaultData,
   objectDetail,
   objectDetailGoPage,
@@ -52,6 +53,7 @@ const {
   podRowTags,
   renderAnalysisModules,
   scopeTaskCount,
+  scopeTasks,
   setCurrentOp,
   traceDrawerLogs,
   traceStageRows,
@@ -130,11 +132,29 @@ onBeforeUnmount(() => {
         </div>
         <div style="font-size: 12px; color: var(--text2); margin-top: 2px">
           共 {{ scopeTaskCount }} 个已完成
-          {{ assetTypeFilter === 'brpc' ? 'UBSocket' : 'KVCache' }} 任务 · 跨任务汇总
+          {{ assetTypeFilter === 'brpc' ? 'UBSocket' : 'KVCache' }} 任务 ·
+          {{
+            !isBrpcTask && analysisTab === 'latency' && latencyFilter.logId.value
+              ? '单日志文件'
+              : '跨任务汇总'
+          }}
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
         <template v-if="!isBrpcTask">
+          <template v-if="analysisTab === 'latency'">
+            <span style="font-size: 13px; color: var(--text2)">日志文件：</span>
+            <select
+              class="select"
+              style="max-width: 240px"
+              v-model="latencyFilter.logId.value"
+              :disabled="scopeTasks.length === 0"
+            >
+              <option v-for="file in scopeTasks" :key="file.id" :value="file.id">
+                {{ file.name || file.id }}
+              </option>
+            </select>
+          </template>
           <span style="font-size: 13px; color: var(--text2)">动作切换：</span>
           <div class="op-toggle">
             <button

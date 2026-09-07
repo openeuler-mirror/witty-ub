@@ -40,7 +40,7 @@ export const fetchLatencyMetrics = async (
   }))
 }
 
-export const fetchTopSlow = async (kbId: string, op: 'get' | 'set') => {
+export const fetchTopSlow = async (kbId: string, op: 'get' | 'set', logId?: string) => {
   const result = await request<{ total: number; log_parse_results: any[] }>(
     '/log_parse_result/list',
     {
@@ -54,6 +54,7 @@ export const fetchTopSlow = async (kbId: string, op: 'get' | 'set') => {
           { field: 'timestamp', order: 'asc' },
         ],
         operation: op.toUpperCase(),
+        log_id: logId,
       }),
     },
   )
@@ -67,6 +68,7 @@ export const fetchParseResultTotal = async (
   kbId: string,
   op: 'get' | 'set',
   isAnomalous?: boolean,
+  logId?: string,
 ) => {
   const result = await request<{ total: number }>('/log_parse_result/list', {
     method: 'POST',
@@ -76,12 +78,13 @@ export const fetchParseResultTotal = async (
       page_cnt: 1,
       is_anomalous: isAnomalous,
       operation: op.toUpperCase(),
+      log_id: logId,
     }),
   })
   return result.total ?? 0
 }
 
-export const fetchAbnormalTraces = async (kbId: string, op: 'get' | 'set') => {
+export const fetchAbnormalTraces = async (kbId: string, op: 'get' | 'set', logId?: string) => {
   const result = await request<{ total: number; log_parse_results: any[] }>(
     '/log_parse_result/list',
     {
@@ -92,6 +95,7 @@ export const fetchAbnormalTraces = async (kbId: string, op: 'get' | 'set') => {
         page_cnt: 200,
         is_anomalous: true,
         operation: op.toUpperCase(),
+        log_id: logId,
       }),
     },
   )
@@ -105,6 +109,7 @@ export interface TimeWindowQuery {
   interval?: number
   startTime?: string
   endTime?: string
+  logId?: string
 }
 
 const TIME_WINDOW_PAGE_CNT = 2000
@@ -126,6 +131,7 @@ export const fetchTimeWindowAggregated = async (
     operation: op.toUpperCase(),
     start_time: query.startTime,
     end_time: query.endTime,
+    log_id: query.logId,
   }
   const readPage = async (pageNum: number) => {
     const result = await request<{ total?: number } & Record<string, unknown>>(
@@ -161,6 +167,7 @@ export interface LatencyTracePageQuery {
   srcIp?: string
   dstIp?: string
   endpointIp?: string
+  logId?: string
   pageNum: number
   pageCnt: number
 }
@@ -179,6 +186,7 @@ export const fetchLatencyTracePage = async (kbId: string, query: LatencyTracePag
         src_ip: query.srcIp,
         dst_ip: query.dstIp,
         endpoint_ip: query.endpointIp,
+        log_id: query.logId,
         page_num: query.pageNum,
         page_cnt: query.pageCnt,
       }),
