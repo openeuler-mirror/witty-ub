@@ -1,4 +1,3 @@
-import requests
 import os
 import aiofiles
 import aiohttp
@@ -24,7 +23,6 @@ from latency.ENUM.general import SourceType
 from latency.schemas.request import (
     ParseConfig,
     RunBrpcDiagnosisRequest,
-    UpLoadLogFileConfig,
     UpLoadLogFilesRequest,
     UpdateLogFileRequest,
     ListLogFilesRequest,
@@ -40,9 +38,8 @@ from latency.schemas.response import (
 )
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
-from latency.task.progress import parallel_overall_progress, task_progress
+from latency.task.progress import parallel_overall_progress
 from latency.task.worker.base import BaseWorker
-from latency.task.worker.brpc_log_diagnosis_worker import BrpcLogDiagnosisWorker
 from latency.task.log_preprocessor import (
     ARCHIVE_EXTENSIONS,
     WITTY_DIR_DEFAULT,

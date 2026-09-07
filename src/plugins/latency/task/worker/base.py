@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler

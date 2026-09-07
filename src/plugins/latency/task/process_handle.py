@@ -1,6 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 import multiprocessing
-import uuid
 import asyncio
 import logging
 from latency.config.config import Config

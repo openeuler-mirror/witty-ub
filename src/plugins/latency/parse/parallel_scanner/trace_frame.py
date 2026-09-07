@@ -38,7 +38,6 @@ from latency.parse.worker_info_parser import (
     REMOTE_WORKER_RPC_LABEL,
     URMA_LABEL,
 )
-from latency.schemas.log import YUANRONG_METRIC_FIELDS
 
 # 归并后推导 / 永不填充的列（columnar 投影不写它们；w2w/create/publish 参考
 # 实现固定 None，c2w 由 build_trace_frame 在归并后计算）

@@ -44,7 +44,7 @@ from latency.database.init import (
     backfill_trace_failure_event_status_codes,
     init_postgresql_database,
 )
-from latency.exceptions import BaseBizException, NotFoundBizException, ConflictBizException, BadRequestBizException
+from latency.exceptions import NotFoundBizException, ConflictBizException, BadRequestBizException
 from pydantic import ValidationError
 
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)

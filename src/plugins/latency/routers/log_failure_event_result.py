@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Path, Body
+from fastapi import APIRouter, Body
 from typing import Annotated
 from latency.schemas.request import (
     ListLogFailureEventResultRequest,
