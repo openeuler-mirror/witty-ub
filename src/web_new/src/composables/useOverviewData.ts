@@ -636,6 +636,9 @@ function createOverviewState() {
   const brpcAbnormalThreads = ref<any[]>([])
   const brpcAbnormalThreadTotal = ref(0)
   const brpcAbnormalThreadPage = ref(1)
+  // P2.4 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名）
+  const brpcThreadSearchInput = ref('')
+  const brpcThreadSearchQuery = ref('')
   const brpcFaultLoading = ref(false)
   const brpcFaultError = ref('')
   const brpcFaultDetail = ref<any>(null)
@@ -908,6 +911,7 @@ function createOverviewState() {
           endDate,
           brpcAbnormalThreadPage.value,
           brpcFaultPageSize,
+          { search: brpcThreadSearchQuery.value || undefined },
         ),
       ])
       brpcFaultTimelineSeries.value = timelineResult.series ?? []
@@ -936,6 +940,21 @@ function createOverviewState() {
 
   const goBrpcFaultThreadsPage = async (pageNum: number) => {
     brpcAbnormalThreadPage.value = pageNum
+    await loadBrpcFaultData()
+  }
+
+  // P2.4 异常 Thread 搜索：提交/清空均重置页码并重拉
+  const submitBrpcThreadSearch = async () => {
+    brpcThreadSearchQuery.value = brpcThreadSearchInput.value.trim()
+    brpcAbnormalThreadPage.value = 1
+    await loadBrpcFaultData()
+  }
+
+  const clearBrpcThreadSearch = async () => {
+    if (!brpcThreadSearchInput.value && !brpcThreadSearchQuery.value) return
+    brpcThreadSearchInput.value = ''
+    brpcThreadSearchQuery.value = ''
+    brpcAbnormalThreadPage.value = 1
     await loadBrpcFaultData()
   }
 
@@ -4160,6 +4179,8 @@ function createOverviewState() {
     brpcThreadDetailError,
     brpcThreadDetailLoading,
     brpcThreadGraphRef,
+    brpcThreadSearchInput,
+    brpcThreadSearchQuery,
     brpcThreadTimelineRef,
     brpcFaultTimelineSeries,
     brpcFileKey,
@@ -4184,6 +4205,7 @@ function createOverviewState() {
     brpcSuccessSelectedIfaces,
     brpcTrend,
     changeBrpcFaultLog,
+    clearBrpcThreadSearch,
     clearFaultRange,
     clearFaultTraceQuery,
     clearTrend,
@@ -4278,6 +4300,7 @@ function createOverviewState() {
     renderBrpcThreadGraph,
     renderBrpcThreadTimeline,
     renderBrpcFaultTimeline,
+    submitBrpcThreadSearch,
     renderFaultChart,
     renderFaultPodChart,
     renderSlowChart,

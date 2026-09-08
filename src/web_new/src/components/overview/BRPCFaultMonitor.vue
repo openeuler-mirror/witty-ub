@@ -20,11 +20,15 @@ const {
   brpcFaultTab,
   brpcFaultThreadPages,
   brpcFaultTimelineRef,
+  brpcThreadSearchInput,
+  brpcThreadSearchQuery,
   changeBrpcFaultLog,
+  clearBrpcThreadSearch,
   goBrpcFaultEventsPage,
   goBrpcFaultThreadsPage,
   openBrpcFaultDetail,
   renderBrpcFaultTimeline,
+  submitBrpcThreadSearch,
 } = useOverviewData()
 
 onMounted(() => {
@@ -169,9 +173,38 @@ onMounted(() => {
     </template>
 
     <template v-else>
+      <!-- P2.4 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名） -->
+      <div class="filter-bar" style="margin-bottom: 10px">
+        <form
+          style="display: flex; gap: 6px; align-items: center"
+          @submit.prevent="submitBrpcThreadSearch"
+        >
+          <input
+            class="input"
+            style="width: 280px"
+            v-model="brpcThreadSearchInput"
+            placeholder="搜索线程 ID、Pod IP、Pod 名称"
+            aria-label="搜索异常 Thread"
+          />
+          <button class="btn btn-sm btn-primary" type="submit" :disabled="brpcFaultLoading">
+            搜索
+          </button>
+          <button
+            v-if="brpcThreadSearchInput || brpcThreadSearchQuery"
+            class="btn btn-sm btn-default"
+            type="button"
+            @click="clearBrpcThreadSearch"
+          >
+            清除
+          </button>
+        </form>
+        <span v-if="brpcThreadSearchQuery" class="hint" style="margin-left: auto">
+          搜索：{{ brpcThreadSearchQuery }}
+        </span>
+      </div>
       <div v-if="brpcAbnormalThreads.length === 0" class="empty" style="padding: 28px 0">
         <div class="icon">📭</div>
-        <div>暂无异常 Thread</div>
+        <div>{{ brpcThreadSearchQuery ? '未搜索到匹配的异常 Thread' : '暂无异常 Thread' }}</div>
       </div>
       <div v-else class="table-wrap">
         <table>
