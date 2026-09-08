@@ -1,4 +1,4 @@
-"""Minimal read-only BRPC diagnosis query API."""
+"""Minimal read-only UBSocket diagnosis query API."""
 
 from typing import Annotated
 
@@ -259,7 +259,7 @@ async def list_knowledge_abnormal_threads(
     "/task/{task_id}/batch",
     response_model=GetBrpcTaskBatchResponse,
     operation_id="get_brpc_batch_by_task",
-    description="Resolve the final imported BRPC diagnosis batch for one task.",
+    description="Resolve the final imported UBSocket diagnosis batch for one task.",
 )
 async def get_batch_by_task_id(
     task_id: Annotated[str, Path(min_length=1)],
@@ -273,7 +273,7 @@ async def get_batch_by_task_id(
     "/batch/{batch_id}",
     response_model=GetBrpcBatchResponse,
     operation_id="get_brpc_batch",
-    description="Get metadata for exactly one imported BRPC diagnosis batch.",
+    description="Get metadata for exactly one imported UBSocket diagnosis batch.",
 )
 async def get_batch(
     batch_id: Annotated[str, Path(min_length=1)],
@@ -288,7 +288,7 @@ async def get_batch(
     operation_id="list_brpc_diagnosis_hits",
     description=(
         "List hit logs for exactly one thread, identified by "
-        "(pod_ip, thread_id), from one BRPC diagnosis batch in "
+        "(pod_ip, thread_id), from one UBSocket diagnosis batch in "
         "descending timestamp order. The optional UTC+8 time range is "
         "[start_time, end_time). pod_name can further narrow the result."
     ),
@@ -360,7 +360,7 @@ async def list_thread_logs(
     response_model=GetBrpcInterfaceTimelineResponse,
     operation_id="get_brpc_interface_timeline",
     description=(
-        "Get epoch-aligned interface hit-count series for exactly one BRPC "
+        "Get epoch-aligned interface hit-count series for exactly one UBSocket "
         "diagnosis batch. The UTC+8 time range is [start_time, end_time), and missing "
         "windows are returned with a zero count. pod_ip and pod_name are optional "
         "exact-match filters."
@@ -400,7 +400,7 @@ async def get_interface_timeline(
     response_model=ListBrpcPodEventsResponse,
     operation_id="list_brpc_pod_events",
     description=(
-        "List dynamic BRPC hit events grouped by epoch-aligned window and Pod IP. "
+        "List dynamic UBSocket hit events grouped by epoch-aligned window and Pod IP. "
         "Hits without a Pod IP are excluded. pod_ip and pod_name are optional "
         "exact-match filters."
     ),
@@ -491,7 +491,7 @@ async def get_pod_event_detail(
     response_model=ListBrpcThreadEventsResponse,
     operation_id="list_brpc_thread_events",
     description=(
-        "List dynamic BRPC events grouped by window, Pod IP and thread ID. "
+        "List dynamic UBSocket events grouped by window, Pod IP and thread ID. "
         "Hits missing Pod IP or thread ID are excluded. pod_ip and "
         "pod_name are optional exact-match filters."
     ),
@@ -584,7 +584,7 @@ async def get_thread_event_detail(
     response_model=ListBrpcAbnormalThreadsResponse,
     operation_id="list_brpc_abnormal_threads",
     description=(
-        "List threads with at least one BRPC diagnosis hit in the requested time "
+        "List threads with at least one UBSocket diagnosis hit in the requested time "
         "range. Threads missing Pod IP or thread ID are excluded. "
         "pod_ip and pod_name are optional exact-match filters. search performs "
         "a partial match against thread ID, Pod IP and Pod name."

@@ -10,7 +10,7 @@ class SourceType(StrEnum):
 
 
 class DiagnosisConfigLogType(StrEnum):
-    """日志诊断配置类型（API 对外取值区分大小写）。"""
+    """日志类型，上传、解析和诊断配置共用（API 对外取值区分大小写）。"""
 
     KVCACHE = "KVCache"
     UBSOCKET = "UBSocket"

@@ -1,7 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""BRPC 日志解析 Worker。
+"""UBSocket 日志解析 Worker。
 
-解析 ubsocket_profiling_xxx.txt 格式的 BRPC profiling 日志文件，
+解析 ubsocket_profiling_xxx.txt 格式的 UBSocket profiling 日志文件，
 将 21 个接口函数的时序统计信息存入 PostgreSQL。
 """
 
@@ -37,7 +37,7 @@ def _is_profiling_log(file_path: str) -> bool:
 
 
 class BrpcLogParseWorker(BaseWorker):
-    """BRPC profiling 日志解析 Worker"""
+    """UBSocket profiling 日志解析 Worker"""
 
     name = TaskTypeEnum.BRPC_LOG_PARSE_WORKER
 
@@ -55,12 +55,12 @@ class BrpcLogParseWorker(BaseWorker):
         task = TaskModel(
             kb_id=log_kb_model.id,
             op_id=op_id,
-            task_name=f"Parse BRPC log file: {log_file_model.name}",
+            task_name=f"Parse UBSocket log file: {log_file_model.name}",
             task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await BaseWorker.report(task.id, "BRPC task initialized", 0.0)
+        await BaseWorker.report(task.id, "UBSocket task initialized", 0.0)
         return task.id
 
     @staticmethod
@@ -72,13 +72,13 @@ class BrpcLogParseWorker(BaseWorker):
         retry_limit = Config().get_config().task.task_retry_times
         if task.retry_times >= retry_limit:
             logger.warning(
-                "BRPC parse task %s reached retry limit %d",
+                "UBSocket parse task %s reached retry limit %d",
                 task_id,
                 retry_limit,
             )
             return False
         await BrpcProfilingResultPGManager.delete_by_log_id(task.op_id)
-        await BaseWorker.report(task.id, "BRPC task reinitialized", 0.0)
+        await BaseWorker.report(task.id, "UBSocket task reinitialized", 0.0)
         return True
 
     @staticmethod
@@ -88,7 +88,7 @@ class BrpcLogParseWorker(BaseWorker):
 
     @staticmethod
     async def parse_log(log_id: str = "", log_dir: str = "") -> int:
-        """解析 BRPC profiling 日志文件。
+        """解析 UBSocket profiling 日志文件。
 
         Args:
             log_id: 日志文件 ID
@@ -120,15 +120,15 @@ class BrpcLogParseWorker(BaseWorker):
                         profiling_files.append(fp)
 
         if not profiling_files:
-            logger.warning(f"未找到 BRPC profiling 文件: {log_dir}")
+            logger.warning(f"未找到 UBSocket profiling 文件: {log_dir}")
             return 0
 
-        logger.info(f"找到 {len(profiling_files)} 个 BRPC profiling 文件")
+        logger.info(f"找到 {len(profiling_files)} 个 UBSocket profiling 文件")
 
         parser = BrpcProfilingParser()
         all_records = []
         for file_path in profiling_files:
-            logger.info(f"解析 BRPC profiling 文件: {file_path}")
+            logger.info(f"解析 UBSocket profiling 文件: {file_path}")
             records = parser.parse_file(file_path)
             all_records.extend(records)
 
@@ -138,7 +138,7 @@ class BrpcLogParseWorker(BaseWorker):
             )
             if not stored:
                 raise RuntimeError(
-                    f"Failed to store BRPC profiling results for log {log_id}"
+                    f"Failed to store UBSocket profiling results for log {log_id}"
                 )
 
         return len(all_records)
@@ -155,7 +155,7 @@ class BrpcLogParseWorker(BaseWorker):
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.RUNNING.value}
             )
-            await BaseWorker.report(task.id, "BRPC task running", 5.0)
+            await BaseWorker.report(task.id, "UBSocket task running", 5.0)
 
             t_run_start = time.perf_counter()
             record_count = await BrpcLogParseWorker.parse_log(
@@ -171,14 +171,14 @@ class BrpcLogParseWorker(BaseWorker):
                 )
                 await BaseWorker.report(
                     task.id,
-                    "无 BRPC profiling 文件，跳过 profiling 解析",
+                    "无 UBSocket profiling 文件，跳过 profiling 解析",
                     100.0,
                 )
                 return True
 
             await BaseWorker.report(
                 task.id,
-                f"BRPC parse completed: {record_count} records in {t_parse:.1f}s",
+                f"UBSocket parse completed: {record_count} records in {t_parse:.1f}s",
                 90.0,
             )
 
@@ -186,15 +186,15 @@ class BrpcLogParseWorker(BaseWorker):
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value}
             )
-            await BaseWorker.report(task.id, "BRPC task completed successfully", 100.0)
+            await BaseWorker.report(task.id, "UBSocket task completed successfully", 100.0)
 
             logger.info(
-                f"BRPC task {task_id} completed: {record_count} records, "
+                f"UBSocket task {task_id} completed: {record_count} records, "
                 f"parse time: {t_parse:.1f}s"
             )
             return True
         except Exception as e:
-            logger.exception(f"BRPC task {task_id} failed: {e}")
+            logger.exception(f"UBSocket task {task_id} failed: {e}")
             await TaskPGManager.update_task(
                 task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
             )

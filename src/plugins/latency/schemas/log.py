@@ -3,6 +3,7 @@ from dataclasses import dataclass, field as dataclass_field
 from itertools import repeat
 from typing import ClassVar, Optional
 from pydantic import BaseModel, ConfigDict, Field
+from latency.ENUM.general import DiagnosisConfigLogType
 from latency.common.local_time import local_now, utc_now
 from latency.schemas.task import TaskModel
 
@@ -49,7 +50,7 @@ class LogFileModel(BaseModel):
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
-    log_type: str = Field(default="kv-cache", description="日志类型：kv-cache 或 brpc")
+    log_type: DiagnosisConfigLogType = Field(default=DiagnosisConfigLogType.KVCACHE, description="日志类型：KVCache 或 UBSocket")
     task: TaskModel | None = Field(
         default=None,
         description="用于生成单条进度文案的摘要任务；其状态不代表日志级总状态",
@@ -64,7 +65,7 @@ class LogFileModel(BaseModel):
         le=100.0,
         description=(
             "KVCache 日志解析、故障定界和 trace 上下文落库的综合进度；"
-            "BRPC 为日志解析与诊断两个 worker 的平均进度"
+            "UBSocket 为日志解析与诊断两个 worker 的平均进度"
         ),
     )
     existed_status: bool = Field(

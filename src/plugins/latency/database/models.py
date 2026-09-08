@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ipaddress
 from datetime import datetime
+from latency.ENUM.general import DiagnosisConfigLogType
 from latency.common.local_time import local_now, utc_now
 from typing import Any, Optional
 
@@ -90,7 +91,7 @@ class LogFile(Base):
     total_count: Mapped[int] = mapped_column(Integer, default=0)
     anomalous_count: Mapped[int] = mapped_column(Integer, default=0)
     failure_count: Mapped[int] = mapped_column(Integer, default=0)
-    log_type: Mapped[Optional[str]] = mapped_column(String, default="kv-cache")
+    log_type: Mapped[Optional[str]] = mapped_column(String, default=DiagnosisConfigLogType.KVCACHE)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: utc_now()
@@ -414,10 +415,10 @@ class DiagnosisCaseSignal(Base):
 
 
 # ============================================================
-# 5. BRPC Profiling 结果表
+# 5. UBSocket Profiling 结果表
 # ============================================================
 class BrpcProfilingResult(Base):
-    """BRPC profiling 日志解析结果表，每个 timestamp 间隔下的每个接口函数一行。"""
+    """UBSocket profiling 日志解析结果表，每个 timestamp 间隔下的每个接口函数一行。"""
 
     __tablename__ = "brpc_profiling_result"
 
@@ -543,7 +544,7 @@ class StatusCodeKnowledge(Base):
 
 
 # ============================================================
-# 7. BRPC diagnosis V2.1 protocol tables
+# 7. UBSocket diagnosis V2.1 protocol tables
 # ============================================================
 class BrpcDiagSchema(Base):
     __tablename__ = "brpc_diag_schema"
@@ -716,7 +717,7 @@ class BrpcDiagHit(Base):
 
 
 class BrpcDiagInterfaceBucket(Base):
-    """Pre-aggregated BRPC interface hit counts for timeline queries.
+    """Pre-aggregated UBSocket interface hit counts for timeline queries.
 
     Rows retain pod dimensions so both the unfiltered overview and the
     pod-scoped view can be answered without scanning ``brpc_diag_hit``.

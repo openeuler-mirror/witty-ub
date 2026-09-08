@@ -116,7 +116,7 @@ class LogFilenamePatternConfig(BaseModel):
     resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
     brpc_log_file_patterns: list[str] = Field(
         default_factory=lambda: ["brpc.log", "brpc.log.*", "*brpc*.log"],
-        description="BRPC 诊断日志文件匹配模式",
+        description="UBSocket 诊断日志文件匹配模式",
     )
 
 

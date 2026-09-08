@@ -217,7 +217,7 @@ class TaskHandler:
                     await TaskHandler._fail_preprocess_for_insufficient_space(task)
             if not flag:
                 # 任务之间彼此独立：一个 worker 启动失败不应阻断
-                # 同一批次中的其他 worker（尤其是 BRPC parse/diagnosis）。
+                # 同一批次中的其他 worker（尤其是 UBSocket parse/diagnosis）。
                 continue
             running_task_ids.append(task.id)
 

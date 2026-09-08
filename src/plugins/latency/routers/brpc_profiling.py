@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""BRPC profiling 数据查询路由。"""
+"""UBSocket profiling 数据查询路由。"""
 
 from typing import Annotated, Optional
 
@@ -19,7 +19,7 @@ def _build_profiling_response(
     files: list[dict] | None = None,
 ):
     if not all_records:
-        raise NotFoundBizException(resource="BRPC profiling 数据")
+        raise NotFoundBizException(resource="UBSocket profiling 数据")
 
     interface_names = sorted({r.interface_name for r in all_records})
     rows = [
@@ -75,7 +75,7 @@ async def get_brpc_profiling_data(
     log_id: Annotated[str, Path(description="日志文件 ID")],
     source_file: Annotated[Optional[str], Query(description="按源文件名过滤")] = None,
 ) -> BrpcProfilingDataResponse:
-    """获取指定日志文件的 BRPC profiling 时序数据。
+    """获取指定日志文件的 UBSocket profiling 时序数据。
 
     返回按 timestamp 排序的完整数据，前端自行按接口名分组。
     可通过 source_file 参数过滤特定源文件的数据。

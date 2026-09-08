@@ -111,11 +111,11 @@ class RunOrStopLogParseResponse(ResponseBase):
 
 
 class RunBrpcDiagnosisMsg(BaseModel):
-    task_id: str = Field(..., description="BRPC 诊断任务 ID")
+    task_id: str = Field(..., description="UBSocket 诊断任务 ID")
 
 
 class RunBrpcDiagnosisResponse(ResponseBase):
-    result: RunBrpcDiagnosisMsg = Field(..., description="BRPC 诊断任务创建结果")
+    result: RunBrpcDiagnosisMsg = Field(..., description="UBSocket 诊断任务创建结果")
 
 
 class UpdateLogFileMsg(BaseModel):
@@ -458,7 +458,7 @@ class ListTimeWindowAggregatedEventResponse(ResponseBase):
 
 
 # ============================================================
-# BRPC Profiling
+# UBSocket Profiling
 # ============================================================
 class BrpcProfilingDataMsg(BaseModel):
     interface_names: list[str] = Field(default_factory=list, description="所有接口名列表")
@@ -468,4 +468,4 @@ class BrpcProfilingDataMsg(BaseModel):
 
 
 class BrpcProfilingDataResponse(ResponseBase):
-    result: BrpcProfilingDataMsg = Field(..., description="BRPC profiling 数据")
+    result: BrpcProfilingDataMsg = Field(..., description="UBSocket profiling 数据")
