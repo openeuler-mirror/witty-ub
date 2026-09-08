@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -65,7 +66,7 @@ class BaseWorker:
         
         worker_name = task.task_type
         flag = await BaseWorker.find_worker_class(worker_name).reinit(task_id)
-        ProcessHandler.remove_task(task_id)
+        await asyncio.to_thread(ProcessHandler.remove_task, task_id)
         if flag:
             await TaskPGManager.update_task(
                 task_id,
@@ -100,7 +101,7 @@ class BaseWorker:
             return ""
         
         worker_name = task.task_type
-        ProcessHandler.remove_task(task_id)
+        await asyncio.to_thread(ProcessHandler.remove_task, task_id)
         await BaseWorker.find_worker_class(worker_name).deinit(task_id)
         
         completed_at = datetime.now()
@@ -149,7 +150,7 @@ class BaseWorker:
 
         from latency.task.log_preprocessor import cleanup_preprocess_dir
 
-        cleanup_preprocess_dir(op_id)
+        await asyncio.to_thread(cleanup_preprocess_dir, op_id)
 
     @staticmethod
     async def run(
@@ -190,7 +191,7 @@ class BaseWorker:
         
         should_update_status = False
         if task.status == TaskStatusEnum.RUNNING:
-            ProcessHandler.remove_task(task_id)
+            await asyncio.to_thread(ProcessHandler.remove_task, task_id)
             logger.warning(f"[BaseWorker] 已调用 ProcessHandler.remove_task({task_id})")
             should_update_status = True
         elif task.status == TaskStatusEnum.PENDING:

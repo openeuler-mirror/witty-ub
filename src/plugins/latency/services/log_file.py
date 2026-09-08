@@ -1,4 +1,5 @@
 import os
+import asyncio
 import aiofiles
 import aiohttp
 import ipaddress
@@ -228,16 +229,17 @@ class LogFileService:
 
     @staticmethod
     async def get_readable_dir_size(folder_path: str) -> int:
-        total = 0
-        for root, _, files in os.walk(folder_path):
-            for f in files:
-                try:
-                    total += os.path.getsize(os.path.join(root, f))
-                except:
-                    pass
+        def directory_size():
+            total = 0
+            for root, _, files in os.walk(folder_path):
+                for name in files:
+                    try:
+                        total += os.path.getsize(os.path.join(root, name))
+                    except OSError:
+                        pass
+            return total
 
-        # 格式化
-        return total
+        return await asyncio.to_thread(directory_size)
 
     @staticmethod
     async def upload_log_files(
@@ -267,7 +269,7 @@ class LogFileService:
                     raise BadRequestBizException(message=f"路径既不是文件也不是目录: {source}")
             elif upload_log_file_config.source_type == SourceType.REMOTE:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
-                if not _validate_remote_url(upload_log_file_config.source):
+                if not await asyncio.to_thread(_validate_remote_url, upload_log_file_config.source):
                     raise BadRequestBizException(
                         message=f"不允许的远程日志URL: {upload_log_file_config.source}"
                     )
@@ -301,7 +303,7 @@ class LogFileService:
                     raise BadRequestBizException(
                         message=f"下载远程日志文件失败，请检查URL是否可访问: {upload_log_file_config.source}"
                     ) from e
-                if not is_valid_archive_file(local_archive_file_path):
+                if not await asyncio.to_thread(is_valid_archive_file, local_archive_file_path):
                     logger.error(
                         "下载的远程日志文件不是有效的%s压缩包，URL: %s",
                         archive_extension,
@@ -324,14 +326,14 @@ class LogFileService:
                 )
                 try:
                     async with aiofiles.open(local_zip_file_path, "wb") as f:
-                        content = await uploaded_file.read()
-                        await f.write(content)
+                        while chunk := await uploaded_file.read(1024 * 1024):
+                            await f.write(chunk)
                 except Exception as e:
                     logger.error(
                         f"保存上传的日志文件失败，文件名: {uploaded_file.filename}, 错误信息: {str(e)}"
                     )
                     continue
-                if not ZipHandler.is_zip_file(local_zip_file_path):
+                if not await asyncio.to_thread(ZipHandler.is_zip_file, local_zip_file_path):
                     if log_type == "brpc":
                         # brpc 日志可能是纯文本文件，直接使用
                         log_file_model.file_path = local_zip_file_path
@@ -346,26 +348,10 @@ class LogFileService:
                         )
                         continue
                 else:
-                    extracted_file_path = LogFileService.get_upload_path(
-                        log_file_model.id, ""
-                    )
-                    try:
-                        await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
-                        log_file_model.file_path = extracted_file_path
-                        log_file_model.file_size = (
-                            await LogFileService.get_readable_dir_size(extracted_file_path)
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"解压上传的日志文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
-                        )
-                    if os.path.exists(local_zip_file_path):
-                        try:
-                            os.remove(local_zip_file_path)
-                        except Exception as e:
-                            logger.error(
-                                f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
-                            )
+                    # Keep the archive for the bounded background preprocessor.
+                    # Upload requests must not wait for extraction and splitting.
+                    log_file_model.file_path = local_zip_file_path
+                    log_file_model.file_size = os.path.getsize(local_zip_file_path)
             if log_type == "brpc":
                 log_file_models.append(log_file_model)
                 log_file_task_types[log_file_model.id] = (

@@ -6,6 +6,7 @@ from typing import Optional
 import logging
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.worker.base import BaseWorker
+from latency.task.process_handle import ProcessHandler
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.task.log_preprocessor import (
@@ -62,7 +63,7 @@ class TaskHandler:
         """Remove partial files and persist a user-facing terminal failure."""
         from latency.task.log_preprocessor import cleanup_preprocess_dir
 
-        cleanup_preprocess_dir(task.op_id)
+        await asyncio.to_thread(cleanup_preprocess_dir, task.op_id)
         message = "任务失败：服务器磁盘空间不足，请清理空间后重新提交"
         try:
             await TaskPGManager.mark_failed_with_report(task.id, message)
@@ -87,7 +88,7 @@ class TaskHandler:
 
         # 纯文本日志目录(无压缩包、文件全匹配 filename_patterns)无需拷贝/拆分:
         # scan_all 可直接扫源路径,省去每次上传重复拷贝 106MB 级日志的浪费。
-        if not needs_preprocess(log_file.file_path):
+        if not await asyncio.to_thread(needs_preprocess, log_file.file_path):
             logger.info(
                 "日志无需预处理, 直接扫描源目录: %s (log_file=%s)",
                 log_file.file_path,
@@ -184,6 +185,8 @@ class TaskHandler:
         running_task_ids = []
         for i, task in enumerate(pending_tasks):
             if i >= single_batch_limit:
+                break
+            if not await asyncio.to_thread(ProcessHandler.has_capacity):
                 break
             try:
                 # All log workers share the same preprocessing entry point so
