@@ -154,7 +154,6 @@ async def list_log_files(
     kb_id: Annotated[str, Path()],
     req: Annotated[ListLogFilesRequest, Body()],
 ) -> ListLogFilesResponse:
-    await ResourceIdService.require("kb", kb_id)
     list_log_files_msg = await LogFileService.list_log_files(kb_id, req)
     return ListLogFilesResponse(result=list_log_files_msg)
 
