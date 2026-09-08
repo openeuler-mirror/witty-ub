@@ -17,8 +17,8 @@
 #include "logger.h"
 #include "ubse_context.h"
 #include "urma_error.h"
-#include "urma_module.h"
 #include "urma_topology.h"
+#include "urma_module.h"
 
 namespace urma::module {
 using namespace ubse::context;

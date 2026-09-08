@@ -13,10 +13,10 @@
 #define MODULE_NAME "NODE-LOCAL-COLLECTOR"
 #include <tuple>
 #include <typeindex>
-#include "node_local_collector_module.h"
 #include "rack_error.h"
 #include "database_module.h"
 #include "ubse_context.h"
+#include "node_local_collector_module.h"
 
 namespace topology::node {
 using namespace ubse::context;
