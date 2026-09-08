@@ -259,6 +259,38 @@ render_nginx_conf() {
     _log "nginx 配置已渲染: $NGINX_CONF_FILE (backend=${backend_url} agent=${agent_url})"
 }
 
+# 自定义 Nginx 路径需要持久 SELinux 标签；不关闭全局 enforcing。
+configure_web_selinux() {
+    _has_cmd getenforce || return 0
+    [ "$(getenforce)" != "Disabled" ] || return 0
+    local cmd path type pattern
+    for cmd in semanage restorecon setsebool; do
+        if ! _has_cmd "$cmd"; then
+            _err "SELinux 已启用但缺少 $cmd；请安装 policycoreutils-python-utils（旧系统为 policycoreutils-python）和 policycoreutils 后重试"
+            return 1
+        fi
+    done
+    mkdir -p /run/witty-ub-web /var/log/witty-ub-web || return 1
+    # Nginx 静态根目录与打包配置一致。仅标记 Web 子目录，不开放后端数据。
+    while read -r type path; do
+        pattern="$(printf '%s' "$path" | sed 's/[][\.^$*+?(){}|]/\\&/g')(/.*)?"
+        semanage fcontext -a -t "$type" "$pattern" 2>/dev/null ||
+            semanage fcontext -m -t "$type" "$pattern" || return 1
+        restorecon -R "$path" || return 1
+    done <<EOF
+httpd_sys_content_t /var/witty-ub/web
+httpd_config_t ${WITTY_ETC_DIR}/web
+httpd_log_t /var/log/witty-ub-web
+httpd_var_run_t /run/witty-ub-web
+EOF
+    # 8080 在部分发行版已属于其他端口类型；本服务固定使用该端口。
+    semanage port -a -t http_port_t -p tcp 8080 2>/dev/null ||
+        semanage port -m -t http_port_t -p tcp 8080 || return 1
+    # 标准 httpd 布尔值会允许同域 Web 服务主动连接网络（含远端后端）。
+    setsebool -P httpd_can_network_connect on || return 1
+    _log "SELinux Web 标签、8080 端口和反向代理网络权限已配置"
+}
+
 # 按当前 web env 渲染 nginx（config/deploy 共用）。
 # Agent 提示词保持原文，WITTY_API_BASE/WITTY_NO_PROXY 由 OpenCode 导出。
 render_frontend_configs() {
@@ -266,4 +298,5 @@ render_frontend_configs() {
     backend_url="$(web_env_get WITTY_BACKEND_URL http://127.0.0.1:9772)"
     agent_url="$(web_env_get WITTY_AGENT_URL http://127.0.0.1:4096)"
     render_nginx_conf "$backend_url" "$agent_url" || return 1
+    configure_web_selinux || return 1
 }

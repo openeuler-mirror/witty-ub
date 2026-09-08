@@ -72,7 +72,9 @@ class DatabaseConfig(BaseModel):
 
 class TaskConfig(BaseModel):
     task_retry_times: int = Field(default=3, description="任务重试次数")
-    cpu_limit: int = Field(default=64, description="任务使用CPU核数")
+    cpu_limit: int = Field(default=64, ge=1, description="任务使用CPU核数")
+    max_concurrent_tasks: int = Field(default=2, ge=1, description="后台任务最大并发数，超出部分排队")
+    parse_workers: int = Field(default=4, ge=1, description="每个解析任务的扫描子进程上限")
 
 
 class ModelConfig(BaseModel):
@@ -114,7 +116,7 @@ class LogFilenamePatternConfig(BaseModel):
     resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
     brpc_log_file_patterns: list[str] = Field(
         default_factory=lambda: ["brpc.log", "brpc.log.*", "*brpc*.log"],
-        description="BRPC 诊断日志文件匹配模式",
+        description="UBSocket 诊断日志文件匹配模式",
     )
 
 

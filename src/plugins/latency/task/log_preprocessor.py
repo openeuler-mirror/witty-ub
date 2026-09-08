@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 WITTY_DIR_DEFAULT = "/var/witty-ub"
 _BUFFER_SIZE = 8 * 1024 * 1024
 ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".zip", ".rar")
+# 预处理全部落盘后写入；缺标记说明目录是上次中断留下的半成品，不可复用。
+_PREPROCESS_COMPLETE_MARKER = ".witty_preprocess_done"
 
 
 @dataclass(frozen=True)
@@ -120,20 +122,29 @@ def filename_looks_like_text(path: str) -> bool:
     return _looks_like_text_file(path)
 
 
+def _is_preprocess_complete(output_dir: str) -> bool:
+    return os.path.isfile(os.path.join(output_dir, _PREPROCESS_COMPLETE_MARKER))
+
+
 def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult:
     """Copy/extract logs into output_dir, then split unmatched text logs."""
     if not os.path.exists(source_path):
         raise FileNotFoundError(f"日志路径不存在: {source_path}")
 
     if os.path.isdir(output_dir):
-        return LogPreprocessResult(
-            source_dir=source_path,
-            output_dir=output_dir,
-            extracted_count=0,
-            copied_count=0,
-            split_count=0,
-            reused=True,
-        )
+        if _is_preprocess_complete(output_dir):
+            return LogPreprocessResult(
+                source_dir=source_path,
+                output_dir=output_dir,
+                extracted_count=0,
+                copied_count=0,
+                split_count=0,
+                reused=True,
+            )
+        # 上次预处理中断（服务被杀等）留下的半成品目录：清掉重做，
+        # 避免复用不完整数据。
+        logger.warning("预处理目录缺少完成标记，重新预处理: %s", output_dir)
+        shutil.rmtree(output_dir, ignore_errors=True)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -160,6 +171,11 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
         Config().get_default_diagnosis_config().log_filename_pattern.model_dump()
     )
     split_stats = split_unmatched_log_files(output_dir, filename_patterns)
+    # 解压/拷贝/拆分全部落盘后再写完成标记，作为目录可复用的判定依据。
+    with open(
+        os.path.join(output_dir, _PREPROCESS_COMPLETE_MARKER), "w", encoding="utf-8"
+    ) as marker_file:
+        marker_file.write("complete\n")
     return LogPreprocessResult(
         source_dir=source_path,
         output_dir=output_dir,

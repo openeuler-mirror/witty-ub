@@ -15,7 +15,7 @@ class ResourceIdService:
         "kb": "知识库",
         "log": "日志文件",
         "task": "任务",
-        "batch": "BRPC 诊断 batch",
+        "batch": "UBSocket 诊断 batch",
         "aggregated_event": "聚合事件",
         "anomalous_event": "异常事件",
         "log_parse_result": "日志解析结果",

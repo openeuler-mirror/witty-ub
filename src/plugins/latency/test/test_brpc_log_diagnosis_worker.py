@@ -165,7 +165,8 @@ def test_worker_type_and_default_patterns_are_defined():
     ]
 
 
-def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
+@pytest.mark.asyncio
+async def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     task = SimpleNamespace(
         id="brpc-task",
         task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
@@ -179,6 +180,16 @@ def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
         "get_oldest_tasks_by_status",
         list_pending,
     )
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "transition_task_status",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=SimpleNamespace(status=TaskStatusEnum.RUNNING)),
+    )
     monkeypatch.setattr(TaskHandler, "_preprocess_log_source", preprocess)
     monkeypatch.setattr(
         TaskHandler,
@@ -187,7 +198,10 @@ def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     )
     monkeypatch.setattr(BaseWorker, "run", run_worker)
 
-    _run(TaskHandler.handle_pending_tasks())
+    await TaskHandler.handle_pending_tasks()
+    dispatch_tasks = list(TaskHandler._dispatch_tasks)
+    if dispatch_tasks:
+        await asyncio.gather(*dispatch_tasks)
 
     preprocess.assert_awaited_once_with(task)
     run_worker.assert_awaited_once_with(
@@ -197,7 +211,8 @@ def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     )
 
 
-def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
+@pytest.mark.asyncio
+async def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
     parse_task = SimpleNamespace(
         id="brpc-parse-task",
         task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
@@ -212,6 +227,16 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
         AsyncMock(return_value=[parse_task, diagnosis_task]),
     )
     monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "transition_task_status",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=SimpleNamespace(status=TaskStatusEnum.RUNNING)),
+    )
+    monkeypatch.setattr(
         TaskHandler,
         "_preprocess_log_source",
         AsyncMock(return_value="/logs"),
@@ -219,9 +244,12 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
     run_worker = AsyncMock(side_effect=[False, True])
     monkeypatch.setattr(BaseWorker, "run", run_worker)
 
-    _run(TaskHandler.handle_pending_tasks())
+    await TaskHandler.handle_pending_tasks()
+    dispatch_tasks = list(TaskHandler._dispatch_tasks)
+    if dispatch_tasks:
+        await asyncio.gather(*dispatch_tasks)
 
-    assert [call.args[0] for call in run_worker.await_args_list] == [
+    assert [call_.args[0] for call_ in run_worker.await_args_list] == [
         "brpc-parse-task",
         "brpc-diagnosis-task",
     ]
@@ -295,7 +323,7 @@ def test_upload_brpc_creates_one_model_and_two_tasks(monkeypatch, tmp_path):
                         name=tmp_path.name,
                         source_type=SourceType.LOCAL,
                         source=str(tmp_path),
-                        log_type="brpc",
+                        log_type="UBSocket",
                     )
                 ]
             ),
@@ -342,7 +370,7 @@ def test_upload_brpc_directory_creates_two_tasks(monkeypatch, tmp_path):
                         name=tmp_path.name,
                         source_type=SourceType.LOCAL,
                         source=str(tmp_path),
-                        log_type="brpc",
+                        log_type="UBSocket",
                     )
                 ]
             ),
@@ -395,7 +423,7 @@ def test_upload_cleans_new_log_when_task_initialization_fails(monkeypatch, tmp_p
                             name=log_path.name,
                             source_type=SourceType.LOCAL,
                             source=str(log_path),
-                            log_type="brpc",
+                            log_type="UBSocket",
                         )
                     ]
                 ),
@@ -410,7 +438,7 @@ def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
         id="log-file-id",
         kb_id="kb-id",
         name="brpc-logs",
-        log_type="brpc",
+        log_type="UBSocket",
         file_path="/logs",
     )
     parse_task = SimpleNamespace(
@@ -441,7 +469,7 @@ def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
             return [
                 SimpleNamespace(
                     task_id=parse_task.id,
-                    message="BRPC parse completed",
+                    message="UBSocket parse completed",
                     progress=80.0,
                 )
             ]
@@ -449,7 +477,7 @@ def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
             return [
                 SimpleNamespace(
                     task_id=diagnosis_task.id,
-                    message="BRPC 诊断工具运行完成",
+                    message="UBSocket 诊断工具运行完成",
                     progress=40.0,
                 )
             ]
@@ -487,11 +515,15 @@ def test_get_brpc_log_file_returns_parallel_overall_progress(monkeypatch):
 
 
 def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
+    require_resource = AsyncMock()
+    monkeypatch.setattr(
+        log_file_service_module.ResourceIdService, "require", require_resource
+    )
     log_file = LogFileModel(
         id="log-file-id",
         kb_id="kb-id",
         name="brpc-logs",
-        log_type="brpc",
+        log_type="UBSocket",
         file_path="/logs",
     )
     parse_task = SimpleNamespace(
@@ -519,13 +551,13 @@ def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
 
     parse_report = SimpleNamespace(
         task_id=parse_task.id,
-        message="BRPC parse completed",
+        message="UBSocket parse completed",
         progress=80.0,
         created_at=datetime(2026, 8, 13, 10, 0, 0),
     )
     diagnosis_report = SimpleNamespace(
         task_id=diagnosis_task.id,
-        message="BRPC 诊断工具运行完成",
+        message="UBSocket 诊断工具运行完成",
         progress=40.0,
         created_at=datetime(2026, 8, 13, 10, 0, 1),
     )
@@ -562,6 +594,7 @@ def test_list_brpc_log_files_returns_parallel_overall_progress(monkeypatch):
         LogFileService.list_log_files("kb-id", ListLogFilesRequest())
     )
 
+    require_resource.assert_awaited_once_with("kb", "kb-id")
     assert TaskTypeEnum.BRPC_LOG_PARSE_WORKER in queried_task_types
     assert TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER in queried_task_types
     assert result.log_files[0].overall_progress == 60.0
@@ -573,7 +606,7 @@ def test_populate_brpc_counts_sets_profiling_and_diagnosis_counts(monkeypatch):
         id="log-file-id",
         kb_id="kb-id",
         name="brpc-logs",
-        log_type="brpc",
+        log_type="UBSocket",
         file_path="/logs",
     )
     parse_task = SimpleNamespace(
@@ -618,7 +651,7 @@ def test_populate_brpc_counts_skips_unsuccessful_tasks(monkeypatch):
         id="log-file-id",
         kb_id="kb-id",
         name="brpc-logs",
-        log_type="brpc",
+        log_type="UBSocket",
         file_path="/logs",
     )
     parse_task = SimpleNamespace(
@@ -764,7 +797,7 @@ def test_brpc_worker_is_registered_and_progress_is_recognized():
         status=TaskStatusEnum.RUNNING,
         task_reports=[
             SimpleNamespace(message="unrelated report", progress=99.0),
-            SimpleNamespace(message="BRPC 诊断工具运行完成", progress=60.0),
+            SimpleNamespace(message="UBSocket 诊断工具运行完成", progress=60.0),
         ],
     )
 
@@ -836,7 +869,7 @@ def test_run_brpc_service_rejects_second_active_task(monkeypatch, active_status)
         init_task,
     )
 
-    with pytest.raises(ConflictBizException, match="BRPC 诊断任务尚未结束"):
+    with pytest.raises(ConflictBizException, match="UBSocket 诊断任务尚未结束"):
         _run(
             LogFileService.run_brpc_diagnosis_by_log_file_id(
                 "log-file-id",
@@ -846,38 +879,79 @@ def test_run_brpc_service_rejects_second_active_task(monkeypatch, active_status)
     init_task.assert_not_awaited()
 
 
-def test_delete_brpc_results_deletes_only_brpc_batches(monkeypatch):
-    session = object()
+def test_delete_brpc_log_stops_active_tasks_before_transactional_delete(
+    monkeypatch, tmp_path
+):
+    log_id = "log-file-id"
+    tasks = [
+        SimpleNamespace(
+            id="brpc-task",
+            task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value,
+            status=TaskStatusEnum.RUNNING.value,
+        ),
+        SimpleNamespace(
+            id="parse-task",
+            task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER.value,
+            status=TaskStatusEnum.PENDING.value,
+        ),
+        SimpleNamespace(
+            id="finished-task",
+            task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER.value,
+            status=TaskStatusEnum.SUCCESSFUL.value,
+        ),
+    ]
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(
+            scalars=lambda: SimpleNamespace(all=lambda: tasks)
+        ))
+    )
 
     @asynccontextmanager
     async def open_session():
         yield session
 
-    delete_batch = AsyncMock(return_value="batch-id")
+    actions = []
+
+    async def stop_task(task_id):
+        actions.append(("stop", task_id))
+
+    async def delete_log(log_file_id):
+        actions.append(("delete", log_file_id))
+        return True
+
+    def cleanup(log_file_id):
+        actions.append(("cleanup", log_file_id))
+
     monkeypatch.setattr(
-        log_file_service_module.PGManager,
-        "session",
-        staticmethod(open_session),
+        log_file_service_module.PGManager, "session", staticmethod(open_session)
     )
     monkeypatch.setattr(
-        log_file_service_module.BrpcDiagnosisPGManager,
-        "delete_batch_by_task_id",
-        delete_batch,
+        log_file_service_module.LogFilePGManager,
+        "get_log_file_by_log_file_id",
+        AsyncMock(return_value=LogFileModel(id=log_id, log_type="UBSocket")),
     )
-    tasks = [
-        SimpleNamespace(
-            id="brpc-task",
-            task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value,
-        ),
-        SimpleNamespace(
-            id="kv-task",
-            task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER.value,
-        ),
+    monkeypatch.setattr(BaseWorker, "stop", stop_task)
+    hard_delete = AsyncMock(side_effect=delete_log)
+    monkeypatch.setattr(
+        log_file_service_module.LogFilePGManager,
+        "hard_delete_log_file_with_related_data",
+        hard_delete,
+    )
+    monkeypatch.setattr(log_file_service_module, "cleanup_preprocess_dir", cleanup)
+    monkeypatch.setattr(log_file_service_module, "witty_dir", str(tmp_path))
+
+    result = _run(LogFileService.delete_log_file_by_log_file_id(log_id))
+
+    assert result.log_file_ids == [log_id]
+    hard_delete.assert_awaited_once_with(log_id)
+    assert actions == [
+        ("stop", "brpc-task"),
+        ("stop", "parse-task"),
+        ("delete", log_id),
+        ("cleanup", log_id),
     ]
-
-    _run(LogFileService._delete_brpc_diagnosis_results(tasks))
-
-    delete_batch.assert_awaited_once_with(session, "brpc-task")
+    statement = session.execute.await_args.args[0]
+    assert statement.compile().params == {"op_id_1": log_id}
 
 
 def test_build_command_uses_documented_arguments(monkeypatch, tmp_path):
@@ -1040,7 +1114,7 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
     assert status_updates[-1] == {
         "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
     }
-    assert reports[-1] == ("BRPC 诊断任务成功", 100.0)
+    assert reports[-1] == ("UBSocket 诊断任务成功", 100.0)
     touch_log_kb.assert_awaited_once_with("kb-id")
 
 

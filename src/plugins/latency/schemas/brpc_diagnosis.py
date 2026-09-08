@@ -1,4 +1,4 @@
-"""BRPC diagnosis interchange and query API models."""
+"""UBSocket diagnosis interchange and query API models."""
 
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
@@ -29,7 +29,7 @@ _UTC_PLUS_8 = timezone(timedelta(hours=8))
 
 
 def format_brpc_api_time(timestamp: int) -> str:
-    """Format an epoch-microsecond BRPC timestamp as a UTC+8 wall-clock string."""
+    """Format an epoch-microsecond UBSocket timestamp as a UTC+8 wall-clock string."""
     value = (_UTC_EPOCH + timedelta(microseconds=timestamp)).astimezone(
         _UTC_PLUS_8
     )
@@ -57,7 +57,7 @@ def parse_brpc_query_timestamp(value: object) -> int:
     return timestamp
 
 
-# BRPC query services keep epoch microseconds internally for range arithmetic,
+# UBSocket query services keep epoch microseconds internally for range arithmetic,
 # stable event IDs and database filters.  Only the JSON response boundary is
 # converted to a UTC+8 string.
 BrpcApiTime = Annotated[
@@ -263,7 +263,7 @@ class BrpcDiagHit(_StrictProtocolModel):
 
 
 # Query models deliberately live next to the protocol models.  This keeps the
-# public BRPC contract in one module while using different class names for the
+# public UBSocket contract in one module while using different class names for the
 # immutable schema/batch file records and database-backed API records.
 BrpcWindowSize = Literal["10s", "1m", "10m", "1h"]
 BrpcAggregateWindowSize = Literal["1s", "1m", "1h"]

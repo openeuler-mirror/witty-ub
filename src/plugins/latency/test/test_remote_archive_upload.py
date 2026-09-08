@@ -1,4 +1,5 @@
 import asyncio
+import zipfile
 from unittest.mock import AsyncMock
 
 import pytest
@@ -102,7 +103,7 @@ def test_remote_archive_uses_same_suffix_as_local_archive(
                         name=f"logs{suffix}",
                         source_type=SourceType.REMOTE,
                         source=f"https://example.com/logs{suffix}?token=secret",
-                        log_type="brpc",
+                        log_type="UBSocket",
                     )
                 ]
             ),
@@ -129,9 +130,119 @@ def test_remote_archive_rejects_unsupported_suffix(monkeypatch):
                             name="logs.7z",
                             source_type=SourceType.REMOTE,
                             source="https://example.com/logs.7z",
-                            log_type="brpc",
+                            log_type="UBSocket",
                         )
                     ]
                 ),
             )
         )
+
+
+def _mock_local_persistence(monkeypatch):
+    added_models = []
+
+    async def add_log_files(models):
+        added_models.extend(models)
+        return [model.id for model in models]
+
+    monkeypatch.setattr(
+        log_file_service_module.LogFilePGManager,
+        "add_log_files",
+        add_log_files,
+    )
+    monkeypatch.setattr(
+        log_file_service_module.TaskHandler,
+        "init_task",
+        AsyncMock(return_value="task-id"),
+    )
+    return added_models
+
+
+def test_local_archive_file_rejects_invalid_zip(tmp_path):
+    source = tmp_path / "logs.zip"
+    source.write_bytes(b"not a zip archive")
+
+    with pytest.raises(BadRequestBizException):
+        asyncio.run(
+            LogFileService.upload_log_files(
+                "kb-id",
+                UpLoadLogFilesRequest(
+                    upload_log_file_configs=[
+                        UpLoadLogFileConfig(
+                            name="logs.zip",
+                            source_type=SourceType.LOCAL,
+                            source=str(source),
+                            log_type="UBSocket",
+                        )
+                    ]
+                ),
+            )
+        )
+
+
+def test_local_archive_file_accepts_valid_zip(monkeypatch, tmp_path):
+    source = tmp_path / "logs.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("nested/brpc.log", b"brpc log content\n")
+    added_models = _mock_local_persistence(monkeypatch)
+
+    result = asyncio.run(
+        LogFileService.upload_log_files(
+            "kb-id",
+            UpLoadLogFilesRequest(
+                upload_log_file_configs=[
+                    UpLoadLogFileConfig(
+                        name="logs.zip",
+                        source_type=SourceType.LOCAL,
+                        source=str(source),
+                        log_type="UBSocket",
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert result.log_file_ids == [added_models[0].id]
+    assert added_models[0].file_path == str(source)
+    assert added_models[0].file_size == source.stat().st_size
+
+
+def test_unknown_source_type_rejected():
+    # model_construct 绕过 schema 校验，模拟绕过枚举校验的未知 source_type，
+    # service 必须直接报 400 而不是追加没有 file_path 的解析任务。
+    config = UpLoadLogFileConfig.model_construct(
+        name="logs", source_type="unknown", source="/tmp/logs", log_type="KVCache"
+    )
+
+    with pytest.raises(BadRequestBizException):
+        asyncio.run(
+            LogFileService.upload_log_files(
+                "kb-id",
+                UpLoadLogFilesRequest(upload_log_file_configs=[config]),
+            )
+        )
+
+
+def test_local_plain_file_skips_archive_validation(monkeypatch, tmp_path):
+    source = tmp_path / "profiling.log"
+    source.write_text("timeStamp: 1690000000\n", encoding="utf-8")
+    added_models = _mock_local_persistence(monkeypatch)
+
+    result = asyncio.run(
+        LogFileService.upload_log_files(
+            "kb-id",
+            UpLoadLogFilesRequest(
+                upload_log_file_configs=[
+                    UpLoadLogFileConfig(
+                        name="profiling.log",
+                        source_type=SourceType.LOCAL,
+                        source=str(source),
+                        log_type="UBSocket",
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert result.log_file_ids == [added_models[0].id]
+    assert added_models[0].file_path == str(source)

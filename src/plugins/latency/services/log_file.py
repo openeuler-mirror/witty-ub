@@ -1,4 +1,5 @@
 import os
+import asyncio
 import aiofiles
 import aiohttp
 import ipaddress
@@ -18,7 +19,8 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
 from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.schemas.log import LogFileModel
-from latency.ENUM.general import FilePath
+from latency.services.resource_id import ResourceIdService
+from latency.ENUM.general import DiagnosisConfigLogType, FilePath
 from latency.ENUM.general import SourceType
 from latency.schemas.request import (
     ParseConfig,
@@ -167,7 +169,7 @@ class LogFileService:
 
     @staticmethod
     def _select_brpc_visible_task(parse_task, diagnosis_task):
-        """Select UI detail without letting one failed BRPC task hide active work."""
+        """Select UI detail without letting one failed UBSocket task hide active work."""
         tasks = [task for task in (parse_task, diagnosis_task) if task]
         for status in (TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING):
             for task in tasks:
@@ -184,7 +186,7 @@ class LogFileService:
 
     @staticmethod
     async def _populate_brpc_counts(log_file_model, parse_task, diagnosis_task) -> None:
-        """Populate profiling count and diagnosis hit count for a BRPC log file."""
+        """Populate profiling count and diagnosis hit count for a UBSocket log file."""
         success_statuses = {
             TaskStatusEnum.SUCCESSFUL,
             TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE,
@@ -196,7 +198,7 @@ class LogFileService:
                 )
                 log_file_model.anomaly_cnt = profiling_cnt
             except Exception as exc:
-                logger.warning("failed to count BRPC profiling results: %s", exc)
+                logger.warning("failed to count UBSocket profiling results: %s", exc)
         if diagnosis_task and diagnosis_task.status in success_statuses:
             try:
                 async with PGManager.session() as session:
@@ -206,7 +208,7 @@ class LogFileService:
                     if batch:
                         log_file_model.trace_failure_event_cnt = batch.hit_count
             except Exception as exc:
-                logger.warning("failed to get BRPC diagnosis hit count: %s", exc)
+                logger.warning("failed to get UBSocket diagnosis hit count: %s", exc)
 
     @staticmethod
     @staticmethod
@@ -228,16 +230,17 @@ class LogFileService:
 
     @staticmethod
     async def get_readable_dir_size(folder_path: str) -> int:
-        total = 0
-        for root, _, files in os.walk(folder_path):
-            for f in files:
-                try:
-                    total += os.path.getsize(os.path.join(root, f))
-                except:
-                    pass
+        def directory_size():
+            total = 0
+            for root, _, files in os.walk(folder_path):
+                for name in files:
+                    try:
+                        total += os.path.getsize(os.path.join(root, name))
+                    except OSError:
+                        pass
+            return total
 
-        # 格式化
-        return total
+        return await asyncio.to_thread(directory_size)
 
     @staticmethod
     async def upload_log_files(
@@ -246,7 +249,7 @@ class LogFileService:
         log_file_models = []
         log_file_task_types: dict[str, TaskTypeEnum] = {}
         for upload_log_file_config in req.upload_log_file_configs:
-            log_type = (upload_log_file_config.log_type or "kv-cache").strip().lower()
+            log_type = upload_log_file_config.log_type
             log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name, log_type=log_type)
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 source_path = upload_log_file_config.source
@@ -261,13 +264,25 @@ class LogFileService:
                 elif os.path.isfile(source):
                     if not os.access(source, os.R_OK):
                         raise BadRequestBizException(message=f"文件不可读: {source}")
+                    # 与远程压缩包一致：本机压缩包路径也校验容器格式，
+                    # 避免坏包到预处理阶段才解出 0 个文件。
+                    archive_extension = get_archive_extension(source)
+                    if archive_extension is not None and not await asyncio.to_thread(
+                        is_valid_archive_file, source
+                    ):
+                        raise BadRequestBizException(
+                            message=(
+                                f"本机日志文件不是有效的{archive_extension}压缩包: "
+                                f"{source}"
+                            )
+                        )
                     log_file_model.file_path = source
                     log_file_model.file_size = os.path.getsize(source)
                 else:
                     raise BadRequestBizException(message=f"路径既不是文件也不是目录: {source}")
             elif upload_log_file_config.source_type == SourceType.REMOTE:
                 # 请求远程URL获取日志文件内容，并保存到本地文件系统中
-                if not _validate_remote_url(upload_log_file_config.source):
+                if not await asyncio.to_thread(_validate_remote_url, upload_log_file_config.source):
                     raise BadRequestBizException(
                         message=f"不允许的远程日志URL: {upload_log_file_config.source}"
                     )
@@ -301,7 +316,7 @@ class LogFileService:
                     raise BadRequestBizException(
                         message=f"下载远程日志文件失败，请检查URL是否可访问: {upload_log_file_config.source}"
                     ) from e
-                if not is_valid_archive_file(local_archive_file_path):
+                if not await asyncio.to_thread(is_valid_archive_file, local_archive_file_path):
                     logger.error(
                         "下载的远程日志文件不是有效的%s压缩包，URL: %s",
                         archive_extension,
@@ -324,15 +339,15 @@ class LogFileService:
                 )
                 try:
                     async with aiofiles.open(local_zip_file_path, "wb") as f:
-                        content = await uploaded_file.read()
-                        await f.write(content)
+                        while chunk := await uploaded_file.read(1024 * 1024):
+                            await f.write(chunk)
                 except Exception as e:
                     logger.error(
                         f"保存上传的日志文件失败，文件名: {uploaded_file.filename}, 错误信息: {str(e)}"
                     )
                     continue
-                if not ZipHandler.is_zip_file(local_zip_file_path):
-                    if log_type == "brpc":
+                if not await asyncio.to_thread(ZipHandler.is_zip_file, local_zip_file_path):
+                    if log_type == DiagnosisConfigLogType.UBSOCKET:
                         # brpc 日志可能是纯文本文件，直接使用
                         log_file_model.file_path = local_zip_file_path
                         log_file_model.file_size = (
@@ -346,27 +361,17 @@ class LogFileService:
                         )
                         continue
                 else:
-                    extracted_file_path = LogFileService.get_upload_path(
-                        log_file_model.id, ""
+                    # Keep the archive for the bounded background preprocessor.
+                    # Upload requests must not wait for extraction and splitting.
+                    log_file_model.file_path = local_zip_file_path
+                    log_file_model.file_size = os.path.getsize(local_zip_file_path)
+            else:
+                raise BadRequestBizException(
+                    message=(
+                        f"不支持的日志文件来源类型: {upload_log_file_config.source_type}"
                     )
-                    try:
-                        await ZipHandler.unzip_file(local_zip_file_path, extracted_file_path)
-                        log_file_model.file_path = extracted_file_path
-                        log_file_model.file_size = (
-                            await LogFileService.get_readable_dir_size(extracted_file_path)
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"解压上传的日志文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
-                        )
-                    if os.path.exists(local_zip_file_path):
-                        try:
-                            os.remove(local_zip_file_path)
-                        except Exception as e:
-                            logger.error(
-                                f"删除临时ZIP文件失败，ZIP文件路径: {local_zip_file_path}, 错误信息: {str(e)}"
-                            )
-            if log_type == "brpc":
+                )
+            if log_type == DiagnosisConfigLogType.UBSOCKET:
                 log_file_models.append(log_file_model)
                 log_file_task_types[log_file_model.id] = (
                     TaskTypeEnum.BRPC_LOG_PARSE_WORKER
@@ -496,9 +501,9 @@ class LogFileService:
         if not log_file_model or not getattr(log_file_model, "existed_status", True):
             raise NotFoundBizException(resource="日志文件")
         if run:
-            log_type = getattr(log_file_model, "log_type", "kv-cache") or "kv-cache"
+            log_type = getattr(log_file_model, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE
             task_type = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER
-            if log_type == "brpc":
+            if log_type == DiagnosisConfigLogType.UBSOCKET:
                 current_task = await TaskPGManager.get_current_task_by_op_id(log_file_id)
                 task_type = (
                     current_task.task_type
@@ -542,7 +547,7 @@ class LogFileService:
             TaskStatusEnum.RUNNING,
             TaskStatusEnum.FAILED_PENDING_REMOVE,
         }:
-            raise ConflictBizException(message="BRPC 诊断任务尚未结束")
+            raise ConflictBizException(message="UBSocket 诊断任务尚未结束")
 
         task_id = await TaskHandler.init_task(
             task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
@@ -550,11 +555,12 @@ class LogFileService:
             parse_config=ParseConfig(start_time=req.start_time),
         )
         if not task_id:
-            raise BadRequestBizException(message="创建 BRPC 诊断任务失败")
+            raise BadRequestBizException(message="创建 UBSocket 诊断任务失败")
         return RunBrpcDiagnosisMsg(task_id=task_id)
 
     @staticmethod
     async def list_log_files(kb_id: str, req: ListLogFilesRequest) -> ListLogFilesMsg:
+        await ResourceIdService.require("kb", kb_id)
         total, log_file_models = await LogFilePGManager.list_log_files(kb_id, req)
         log_file_model_ids = [log_file_model.id for log_file_model in log_file_models]
         parse_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
@@ -605,7 +611,7 @@ class LogFileService:
         task_dict = {}
         for log_file_model in log_file_models:
             log_file_model_id = log_file_model.id
-            if log_file_model.log_type == "brpc":
+            if log_file_model.log_type == DiagnosisConfigLogType.UBSOCKET:
                 visible_task = LogFileService._select_brpc_visible_task(
                     brpc_parse_task_dict.get(log_file_model_id),
                     brpc_diagnosis_task_dict.get(log_file_model_id),
@@ -649,7 +655,7 @@ class LogFileService:
         for log_file_model in log_file_models:
             parse_task = parse_task_dict.get(log_file_model.id)
             brpc_parse_task = brpc_parse_task_dict.get(log_file_model.id)
-            if log_file_model.log_type == "brpc":
+            if log_file_model.log_type == DiagnosisConfigLogType.UBSOCKET:
                 diagnosis_task = brpc_diagnosis_task_dict.get(log_file_model.id)
             else:
                 diagnosis_task = diagnosis_task_dict.get(log_file_model.id)
@@ -665,7 +671,7 @@ class LogFileService:
             if store_task:
                 store_task.task_reports = type_task_report_dict.get(store_task.id, [])
 
-            if log_file_model.log_type == "brpc":
+            if log_file_model.log_type == DiagnosisConfigLogType.UBSOCKET:
                 status_tasks = (brpc_parse_task, diagnosis_task)
                 log_file_model.overall_progress = parallel_overall_progress(
                     *status_tasks,
@@ -699,8 +705,8 @@ class LogFileService:
         log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
         if not log_file_model or not getattr(log_file_model, "existed_status", True):
             raise NotFoundBizException(resource="日志文件")
-        log_type = getattr(log_file_model, "log_type", "kv-cache") or "kv-cache"
-        if log_type == "brpc":
+        log_type = getattr(log_file_model, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE
+        if log_type == DiagnosisConfigLogType.UBSOCKET:
             parse_task = await TaskPGManager.get_current_task_by_op_id(
                 log_file_id,
                 TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
@@ -723,7 +729,7 @@ class LogFileService:
                 log_file_id,
                 TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
             )
-        if log_type == "brpc":
+        if log_type == DiagnosisConfigLogType.UBSOCKET:
             task_model = LogFileService._select_brpc_visible_task(
                 parse_task,
                 diagnosis_task,
@@ -756,7 +762,7 @@ class LogFileService:
                 diagnosis_task.task_reports = diagnosis_reports
             if store_task:
                 store_task.task_reports = store_reports
-            if log_type == "brpc":
+            if log_type == DiagnosisConfigLogType.UBSOCKET:
                 status_tasks = (parse_task, diagnosis_task)
                 log_file_model.overall_progress = parallel_overall_progress(
                     *status_tasks,

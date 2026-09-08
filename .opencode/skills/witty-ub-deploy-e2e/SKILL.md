@@ -71,7 +71,7 @@ KB_ID=$(curl -s -X POST "$BASE/log_kb" -H 'Content-Type: application/json' \
 
 # 2. Upload the WHOLE log DIRECTORY as one local log_file (do NOT split files)
 LOG_ID=$(curl -s -X POST "$BASE/log_file/$KB_ID" -H 'Content-Type: application/json' \
-  -d '{"upload_log_file_configs":[{"name":"logs","source_type":"local","source":"/path/to/log/dir"}]}' \
+  -d '{"upload_log_file_configs":[{"name":"logs","source_type":"local","source":"/path/to/log/dir","log_type":"KVCache"}]}' \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['log_file_ids'][0])")
 #    ^-- source points at a DIRECTORY. Splitting into per-file uploads breaks
 #        trace correlation (SDK/Worker/INFO must be scanned together).

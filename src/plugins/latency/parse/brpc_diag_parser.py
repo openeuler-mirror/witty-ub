@@ -1,4 +1,4 @@
-"""Parser and cross-record validation for BRPC diagnosis V2.1 files."""
+"""Parser and cross-record validation for UBSocket diagnosis V2.1 files."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from latency.schemas.brpc_diagnosis import (
 
 
 class BrpcDiagParseError(ValueError):
-    """Raised when a BRPC diagnosis output violates the V2.1 protocol."""
+    """Raised when a UBSocket diagnosis output violates the V2.1 protocol."""
 
 
 @dataclass(frozen=True, slots=True)

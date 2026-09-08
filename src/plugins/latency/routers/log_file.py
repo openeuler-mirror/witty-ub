@@ -94,9 +94,9 @@ async def upload_log_files(
     response_model=RunBrpcDiagnosisResponse,
     operation_id="run_brpc_log_diagnosis",
     description=(
-        "Create an independent BRPC diagnosis task for an existing log file. "
+        "Create an independent UBSocket diagnosis task for an existing log file. "
         "start_time is interpreted as UTC+8 and the task scans until the "
-        "BRPC tool startup time."
+        "UBSocket tool startup time."
     ),
 )
 async def run_brpc_diagnosis_by_log_file_id(
@@ -154,7 +154,6 @@ async def list_log_files(
     kb_id: Annotated[str, Path()],
     req: Annotated[ListLogFilesRequest, Body()],
 ) -> ListLogFilesResponse:
-    await ResourceIdService.require("kb", kb_id)
     list_log_files_msg = await LogFileService.list_log_files(kb_id, req)
     return ListLogFilesResponse(result=list_log_files_msg)
 

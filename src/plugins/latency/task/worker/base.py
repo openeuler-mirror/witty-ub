@@ -1,5 +1,7 @@
+import asyncio
 import logging
 from datetime import datetime
+from latency.common.local_time import local_now
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.task.process_handle import ProcessHandler
 from latency.database.managers.task import TaskPGManager
@@ -65,7 +67,7 @@ class BaseWorker:
         
         worker_name = task.task_type
         flag = await BaseWorker.find_worker_class(worker_name).reinit(task_id)
-        ProcessHandler.remove_task(task_id)
+        await asyncio.to_thread(ProcessHandler.remove_task, task_id)
         if flag:
             await TaskPGManager.update_task(
                 task_id,
@@ -76,7 +78,7 @@ class BaseWorker:
             )
             return True
         else:
-            completed_at = datetime.now()
+            completed_at = local_now()
             duration_seconds = 0.0
             if task.created_at:
                 duration_seconds = (completed_at - task.created_at).total_seconds()
@@ -100,10 +102,10 @@ class BaseWorker:
             return ""
         
         worker_name = task.task_type
-        ProcessHandler.remove_task(task_id)
+        await asyncio.to_thread(ProcessHandler.remove_task, task_id)
         await BaseWorker.find_worker_class(worker_name).deinit(task_id)
         
-        completed_at = datetime.now()
+        completed_at = local_now()
         duration_seconds = 0.0
         if task.created_at:
             duration_seconds = (completed_at - task.created_at).total_seconds()
@@ -149,7 +151,7 @@ class BaseWorker:
 
         from latency.task.log_preprocessor import cleanup_preprocess_dir
 
-        cleanup_preprocess_dir(op_id)
+        await asyncio.to_thread(cleanup_preprocess_dir, op_id)
 
     @staticmethod
     async def run(
@@ -190,7 +192,7 @@ class BaseWorker:
         
         should_update_status = False
         if task.status == TaskStatusEnum.RUNNING:
-            ProcessHandler.remove_task(task_id)
+            await asyncio.to_thread(ProcessHandler.remove_task, task_id)
             logger.warning(f"[BaseWorker] 已调用 ProcessHandler.remove_task({task_id})")
             should_update_status = True
         elif task.status == TaskStatusEnum.PENDING:
@@ -211,7 +213,7 @@ class BaseWorker:
             logger.error(f"[BaseWorker] worker.stop 异常: {e}")
         
         if should_update_status:
-            completed_at = datetime.now()
+            completed_at = local_now()
             duration_seconds = 0.0
             if task.created_at:
                 duration_seconds = (completed_at - task.created_at).total_seconds()

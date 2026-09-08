@@ -39,7 +39,7 @@ def test_reinit_retries_before_limit(monkeypatch):
     assert _run(BrpcLogParseWorker.reinit("task-id")) is True
 
     delete_results.assert_awaited_once_with("log-id")
-    report.assert_awaited_once_with("task-id", "BRPC task reinitialized", 0.0)
+    report.assert_awaited_once_with("task-id", "UBSocket task reinitialized", 0.0)
 
 
 def test_reinit_stops_at_retry_limit(monkeypatch):
@@ -83,7 +83,7 @@ def test_parse_log_fails_when_results_are_not_stored(monkeypatch, tmp_path):
         AsyncMock(return_value=False),
     )
 
-    with pytest.raises(RuntimeError, match="Failed to store BRPC profiling results"):
+    with pytest.raises(RuntimeError, match="Failed to store UBSocket profiling results"):
         _run(BrpcLogParseWorker.parse_log("log-id"))
 
 

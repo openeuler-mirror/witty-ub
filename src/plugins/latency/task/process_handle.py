@@ -14,7 +14,10 @@ class ProcessHandler:
 
     tasks = {}  # 存储进程的字典
     lock = multiprocessing.Lock()  # 创建一个锁对象
-    max_processes = max(1, Config().get_config().task.cpu_limit)
+    max_processes = min(
+        Config().get_config().task.cpu_limit,
+        Config().get_config().task.max_concurrent_tasks,
+    )
     time_out = 10
 
     @staticmethod
@@ -76,6 +79,17 @@ class ProcessHandler:
             logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
 
     @staticmethod
+    def has_capacity():
+        """Check admission before spending disk IO on pending tasks."""
+        if not ProcessHandler.lock.acquire(timeout=ProcessHandler.time_out):
+            return False
+        try:
+            ProcessHandler._cleanup_dead_processes()
+            return len(ProcessHandler.tasks) < ProcessHandler.max_processes
+        finally:
+            ProcessHandler.lock.release()
+
+    @staticmethod
     def add_task(task_id: str, target, *args, **kwargs):
         """添加任务到进程池"""
         acquired = ProcessHandler.lock.acquire(timeout=ProcessHandler.time_out)
@@ -100,8 +114,8 @@ class ProcessHandler:
                     args=(target,) + args,
                     kwargs=kwargs,
                 )
-                ProcessHandler.tasks[task_id] = process
                 process.start()
+                ProcessHandler.tasks[task_id] = process
                 logger.debug(f"[ProcessHandler] 任务 {task_id} 已添加到进程池，PID: {process.pid}")
                 ProcessHandler.lock.release()
                 return True

@@ -15,6 +15,7 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import { displayServerTime } from './utils/serverTime'
 import rawDiagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
@@ -117,7 +118,7 @@ type LogFileModel = {
   file_size: number
   anomaly_cnt: number
   trace_failure_event_cnt?: number
-  log_type?: string
+  log_type?: LogType
   task: TaskModel | null
   overall_status: string
   overall_progress?: number
@@ -1870,12 +1871,12 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
 })
 const activePage = ref<'asset' | 'abnormal'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
-type MonitorProduct = 'kvcache' | 'brpc'
+type MonitorProduct = 'KVCache' | 'UBSocket'
 const activeMonitorSection = ref<MonitorSection>('latency')
 const activeMonitorProduct = computed<MonitorProduct>(() =>
   activeMonitorSection.value === 'brpc' || activeMonitorSection.value === 'brpc-fault'
-    ? 'brpc'
-    : 'kvcache',
+    ? 'UBSocket'
+    : 'KVCache',
 )
 const isAssetSidebarCollapsed = ref(false)
 const assetDetailRef = ref<HTMLElement | null>(null)
@@ -1890,18 +1891,18 @@ const isInitialDataUnavailable = computed(
 )
 
 const logSourceInput = ref('')
-type LogType = 'kv-cache' | 'brpc'
+type LogType = 'KVCache' | 'UBSocket'
 const getLogTypeStorageKey = (assetId: string) => `witty-ub.asset-detail.log-type:${assetId}`
 const getStoredLogType = (assetId: string): LogType => {
   try {
     const storedLogType = window.localStorage.getItem(getLogTypeStorageKey(assetId))
-    if (storedLogType === 'kv-cache' || storedLogType === 'brpc') return storedLogType
+    if (storedLogType === 'KVCache' || storedLogType === 'UBSocket') return storedLogType
   } catch {
     // localStorage may be unavailable in privacy-restricted browser contexts.
   }
-  return 'kv-cache'
+  return 'KVCache'
 }
-const logType = ref<LogType>('kv-cache')
+const logType = ref<LogType>('KVCache')
 watch(logType, (nextLogType) => {
   const assetId = selectedAssetId.value
   if (!assetId) return
@@ -2160,7 +2161,7 @@ const openParseConfigDrawer = async () => {
   diagnosisConfigImportAssetId.value = ''
   diagnosisConfigImportMessage.value = ''
   isParseConfigDrawerOpen.value = true
-  if (logType.value === 'brpc') {
+  if (logType.value === 'UBSocket') {
     isDiagnosisConfigLoading.value = false
     return
   }
@@ -3921,8 +3922,7 @@ const parseDateAsLocal = (raw: string): Date | null => {
   }
   // Parse as LOCAL time by extracting components and using
   // new Date(year, month-1, day, hours, minutes, seconds).
-  // This avoids the ECMAScript rule that "T"-separated
-  // datetime strings without timezone are parsed as UTC.
+  // Extract components explicitly to support the API's space-separated format.
   const normalized = cleaned.replace('T', ' ').replace(/Z$/i, '')
   const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/)
   if (match) {
@@ -8884,7 +8884,7 @@ const getLogFileProgressClass = (file: LogFileModel) => {
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
 
-const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'brpc'
+const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'UBSocket'
 
 const pickDefaultKvcacheLogFile = (files: LogFileModel[]): LogFileModel | null => {
   if (files.length === 0) return null
@@ -8901,7 +8901,7 @@ const isSuccessfulLogFile = (file: LogFileModel) =>
 
 const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
 
-const isBrpcLogFile = (file: LogFileModel) => file.log_type === 'brpc'
+const isBrpcLogFile = (file: LogFileModel) => file.log_type === 'UBSocket'
 
 const isBrpcProfilingLogFile = (file: LogFileModel) =>
   getLogFileTaskType(file) === 'brpc_log_parse_worker'
@@ -8967,14 +8967,14 @@ const loadLogFiles = async (
     logFiles.value = nextLogFiles
     logFilesTotal.value = nextTotal
     logFilesPage.value = pageNum
-    // 默认选中最新的 kv-cache 日志文件作为“当前 log”，
+    // 默认选中最新的 KVCache 日志文件作为“当前 log”，
     // 供时延指标桶模式直读分位统计表（log_id）使用；列表为空则清空。
     // 必须避开 brpc 日志文件，否则 kvcache 时延 API 按 brpc log_id 过滤会返回空结果。
     if (nextLogFiles.length > 0) {
       const currentId = selectedLogFileId.value
       const currentFile = nextLogFiles.find((f) => getLogFileId(f) === currentId)
       if (currentFile && isKvcacheLogFile(currentFile)) {
-        // 当前选中的是 kv-cache 日志，保持不变
+        // 当前选中的是 KVCache 日志，保持不变
       } else {
         const defaultFile = pickDefaultKvcacheLogFile(nextLogFiles)
         selectedLogFileId.value = defaultFile ? getLogFileId(defaultFile) : null
@@ -9075,7 +9075,7 @@ const deleteLogFile = async (logFileId: string) => {
       logFiles.value.splice(index, 1)
       logFilesTotal.value = Math.max(0, logFilesTotal.value - 1)
     }
-    // 若删除的是当前选中 log，回退到最新的 kv-cache 日志（或清空）
+    // 若删除的是当前选中 log，回退到最新的 KVCache 日志（或清空）
     if (selectedLogFileId.value === logFileId) {
       const fallback = pickDefaultKvcacheLogFile(logFiles.value)
       selectedLogFileId.value = fallback ? getLogFileId(fallback) : null
@@ -9176,7 +9176,7 @@ const loadFaultPage = async () => {
 }
 
 // ============================================================
-// BRPC 接口监控
+// UBSocket 接口监控
 // ============================================================
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
@@ -9224,7 +9224,7 @@ const brpcLatencySelectedIfaces = ref<string[]>([])
 const brpcLatencyChartRef = ref<HTMLDivElement | null>(null)
 let brpcLatencyChartInstance: echarts.ECharts | null = null
 
-// BRPC 通断故障监控：接口故障数时序分布
+// UBSocket 通断故障监控：接口故障数时序分布
 const selectedBrpcFaultScale = ref<number>(60)
 const brpcFaultChartCenterTime = ref<number | null>(null)
 const brpcFaultTimelineRef = ref<HTMLDivElement | null>(null)
@@ -9238,7 +9238,7 @@ let brpcFaultTimelineChartInstance: echarts.ECharts | null = null
 let brpcFaultTimelineRequestSequence = 0
 let brpcFaultTimelineRequestController: AbortController | null = null
 
-// BRPC 聚合事件列表
+// UBSocket 聚合事件列表
 const activeBrpcFaultTab = ref<'event' | 'thread'>('event')
 const brpcEventAggregation = ref<'pod' | 'thread'>('pod')
 const selectedBrpcEventInterval = ref<'1h' | '1m' | '1s'>('1m')
@@ -9388,7 +9388,7 @@ const resetAssetScopedMonitorData = () => {
   faultDetailChartError.value = ''
   selectedLogFileId.value = null
 
-  // BRPC profiling and diagnosis use different endpoints, but both selections
+  // UBSocket profiling and diagnosis use different endpoints, but both selections
   // and all derived data are scoped to the currently selected knowledge base.
   brpcProfilingRequestSequence += 1
   brpcFaultTimelineRequestSequence += 1
@@ -9517,7 +9517,7 @@ const brpcEventDetailComponentCounts = computed(() => {
   })
   return [
     { key: 'all', label: '故障总数', count: detail?.hit_total ?? 0 },
-    { key: 'ubsocket', label: 'UBSOCKET故障数', count: componentCounts.ubsocket },
+    { key: 'ubsocket', label: 'UBSocket故障数', count: componentCounts.ubsocket },
     { key: 'umq', label: 'UMQ故障数', count: componentCounts.umq },
     { key: 'urma', label: 'URMA故障数', count: componentCounts.urma },
   ]
@@ -10504,7 +10504,7 @@ const formatBrpcTimestamp = (ts: string): string => {
   return ts
 }
 
-// brpc 图表公共图例样式（与 kv-cache 时延监控统一）
+// brpc 图表公共图例样式（与 KVCache 时延监控统一）
 const brpcLegendStyle = {
   top: 6,
   left: 'center',
@@ -10524,7 +10524,7 @@ const brpcLegendStyle = {
   inactiveColor: '#cbd5e1',
 }
 
-// brpc 图表公共横轴样式（与 kv-cache 时延监控统一）
+// brpc 图表公共横轴样式（与 KVCache 时延监控统一）
 const brpcXAxisStyle = {
   type: 'category' as const,
   boundaryGap: true,
@@ -10912,7 +10912,7 @@ const getBrpcFaultQueryRange = (scope: BrpcKnowledgeScope) => {
   const startDate = chartRange ? new Date(chartRange.startTime) : (filterStart ?? batchStart)
   let endDate = chartRange ? new Date(chartRange.endTime) : (filterEnd ?? batchEnd)
 
-  if (!startDate || !endDate) throw new Error('BRPC 诊断批次时间范围无效')
+  if (!startDate || !endDate) throw new Error('UBSocket 诊断批次时间范围无效')
   if (endDate.getTime() <= startDate.getTime()) {
     endDate = new Date(startDate.getTime() + selectedBrpcFaultScale.value * secondMs)
   }
@@ -10971,7 +10971,7 @@ const loadBrpcFaultTimeline = async () => {
     if (error instanceof DOMException && error.name === 'AbortError') return
     brpcFaultTimelineSeries.value = []
     brpcFaultTimelineError.value =
-      error instanceof Error ? error.message : '加载 BRPC 接口故障数时序分布失败'
+      error instanceof Error ? error.message : '加载 UBSocket 接口故障数时序分布失败'
   } finally {
     if (requestSequence === brpcFaultTimelineRequestSequence) {
       brpcFaultTimelineRequestController = null
@@ -11112,7 +11112,7 @@ const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value)
     brpcAggregatedEventTotal.value = 0
     brpcAggregatedEventPage.value = 1
     brpcAggregatedEventsError.value =
-      error instanceof Error ? error.message : '加载 BRPC 聚合事件列表失败'
+      error instanceof Error ? error.message : '加载 UBSocket 聚合事件列表失败'
   } finally {
     if (requestSequence === brpcAggregatedEventsRequestSequence) {
       isBrpcAggregatedEventsLoading.value = false
@@ -11360,7 +11360,7 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
   } catch (error) {
     if (requestSequence !== brpcEventDetailRequestSequence) return
     brpcEventDetailError.value =
-      error instanceof Error ? error.message : '加载 BRPC 聚合事件详情失败'
+      error instanceof Error ? error.message : '加载 UBSocket 聚合事件详情失败'
   } finally {
     if (requestSequence === brpcEventDetailRequestSequence) {
       isBrpcEventDetailLoading.value = false
@@ -11733,7 +11733,7 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   const isEnteringMonitor = activePage.value !== 'abnormal'
   activePage.value = 'abnormal'
 
-  if (targetProduct === 'brpc') {
+  if (targetProduct === 'UBSocket') {
     await nextTick()
     await loadBrpcMonitorData()
     const loadActiveBrpcFaultList =
@@ -12503,7 +12503,7 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-else-if="activePage === 'abnormal'" class="monitor-page">
-        <section v-if="activeMonitorProduct === 'kvcache'" id="kv-latency" class="monitor-section">
+        <section v-if="activeMonitorProduct === 'KVCache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>时延故障监控</h1>
@@ -13622,7 +13622,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section
-          v-if="isFaultCodeFeatureEnabled && activeMonitorProduct === 'kvcache'"
+          v-if="isFaultCodeFeatureEnabled && activeMonitorProduct === 'KVCache'"
           id="kv-fault"
           class="monitor-section"
         >
@@ -14742,7 +14742,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-if="activeMonitorProduct === 'brpc'" id="brpc-monitor" class="monitor-section">
+        <section v-if="activeMonitorProduct === 'UBSocket'" id="brpc-monitor" class="monitor-section">
           <header class="monitor-header">
             <h1>接口监控</h1>
             <p class="monitor-sub">
@@ -14976,13 +14976,13 @@ onBeforeUnmount(() => {
         </section>
 
         <section
-          v-if="activeMonitorProduct === 'brpc'"
+          v-if="activeMonitorProduct === 'UBSocket'"
           id="brpc-fault-monitor"
           class="monitor-section"
         >
           <header class="monitor-header">
             <h1>通断故障监控</h1>
-            <p class="monitor-sub">UBSOCKET -> UMQ -> URMA 公共API通断故障</p>
+            <p class="monitor-sub">UBSocket -> UMQ -> URMA 公共API通断故障</p>
           </header>
 
           <div class="monitor-grid">
@@ -15000,7 +15000,7 @@ onBeforeUnmount(() => {
                   </button>
                   <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedBrpcFaultScale" aria-label="BRPC 故障时间聚合尺度">
+                    <select v-model="selectedBrpcFaultScale" aria-label="UBSocket 故障时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -15060,9 +15060,9 @@ onBeforeUnmount(() => {
                 <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
                   {{ brpcFaultTimelineError }}
                 </div>
-                <div v-else-if="!brpcFaultScope" class="chart-state">暂无 BRPC 接口故障数据</div>
+                <div v-else-if="!brpcFaultScope" class="chart-state">暂无 UBSocket 接口故障数据</div>
                 <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
-                  暂无 BRPC 接口故障数时序数据
+                  暂无 UBSocket 接口故障数时序数据
                 </div>
                 <div
                   v-else
@@ -15472,7 +15472,7 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div v-if="isBrpcAggregatedEventsLoading" class="brpc-event-table-state">
-                    正在加载 BRPC 聚合事件列表...
+                    正在加载 UBSocket 聚合事件列表...
                   </div>
                   <div
                     v-else-if="brpcAggregatedEventsError"
@@ -15494,7 +15494,7 @@ onBeforeUnmount(() => {
                   >
                     上一页
                   </button>
-                  <span class="pagination-pages" aria-label="BRPC 聚合事件页码">
+                  <span class="pagination-pages" aria-label="UBSocket 聚合事件页码">
                     <button
                       v-for="pageNum in brpcAggregatedEventPageWindow"
                       :key="`brpc-event-page-${pageNum}`"
@@ -15790,8 +15790,8 @@ onBeforeUnmount(() => {
             <h1>{{ selectedAsset.name }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
-              <span>创建时间：{{ displayLocalTime(selectedAsset.created_at) }}</span>
-              <span>更新时间：{{ displayLocalTime(selectedAsset.updated_at) }}</span>
+              <span>创建时间：{{ displayServerTime(selectedAsset.created_at) }}</span>
+              <span>更新时间：{{ displayServerTime(selectedAsset.updated_at) }}</span>
             </div>
           </div>
           <div class="detail-actions">
@@ -15856,11 +15856,11 @@ onBeforeUnmount(() => {
             <div class="log-type-selector">
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="kv-cache" :disabled="isUploadingLog" />
+                <input type="radio" v-model="logType" value="KVCache" :disabled="isUploadingLog" />
                 <span>KVCache</span>
               </label>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="brpc" :disabled="isUploadingLog" />
+                <input type="radio" v-model="logType" value="UBSocket" :disabled="isUploadingLog" />
                 <span>UBSocket</span>
               </label>
             </div>
@@ -15909,7 +15909,7 @@ onBeforeUnmount(() => {
                   <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
                   <span class="log-file-meta">
                     <span class="log-file-time"
-                      >创建时间：{{ displayLocalTime(file.created_at) }}</span
+                      >创建时间：{{ displayServerTime(file.created_at) }}</span
                     >
                     <span
                       class="status-badge"
@@ -18302,8 +18302,8 @@ onBeforeUnmount(() => {
                 <h3>{{ asset.name }}</h3>
                 <p>{{ asset.description }}</p>
                 <div class="result-times">
-                  <span>创建时间：{{ displayLocalTime(asset.created_at) }}</span>
-                  <span>更新时间：{{ displayLocalTime(asset.updated_at) }}</span>
+                  <span>创建时间：{{ displayServerTime(asset.created_at) }}</span>
+                  <span>更新时间：{{ displayServerTime(asset.updated_at) }}</span>
                 </div>
               </div>
 
@@ -18342,7 +18342,7 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="side-drawer-body parse-config-drawer-body">
-          <div v-if="logType === 'brpc'" class="parse-config-unsupported" role="status">
+          <div v-if="logType === 'UBSocket'" class="parse-config-unsupported" role="status">
             UBSocket日志解析暂不支持配置
           </div>
           <template v-else>
@@ -18596,7 +18596,7 @@ onBeforeUnmount(() => {
           </template>
         </div>
 
-        <footer v-if="logType !== 'brpc'" class="parse-config-drawer-footer">
+        <footer v-if="logType !== 'UBSocket'" class="parse-config-drawer-footer">
           <button
             class="parse-config-reset-btn"
             type="button"
