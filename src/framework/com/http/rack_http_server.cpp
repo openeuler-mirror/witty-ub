@@ -209,7 +209,7 @@ void RackHttpServer::HandlerRequest(const httplib::Request &req, httplib::Respon
     for (const auto &[k, v] : req.headers) {
         request.headers.emplace(k, v);
     }
-    //Set request method in this function
+    // Set request method in this function
     if (ValidateHttpRequest(req, request) != RACK_OK) {
         res.status = BadRequest_400;
         res.set_content("The request is invalid.", "text/plain");
@@ -222,7 +222,7 @@ void RackHttpServer::HandlerRequest(const httplib::Request &req, httplib::Respon
     ProcessRequestHeadersAndParams(req, request);
     RackComResult<RackHttpResponse> result = RackHttpServerHandler::GetInstance().Dispatch(ctx, request);
     if (!result.Ok()) {
-        res.status = 500;
+        res.status = InternalServerError_500;
         res.set_content(result.message, "text/plain");
         return;
     }

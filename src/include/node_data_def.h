@@ -20,6 +20,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "obj_formatter.h"
+
 namespace topology::node {
 using namespace std;
 #define GUID_LENGTH = 16
@@ -79,12 +81,6 @@ string Vector2Str(vector<T> const &values)
     }
     return oss.str();
 }
-class ObjFormatter {
-public:
-    virtual unordered_map<string, string> ObjToDataMap() = 0;
-    virtual ~ObjFormatter() = default;
-};
-
 struct Node : public ObjFormatter {
     uint32_t deviceId;
     uint32_t slotId;

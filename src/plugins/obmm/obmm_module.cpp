@@ -15,9 +15,9 @@
 #include <iostream>
 #include <string>
 #include "rack_error.h"
-#include "obmm_module.h"
 #include "ubse_context.h"
 #include "mem_local_collector_module.h"
+#include "obmm_module.h"
 namespace obmm::module {
 using namespace ubse::context;
 using namespace topology::mem;
