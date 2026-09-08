@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { formatTime } from './utils/format'
 import { useToast } from './composables/useToast'
 import { useAssets } from './composables/useAssets'
@@ -88,14 +88,13 @@ const {
   createTask,
 } = useTasks()
 
-const createTaskFromOverview = () => {
-  assetTab.value = 'tasks'
-  nextTick(() => openCreateTask())
-}
-
 // P1.1 资产级日志解析配置抽屉
 const { assetTypeFilter } = useOverviewData()
 const parseConfigOpen = ref(false)
+const openParseConfig = () => {
+  assetTypeFilter.value = 'kvcache'
+  parseConfigOpen.value = true
+}
 
 let pollTimer: number | null = null
 
@@ -138,21 +137,33 @@ onBeforeUnmount(() => {
   <div class="topbar">
     <div class="topbar-left">
       <div class="logo">witty-ub</div>
-      <div class="breadcrumb">
-        <span :class="{ current: view === 'assets' }" @click="goAssetList">资产列表</span>
+      <nav class="breadcrumb" aria-label="面包屑导航">
+        <button
+          type="button"
+          class="breadcrumb-link"
+          :class="{ current: view === 'assets' }"
+          :aria-current="view === 'assets' ? 'page' : undefined"
+          @click="goAssetList"
+        >
+          资产列表
+        </button>
         <template v-if="selectedAsset">
           <span class="sep">›</span>
-          <span @click="enterAsset(selectedAsset)">{{ selectedAsset.name }}</span>
+          <button type="button" class="breadcrumb-link" @click="enterAsset(selectedAsset)">
+            {{ selectedAsset.name }}
+          </button>
           <template v-if="view === 'home'">
             <span class="sep">›</span>
-            <span class="current">{{ assetTab === 'tasks' ? '任务管理' : '总览' }}</span>
+            <span class="current" aria-current="page">{{
+              assetTab === 'tasks' ? '任务' : '分析'
+            }}</span>
           </template>
         </template>
-      </div>
+      </nav>
     </div>
   </div>
 
-  <div class="main">
+  <main class="main">
     <!-- ============ 资产列表 ============ -->
     <template v-if="view === 'assets'">
       <div class="operate-bar">
@@ -223,32 +234,52 @@ onBeforeUnmount(() => {
     <template v-else>
       <div v-if="assetError" class="error-banner">{{ assetError }}</div>
 
-      <div class="sub-nav">
-        <div :class="['tab', { active: assetTab === 'overview' }]" @click="assetTab = 'overview'">
-          总览
-        </div>
-        <div :class="['tab', { active: assetTab === 'tasks' }]" @click="assetTab = 'tasks'">
-          任务管理 <span class="count">{{ filteredTasks.length }}</span>
-        </div>
-      </div>
+      <nav class="page-nav" aria-label="资产工作区">
+        <button
+          id="asset-analysis-tab"
+          type="button"
+          :class="['page-nav-item', { active: assetTab === 'overview' }]"
+          :aria-current="assetTab === 'overview' ? 'page' : undefined"
+          :aria-controls="assetTab === 'overview' ? 'asset-analysis-panel' : undefined"
+          @click="assetTab = 'overview'"
+        >
+          分析
+        </button>
+        <button
+          id="asset-tasks-tab"
+          type="button"
+          :class="['page-nav-item', { active: assetTab === 'tasks' }]"
+          :aria-current="assetTab === 'tasks' ? 'page' : undefined"
+          :aria-controls="assetTab === 'tasks' ? 'asset-tasks-panel' : undefined"
+          @click="assetTab = 'tasks'"
+        >
+          任务 <span class="count">{{ filteredTasks.length }}</span>
+        </button>
+      </nav>
 
       <!-- ====== 总览 ====== -->
-      <template v-if="assetTab === 'overview'">
-        <OverviewPanel
-          :asset="selectedAsset"
-          :log-files="logFiles"
-          @edit-asset="openAssetModal($event)"
-          @create-task="createTaskFromOverview"
-          @open-parse-config="parseConfigOpen = true"
-        />
-      </template>
+      <section
+        v-if="assetTab === 'overview'"
+        id="asset-analysis-panel"
+        aria-labelledby="asset-analysis-tab"
+      >
+        <OverviewPanel :asset="selectedAsset" :log-files="logFiles" />
+      </section>
 
       <!-- ====== 任务管理 ====== -->
-      <template v-else>
-        <div class="operate-bar">
-          <button class="btn btn-primary" @click="openCreateTask">+ 创建任务</button>
-          <button class="btn btn-default" @click="parseConfigOpen = true">解析配置</button>
-          <div class="operate-right">
+      <section v-else id="asset-tasks-panel" aria-labelledby="asset-tasks-tab">
+        <div class="operate-bar task-toolbar">
+          <div class="toolbar-primary">
+            <button class="btn btn-primary" @click="openCreateTask">+ 创建任务</button>
+            <button
+              v-if="taskTypeFilter !== 'brpc'"
+              class="btn btn-default"
+              @click="openParseConfig"
+            >
+              KVCache 解析配置
+            </button>
+          </div>
+          <div class="operate-right toolbar-filters" aria-label="任务筛选">
             <select class="select" v-model="taskTypeFilter">
               <option value="">全部类型</option>
               <option value="kv-cache">KVCache</option>
@@ -282,8 +313,8 @@ onBeforeUnmount(() => {
           <div>暂无任务</div>
           <div class="hint">点击上方按钮创建第一个解析任务</div>
         </div>
-        <div v-else class="table-wrap">
-          <table>
+        <div v-else class="table-wrap task-table-wrap">
+          <table class="task-table">
             <thead>
               <tr>
                 <th>名称 / 路径</th>
@@ -352,11 +383,7 @@ onBeforeUnmount(() => {
                       class="badge badge-running"
                       >诊断中</span
                     >
-                    <button
-                      class="btn btn-sm btn-text"
-                      style="color: var(--danger)"
-                      @click="deleteLogFile(file)"
-                    >
+                    <button class="btn btn-sm btn-danger" @click="deleteLogFile(file)">
                       ✕ 删除
                     </button>
                   </div>
@@ -397,9 +424,9 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-      </template>
+      </section>
     </template>
-  </div>
+  </main>
 
   <AssetModal />
   <CreateTaskModal />
