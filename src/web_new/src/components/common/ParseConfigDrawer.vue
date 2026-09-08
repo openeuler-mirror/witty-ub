@@ -24,6 +24,10 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
 const parseConfigSummary =
   '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
 
+// 后端运行链路当前仅消费 total_p99_threshold_ms 与文件名 Pattern；其余字段保存仅持久化。
+// 后端判定消费补齐后移除此标注（设计 parity-design.md 3.1）
+const CONSUMED_THRESHOLD_KEYS = new Set<DiagnosisThresholdKey>(['total_p99_threshold_ms'])
+
 const draft = reactive<DiagnosisConfigForm>(defaultDiagnosisConfig())
 const patternInputs = reactive<Record<DiagnosisPatternKey, string>>({
   ds_client_access_log_file: '',
@@ -99,9 +103,7 @@ const removeSlidingWindowPair = (index: number) => {
 const slidingFieldId = (index: number, field: 'size' | 'step') => `sliding-window-${index}-${field}`
 
 const isPositiveDecimal = (value: unknown) =>
-  /^[0-9]+(?:\.[0-9]+)?$/.test(String(value)) &&
-  Number(value) > 0 &&
-  Number.isFinite(Number(value))
+  /^[0-9]+(?:\.[0-9]+)?$/.test(String(value)) && Number(value) > 0 && Number.isFinite(Number(value))
 
 const isPositiveInteger = (value: unknown) =>
   /^[0-9]+$/.test(String(value)) && Number(value) > 0 && Number.isFinite(Number(value))
@@ -116,7 +118,8 @@ const validate = () => {
     if (!isPositiveInteger(step)) invalid.add(slidingFieldId(index, 'step'))
   })
   const density = draft.logAnalyzerParams.zone_anomaly_density_threshold
-  if (!isPositiveDecimal(density) || Number(density) > 1) invalid.add('zone_anomaly_density_threshold')
+  if (!isPositiveDecimal(density) || Number(density) > 1)
+    invalid.add('zone_anomaly_density_threshold')
   invalidFields.value = invalid
   if (invalid.size > 0) {
     validationError.value = '参数填写不合法，请检查红色输入框'
@@ -231,11 +234,18 @@ const save = async () => {
               <div v-for="type in PATTERN_TYPES" :key="type.key" class="pattern-block">
                 <div class="pattern-label">{{ type.label }}</div>
                 <div class="pattern-chips">
-                  <span v-for="(pattern, index) in draft.logFilenamePattern[type.key]" :key="pattern" class="pattern-chip">
+                  <span
+                    v-for="(pattern, index) in draft.logFilenamePattern[type.key]"
+                    :key="pattern"
+                    class="pattern-chip"
+                  >
                     {{ pattern }}
                     <button class="chip-remove" @click="removePattern(type.key, index)">✕</button>
                   </span>
-                  <span v-if="draft.logFilenamePattern[type.key].length === 0" class="pattern-empty">
+                  <span
+                    v-if="draft.logFilenamePattern[type.key].length === 0"
+                    class="pattern-empty"
+                  >
                     暂无 Pattern
                   </span>
                 </div>
@@ -254,12 +264,16 @@ const save = async () => {
             <section class="parse-section">
               <h3>时延异常阈值（ms）</h3>
               <div class="threshold-grid">
-                <label
-                  v-for="option in THRESHOLD_OPTIONS"
-                  :key="option.key"
-                  class="threshold-item"
-                >
-                  <span class="threshold-label">{{ option.label }}</span>
+                <label v-for="option in THRESHOLD_OPTIONS" :key="option.key" class="threshold-item">
+                  <span class="threshold-label">
+                    {{ option.label }}
+                    <span
+                      v-if="!CONSUMED_THRESHOLD_KEYS.has(option.key)"
+                      class="config-ineffective-chip"
+                      title="后端判定暂未消费该配置项，保存仅持久化"
+                      >暂未生效</span
+                    >
+                  </span>
                   <input
                     class="input"
                     :class="{ invalid: invalidFields.has(option.key) }"
@@ -272,7 +286,12 @@ const save = async () => {
             </section>
 
             <section class="parse-section">
-              <h3>滑动窗口对（size / step）</h3>
+              <h3>
+                滑动窗口对（size / step）
+                <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
+                  >暂未生效</span
+                >
+              </h3>
               <div
                 v-for="(pair, index) in draft.logAnalyzerParams.slidingWindowPairs"
                 :key="index"
@@ -296,11 +315,18 @@ const save = async () => {
                   删除
                 </button>
               </div>
-              <button class="btn btn-text btn-sm" @click="addSlidingWindowPair">＋ 添加窗口对</button>
+              <button class="btn btn-text btn-sm" @click="addSlidingWindowPair">
+                ＋ 添加窗口对
+              </button>
             </section>
 
             <section class="parse-section">
-              <h3>区间异常密度阈值</h3>
+              <h3>
+                区间异常密度阈值
+                <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
+                  >暂未生效</span
+                >
+              </h3>
               <div class="sliding-row">
                 <input
                   class="input"
@@ -424,6 +450,18 @@ const save = async () => {
 }
 .threshold-label {
   font-size: 12px;
+}
+.config-ineffective-chip {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-weight: 400;
+  white-space: nowrap;
 }
 .threshold-desc {
   font-size: 11px;
