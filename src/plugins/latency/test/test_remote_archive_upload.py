@@ -1,4 +1,5 @@
 import asyncio
+import zipfile
 from unittest.mock import AsyncMock
 
 import pytest
@@ -135,3 +136,97 @@ def test_remote_archive_rejects_unsupported_suffix(monkeypatch):
                 ),
             )
         )
+
+
+def _mock_local_persistence(monkeypatch):
+    added_models = []
+
+    async def add_log_files(models):
+        added_models.extend(models)
+        return [model.id for model in models]
+
+    monkeypatch.setattr(
+        log_file_service_module.LogFilePGManager,
+        "add_log_files",
+        add_log_files,
+    )
+    monkeypatch.setattr(
+        log_file_service_module.TaskHandler,
+        "init_task",
+        AsyncMock(return_value="task-id"),
+    )
+    return added_models
+
+
+def test_local_archive_file_rejects_invalid_zip(tmp_path):
+    source = tmp_path / "logs.zip"
+    source.write_bytes(b"not a zip archive")
+
+    with pytest.raises(BadRequestBizException):
+        asyncio.run(
+            LogFileService.upload_log_files(
+                "kb-id",
+                UpLoadLogFilesRequest(
+                    upload_log_file_configs=[
+                        UpLoadLogFileConfig(
+                            name="logs.zip",
+                            source_type=SourceType.LOCAL,
+                            source=str(source),
+                            log_type="UBSocket",
+                        )
+                    ]
+                ),
+            )
+        )
+
+
+def test_local_archive_file_accepts_valid_zip(monkeypatch, tmp_path):
+    source = tmp_path / "logs.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("nested/brpc.log", b"brpc log content\n")
+    added_models = _mock_local_persistence(monkeypatch)
+
+    result = asyncio.run(
+        LogFileService.upload_log_files(
+            "kb-id",
+            UpLoadLogFilesRequest(
+                upload_log_file_configs=[
+                    UpLoadLogFileConfig(
+                        name="logs.zip",
+                        source_type=SourceType.LOCAL,
+                        source=str(source),
+                        log_type="UBSocket",
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert result.log_file_ids == [added_models[0].id]
+    assert added_models[0].file_path == str(source)
+    assert added_models[0].file_size == source.stat().st_size
+
+
+def test_local_plain_file_skips_archive_validation(monkeypatch, tmp_path):
+    source = tmp_path / "profiling.log"
+    source.write_text("timeStamp: 1690000000\n", encoding="utf-8")
+    added_models = _mock_local_persistence(monkeypatch)
+
+    result = asyncio.run(
+        LogFileService.upload_log_files(
+            "kb-id",
+            UpLoadLogFilesRequest(
+                upload_log_file_configs=[
+                    UpLoadLogFileConfig(
+                        name="profiling.log",
+                        source_type=SourceType.LOCAL,
+                        source=str(source),
+                        log_type="UBSocket",
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert result.log_file_ids == [added_models[0].id]
+    assert added_models[0].file_path == str(source)

@@ -264,6 +264,18 @@ class LogFileService:
                 elif os.path.isfile(source):
                     if not os.access(source, os.R_OK):
                         raise BadRequestBizException(message=f"文件不可读: {source}")
+                    # 与远程压缩包一致：本机压缩包路径也校验容器格式，
+                    # 避免坏包到预处理阶段才解出 0 个文件。
+                    archive_extension = get_archive_extension(source)
+                    if archive_extension is not None and not await asyncio.to_thread(
+                        is_valid_archive_file, source
+                    ):
+                        raise BadRequestBizException(
+                            message=(
+                                f"本机日志文件不是有效的{archive_extension}压缩包: "
+                                f"{source}"
+                            )
+                        )
                     log_file_model.file_path = source
                     log_file_model.file_size = os.path.getsize(source)
                 else:
