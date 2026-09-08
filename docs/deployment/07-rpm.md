@@ -144,6 +144,31 @@ sudo witty-ub manager deploy
 
 ---
 
+## 兼容场景：升级后切换分离部署
+
+从旧版单包升级，或直接安装 meta 包 `witty-ub` 的机器，backend 与 web 子包同机存在，角色自动探测为单机（`all`），`deploy` 会在本机同时部署前后端。若要按分离部署重新部署，用 `WITTY_ROLE_FORCE` 覆盖角色探测，并停用本机不再运行的服务：
+
+```bash
+# 后端节点（原单机或已装 meta 包）
+sudo systemctl disable --now witty-ub-web                # 停用前端服务
+sudo WITTY_ROLE_FORCE=backend witty-ub manager deploy    # 仅初始化 PostgreSQL + 启动 latency
+
+# 前端节点
+sudo systemctl disable --now witty-ub-latency            # 停用后端服务（如有）
+sudo WITTY_ROLE_FORCE=frontend witty-ub manager deploy --backend http://<后端IP>:9772
+```
+
+> `WITTY_ROLE_FORCE` 仅对单次命令生效，后续 `start/stop/restart/status/logs/config` 均需携带同名变量。
+
+若希望恢复角色自动探测，可移除本机不需要的子包（meta 包依赖子包，会随之移除）：
+
+```bash
+sudo dnf remove -y witty-ub-web       # 后端节点：保留 witty-ub-backend + witty-ub-manager
+sudo dnf remove -y witty-ub-backend   # 前端节点：保留 witty-ub-web + witty-ub-manager
+```
+
+---
+
 ## PG 连接配置（后端节点）
 
 PG 连接配置位于 `/etc/witty-ub/deploy.conf`（旧安装的 `pg.conf` 自动兼容）。默认值：`host=127.0.0.1 port=5432 db/user=witty-ub`。
@@ -158,7 +183,7 @@ PG 连接配置位于 `/etc/witty-ub/deploy.conf`（旧安装的 `pg.conf` 自�
 
 ## 服务管理
 
-`witty-ub manager` 按本机已安装子包探测角色，只操作本机服务：
+`witty-ub manager` 按本机已安装子包探测角色，只操作本机服务；特殊场景可用 `WITTY_ROLE_FORCE=all|backend|frontend` 覆盖探测（见[兼容场景：升级后切换分离部署](#兼容场景升级后切换分离部署)）：
 
 ```bash
 sudo witty-ub manager             # 交互式菜单
@@ -204,7 +229,7 @@ sudo dnf remove -y witty-ub-web witty-ub-manager        # 前端节点彻底卸�
 sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # 单机彻底卸载
 ```
 
-> 从旧版单包 `witty-ub` 升级：直接 `sudo dnf update -y witty-ub`，meta 包会拉入三个子包，角色自动探测为单机，已有数据与配置保留。
+> 从旧版单包 `witty-ub` 升级：直接 `sudo dnf update -y witty-ub`，meta 包会拉入三个子包，角色自动探测为单机，已有数据与配置保留。如需切换为分离部署，见[兼容场景：升级后切换分离部署](#兼容场景升级后切换分离部署)。
 
 ---
 
