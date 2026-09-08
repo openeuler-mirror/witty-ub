@@ -96,6 +96,21 @@ const openParseConfig = () => {
   parseConfigOpen.value = true
 }
 
+// P2.5 任务行「更新」：纯前端重拉日志列表刷新该文件状态/结果，不是重新解析
+const refreshingFileIds = ref(new Set<string>())
+const refreshOneLogFile = async (file: { id?: string }) => {
+  const id = file.id ?? ''
+  if (!id || refreshingFileIds.value.has(id)) return
+  refreshingFileIds.value = new Set(refreshingFileIds.value).add(id)
+  try {
+    await refreshLogFiles(true)
+  } finally {
+    const next = new Set(refreshingFileIds.value)
+    next.delete(id)
+    refreshingFileIds.value = next
+  }
+}
+
 let pollTimer: number | null = null
 
 const hasActiveTasks = computed(() =>
@@ -383,6 +398,14 @@ onBeforeUnmount(() => {
                       class="badge badge-running"
                       >诊断中</span
                     >
+                    <button
+                      class="btn btn-sm btn-text"
+                      :disabled="refreshingFileIds.has(file.id)"
+                      title="重新拉取该文件的状态/结果，不是重新解析"
+                      @click="refreshOneLogFile(file)"
+                    >
+                      {{ refreshingFileIds.has(file.id) ? '更新中…' : '⟳ 更新' }}
+                    </button>
                     <button class="btn btn-sm btn-danger" @click="deleteLogFile(file)">
                       ✕ 删除
                     </button>
