@@ -66,6 +66,18 @@ const faultModeTitle = (row: any) =>
 </script>
 
 <template>
+  <div class="analysis-range-bar">
+    <div>
+      <strong>当前时间范围</strong>
+      <span>{{
+        faultTimeRange ? faultTimeRange.start + ' ~ ' + faultTimeRange.end : '全部时段'
+      }}</span>
+    </div>
+    <button v-if="faultTimeRange" class="btn btn-sm btn-default" @click="clearFaultRange">
+      恢复全部时段
+    </button>
+  </div>
+
   <div
     v-if="faultTracesTruncated"
     class="section-card"
@@ -79,7 +91,7 @@ const faultModeTitle = (row: any) =>
     <div class="chart-title">
       通断故障通信拓扑图（有向）
       <span class="hint" style="margin-left: auto"
-        >hover 节点/边查看详情；点击边/节点进入对应端点或链路详情</span
+        >hover 节点/边查看详情；也可通过下方端点表用键盘查看故障 Trace</span
       >
     </div>
     <div style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
@@ -122,10 +134,10 @@ const faultModeTitle = (row: any) =>
   </div>
 
   <div class="section-card">
-    <div class="section-card-title">
+    <h2 class="section-card-title">
       通断故障端点分析
       <span class="hint">基于当前时间范围内故障 Trace 的源/目标 IP 聚合</span>
-    </div>
+    </h2>
     <div ref="faultPodRef" style="height: 240px"></div>
     <div class="table-wrap" style="margin-top: 12px">
       <table>
@@ -148,7 +160,7 @@ const faultModeTitle = (row: any) =>
             </td>
             <td>
               <button class="btn btn-sm btn-text" @click="enterFaultDetail(fault.ip)">
-                进入详情
+                查看故障 Trace
               </button>
             </td>
           </tr>
@@ -158,15 +170,10 @@ const faultModeTitle = (row: any) =>
   </div>
 
   <div class="section-card">
-    <div class="section-card-title">
+    <h2 class="section-card-title">
       📈 故障码计数时序分布
-      <span class="hint"
-        >直接拖拽框选时间范围，本页拓扑、KPI、饼图、端点表与 Trace 列表随之过滤</span
-      >
-      <button v-if="faultTimeRange" class="btn btn-sm btn-text" @click="clearFaultRange">
-        清除框选
-      </button>
-    </div>
+      <span class="hint">拖拽选择时间范围，本页拓扑、KPI、饼图、端点表与 Trace 列表随之过滤</span>
+    </h2>
     <div v-if="Object.keys(faultChartData).length === 0" class="empty" style="padding: 30px 0">
       <div class="icon">📭</div>
       <div>{{ currentOp === 'GET' ? '当前动作无故障码数据' : '暂无故障码数据' }}</div>
@@ -176,14 +183,14 @@ const faultModeTitle = (row: any) =>
   </div>
 
   <div class="section-card">
-    <div class="section-card-title">
+    <h2 class="section-card-title">
       异常 Trace 列表
       <span class="hint">{{
         faultTimeRange
           ? '当前范围：' + faultTimeRange.start + ' ~ ' + faultTimeRange.end
           : '未过滤，展示全部'
       }}</span>
-    </div>
+    </h2>
     <div v-if="filteredFaultTraces.length === 0" class="empty" style="padding: 30px 0">
       <div class="icon">📭</div>
       <div>
@@ -196,11 +203,17 @@ const faultModeTitle = (row: any) =>
         }}
       </div>
     </div>
-    <div v-else class="table-wrap">
-      <table
-        class="fault-compact-table"
-        style="table-layout: fixed; width: 100%; min-width: 1180px"
-      >
+    <span v-if="filteredFaultTraces.length" class="mobile-table-hint"
+      >窄屏下隐藏次要列；表格仍可左右滑动，操作列固定在右侧</span
+    >
+    <div
+      v-if="filteredFaultTraces.length"
+      class="table-wrap fault-table-wrap"
+      role="region"
+      tabindex="0"
+      aria-label="通断异常 Trace 列表，可左右滚动"
+    >
+      <table class="fault-compact-table">
         <colgroup>
           <col style="width: 86px" />
           <col style="width: 132px" />
@@ -282,7 +295,7 @@ const faultModeTitle = (row: any) =>
             <td>
               <div class="task-actions">
                 <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-                  查看链路
+                  查看 Trace 详情
                 </button>
               </div>
             </td>
@@ -314,6 +327,43 @@ const faultModeTitle = (row: any) =>
   font-size: 12px;
   text-align: left;
   white-space: nowrap;
+}
+
+.fault-compact-table {
+  width: 100%;
+  min-width: 1180px;
+  table-layout: fixed;
+}
+
+.fault-compact-table th:last-child,
+.fault-compact-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: -8px 0 12px -12px rgba(31, 42, 58, 0.45);
+}
+
+.fault-compact-table th:last-child {
+  z-index: 2;
+  background: var(--bg);
+}
+
+.fault-compact-table tr:hover td:last-child {
+  background: var(--primary-bg);
+}
+
+@media (max-width: 800px) {
+  .fault-compact-table {
+    min-width: 760px;
+  }
+
+  .fault-compact-table :is(col, th, td):nth-child(1),
+  .fault-compact-table :is(col, th, td):nth-child(5),
+  .fault-compact-table :is(col, th, td):nth-child(6),
+  .fault-compact-table :is(col, th, td):nth-child(9) {
+    display: none;
+  }
 }
 
 .fault-compact-table td {

@@ -57,27 +57,28 @@ const podIpCount = (row: any) => podIpsOf(row).length
     指标趋势、最慢请求时序分解、异常 Trace 列表同页展示
   </div>
   <div class="section-card">
-    <div class="section-card-title">
+    <h2 class="section-card-title">
       关键时延指标趋势
       <span class="hint"
         >{{ currentOp }} · {{ trendChartData.length }} 个采样点 · {{ trendAnomalyHint }}</span
       >
-    </div>
-    <div class="filter-bar" style="margin-bottom: 10px">
-      <label>时间聚合尺度:</label>
-      <select class="select" v-model.number="trendScale" aria-label="时延时间聚合尺度">
+    </h2>
+    <div class="filter-bar display-tools" style="margin-bottom: 10px">
+      <strong class="filter-bar-title">趋势设置</strong>
+      <label for="trend-scale">时间聚合尺度</label>
+      <select id="trend-scale" class="select" v-model.number="trendScale">
         <option v-for="option in trendScaleOptions" :key="option.value" :value="option.value">
           {{ option.label }}
         </option>
       </select>
-      <label>百分位:</label>
-      <select class="select" v-model="trendPercentile">
+      <label for="trend-percentile">百分位</label>
+      <select id="trend-percentile" class="select" v-model="trendPercentile">
         <option v-for="option in trendPercentileOptions" :key="option.value" :value="option.value">
           {{ option.label }}
         </option>
       </select>
       <button v-if="trendRange" class="btn btn-sm btn-text" @click="resetTrend">
-        重置时间范围
+        恢复趋势全时段
       </button>
       <div style="margin-left: auto; display: flex; gap: 4px">
         <button class="btn btn-sm btn-text" @click="selectAllTrend">全选</button>
@@ -107,13 +108,13 @@ const podIpCount = (row: any) => podIpsOf(row).length
   </div>
 
   <div class="section-card">
-    <div class="section-card-title">
+    <h2 class="section-card-title">
       最慢请求时序分解（Top 1000）
       <span class="hint"
         >{{ currentOp }} · 图表展示 {{ slowRows.length }} 条 / 符合条件
         {{ slowTotal.toLocaleString() }} 条</span
       >
-    </div>
+    </h2>
     <div style="font-size: 12px; color: var(--text3); margin-bottom: 8px">
       按总时延选出最慢请求，再按发生时间排列；柱体为 18 个可解析阶段（栈式）+
       其他，红线为真实总时延。
@@ -122,10 +123,10 @@ const podIpCount = (row: any) => podIpsOf(row).length
   </div>
 
   <div class="section-card">
-    <div class="section-card-title">
+    <h2 class="section-card-title">
       异常 Trace 列表
-      <span class="hint">点击“查看链路”查看该 Trace 的原始日志与失败模式</span>
-    </div>
+      <span class="hint">点击“查看 Trace 详情”查看原始日志与失败模式</span>
+    </h2>
     <div class="filter-bar" style="margin-bottom: 10px">
       <input
         class="input"
@@ -141,11 +142,14 @@ const podIpCount = (row: any) => podIpsOf(row).length
       </select>
       <span class="hint" style="margin-left: auto">共 {{ traceRows.length }} 条</span>
     </div>
-    <div class="table-wrap">
-      <table
-        class="trace-compact-table"
-        style="table-layout: fixed; width: 100%; min-width: 1240px"
-      >
+    <span class="mobile-table-hint">窄屏下隐藏次要列；表格仍可左右滑动，操作列固定在右侧</span>
+    <div
+      class="table-wrap trace-table-wrap"
+      role="region"
+      tabindex="0"
+      aria-label="异常 Trace 列表，可左右滚动"
+    >
+      <table class="trace-compact-table">
         <colgroup>
           <col style="width: 72px" />
           <col style="width: 132px" />
@@ -234,7 +238,7 @@ const podIpCount = (row: any) => podIpsOf(row).length
             <td>
               <div class="task-actions">
                 <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-                  查看链路
+                  查看 Trace 详情
                 </button>
               </div>
             </td>
@@ -261,6 +265,43 @@ const podIpCount = (row: any) => podIpsOf(row).length
   height: 32px;
   padding: 0 8px;
   font-size: 12px;
+}
+
+.trace-compact-table {
+  width: 100%;
+  min-width: 1240px;
+  table-layout: fixed;
+}
+
+.trace-compact-table th:last-child,
+.trace-compact-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: -8px 0 12px -12px rgba(31, 42, 58, 0.45);
+}
+
+.trace-compact-table th:last-child {
+  z-index: 2;
+  background: var(--bg);
+}
+
+.trace-compact-table tr:hover td:last-child {
+  background: var(--primary-bg);
+}
+
+@media (max-width: 800px) {
+  .trace-compact-table {
+    min-width: 680px;
+  }
+
+  .trace-compact-table :is(col, th, td):nth-child(1),
+  .trace-compact-table :is(col, th, td):nth-child(6),
+  .trace-compact-table :is(col, th, td):nth-child(7),
+  .trace-compact-table :is(col, th, td):nth-child(9) {
+    display: none;
+  }
 }
 
 .trace-compact-table td {

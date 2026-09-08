@@ -16,11 +16,6 @@ import BRPCFaultMonitor from './BRPCFaultMonitor.vue'
 import PageNav from '../common/PageNav.vue'
 
 const props = defineProps<{ asset: LogKnowledge | null; logFiles: LogFileModel[] }>()
-const emit = defineEmits<{
-  (e: 'edit-asset', asset: LogKnowledge | null): void
-  (e: 'create-task'): void
-  (e: 'open-parse-config'): void
-}>()
 
 const {
   bindOverviewWatchers,
@@ -126,38 +121,41 @@ onBeforeUnmount(() => {
   <template v-if="assetTab === 'overview'">
     <div v-if="overviewError" class="error-banner">{{ overviewError }}</div>
 
-    <div class="tabs" style="margin-bottom: 12px">
-      <div
-        :class="['tab', { active: assetTypeFilter === 'kvcache' }]"
-        @click="assetTypeFilter = 'kvcache'"
-      >
-        KVCache
+    <header class="analysis-shell-header">
+      <div class="analysis-heading">
+        <span class="analysis-eyebrow">当前资产</span>
+        <h1>{{ selectedAsset?.name }}</h1>
+        <p>选择数据域后，按日志与操作类型查看诊断结果。</p>
       </div>
-      <div
-        :class="['tab', { active: assetTypeFilter === 'brpc' }]"
-        @click="assetTypeFilter = 'brpc'"
-      >
-        UBSocket
-      </div>
-    </div>
-
-    <div
-      class="section-card"
-      style="
-        padding: 14px 16px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin-bottom: 16px;
-      "
-    >
-      <div style="flex: 1; min-width: 240px">
-        <div style="font-size: 15px; font-weight: 600">
-          {{ selectedAsset?.name }} ·
-          {{ assetTypeFilter === 'brpc' ? 'UBSocket' : 'KVCache' }} 分析汇总
+      <div class="domain-switch">
+        <span>数据域</span>
+        <div class="context-tabs" role="tablist" aria-label="分析数据域">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="assetTypeFilter === 'kvcache'"
+            :class="['context-tab', { active: assetTypeFilter === 'kvcache' }]"
+            @click="assetTypeFilter = 'kvcache'"
+          >
+            KVCache
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="assetTypeFilter === 'brpc'"
+            :class="['context-tab', { active: assetTypeFilter === 'brpc' }]"
+            @click="assetTypeFilter = 'brpc'"
+          >
+            UBSocket
+          </button>
         </div>
-        <div style="font-size: 12px; color: var(--text2); margin-top: 2px">
+      </div>
+    </header>
+
+    <div class="analysis-scope-bar">
+      <div class="analysis-scope-summary">
+        <strong>{{ assetTypeFilter === 'brpc' ? 'UBSocket' : 'KVCache' }} 分析</strong>
+        <span>
           共 {{ scopeTaskCount }} 个已完成
           {{ assetTypeFilter === 'brpc' ? 'UBSocket' : 'KVCache' }} 任务 ·
           {{
@@ -165,57 +163,67 @@ onBeforeUnmount(() => {
               ? '单日志文件'
               : '跨任务汇总'
           }}
-        </div>
+        </span>
       </div>
-      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+      <div v-if="!isBrpcTask" class="scope-controls">
         <template v-if="!isBrpcTask">
           <template v-if="analysisTab === 'latency'">
-            <span style="font-size: 13px; color: var(--text2)">日志文件：</span>
-            <select
-              class="select"
-              style="max-width: 240px"
-              v-model="latencyFilter.logId.value"
-              :disabled="scopeTasks.length === 0"
-            >
-              <option v-for="file in scopeTasks" :key="file.id" :value="file.id">
-                {{ file.name || file.id }}
-              </option>
-            </select>
+            <label class="scope-field">
+              <span>日志文件</span>
+              <select
+                class="select"
+                v-model="latencyFilter.logId.value"
+                :disabled="scopeTasks.length === 0"
+              >
+                <option :value="undefined">全部已完成 KVCache 任务</option>
+                <option v-for="file in scopeTasks" :key="file.id" :value="file.id">
+                  {{ file.name || file.id }}
+                </option>
+              </select>
+            </label>
           </template>
-          <span style="font-size: 13px; color: var(--text2)">动作切换：</span>
-          <div class="op-toggle">
-            <button
-              :class="['op-btn', { active: currentOp === 'GET' }]"
-              @click="setCurrentOp('GET')"
-            >
-              GET
-            </button>
-            <button
-              :class="['op-btn', { active: currentOp === 'SET' }]"
-              @click="setCurrentOp('SET')"
-            >
-              SET
-            </button>
+          <div class="scope-field">
+            <span>操作类型</span>
+            <div class="op-toggle" role="group" aria-label="操作类型">
+              <button
+                type="button"
+                :class="['op-btn', { active: currentOp === 'GET' }]"
+                @click="setCurrentOp('GET')"
+              >
+                GET
+              </button>
+              <button
+                type="button"
+                :class="['op-btn', { active: currentOp === 'SET' }]"
+                @click="setCurrentOp('SET')"
+              >
+                SET
+              </button>
+            </div>
           </div>
         </template>
-        <button class="btn btn-default btn-sm" @click="emit('open-parse-config')">解析配置</button>
-        <button class="btn btn-default btn-sm" @click="emit('edit-asset', selectedAsset)">
-          编辑资产
-        </button>
-        <button class="btn btn-primary btn-sm" @click="emit('create-task')">＋ 创建任务</button>
       </div>
     </div>
 
-    <div v-if="!isBrpcTask" class="tabs">
-      <div :class="['tab', { active: analysisTab === 'latency' }]" @click="analysisTab = 'latency'">
+    <div v-if="!isBrpcTask" class="analysis-tabs" role="tablist" aria-label="分析类型">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="analysisTab === 'latency'"
+        :class="['analysis-tab', { active: analysisTab === 'latency' }]"
+        @click="analysisTab = 'latency'"
+      >
         时延故障监控
-      </div>
-      <div
-        :class="['tab', { active: analysisTab === 'disconnect' }]"
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="analysisTab === 'disconnect'"
+        :class="['analysis-tab', { active: analysisTab === 'disconnect' }]"
         @click="analysisTab = 'disconnect'"
       >
         通断故障监控
-      </div>
+      </button>
     </div>
 
     <div v-if="overviewLoading || brpcLoading" class="empty" style="padding: 28px 0">
@@ -276,19 +284,25 @@ onBeforeUnmount(() => {
 
       <!-- ===== 时延故障监控 ===== -->
       <template v-if="!isBrpcTask && analysisTab === 'latency'">
-        <div class="tabs module-tabs">
-          <div
-            :class="['tab', { active: analysisModule.latency === 'overview' }]"
+        <div class="view-tabs" role="tablist" aria-label="时延分析视图">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="analysisModule.latency === 'overview'"
+            :class="['view-tab', { active: analysisModule.latency === 'overview' }]"
             @click="analysisModule.latency = 'overview'"
           >
             Pod 分析
-          </div>
-          <div
-            :class="['tab', { active: analysisModule.latency === 'trend' }]"
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="analysisModule.latency === 'trend'"
+            :class="['view-tab', { active: analysisModule.latency === 'trend' }]"
             @click="analysisModule.latency = 'trend'"
           >
             指标趋势与异常分析
-          </div>
+          </button>
         </div>
 
         <LatencyOverview v-if="analysisModule.latency === 'overview'" />
@@ -303,16 +317,25 @@ onBeforeUnmount(() => {
       <!-- ===== UBSocket 监控 ===== -->
       <template v-else>
         <div v-if="brpcMonitorError" class="error-banner">{{ brpcMonitorError }}</div>
-        <div class="tabs" style="margin-bottom: 12px">
-          <div
-            :class="['tab', { active: brpcMonitorTab === 'iface' }]"
+        <div class="analysis-tabs" role="tablist" aria-label="UBSocket 分析类型">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="brpcMonitorTab === 'iface'"
+            :class="['analysis-tab', { active: brpcMonitorTab === 'iface' }]"
             @click="brpcMonitorTab = 'iface'"
           >
             接口监控
-          </div>
-          <div :class="['tab', { active: brpcMonitorTab === 'fault' }]" @click="openBrpcFaultTab">
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="brpcMonitorTab === 'fault'"
+            :class="['analysis-tab', { active: brpcMonitorTab === 'fault' }]"
+            @click="openBrpcFaultTab"
+          >
             通断故障监控
-          </div>
+          </button>
         </div>
 
         <BRPCInterfaceMonitor v-if="brpcMonitorTab === 'iface'" />
@@ -477,7 +500,7 @@ onBeforeUnmount(() => {
                 </td>
                 <td>
                   <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-                    查看链路
+                    查看 Trace 详情
                   </button>
                 </td>
               </tr>
@@ -513,7 +536,12 @@ onBeforeUnmount(() => {
     :class="{ show: detailDrawerOpen }"
     @click="detailDrawerOpen = false"
   ></div>
-  <div class="detail-drawer" :class="{ open: detailDrawerOpen }">
+  <div
+    class="detail-drawer"
+    :class="{ open: detailDrawerOpen }"
+    :aria-hidden="!detailDrawerOpen"
+    :inert="!detailDrawerOpen"
+  >
     <div class="agent-header">
       {{ detailDrawerRow ? '📜 Trace：' + detailDrawerRow.trace_id : '日志详情' }}
       <button class="close" @click="detailDrawerOpen = false">✕</button>
@@ -727,5 +755,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .detail-drawer {
   width: 75vw;
+}
+
+@media (max-width: 768px) {
+  .detail-drawer {
+    width: 100vw;
+  }
 }
 </style>

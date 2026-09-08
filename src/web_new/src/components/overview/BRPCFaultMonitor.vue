@@ -80,13 +80,25 @@ onMounted(() => {
       <div ref="brpcFaultTimelineRef" style="height: 300px"></div>
     </div>
 
-    <div class="tabs module-tabs">
-      <div :class="['tab', { active: brpcFaultTab === 'event' }]" @click="brpcFaultTab = 'event'">
+    <div class="view-tabs" role="tablist" aria-label="UBSocket 故障结果视图">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="brpcFaultTab === 'event'"
+        :class="['view-tab', { active: brpcFaultTab === 'event' }]"
+        @click="brpcFaultTab = 'event'"
+      >
         聚合事件
-      </div>
-      <div :class="['tab', { active: brpcFaultTab === 'thread' }]" @click="brpcFaultTab = 'thread'">
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="brpcFaultTab === 'thread'"
+        :class="['view-tab', { active: brpcFaultTab === 'thread' }]"
+        @click="brpcFaultTab = 'thread'"
+      >
         异常 Thread
-      </div>
+      </button>
     </div>
 
     <template v-if="brpcFaultTab === 'event'">
@@ -117,7 +129,7 @@ onMounted(() => {
               <td>{{ brpcEventHitTotal(event) }}</td>
               <td>
                 <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(event)">
-                  查看接口
+                  查看接口命中
                 </button>
               </td>
             </tr>
@@ -192,7 +204,7 @@ onMounted(() => {
               </td>
               <td>
                 <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
-                  查看接口
+                  查看 Thread 日志
                 </button>
               </td>
             </tr>

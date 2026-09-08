@@ -96,32 +96,33 @@ onBeforeUnmount(() => {
 
 <template>
   <template v-if="analysisModule.latency === 'overview'">
-    <div class="filter-bar">
-      <label>TopK:</label>
-      <select class="select" v-model.number="overview.topK">
+    <div class="filter-bar display-tools">
+      <strong class="filter-bar-title">显示设置</strong>
+      <label for="overview-top-k">TopK</label>
+      <select id="overview-top-k" class="select" v-model.number="overview.topK">
         <option>5</option>
         <option>10</option>
         <option>20</option>
         <option>50</option>
       </select>
-      <label>排序:</label>
-      <select class="select" v-model="overview.sortBy">
+      <label for="overview-sort">排序</label>
+      <select id="overview-sort" class="select" v-model="overview.sortBy">
         <option value="">默认</option>
         <option value="total_desc">结果数↓</option>
         <option value="total_asc">结果数↑</option>
         <option value="anomaly_desc">异常数↓</option>
         <option value="anomaly_asc">异常数↑</option>
       </select>
-      <label>统计:</label>
-      <select class="select" v-model="overview.statType">
+      <label for="overview-stat">统计</label>
+      <select id="overview-stat" class="select" v-model="overview.statType">
         <option>ave</option>
         <option>p95</option>
         <option>p99</option>
         <option>min</option>
         <option>max</option>
       </select>
-      <label>时间聚合尺度:</label>
-      <select class="select" v-model.number="overviewScale" aria-label="概览时间聚合尺度">
+      <label for="overview-scale">时间聚合尺度</label>
+      <select id="overview-scale" class="select" v-model.number="overviewScale">
         <option v-for="opt in overviewScaleOptions" :key="opt.value" :value="opt.value">
           {{ opt.label }}
         </option>
@@ -130,10 +131,7 @@ onBeforeUnmount(() => {
         <span v-if="analysisWindowLoading" style="font-size: 12px; color: var(--text3)"
           >按窗加载中…</span
         >
-        <button v-if="timeMode !== 'all'" class="btn btn-sm btn-text" @click="clearAnalysisTime">
-          全时段
-        </button>
-        <button class="btn btn-sm btn-text" @click="resetOverviewFilter">重置</button>
+        <button class="btn btn-sm btn-default" @click="resetOverviewFilter">重置显示设置</button>
       </div>
     </div>
 
@@ -144,14 +142,15 @@ onBeforeUnmount(() => {
     <div class="chart-box" style="margin-bottom: 12px">
       <div class="chart-title">
         各时段异常请求数与总时延走势（{{ currentOp }}）
-        <span
+        <button
+          type="button"
           class="select-bucket"
           :class="{ active: timeMode !== 'all' }"
           title="点击恢复全部时段"
           @click="clearAnalysisTime"
         >
           {{ timeRangeLabel }}
-        </span>
+        </button>
         <span
           v-if="timelineTruncated"
           class="hint"
@@ -169,7 +168,7 @@ onBeforeUnmount(() => {
       <header class="chart-title topology-header">
         <span>IP 通信拓扑（{{ currentOp }} · {{ timeRangeLabel }}）</span>
         <div class="topology-actions">
-          <span
+          <button
             v-for="ip in nodeWhitelist"
             :key="ip"
             class="topo-chip"
@@ -177,23 +176,22 @@ onBeforeUnmount(() => {
             @click="nodeWhitelist = nodeWhitelist.filter((item) => item !== ip)"
           >
             {{ ip }} ×
-          </span>
+          </button>
           <button class="btn btn-sm btn-text" @click="showPodIpCb = !showPodIpCb">
-            {{ showPodIpCb ? '▼' : '▶' }} 只显示节点 {{ nodeWhitelist.length }}/{{
-              uniquePodIps.length
-            }}
+            {{ showPodIpCb ? '▼' : '▶' }} 拓扑显示范围 {{ nodeWhitelist.length }} /
+            {{ uniquePodIps.length }}
           </button>
           <button
             v-if="nodeWhitelist.length"
             class="btn btn-sm btn-text"
             @click="resetTopologyFilter"
           >
-            重置
+            清除显示范围
           </button>
         </div>
       </header>
       <div class="topology-meta">
-        <div class="topology-summary" aria-label="当前通信关系摘要">
+        <div class="topology-summary" role="group" aria-label="当前通信关系摘要">
           <span
             >端点 <b>{{ topologySummary.nodeCount }}</b></span
           >
@@ -251,7 +249,13 @@ onBeforeUnmount(() => {
             <button class="btn btn-sm btn-text" @click="nodeWhitelist = []">清空勾选</button>
           </div>
           <div class="pagination" style="margin-top: 0" v-if="podIpCbPages > 1">
-            <button :disabled="podIpCbPage === 1" @click="podIpCbPage--">‹</button>
+            <button
+              aria-label="上一页拓扑端点"
+              :disabled="podIpCbPage === 1"
+              @click="podIpCbPage--"
+            >
+              ‹
+            </button>
             <button
               v-for="page in podIpCbPages"
               :key="page"
@@ -260,7 +264,13 @@ onBeforeUnmount(() => {
             >
               {{ page }}
             </button>
-            <button :disabled="podIpCbPage === podIpCbPages" @click="podIpCbPage++">›</button>
+            <button
+              aria-label="下一页拓扑端点"
+              :disabled="podIpCbPage === podIpCbPages"
+              @click="podIpCbPage++"
+            >
+              ›
+            </button>
           </div>
         </div>
       </div>
@@ -270,11 +280,13 @@ onBeforeUnmount(() => {
       >
         <template v-if="!topoShowAll && topoHiddenCount > 0">
           节点较多，已显示通信量 Top {{ topoNodeLimit }}（共 {{ topoTotalCount }} 个）·
-          <span class="text-link" @click="topoShowAll = true">显示全部</span>
+          <button class="text-link-button" @click="topoShowAll = true">显示全部</button>
         </template>
         <template v-else>
           已显示全部 {{ topoTotalCount }} 个节点 ·
-          <span class="text-link" @click="topoShowAll = false">仅看 Top {{ topoNodeLimit }}</span>
+          <button class="text-link-button" @click="topoShowAll = false">
+            仅看 Top {{ topoNodeLimit }}
+          </button>
         </template>
       </div>
       <div class="topology-workbench">
@@ -314,9 +326,16 @@ onBeforeUnmount(() => {
             </div>
             <div v-else class="topology-empty">当前筛选范围内没有异常通信关系</div>
             <div v-if="topologyRankPages > 1" class="topology-rank-pagination">
-              <button :disabled="topologyRankPage === 1" @click="topologyRankPage--">‹</button>
+              <button
+                aria-label="上一页异常链路"
+                :disabled="topologyRankPage === 1"
+                @click="topologyRankPage--"
+              >
+                ‹
+              </button>
               <span>{{ topologyRankPage }} / {{ topologyRankPages }}</span>
               <button
+                aria-label="下一页异常链路"
                 :disabled="topologyRankPage === topologyRankPages"
                 @click="topologyRankPage++"
               >
@@ -364,13 +383,13 @@ onBeforeUnmount(() => {
                   class="btn btn-sm btn-primary"
                   @click="enterLinkDetail(selectedTopologyLink.source, selectedTopologyLink.target)"
                 >
-                  查看 Trace
+                  查看链路 Trace
                 </button>
                 <button
                   class="btn btn-sm btn-default"
                   @click="showLinkEndsOnly(selectedTopologyLink)"
                 >
-                  只显示两端节点
+                  仅显示链路两端
                 </button>
                 <button
                   class="btn btn-sm btn-text"
@@ -412,7 +431,7 @@ onBeforeUnmount(() => {
                 >
               </div>
               <div v-if="focusPairs.length" class="focus-pairs">
-                <div class="topology-panel-title">该时段通信对（旧展开行）</div>
+                <div class="topology-panel-title">该时段通信对</div>
                 <button
                   v-for="pair in focusPairs"
                   :key="pair.src + '→' + pair.dst"
@@ -433,7 +452,7 @@ onBeforeUnmount(() => {
                 class="btn btn-sm btn-primary"
                 @click="enterPodDetail(selectedTopologyNode.ip)"
               >
-                查看关联 Trace
+                查看端点 Trace
               </button>
             </template>
             <div v-else class="topology-detail-placeholder">
@@ -460,15 +479,21 @@ onBeforeUnmount(() => {
       style="font-size: 12px; color: var(--text2); margin-bottom: 8px"
     >
       拓扑图仅显示 {{ nodeWhitelist.length }} 个勾选节点（不影响下方列表与查询） ·
-      <span class="text-link" @click="nodeWhitelist = []">清除</span>
+      可在上方“拓扑显示范围”中调整
     </div>
     <div class="legend-strip">
       <span v-for="lg in podStageFullLegend" :key="lg.label" class="legend-strip-item">
         <i :style="{ background: lg.color }"></i>{{ lg.label }}
       </span>
     </div>
-    <div class="table-wrap">
-      <table>
+    <span class="mobile-table-hint">窄屏下可左右滑动表格，操作列固定在右侧</span>
+    <div
+      class="table-wrap endpoint-table-wrap"
+      role="region"
+      tabindex="0"
+      aria-label="端点时延故障列表，可左右滚动"
+    >
+      <table class="endpoint-table">
         <colgroup>
           <col style="width: 130px" />
           <col style="width: 70px" />
@@ -501,9 +526,14 @@ onBeforeUnmount(() => {
             "
           >
             <td>
-              <span class="text-link" title="点击选中该端点" @click="selectTopologyNode(stat.ip)">{{
-                stat.ip
-              }}</span>
+              <button
+                type="button"
+                class="text-link-button"
+                title="点击选中该端点"
+                @click="selectTopologyNode(stat.ip)"
+              >
+                {{ stat.ip }}
+              </button>
             </td>
             <td>{{ stat.srcCount.toLocaleString() }}</td>
             <td>{{ stat.dstCount.toLocaleString() }}</td>
@@ -572,7 +602,7 @@ onBeforeUnmount(() => {
             </td>
             <td>
               <button class="btn btn-sm btn-primary" @click="enterPodDetail(stat.ip)">
-                查看 Trace
+                查看端点 Trace
               </button>
             </td>
           </tr>
@@ -1116,8 +1146,16 @@ onBeforeUnmount(() => {
     height: 430px;
   }
   .topology-inspector {
-    height: 560px;
+    height: auto;
     padding: 0 14px 14px;
+    overflow: visible;
+  }
+  .topology-ranking-section {
+    flex: none;
+  }
+  .topology-ranking {
+    max-height: 280px;
+    overflow-y: auto;
   }
 }
 </style>
