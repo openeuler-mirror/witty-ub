@@ -14,8 +14,8 @@
 #include <vector>
 #include <tuple>
 #include <string>
-#include "mem_collector.h"
 #include "database.h"
+#include "mem_collector.h"
 
 namespace topology::mem {
 using namespace database;

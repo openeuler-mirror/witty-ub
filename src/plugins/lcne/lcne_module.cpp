@@ -14,9 +14,9 @@
 #include <unordered_map>
 
 #include "rack_error.h"
-#include "lcne_module.h"
 #include "lcne_topology.h"
 #include "logger.h"
+#include "lcne_module.h"
 namespace lcne::module {
 using namespace ubse::context;
 using namespace topology::node;
