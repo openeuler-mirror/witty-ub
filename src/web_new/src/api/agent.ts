@@ -1,6 +1,6 @@
 // OpenCode 诊断助手客户端：本机走同源 /agent-api 反代（免认证），
 // 远程直连 OpenCode 服务地址并使用 Basic Authorization。
-// 凭据只出现在 Authorization header 与 sessionStorage，不进 URL / 日志 / 持久化。
+// 凭据只保存在当前页面内存，并且仅允许通过 HTTPS 发送。
 
 export type OpenCodeSession = {
   id: string
@@ -47,7 +47,15 @@ export const normalizeAgentServerAddress = (raw: string) => {
   if (!value) return ''
   if (/^https?:\/\//i.test(value)) return value
   if (value.startsWith('/')) return value
-  return `http://${value}`
+  return `https://${value}`
+}
+
+export const isSecureRemoteAgentAddress = (address: string) => {
+  try {
+    return new URL(address).protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 export const buildBasicAuthHeader = (username: string, password: string) =>

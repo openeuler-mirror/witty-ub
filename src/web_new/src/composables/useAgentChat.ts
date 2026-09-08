@@ -3,6 +3,7 @@ import {
   AgentApi,
   buildBasicAuthHeader,
   defaultAgentApiBase,
+  isSecureRemoteAgentAddress,
   normalizeAgentServerAddress,
   type OpenCodeMessage,
   type OpenCodeSession,
@@ -12,7 +13,7 @@ import { useToast } from './useToast'
 /**
  * P1.3 AI 故障诊断助手状态：
  * - 本机 /agent-api 反代免认证；远程直连 + Basic Authorization
- * - 凭据只进 Authorization header 与 sessionStorage（关标签页即清），不进 URL/日志/持久化
+ * - Basic 凭据只保存在当前页面内存，且仅通过 HTTPS 发送
  * - 会话按资产在前端索引（localStorage：sessionId -> assetId），切资产自动重置会话
  * - SSE 手动解析（EventSource 无法带 header）；中止/断流/错误均有明确状态
  */
@@ -129,17 +130,21 @@ function createAgentChatState() {
     try {
       const saved = JSON.parse(sessionStorage.getItem(CONNECTION_KEY) ?? 'null')
       if (!saved?.apiBase) return null
-      return new AgentApi(saved.apiBase, saved.authHeader ?? '')
+      // Migrate old records that contained authHeader by overwriting them
+      // before any connection attempt.
+      sessionStorage.setItem(CONNECTION_KEY, JSON.stringify({ apiBase: saved.apiBase }))
+      return new AgentApi(saved.apiBase)
     } catch {
       return null
     }
   }
 
   const persistConnection = (instance: AgentApi) => {
-    sessionStorage.setItem(
-      CONNECTION_KEY,
-      JSON.stringify({ apiBase: instance.apiBase, authHeader: instance.authHeader }),
-    )
+    if (instance.authHeader) {
+      sessionStorage.removeItem(CONNECTION_KEY)
+      return
+    }
+    sessionStorage.setItem(CONNECTION_KEY, JSON.stringify({ apiBase: instance.apiBase }))
   }
 
   // ---------- 连接 ----------
@@ -234,6 +239,10 @@ function createAgentChatState() {
     const address = normalizeAgentServerAddress(remoteAddress.value)
     if (!address) {
       connectionError.value = '请输入远程服务器地址（IP:端口）'
+      return
+    }
+    if (!isSecureRemoteAgentAddress(address)) {
+      connectionError.value = '远程 Basic 认证仅支持 HTTPS；本机服务请使用“连接本机 Agent”'
       return
     }
     if (!remoteUsername.value || !remotePassword.value) {

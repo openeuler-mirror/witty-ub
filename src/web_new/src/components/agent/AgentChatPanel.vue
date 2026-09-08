@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAgentChat } from '../../composables/useAgentChat'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
 import type { LogKnowledge } from '../../types'
@@ -50,6 +50,8 @@ const {
 } = useAgentChat()
 
 const open = ref(false)
+const fabRef = ref<HTMLButtonElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
 
 // 切资产：登记当前资产并重置会话视角
 const syncAsset = () =>
@@ -59,9 +61,15 @@ const toggle = () => {
   open.value = !open.value
   if (open.value) {
     syncAsset()
-    void restoreOnce
+    restoreOnce()
     void scrollToBottom()
+    void nextTick(() => panelRef.value?.focus())
   }
+}
+
+const closePanel = () => {
+  open.value = false
+  void nextTick(() => fabRef.value?.focus())
 }
 
 let restored = false
@@ -73,7 +81,7 @@ const restoreOnce = () => {
 
 const onKeydown = (event: KeyboardEvent) => {
   if (event.key !== 'Escape' || !open.value) return
-  open.value = false
+  closePanel()
 }
 
 onMounted(() => {
@@ -112,8 +120,12 @@ const onInputKeydown = (event: KeyboardEvent) => {
 <template>
   <!-- FAB：仅分析页挂载（App.vue 控制挂载时机） -->
   <button
+    ref="fabRef"
     :class="['agent-fab', { active: open, disconnected: connectionState !== 'connected' }]"
     title="AI 故障诊断助手"
+    :aria-label="open ? '关闭 AI 故障诊断助手' : '打开 AI 故障诊断助手'"
+    :aria-expanded="open"
+    aria-controls="agent-chat-panel"
     @click="toggle"
   >
     <span class="agent-fab-pulse" />
@@ -132,16 +144,31 @@ const onInputKeydown = (event: KeyboardEvent) => {
     </svg>
   </button>
 
-  <aside v-if="open" class="agent-chat-panel" role="dialog" aria-label="AI 故障诊断助手">
+  <aside
+    v-if="open"
+    id="agent-chat-panel"
+    ref="panelRef"
+    class="agent-chat-panel"
+    role="dialog"
+    aria-modal="true"
+    aria-label="AI 故障诊断助手"
+    tabindex="-1"
+  >
     <header class="agent-chat-header">
       <button
         v-if="view !== 'chat' && connectionState === 'connected'"
         class="agent-back"
+        aria-label="返回"
         @click="goBack"
       >
         ‹
       </button>
-      <span :class="['agent-chat-status', connectionState]" :title="statusLabelOf()" />
+      <span
+        :class="['agent-chat-status', connectionState]"
+        :title="statusLabelOf()"
+        :aria-label="'连接状态：' + statusLabelOf()"
+        role="status"
+      />
       <div class="agent-chat-title">
         <strong>AI 故障诊断助手</strong>
         <small>
@@ -151,7 +178,9 @@ const onInputKeydown = (event: KeyboardEvent) => {
       <button v-if="view === 'chat'" class="btn btn-text btn-sm" @click="view = 'models'">
         模型切换
       </button>
-      <button class="agent-chat-close" @click="open = false">✕</button>
+      <button class="agent-chat-close" aria-label="关闭 AI 故障诊断助手" @click="closePanel">
+        ✕
+      </button>
     </header>
 
     <div v-if="connectionError" class="agent-chat-error" role="alert">{{ connectionError }}</div>
@@ -269,14 +298,31 @@ const onInputKeydown = (event: KeyboardEvent) => {
             v-for="session in filteredSessions"
             :key="session.id"
             :class="['agent-session-item', { active: session.id === sessionId }]"
+            role="button"
+            tabindex="0"
+            :aria-label="'打开会话：' + (session.title || session.id.slice(0, 12))"
             @click="openConversation(session.id)"
+            @keydown.enter.prevent="openConversation(session.id)"
+            @keydown.space.prevent="openConversation(session.id)"
           >
             <div class="agent-session-title">{{ session.title || session.id.slice(0, 12) }}</div>
             <div class="agent-session-meta">
               <span>{{ sessionAssetName(session.id) || '未关联资产' }}</span>
               <span class="agent-session-actions">
-                <button title="重命名" @click.stop="renameConversation(session.id)">✎</button>
-                <button title="删除" @click.stop="deleteConversation(session.id)">×</button>
+                <button
+                  title="重命名"
+                  :aria-label="'重命名会话：' + (session.title || session.id.slice(0, 12))"
+                  @click.stop="renameConversation(session.id)"
+                >
+                  ✎
+                </button>
+                <button
+                  title="删除"
+                  :aria-label="'删除会话：' + (session.title || session.id.slice(0, 12))"
+                  @click.stop="deleteConversation(session.id)"
+                >
+                  ×
+                </button>
               </span>
             </div>
           </div>
@@ -393,7 +439,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   right: 28px;
   bottom: 102px;
   width: min(980px, calc(100vw - 32px));
-  height: min(800px, calc(100vh - 106px));
+  height: min(800px, calc(100vh - 166px));
   background: var(--bg, #fff);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -771,5 +817,36 @@ const onInputKeydown = (event: KeyboardEvent) => {
 .agent-send.stop {
   background: var(--danger, #dc2626);
   border-color: var(--danger, #dc2626);
+}
+
+@media (max-width: 900px) {
+  .agent-fab {
+    right: 16px;
+    bottom: 16px;
+    width: 52px;
+    height: 52px;
+  }
+  .agent-chat-panel {
+    top: 64px;
+    right: 8px;
+    bottom: 76px;
+    width: calc(100vw - 16px);
+    height: auto;
+  }
+  .agent-conversation-layout {
+    flex-direction: column;
+  }
+  .agent-session-manager {
+    width: 100%;
+    max-height: 180px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .agent-session-list {
+    overflow-y: auto;
+  }
+  .agent-bubble {
+    max-width: 88%;
+  }
 }
 </style>
