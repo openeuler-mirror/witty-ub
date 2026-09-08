@@ -892,12 +892,6 @@ tr:hover td {
   background: var(--primary-bg);
 }
 
-/* 窄屏可横向滑动：col 宽固定布局 + 最小宽度，避免表被 width:100% 压缩成无溢出 */
-.endpoint-table {
-  table-layout: fixed;
-  min-width: 960px;
-}
-
 /* Misc */
 .text-link {
   color: var(--primary);
@@ -1187,10 +1181,11 @@ tr:hover td {
     flex-wrap: wrap;
   }
 
-  .endpoint-table :is(col, th, td):nth-child(2),
-  .endpoint-table :is(col, th, td):nth-child(3),
-  .endpoint-table :is(col, th, td):nth-child(6) {
-    display: none;
+  /* 窄屏不隐藏列：内容与宽屏一致，靠容器横向滑动看全。
+     col 宽固定布局 + 最小宽度，避免表被 width:100% 压缩成无溢出 */
+  .endpoint-table {
+    table-layout: fixed;
+    min-width: 960px;
   }
 }
 

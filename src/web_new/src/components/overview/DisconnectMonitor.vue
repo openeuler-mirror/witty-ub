@@ -598,8 +598,14 @@ const faultModeTitle = (row: any) =>
 
 .fault-compact-table {
   width: 100%;
-  min-width: 1180px;
   table-layout: fixed;
+}
+
+/* 窄屏不隐藏列：内容与宽屏一致，靠容器横向滑动看全 */
+@media (max-width: 800px) {
+  .fault-compact-table {
+    min-width: 1180px;
+  }
 }
 
 .fault-compact-table th:last-child,
@@ -618,19 +624,6 @@ const faultModeTitle = (row: any) =>
 
 .fault-compact-table tr:hover td:last-child {
   background: var(--primary-bg);
-}
-
-@media (max-width: 800px) {
-  .fault-compact-table {
-    min-width: 760px;
-  }
-
-  .fault-compact-table :is(col, th, td):nth-child(1),
-  .fault-compact-table :is(col, th, td):nth-child(5),
-  .fault-compact-table :is(col, th, td):nth-child(6),
-  .fault-compact-table :is(col, th, td):nth-child(9) {
-    display: none;
-  }
 }
 
 .fault-compact-table td {
