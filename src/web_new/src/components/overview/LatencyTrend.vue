@@ -28,6 +28,7 @@ const {
   traceTags,
   trendAnomalyHint,
   trendChartData,
+  trendLogLabel,
   trendMetrics,
   trendPercentile,
   trendPercentileOptions,
@@ -60,66 +61,55 @@ const podIpCount = (row: any) => podIpsOf(row).length
   <div class="section-card">
     <h2 class="section-card-title">
       关键时延指标趋势
-      <span class="hint">{{
-        latencyFilter.logId.value
-          ? currentOp + ' · ' + trendChartData.length + ' 个采样点 · ' + trendAnomalyHint
-          : currentOp
-      }}</span>
-    </h2>
-    <!-- 后端 metrics/latency 分位统计表按日志物化，跨任务分位数无法合并：未选日志时引导选择 -->
-    <div v-if="!latencyFilter.logId.value" class="empty" style="padding: 48px 0">
-      <div class="icon">📈</div>
-      <div>趋势图需要在上方「日志文件」中选择单个日志后展示</div>
-      <div class="hint">跨任务汇总不支持分位时延曲线；最慢请求与异常 Trace 列表不受影响</div>
-    </div>
-    <template v-else>
-      <div class="filter-bar display-tools" style="margin-bottom: 10px">
-        <strong class="filter-bar-title">趋势设置</strong>
-        <label for="trend-scale">时间聚合尺度</label>
-        <select id="trend-scale" class="select" v-model.number="trendScale">
-          <option v-for="option in trendScaleOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <label for="trend-percentile">百分位</label>
-        <select id="trend-percentile" class="select" v-model="trendPercentile">
-          <option
-            v-for="option in trendPercentileOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-        <button v-if="trendRange" class="btn btn-sm btn-text" @click="resetTrend">
-          恢复趋势全时段
-        </button>
-        <div style="margin-left: auto; display: flex; gap: 4px">
-          <button class="btn btn-sm btn-text" @click="selectAllTrend">全选</button>
-          <button class="btn btn-sm btn-text" @click="clearTrend">清空</button>
-        </div>
-      </div>
-      <p class="chart-scale-hint">
-        横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果
-      </p>
-      <div
-        class="cb-group"
-        style="background: var(--bg); border-radius: var(--radius-md); padding: 8px 12px"
+      <span class="hint"
+        >{{ currentOp }} · {{ trendChartData.length }} 个采样点 · {{ trendAnomalyHint }}</span
       >
-        <label v-for="metric in trendMetrics" :key="metric.key">
-          <input
-            type="checkbox"
-            :checked="trendVisible.has(metric.key)"
-            @change="toggleTrendSeries(metric.key)"
-          />
-          {{ metric.label }}
-        </label>
+    </h2>
+    <div class="filter-bar display-tools" style="margin-bottom: 10px">
+      <strong class="filter-bar-title">趋势设置</strong>
+      <label for="trend-scale">时间聚合尺度</label>
+      <select id="trend-scale" class="select" v-model.number="trendScale">
+        <option v-for="option in trendScaleOptions" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+      <label for="trend-percentile">百分位</label>
+      <select id="trend-percentile" class="select" v-model="trendPercentile">
+        <option v-for="option in trendPercentileOptions" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+      <button v-if="trendRange" class="btn btn-sm btn-text" @click="resetTrend">
+        恢复趋势全时段
+      </button>
+      <div style="margin-left: auto; display: flex; gap: 4px">
+        <button class="btn btn-sm btn-text" @click="selectAllTrend">全选</button>
+        <button class="btn btn-sm btn-text" @click="clearTrend">清空</button>
       </div>
-      <div ref="trendRef" style="height: 400px"></div>
-      <div style="font-size: 12px; color: var(--text3); margin-top: 6px">
-        点击数据点：以该时间为中心按当前尺度缩小范围（可继续下钻）；“重置时间范围”恢复全量。
-      </div>
-    </template>
+    </div>
+    <p class="chart-scale-hint">
+      横坐标会根据时间范围进行缩放，图中显示的数据为横坐标缩放后的抽稀结果<template
+        v-if="!latencyFilter.logId.value && trendLogLabel"
+        >；分位曲线取自首个已完成任务「{{ trendLogLabel }}」</template
+      >
+    </p>
+    <div
+      class="cb-group"
+      style="background: var(--bg); border-radius: var(--radius-md); padding: 8px 12px"
+    >
+      <label v-for="metric in trendMetrics" :key="metric.key">
+        <input
+          type="checkbox"
+          :checked="trendVisible.has(metric.key)"
+          @change="toggleTrendSeries(metric.key)"
+        />
+        {{ metric.label }}
+      </label>
+    </div>
+    <div ref="trendRef" style="height: 400px"></div>
+    <div style="font-size: 12px; color: var(--text3); margin-top: 6px">
+      点击数据点：以该时间为中心按当前尺度缩小范围（可继续下钻）；“重置时间范围”恢复全量。
+    </div>
   </div>
 
   <div class="section-card">
@@ -157,7 +147,6 @@ const podIpCount = (row: any) => podIpsOf(row).length
       </select>
       <span class="hint" style="margin-left: auto">共 {{ traceRows.length }} 条</span>
     </div>
-    <span class="mobile-table-hint">窄屏下隐藏次要列；表格仍可左右滑动，操作列固定在右侧</span>
     <div
       class="table-wrap trace-table-wrap"
       role="region"

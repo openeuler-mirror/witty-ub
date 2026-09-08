@@ -304,6 +304,16 @@ function createOverviewState() {
     }
   }
 
+  // 趋势分位数据必须单日志（后端 metrics/latency 分位统计表按日志物化，无法跨任务合并）。
+  // 对齐旧版：未选日志时自动兜底第一个已完成任务，而不是要求用户手选
+  const trendLogId = computed(() => latencyFilter.logId.value ?? scopeTasks.value[0]?.id)
+  const trendLogLabel = computed(() => {
+    const id = trendLogId.value
+    if (!id) return ''
+    const file = logFiles.value.find((item) => item.id === id)
+    return file?.name || id
+  })
+
   const loadTrendSection = async (
     op: 'get' | 'set',
     pct: string,
@@ -313,16 +323,17 @@ function createOverviewState() {
     if (!asset) return
 
     // P1.5：与总览共用 latencyFilter.logId，参与 key 与请求。
-    // 后端 metrics/latency 必须带 log_id（分位统计表按日志物化，跨任务分位数无法客户端合并）；
-    // 未选日志时不发请求、不缓存空结果，趋势图区域由 LatencyTrend 显示引导空态
+    // 趋势分位曲线单日志取数（未选时 trendLogId 兜底首个已完成任务）；
+    // 最慢请求与异常 Trace 列表不受影响，仍按用户选择支持跨任务汇总
     const logId = latencyFilter.logId.value
+    const effectiveLogId = trendLogId.value
     let latency: any[] = []
-    if (logId) {
-      const latencyKey = `${op}:${pct}:${trendScale.value}:${logId}`
+    if (effectiveLogId) {
+      const latencyKey = `${op}:${pct}:${trendScale.value}:${effectiveLogId}`
       if (sectionCaches.latency.has(latencyKey)) {
         latency = sectionCaches.latency.get(latencyKey)!
       } else {
-        latency = await fetchLatencyMetrics(asset.id, op, pct, logId, trendScale.value)
+        latency = await fetchLatencyMetrics(asset.id, op, pct, effectiveLogId, trendScale.value)
         if (generation !== overviewRequestGeneration) return
         sectionCaches.latency.set(latencyKey, latency)
       }
@@ -2904,6 +2915,10 @@ function createOverviewState() {
           {
             type: 'graph',
             layout: 'none',
+            // 数据包围盒宽高比未必是 1（如“仅显示链路两端”后只剩 2-3 个节点），
+            // 若直接把非正方形 DataRect 拉进正方形 ViewRect，圆环会被拉伸成椭圆；
+            // preserveAspect 让视图矩形按数据包围盒比例 letterbox，保证等比映射
+            preserveAspect: true,
             roam: true,
             draggable: false,
             cursor: 'pointer',
@@ -4374,6 +4389,8 @@ function createOverviewState() {
     trendBuckets,
     trendCenter,
     trendChartData,
+    trendLogId,
+    trendLogLabel,
     trendMetrics,
     trendPercentile,
     trendPercentileOptions,

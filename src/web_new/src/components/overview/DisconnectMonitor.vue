@@ -271,9 +271,6 @@ const faultModeTitle = (row: any) =>
         }}
       </div>
     </div>
-    <span v-if="filteredFaultTraces.length" class="mobile-table-hint"
-      >窄屏下隐藏次要列；表格仍可左右滑动，操作列固定在右侧</span
-    >
     <div
       v-if="filteredFaultTraces.length"
       class="table-wrap fault-table-wrap"

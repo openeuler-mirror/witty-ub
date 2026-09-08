@@ -874,13 +874,6 @@ tr:hover td {
   background: var(--primary-bg);
 }
 
-.mobile-table-hint {
-  display: none;
-  margin: 0 0 6px;
-  color: var(--text3);
-  font-size: 11px;
-}
-
 .endpoint-table th:last-child,
 .endpoint-table td:last-child {
   position: sticky;
@@ -1186,10 +1179,6 @@ tr:hover td {
 
   .task-actions {
     flex-wrap: wrap;
-  }
-
-  .mobile-table-hint {
-    display: block;
   }
 
   .endpoint-table :is(col, th, td):nth-child(2),

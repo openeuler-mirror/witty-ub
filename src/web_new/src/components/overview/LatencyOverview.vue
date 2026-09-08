@@ -486,7 +486,6 @@ onBeforeUnmount(() => {
         <i :style="{ background: lg.color }"></i>{{ lg.label }}
       </span>
     </div>
-    <span class="mobile-table-hint">窄屏下可左右滑动表格，操作列固定在右侧</span>
     <div
       class="table-wrap endpoint-table-wrap"
       role="region"
