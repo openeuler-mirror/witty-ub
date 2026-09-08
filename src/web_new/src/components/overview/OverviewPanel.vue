@@ -31,9 +31,16 @@ const {
   brpcEventDetailTimeline,
   brpcEventTimelineRef,
   brpcFaultDetail,
+  brpcSelectedGraphNode,
+  brpcSelectedGraphNodeId,
+  brpcThreadDetail,
+  brpcThreadDetailError,
+  brpcThreadDetailLoading,
+  brpcThreadGraphRef,
   brpcThreadLogs,
   brpcThreadLogsLoading,
   brpcThreadLogsError,
+  brpcThreadTimelineRef,
   openBrpcFaultDetail,
   brpcLoading,
   brpcMonitorError,
@@ -79,6 +86,29 @@ const brpcEventDetailTimelineEmpty = computed(
   () =>
     !(brpcEventDetailTimeline.value ?? []).some((series: any) => (series?.points || []).length > 0),
 )
+
+// P2.3：线程运行日志按时间正序；故障模式标签优先取图节点名，再取 detail failure_modes
+const sortedBrpcThreadLogs = computed(() =>
+  [...brpcThreadLogs.value].sort((a, b) =>
+    String(a.time ?? '').localeCompare(String(b.time ?? '')),
+  ),
+)
+const brpcThreadTimelineEmpty = computed(
+  () =>
+    !(brpcThreadDetail.value?.interface_timeline ?? []).some(
+      (series: any) => (series?.points || []).length > 0,
+    ),
+)
+const brpcThreadFailureModeLabel = (id: string) =>
+  brpcThreadDetail.value?.failure_graph?.nodes?.find(
+    (node: any) => node.node_type === 'failure_mode' && node.node_id === id,
+  )?.name ||
+  brpcThreadDetail.value?.failure_modes?.find((mode: any) => mode.failure_mode_id === id)
+    ?.failure_mode_name ||
+  id
+const selectBrpcGraphNode = (id: string) => {
+  brpcSelectedGraphNodeId.value = brpcSelectedGraphNodeId.value === id ? '' : id
+}
 
 const onKeydown = (event: KeyboardEvent) => {
   if (event.key !== 'Escape') return
@@ -505,6 +535,84 @@ onBeforeUnmount(() => {
           </table>
         </div>
         <template v-if="brpcFaultDetail.thread_key">
+          <!-- P2.3：故障模式视图（failure_graph） -->
+          <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
+            🕸️ 故障模式视图
+            <span class="hint" style="font-weight: 400">
+              蓝点=接口节点，红点=故障模式节点（大小=命中数，粗边框=直接命中）；可拖拽缩放，点击节点查看详情
+            </span>
+          </div>
+          <div v-if="brpcThreadDetailLoading" class="empty" style="padding: 16px 0">
+            正在加载故障模式视图...
+          </div>
+          <div v-else-if="brpcThreadDetailError" class="error-banner">
+            {{ brpcThreadDetailError }}
+          </div>
+          <div
+            v-else-if="!brpcThreadDetail?.failure_graph?.nodes?.length"
+            class="empty"
+            style="padding: 16px 0"
+          >
+            当前 Thread 暂无命中的故障模式子图
+          </div>
+          <div v-else ref="brpcThreadGraphRef" style="height: 320px; margin-bottom: 8px"></div>
+
+          <!-- P2.3：选中节点详情 -->
+          <div
+            v-if="brpcSelectedGraphNode"
+            style="
+              border: 1px solid #fecaca;
+              background: #fef2f2;
+              border-radius: 4px;
+              padding: 10px 12px;
+              margin-bottom: 12px;
+            "
+          >
+            <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
+              {{ brpcSelectedGraphNode.name || brpcSelectedGraphNode.node_id }}
+              <span
+                v-if="brpcSelectedGraphNode.node_type === 'failure_mode'"
+                class="fault-code-chip"
+              >
+                命中 {{ brpcSelectedGraphNode.hit_count ?? 0 }}
+              </span>
+              <span
+                v-if="
+                  brpcSelectedGraphNode.error_code != null &&
+                  brpcSelectedGraphNode.error_code !== ''
+                "
+                class="fault-code-chip"
+              >
+                故障码 {{ brpcSelectedGraphNode.error_code }}
+              </span>
+            </div>
+            <div style="font-size: 12px; color: var(--text2); line-height: 1.7">
+              <template v-if="brpcSelectedGraphNode.node_type === 'failure_mode'">
+                症状：{{ brpcSelectedGraphNode.phenomenon || '-' }}<br />
+                根因：{{ brpcSelectedGraphNode.cause || '-' }}<br />
+                解决：{{ brpcSelectedGraphNode.solution || '-' }}
+              </template>
+              <template v-else>
+                组件：{{ brpcSelectedGraphNode.component || '-' }} · 函数：{{
+                  brpcSelectedGraphNode.function_name || '-'
+                }}
+                · 文件：{{ brpcSelectedGraphNode.filename || '-' }}
+              </template>
+            </div>
+          </div>
+
+          <!-- P2.3：接口命中时序 -->
+          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px">📈 接口命中时序</div>
+          <div v-if="brpcThreadTimelineEmpty" class="empty" style="padding: 12px 0">
+            暂无接口命中时序数据
+          </div>
+          <div
+            v-show="!brpcThreadTimelineEmpty"
+            ref="brpcThreadTimelineRef"
+            style="height: 200px; margin-bottom: 8px"
+          ></div>
+
+          <!-- P2.3：完整运行日志列，故障行高亮 -->
           <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
             📋 运行日志（{{ brpcThreadLogs.length }} 条）
           </div>
@@ -515,30 +623,50 @@ onBeforeUnmount(() => {
           <div v-else-if="brpcThreadLogs.length === 0" class="empty" style="padding: 16px 0">
             暂无运行日志
           </div>
-          <div v-else class="table-wrap" style="max-height: 320px; overflow-y: auto">
-            <table>
+          <div v-else class="table-wrap" style="max-height: 360px; overflow-y: auto">
+            <table style="min-width: 1080px">
               <thead>
                 <tr>
                   <th>时间</th>
-                  <th>位置</th>
-                  <th>消息</th>
+                  <th>Pod IP</th>
+                  <th>Pod 名称</th>
+                  <th>组件</th>
+                  <th>文件</th>
+                  <th>函数</th>
+                  <th>行号</th>
+                  <th>日志正文</th>
                 </tr>
               </thead>
               <tbody>
                 <tr
-                  v-for="(log, index) in brpcThreadLogs"
-                  :key="index"
+                  v-for="(log, index) in sortedBrpcThreadLogs"
+                  :key="log.hit_id || index"
                   :style="log.failure_mode_id ? 'background: #fef2f2' : ''"
-                  :title="log.failure_mode_id ? '故障行：' + log.failure_mode_id : ''"
                 >
                   <td style="font-size: 11px; font-family: monospace; white-space: nowrap">
                     {{ (log.time || '').slice(0, 23) }}
                   </td>
-                  <td style="font-size: 11px; font-family: monospace; white-space: nowrap">
-                    {{ log.filename || '-'
-                    }}{{ log.line_number != null ? ':' + log.line_number : '' }}
+                  <td style="font-size: 11px; font-family: monospace">{{ log.pod_ip || '-' }}</td>
+                  <td style="font-size: 11px">{{ log.pod_name || '-' }}</td>
+                  <td style="font-size: 11px">{{ log.component || '-' }}</td>
+                  <td style="font-size: 11px; font-family: monospace">{{ log.filename || '-' }}</td>
+                  <td style="font-size: 11px; font-family: monospace">
+                    {{ log.function_name || '-' }}
                   </td>
-                  <td style="white-space: normal; font-size: 12px">{{ log.message || '-' }}</td>
+                  <td style="font-size: 11px">{{ log.line_number ?? '-' }}</td>
+                  <td style="white-space: normal; font-size: 12px">
+                    {{ log.message || '-' }}
+                    <button
+                      v-if="log.failure_mode_id"
+                      type="button"
+                      class="fault-code-chip"
+                      style="cursor: pointer; margin-left: 4px"
+                      :title="'定位故障模式节点：' + log.failure_mode_id"
+                      @click="selectBrpcGraphNode(log.failure_mode_id)"
+                    >
+                      🔴 {{ brpcThreadFailureModeLabel(log.failure_mode_id) }}
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>

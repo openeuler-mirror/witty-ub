@@ -458,6 +458,30 @@ export const fetchBrpcAbnormalThreads = (
     })}`,
   )
 
+// P2.3 异常 Thread 详情：failure_graph + interface_timeline + failure_modes + hits
+export const fetchBrpcThreadDetail = (
+  batchId: string,
+  threadKey: string,
+  params: {
+    pod_ip: string
+    thread_id: number
+    start_time: string
+    end_time: string
+    window_size?: string
+    pod_name?: string
+  },
+) =>
+  request<{
+    thread?: any
+    interface_timeline?: any[]
+    failure_modes?: any[]
+    failure_graph?: { nodes: any[]; edges: any[] }
+    hit_total?: number
+    hits?: any[]
+  }>(
+    `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/abnormal-threads/${encodeURIComponent(threadKey)}?${toQueryString({ ...params, page_num: 1, page_cnt: 1 })}`,
+  )
+
 // 线程全部运行日志（含正常行；故障行带 failure_mode_id）
 export const fetchBrpcThreadLogs = (
   batchId: string,

@@ -55,6 +55,7 @@ import {
   fetchBrpcInterfaceTimeline,
   fetchBrpcPodEvents,
   fetchBrpcProfilingKnowledge,
+  fetchBrpcThreadDetail,
   fetchBrpcThreadLogs,
   fetchFailureMode,
   fetchFaultChart,
@@ -642,6 +643,11 @@ function createOverviewState() {
   const brpcThreadLogs = ref<any[]>([])
   const brpcThreadLogsLoading = ref(false)
   const brpcThreadLogsError = ref('')
+  // P2.3 线程详情（failure_graph / interface_timeline / failure_modes）
+  const brpcThreadDetail = ref<any>(null)
+  const brpcThreadDetailLoading = ref(false)
+  const brpcThreadDetailError = ref('')
+  const brpcSelectedGraphNodeId = ref('')
   let brpcThreadLogsRequestSeq = 0
   const brpcFaultPageSize = 10
 
@@ -696,6 +702,126 @@ function createOverviewState() {
         },
         yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
         series: seriesList.map((series) => ({
+          name: series.interface_name + (series.function_name ? `（${series.function_name}）` : ''),
+          type: 'line',
+          smooth: true,
+          data: times.map((time) => {
+            const point = (series.points || []).find((item: any) => item.window_start_time === time)
+            return point?.interface_hit_count ?? 0
+          }),
+          lineStyle: { width: 2 },
+        })),
+      })
+    })
+  }
+
+  // P2.3 线程详情：failure_graph 节点/边图（点击节点查看故障模式）
+  const brpcSelectedGraphNode = computed(() => {
+    const id = brpcSelectedGraphNodeId.value
+    if (!id) return null
+    return (
+      brpcThreadDetail.value?.failure_graph?.nodes?.find((node: any) => node.node_id === id) ?? null
+    )
+  })
+
+  const renderBrpcThreadGraph = () => {
+    nextTick(() => {
+      const el = brpcThreadGraphRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const graph = brpcThreadDetail.value?.failure_graph
+      if (!graph || !graph.nodes?.length) {
+        chart.clear()
+        return
+      }
+      const maxHits = Math.max(...graph.nodes.map((node: any) => node.hit_count ?? 0), 1)
+      setChartOption(chart, {
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => {
+            if (params.dataType !== 'node') return ''
+            const data = params.data
+            return data.nodeType === 'interface'
+              ? `<b>${data.nodeName}</b>${data.functionName ? `<br/>${data.functionName}` : ''}`
+              : `<b>${data.nodeName}</b><br/>命中 ${data.hitCount ?? 0} 次`
+          },
+        },
+        series: [
+          {
+            type: 'graph',
+            layout: 'force',
+            roam: true,
+            draggable: true,
+            edgeSymbol: ['none', 'arrow'],
+            edgeSymbolSize: 7,
+            force: { repulsion: 420, edgeLength: [90, 210], gravity: 0.12 },
+            data: graph.nodes.map((node: any) => ({
+              name: node.node_id,
+              nodeId: node.node_id,
+              nodeType: node.node_type,
+              nodeName: node.name || node.node_id,
+              functionName: node.function_name,
+              hitCount: node.hit_count,
+              symbolSize:
+                node.node_type === 'interface' ? 28 : 22 + ((node.hit_count ?? 0) / maxHits) * 30,
+              itemStyle: {
+                color: node.node_type === 'interface' ? '#1E6FFF' : '#EF4444',
+                borderColor: node.directly_hit ? '#7f1d1d' : undefined,
+                borderWidth: node.directly_hit ? 3 : 1,
+              },
+              label: {
+                show: true,
+                fontSize: 10,
+                formatter: (param: any) => String(param.data.nodeName ?? '').slice(0, 18),
+              },
+            })),
+            links: (graph.edges || []).map((edge: any) => ({
+              source: edge.source_node_id,
+              target: edge.target_node_id,
+              lineStyle: {
+                curveness: 0.15,
+                opacity: 0.85,
+                width: edge.edge_type === 'cross_component' ? 2.4 : 1.4,
+              },
+            })),
+            emphasis: { focus: 'adjacency' },
+          },
+        ],
+      })
+      chart.off('click')
+      chart.on('click', (params: any) => {
+        if (params.dataType !== 'node') return
+        brpcSelectedGraphNodeId.value =
+          brpcSelectedGraphNodeId.value === params.data.nodeId ? '' : params.data.nodeId
+      })
+    })
+  }
+
+  // P2.3 线程详情：接口命中时序（1m 粒度）
+  const renderBrpcThreadTimeline = () => {
+    nextTick(() => {
+      const el = brpcThreadTimelineRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const seriesList = brpcThreadDetail.value?.interface_timeline ?? []
+      const times = [
+        ...new Set(
+          seriesList.flatMap((series: any) =>
+            (series.points || []).map((point: any) => point.window_start_time),
+          ),
+        ),
+      ].sort()
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => formatChartTs(String(time))),
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: { type: 'value', name: '命中数', minInterval: 1, axisLabel: { fontSize: 10 } },
+        series: seriesList.map((series: any) => ({
           name: series.interface_name + (series.function_name ? `（${series.function_name}）` : ''),
           type: 'line',
           smooth: true,
@@ -883,35 +1009,57 @@ function createOverviewState() {
     brpcEventDetailTimeline.value = []
     brpcEventDetailThreads.value = []
     brpcEventDetailError.value = ''
+    brpcThreadDetail.value = null
+    brpcThreadDetailError.value = ''
+    brpcSelectedGraphNodeId.value = ''
     // 聚合事件行（无 thread_key）：加载组件计数 / 当前窗时序 / 关联线程（P2.2）
     if (row && !row.thread_key) {
       void loadBrpcEventDetail(row)
       return
     }
-    // 仅异常 Thread 行（带 thread_key）加载全部运行日志
+    // 仅异常 Thread 行（带 thread_key）并行加载运行日志与 P2.3 线程详情
     if (!row?.thread_key || row?.thread_id == null || !row?.pod_ip) return
     const batch = brpcFaultBatch.value
     const batchId = brpcFaultBatchId.value
     if (!batch || !batchId) return
     const seq = ++brpcThreadLogsRequestSeq
     brpcThreadLogsLoading.value = true
+    brpcThreadDetailLoading.value = true
     void (async () => {
       try {
         const { startDate, endDate } = brpcFaultQueryRange(batch)
-        const result = await fetchBrpcThreadLogs(batchId, {
-          pod_ip: row.pod_ip,
-          thread_id: Number(row.thread_id),
-          start_time: formatFullTimeLabel(startDate),
-          end_time: formatFullTimeLabel(endDate),
-          pod_name: row.pod_name || undefined,
-        })
+        const startTime = formatFullTimeLabel(startDate)
+        const endTime = formatFullTimeLabel(endDate)
+        const [logsResult, detailResult] = await Promise.all([
+          fetchBrpcThreadLogs(batchId, {
+            pod_ip: row.pod_ip,
+            thread_id: Number(row.thread_id),
+            start_time: startTime,
+            end_time: endTime,
+            pod_name: row.pod_name || undefined,
+          }),
+          fetchBrpcThreadDetail(batchId, row.thread_key, {
+            pod_ip: row.pod_ip,
+            thread_id: Number(row.thread_id),
+            start_time: startTime,
+            end_time: endTime,
+            window_size: '1m',
+            pod_name: row.pod_name || undefined,
+          }),
+        ])
         if (seq !== brpcThreadLogsRequestSeq) return
-        brpcThreadLogs.value = result.hits ?? []
+        brpcThreadLogs.value = logsResult.hits ?? []
+        brpcThreadDetail.value = detailResult
+        renderBrpcThreadGraph()
+        renderBrpcThreadTimeline()
       } catch (error) {
         if (seq !== brpcThreadLogsRequestSeq) return
-        brpcThreadLogsError.value = errorText(error)
+        brpcThreadDetailError.value = errorText(error)
       } finally {
-        if (seq === brpcThreadLogsRequestSeq) brpcThreadLogsLoading.value = false
+        if (seq === brpcThreadLogsRequestSeq) {
+          brpcThreadLogsLoading.value = false
+          brpcThreadDetailLoading.value = false
+        }
       }
     })()
   }
@@ -2395,6 +2543,8 @@ function createOverviewState() {
   const brpcLatencyRef = ref<HTMLElement | null>(null)
   const brpcFaultTimelineRef = ref<HTMLElement | null>(null)
   const brpcEventTimelineRef = ref<HTMLElement | null>(null)
+  const brpcThreadGraphRef = ref<HTMLElement | null>(null)
+  const brpcThreadTimelineRef = ref<HTMLElement | null>(null)
 
   const getChart = (element: HTMLElement) => getInstanceByDom(element) || init(element)
 
@@ -4004,6 +4154,13 @@ function createOverviewState() {
     brpcEventDetailThreads,
     brpcEventDetailTimeline,
     brpcEventTimelineRef,
+    brpcSelectedGraphNode,
+    brpcSelectedGraphNodeId,
+    brpcThreadDetail,
+    brpcThreadDetailError,
+    brpcThreadDetailLoading,
+    brpcThreadGraphRef,
+    brpcThreadTimelineRef,
     brpcFaultTimelineSeries,
     brpcFileKey,
     brpcFileLabel,
@@ -4118,6 +4275,8 @@ function createOverviewState() {
     renderBrpcLatencyChart,
     renderBrpcSingleChart,
     renderBrpcSuccessOverviewChart,
+    renderBrpcThreadGraph,
+    renderBrpcThreadTimeline,
     renderBrpcFaultTimeline,
     renderFaultChart,
     renderFaultPodChart,
