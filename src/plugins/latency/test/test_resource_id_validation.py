@@ -77,3 +77,42 @@ def test_list_router_validates_ids_before_querying_service(monkeypatch):
 
     validate.assert_awaited_once_with(req)
     list_results.assert_not_awaited()
+
+
+@pytest.mark.parametrize("via_router", [False, True])
+def test_log_file_list_rejects_missing_or_deleted_kb(monkeypatch, via_router):
+    from latency.database.managers.log_file import LogFilePGManager
+    from latency.routers import log_file as log_file_router
+    from latency.schemas.request import ListLogFilesRequest
+    from latency.services.log_file import LogFileService
+
+    find_missing = AsyncMock(return_value=["deleted-kb"])
+    list_files = AsyncMock(return_value=(0, []))
+    monkeypatch.setattr(ResourceIdPGManager, "find_missing", find_missing)
+    monkeypatch.setattr(LogFilePGManager, "list_log_files", list_files)
+    list_handler = (
+        log_file_router.list_log_files if via_router else LogFileService.list_log_files
+    )
+
+    with pytest.raises(NotFoundBizException, match="知识库不存在"):
+        run(list_handler("deleted-kb", ListLogFilesRequest()))
+
+    find_missing.assert_awaited_once_with("kb", ["deleted-kb"])
+    list_files.assert_not_awaited()
+
+
+def test_log_file_list_allows_existing_empty_kb(monkeypatch):
+    from latency.database.managers.log_file import LogFilePGManager
+    from latency.database.managers.task import TaskPGManager
+    from latency.routers import log_file as log_file_router
+    from latency.schemas.request import ListLogFilesRequest
+
+    monkeypatch.setattr(ResourceIdPGManager, "find_missing", AsyncMock(return_value=[]))
+    monkeypatch.setattr(LogFilePGManager, "list_log_files", AsyncMock(return_value=(0, [])))
+    monkeypatch.setattr(
+        TaskPGManager, "list_current_tasks_by_op_ids", AsyncMock(return_value=[])
+    )
+
+    response = run(log_file_router.list_log_files("empty-kb", ListLogFilesRequest()))
+
+    assert response.result.total == 0

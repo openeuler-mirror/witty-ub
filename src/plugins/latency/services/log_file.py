@@ -19,6 +19,7 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
 from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.schemas.log import LogFileModel
+from latency.services.resource_id import ResourceIdService
 from latency.ENUM.general import FilePath
 from latency.ENUM.general import SourceType
 from latency.schemas.request import (
@@ -541,6 +542,7 @@ class LogFileService:
 
     @staticmethod
     async def list_log_files(kb_id: str, req: ListLogFilesRequest) -> ListLogFilesMsg:
+        await ResourceIdService.require("kb", kb_id)
         total, log_file_models = await LogFilePGManager.list_log_files(kb_id, req)
         log_file_model_ids = [log_file_model.id for log_file_model in log_file_models]
         parse_tasks = await TaskPGManager.list_current_tasks_by_op_ids(
