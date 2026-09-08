@@ -312,6 +312,68 @@ export const fetchFaultTraces = async (kbId: string, op: 'get' | 'set') => {
   return { total: first.total, rows, truncated: rows.length < first.total }
 }
 
+// P1.7 通断聚合事件表（时间桶矩阵）：服务端 date_trunc 分桶，响应 total 分页，无 log_id 参数
+export interface TimeAggFailureQuery {
+  op?: 'get' | 'set'
+  interval: 'second' | 'minute' | 'hour'
+  startTime?: string
+  endTime?: string
+  sortField?: string // 'timestamp' 或 err_codes 中的码（含 all）
+  sortDesc?: boolean
+  pageNum: number
+  pageCnt: number
+}
+
+export const fetchTimeAggregatedFailureEvents = async (
+  kbId: string,
+  query: TimeAggFailureQuery,
+) => {
+  const result = await request<{ total?: number; err_codes?: string[]; events?: any[] }>(
+    '/log_failure_event_result/list_time_aggregated_failure_events',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: kbId,
+        operation: query.op ? query.op.toUpperCase() : undefined,
+        interval: query.interval,
+        start_time: query.startTime,
+        end_time: query.endTime,
+        sort_fields: query.sortField
+          ? [{ field: query.sortField, order: query.sortDesc ? 'desc' : 'asc' }]
+          : undefined,
+        page_num: query.pageNum,
+        page_cnt: query.pageCnt,
+      }),
+    },
+  )
+  return { total: result.total ?? 0, errCodes: result.err_codes ?? [], rows: result.events ?? [] }
+}
+
+// P1.7 桶内 src/dst IP 对子表：按码计数、服务端排序分页
+export const fetchSrcDstAggregatedFailureEvents = async (
+  kbId: string,
+  query: Omit<TimeAggFailureQuery, 'interval'>,
+) => {
+  const result = await request<{ total?: number; events?: any[] }>(
+    '/log_failure_event_result/list_src_dst_aggregated_failure_events',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: kbId,
+        operation: query.op ? query.op.toUpperCase() : undefined,
+        start_time: query.startTime,
+        end_time: query.endTime,
+        sort_fields: query.sortField
+          ? [{ field: query.sortField, order: query.sortDesc ? 'desc' : 'asc' }]
+          : undefined,
+        page_num: query.pageNum,
+        page_cnt: query.pageCnt,
+      }),
+    },
+  )
+  return { total: result.total ?? 0, rows: result.events ?? [] }
+}
+
 export const fetchTraceLogs = async (kbId: string, traceIds: string[], logId?: string) =>
   request<{ log_failure_event_results?: any[] }>('/log_failure_event_result/list_log_events', {
     method: 'POST',

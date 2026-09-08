@@ -66,6 +66,8 @@ import {
   fetchLatencyTracesByTraceIds,
   fetchLatencyMetrics,
   fetchParseResultTotal,
+  fetchSrcDstAggregatedFailureEvents,
+  fetchTimeAggregatedFailureEvents,
   fetchTimeWindowAggregated,
   fetchTopSlow,
   fetchTraceLatency,
@@ -2321,6 +2323,175 @@ function createOverviewState() {
     ),
   )
 
+  // ---------- P1.7 通断聚合事件表（服务端 date_trunc 分桶 × src/dst 子表） ----------
+  // 两接口无 log_id：不随日志文件选择收窄；时间为闭区间 <=，与主视图半开区间口径不同（UI 注明）。
+  // 组件卸载后自动重查（再次挂载；不同步 interval/排序/分页），时间/op 变化重置并惰性重查。
+
+  type FaultAggBucket = {
+    start_time: string
+    end_time: string
+    status_code_cnt: Record<string, number>
+  }
+  type FaultAggPair = { src_ip: string; dst_ip: string; status_code_cnt: Record<string, number> }
+
+  const FAULT_AGG_PAGE_SIZE = 10
+  const faultAggInterval = ref<'second' | 'minute' | 'hour'>('minute')
+  const faultAggIntervalOptions = [
+    { value: 'second', label: '按秒' },
+    { value: 'minute', label: '按分钟' },
+    { value: 'hour', label: '按小时' },
+  ] as const
+  const faultAggSortField = ref('timestamp') // 'timestamp' 或故障码（含 all）
+  const faultAggSortDesc = ref(false)
+  const faultAggRows = ref<FaultAggBucket[]>([])
+  const faultAggErrCodes = ref<string[]>([])
+  const faultAggTotal = ref(0)
+  const faultAggPage = ref(1)
+  const faultAggLoading = ref(false)
+  const faultAggError = ref('')
+  let faultAggSeq = 0
+
+  const faultAggPages = computed(() =>
+    Math.max(1, Math.ceil(faultAggTotal.value / FAULT_AGG_PAGE_SIZE)),
+  )
+
+  const loadFaultAggEvents = async (page = faultAggPage.value) => {
+    const asset = selectedAsset.value
+    if (!asset) return
+    const seq = ++faultAggSeq
+    faultAggLoading.value = true
+    faultAggError.value = ''
+    try {
+      const window = disconnectFilter.timeWindow.value
+      const result = await fetchTimeAggregatedFailureEvents(asset.id, {
+        op: realOp.value,
+        interval: faultAggInterval.value,
+        startTime: window ? epochMsToTs(window.start) : undefined,
+        endTime: window ? epochMsToTs(window.end) : undefined,
+        sortField: faultAggSortField.value,
+        sortDesc: faultAggSortDesc.value,
+        pageNum: page,
+        pageCnt: FAULT_AGG_PAGE_SIZE,
+      })
+      if (seq !== faultAggSeq) return
+      faultAggRows.value = result.rows
+      faultAggErrCodes.value = result.errCodes
+      faultAggTotal.value = result.total
+      faultAggPage.value = page
+      // 排序字段若因 errCodes 变化失效，回退 timestamp
+      if (
+        faultAggSortField.value !== 'timestamp' &&
+        !result.errCodes.includes(faultAggSortField.value)
+      ) {
+        faultAggSortField.value = 'timestamp'
+        faultAggSortDesc.value = false
+      }
+      // 重置展开子表
+      faultAggExpandedKey.value = ''
+      faultAggPairs.value = []
+      faultAggPairsTotal.value = 0
+    } catch (error) {
+      if (seq !== faultAggSeq) return
+      faultAggError.value = errorText(error)
+      faultAggRows.value = []
+      faultAggTotal.value = 0
+    } finally {
+      if (seq === faultAggSeq) faultAggLoading.value = false
+    }
+  }
+
+  // 主表点击表头排序：同列再点翻转方向，换列用该列默认方向
+  const faultAggSortBy = (field: string) => {
+    if (faultAggSortField.value === field) {
+      faultAggSortDesc.value = !faultAggSortDesc.value
+    } else {
+      faultAggSortField.value = field
+      faultAggSortDesc.value = field !== 'timestamp'
+    }
+    void loadFaultAggEvents(1)
+  }
+
+  // ---------- 桶内 src/dst IP 对子表 ----------
+  const faultAggExpandedKey = ref('') // `${start_time}|${end_time}`，'' = 全部收起
+  const faultAggPairs = ref<FaultAggPair[]>([])
+  const faultAggPairsErrCodes = ref<string[]>([])
+  const faultAggPairsTotal = ref(0)
+  const faultAggPairsPage = ref(1)
+  const faultAggPairsLoading = ref(false)
+  const faultAggPairsSortField = ref('all')
+  const faultAggPairsSortDesc = ref(true)
+  let faultAggPairsSeq = 0
+
+  const faultAggPairsPages = computed(() =>
+    Math.max(1, Math.ceil(faultAggPairsTotal.value / FAULT_AGG_PAGE_SIZE)),
+  )
+  const faultAggExpandedBucket = computed(() => {
+    if (!faultAggExpandedKey.value) return null
+    return faultAggRows.value.find(
+      (row) => `${row.start_time}|${row.end_time}` === faultAggExpandedKey.value,
+    )
+  })
+
+  const loadFaultAggPairs = async (page = faultAggPairsPage.value) => {
+    const asset = selectedAsset.value
+    const bucket = faultAggExpandedBucket.value
+    if (!asset || !bucket) return
+    const seq = ++faultAggPairsSeq
+    faultAggPairsLoading.value = true
+    try {
+      const result = await fetchSrcDstAggregatedFailureEvents(asset.id, {
+        op: realOp.value,
+        startTime: bucket.start_time,
+        endTime: bucket.end_time,
+        sortField: faultAggPairsSortField.value,
+        sortDesc: faultAggPairsSortDesc.value,
+        pageNum: page,
+        pageCnt: FAULT_AGG_PAGE_SIZE,
+      })
+      if (seq !== faultAggPairsSeq) return
+      faultAggPairs.value = result.rows
+      faultAggPairsTotal.value = result.total
+      faultAggPairsPage.value = page
+      // 子表动态码列与主表一致（同时间窗同 op 下故障码集合一致）
+      faultAggPairsErrCodes.value = faultAggErrCodes.value
+    } finally {
+      if (seq === faultAggPairsSeq) faultAggPairsLoading.value = false
+    }
+  }
+
+  const toggleFaultAggBucket = (bucket: FaultAggBucket) => {
+    const key = `${bucket.start_time}|${bucket.end_time}`
+    if (faultAggExpandedKey.value === key) {
+      faultAggExpandedKey.value = ''
+      faultAggPairsSeq += 1
+      return
+    }
+    faultAggExpandedKey.value = key
+    faultAggPairsSortField.value = 'all'
+    faultAggPairsSortDesc.value = true
+    void loadFaultAggPairs(1)
+  }
+
+  const faultAggPairsSortBy = (field: string) => {
+    if (faultAggPairsSortField.value === field) {
+      faultAggPairsSortDesc.value = !faultAggPairsSortDesc.value
+    } else {
+      faultAggPairsSortField.value = field
+      faultAggPairsSortDesc.value = true
+    }
+    void loadFaultAggPairs(1)
+  }
+
+  // 时间/op 变化：重置排序/分页/展开，惰性重查（卸载后恢复时立即生效）
+  watch([() => disconnectFilter.time.value, currentOp], () => {
+    faultAggSortField.value = 'timestamp'
+    faultAggSortDesc.value = false
+    faultAggExpandedKey.value = ''
+    faultAggPairsSeq += 1
+    faultAggPairs.value = []
+    void loadFaultAggEvents(1)
+  })
+
   // ---------- 对象详情（窗 × 端点/链路，服务端分页，P0.5） ----------
 
   type ObjectDetailDomain = 'latency' | 'disconnect'
@@ -2336,6 +2507,7 @@ function createOverviewState() {
     total: 0,
     page: 1,
     pageSize: 10,
+    timeOverride: null as { start: number; end: number; label: string } | null,
   })
   let objectDetailSeq = 0
 
@@ -2348,7 +2520,7 @@ function createOverviewState() {
     if (!asset) return
     const filter = objectDetail.domain === 'latency' ? latencyFilter : disconnectFilter
     const focus = filter.focus.value
-    const window = filter.timeWindow.value
+    const window = objectDetail.timeOverride ?? filter.timeWindow.value
     const seq = ++objectDetailSeq
     objectDetail.loading = true
     objectDetail.error = ''
@@ -2383,7 +2555,14 @@ function createOverviewState() {
     }
   }
 
-  const openObjectDetail = (domain: ObjectDetailDomain, focus: AnalysisFocus) => {
+  // P1.7：桶点 IP 对时传入一次性时间窗覆盖，仅影响该次详情请求与标题，不回写 filter
+  type ObjectDetailOverride = { start: number; end: number; label: string }
+
+  const openObjectDetail = (
+    domain: ObjectDetailDomain,
+    focus: AnalysisFocus,
+    timeOverride?: ObjectDetailOverride,
+  ) => {
     if (focus.kind === 'none') {
       toast('请先在拓扑或列表中选择端点或链路', 'info')
       return
@@ -2398,7 +2577,8 @@ function createOverviewState() {
         : focus.kind === 'link'
           ? `链路 ${focus.src} → ${focus.dst}`
           : '对象详情'
-    objectDetail.windowLabel = filter.timeLabel.value
+    objectDetail.windowLabel = timeOverride?.label ?? filter.timeLabel.value
+    objectDetail.timeOverride = timeOverride ?? null
     objectDetail.page = 1
     objectDetail.rows = []
     objectDetail.total = 0
@@ -2439,6 +2619,21 @@ function createOverviewState() {
   }
   const enterFaultLinkDetail = (src: string, dst: string) => {
     openObjectDetail('disconnect', { kind: 'link', src, dst })
+  }
+  // P1.7：桶点 IP 对，以桶窗为时间上下文打开链路故障 Trace（不回写 disconnectFilter.time）
+  const enterFaultAggPairDetail = (src: string, dst: string, bucket: FaultAggBucket) => {
+    const start = tsToEpochMs(bucket.start_time)
+    const end = tsToEpochMs(bucket.end_time)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return
+    openObjectDetail(
+      'disconnect',
+      { kind: 'link', src, dst },
+      {
+        start,
+        end,
+        label: `${bucket.start_time} ~ ${bucket.end_time}`,
+      },
+    )
   }
 
   /** 点节点时 inspector 的 src/dst 对列表（旧「展开行」，仅选中后出现） */
@@ -4250,6 +4445,33 @@ function createOverviewState() {
     enterLinkDetail,
     enterFaultDetail,
     enterFaultLinkDetail,
+    enterFaultAggPairDetail,
+    faultAggInterval,
+    faultAggIntervalOptions,
+    faultAggSortField,
+    faultAggSortDesc,
+    faultAggSortBy,
+    faultAggRows,
+    faultAggErrCodes,
+    faultAggTotal,
+    faultAggPage,
+    faultAggPages,
+    faultAggLoading,
+    faultAggError,
+    loadFaultAggEvents,
+    faultAggExpandedKey,
+    faultAggExpandedBucket,
+    toggleFaultAggBucket,
+    faultAggPairs,
+    faultAggPairsErrCodes,
+    faultAggPairsTotal,
+    faultAggPairsPage,
+    faultAggPairsPages,
+    faultAggPairsLoading,
+    faultAggPairsSortField,
+    faultAggPairsSortDesc,
+    faultAggPairsSortBy,
+    loadFaultAggPairs,
     objectDetail,
     objectDetailPages,
     objectDetailGoPage,

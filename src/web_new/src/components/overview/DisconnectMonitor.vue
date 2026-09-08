@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import { normalizeFaultCodes, normalizeTraceOperation } from '../../utils/format'
 import PageNav from '../common/PageNav.vue'
@@ -8,8 +8,32 @@ const {
   clearFaultRange,
   clearFaultTraceQuery,
   currentOp,
+  enterFaultAggPairDetail,
   enterFaultDetail,
   failureModeOf,
+  faultAggErrCodes,
+  faultAggError,
+  faultAggExpandedBucket,
+  faultAggExpandedKey,
+  faultAggInterval,
+  faultAggIntervalOptions,
+  faultAggLoading,
+  faultAggPage,
+  faultAggPages,
+  faultAggPairs,
+  faultAggPairsErrCodes,
+  faultAggPairsLoading,
+  faultAggPairsPage,
+  faultAggPairsPages,
+  faultAggPairsSortBy,
+  faultAggPairsSortDesc,
+  faultAggPairsSortField,
+  faultAggPairsTotal,
+  faultAggRows,
+  faultAggSortBy,
+  faultAggSortDesc,
+  faultAggSortField,
+  faultAggTotal,
   faultChartData,
   faultChartRef,
   faultChartSampled,
@@ -30,6 +54,8 @@ const {
   faultTraceTotal,
   faultTracesTruncated,
   filteredFaultTraces,
+  loadFaultAggEvents,
+  loadFaultAggPairs,
   openTraceDrawer,
   pagedFaultTraces,
   queryFaultTraceById,
@@ -37,6 +63,7 @@ const {
   renderFaultPieCharts,
   renderFaultPodChart,
   renderFaultTopology,
+  toggleFaultAggBucket,
   traceTags,
 } = useOverviewData()
 
@@ -45,7 +72,21 @@ onMounted(() => {
   renderFaultPieCharts()
   renderFaultChart()
   renderFaultPodChart()
+  void loadFaultAggEvents()
 })
+
+// 聚合尺度变化：重置排序/展开并按新尺度重查
+watch(faultAggInterval, () => {
+  faultAggSortField.value = 'timestamp'
+  faultAggSortDesc.value = false
+  faultAggExpandedKey.value = ''
+  void loadFaultAggEvents(1)
+})
+
+const bucketKey = (row: { start_time: string; end_time: string }) =>
+  `${row.start_time}|${row.end_time}`
+const aggCount = (row: { status_code_cnt: Record<string, number> }, code: string) =>
+  row.status_code_cnt?.[code] ?? 0
 
 const faultPodIps = (row: any) =>
   row.pod_names?.length
@@ -204,6 +245,167 @@ const faultModeTitle = (row: any) =>
       <div class="hint">切换 SET 查看故障码时序</div>
     </div>
     <div v-else ref="faultChartRef" style="height: 300px"></div>
+  </div>
+
+  <div class="section-card">
+    <h2 class="section-card-title">
+      聚合事件表
+      <span class="hint"
+        >服务端按所选尺度分桶的时间 × IP
+        对聚合下钻（对齐旧版）；不随日志文件选择收窄，时间右边界为闭区间，与主视图半开区间口径不同</span
+      >
+      <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px">
+        <label for="fault-agg-interval" class="hint">聚合尺度</label>
+        <select id="fault-agg-interval" class="select" v-model="faultAggInterval">
+          <option v-for="opt in faultAggIntervalOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </span>
+    </h2>
+    <div v-if="faultAggError" class="error-banner" style="margin-bottom: 10px">
+      {{ faultAggError }}
+    </div>
+    <div v-if="faultAggLoading && faultAggRows.length === 0" class="empty" style="padding: 30px 0">
+      <div class="icon">⏳</div>
+      <div>聚合事件加载中…</div>
+    </div>
+    <div v-else-if="faultAggRows.length === 0" class="empty" style="padding: 30px 0">
+      <div class="icon">📭</div>
+      <div>{{ faultTimeRange ? '当前时间范围内无聚合故障事件' : '暂无聚合故障事件' }}</div>
+    </div>
+    <template v-else>
+      <div class="table-wrap" role="region" tabindex="0" aria-label="通断聚合事件表，可左右滚动">
+        <table class="fault-agg-table">
+          <thead>
+            <tr>
+              <th style="width: 40px"></th>
+              <th class="sortable" @click="faultAggSortBy('timestamp')">
+                开始时间
+                <span v-if="faultAggSortField === 'timestamp'" class="sort-mark">{{
+                  faultAggSortDesc ? '↓' : '↑'
+                }}</span>
+              </th>
+              <th>结束时间</th>
+              <th
+                v-for="code in faultAggErrCodes"
+                :key="code"
+                class="sortable num"
+                @click="faultAggSortBy(code)"
+              >
+                {{ code === 'all' ? '全部' : `故障码 ${code}` }}
+                <span v-if="faultAggSortField === code" class="sort-mark">{{
+                  faultAggSortDesc ? '↓' : '↑'
+                }}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="row in faultAggRows" :key="bucketKey(row)">
+              <tr
+                :class="{ 'row-expanded': bucketKey(row) === faultAggExpandedKey }"
+                @click="toggleFaultAggBucket(row)"
+              >
+                <td class="expand-mark">
+                  {{ bucketKey(row) === faultAggExpandedKey ? '▾' : '▸' }}
+                </td>
+                <td style="font-family: monospace; font-size: 12px">{{ row.start_time }}</td>
+                <td style="font-family: monospace; font-size: 12px">{{ row.end_time }}</td>
+                <td v-for="code in faultAggErrCodes" :key="code" class="num">
+                  {{ aggCount(row, code) || '-' }}
+                </td>
+              </tr>
+              <tr v-if="bucketKey(row) === faultAggExpandedKey" class="pair-subrow">
+                <td :colspan="3 + faultAggErrCodes.length">
+                  <div v-if="faultAggPairsLoading" class="hint" style="padding: 8px 0">
+                    IP 对加载中…
+                  </div>
+                  <div v-else-if="faultAggPairs.length === 0" class="hint" style="padding: 8px 0">
+                    该时间桶内无源/目标 IP 对
+                  </div>
+                  <template v-else>
+                    <table class="fault-agg-pair-table">
+                      <thead>
+                        <tr>
+                          <th>源 IP</th>
+                          <th>目标 IP</th>
+                          <th
+                            v-for="code in faultAggPairsErrCodes"
+                            :key="code"
+                            class="sortable num"
+                            @click.stop="faultAggPairsSortBy(code)"
+                          >
+                            {{ code === 'all' ? '全部' : `故障码 ${code}` }}
+                            <span v-if="faultAggPairsSortField === code" class="sort-mark">{{
+                              faultAggPairsSortDesc ? '↓' : '↑'
+                            }}</span>
+                          </th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="pair in faultAggPairs" :key="pair.src_ip + '→' + pair.dst_ip">
+                          <td style="font-family: monospace">{{ pair.src_ip }}</td>
+                          <td style="font-family: monospace">{{ pair.dst_ip }}</td>
+                          <td v-for="code in faultAggPairsErrCodes" :key="code" class="num">
+                            {{ aggCount(pair, code) || '-' }}
+                          </td>
+                          <td>
+                            <button
+                              class="btn btn-sm btn-text"
+                              @click.stop="
+                                enterFaultAggPairDetail(
+                                  pair.src_ip,
+                                  pair.dst_ip,
+                                  faultAggExpandedBucket!,
+                                )
+                              "
+                            >
+                              查看故障 Trace
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <div
+                      style="
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-top: 8px;
+                      "
+                    >
+                      <span style="font-size: 12px; color: var(--text2)"
+                        >共 {{ faultAggPairsTotal }} 对</span
+                      >
+                      <PageNav
+                        v-if="faultAggPairsPages > 1"
+                        :page="faultAggPairsPage"
+                        :pages="faultAggPairsPages"
+                        @update:page="loadFaultAggPairs"
+                      />
+                    </div>
+                  </template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
+      >
+        <span style="font-size: 13px; color: var(--text2)"
+          >共 {{ faultAggTotal }} 桶{{ faultAggLoading ? ' · 刷新中…' : '' }}</span
+        >
+        <PageNav
+          v-if="faultAggPages > 1"
+          :page="faultAggPage"
+          :pages="faultAggPages"
+          @update:page="loadFaultAggEvents"
+        />
+      </div>
+    </template>
   </div>
 
   <div class="section-card">
@@ -487,5 +689,100 @@ const faultModeTitle = (row: any) =>
   font-size: 11px;
   padding: 1px 6px;
   margin: 0;
+}
+
+/* P1.7 聚合事件表 */
+.fault-agg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.fault-agg-table th,
+.fault-agg-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.fault-agg-table th {
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--text2);
+  font-weight: 600;
+}
+
+.fault-agg-table th.sortable,
+.fault-agg-pair-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.fault-agg-table th.sortable:hover,
+.fault-agg-pair-table th.sortable:hover {
+  color: var(--primary);
+}
+
+.fault-agg-table th.num,
+.fault-agg-table td.num,
+.fault-agg-pair-table th.num,
+.fault-agg-pair-table td.num {
+  text-align: right;
+}
+
+.sort-mark {
+  margin-left: 2px;
+  color: var(--primary);
+}
+
+.fault-agg-table tbody tr:not(.pair-subrow) {
+  cursor: pointer;
+}
+
+.fault-agg-table tbody tr:not(.pair-subrow):hover {
+  background: var(--primary-bg);
+}
+
+.fault-agg-table tr.row-expanded {
+  background: var(--primary-bg);
+}
+
+.expand-mark {
+  color: var(--text3);
+  font-size: 12px;
+}
+
+.pair-subrow > td {
+  background: var(--bg);
+  padding: 10px 16px 12px 40px;
+}
+
+.fault-agg-pair-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fault-agg-pair-table th,
+.fault-agg-pair-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.fault-agg-pair-table th {
+  background: var(--primary-bg);
+  color: var(--text2);
+  font-weight: 600;
+}
+
+.fault-agg-pair-table tbody tr:last-child td {
+  border-bottom: none;
 }
 </style>
