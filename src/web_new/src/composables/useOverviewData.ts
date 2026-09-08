@@ -2824,7 +2824,7 @@ function createOverviewState() {
             shadowBlur: selected ? 6 : 0,
             shadowColor: selected ? 'rgba(109,40,217,0.35)' : 'transparent',
           }
-          link.symbolSize = [0, Math.min(13, Math.max(10, Math.round(width + 7)))]
+          link.symbolSize = [0, Math.min(18, Math.max(14, Math.round(width * 2 + 7)))]
         })
       }
 
@@ -2840,7 +2840,7 @@ function createOverviewState() {
           selectedTopologyNode.value?.ip === node.ip ||
           selectedLink?.source === node.ip ||
           selectedLink?.target === node.ip
-        const size = 34 + Math.sqrt(node.total / maxTotal) * 12
+        const size = 30 + Math.sqrt(node.total / maxTotal) * 28
         return {
           name: node.ip,
           x: pos?.x,
