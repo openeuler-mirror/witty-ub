@@ -576,6 +576,16 @@ function createOverviewState() {
     const seq = ++brpcProfilingSeq
     brpcLoading.value = true
     brpcMonitorError.value = ''
+    // 无已完成 UBSocket 任务时不发请求（必然 404），空态由 brpcScopeTasks 判断承载
+    if (brpcScopeTasks.value.length === 0) {
+      brpcProfilingFiles.value = []
+      brpcAllProfilingRows.value = []
+      brpcSelectedFileKey.value = ''
+      brpcLoading.value = false
+      await loadBrpcFaultData()
+      renderAnalysisModules()
+      return
+    }
     try {
       const result = await fetchBrpcProfilingKnowledge(asset.id)
       if (seq !== brpcProfilingSeq) return
@@ -590,7 +600,9 @@ function createOverviewState() {
       }
     } catch (error) {
       if (seq !== brpcProfilingSeq) return
-      brpcMonitorError.value = errorText(error)
+      // 「数据不存在」对资产是正常空态（任务未产生 profiling），不作为错误展示
+      const message = errorText(error)
+      if (!message.includes('数据不存在')) brpcMonitorError.value = message
       brpcProfilingFiles.value = []
       brpcAllProfilingRows.value = []
       brpcSelectedFileKey.value = ''
