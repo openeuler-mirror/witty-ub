@@ -16,6 +16,8 @@
 #include "logger.h"
 
 namespace rack::com {
+constexpr char WILDCARD_SUFFIX[] = "/*";
+constexpr std::size_t WILDCARD_SUFFIX_LEN = sizeof(WILDCARD_SUFFIX) - 1;
 
 RackHttpServerHandler &RackHttpServerHandler::GetInstance()
 {
@@ -25,12 +27,6 @@ RackHttpServerHandler &RackHttpServerHandler::GetInstance()
 
 void RackHttpServerHandler::Register(RackHttpMethod method, std::string pathPattern, RackHttpHandler handler)
 {
-    // 现在还用不到middlewares
-    // for (auto it = middlewares_.rbegin(); it != middlewares_.rend(); ++it) {
-
-    //     handler = (*it)(std::move(handler));
-    // }
-
     std::string routeKey = MakeKey(method, std::move(pathPattern));
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = routes_.find(routeKey);
@@ -73,8 +69,9 @@ RackComResult<RackHttpResponse> RackHttpServerHandler::Dispatch(const RackComCon
         }
 
         const std::string pattern = k.substr(pos + 1);
-        if (pattern.size() >= 2 && pattern[pattern.size() - 2] == '/' && pattern[pattern.size() - 1] == '*') {
-            const std::string prefix = pattern.substr(0, pattern.size() - 1);
+        if (pattern.size() >= WILDCARD_SUFFIX_LEN &&
+            pattern.compare(pattern.size() - WILDCARD_SUFFIX_LEN, WILDCARD_SUFFIX_LEN, WILDCARD_SUFFIX) == 0) {
+            const std::string prefix = pattern.substr(0, pattern.size() - WILDCARD_SUFFIX_LEN);
             if (request.path.rfind(prefix, 0) == 0) {
                 if (prefix.size() > bestPrefixLen) {
                     bestPrefixLen = prefix.size();

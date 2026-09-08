@@ -20,31 +20,30 @@ using namespace rack::module;
 using namespace witty_json::io;
 class JSONModule : public RackModule {
 public:
-  ~JSONModule() override = default;
-  RackResult Initialize() override;
-  void UnInitialize() override;
-  RackResult Start() override;
-  void Stop() override;
-  JSONModule() = default;
+    ~JSONModule() override = default;
+    RackResult Initialize() override;
+    void UnInitialize() override;
+    RackResult Start() override;
+    void Stop() override;
+    JSONModule() = default;
 
-  template <typename... Pairs>
-  RackResult WriteVectorsToFile(const std::string &filename, Pairs &&...pairs) {
-    auto ret =
-        json_io->WriteVectorsToFile(filename, std::forward<Pairs>(pairs)...);
-    if (ret != RACK_OK) {
-      LOG_ERROR
-          << "JsonModule::WriteVectorsTofile-Error: failed to write to file "
-          << filename;
+    template <typename... Pairs>
+    RackResult WriteVectorsToFile(const std::string &filename, Pairs &&...pairs)
+    {
+        auto ret = json_io->WriteVectorsToFile(filename, std::forward<Pairs>(pairs)...);
+        if (ret != RACK_OK) {
+            LOG_ERROR << "JsonModule::WriteVectorsTofile-Error: failed to write to file " << filename;
+        }
+        return ret;
     }
-    return ret;
-  }
-  template<typename T>
-  auto GetJsonPair(const char *key, const std::vector<T> &vec){
-    return std::make_pair(key, std::ref(vec));
-  }
+    template <typename T>
+    auto GetJsonPair(const char *key, const std::vector<T> &vec)
+    {
+        return std::make_pair(key, std::ref(vec));
+    }
 
 private:
-  std::shared_ptr<WittyJson> json_io;
+    std::shared_ptr<WittyJson> json_io;
 };
 
 } // namespace witty_json::module

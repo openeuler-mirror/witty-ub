@@ -13,8 +13,8 @@
 #pragma once
 
 #include <functional>
-#include <string>
 #include <map>
+#include <string>
 
 #include "common/rack_com_context.h"
 #include "common/rack_com_result.h"
@@ -31,7 +31,15 @@ enum StatusCode {
     NotFound_404 = 404,
     InternalServerError_500 = 500,
 };
-enum class RackHttpMethod { GET, POST, PUT, DELETE_, PATCH, OPTIONS, INVALID };
+enum class RackHttpMethod {
+    GET,
+    POST,
+    PUT,
+    DELETE_,
+    PATCH,
+    OPTIONS,
+    INVALID
+};
 
 static std::string MethodToString(RackHttpMethod method)
 {
@@ -86,7 +94,7 @@ struct RackHttpResponse {
     std::string body;
 };
 
-using RackHttpHandler = 
+using RackHttpHandler =
     std::function<RackComResult<RackHttpResponse>(const RackComContext &context, const RackHttpRequest &request)>;
 
 using RackHttpMiddleware = std::function<RackHttpHandler(RackHttpHandler handler)>;

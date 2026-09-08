@@ -10,7 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef LOG_PARSER_H
+#define LOG_PARSER_H
 
 #include "failure_def.h"
 #include "log_template.h"
@@ -29,3 +30,5 @@ namespace failure::log {
         std::vector<LogTemplate> singleLineTemplates_;
     };
 }
+
+#endif // LOG_PARSER_H

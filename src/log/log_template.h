@@ -10,7 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef LOG_TEMPLATE_H
+#define LOG_TEMPLATE_H
 
 #include <memory>
 #include <optional>
@@ -22,7 +23,7 @@
 namespace failure::log {
     class LogTemplate {
     public:
-        LogTemplate(const FailureMode& mode);
+        explicit LogTemplate(const FailureMode& mode);
 
         std::optional<std::unordered_map<std::string, std::string>> Match(const std::string& line) const;
         std::optional<FailureEvent> CreateEvent(
@@ -42,3 +43,5 @@ namespace failure::log {
         std::vector<std::string> fields_;
     };
 }
+
+#endif // LOG_TEMPLATE_H

@@ -224,12 +224,7 @@ std::string LogReader::CollectContinuationLines(const LogTemplate &tmpl, const s
 
 std::optional<FailureEvent> LogReader::ReadOnce()
 {
-    while (true) {
-        auto line = ReadNextLine();
-        if (!line) {
-            return std::nullopt;
-        }
-
+    while (auto line = ReadNextLine()) {
         if (auto entry = parser_->MatchSingleLineTemplate(*line)) {
             const LogTemplate &tmpl = *entry->first;
             std::unordered_map<std::string, std::string> &attributes = entry->second;

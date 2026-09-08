@@ -12,107 +12,108 @@
 
 #ifndef WITTY_JSON_H
 #define WITTY_JSON_H
-#include <fstream>
+#include <fcntl.h>
 #include <json/json.h>
 #include <json/writer.h>
 #include <sys/file.h>
-#include <fcntl.h>
 #include <unistd.h>
-#include <string>
 #include <filesystem>
-#include "logger.h"
+#include <fstream>
+#include <string>
 #include "rack_error.h"
+#include "logger.h"
 
 namespace witty_json::io {
-    class WittyJson{
-        public:
-        void add_vector_to_json(Json::Value &j){
+class WittyJson {
+public:
+    void add_vector_to_json(Json::Value &j) {}
+
+    template <typename T, typename... Rest>
+    void add_vector_to_json(Json::Value &j, std::pair<const char *, const std::vector<T> &> &first, Rest &&...rest)
+    {
+        j[first.first] = Json::Value(Json::arrayValue);
+        for (const auto &item : first.second) {
+            Json::Value item_json;
+            to_json(item_json, item);
+            j[first.first].append(item_json);
         }
-        
-        template<typename T, typename...Rest>
-        void add_vector_to_json(Json::Value &j, std::pair<const char *, const std::vector<T> &> &first, Rest &&...rest){
-            j[first.first] = Json::Value(Json::arrayValue);
-            for (const auto &item : first.second) {
-                Json::Value item_json;
-                to_json(item_json, item);
-                j[first.first].append(item_json);
-            }
-            add_vector_to_json(j, std::forward<Rest>(rest)...);
+        add_vector_to_json(j, std::forward<Rest>(rest)...);
+    }
+
+    template <typename... Pairs>
+    RackResult WriteVectorsToFile(const std::string &filename, Pairs &&...pairs)
+    {
+        Json::Value j(Json::objectValue);
+        add_vector_to_json(j, std::forward<Pairs>(pairs)...);
+
+        // Generate temporary file path
+        std::filesystem::path file_path(filename);
+        std::filesystem::path temp_path =
+            file_path.parent_path() / (file_path.stem().string() + ".tmp" + file_path.extension().string());
+        std::string tempFilename = temp_path.string();
+
+        // Create a dedicated lock file path
+        std::string lockFilename = filename + ".lock";
+
+        // Acquire file lock on the dedicated lock file
+        int lockFd = open(lockFilename.c_str(), O_WRONLY | O_CREAT, 0644);
+        if (lockFd == -1) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open lock file " << lockFilename;
+            return RACK_FAIL;
         }
-        
-        template<typename...Pairs>
-        RackResult WriteVectorsToFile(const std::string &filename, Pairs &&...pairs){
-            Json::Value j(Json::objectValue);
-            add_vector_to_json(j, std::forward<Pairs>(pairs)...);
-            
-            // Generate temporary file path
-            std::filesystem::path file_path(filename);
-            std::filesystem::path temp_path =
-                file_path.parent_path() / (file_path.stem().string() + ".tmp" + file_path.extension().string());
-            std::string temp_filename = temp_path.string();
-            
-            // Create a dedicated lock file path
-            std::string lock_filename = filename + ".lock";
-            
-            // Acquire file lock on the dedicated lock file
-            int lock_fd = open(lock_filename.c_str(), O_WRONLY | O_CREAT, 0644);
-            if (lock_fd == -1) {
-                LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open lock file " << lock_filename;
-                return RACK_FAIL;
-            }
-            
-            // Wait for exclusive lock (blocking)
-            if (flock(lock_fd, LOCK_EX) == -1) {
-                LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to acquire lock on " << lock_filename;
-                close(lock_fd);
-                return RACK_FAIL;
-            }
-            
-            LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: acquired lock on " << lock_filename;
-            
-            // Open temporary file for writing
-            std::ofstream output(temp_filename);
-            if(!output.is_open()){
-                LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open temporary file " << temp_filename;
-                flock(lock_fd, LOCK_UN);
-                close(lock_fd);
-                return RACK_FAIL;
-            }
-            
-            // Write JSON data to temporary file
-            Json::StreamWriterBuilder builder;
-            builder["indentation"] = "    ";
-            std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-            writer->write(j, &output);
-            output << std::endl;
-            output.close();
-            
-            // Atomically rename temporary file to target file
-            try {
-                std::filesystem::rename(temp_filename, filename);
-                LOG_INFO << "WittyJson::WriteVectorsTofile-Info: successfully write to file " << filename;
-            } catch (const std::filesystem::filesystem_error& e) {
-                LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to rename temporary file to " << filename
-                          << ", error: " << e.what();
-                flock(lock_fd, LOCK_UN);
-                close(lock_fd);
-                std::filesystem::remove(temp_filename);
-                return RACK_FAIL;
-            }
-            
-            // Release file lock
-            if (flock(lock_fd, LOCK_UN) == -1) {
-                LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to release lock on " << lock_filename;
-            }
-            close(lock_fd);
-            
-            // Remove the lock file (optional, but keeps filesystem clean)
-            std::filesystem::remove(lock_filename);
-            
-            LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: released lock and cleaned up lock file";
-            
-            return RACK_OK;
+
+        // Wait for exclusive lock (blocking)
+        if (flock(lockFd, LOCK_EX) == -1) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to acquire lock on " << lockFilename;
+            close(lockFd);
+            return RACK_FAIL;
         }
-    };
-}//namespace witty_json::io
+
+        LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: acquired lock on " << lockFilename;
+
+        // Open temporary file for writing
+        std::ofstream output(tempFilename);
+        if (!output.is_open()) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to open temporary file " << tempFilename;
+            flock(lockFd, LOCK_UN);
+            close(lockFd);
+            return RACK_FAIL;
+        }
+
+        // Write JSON data to temporary file
+        Json::StreamWriterBuilder builder;
+        builder["indentation"] = "    ";
+        std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+        writer->write(j, &output);
+        output << std::endl;
+        output.close();
+
+        // Atomically rename temporary file to target file
+        try {
+            std::filesystem::rename(tempFilename, filename);
+            LOG_INFO << "WittyJson::WriteVectorsTofile-Info: successfully write to file " << filename;
+        } catch (const std::filesystem::filesystem_error &e) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to rename temporary file to " << filename
+                      << ", error: " << e.what();
+            flock(lockFd, LOCK_UN);
+            close(lockFd);
+            std::filesystem::remove(tempFilename);
+            return RACK_FAIL;
+        }
+
+        // Release file lock
+        if (flock(lockFd, LOCK_UN) == -1) {
+            LOG_ERROR << "WittyJson::WriteVectorsTofile-Error: failed to release lock on " << lockFilename;
+        }
+        close(lockFd);
+
+        // Remove the lock file (optional, but keeps filesystem clean)
+        std::filesystem::remove(lockFilename);
+
+        LOG_DEBUG << "WittyJson::WriteVectorsTofile-Info: released lock and cleaned up lock file";
+
+        return RACK_OK;
+    }
+};
+} // namespace witty_json::io
 #endif // WITTY_JSON_H

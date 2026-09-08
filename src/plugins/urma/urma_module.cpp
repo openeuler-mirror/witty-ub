@@ -14,10 +14,10 @@
 #include <unordered_map>
 
 #include "rack_error.h"
-#include "urma_module.h"
 #include "logger.h"
 #include "ubse_context.h"
 #include "urma_error.h"
+#include "urma_module.h"
 #include "urma_topology.h"
 
 namespace urma::module {
@@ -30,10 +30,10 @@ RackResult URMAModule::Initialize()
 RackResult URMAModule::Start()
 {
     LOG_DEBUG << "Execute URMAModule Start";
-    UbseContext& g_rackContext = UbseContext::GetInstance();
+    UbseContext &g_rackContext = UbseContext::GetInstance();
     auto args = g_rackContext.GetTopoToolsArgs();
     URMAResult ret = urmaTopology->CreateTopology(args);
-    if(ret == URMA_FAIL){
+    if (ret == URMA_FAIL) {
         LOG_ERROR << "Execute URMAModule Start Error";
         return RACK_FAIL;
     }

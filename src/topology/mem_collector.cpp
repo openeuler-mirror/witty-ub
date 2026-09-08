@@ -23,7 +23,7 @@ OP_RET MemCollector::InitDb(std::shared_ptr<Database> db_)
 {
     db = db_;
     std::cout << "init db" << std::endl;
-    return SUCCESS;
+    return OP_RET::SUCCESS;
 }
 OP_RET MemCollector::StartDb()
 {
@@ -35,7 +35,7 @@ OP_RET MemCollector::StartDb()
         make_tuple("deviceId", "TEXT", true, false),
         make_tuple("memId", "TEXT", true, false),
         make_tuple("isMemoryFromUser", "TEXT", true, false)}));
-    if (ret != SUCCESS) {
+    if (ret != OP_RET::SUCCESS) {
         return ret;
     }
     ret = db -> CreateTable("ImportMemory", vector<tuple<string, string, bool, bool>>({
@@ -54,10 +54,10 @@ OP_RET MemCollector::StartDb()
         make_tuple("memId", "TEXT", true, false),
         make_tuple("isDecoderPrefilled", "TEXT", true, false),
         make_tuple("paddr", "TEXT", true, false)}));
-    if (ret != SUCCESS) {
+    if (ret != OP_RET::SUCCESS) {
         return ret;
     }
-    return SUCCESS;
+    return OP_RET::SUCCESS;
 }
 shared_ptr<Database> MemCollector::GetDb()
 {

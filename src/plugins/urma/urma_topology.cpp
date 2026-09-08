@@ -11,6 +11,7 @@
  */
 
 #define MODULE_NAME "URMA"
+#include <sys/stat.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,7 +19,6 @@
 #include <memory>
 #include <regex>
 #include <string>
-#include <sys/stat.h>
 #include <vector>
 
 #include "logger.h"
@@ -27,41 +27,46 @@
 #include "urma_topology.h"
 namespace urma::topo {
 using namespace ubse::context;
+constexpr std::size_t LOCAL_EID_GROUP = 1;
+constexpr std::size_t LOCAL_JETTY_ID_GROUP = 2;
+constexpr std::size_t REMOTE_EID_GROUP = 3;
+constexpr std::size_t REMOTE_JETTY_ID_GROUP = 4;
+constexpr std::size_t EXPECTED_MATCH_COUNT = 5;
 // 解析函数：提取local eid, local jetty_id, remote eid, remote jetty_id
-bool parseLogLine(const std::string &line, SessionKey &key)
+bool ParseLogLine(const std::string &line, SessionKey &key)
 {
     std::string pattern = std::string(R"(local eid:\s*([0-9a-fA-F:]+),\s*local jetty_id:\s*(\d+),)") +
-                        R"(\s*remote eid:\s*([0-9a-fA-F:]+),\s*remote jetty_id:\s*(\d+))";
+                          R"(\s*remote eid:\s*([0-9a-fA-F:]+),\s*remote jetty_id:\s*(\d+))";
     std::regex re(pattern);
     std::smatch m;
     if (std::regex_search(line, m, re)) {
-        if (m.size() == 5) {
-            key.local_eid = m[1].str();
-            key.local_jetty_id = m[2].str();
-            key.remote_eid = m[3].str();
-            key.remote_jetty_id = m[4].str();
+        if (m.size() == EXPECTED_MATCH_COUNT) {
+            key.localEid = m[LOCAL_EID_GROUP].str();
+            key.localJettyId = m[LOCAL_JETTY_ID_GROUP].str();
+            key.remoteEid = m[REMOTE_EID_GROUP].str();
+            key.remoteJettyId = m[REMOTE_JETTY_ID_GROUP].str();
             return true;
         }
     }
     return false;
 }
 
-std::vector<std::string> URMATopology::CollectLogFiles(const std::string &file_path)
+std::vector<std::string> URMATopology::CollectLogFiles(const std::string &filePath)
 {
     std::vector<std::string> log_files;
-    if (std::filesystem::is_directory(file_path)) {
-        LOG_DEBUG << "Path is directory, collecting all .log files from: " << file_path;
-        for (const auto &entry : std::filesystem::directory_iterator(file_path)) {
+    if (std::filesystem::is_directory(filePath)) {
+        LOG_DEBUG << "Path is directory, collecting all .log files from: " << filePath;
+        for (const auto &entry : std::filesystem::directory_iterator(filePath)) {
             if (entry.path().extension() == ".log") {
                 log_files.push_back(entry.path().string());
                 LOG_DEBUG << "Found log file: " << entry.path().string();
             }
         }
         if (log_files.empty()) {
-            LOG_WARN << "No .log files found in directory: " << file_path;
+            LOG_WARN << "No .log files found in directory: " << filePath;
         }
-    } else if (std::filesystem::is_regular_file(file_path)) {
-        log_files.push_back(file_path);
+    } else if (std::filesystem::is_regular_file(filePath)) {
+        log_files.push_back(filePath);
     }
     return log_files;
 }
@@ -89,7 +94,7 @@ URMAResult URMATopology::ProcessLogFile(const std::string &logFile, std::map<Ses
             continue;
         }
         SessionKey key;
-        if (!parseLogLine(line, key)) {
+        if (!ParseLogLine(line, key)) {
             LOG_DEBUG << "line: " << lineNum << " log format is incorrect,"
                       << " key: " << (isBind ? "bind network success" : "unbind network") << " is found,"
                       << "but cannot get [local eid, local jetty_id, remote eid, remote jetty_id]";
@@ -99,24 +104,24 @@ URMAResult URMATopology::ProcessLogFile(const std::string &logFile, std::map<Ses
         }
         if (isBind) {
             activeSessions[key] = line;
-            LOG_DEBUG << "line: " << lineNum << " is bind jetty success -> insert/update data: " << key.toString();
+            LOG_DEBUG << "line: " << lineNum << " is bind jetty success -> insert/update data: " << key.ToString();
         } else if (isUnbind) {
             activeSessions.erase(key);
-            LOG_DEBUG << "line: " << lineNum << " is unbind jetty -> delete bind data: " << key.toString();
+            LOG_DEBUG << "line: " << lineNum << " is unbind jetty -> delete bind data: " << key.ToString();
         }
     }
     file.close();
     return URMA_SUCCESS;
 }
 
-URMAResult URMATopology::ParseUMQLog(std::string file_path, std::map<SessionKey, std::string> &activeSessions)
+URMAResult URMATopology::ParseUMQLog(std::string filePath, std::map<SessionKey, std::string> &activeSessions)
 {
     LOG_DEBUG << "Start open umq log file.";
-    if (!std::filesystem::exists(file_path)) {
-        LOG_ERROR << "file: " << file_path << " is not exists";
+    if (!std::filesystem::exists(filePath)) {
+        LOG_ERROR << "file: " << filePath << " is not exists";
         return URMA_FAIL;
     }
-    std::vector<std::string> log_files = CollectLogFiles(file_path);
+    std::vector<std::string> log_files = CollectLogFiles(filePath);
     if (log_files.empty()) {
         return URMA_SUCCESS;
     }
@@ -128,86 +133,100 @@ URMAResult URMATopology::ParseUMQLog(std::string file_path, std::map<SessionKey,
     return URMA_SUCCESS;
 }
 
+URMAResult URMATopology::CreatePodModeTopology(const TopoToolsArgs &args, std::vector<topology::urma::Pod> &pods,
+                                               std::vector<topology::urma::Jetty> &jetties,
+                                               std::vector<topology::urma::URMADevice> &urma_devices)
+{
+    auto input_umq_log_path = args.umq_log_path_map;
+    std::map<std::string, std::string> target_log_path;
+    // 对 pod_id和umq_log_path列出的pod进行一个匹配
+    if (args.pod_id_list.empty()) {
+        target_log_path = input_umq_log_path;
+    } else {
+        for (auto pod_id : args.pod_id_list) {
+            auto it = input_umq_log_path.find(pod_id);
+            if (it == input_umq_log_path.end()) {
+                LOG_ERROR << "Failed to find pod " << pod_id << "in input umq_log_path";
+                return URMA_FAIL;
+            }
+            target_log_path.emplace(it->first, it->second);
+        }
+    }
+    for (auto [pod_id, path] : target_log_path) {
+        // 获取这个pod对应的日志文件中的所有符合格式日志的参数存在sessionKey中
+        std::map<SessionKey, std::string> activeSessions;
+        URMAResult ret = ParseUMQLog(path, activeSessions);
+        if (ret != URMA_SUCCESS) {
+            LOG_ERROR << "error when parsing UMQ log, pod_id is: " << pod_id << " log path is: " << path;
+            return ret;
+        }
+        pods.emplace_back(pod_id);
+        for (const auto pair : activeSessions) {
+            auto key = pair.first;
+            jetties.emplace_back(key.localJettyId, key.localEid, key.remoteJettyId, key.remoteEid, pod_id);
+            urma_devices.emplace_back(key.localEid);
+        }
+    }
+    auto pod_pair = jsonModule->GetJsonPair("pod", pods);
+    auto jetty_pair = jsonModule->GetJsonPair("jetty", jetties);
+    auto urma_device_pair = jsonModule->GetJsonPair("urma_device", urma_devices);
+    auto ret = jsonModule->WriteVectorsToFile(URMA_JSON_PATH, pod_pair, jetty_pair, urma_device_pair);
+    if (ret == RACK_FAIL) {
+        LOG_ERROR << "Failed to writer to file " << URMA_JSON_PATH;
+        return URMA_SUCCESS;
+    }
+    if (::chmod(URMA_JSON_PATH, URMA_JSON_PATH_PERM_640) != 0) {
+        LOG_ERROR << "Failed to set file mode 0640 for output file " << URMA_JSON_PATH;
+    }
+    return URMA_SUCCESS;
+}
+
+URMAResult URMATopology::CreateNormalModeTopology(const std::map<std::string, std::string> &input_umq_log_path,
+                                                  std::vector<topology::urma::Jetty> &jetties,
+                                                  std::vector<topology::urma::URMADevice> &urma_devices)
+{
+    auto it = input_umq_log_path.find("normal");
+    if (it == input_umq_log_path.end()) {
+        LOG_ERROR << "Failed to find umq log path when pod mode is off";
+        return URMA_FAIL;
+    }
+    std::map<SessionKey, std::string> activeSessions;
+    URMAResult ret = ParseUMQLog(it->second, activeSessions);
+    if (ret != URMA_SUCCESS) {
+        LOG_ERROR << "error when parsing UMQ log, path is: " << it->second;
+        return ret;
+    }
+    for (const auto pair : activeSessions) {
+        auto key = pair.first;
+        jetties.emplace_back(key.localJettyId, key.localEid, key.remoteJettyId, key.remoteEid, std::nullopt);
+        urma_devices.emplace_back(key.localEid);
+    }
+    auto jetty_pair = jsonModule->GetJsonPair("jetty", jetties);
+    auto urma_device_pair = jsonModule->GetJsonPair("urma_device", urma_devices);
+    auto json_ret = jsonModule->WriteVectorsToFile(URMA_JSON_PATH, jetty_pair, urma_device_pair);
+    if (json_ret == RACK_FAIL) {
+        LOG_ERROR << "Failed to writer to file " << URMA_JSON_PATH;
+        return URMA_FAIL;
+    }
+    if (::chmod(URMA_JSON_PATH, URMA_JSON_PATH_PERM_640) != 0) {
+        LOG_ERROR << "Failed to set file mode 0640 for output file " << URMA_JSON_PATH;
+    }
+    return URMA_SUCCESS;
+}
+
 URMAResult URMATopology::CreateTopology(TopoToolsArgs &args)
 {
     std::vector<topology::urma::Pod> pods;
     std::vector<topology::urma::Jetty> jetties;
     std::vector<topology::urma::URMADevice> urma_devices;
-    bool needSetPerm = false;
-    auto input_umq_log_path = args.umq_log_path_map;
-    if (args.pod_mode == "on") {
-        std::map<std::string, std::string> target_log_path;
-        // 对 pod_id和umq_log_path列出的pod进行一个匹配
-        if (args.pod_id_list.empty()) {
-            target_log_path = input_umq_log_path;
-        } else {
-            for (auto pod_id : args.pod_id_list) {
-                auto it = input_umq_log_path.find(pod_id);
-                if (it == input_umq_log_path.end()) {
-                    LOG_ERROR << "Failed to find pod " << pod_id << "in input umq_log_path";
-                    return URMA_FAIL;
-                }
-                target_log_path.emplace(it->first, it->second);
-            }
-        }
-        for (auto [pod_id, path] : target_log_path) {
-            //获取这个pod对应的日志文件中的所有符合格式日志的参数存在sessionKey中
-            std::map<SessionKey, std::string> activeSessions;
-            URMAResult ret = ParseUMQLog(path, activeSessions);
-            if (ret != URMA_SUCCESS) {
-                LOG_ERROR << "error when parsing UMQ log, pod_id is: " << pod_id << " log path is: " << path;
-                return ret;
-            }
-            pods.emplace_back(pod_id);
-            for (const auto pair : activeSessions) {
-                auto key = pair.first;
-                jetties.emplace_back(key.local_jetty_id, key.local_eid, key.remote_jetty_id, key.remote_eid, pod_id);
-                urma_devices.emplace_back(key.local_eid);
-            }
-        }
-        auto pod_pair = jsonModule->GetJsonPair("pod", pods);
-        auto jetty_pair = jsonModule->GetJsonPair("jetty", jetties);
-        auto urma_device_pair = jsonModule->GetJsonPair("urma_device", urma_devices);
-        auto ret = jsonModule->WriteVectorsToFile(URMA_JSON_PATH, pod_pair, jetty_pair, urma_device_pair);
-        if (ret == RACK_FAIL) {
-            LOG_ERROR << "Failed to writer to file " << URMA_JSON_PATH;
-        } else {
-            needSetPerm = true;
-        }
-    } else if (args.pod_mode == "off") {
-        auto it = input_umq_log_path.find("normal");
-        if (it == input_umq_log_path.end()) {
-            LOG_ERROR << "Failed to find umq log path when pod mode is off";
-            return URMA_FAIL;
-        }
-        std::map<SessionKey, std::string> activeSessions;
-        URMAResult ret = ParseUMQLog(it->second, activeSessions);
-        if (ret != URMA_SUCCESS) {
-            LOG_ERROR << "error when parsing UMQ log, path is: " << it->second;
-            return ret;
-        }
-        for (const auto pair : activeSessions) {
-            auto key = pair.first;
-            jetties.emplace_back(key.local_jetty_id, key.local_eid, key.remote_jetty_id, key.remote_eid, std::nullopt);
-            urma_devices.emplace_back(key.local_eid);
-        }
-        auto jetty_pair = jsonModule->GetJsonPair("jetty", jetties);
-        auto urma_device_pair = jsonModule->GetJsonPair("urma_device", urma_devices);
-        auto json_ret = jsonModule->WriteVectorsToFile(URMA_JSON_PATH, jetty_pair, urma_device_pair);
-        if (json_ret == RACK_FAIL) {
-            LOG_ERROR << "Failed to writer to file " << URMA_JSON_PATH;
-            return URMA_FAIL;
-        }
-        needSetPerm = true;
-    } else {
-        LOG_ERROR << "Unknown pod mode: " << args.pod_mode;
-        return URMA_FAIL;
+    if (args.podMode == "on") {
+        return CreatePodModeTopology(args, pods, jetties, urma_devices);
     }
-    if (needSetPerm && ::chmod(URMA_JSON_PATH, URMA_JSON_PATH_PERM_640) != 0) {
-        LOG_ERROR << "Failed to set file mode 0640 for output file " << URMA_JSON_PATH;
+    if (args.podMode == "off") {
+        return CreateNormalModeTopology(args.umq_log_path_map, jetties, urma_devices);
     }
-    LOG_DEBUG << "Success create urma topology and save to file " << URMA_JSON_PATH;
-    return URMA_SUCCESS;
+    LOG_ERROR << "Unknown pod mode: " << args.podMode;
+    return URMA_FAIL;
 }
 
 } // namespace urma::topo

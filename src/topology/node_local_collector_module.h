@@ -12,9 +12,9 @@
 
 #ifndef NODE_LOCAL_COLLECTOR_MODULE_H
 #define NODE_LOCAL_COLLECTOR_MODULE_H
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 #include "rack_error.h"
 #include "rack_module.h"
 #include "database_module.h"
@@ -26,16 +26,16 @@ using namespace rack::module;
 using namespace database;
 class NodeLocalCollectorModule : public RackModule {
 public:
-    NodeLocalCollectorModule()
-    {
-        // dependencies.push_back(typeid(DatabaseModule)); 
-    }
+    NodeLocalCollectorModule() = default;
     ~NodeLocalCollectorModule() override = default;
     RackResult Initialize() override;
     void UnInitialize() override;
     RackResult Start() override;
     void Stop() override;
-    shared_ptr<NodeCollector> GetCollector() { return collector; }
+    shared_ptr<NodeCollector> GetCollector()
+    {
+        return collector;
+    }
     RackResult InsertDeviceData(vector<std::shared_ptr<topology::node::Node>> &nodes);
     RackResult InsertUbCData(vector<std::shared_ptr<topology::node::UbController>> &ubcs);
     RackResult InsertPortData(vector<std::shared_ptr<topology::node::Port>> &ports);
@@ -50,4 +50,4 @@ private:
     shared_ptr<NodeCollector> collector;
 };
 } // namespace topology::node
-#endif //NODE_LOCAL_COLLECTOR_MODULE_H
+#endif // NODE_LOCAL_COLLECTOR_MODULE_H
