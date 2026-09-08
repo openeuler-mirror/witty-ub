@@ -1,12 +1,12 @@
 import uuid
-from datetime import datetime
+from latency.common.local_time import local_now
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    return local_now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
 class DiagnosisCaseSignalModel(BaseModel):

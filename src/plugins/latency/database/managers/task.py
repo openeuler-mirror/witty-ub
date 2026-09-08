@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from latency.common.local_time import local_now
 from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
@@ -103,7 +104,7 @@ class TaskPGManager:
                         "progress": 100.0,
                         "message": message,
                         "existed_status": True,
-                        "created_at": datetime.now(),
+                        "created_at": local_now(),
                     }
                 ],
             )

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
+from latency.common.local_time import legacy_asset_timezone
 from latency.database.engine import PGManager
 from latency.database.models import Base
 
@@ -194,8 +195,43 @@ async def _create_time_window_partition(conn, part_start: datetime) -> None:
     )
 
 
+# Only administrative asset timestamps represent instants. Log timestamps retain
+# the original wall-clock values used by parsing, aggregation and time filters.
+ASSET_TIMESTAMP_COLUMNS = {
+    (table, column)
+    for table in ("log_knowledge", "log_file")
+    for column in ("created_at", "updated_at")
+}
+
+
+async def migrate_asset_timestamps() -> None:
+    """Convert legacy asset metadata once; existing aware values stay untouched."""
+    async with PGManager.engine().begin() as conn:
+        rows = await conn.execute(text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND data_type = 'timestamp without time zone' "
+            "AND table_name IN ('log_knowledge', 'log_file') "
+            "AND column_name IN ('created_at', 'updated_at')"
+        ))
+        rows = rows.all()
+        if not rows:
+            return
+        zone = legacy_asset_timezone()
+        # DDL utility statements cannot use asyncpg bind parameters. Let
+        # PostgreSQL quote the configured timezone as a SQL literal.
+        zone_literal = await conn.scalar(text("SELECT quote_literal(:zone)"), {"zone": zone})
+        for table_name, column_name in rows:
+            if (table_name, column_name) not in ASSET_TIMESTAMP_COLUMNS:
+                continue
+            await conn.execute(text(
+                f'ALTER TABLE public."{table_name}" ALTER COLUMN "{column_name}" '
+                f'TYPE timestamp with time zone USING "{column_name}" AT TIME ZONE {zone_literal}'
+            ))
+
+
 async def migrate_timestamptz_to_timestamp() -> None:
-    """Convert all TIMESTAMPTZ columns to TIMESTAMP (no timezone).
+    """Convert log TIMESTAMPTZ columns to TIMESTAMP; preserve asset instants.
 
     This keeps timestamp values exactly as they were written, without any
     timezone conversion.  Safe to run multiple times (idempotent).
@@ -208,6 +244,8 @@ async def migrate_timestamptz_to_timestamp() -> None:
             "AND data_type = 'timestamp with time zone'"
         ))
         for table_name, column_name in rows:
+            if (table_name, column_name) in ASSET_TIMESTAMP_COLUMNS:
+                continue
             await conn.execute(text(
                 f"ALTER TABLE {table_name} "
                 f"ALTER COLUMN {column_name} "
@@ -502,6 +540,7 @@ async def init_postgresql_database() -> None:
     await _backfill_brpc_batch_time_range()
     await _backfill_brpc_unique_interfaces()
     await _backfill_brpc_interface_buckets()
+    await migrate_asset_timestamps()
     await migrate_timestamptz_to_timestamp()
     await migrate_yuanrong_metric_columns()
     await migrate_brpc_log_type_column()

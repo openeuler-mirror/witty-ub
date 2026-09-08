@@ -7,10 +7,11 @@ from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
 
+from latency.common.local_time import local_now, parse_asset_timestamp, utc_now
 from latency.database.engine import PGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.models import LogFile
-from latency.database.utils import format_timestamp, parse_timestamp
+from latency.database.utils import format_timestamp
 from latency.schemas.log import LogFileModel
 from latency.schemas.request import ListLogFilesRequest
 
@@ -50,8 +51,8 @@ class LogFilePGManager:
             "failure_count": 0,
             "log_type": getattr(log_file, "log_type", "kv-cache") or "kv-cache",
             "existed_status": log_file.existed_status,
-            "created_at": parse_timestamp(log_file.created_at),
-            "updated_at": parse_timestamp(log_file.created_at),
+            "created_at": parse_asset_timestamp(log_file.created_at),
+            "updated_at": parse_asset_timestamp(log_file.created_at),
         }
 
     @staticmethod
@@ -127,11 +128,11 @@ class LogFilePGManager:
                     "jsonb_array_elements(COALESCE(source_log_ids, '[]'::jsonb)) "
                     "WITH ORDINALITY AS t(elem, ord) "
                     "WHERE t.elem <> to_jsonb(CAST(:log_id AS text))"
-                    "), updated_at = NOW() "
+                    "), updated_at = :server_updated_at "
                     "WHERE COALESCE(source_log_ids, '[]'::jsonb) "
                     "@> jsonb_build_array(CAST(:log_id AS text))"
                 ),
-                params,
+                {**params, "server_updated_at": local_now()},
             )
 
             # A BRPC diagnosis is linked through task -> batch -> hit rather
@@ -189,11 +190,15 @@ class LogFilePGManager:
             logger.warning("log_file update dropped unknown keys: %s", list(dropped.keys()))
         if not allowed:
             return 0
-        set_clauses = ", ".join(f"{k} = :{k}" for k in allowed)
-        params = {"id": log_file_id, **allowed}
+        for key in ("created_at", "updated_at"):
+            if key in allowed:
+                allowed[key] = parse_asset_timestamp(allowed[key])
+        allowed.pop("updated_at", None)  # The update time is generated below.
+        set_clauses = ", ".join([*(f"{k} = :{k}" for k in allowed), "updated_at = :server_updated_at"])
+        params = {"id": log_file_id, **allowed, "server_updated_at": utc_now()}
         async with PGManager.session() as session:
             result = await session.execute(
-                text(f"UPDATE log_file SET {set_clauses}, updated_at = NOW() WHERE id = :id"),
+                text(f"UPDATE log_file SET {set_clauses} WHERE id = :id"),
                 params,
             )
         return result.rowcount or 0
@@ -206,9 +211,9 @@ class LogFilePGManager:
         if req.name:
             stmt = stmt.where(LogFile.name.ilike(f"%{req.name}%"))
         if req.created_at_start:
-            stmt = stmt.where(LogFile.created_at >= parse_timestamp(req.created_at_start))
+            stmt = stmt.where(LogFile.created_at >= parse_asset_timestamp(req.created_at_start))
         if req.created_at_end:
-            stmt = stmt.where(LogFile.created_at <= parse_timestamp(req.created_at_end))
+            stmt = stmt.where(LogFile.created_at <= parse_asset_timestamp(req.created_at_end))
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         async with PGManager.session() as session:

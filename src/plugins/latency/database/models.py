@@ -9,13 +9,14 @@ Design choices:
 - pod_ips is stored as TEXT[] with a GIN index; the legacy trigger-maintained
   junction table is removed.
 - IP columns use PostgreSQL INET type.
-- Timestamps use TIMESTAMP (naive, no timezone conversion).
+- Asset metadata uses TIMESTAMPTZ; log event timestamps remain naive TIMESTAMP.
 - JSON columns use JSONB.
 """
 from __future__ import annotations
 
 import ipaddress
 from datetime import datetime
+from latency.common.local_time import local_now, utc_now
 from typing import Any, Optional
 
 from sqlalchemy import (
@@ -58,10 +59,10 @@ class LogKnowledge(Base):
     trace_failure_event_cnt: Mapped[int] = mapped_column(Integer, default=0)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=True), default=lambda: utc_now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
+        DateTime(timezone=True), default=lambda: utc_now(), onupdate=lambda: utc_now()
     )
 
 
@@ -71,10 +72,10 @@ class DiagnosisConfig(Base):
     kb_id: Mapped[str] = mapped_column(String, primary_key=True)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now(), onupdate=lambda: local_now()
     )
 
 
@@ -92,10 +93,10 @@ class LogFile(Base):
     log_type: Mapped[Optional[str]] = mapped_column(String, default="kv-cache")
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=True), default=lambda: utc_now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
+        DateTime(timezone=True), default=lambda: utc_now(), onupdate=lambda: utc_now()
     )
 
 
@@ -140,7 +141,7 @@ class LogParseResult(Base):
     remark: Mapped[Optional[str]] = mapped_column(Text)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
     sdk_process: Mapped[Optional[float]] = mapped_column(Float)
     sdk_rpc: Mapped[Optional[float]] = mapped_column(Float)
@@ -312,7 +313,7 @@ class TimeWindowAggregated(Base):
     p99_total_latency: Mapped[Optional[float]] = mapped_column(Float)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
 
 
@@ -332,7 +333,7 @@ class SrcDstAggregatedEvent(Base):
     anomaly_cnt: Mapped[Optional[int]] = mapped_column(Integer)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
 
 
@@ -350,7 +351,7 @@ class AnomalousEvent(Base):
     anomaly_reason: Mapped[Optional[str]] = mapped_column(Text)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
 
 
@@ -366,7 +367,7 @@ class AnomalousEventChain(Base):
     offset: Mapped[Optional[int]] = mapped_column(BigInteger)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
 
 
@@ -390,16 +391,16 @@ class DiagnosisCase(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=0)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now(), onupdate=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now(), onupdate=lambda: local_now()
     )
 
 
@@ -438,7 +439,7 @@ class BrpcProfilingResult(Base):
     p999_ns: Mapped[Optional[int]] = mapped_column(BigInteger)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
 
 
@@ -458,7 +459,7 @@ class Task(Base):
     task_config: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
@@ -475,7 +476,7 @@ class TaskReport(Base):
     message: Mapped[Optional[str]] = mapped_column(Text)
     existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), default=lambda: datetime.now()
+        DateTime(timezone=False), default=lambda: local_now()
     )
 
 
