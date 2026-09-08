@@ -363,11 +363,13 @@ try:
             "name": "scale-in-worker-hang-up",
             "source_type": "local",
             "source": f"{ROOT}/{SCALE_DIR}",
+            "log_type": "KVCache",
         },
         {
             "name": "get-ubm-failure",
             "source_type": "local",
             "source": f"{ROOT}/{UBM_DIR}",
+            "log_type": "KVCache",
         },
     ]
     upload = result(

@@ -241,7 +241,7 @@ def main():
     # 使用本地真实文件 /etc/hostname 创建 log_file
     call("POST", f"/log_file/{kb_id}", payload={
         "upload_log_file_configs": [
-            {"name": "test_local.log", "source_type": "local", "source": "/etc/hostname"}
+            {"name": "test_local.log", "source_type": "local", "source": "/etc/hostname", "log_type": "KVCache"}
         ]
     }, desc="upload_log_file")
     call("GET", f"/log_file/{log_file_id}", desc="get_log_file")

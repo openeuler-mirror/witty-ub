@@ -365,6 +365,12 @@ class LogFileService:
                     # Upload requests must not wait for extraction and splitting.
                     log_file_model.file_path = local_zip_file_path
                     log_file_model.file_size = os.path.getsize(local_zip_file_path)
+            else:
+                raise BadRequestBizException(
+                    message=(
+                        f"不支持的日志文件来源类型: {upload_log_file_config.source_type}"
+                    )
+                )
             if log_type == DiagnosisConfigLogType.UBSOCKET:
                 log_file_models.append(log_file_model)
                 log_file_task_types[log_file_model.id] = (

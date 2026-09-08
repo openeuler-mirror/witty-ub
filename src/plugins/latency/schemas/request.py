@@ -107,22 +107,22 @@ class ListLogKnowledgeRequest(BaseModel):
 
 class UpLoadLogFileConfig(BaseModel):
     name: Optional[str] = Field(default=None, description="日志文件名称")
-    source_type: Optional[SourceType] = Field(
-        default=None, description="日志文件来源类型，支持local、remote和upload"
+    source_type: SourceType = Field(
+        ..., description="日志文件来源类型，支持local、remote和upload"
     )
     source: str | UploadFile = Field(
-        default=None,
+        ...,
         description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
     )
     log_type: DiagnosisConfigLogType = Field(
-        default=DiagnosisConfigLogType.KVCACHE,
-        description="日志类型：KVCache（默认）或 UBSocket",
+        ...,
+        description="日志类型：KVCache 或 UBSocket",
     )
 
 
 class UpLoadLogFilesRequest(BaseModel):
     upload_log_file_configs: list[UpLoadLogFileConfig] = Field(
-        default_factory=list, min_length=1, description="日志文件配置列表"
+        ..., min_length=1, description="日志文件配置列表"
     )
     parse_config: Optional[ParseConfig] = Field(
         default=None, description="全局解析配置，应用于所有上传的日志文件"

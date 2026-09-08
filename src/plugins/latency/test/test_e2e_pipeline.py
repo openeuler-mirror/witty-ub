@@ -80,6 +80,7 @@ def log_file_id(kb_id: str):
             "name": "e2e_multi_log",
             "source_type": "local",
             "source": TEST_DATA_DIR,
+            "log_type": "KVCache",
         }]
     }
     lf_id = _json(_api("POST", f"/log_file/{kb_id}", json=payload))["result"]["log_file_ids"][0]

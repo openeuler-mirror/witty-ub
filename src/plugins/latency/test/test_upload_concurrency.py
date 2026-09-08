@@ -46,6 +46,7 @@ async def test_ten_uploads_store_archives_without_extracting(monkeypatch, tmp_pa
             return await LogFileService.upload_log_files(str(index), UpLoadLogFilesRequest(
                 upload_log_file_configs=[UpLoadLogFileConfig(
                     name='logs.zip', source_type='upload', source=file,
+                    log_type='KVCache',
                 )],
             ))
         finally:
