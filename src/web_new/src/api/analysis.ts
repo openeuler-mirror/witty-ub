@@ -235,6 +235,25 @@ export const fetchFaultTracePage = async (kbId: string, query: FaultTracePageQue
   }
 }
 
+// P1.6 通断异常 Trace 的服务端 Trace ID 查询：独立于主视图已加载数据，不受分页加载上限影响
+export const searchFaultTracesByTraceId = async (kbId: string, traceId: string, op: 'get' | 'set') => {
+  const result = await request<{ total?: number; trace_failure_event_results?: any[] }>(
+    '/log_failure_event_result/list_trace_events',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        kb_id: kbId,
+        is_anomalous: true,
+        operation: op.toUpperCase(),
+        trace_ids: [traceId],
+        page_num: 1,
+        page_cnt: 100,
+      }),
+    },
+  )
+  return { total: result.total ?? 0, rows: result.trace_failure_event_results ?? [] }
+}
+
 export const fetchFaultChart = async (kbId: string, op: 'get' | 'set') => {
   const result = await request<{
     metrics: Record<

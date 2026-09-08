@@ -68,6 +68,7 @@ import {
   fetchTopSlow,
   fetchTraceLatency,
   fetchTraceLogs,
+  searchFaultTracesByTraceId,
 } from '../api/analysis'
 import { createAnalysisFilter, type AnalysisFocus } from './useAnalysisFilter'
 
@@ -1842,7 +1843,44 @@ function createOverviewState() {
       .map((stat) => ({ ip: stat.ip, faults: stat.faults, codes: [...stat.codes] }))
   })
 
-  const filteredFaultTraces = computed(() => activeFaultTraces.value)
+  // ---------- P1.6 通断 Trace ID 服务端查询（独立于已加载数据与截断上限） ----------
+
+  const faultTraceIdInput = ref('')
+  const faultTraceQuery = ref<{ id: string; rows: any[]; total: number } | null>(null)
+  const faultTraceQueryLoading = ref(false)
+  const faultTraceQueryError = ref('')
+  let faultTraceQuerySeq = 0
+
+  const queryFaultTraceById = async () => {
+    const traceId = faultTraceIdInput.value.trim()
+    const asset = selectedAsset.value
+    if (!traceId || !asset) return
+    const seq = ++faultTraceQuerySeq
+    faultTraceQueryLoading.value = true
+    faultTraceQueryError.value = ''
+    try {
+      const result = await searchFaultTracesByTraceId(asset.id, traceId, realOp.value)
+      if (seq !== faultTraceQuerySeq) return
+      faultTraceQuery.value = { id: traceId, rows: result.rows, total: result.total }
+      faultTracePage.value = 1
+    } catch (error) {
+      if (seq !== faultTraceQuerySeq) return
+      faultTraceQueryError.value = errorText(error)
+    } finally {
+      if (seq === faultTraceQuerySeq) faultTraceQueryLoading.value = false
+    }
+  }
+
+  const clearFaultTraceQuery = () => {
+    faultTraceQuerySeq += 1
+    faultTraceQuery.value = null
+    faultTraceQueryError.value = ''
+    faultTraceIdInput.value = ''
+    faultTracePage.value = 1
+  }
+
+  // 查询态覆盖主列表；退出查询态恢复 disconnectFilter.time 联动
+  const filteredFaultTraces = computed(() => faultTraceQuery.value?.rows ?? activeFaultTraces.value)
 
   const faultTracePageSize = 10
   const faultTracePage = ref(1)
@@ -1855,7 +1893,46 @@ function createOverviewState() {
 
   watch([() => disconnectFilter.time.value, currentOp], () => {
     faultTracePage.value = 1
+    // 新的时间/操作选择打断查询态
+    if (faultTraceQuery.value) clearFaultTraceQuery()
   })
+
+  // ---------- P1.6 故障码时序时间聚合尺度（客户端对秒级点再分桶，设计 1.8） ----------
+
+  // 与 api fetchFaultChart 的 max_points 对齐：单码秒级点达上限说明后端已峰保抽稀
+  const FAULT_CHART_MAX_POINTS = 1000
+  const faultChartScale = ref<10 | 60 | 600 | 3600>(60)
+  const faultChartScaleOptions = [
+    { value: 10, label: '10 秒' },
+    { value: 60, label: '1 分钟' },
+    { value: 600, label: '10 分钟' },
+    { value: 3600, label: '1 小时' },
+  ] as const
+
+  const faultChartDisplayData = computed(() => {
+    const scaleMs = faultChartScale.value * 1000
+    const out: Record<string, Array<{ time: string; err_cnt: number }>> = {}
+    for (const [code, points] of Object.entries(faultChartData.value)) {
+      const buckets = new Map<number, number>()
+      ;(points ?? []).forEach((point) => {
+        const ms = tsToEpochMs(point.time)
+        if (!Number.isFinite(ms)) return
+        const bucketStart = Math.floor(ms / scaleMs) * scaleMs
+        buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + (point.err_cnt ?? 0))
+      })
+      out[code] = [...buckets.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([ms, err_cnt]) => ({ time: epochMsToTs(ms), err_cnt }))
+    }
+    return out
+  })
+
+  // 已抽稀时再分桶求和不再精确，UI 必须标注近似
+  const faultChartSampled = computed(() =>
+    Object.values(faultChartData.value).some(
+      (points) => (points ?? []).length >= FAULT_CHART_MAX_POINTS,
+    ),
+  )
 
   // ---------- 对象详情（窗 × 端点/链路，服务端分页，P0.5） ----------
 
@@ -3131,16 +3208,16 @@ function createOverviewState() {
       const el = faultChartRef.value
       if (!el) return
       const chart = getChart(el)
-      const codes = Object.keys(faultChartData.value)
+      // P1.6：按所选尺度再分桶后的展示数据；原始秒级数据仅用于空态与抽稀判断
+      const displayData = faultChartDisplayData.value
+      const codes = Object.keys(displayData)
       if (codes.length === 0) {
         chart.clear()
         return
       }
       const colors = ['#EF4444', '#F59E0B', '#1E6FFF', '#8B5CF6', '#00B365']
       const times = [
-        ...new Set(
-          codes.flatMap((code) => (faultChartData.value[code] ?? []).map((point) => point.time)),
-        ),
+        ...new Set(codes.flatMap((code) => (displayData[code] ?? []).map((point) => point.time))),
       ].sort()
       const series = codes.map((code, index) => ({
         name: `故障码 ${code}`,
@@ -3150,7 +3227,7 @@ function createOverviewState() {
         lineStyle: { width: 2, color: colors[index % colors.length] ?? '#EF4444' },
         itemStyle: { color: colors[index % colors.length] ?? '#EF4444' },
         data: times.map((time) => {
-          const point = (faultChartData.value[code] ?? []).find((item) => item.time === time)
+          const point = (displayData[code] ?? []).find((item) => item.time === time)
           return point ? point.err_cnt : 0
         }),
       }))
@@ -3212,12 +3289,11 @@ function createOverviewState() {
         const startTime = times[startIndex]
         const endTime = times[endIndex]
         if (startTime && endTime) {
-          // 通断域 time 同步为半开区间 [start, end)：end 取下一桶起点
-          const nextTime = times[endIndex + 1]
-          const step = nextTime
-            ? Math.max(1000, tsToEpochMs(nextTime) - tsToEpochMs(endTime))
-            : 60000
-          disconnectFilter.setTimeRange(tsToEpochMs(startTime), tsToEpochMs(endTime) + step)
+          // 通断域 time 同步为半开区间 [start, end)：end = 图中所见末桶起点 + 当前尺度桶宽
+          disconnectFilter.setTimeRange(
+            tsToEpochMs(startTime),
+            tsToEpochMs(endTime) + faultChartScale.value * 1000,
+          )
         }
       })
     })
@@ -3433,6 +3509,12 @@ function createOverviewState() {
       { deep: true },
     )
 
+    // P1.6：故障码时序尺度变化只改展示分桶，不回写 disconnectFilter.time
+    watch(faultChartScale, () => {
+      if (!isAssetMode.value || isBrpcTask.value || analysisTab.value !== 'disconnect') return
+      renderFaultChart()
+    })
+
     watch(availableMetrics, (list) => {
       const present = new Set(list.map((metric) => metric.key))
       const kept = selectedMetrics.value.filter((key) => present.has(key))
@@ -3571,6 +3653,7 @@ function createOverviewState() {
     brpcTrend,
     changeBrpcFaultLog,
     clearFaultRange,
+    clearFaultTraceQuery,
     clearTrend,
     currentOp,
     detailDrawerOpen,
@@ -3588,14 +3671,22 @@ function createOverviewState() {
     failureModeCache,
     failureModeOf,
     faultChartData,
+    faultChartDisplayData,
     faultChartRef,
+    faultChartSampled,
+    faultChartScale,
+    faultChartScaleOptions,
     faultOp,
     faultPodAgg,
     faultPodRef,
     faultTimeRange,
+    faultTraceIdInput,
     faultTracePage,
     faultTracePageSize,
     faultTracePages,
+    faultTraceQuery,
+    faultTraceQueryError,
+    faultTraceQueryLoading,
     faultTraces,
     faultTracesTruncated,
     faultTraceTotal,
@@ -3627,6 +3718,7 @@ function createOverviewState() {
     pagedPodIpsCb,
     pagedPodStats,
     pagedTraceRows,
+    queryFaultTraceById,
     podBreakdownSegments,
     podBreakdownTotal,
     podBreakdownTitle,

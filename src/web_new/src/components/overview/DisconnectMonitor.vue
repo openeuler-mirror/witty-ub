@@ -6,24 +6,33 @@ import PageNav from '../common/PageNav.vue'
 
 const {
   clearFaultRange,
+  clearFaultTraceQuery,
   currentOp,
   enterFaultDetail,
   failureModeOf,
   faultChartData,
   faultChartRef,
+  faultChartSampled,
+  faultChartScale,
+  faultChartScaleOptions,
   faultPodAgg,
   faultPodRef,
   faultPieRefs,
   faultTimeRange,
   faultTopoRef,
+  faultTraceIdInput,
   faultTracePage,
   faultTracePages,
   faultTraceLoadedCount,
+  faultTraceQuery,
+  faultTraceQueryError,
+  faultTraceQueryLoading,
   faultTraceTotal,
   faultTracesTruncated,
   filteredFaultTraces,
   openTraceDrawer,
   pagedFaultTraces,
+  queryFaultTraceById,
   renderFaultChart,
   renderFaultPieCharts,
   renderFaultPodChart,
@@ -91,7 +100,7 @@ const faultModeTitle = (row: any) =>
     <div class="chart-title">
       通断故障通信拓扑图（有向）
       <span class="hint" style="margin-left: auto"
-        >hover 节点/边查看详情；也可通过下方端点表用键盘查看故障 Trace</span
+        >点击节点/边查看该端点/链路当前范围的故障 Trace；hover 查看计数详情</span
       >
     </div>
     <div style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
@@ -173,6 +182,21 @@ const faultModeTitle = (row: any) =>
     <h2 class="section-card-title">
       📈 故障码计数时序分布
       <span class="hint">拖拽选择时间范围，本页拓扑、KPI、饼图、端点表与 Trace 列表随之过滤</span>
+      <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px">
+        <span
+          v-if="faultChartSampled"
+          class="hint"
+          style="color: var(--warning)"
+          title="单故障码秒级数据点达到加载上限，后端已抽稀；按尺度聚合后的桶计数不再精确"
+          >⏳ 数据已抽稀，桶计数为近似</span
+        >
+        <label for="fault-chart-scale" class="hint">时间聚合尺度</label>
+        <select id="fault-chart-scale" class="select" v-model.number="faultChartScale">
+          <option v-for="opt in faultChartScaleOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </span>
     </h2>
     <div v-if="Object.keys(faultChartData).length === 0" class="empty" style="padding: 30px 0">
       <div class="icon">📭</div>
@@ -186,20 +210,64 @@ const faultModeTitle = (row: any) =>
     <h2 class="section-card-title">
       异常 Trace 列表
       <span class="hint">{{
-        faultTimeRange
-          ? '当前范围：' + faultTimeRange.start + ' ~ ' + faultTimeRange.end
-          : '未过滤，展示全部'
+        faultTraceQuery
+          ? 'Trace ID 查询结果'
+          : faultTimeRange
+            ? '当前范围：' + faultTimeRange.start + ' ~ ' + faultTimeRange.end
+            : '未过滤，展示全部'
       }}</span>
     </h2>
+    <div class="filter-bar" style="margin-bottom: 10px">
+      <form
+        style="display: flex; gap: 6px; align-items: center"
+        @submit.prevent="queryFaultTraceById"
+      >
+        <input
+          class="input"
+          style="width: 300px"
+          v-model="faultTraceIdInput"
+          placeholder="输入 Trace ID 查询"
+          aria-label="按 Trace ID 查询通断异常 Trace"
+          :disabled="faultTraceQueryLoading"
+        />
+        <button
+          class="btn btn-sm btn-primary"
+          type="submit"
+          :disabled="faultTraceQueryLoading || !faultTraceIdInput.trim()"
+        >
+          {{ faultTraceQueryLoading ? '查询中…' : '查询' }}
+        </button>
+        <button
+          v-if="faultTraceQuery"
+          class="btn btn-sm btn-default"
+          type="button"
+          @click="clearFaultTraceQuery"
+        >
+          恢复时间范围列表
+        </button>
+      </form>
+      <span class="hint" style="margin-left: auto">服务端查询，不受已加载条数上限影响</span>
+    </div>
+    <div v-if="faultTraceQueryError" class="error-banner" style="margin-bottom: 10px">
+      {{ faultTraceQueryError }}
+    </div>
+    <div v-if="faultTraceQuery" class="analysis-range-bar" style="margin-bottom: 10px">
+      <div>
+        <strong>Trace ID 查询结果</strong>
+        <span>{{ faultTraceQuery.id }} · 共 {{ faultTraceQuery.total }} 条</span>
+      </div>
+    </div>
     <div v-if="filteredFaultTraces.length === 0" class="empty" style="padding: 30px 0">
       <div class="icon">📭</div>
       <div>
         {{
-          currentOp === 'GET'
-            ? 'GET 无故障 Trace'
-            : faultTimeRange
-              ? '框选范围内无故障 Trace'
-              : '暂无故障 Trace'
+          faultTraceQuery
+            ? '未查询到该 Trace ID 的异常 Trace'
+            : currentOp === 'GET'
+              ? 'GET 无故障 Trace'
+              : faultTimeRange
+                ? '框选范围内无故障 Trace'
+                : '暂无故障 Trace'
         }}
       </div>
     </div>
@@ -307,7 +375,7 @@ const faultModeTitle = (row: any) =>
       style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
     >
       <span style="font-size: 13px; color: var(--text2)"
-        >{{ faultTracesTruncated ? '当前范围已加载' : '共' }}
+        >{{ faultTraceQuery ? '查询结果' : faultTracesTruncated ? '当前范围已加载' : '共' }}
         {{ filteredFaultTraces.length }} 条</span
       >
       <PageNav
