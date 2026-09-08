@@ -207,6 +207,22 @@ def test_local_archive_file_accepts_valid_zip(monkeypatch, tmp_path):
     assert added_models[0].file_size == source.stat().st_size
 
 
+def test_unknown_source_type_rejected():
+    # model_construct 绕过 schema 校验，模拟绕过枚举校验的未知 source_type，
+    # service 必须直接报 400 而不是追加没有 file_path 的解析任务。
+    config = UpLoadLogFileConfig.model_construct(
+        name="logs", source_type="unknown", source="/tmp/logs", log_type="KVCache"
+    )
+
+    with pytest.raises(BadRequestBizException):
+        asyncio.run(
+            LogFileService.upload_log_files(
+                "kb-id",
+                UpLoadLogFilesRequest(upload_log_file_configs=[config]),
+            )
+        )
+
+
 def test_local_plain_file_skips_archive_validation(monkeypatch, tmp_path):
     source = tmp_path / "profiling.log"
     source.write_text("timeStamp: 1690000000\n", encoding="utf-8")

@@ -59,7 +59,7 @@ def existing_log_file(base_url, session_client, existing_kb):
             f"{base_url}/log_file/{existing_kb}",
             json={
                 "upload_log_file_configs": [
-                    {"name": "test_log", "source_type": "local", "source": temp_path}
+                    {"name": "test_log", "source_type": "local", "source": temp_path, "log_type": "KVCache"}
                 ]
             },
             timeout=30
@@ -168,9 +168,9 @@ class TestLogFile:
             resp = session_client.post(
                 f"{base_url}/log_file/{existing_kb}",
                 json={
-                    "upload_log_file_configs": [
-                        {"name": "test", "source_type": "local", "source": temp_path}
-                    ]
+                "upload_log_file_configs": [
+                    {"name": "test", "source_type": "local", "source": temp_path, "log_type": "KVCache"}
+                ]
                 },
                 timeout=10
             )
@@ -220,9 +220,9 @@ class TestLogFile:
             create_resp = session_client.post(
                 f"{base_url}/log_file/{existing_kb}",
                 json={
-                    "upload_log_file_configs": [
-                        {"name": "to_delete", "source_type": "local", "source": temp_path}
-                    ]
+                "upload_log_file_configs": [
+                    {"name": "to_delete", "source_type": "local", "source": temp_path, "log_type": "KVCache"}
+                ]
                 },
                 timeout=10
             )
@@ -637,7 +637,7 @@ class TestValidationError:
             f"{base_url}/log_file/{existing_kb}",
             json={
                 "upload_log_file_configs": [
-                    {"name": "test", "source_type": "invalid", "source": "/tmp/test.log"}
+                    {"name": "test", "source_type": "invalid", "source": "/tmp/test.log", "log_type": "KVCache"}
                 ]
             },
             timeout=10
@@ -685,7 +685,7 @@ class TestBadRequest:
             f"{base_url}/log_file/{existing_kb}",
             json={
                 "upload_log_file_configs": [
-                    {"name": "test", "source_type": "local", "source": "/nonexistent/path.log"}
+                    {"name": "test", "source_type": "local", "source": "/nonexistent/path.log", "log_type": "KVCache"}
                 ]
             },
             timeout=10
