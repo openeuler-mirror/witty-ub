@@ -1,4 +1,4 @@
-"""Atomic importer for BRPC diagnosis V2.1 output files."""
+"""Atomic importer for UBSocket diagnosis V2.1 output files."""
 
 from __future__ import annotations
 

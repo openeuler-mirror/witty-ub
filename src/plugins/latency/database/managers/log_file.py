@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
 
+from latency.ENUM.general import DiagnosisConfigLogType
 from latency.common.local_time import local_now, parse_asset_timestamp, utc_now
 from latency.database.engine import PGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
@@ -49,7 +50,7 @@ class LogFilePGManager:
             "total_count": 0,
             "anomalous_count": 0,
             "failure_count": 0,
-            "log_type": getattr(log_file, "log_type", "kv-cache") or "kv-cache",
+            "log_type": getattr(log_file, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
             "existed_status": log_file.existed_status,
             "created_at": parse_asset_timestamp(log_file.created_at),
             "updated_at": parse_asset_timestamp(log_file.created_at),
@@ -135,7 +136,7 @@ class LogFilePGManager:
                 {**params, "server_updated_at": local_now()},
             )
 
-            # A BRPC diagnosis is linked through task -> batch -> hit rather
+            # A UBSocket diagnosis is linked through task -> batch -> hit rather
             # than directly through log_id.  Delete children explicitly so
             # this also works on databases created before the CASCADE FK was
             # introduced.
@@ -241,7 +242,7 @@ class LogFilePGManager:
                 "file_size": row.size,
                 "anomaly_cnt": row.anomalous_count,
                 "trace_failure_event_cnt": row.failure_count or 0,
-                "log_type": getattr(row, "log_type", "kv-cache") or "kv-cache",
+                "log_type": getattr(row, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
                 "existed_status": row.existed_status,
                 "created_at": format_timestamp(row.created_at),
             }
@@ -265,7 +266,7 @@ class LogFilePGManager:
             "file_size": row.size,
             "anomaly_cnt": row.anomalous_count,
             "trace_failure_event_cnt": row.failure_count or 0,
-            "log_type": getattr(row, "log_type", "kv-cache") or "kv-cache",
+            "log_type": getattr(row, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
             "existed_status": row.existed_status,
             "created_at": format_timestamp(row.created_at),
         }

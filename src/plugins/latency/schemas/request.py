@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Any, List, Union
 from fastapi import UploadFile
-from latency.ENUM.general import SourceType
+from latency.ENUM.general import DiagnosisConfigLogType, SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.ENUM.sampling import SampleMode
 
@@ -49,7 +49,7 @@ class ParseConfig(BaseModel):
 class RunBrpcDiagnosisRequest(BaseModel):
     start_time: str = Field(
         ...,
-        description="BRPC 日志扫描开始时间，UTC+8，格式 YYYY-MM-DD HH:MM:SS",
+        description="UBSocket 日志扫描开始时间，UTC+8，格式 YYYY-MM-DD HH:MM:SS",
     )
 
     @field_validator("start_time")
@@ -114,9 +114,9 @@ class UpLoadLogFileConfig(BaseModel):
         default=None,
         description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
     )
-    log_type: Optional[str] = Field(
-        default="kv-cache",
-        description="日志类型：kv-cache（默认）或 brpc",
+    log_type: DiagnosisConfigLogType = Field(
+        default=DiagnosisConfigLogType.KVCACHE,
+        description="日志类型：KVCache（默认）或 UBSocket",
     )
 
 

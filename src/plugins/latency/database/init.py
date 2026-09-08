@@ -72,7 +72,7 @@ async def _backfill_brpc_batch_hit_count() -> None:
 async def _backfill_brpc_batch_time_range() -> None:
     """Replace scan bounds with the actual imported-hit interval.
 
-    BRPC query timestamps have second precision.  Keep the stored lower bound
+    UBSocket query timestamps have second precision.  Keep the stored lower bound
     exact and round the exclusive upper bound to the next second so formatting
     cannot exclude the final hit.
     """
@@ -403,11 +403,28 @@ async def ensure_time_window_partitions(
 
 
 async def migrate_brpc_log_type_column() -> None:
-    """为已有数据库幂等补齐 log_file 表的 log_type 列。"""
+    """补齐日志类型列，并将历史类型值迁移为统一的对外名称。"""
     async with PGManager.engine().begin() as conn:
         await conn.execute(text(
-            "ALTER TABLE log_file ADD COLUMN IF NOT EXISTS log_type VARCHAR DEFAULT 'kv-cache'"
+            "ALTER TABLE log_file ADD COLUMN IF NOT EXISTS log_type VARCHAR DEFAULT 'KVCache'"
         ))
+        await conn.execute(text(
+            "ALTER TABLE log_file ALTER COLUMN log_type SET DEFAULT 'KVCache'"
+        ))
+        # 旧别名仅用于迁移历史数据；API 不接受这些值。
+        await conn.execute(text("""
+            UPDATE log_file
+            SET log_type = CASE
+                WHEN log_type IS NULL OR btrim(log_type) = ''
+                    OR lower(replace(replace(btrim(log_type), '-', ''), '_', '')) = 'kvcache'
+                    THEN 'KVCache'
+                ELSE 'UBSocket'
+            END
+            WHERE log_type IS NULL OR btrim(log_type) = ''
+                OR (log_type NOT IN ('KVCache', 'UBSocket') AND
+                    lower(replace(replace(btrim(log_type), '-', ''), '_', ''))
+                    IN ('kvcache', 'ubsocket', 'brpc'))
+        """))
 
 
 async def drop_legacy_log_file_parse_status() -> None:

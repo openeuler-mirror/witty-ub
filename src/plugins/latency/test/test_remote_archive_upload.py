@@ -102,7 +102,7 @@ def test_remote_archive_uses_same_suffix_as_local_archive(
                         name=f"logs{suffix}",
                         source_type=SourceType.REMOTE,
                         source=f"https://example.com/logs{suffix}?token=secret",
-                        log_type="brpc",
+                        log_type="UBSocket",
                     )
                 ]
             ),
@@ -129,7 +129,7 @@ def test_remote_archive_rejects_unsupported_suffix(monkeypatch):
                             name="logs.7z",
                             source_type=SourceType.REMOTE,
                             source="https://example.com/logs.7z",
-                            log_type="brpc",
+                            log_type="UBSocket",
                         )
                     ]
                 ),
