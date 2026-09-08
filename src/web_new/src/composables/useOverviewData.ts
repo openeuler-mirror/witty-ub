@@ -312,14 +312,20 @@ function createOverviewState() {
     const asset = selectedAsset.value
     if (!asset) return
 
-    // P1.5：与总览共用 latencyFilter.logId，参与 key 与请求
+    // P1.5：与总览共用 latencyFilter.logId，参与 key 与请求。
+    // 后端 metrics/latency 必须带 log_id（分位统计表按日志物化，跨任务分位数无法客户端合并）；
+    // 未选日志时不发请求、不缓存空结果，趋势图区域由 LatencyTrend 显示引导空态
     const logId = latencyFilter.logId.value
-    const latencyKey = `${op}:${pct}:${trendScale.value}:${logId ?? ''}`
-    let latency = sectionCaches.latency.get(latencyKey)
-    if (!latency) {
-      latency = await fetchLatencyMetrics(asset.id, op, pct, logId, trendScale.value)
-      if (generation !== overviewRequestGeneration) return
-      sectionCaches.latency.set(latencyKey, latency)
+    let latency: any[] = []
+    if (logId) {
+      const latencyKey = `${op}:${pct}:${trendScale.value}:${logId}`
+      if (sectionCaches.latency.has(latencyKey)) {
+        latency = sectionCaches.latency.get(latencyKey)!
+      } else {
+        latency = await fetchLatencyMetrics(asset.id, op, pct, logId, trendScale.value)
+        if (generation !== overviewRequestGeneration) return
+        sectionCaches.latency.set(latencyKey, latency)
+      }
     }
 
     const trendListKey = `${op}:${logId ?? ''}`
