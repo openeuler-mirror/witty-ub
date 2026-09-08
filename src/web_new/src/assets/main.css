@@ -892,6 +892,12 @@ tr:hover td {
   background: var(--primary-bg);
 }
 
+/* 窄屏可横向滑动：col 宽固定布局 + 最小宽度，避免表被 width:100% 压缩成无溢出 */
+.endpoint-table {
+  table-layout: fixed;
+  min-width: 960px;
+}
+
 /* Misc */
 .text-link {
   color: var(--primary);
