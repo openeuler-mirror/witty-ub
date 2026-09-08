@@ -165,7 +165,8 @@ def test_worker_type_and_default_patterns_are_defined():
     ]
 
 
-def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
+@pytest.mark.asyncio
+async def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     task = SimpleNamespace(
         id="brpc-task",
         task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
@@ -179,6 +180,16 @@ def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
         "get_oldest_tasks_by_status",
         list_pending,
     )
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "transition_task_status",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=SimpleNamespace(status=TaskStatusEnum.RUNNING)),
+    )
     monkeypatch.setattr(TaskHandler, "_preprocess_log_source", preprocess)
     monkeypatch.setattr(
         TaskHandler,
@@ -187,7 +198,10 @@ def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     )
     monkeypatch.setattr(BaseWorker, "run", run_worker)
 
-    _run(TaskHandler.handle_pending_tasks())
+    await TaskHandler.handle_pending_tasks()
+    dispatch_tasks = list(TaskHandler._dispatch_tasks)
+    if dispatch_tasks:
+        await asyncio.gather(*dispatch_tasks)
 
     preprocess.assert_awaited_once_with(task)
     run_worker.assert_awaited_once_with(
@@ -197,7 +211,8 @@ def test_task_handler_dispatches_brpc_with_shared_preprocessing(monkeypatch):
     )
 
 
-def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
+@pytest.mark.asyncio
+async def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
     parse_task = SimpleNamespace(
         id="brpc-parse-task",
         task_type=TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
@@ -212,6 +227,16 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
         AsyncMock(return_value=[parse_task, diagnosis_task]),
     )
     monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "transition_task_status",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=SimpleNamespace(status=TaskStatusEnum.RUNNING)),
+    )
+    monkeypatch.setattr(
         TaskHandler,
         "_preprocess_log_source",
         AsyncMock(return_value="/logs"),
@@ -219,9 +244,12 @@ def test_task_handler_keeps_dispatching_after_one_worker_fails(monkeypatch):
     run_worker = AsyncMock(side_effect=[False, True])
     monkeypatch.setattr(BaseWorker, "run", run_worker)
 
-    _run(TaskHandler.handle_pending_tasks())
+    await TaskHandler.handle_pending_tasks()
+    dispatch_tasks = list(TaskHandler._dispatch_tasks)
+    if dispatch_tasks:
+        await asyncio.gather(*dispatch_tasks)
 
-    assert [call.args[0] for call in run_worker.await_args_list] == [
+    assert [call_.args[0] for call_ in run_worker.await_args_list] == [
         "brpc-parse-task",
         "brpc-diagnosis-task",
     ]

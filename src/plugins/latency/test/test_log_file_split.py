@@ -172,6 +172,48 @@ def test_preprocess_local_archive_file_path(monkeypatch, tmp_path, suffix):
     assert (output_dir / member_name).read_bytes() == content
 
 
+def _mock_preprocess_config(monkeypatch, patterns):
+    config = SimpleNamespace(
+        get_default_diagnosis_config=lambda: SimpleNamespace(
+            log_filename_pattern=SimpleNamespace(model_dump=lambda: patterns)
+        )
+    )
+    monkeypatch.setattr(preprocessor_module, "Config", lambda: config)
+
+
+def test_preprocess_reuses_completed_output_dir(monkeypatch, tmp_path):
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+    (source_path / "access.log").write_text("log", encoding="utf-8")
+    output_dir = tmp_path / "preprocessed"
+    _mock_preprocess_config(monkeypatch, {"ds_worker_access_log_file": ["access.log"]})
+
+    first = preprocess_log_dir(str(source_path), str(output_dir))
+    second = preprocess_log_dir(str(source_path), str(output_dir))
+
+    assert first.reused is False
+    assert second.reused is True
+    assert (output_dir / "access.log").exists()
+
+
+def test_preprocess_redoes_incomplete_output_dir(monkeypatch, tmp_path):
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+    (source_path / "access.log").write_text("log", encoding="utf-8")
+    output_dir = tmp_path / "preprocessed"
+    # 模拟上次预处理被中断：目录存在但没有完成标记。
+    output_dir.mkdir()
+    (output_dir / "partial.log").write_text("half-written", encoding="utf-8")
+    _mock_preprocess_config(monkeypatch, {"ds_worker_access_log_file": ["access.log"]})
+
+    result = preprocess_log_dir(str(source_path), str(output_dir))
+
+    assert result.reused is False
+    assert (output_dir / "access.log").exists()
+    assert not (output_dir / "partial.log").exists()
+    assert (output_dir / ".witty_preprocess_done").exists()
+
+
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
