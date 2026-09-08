@@ -236,7 +236,11 @@ export const fetchFaultTracePage = async (kbId: string, query: FaultTracePageQue
 }
 
 // P1.6 通断异常 Trace 的服务端 Trace ID 查询：独立于主视图已加载数据，不受分页加载上限影响
-export const searchFaultTracesByTraceId = async (kbId: string, traceId: string, op: 'get' | 'set') => {
+export const searchFaultTracesByTraceId = async (
+  kbId: string,
+  traceId: string,
+  op: 'get' | 'set',
+) => {
   const result = await request<{ total?: number; trace_failure_event_results?: any[] }>(
     '/log_failure_event_result/list_trace_events',
     {
@@ -372,8 +376,9 @@ export const fetchFaultTracesByTraceIds = async (
 export const fetchFailureMode = async (failureModeId: string) =>
   request<any>(`/failure_mode/${encodeURIComponent(failureModeId)}`)
 
-export const fetchBrpcProfiling = (logId: string) =>
-  request<{ rows: any[] }>(`/brpc_profiling/${logId}`)
+// P2.1 资产级 profiling 全量（files + rows），文件选择由前端客户端过滤
+export const fetchBrpcProfilingKnowledge = (kbId: string) =>
+  request<{ files?: any[]; rows?: any[] }>(`/brpc_profiling/knowledge/${encodeURIComponent(kbId)}`)
 
 export const fetchBrpcBatch = (taskId: string) =>
   request<{ task_id: string; batch_id: string }>(

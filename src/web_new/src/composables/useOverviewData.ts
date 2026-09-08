@@ -53,7 +53,7 @@ import {
   fetchBrpcBatchMeta,
   fetchBrpcInterfaceTimeline,
   fetchBrpcPodEvents,
-  fetchBrpcProfiling,
+  fetchBrpcProfilingKnowledge,
   fetchBrpcThreadLogs,
   fetchFailureMode,
   fetchFaultChart,
@@ -422,103 +422,191 @@ function createOverviewState() {
     }
   }
 
-  // ---------- BRPC 接口监控（真实后端 /brpc_profiling） ----------
+  // ---------- BRPC 接口监控（/brpc_profiling/knowledge 全量 + 文件客户端过滤，P2.1） ----------
 
   const brpcScopeTasks = computed(() =>
     logFiles.value.filter((file) => file.log_type === 'brpc' && isSuccess(file)),
   )
-  const brpcInterfaces = ref<any[]>([])
-  const brpcTrend = ref<{ times: string[]; success: number[]; p99: number[] }>({
-    times: [],
-    success: [],
-    p99: [],
-  })
   const brpcLoading = ref(false)
   const brpcMonitorError = ref('')
+
+  type BrpcProfilingFileOption = {
+    log_id: string
+    log_name?: string | null
+    source_file?: string | null
+  }
+  const brpcProfilingFiles = ref<BrpcProfilingFileOption[]>([])
+  const brpcAllProfilingRows = ref<any[]>([])
+  const brpcSelectedFileKey = ref('')
+  let brpcProfilingSeq = 0
+
+  const brpcFileKey = (file: BrpcProfilingFileOption) =>
+    JSON.stringify([file.log_id, file.source_file ?? ''])
+  const brpcFileLabel = (file: BrpcProfilingFileOption) =>
+    `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
+
+  // 与旧版一致：文件选择只客户端过滤已加载 rows，不按文件重拉
+  const brpcFileRows = computed(() => {
+    const selected = brpcProfilingFiles.value.find(
+      (file) => brpcFileKey(file) === brpcSelectedFileKey.value,
+    )
+    if (!selected) return []
+    return brpcAllProfilingRows.value.filter(
+      (row) =>
+        row.log_id === selected.log_id && (row.source_file ?? '') === (selected.source_file ?? ''),
+    )
+  })
+
+  // 当前文件 rows → 接口明细表与两张总趋势
+  const brpcInterfaces = computed(() => {
+    const ifaceMap = new Map<string, any>()
+    for (const row of brpcFileRows.value) {
+      const iface = row.interface_name
+      if (!iface) continue
+      const req = (row.success_count ?? 0) + (row.failure_count ?? 0)
+      if (!ifaceMap.has(iface)) {
+        ifaceMap.set(iface, {
+          name: iface,
+          requestCount: 0,
+          successCount: 0,
+          failureCount: 0,
+          avg_ns: 0,
+          p99_ns: 0,
+          max_ns: 0,
+        })
+      }
+      const item = ifaceMap.get(iface)
+      item.requestCount += req
+      item.successCount += row.success_count ?? 0
+      item.failureCount += row.failure_count ?? 0
+      item.avg_ns = Math.max(item.avg_ns, row.avg_ns ?? 0)
+      item.p99_ns = Math.max(item.p99_ns, row.p99_ns ?? 0)
+      item.max_ns = Math.max(item.max_ns, row.max_ns ?? 0)
+    }
+    return [...ifaceMap.values()]
+      .map((item) => ({
+        ...item,
+        successRate: item.requestCount
+          ? +((item.successCount / item.requestCount) * 100).toFixed(2)
+          : 0,
+        failureRate: item.requestCount
+          ? +((item.failureCount / item.requestCount) * 100).toFixed(2)
+          : 0,
+        status: item.p99_ns / 1e6 > 2 ? '偏高' : '正常',
+      }))
+      .sort((a, b) => b.requestCount - a.requestCount)
+  })
+
+  const brpcTrend = computed(() => {
+    const timeMap = new Map<string, { req: number; ok: number; p99: number }>()
+    for (const row of brpcFileRows.value) {
+      const ts = row.timestamp
+      if (!ts) continue
+      const key = String(ts).slice(0, 19)
+      if (!timeMap.has(key)) timeMap.set(key, { req: 0, ok: 0, p99: 0 })
+      const bucket = timeMap.get(key)!
+      const req = (row.success_count ?? 0) + (row.failure_count ?? 0)
+      bucket.req += req
+      bucket.ok += row.success_count ?? 0
+      bucket.p99 = Math.max(bucket.p99, (row.p99_ns ?? 0) / 1e6)
+    }
+    const times = [...timeMap.keys()].sort()
+    return {
+      times: times.map((time) => formatChartTs(time)),
+      success: times.map((time) => {
+        const bucket = timeMap.get(time)!
+        return bucket.req ? +((bucket.ok / bucket.req) * 100).toFixed(2) : 0
+      }),
+      p99: times.map((time) => timeMap.get(time)!.p99),
+    }
+  })
+
+  // 单接口曲线选择状态（P2.1）
+  type BrpcSuccessMetric =
+    | 'successRate'
+    | 'failureRate'
+    | 'requestCount'
+    | 'successCount'
+    | 'failureCount'
+  const brpcSuccessMetric = ref<BrpcSuccessMetric>('successRate')
+  const brpcSuccessMetricOptions: Array<{ value: BrpcSuccessMetric; label: string }> = [
+    { value: 'successRate', label: '成功率' },
+    { value: 'failureRate', label: '失败率' },
+    { value: 'requestCount', label: '请求数' },
+    { value: 'successCount', label: '成功量' },
+    { value: 'failureCount', label: '失败量' },
+  ]
+  const brpcIfaceNames = computed(() =>
+    [...new Set(brpcFileRows.value.map((row) => row.interface_name).filter(Boolean))].sort(),
+  )
+  const brpcSuccessSelectedIfaces = ref<string[]>([])
+  const brpcSingleIface = ref('')
+
+  const brpcRowMetric = (row: any, metric: BrpcSuccessMetric): number => {
+    const ok = row.success_count ?? 0
+    const fail = row.failure_count ?? 0
+    const req = ok + fail
+    switch (metric) {
+      case 'successRate':
+        return req ? +((ok / req) * 100).toFixed(2) : 0
+      case 'failureRate':
+        return req ? +((fail / req) * 100).toFixed(2) : 0
+      case 'requestCount':
+        return req
+      case 'successCount':
+        return ok
+      case 'failureCount':
+        return fail
+    }
+  }
+
+  const brpcIfaceTimestamps = computed(() =>
+    [
+      ...new Set(
+        brpcFileRows.value.map((row) => String(row.timestamp ?? '').slice(0, 19)).filter(Boolean),
+      ),
+    ].sort(),
+  )
 
   const loadBrpcData = async () => {
     const asset = selectedAsset.value
     if (!asset) return
+    const seq = ++brpcProfilingSeq
     brpcLoading.value = true
     brpcMonitorError.value = ''
     try {
-      const allRows: any[] = []
-      for (const log of brpcScopeTasks.value) {
-        try {
-          const result = await fetchBrpcProfiling(log.id)
-          allRows.push(...(result.rows ?? []))
-        } catch {
-          // 单个日志无 profiling 结果时跳过
-        }
-      }
-
-      const ifaceMap = new Map<string, any>()
-      const timeMap = new Map<string, { req: number; ok: number; p99: number }>()
-      for (const row of allRows) {
-        const iface = row.interface_name
-        const ts = row.timestamp
-        if (!iface) continue
-        const req = (row.success_count ?? 0) + (row.failure_count ?? 0)
-        const ok = row.success_count ?? 0
-        const p99ms = (row.p99_ns ?? 0) / 1e6
-        if (!ifaceMap.has(iface)) {
-          ifaceMap.set(iface, {
-            name: iface,
-            requestCount: 0,
-            successCount: 0,
-            failureCount: 0,
-            avg_ns: 0,
-            p99_ns: 0,
-            max_ns: 0,
-          })
-        }
-        const item = ifaceMap.get(iface)
-        item.requestCount += req
-        item.successCount += ok
-        item.failureCount += row.failure_count ?? 0
-        item.avg_ns = Math.max(item.avg_ns, row.avg_ns ?? 0)
-        item.p99_ns = Math.max(item.p99_ns, row.p99_ns ?? 0)
-        item.max_ns = Math.max(item.max_ns, row.max_ns ?? 0)
-        if (ts) {
-          const key = String(ts).slice(0, 19)
-          if (!timeMap.has(key)) timeMap.set(key, { req: 0, ok: 0, p99: 0 })
-          const bucket = timeMap.get(key)!
-          bucket.req += req
-          bucket.ok += ok
-          bucket.p99 = Math.max(bucket.p99, p99ms)
-        }
-      }
-
-      brpcInterfaces.value = [...ifaceMap.values()]
-        .map((item) => ({
-          ...item,
-          successRate: item.requestCount
-            ? +((item.successCount / item.requestCount) * 100).toFixed(2)
-            : 0,
-          failureRate: item.requestCount
-            ? +((item.failureCount / item.requestCount) * 100).toFixed(2)
-            : 0,
-          status: item.p99_ns / 1e6 > 2 ? '偏高' : '正常',
-        }))
-        .sort((a, b) => b.requestCount - a.requestCount)
-
-      const times = [...timeMap.keys()].sort()
-      brpcTrend.value = {
-        times: times.map((time) => formatChartTs(time)),
-        success: times.map((time) => {
-          const bucket = timeMap.get(time)!
-          return bucket.req ? +((bucket.ok / bucket.req) * 100).toFixed(2) : 0
-        }),
-        p99: times.map((time) => timeMap.get(time)!.p99),
+      const result = await fetchBrpcProfilingKnowledge(asset.id)
+      if (seq !== brpcProfilingSeq) return
+      brpcProfilingFiles.value = result.files ?? []
+      brpcAllProfilingRows.value = result.rows ?? []
+      // 默认选择第一个 profiling 文件；日志包 ID 参与 key，避免同名文件混合
+      if (
+        brpcProfilingFiles.value.length > 0 &&
+        !brpcProfilingFiles.value.some((file) => brpcFileKey(file) === brpcSelectedFileKey.value)
+      ) {
+        brpcSelectedFileKey.value = brpcFileKey(brpcProfilingFiles.value[0]!)
       }
     } catch (error) {
+      if (seq !== brpcProfilingSeq) return
       brpcMonitorError.value = errorText(error)
+      brpcProfilingFiles.value = []
+      brpcAllProfilingRows.value = []
+      brpcSelectedFileKey.value = ''
     } finally {
-      brpcLoading.value = false
+      if (seq === brpcProfilingSeq) brpcLoading.value = false
     }
     await loadBrpcFaultData()
     renderAnalysisModules()
   }
+
+  // 文件变化：曲线勾选与单接口选择重置为当前文件接口全集/首个
+  watch(brpcIfaceNames, (names) => {
+    brpcSuccessSelectedIfaces.value = brpcSuccessSelectedIfaces.value.filter((name) =>
+      names.includes(name),
+    )
+    if (brpcSuccessSelectedIfaces.value.length === 0) brpcSuccessSelectedIfaces.value = [...names]
+    if (!names.includes(brpcSingleIface.value)) brpcSingleIface.value = names[0] ?? ''
+  })
 
   const brpcKpi = computed(() => {
     const list = brpcInterfaces.value
@@ -2199,6 +2287,9 @@ function createOverviewState() {
   const faultPieRefs: Record<string, HTMLElement | null> = {}
   const brpcSuccessRef = ref<HTMLElement | null>(null)
   const brpcP99Ref = ref<HTMLElement | null>(null)
+  const brpcSuccessOverviewRef = ref<HTMLElement | null>(null)
+  const brpcSingleRef = ref<HTMLElement | null>(null)
+  const brpcLatencyRef = ref<HTMLElement | null>(null)
   const brpcFaultTimelineRef = ref<HTMLElement | null>(null)
 
   const getChart = (element: HTMLElement) => getInstanceByDom(element) || init(element)
@@ -3329,11 +3420,160 @@ function createOverviewState() {
     })
   }
 
+  // P2.1 成功率总览：按勾选接口逐条曲线，指标可切换（成功率/失败率/请求数/成功量/失败量）
+  const renderBrpcSuccessOverviewChart = () => {
+    nextTick(() => {
+      const el = brpcSuccessOverviewRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const times = brpcIfaceTimestamps.value
+      const metric = brpcSuccessMetric.value
+      const metricLabel =
+        brpcSuccessMetricOptions.find((option) => option.value === metric)?.label ?? metric
+      const isRate = metric === 'successRate' || metric === 'failureRate'
+      const series = brpcSuccessSelectedIfaces.value.map((iface) => {
+        const rowByTs = new Map<string, any>()
+        brpcFileRows.value.forEach((row) => {
+          if (row.interface_name !== iface || !row.timestamp) return
+          rowByTs.set(String(row.timestamp).slice(0, 19), row)
+        })
+        return {
+          name: iface,
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { width: 2 },
+          data: times.map((time) => {
+            const row = rowByTs.get(time)
+            return row ? brpcRowMetric(row, metric) : null
+          }),
+        }
+      })
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        legend: { show: false },
+        grid: { left: 56, right: 20, top: 24, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => formatChartTs(time)),
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: {
+          type: 'value',
+          name: isRate ? `${metricLabel} %` : metricLabel,
+          max: isRate ? 100 : undefined,
+          axisLabel: { fontSize: 10 },
+        },
+        series,
+      })
+    })
+  }
+
+  // P2.1 单接口监控：成功率 + 失败率双曲线
+  const renderBrpcSingleChart = () => {
+    nextTick(() => {
+      const el = brpcSingleRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const iface = brpcSingleIface.value
+      const times = brpcIfaceTimestamps.value
+      const rowByTs = new Map<string, any>()
+      brpcFileRows.value.forEach((row) => {
+        if (row.interface_name !== iface || !row.timestamp) return
+        rowByTs.set(String(row.timestamp).slice(0, 19), row)
+      })
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => formatChartTs(time)),
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: { type: 'value', name: '%', max: 100, axisLabel: { fontSize: 10 } },
+        series: [
+          {
+            name: '成功率',
+            type: 'line',
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { width: 2, color: '#00B365' },
+            itemStyle: { color: '#00B365' },
+            data: times.map((time) => {
+              const row = rowByTs.get(time)
+              return row ? brpcRowMetric(row, 'successRate') : null
+            }),
+          },
+          {
+            name: '失败率',
+            type: 'line',
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { width: 2, color: '#EF4444' },
+            itemStyle: { color: '#EF4444' },
+            data: times.map((time) => {
+              const row = rowByTs.get(time)
+              return row ? brpcRowMetric(row, 'failureRate') : null
+            }),
+          },
+        ],
+      })
+    })
+  }
+
+  // P2.1 单接口时延：avg / P99 / max（ms）
+  const renderBrpcLatencyChart = () => {
+    nextTick(() => {
+      const el = brpcLatencyRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const iface = brpcSingleIface.value
+      const times = brpcIfaceTimestamps.value
+      const rowByTs = new Map<string, any>()
+      brpcFileRows.value.forEach((row) => {
+        if (row.interface_name !== iface || !row.timestamp) return
+        rowByTs.set(String(row.timestamp).slice(0, 19), row)
+      })
+      const metricDefs = [
+        { name: 'avg', key: 'avg_ns', color: '#1E6FFF' },
+        { name: 'P99', key: 'p99_ns', color: '#EF4444' },
+        { name: 'max', key: 'max_ns', color: '#F59E0B' },
+      ]
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => formatChartTs(time)),
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: { type: 'value', name: 'ms', axisLabel: { fontSize: 10 } },
+        series: metricDefs.map((def) => ({
+          name: def.name,
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { width: 2, color: def.color },
+          itemStyle: { color: def.color },
+          data: times.map((time) => {
+            const row = rowByTs.get(time)
+            return row ? +(((row[def.key] ?? 0) as number) / 1e6).toFixed(3) : null
+          }),
+        })),
+      })
+    })
+  }
+
   const renderAnalysisModules = () => {
     nextTick(() => {
       if (!isAssetMode.value) return
       if (isBrpcTask.value) {
         renderBrpcCharts()
+        renderBrpcSuccessOverviewChart()
+        renderBrpcSingleChart()
+        renderBrpcLatencyChart()
         return
       }
       if (analysisTab.value === 'latency') {
@@ -3515,6 +3755,19 @@ function createOverviewState() {
       renderFaultChart()
     })
 
+    // P2.1：UBSocket 文件/指标/曲线勾选/单接口变化 → 重绘接口监控图
+    watch(
+      [brpcFileRows, brpcSuccessMetric, brpcSuccessSelectedIfaces, brpcSingleIface],
+      () => {
+        if (!isAssetMode.value || !isBrpcTask.value) return
+        renderBrpcCharts()
+        renderBrpcSuccessOverviewChart()
+        renderBrpcSingleChart()
+        renderBrpcLatencyChart()
+      },
+      { deep: true },
+    )
+
     watch(availableMetrics, (list) => {
       const present = new Set(list.map((metric) => metric.key))
       const kept = selectedMetrics.value.filter((key) => present.has(key))
@@ -3642,14 +3895,26 @@ function createOverviewState() {
     traceTags,
     podRowTags,
     brpcFaultTimelineSeries,
+    brpcFileKey,
+    brpcFileLabel,
+    brpcIfaceNames,
     brpcInterfaces,
     brpcKpi,
+    brpcLatencyRef,
     brpcLoading,
     brpcMonitorError,
     brpcMonitorTab,
     brpcP99Ref,
+    brpcProfilingFiles,
     brpcScopeTasks,
+    brpcSelectedFileKey,
+    brpcSingleIface,
+    brpcSingleRef,
+    brpcSuccessMetric,
+    brpcSuccessMetricOptions,
+    brpcSuccessOverviewRef,
     brpcSuccessRef,
+    brpcSuccessSelectedIfaces,
     brpcTrend,
     changeBrpcFaultLog,
     clearFaultRange,
@@ -3739,6 +4004,9 @@ function createOverviewState() {
     realOp,
     renderAnalysisModules,
     renderBrpcCharts,
+    renderBrpcLatencyChart,
+    renderBrpcSingleChart,
+    renderBrpcSuccessOverviewChart,
     renderBrpcFaultTimeline,
     renderFaultChart,
     renderFaultPodChart,
