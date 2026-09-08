@@ -2,6 +2,8 @@
 """PostgreSQL data conversion helpers."""
 from __future__ import annotations
 
+from latency.common.local_time import refresh_local_timezone
+
 import ipaddress
 import uuid
 from datetime import datetime
@@ -113,6 +115,7 @@ def format_timestamp(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is not None:
+        refresh_local_timezone()
         value = value.astimezone()
         base = value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         tz = value.strftime("%z")  # e.g. "+0800"

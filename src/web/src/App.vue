@@ -15,6 +15,7 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import { displayServerTime } from './utils/serverTime'
 import rawDiagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
@@ -3921,8 +3922,7 @@ const parseDateAsLocal = (raw: string): Date | null => {
   }
   // Parse as LOCAL time by extracting components and using
   // new Date(year, month-1, day, hours, minutes, seconds).
-  // This avoids the ECMAScript rule that "T"-separated
-  // datetime strings without timezone are parsed as UTC.
+  // Extract components explicitly to support the API's space-separated format.
   const normalized = cleaned.replace('T', ' ').replace(/Z$/i, '')
   const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/)
   if (match) {
@@ -15790,8 +15790,8 @@ onBeforeUnmount(() => {
             <h1>{{ selectedAsset.name }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
-              <span>创建时间：{{ displayLocalTime(selectedAsset.created_at) }}</span>
-              <span>更新时间：{{ displayLocalTime(selectedAsset.updated_at) }}</span>
+              <span>创建时间：{{ displayServerTime(selectedAsset.created_at) }}</span>
+              <span>更新时间：{{ displayServerTime(selectedAsset.updated_at) }}</span>
             </div>
           </div>
           <div class="detail-actions">
@@ -15909,7 +15909,7 @@ onBeforeUnmount(() => {
                   <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
                   <span class="log-file-meta">
                     <span class="log-file-time"
-                      >创建时间：{{ displayLocalTime(file.created_at) }}</span
+                      >创建时间：{{ displayServerTime(file.created_at) }}</span
                     >
                     <span
                       class="status-badge"
@@ -18302,8 +18302,8 @@ onBeforeUnmount(() => {
                 <h3>{{ asset.name }}</h3>
                 <p>{{ asset.description }}</p>
                 <div class="result-times">
-                  <span>创建时间：{{ displayLocalTime(asset.created_at) }}</span>
-                  <span>更新时间：{{ displayLocalTime(asset.updated_at) }}</span>
+                  <span>创建时间：{{ displayServerTime(asset.created_at) }}</span>
+                  <span>更新时间：{{ displayServerTime(asset.updated_at) }}</span>
                 </div>
               </div>
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -110,11 +111,13 @@ async def test_hard_delete_log_file_removes_all_related_rows(recorder):
     log_scoped = [
         params
         for sql, params in recorder.statements
-        if not sql.startswith("UPDATE log_knowledge")
+        if not sql.startswith("UPDATE")
     ]
     assert all(params == {"log_id": "log-to-delete"} for params in log_scoped)
     refresh_params = recorder.statements[refresh_index][1]
-    assert refresh_params == {"kb_id": "kb-1"}
+    assert refresh_params["kb_id"] == "kb-1"
+    assert isinstance(refresh_params["server_updated_at"], datetime)
+    assert isinstance(recorder.statements[strip_index][1]["server_updated_at"], datetime)
 
 
 async def test_hard_delete_reports_missing_log_file(recorder):
@@ -143,4 +146,5 @@ async def test_refresh_kb_counters_aggregates_active_log_files(recorder):
     assert "SUM(COALESCE(anomalous_count, 0))" in sql
     assert "SUM(COALESCE(failure_count, 0))" in sql
     assert "COUNT(*)" in sql
-    assert params == {"kb_id": "kb-9"}
+    assert params["kb_id"] == "kb-9"
+    assert isinstance(params["server_updated_at"], datetime)
