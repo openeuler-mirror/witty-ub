@@ -51,6 +51,7 @@ import {
   fetchBrpcAbnormalThreads,
   fetchBrpcBatch,
   fetchBrpcBatchMeta,
+  fetchBrpcEventDetail,
   fetchBrpcInterfaceTimeline,
   fetchBrpcPodEvents,
   fetchBrpcProfilingKnowledge,
@@ -708,6 +709,44 @@ function createOverviewState() {
     })
   }
 
+  // P2.2 事件详情：当前窗内接口故障时序（10s 粒度）
+  const renderBrpcEventTimeline = () => {
+    nextTick(() => {
+      const el = brpcEventTimelineRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const seriesList = brpcEventDetailTimeline.value
+      const times = [
+        ...new Set(
+          seriesList.flatMap((series) =>
+            (series.points || []).map((point: any) => point.window_start_time),
+          ),
+        ),
+      ].sort()
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => formatChartTs(String(time))),
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
+        series: seriesList.map((series) => ({
+          name: series.interface_name + (series.function_name ? `（${series.function_name}）` : ''),
+          type: 'line',
+          smooth: true,
+          data: times.map((time) => {
+            const point = (series.points || []).find((item: any) => item.window_start_time === time)
+            return point?.interface_hit_count ?? 0
+          }),
+          lineStyle: { width: 2 },
+        })),
+      })
+    })
+  }
+
   const loadBrpcFaultData = async () => {
     const logId = brpcFaultSelectedLogId.value || brpcFaultLogOptions.value[0]?.id
     if (!logId) {
@@ -781,10 +820,74 @@ function createOverviewState() {
     Math.max(1, Math.ceil(brpcAbnormalThreadTotal.value / brpcFaultPageSize)),
   )
 
+  // ---------- P2.2 聚合事件详情（组件计数 / 当前窗时序 / 关联线程） ----------
+
+  const brpcEventDetail = ref<any>(null)
+  const brpcEventDetailTimeline = ref<any[]>([])
+  const brpcEventDetailThreads = ref<any[]>([])
+  const brpcEventDetailLoading = ref(false)
+  const brpcEventDetailError = ref('')
+  let brpcEventDetailSeq = 0
+
+  const loadBrpcEventDetail = async (row: any) => {
+    const batchId = brpcFaultBatchId.value
+    if (!batchId || !row?.event_id) return
+    const startMs = tsToEpochMs(row.window_start_time)
+    const endMs = tsToEpochMs(row.window_end_time)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      brpcEventDetailError.value = '聚合事件窗口时间无效'
+      return
+    }
+    const seq = ++brpcEventDetailSeq
+    brpcEventDetailLoading.value = true
+    brpcEventDetailError.value = ''
+    brpcEventDetail.value = null
+    brpcEventDetailTimeline.value = []
+    brpcEventDetailThreads.value = []
+    try {
+      const scope = {
+        podIp: row.pod_ip,
+        podName: row.pod_name || undefined,
+      }
+      const [detail, threadsResult, timelineResult] = await Promise.all([
+        fetchBrpcEventDetail(batchId, row.event_id, {
+          window_start_time: row.window_start_time,
+          window_end_time: row.window_end_time,
+          pod_ip: row.pod_ip,
+          pod_name: row.pod_name || undefined,
+          thread_id: typeof row.thread_id === 'number' ? row.thread_id : undefined,
+        }),
+        fetchBrpcAbnormalThreads(batchId, new Date(startMs), new Date(endMs), 1, 100, scope),
+        fetchBrpcInterfaceTimeline(batchId, new Date(startMs), new Date(endMs), '10s', scope),
+      ])
+      if (seq !== brpcEventDetailSeq) return
+      brpcEventDetail.value = detail
+      brpcEventDetailThreads.value = (threadsResult.threads ?? []).filter(
+        (thread: any) => typeof row.thread_id !== 'number' || thread.thread_id === row.thread_id,
+      )
+      brpcEventDetailTimeline.value = timelineResult.series ?? []
+      renderBrpcEventTimeline()
+    } catch (error) {
+      if (seq !== brpcEventDetailSeq) return
+      brpcEventDetailError.value = errorText(error)
+    } finally {
+      if (seq === brpcEventDetailSeq) brpcEventDetailLoading.value = false
+    }
+  }
+
   const openBrpcFaultDetail = (row: any) => {
     brpcFaultDetail.value = row
     brpcThreadLogs.value = []
     brpcThreadLogsError.value = ''
+    brpcEventDetail.value = null
+    brpcEventDetailTimeline.value = []
+    brpcEventDetailThreads.value = []
+    brpcEventDetailError.value = ''
+    // 聚合事件行（无 thread_key）：加载组件计数 / 当前窗时序 / 关联线程（P2.2）
+    if (row && !row.thread_key) {
+      void loadBrpcEventDetail(row)
+      return
+    }
     // 仅异常 Thread 行（带 thread_key）加载全部运行日志
     if (!row?.thread_key || row?.thread_id == null || !row?.pod_ip) return
     const batch = brpcFaultBatch.value
@@ -2291,6 +2394,7 @@ function createOverviewState() {
   const brpcSingleRef = ref<HTMLElement | null>(null)
   const brpcLatencyRef = ref<HTMLElement | null>(null)
   const brpcFaultTimelineRef = ref<HTMLElement | null>(null)
+  const brpcEventTimelineRef = ref<HTMLElement | null>(null)
 
   const getChart = (element: HTMLElement) => getInstanceByDom(element) || init(element)
 
@@ -3894,6 +3998,12 @@ function createOverviewState() {
     latencyTraceIdsWithFault,
     traceTags,
     podRowTags,
+    brpcEventDetail,
+    brpcEventDetailError,
+    brpcEventDetailLoading,
+    brpcEventDetailThreads,
+    brpcEventDetailTimeline,
+    brpcEventTimelineRef,
     brpcFaultTimelineSeries,
     brpcFileKey,
     brpcFileLabel,
@@ -4004,6 +4114,7 @@ function createOverviewState() {
     realOp,
     renderAnalysisModules,
     renderBrpcCharts,
+    renderBrpcEventTimeline,
     renderBrpcLatencyChart,
     renderBrpcSingleChart,
     renderBrpcSuccessOverviewChart,

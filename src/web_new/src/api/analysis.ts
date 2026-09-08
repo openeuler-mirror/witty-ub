@@ -393,12 +393,15 @@ export const fetchBrpcInterfaceTimeline = (
   start: Date,
   end: Date,
   windowSize = '1m',
+  extra?: { podIp?: string; podName?: string },
 ) =>
   request<{ series: any[] }>(
     `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/interface-timeline?${toQueryString({
       start_time: formatFullTimeLabel(start),
       end_time: formatFullTimeLabel(end),
       window_size: windowSize,
+      pod_ip: extra?.podIp,
+      pod_name: extra?.podName,
     })}`,
   )
 
@@ -419,12 +422,29 @@ export const fetchBrpcPodEvents = (
     })}`,
   )
 
+// P2.2 聚合事件详情：组件计数（failure_modes）+ hit_total
+export const fetchBrpcEventDetail = (
+  batchId: string,
+  eventId: string,
+  params: {
+    window_start_time: string
+    window_end_time: string
+    pod_ip: string
+    pod_name?: string
+    thread_id?: number
+  },
+) =>
+  request<{ event?: any; failure_modes?: any[]; hit_total?: number }>(
+    `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/pod-events/${encodeURIComponent(eventId)}?${toQueryString({ ...params, page_num: 1, page_cnt: 100 })}`,
+  )
+
 export const fetchBrpcAbnormalThreads = (
   batchId: string,
   start: Date,
   end: Date,
   pageNum: number,
   pageCnt: number,
+  extra?: { podIp?: string; podName?: string; search?: string },
 ) =>
   request<{ total: number; threads: any[] }>(
     `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/abnormal-threads?${toQueryString({
@@ -432,6 +452,9 @@ export const fetchBrpcAbnormalThreads = (
       end_time: formatFullTimeLabel(end),
       page_num: pageNum,
       page_cnt: pageCnt,
+      pod_ip: extra?.podIp,
+      pod_name: extra?.podName,
+      search: extra?.search,
     })}`,
   )
 

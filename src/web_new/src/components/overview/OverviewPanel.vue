@@ -24,10 +24,17 @@ const {
   analysisModule,
   analysisTab,
   assetTypeFilter,
+  brpcEventDetail,
+  brpcEventDetailError,
+  brpcEventDetailLoading,
+  brpcEventDetailThreads,
+  brpcEventDetailTimeline,
+  brpcEventTimelineRef,
   brpcFaultDetail,
   brpcThreadLogs,
   brpcThreadLogsLoading,
   brpcThreadLogsError,
+  openBrpcFaultDetail,
   brpcLoading,
   brpcMonitorError,
   brpcMonitorTab,
@@ -66,6 +73,12 @@ const openBrpcFaultTab = () => {
   brpcMonitorTab.value = 'fault'
   void loadBrpcFaultData()
 }
+
+// P2.2：事件窗时序无任何数据点时展示空态（避免渲染空图）
+const brpcEventDetailTimelineEmpty = computed(
+  () =>
+    !(brpcEventDetailTimeline.value ?? []).some((series: any) => (series?.points || []).length > 0),
+)
 
 const onKeydown = (event: KeyboardEvent) => {
   if (event.key !== 'Escape') return
@@ -344,14 +357,14 @@ onBeforeUnmount(() => {
     </template>
   </template>
 
-  <!-- ============ Pod IP 详情弹窗 ============ -->
+  <!-- ============ UBSocket 事件 / Thread 详情弹窗 ============ -->
   <div class="modal-overlay" v-if="brpcFaultDetail" @click.self="brpcFaultDetail = null">
-    <div class="modal" style="width: 720px">
+    <div class="modal" style="width: 860px; max-width: 92vw">
       <div class="modal-header">
-        接口命中明细
+        {{ brpcFaultDetail.thread_key ? 'Thread 接口命中明细' : '聚合事件详情' }}
         <button class="modal-close" @click="brpcFaultDetail = null">✕</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" style="max-height: 78vh; overflow-y: auto">
         <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
           <template v-if="brpcFaultDetail.thread_key">
             线程: <b style="color: var(--text)">{{ brpcFaultDetail.thread_key }}</b> · Pod:
@@ -365,6 +378,103 @@ onBeforeUnmount(() => {
             · Pod: <b style="color: var(--text)">{{ brpcFaultDetail.pod_ip }}</b>
           </template>
         </div>
+
+        <!-- P2.2 聚合事件详情：组件计数 / 当前窗时序 / 关联线程 -->
+        <template v-if="!brpcFaultDetail.thread_key">
+          <div v-if="brpcEventDetailError" class="error-banner">{{ brpcEventDetailError }}</div>
+          <div v-if="brpcEventDetailLoading" class="empty" style="padding: 20px 0">
+            <div class="icon">⏳</div>
+            <div>正在加载事件详情...</div>
+          </div>
+          <template v-else>
+            <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
+              🧩 组件计数（共 {{ brpcEventDetail?.hit_total ?? 0 }} 次命中）
+            </div>
+            <div
+              v-if="!brpcEventDetail?.failure_modes?.length"
+              class="empty"
+              style="padding: 12px 0"
+            >
+              暂无组件计数
+            </div>
+            <div v-else class="table-wrap" style="margin-bottom: 16px">
+              <table>
+                <thead>
+                  <tr>
+                    <th>组件</th>
+                    <th>故障模式</th>
+                    <th>命中数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="mode in brpcEventDetail.failure_modes"
+                    :key="mode.failure_mode_id + ':' + mode.component"
+                  >
+                    <td>{{ mode.component || '-' }}</td>
+                    <td style="font-size: 12px">{{ mode.failure_mode_name || '-' }}</td>
+                    <td>{{ mode.hit_count }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
+              📈 当前窗故障时序
+            </div>
+            <div v-if="brpcEventDetailTimelineEmpty" class="empty" style="padding: 12px 0">
+              当前窗内无故障时序数据
+            </div>
+            <div
+              v-show="!brpcEventDetailTimelineEmpty"
+              ref="brpcEventTimelineRef"
+              style="height: 220px; margin-bottom: 16px"
+            ></div>
+
+            <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
+              🧵 关联异常 Thread（{{ brpcEventDetailThreads.length }}）
+            </div>
+            <div v-if="brpcEventDetailThreads.length === 0" class="empty" style="padding: 12px 0">
+              当前窗内无异常 Thread
+            </div>
+            <div v-else class="table-wrap" style="margin-bottom: 16px">
+              <table>
+                <thead>
+                  <tr>
+                    <th>线程Key</th>
+                    <th>线程ID</th>
+                    <th>命中数</th>
+                    <th>接口概要</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="thread in brpcEventDetailThreads" :key="thread.thread_key">
+                    <td style="font-family: monospace; font-size: 12px">{{ thread.thread_key }}</td>
+                    <td>{{ thread.thread_id }}</td>
+                    <td>{{ thread.total_interface_hit_count }}</td>
+                    <td>
+                      <span
+                        v-for="hit in (thread.interface_hits || []).slice(0, 3)"
+                        :key="hit.interface_id"
+                        class="trace-chip"
+                      >
+                        {{ hit.interface_name }}:{{ hit.interface_hit_count }}
+                      </span>
+                    </td>
+                    <td>
+                      <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
+                        查看 Thread 日志
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </template>
+
+        <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">接口命中</div>
         <div
           v-if="!brpcFaultDetail.interface_hits || brpcFaultDetail.interface_hits.length === 0"
           class="empty"
