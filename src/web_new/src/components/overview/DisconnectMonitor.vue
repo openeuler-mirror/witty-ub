@@ -598,13 +598,15 @@ const faultModeTitle = (row: any) =>
 
 .fault-compact-table {
   width: 100%;
-  table-layout: fixed;
 }
 
-/* 窄屏不隐藏列：内容与宽屏一致，靠容器横向滑动看全 */
+/* 窄屏不隐藏列：内容与宽屏一致，靠容器横向滑动看全。
+   解除 nowrap 让较长单元格在容器宽度内换行收缩，避免固定列宽
+   让内容伸出操作列 sticky 阈值、在其背后横向滚动 */
 @media (max-width: 800px) {
-  .fault-compact-table {
-    min-width: 1180px;
+  .fault-compact-table th,
+  .fault-compact-table td {
+    white-space: normal;
   }
 }
 

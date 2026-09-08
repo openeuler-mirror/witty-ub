@@ -1182,10 +1182,12 @@ tr:hover td {
   }
 
   /* 窄屏不隐藏列：内容与宽屏一致，靠容器横向滑动看全。
-     col 宽固定布局 + 最小宽度，避免表被 width:100% 压缩成无溢出 */
-  .endpoint-table {
-    table-layout: fixed;
-    min-width: 960px;
+     内容自然布局：解除 nowrap，让较长单元格在容器宽度内换行收缩，
+     表不产生溢出、操作列 sticky 无背后滚动区；阶段条等宽内容超出时
+     由 .table-wrap 的 overflow-x 兜底 */
+  .endpoint-table th,
+  .endpoint-table td {
+    white-space: normal;
   }
 }
 
