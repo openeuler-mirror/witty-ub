@@ -250,3 +250,24 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 - 数据库手动部署 → [05-database.md](05-database.md)
 - 宿主机脚本部署 → [02-script-host.md](02-script-host.md)
 - 容器脚本部署 → [03-script-container.md](03-script-container.md)
+
+
+### SELinux 与前端 413 排查
+
+`前端页面未就绪` 只表示首页探测失败，并不能直接认定为 SELinux。
+先查看 `journalctl -u witty-ub-web -n 50 --no-pager`、
+`/var/log/witty-ub-web/error.log` 和 `ausearch -m AVC -ts recent`。
+SELinux 拒绝通常伴随 `Permission denied`，需区分静态文件访问、端口监听和反代连接。
+
+RPM manager 在渲染前端配置后会为 Web 静态文件、配置、日志和 PID 目录设置持久
+SELinux 标签，将 TCP 8080 标记为 `http_port_t`，并开启
+`httpd_can_network_connect` 以访问本机或远端后端。该布尔值作用于同一 SELinux
+域的 Web 服务。Enforcing 保持启用；缺少管理工具时部署会提示安装
+`policycoreutils-python-utils`（旧系统为 `policycoreutils-python`）及 `policycoreutils`。
+升级后执行 `sudo witty-ub manager deploy`，会重新渲染配置并重启 Web 服务。
+
+HTTP 413 表示请求体超过限制；本项目默认配置和模板均设为 `client_max_body_size 20G`，
+后端上传采用流式转发。旧 RPM 默认配置缺少该设置；RPM 的 `%config(noreplace)`
+可能保留旧配置，需要重新部署使模板生效。如果仍然报 413，检查实际加载的配置：
+`sudo nginx -T -c /etc/witty-ub/web/nginx.conf`，并检查外层网关的上传限制。
+20G 为整个请求体上限，包含 multipart 元数据。

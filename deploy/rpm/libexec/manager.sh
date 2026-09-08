@@ -197,7 +197,7 @@ install_frontend() {
 
     _info "启动 witty-ub-web 服务..."
     systemctl daemon-reload 2>/dev/null || true
-    systemctl enable --now witty-ub-web 2>/dev/null || {
+    systemctl enable witty-ub-web && systemctl restart witty-ub-web || {
         _err "witty-ub-web 启动失败"
         return 1
     }
