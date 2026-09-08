@@ -138,6 +138,7 @@ function createOverviewState() {
     faultTraces: new Map<string, { total: number; rows: any[]; truncated: boolean }>(),
   }
   let lastLogFilesKey = ''
+  let overviewRequestGeneration = 0
   const faultTraceIdsWithLatency = reactive<Record<'get' | 'set', Set<string>>>({
     get: new Set(),
     set: new Set(),
@@ -182,8 +183,6 @@ function createOverviewState() {
   // ============ 统一分析过滤器：时延与通断各自持有实例 ============
   const latencyFilter = createAnalysisFilter()
   const disconnectFilter = createAnalysisFilter()
-  // P1.5：初始默认选中最新成功的 kv-cache 日志文件（列表异步就绪后由 watcher 校正）
-  latencyFilter.logId.value = scopeTasks.value[0]?.id
   watch(realOp, (op) => {
     latencyFilter.scaleSec.value = overviewScale.value as 10 | 60 | 600 | 3600
     void op
@@ -235,7 +234,7 @@ function createOverviewState() {
     faultTracesTruncated.value = false
   }
 
-  const loadOverviewSection = async (op: 'get' | 'set') => {
+  const loadOverviewSection = async (op: 'get' | 'set', generation = overviewRequestGeneration) => {
     const asset = selectedAsset.value
     if (!asset) return
 
@@ -251,6 +250,7 @@ function createOverviewState() {
           interval: overviewScale.value,
           logId,
         })
+        if (generation !== overviewRequestGeneration) return
         timeWindows = rows
         timelineTruncated.value = truncated
         sectionCaches.timeWindows.set(scaleKey, timeWindows)
@@ -282,6 +282,7 @@ function createOverviewState() {
         fetchParseResultTotal(asset.id, op, undefined, logId),
         fetchParseResultTotal(asset.id, op, true, logId),
       ])
+      if (generation !== overviewRequestGeneration) return
       kpi = { traceTotal, anomalyTotal, podCount: podSet.size }
       sectionCaches.kpi.set(scaleKey, kpi)
     }
@@ -300,7 +301,11 @@ function createOverviewState() {
     }
   }
 
-  const loadTrendSection = async (op: 'get' | 'set', pct: string) => {
+  const loadTrendSection = async (
+    op: 'get' | 'set',
+    pct: string,
+    generation = overviewRequestGeneration,
+  ) => {
     const asset = selectedAsset.value
     if (!asset) return
 
@@ -310,6 +315,7 @@ function createOverviewState() {
     let latency = sectionCaches.latency.get(latencyKey)
     if (!latency) {
       latency = await fetchLatencyMetrics(asset.id, op, pct, logId, trendScale.value)
+      if (generation !== overviewRequestGeneration) return
       sectionCaches.latency.set(latencyKey, latency)
     }
 
@@ -317,12 +323,14 @@ function createOverviewState() {
     let topSlow = sectionCaches.topSlow.get(trendListKey)
     if (!topSlow) {
       topSlow = await fetchTopSlow(asset.id, op, logId)
+      if (generation !== overviewRequestGeneration) return
       sectionCaches.topSlow.set(trendListKey, topSlow)
     }
 
     let abnormal = sectionCaches.abnormal.get(trendListKey)
     if (!abnormal) {
       abnormal = await fetchAbnormalTraces(asset.id, op, logId)
+      if (generation !== overviewRequestGeneration) return
       sectionCaches.abnormal.set(trendListKey, abnormal)
     }
     if (overlapLoadedFor.latency !== op) {
@@ -331,7 +339,8 @@ function createOverviewState() {
         .filter((id: string | undefined): id is string => !!id)
       if (traceIds.length > 0) {
         try {
-          const faultResult = await fetchFaultTracesByTraceIds(asset.id, traceIds)
+          const faultResult = await fetchFaultTracesByTraceIds(asset.id, traceIds, logId)
+          if (generation !== overviewRequestGeneration) return
           latencyTraceIdsWithFault[op] = new Set(
             (faultResult.trace_failure_event_results ?? [])
               .map((row: any) => row.trace_id)
@@ -346,6 +355,8 @@ function createOverviewState() {
       overlapLoadedFor.latency = op
     }
 
+    if (generation !== overviewRequestGeneration) return
+
     const pctKey = pct as 'p99' | 'p9999' | 'pmax' | 'ave'
     scopeData.value = {
       ...scopeData.value,
@@ -358,19 +369,21 @@ function createOverviewState() {
     }
   }
 
-  const loadFaultSection = async (op: 'get' | 'set') => {
+  const loadFaultSection = async (op: 'get' | 'set', generation = overviewRequestGeneration) => {
     const asset = selectedAsset.value
     if (!asset) return
 
     let faultChart = sectionCaches.faultChart.get(op)
     if (!faultChart) {
       faultChart = await fetchFaultChart(asset.id, op)
+      if (generation !== overviewRequestGeneration) return
       sectionCaches.faultChart.set(op, faultChart)
     }
 
     let faultTraces = sectionCaches.faultTraces.get(op)
     if (!faultTraces) {
       faultTraces = await fetchFaultTraces(asset.id, op)
+      if (generation !== overviewRequestGeneration) return
       sectionCaches.faultTraces.set(op, faultTraces)
     }
     faultTracesTruncated.value = faultTraces.truncated
@@ -381,6 +394,7 @@ function createOverviewState() {
       if (traceIds.length > 0) {
         try {
           const latencyResult = await fetchLatencyTracesByTraceIds(asset.id, traceIds)
+          if (generation !== overviewRequestGeneration) return
           faultTraceIdsWithLatency[op] = new Set(
             (latencyResult.log_parse_results ?? []).map((row: any) => row.trace_id).filter(Boolean),
           )
@@ -392,6 +406,8 @@ function createOverviewState() {
       }
       overlapLoadedFor.fault = op
     }
+
+    if (generation !== overviewRequestGeneration) return
 
     scopeData.value = {
       ...scopeData.value,
@@ -1986,23 +2002,29 @@ function createOverviewState() {
   const detailDrawerRow = ref<any>(null)
   const drawerKind = ref<'log' | 'trace'>('log')
   const traceDrawerLogs = ref<any[]>([])
+  let traceDrawerRequestSeq = 0
 
   const openTraceDrawer = async (row: any) => {
+    const seq = ++traceDrawerRequestSeq
     detailDrawerRow.value = row
     drawerKind.value = 'trace'
     detailDrawerOpen.value = true
     traceDrawerLogs.value = []
     const asset = selectedAsset.value
     if (!asset || !row?.trace_id) return
+    const logId = row.log_id ?? latencyFilter.logId.value
     try {
-      const result = await fetchTraceLogs(asset.id, [row.trace_id])
+      const result = await fetchTraceLogs(asset.id, [row.trace_id], logId)
+      if (seq !== traceDrawerRequestSeq) return
       traceDrawerLogs.value = result.log_failure_event_results ?? []
     } catch {
+      if (seq !== traceDrawerRequestSeq) return
       traceDrawerLogs.value = []
     }
     if (!row.total_latency && !row.total_latency_us) {
       try {
-        const latencyRow = await fetchTraceLatency(asset.id, row.trace_id)
+        const latencyRow = await fetchTraceLatency(asset.id, row.trace_id, logId)
+        if (seq !== traceDrawerRequestSeq) return
         if (latencyRow) {
           detailDrawerRow.value = { ...row, ...latencyRow }
         }
@@ -3256,6 +3278,7 @@ function createOverviewState() {
   }
 
   const loadOverviewForTab = async () => {
+    const generation = ++overviewRequestGeneration
     if (!isAssetMode.value) return
     if (assetTypeFilter.value === 'brpc') {
       await loadBrpcData()
@@ -3263,10 +3286,12 @@ function createOverviewState() {
       return
     } else {
       const op = realOp.value
-      await loadOverviewSection(op)
+      await loadOverviewSection(op, generation)
+      if (generation !== overviewRequestGeneration) return
       if (analysisTab.value === 'latency') {
         if (analysisModule.latency === 'trend') {
-          await loadTrendSection(op, trendPercentile.value)
+          await loadTrendSection(op, trendPercentile.value, generation)
+          if (generation !== overviewRequestGeneration) return
           renderTrendChart()
           renderSlowChart()
         } else {
@@ -3274,7 +3299,8 @@ function createOverviewState() {
           renderTopology()
         }
       } else {
-        await loadFaultSection(op)
+        await loadFaultSection(op, generation)
+        if (generation !== overviewRequestGeneration) return
         renderFaultTopology()
         renderFaultPieCharts()
         renderFaultChart()
@@ -3283,7 +3309,11 @@ function createOverviewState() {
     }
   }
 
+  let overviewWatchersBound = false
   const bindOverviewWatchers = () => {
+    if (overviewWatchersBound) return
+    overviewWatchersBound = true
+
     watch(
       [
         currentOp,
@@ -3311,7 +3341,10 @@ function createOverviewState() {
 
     watch([trendVisible, trendPercentile, trendScale, trendRange], () => {
       if (isAssetMode.value && !isBrpcTask.value && analysisModule.latency === 'trend') {
-        void loadTrendSection(realOp.value, trendPercentile.value).then(() => renderTrendChart())
+        const generation = ++overviewRequestGeneration
+        void loadTrendSection(realOp.value, trendPercentile.value, generation).then(() => {
+          if (generation === overviewRequestGeneration) renderTrendChart()
+        })
       }
     })
 
@@ -3419,11 +3452,11 @@ function createOverviewState() {
       () => {
         const files = dataOptions.value?.getLogFiles() ?? []
         const key = files.map((file) => `${file.id}:${file.overall_status}`).join('|')
-        // P1.5：默认选中最新成功的 kv-cache 日志；列表变化后失效时校正
+        // P1.5：默认跨任务汇总；仅在已选日志失效时回到“全部任务”
         const tasks = scopeTasks.value
         const current = latencyFilter.logId.value
-        if (!current || !tasks.some((file) => file.id === current)) {
-          latencyFilter.logId.value = tasks[0]?.id
+        if (current && !tasks.some((file) => file.id === current)) {
+          latencyFilter.logId.value = undefined
         }
         if (key !== lastLogFilesKey) {
           clearSectionCaches()
@@ -3435,10 +3468,28 @@ function createOverviewState() {
 
     // P1.5：用户切换日志文件 → 清缓存并按当前页签重载
     watch(latencyFilter.logId, (logId, oldLogId) => {
-      if (logId === oldLogId || oldLogId === undefined) return
+      if (logId === oldLogId) return
       if (!isAssetMode.value || isBrpcTask.value) return
+      ++overviewRequestGeneration
+      ++analysisWindowSeq
+      ++objectDetailSeq
+      ++traceDrawerRequestSeq
+      if (analysisWindowTimer) clearTimeout(analysisWindowTimer)
+      analysisWindowTimer = null
+      analysisWindowBuckets.value = null
+      analysisWindowLoading.value = false
+      timelineTruncated.value = false
+      scopeData.value = emptyScopeData()
+      objectDetail.open = false
+      detailDrawerOpen.value = false
+      detailDrawerRow.value = null
+      traceDrawerLogs.value = []
       clearSectionCaches()
       void loadOverviewForTab()
+    })
+
+    watch(detailDrawerOpen, (open) => {
+      if (!open) ++traceDrawerRequestSeq
     })
   }
 

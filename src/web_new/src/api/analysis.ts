@@ -289,19 +289,20 @@ export const fetchFaultTraces = async (kbId: string, op: 'get' | 'set') => {
   return { total: first.total, rows, truncated: rows.length < first.total }
 }
 
-export const fetchTraceLogs = async (kbId: string, traceIds: string[]) =>
+export const fetchTraceLogs = async (kbId: string, traceIds: string[], logId?: string) =>
   request<{ log_failure_event_results?: any[] }>('/log_failure_event_result/list_log_events', {
     method: 'POST',
-    body: JSON.stringify({ kb_id: kbId, trace_ids: traceIds }),
+    body: JSON.stringify({ kb_id: kbId, trace_ids: traceIds, log_id: logId }),
   })
 
-export const fetchTraceLatency = async (kbId: string, traceId: string) => {
+export const fetchTraceLatency = async (kbId: string, traceId: string, logId?: string) => {
   const result = await request<{ total: number; log_parse_results: any[] }>(
     '/log_parse_result/list',
     {
       method: 'POST',
       body: JSON.stringify({
         kb_id: kbId,
+        log_id: logId,
         trace_id: traceId,
         page_num: 1,
         page_cnt: 1,
@@ -312,11 +313,16 @@ export const fetchTraceLatency = async (kbId: string, traceId: string) => {
   return row ? normalizeTraceRow(row) : null
 }
 
-export const fetchLatencyTracesByTraceIds = async (kbId: string, traceIds: string[]) =>
+export const fetchLatencyTracesByTraceIds = async (
+  kbId: string,
+  traceIds: string[],
+  logId?: string,
+) =>
   request<{ total: number; log_parse_results: any[] }>('/log_parse_result/list', {
     method: 'POST',
     body: JSON.stringify({
       kb_id: kbId,
+      log_id: logId,
       is_anomalous: true,
       page_cnt: 1000,
       page_num: 1,
@@ -324,13 +330,18 @@ export const fetchLatencyTracesByTraceIds = async (kbId: string, traceIds: strin
     }),
   })
 
-export const fetchFaultTracesByTraceIds = async (kbId: string, traceIds: string[]) =>
+export const fetchFaultTracesByTraceIds = async (
+  kbId: string,
+  traceIds: string[],
+  logId?: string,
+) =>
   request<{ total: number; trace_failure_event_results: any[] }>(
     '/log_failure_event_result/list_trace_events',
     {
       method: 'POST',
       body: JSON.stringify({
         kb_id: kbId,
+        log_id: logId,
         is_anomalous: true,
         page_cnt: 1000,
         page_num: 1,
