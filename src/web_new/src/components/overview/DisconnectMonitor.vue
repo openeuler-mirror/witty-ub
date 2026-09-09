@@ -1,92 +1,79 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import { normalizeFaultCodes, normalizeTraceOperation } from '../../utils/format'
 import PageNav from '../common/PageNav.vue'
 
 const {
+  activeFaultTraces,
   clearFaultRange,
   clearFaultTraceQuery,
   currentOp,
-  enterFaultAggPairDetail,
+  disconnectFilter,
   enterFaultDetail,
+  enterFaultLinkDetail,
   failureModeOf,
-  faultAggErrCodes,
-  faultAggError,
-  faultAggExpandedBucket,
-  faultAggExpandedKey,
-  faultAggInterval,
-  faultAggIntervalOptions,
-  faultAggLoading,
-  faultAggPage,
-  faultAggPages,
-  faultAggPairs,
-  faultAggPairsErrCodes,
-  faultAggPairsLoading,
-  faultAggPairsPage,
-  faultAggPairsPages,
-  faultAggPairsSortBy,
-  faultAggPairsSortDesc,
-  faultAggPairsSortField,
-  faultAggPairsTotal,
-  faultAggRows,
-  faultAggSortBy,
-  faultAggSortDesc,
-  faultAggSortField,
-  faultAggTotal,
+  faultActivePairs,
   faultChartData,
   faultChartRef,
   faultChartSampled,
   faultChartScale,
   faultChartScaleOptions,
-  faultPodAgg,
-  faultPodRef,
-  faultPieRefs,
+  faultCodeSummaries,
+  faultPodStats,
+  faultScopedTraces,
   faultTimeRange,
   faultTopoRef,
   faultTraceIdInput,
+  faultTraceLoadedCount,
   faultTracePage,
   faultTracePages,
-  faultTraceLoadedCount,
   faultTraceQuery,
   faultTraceQueryError,
   faultTraceQueryLoading,
   faultTraceTotal,
   faultTracesTruncated,
   filteredFaultTraces,
-  loadFaultAggEvents,
-  loadFaultAggPairs,
   openTraceDrawer,
   pagedFaultTraces,
   queryFaultTraceById,
   renderFaultChart,
-  renderFaultPieCharts,
-  renderFaultPodChart,
   renderFaultTopology,
-  toggleFaultAggBucket,
+  selectedFaultCode,
   traceTags,
 } = useOverviewData()
 
+const selectedSummary = computed(() =>
+  faultCodeSummaries.value.find((summary) => summary.code === selectedFaultCode.value),
+)
+const selectedModeIds = computed(() => selectedSummary.value?.modeIds ?? [])
+const topFaultPairs = computed(() => faultActivePairs.value.slice(0, 8))
+const topFaultEndpoints = computed(() => faultPodStats.value.slice(0, 8))
+const scopeLabel = computed(() =>
+  selectedFaultCode.value ? `故障码 ${selectedFaultCode.value}` : '全部故障码',
+)
+
+const selectFaultCode = (code: string) => {
+  if (selectedFaultCode.value === code) return
+  selectedFaultCode.value = code
+  disconnectFilter.clearFocus()
+  clearFaultTraceQuery()
+  faultTracePage.value = 1
+}
+
+watch(faultCodeSummaries, (summaries) => {
+  if (
+    selectedFaultCode.value &&
+    !summaries.some((summary) => summary.code === selectedFaultCode.value)
+  ) {
+    selectFaultCode('')
+  }
+})
+
 onMounted(() => {
-  renderFaultTopology()
-  renderFaultPieCharts()
   renderFaultChart()
-  renderFaultPodChart()
-  void loadFaultAggEvents()
+  renderFaultTopology()
 })
-
-// 聚合尺度变化：重置排序/展开并按新尺度重查
-watch(faultAggInterval, () => {
-  faultAggSortField.value = 'timestamp'
-  faultAggSortDesc.value = false
-  faultAggExpandedKey.value = ''
-  void loadFaultAggEvents(1)
-})
-
-const bucketKey = (row: { start_time: string; end_time: string }) =>
-  `${row.start_time}|${row.end_time}`
-const aggCount = (row: { status_code_cnt: Record<string, number> }, code: string) =>
-  row.status_code_cnt?.[code] ?? 0
 
 const faultPodIps = (row: any) =>
   row.pod_names?.length
@@ -97,338 +84,258 @@ const faultPodIps = (row: any) =>
 const visibleFaultPodIps = (row: any) => faultPodIps(row).slice(0, 2)
 const faultPodIpCount = (row: any) => faultPodIps(row).length
 const shortTraceId = (id: string) => (id?.length > 12 ? `${id.slice(0, 12)}…` : id || '-')
-const joinList = (items: any[]) => (items || []).filter(Boolean).join(' / ') || '-'
 const faultCodesOf = (row: any) => normalizeFaultCodes(row.status_code)
-const faultModeName = (row: any) => failureModeOf(row.failure_mode)?.name || row.failure_mode || '-'
-const faultModeDomain = (row: any) => failureModeOf(row.failure_mode)?.failure_domain || '-'
-const faultModeTitle = (row: any) =>
-  [
-    faultCodesOf(row).length
-      ? faultCodesOf(row)
-          .map((code) => `故障码 ${code}`)
-          .join('\n')
-      : '故障码 -',
-    faultModeName(row) !== '-' ? faultModeName(row) : '',
-    faultModeDomain(row) !== '-' ? `故障域：${faultModeDomain(row)}` : '',
-  ]
+const failureModeIdsOf = (row: any) =>
+  String(row.failure_mode || '')
+    .split(',')
+    .map((id) => id.trim())
     .filter(Boolean)
-    .join('\n')
+const failureModeNamesOf = (row: any) => {
+  const names = failureModeIdsOf(row).map((id) => failureModeOf(id)?.name || id)
+  return names.length ? names.join(' / ') : '-'
+}
+const failureDomainsOf = (row: any) => {
+  const domains = [
+    ...new Set(
+      failureModeIdsOf(row)
+        .map((id) => failureModeOf(id)?.failure_domain)
+        .filter(Boolean),
+    ),
+  ]
+  return domains.length ? domains.join(' / ') : '-'
+}
 </script>
 
 <template>
+  <section class="fault-journey" aria-label="通断故障诊断路径">
+    <div>
+      <span class="fault-eyebrow">故障诊断</span>
+      <h2>从故障码出发，定位影响范围并核对现场证据</h2>
+      <p>故障码是入口，具体故障、时间、链路、端点、Trace 与运行日志共同构成诊断结论。</p>
+    </div>
+    <ol>
+      <li class="active"><b>1</b><span>识别故障码</span></li>
+      <li><b>2</b><span>理解故障</span></li>
+      <li><b>3</b><span>定位影响</span></li>
+      <li><b>4</b><span>核验证据</span></li>
+    </ol>
+  </section>
+
   <div class="analysis-range-bar">
     <div>
-      <strong>当前时间范围</strong>
-      <span>{{
-        faultTimeRange ? faultTimeRange.start + ' ~ ' + faultTimeRange.end : '全部时段'
-      }}</span>
+      <strong>当前诊断范围</strong>
+      <span
+        >{{ currentOp }} ·
+        {{ faultTimeRange ? `${faultTimeRange.start} ~ ${faultTimeRange.end}` : '全部时段' }} ·
+        {{ scopeLabel }}</span
+      >
     </div>
     <button v-if="faultTimeRange" class="btn btn-sm btn-default" @click="clearFaultRange">
       恢复全部时段
     </button>
   </div>
 
-  <div
-    v-if="faultTracesTruncated"
-    class="section-card"
-    style="margin-bottom: 16px; border-color: #f59e0b; color: #92400e"
-  >
+  <div v-if="faultTracesTruncated" class="fault-warning" role="alert">
     当前仅加载 {{ faultTraceLoadedCount }} / {{ faultTraceTotal }} 条故障
-    Trace；本页拓扑、KPI、饼图、端点表与列表均基于已加载数据，不能视为全量结论。
+    Trace；故障码、拓扑、端点和实例统计均基于已加载数据，不能视为全量结论。精确计数请使用“聚合事件”。
   </div>
 
-  <div class="chart-box" style="height: 440px; margin-bottom: 16px">
-    <div class="chart-title">
-      通断故障通信拓扑图（有向）
-      <span class="hint" style="margin-left: auto"
-        >点击节点/边查看该端点/链路当前范围的故障 Trace；hover 查看计数详情</span
+  <section class="fault-code-workbench">
+    <aside class="fault-code-catalog" aria-label="故障码目录">
+      <header>
+        <div>
+          <strong>故障码目录</strong><span>{{ faultCodeSummaries.length }} 类</span>
+        </div>
+        <small>按关联 Trace 数降序</small>
+      </header>
+      <button
+        type="button"
+        :class="['fault-code-item', { active: !selectedFaultCode }]"
+        @click="selectFaultCode('')"
       >
-    </div>
-    <div style="padding: 8px 12px; border-bottom: 1px solid var(--border)">
-      <div class="topo-legend">
-        <span class="lg"><span class="line-get"></span> 故障链路（实线）</span>
-        <span class="lg"
-          ><span class="dot-node" style="background: #ef4444"></span> 节点颜色=故障烈度</span
-        >
-        <span class="lg"
-          ><span class="dot-node" style="background: #f59e0b"></span> 节点大小=故障次数</span
-        >
+        <span class="fault-code-token all">ALL</span>
+        <span class="fault-code-main"><b>全部故障</b><small>查看当前范围整体情况</small></span>
+        <strong>{{ activeFaultTraces.length }}</strong>
+      </button>
+      <button
+        v-for="summary in faultCodeSummaries"
+        :key="summary.code"
+        type="button"
+        :class="['fault-code-item', { active: selectedFaultCode === summary.code }]"
+        @click="selectFaultCode(summary.code)"
+      >
+        <span class="fault-code-token">{{ summary.code }}</span>
+        <span class="fault-code-main">
+          <b>{{ failureModeOf(summary.modeIds[0])?.name || `故障码 ${summary.code}` }}</b>
+          <small>{{ summary.endpointCount }} 端点 · {{ summary.pairCount }} 链路</small>
+        </span>
+        <strong>{{ summary.traceCount }}</strong>
+      </button>
+      <div v-if="faultCodeSummaries.length === 0" class="fault-code-empty">当前范围没有故障码</div>
+    </aside>
+
+    <div class="fault-code-detail">
+      <header class="fault-detail-header">
+        <div>
+          <span class="fault-eyebrow">{{ selectedFaultCode ? '当前故障码' : '全部故障概览' }}</span>
+          <h2>
+            {{ selectedFaultCode ? `故障码 ${selectedFaultCode}` : '选择一个故障码查看具体语义' }}
+          </h2>
+          <p v-if="selectedSummary">
+            关联 {{ selectedSummary.traceCount }} 条 Trace，影响
+            {{ selectedSummary.endpointCount }} 个端点、{{ selectedSummary.pairCount }} 条有向链路。
+          </p>
+          <p v-else>左侧按影响规模列出当前时段内的故障码。选择后，下方全部内容只分析该故障码。</p>
+        </div>
+        <div v-if="selectedSummary" class="fault-time-span">
+          <span
+            >首次出现<strong>{{ selectedSummary.firstSeen || '-' }}</strong></span
+          >
+          <span
+            >最后出现<strong>{{ selectedSummary.lastSeen || '-' }}</strong></span
+          >
+        </div>
+      </header>
+
+      <div v-if="selectedFaultCode" class="failure-knowledge-grid">
+        <article v-for="id in selectedModeIds" :key="id" class="failure-knowledge-card">
+          <div class="failure-knowledge-title">
+            <span>{{ failureModeOf(id)?.failure_domain || '故障模式' }}</span>
+            <strong>{{ failureModeOf(id)?.name || id }}</strong>
+          </div>
+          <dl>
+            <div>
+              <dt>现象</dt>
+              <dd>{{ failureModeOf(id)?.symptom || '暂无故障现象说明' }}</dd>
+            </div>
+            <div>
+              <dt>根因</dt>
+              <dd>{{ failureModeOf(id)?.root_cause || '暂无根因说明' }}</dd>
+            </div>
+            <div>
+              <dt>建议</dt>
+              <dd>{{ failureModeOf(id)?.solution || '请结合 Trace 与运行日志进一步确认' }}</dd>
+            </div>
+          </dl>
+        </article>
+        <div v-if="selectedModeIds.length === 0" class="failure-knowledge-empty">
+          当前故障码没有关联到可展示的故障模式知识，请从下方实例进入 Trace 日志确认。
+        </div>
       </div>
     </div>
-    <div ref="faultTopoRef" style="height: 360px"></div>
-  </div>
+  </section>
 
-  <div class="pie-grid" style="margin-bottom: 16px">
-    <div class="chart-box">
-      <div class="chart-title">Pod 故障次数分布</div>
-      <div
-        class="chart-body"
-        :ref="
-          (el) => {
-            if (el) faultPieRefs['faults'] = el as HTMLElement
-          }
-        "
-      ></div>
-    </div>
-    <div class="chart-box">
-      <div class="chart-title">故障码分布</div>
-      <div
-        class="chart-body"
-        :ref="
-          (el) => {
-            if (el) faultPieRefs['codes'] = el as HTMLElement
-          }
-        "
-      ></div>
-    </div>
-  </div>
-
-  <div class="section-card">
-    <h2 class="section-card-title">
-      通断故障端点分析
-      <span class="hint">基于当前时间范围内故障 Trace 的源/目标 IP 聚合</span>
-    </h2>
-    <div ref="faultPodRef" style="height: 240px"></div>
-    <div class="table-wrap" style="margin-top: 12px">
-      <table>
-        <thead>
-          <tr>
-            <th>端点 IP</th>
-            <th>故障次数</th>
-            <th>故障码</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="fault in faultPodAgg" :key="fault.ip">
-            <td style="font-family: monospace">{{ fault.ip }}</td>
-            <td>{{ fault.faults }}</td>
-            <td>
-              <span class="fault-code-chip" v-for="code in fault.codes" :key="code"
-                >故障码 {{ code }}</span
-              >
-            </td>
-            <td>
-              <button class="btn btn-sm btn-text" @click="enterFaultDetail(fault.ip)">
-                查看故障 Trace
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="section-card">
-    <h2 class="section-card-title">
-      📈 故障码计数时序分布
-      <span class="hint">拖拽选择时间范围，本页拓扑、KPI、饼图、端点表与 Trace 列表随之过滤</span>
-      <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px">
+  <section class="section-card">
+    <header class="fault-section-header">
+      <div>
+        <span class="fault-step">时间定位</span>
+        <h2 class="section-card-title">{{ scopeLabel }} · 发生趋势</h2>
+        <p>拖拽框选时间范围后，影响链路、端点与故障实例同步收窄。</p>
+      </div>
+      <div class="fault-chart-controls">
         <span
           v-if="faultChartSampled"
-          class="hint"
-          style="color: var(--warning)"
-          title="单故障码秒级数据点达到加载上限，后端已抽稀；按尺度聚合后的桶计数不再精确"
-          >⏳ 数据已抽稀，桶计数为近似</span
+          class="sample-warning"
+          title="后端已抽稀，按尺度聚合后的桶计数不再精确"
+          >数据已抽稀，桶计数为近似</span
         >
-        <label for="fault-chart-scale" class="hint">时间聚合尺度</label>
+        <label for="fault-chart-scale">时间尺度</label>
         <select id="fault-chart-scale" class="select" v-model.number="faultChartScale">
           <option v-for="opt in faultChartScaleOptions" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>
         </select>
-      </span>
-    </h2>
-    <div v-if="Object.keys(faultChartData).length === 0" class="empty" style="padding: 30px 0">
-      <div class="icon">📭</div>
-      <div>{{ currentOp === 'GET' ? '当前动作无故障码数据' : '暂无故障码数据' }}</div>
-      <div class="hint">切换 SET 查看故障码时序</div>
-    </div>
-    <div v-else ref="faultChartRef" style="height: 300px"></div>
-  </div>
-
-  <div class="section-card">
-    <h2 class="section-card-title">
-      聚合事件表
-      <span class="hint"
-        >服务端按所选尺度分桶的时间 × IP
-        对聚合下钻（对齐旧版）；不随日志文件选择收窄，时间右边界为闭区间，与主视图半开区间口径不同</span
-      >
-      <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px">
-        <label for="fault-agg-interval" class="hint">聚合尺度</label>
-        <select id="fault-agg-interval" class="select" v-model="faultAggInterval">
-          <option v-for="opt in faultAggIntervalOptions" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
-      </span>
-    </h2>
-    <div v-if="faultAggError" class="error-banner" style="margin-bottom: 10px">
-      {{ faultAggError }}
-    </div>
-    <div v-if="faultAggLoading && faultAggRows.length === 0" class="empty" style="padding: 30px 0">
-      <div class="icon">⏳</div>
-      <div>聚合事件加载中…</div>
-    </div>
-    <div v-else-if="faultAggRows.length === 0" class="empty" style="padding: 30px 0">
-      <div class="icon">📭</div>
-      <div>{{ faultTimeRange ? '当前时间范围内无聚合故障事件' : '暂无聚合故障事件' }}</div>
-    </div>
-    <template v-else>
-      <div class="table-wrap" role="region" tabindex="0" aria-label="通断聚合事件表，可左右滚动">
-        <table class="fault-agg-table">
-          <thead>
-            <tr>
-              <th style="width: 40px"></th>
-              <th class="sortable" @click="faultAggSortBy('timestamp')">
-                开始时间
-                <span v-if="faultAggSortField === 'timestamp'" class="sort-mark">{{
-                  faultAggSortDesc ? '↓' : '↑'
-                }}</span>
-              </th>
-              <th>结束时间</th>
-              <th
-                v-for="code in faultAggErrCodes"
-                :key="code"
-                class="sortable num"
-                @click="faultAggSortBy(code)"
-              >
-                {{ code === 'all' ? '全部' : `故障码 ${code}` }}
-                <span v-if="faultAggSortField === code" class="sort-mark">{{
-                  faultAggSortDesc ? '↓' : '↑'
-                }}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="row in faultAggRows" :key="bucketKey(row)">
-              <tr
-                :class="{ 'row-expanded': bucketKey(row) === faultAggExpandedKey }"
-                @click="toggleFaultAggBucket(row)"
-              >
-                <td class="expand-mark">
-                  {{ bucketKey(row) === faultAggExpandedKey ? '▾' : '▸' }}
-                </td>
-                <td style="font-family: monospace; font-size: 12px">{{ row.start_time }}</td>
-                <td style="font-family: monospace; font-size: 12px">{{ row.end_time }}</td>
-                <td v-for="code in faultAggErrCodes" :key="code" class="num">
-                  {{ aggCount(row, code) || '-' }}
-                </td>
-              </tr>
-              <tr v-if="bucketKey(row) === faultAggExpandedKey" class="pair-subrow">
-                <td :colspan="3 + faultAggErrCodes.length">
-                  <div v-if="faultAggPairsLoading" class="hint" style="padding: 8px 0">
-                    IP 对加载中…
-                  </div>
-                  <div v-else-if="faultAggPairs.length === 0" class="hint" style="padding: 8px 0">
-                    该时间桶内无源/目标 IP 对
-                  </div>
-                  <template v-else>
-                    <table class="fault-agg-pair-table">
-                      <thead>
-                        <tr>
-                          <th>源 IP</th>
-                          <th>目标 IP</th>
-                          <th
-                            v-for="code in faultAggPairsErrCodes"
-                            :key="code"
-                            class="sortable num"
-                            @click.stop="faultAggPairsSortBy(code)"
-                          >
-                            {{ code === 'all' ? '全部' : `故障码 ${code}` }}
-                            <span v-if="faultAggPairsSortField === code" class="sort-mark">{{
-                              faultAggPairsSortDesc ? '↓' : '↑'
-                            }}</span>
-                          </th>
-                          <th>操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="pair in faultAggPairs" :key="pair.src_ip + '→' + pair.dst_ip">
-                          <td style="font-family: monospace">{{ pair.src_ip }}</td>
-                          <td style="font-family: monospace">{{ pair.dst_ip }}</td>
-                          <td v-for="code in faultAggPairsErrCodes" :key="code" class="num">
-                            {{ aggCount(pair, code) || '-' }}
-                          </td>
-                          <td>
-                            <button
-                              class="btn btn-sm btn-text"
-                              @click.stop="
-                                enterFaultAggPairDetail(
-                                  pair.src_ip,
-                                  pair.dst_ip,
-                                  faultAggExpandedBucket!,
-                                )
-                              "
-                            >
-                              查看故障 Trace
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <div
-                      style="
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        margin-top: 8px;
-                      "
-                    >
-                      <span style="font-size: 12px; color: var(--text2)"
-                        >共 {{ faultAggPairsTotal }} 对</span
-                      >
-                      <PageNav
-                        v-if="faultAggPairsPages > 1"
-                        :page="faultAggPairsPage"
-                        :pages="faultAggPairsPages"
-                        @update:page="loadFaultAggPairs"
-                      />
-                    </div>
-                  </template>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
       </div>
-      <div
-        style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
-      >
-        <span style="font-size: 13px; color: var(--text2)"
-          >共 {{ faultAggTotal }} 桶{{ faultAggLoading ? ' · 刷新中…' : '' }}</span
-        >
-        <PageNav
-          v-if="faultAggPages > 1"
-          :page="faultAggPage"
-          :pages="faultAggPages"
-          @update:page="loadFaultAggEvents"
-        />
-      </div>
-    </template>
-  </div>
+    </header>
+    <div v-if="Object.keys(faultChartData).length === 0" class="empty fault-empty">
+      <div class="icon">📭</div>
+      <div>当前操作无故障码时序数据</div>
+    </div>
+    <div v-else ref="faultChartRef" class="fault-trend-chart"></div>
+  </section>
 
-  <div class="section-card">
-    <h2 class="section-card-title">
-      异常 Trace 列表
-      <span class="hint">{{
-        faultTraceQuery
-          ? 'Trace ID 查询结果'
-          : faultTimeRange
-            ? '当前范围：' + faultTimeRange.start + ' ~ ' + faultTimeRange.end
-            : '未过滤，展示全部'
-      }}</span>
-    </h2>
-    <div class="filter-bar" style="margin-bottom: 10px">
-      <form
-        style="display: flex; gap: 6px; align-items: center"
-        @submit.prevent="queryFaultTraceById"
-      >
+  <section class="section-card">
+    <header class="fault-section-header">
+      <div>
+        <span class="fault-step">影响定位</span>
+        <h2 class="section-card-title">{{ scopeLabel }} · 影响链路与端点</h2>
+        <p>
+          拓扑呈现通信方向；右侧按故障 Trace 数列出热点链路和端点。点击即可查看当前范围内的故障
+          Trace。
+        </p>
+      </div>
+    </header>
+    <div class="fault-impact-workbench">
+      <div class="fault-topology-panel">
+        <div class="fault-topology-meta">
+          <span>{{ faultActivePairs.length }} 条链路</span>
+          <span>{{ faultPodStats.length }} 个端点</span>
+          <span>线宽 / 节点大小 = 故障 Trace 数</span>
+        </div>
+        <div ref="faultTopoRef" class="fault-topology"></div>
+      </div>
+      <aside class="fault-impact-ranking">
+        <section>
+          <h3>
+            热点链路 <small>Top {{ topFaultPairs.length }}</small>
+          </h3>
+          <button
+            v-for="pair in topFaultPairs"
+            :key="pair.src + '→' + pair.dst"
+            class="impact-row"
+            @click="enterFaultLinkDetail(pair.src, pair.dst)"
+          >
+            <span class="impact-route"
+              ><b>{{ pair.src }}</b
+              ><i>→</i><b>{{ pair.dst }}</b
+              ><small>{{ pair.codes.map((code) => `故障码 ${code}`).join(' / ') }}</small></span
+            >
+            <strong>{{ pair.faults }}</strong>
+          </button>
+          <div v-if="topFaultPairs.length === 0" class="impact-empty">暂无故障链路</div>
+        </section>
+        <section>
+          <h3>
+            热点端点 <small>Top {{ topFaultEndpoints.length }}</small>
+          </h3>
+          <button
+            v-for="endpoint in topFaultEndpoints"
+            :key="endpoint.ip"
+            class="impact-row endpoint"
+            @click="enterFaultDetail(endpoint.ip)"
+          >
+            <span
+              ><b>{{ endpoint.ip }}</b
+              ><small>出 {{ endpoint.src }} · 入 {{ endpoint.dst }}</small></span
+            >
+            <strong>{{ endpoint.faults }}</strong>
+          </button>
+          <div v-if="topFaultEndpoints.length === 0" class="impact-empty">暂无受影响端点</div>
+        </section>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <header class="fault-section-header trace-header">
+      <div>
+        <span class="fault-step">现场证据</span>
+        <h2 class="section-card-title">{{ scopeLabel }} · 故障实例</h2>
+        <p>
+          {{
+            faultTraceQuery
+              ? `Trace ID ${faultTraceQuery.id} 的查询结果`
+              : faultTimeRange
+                ? `${faultTimeRange.start} ~ ${faultTimeRange.end}`
+                : '全部时段'
+          }}
+        </p>
+      </div>
+      <form class="trace-search" @submit.prevent="queryFaultTraceById">
         <input
           class="input"
-          style="width: 300px"
           v-model="faultTraceIdInput"
-          placeholder="输入 Trace ID 查询"
+          placeholder="输入 Trace ID 精确查询"
           aria-label="按 Trace ID 查询通断异常 Trace"
           :disabled="faultTraceQueryLoading"
         />
@@ -445,124 +352,75 @@ const faultModeTitle = (row: any) =>
           type="button"
           @click="clearFaultTraceQuery"
         >
-          恢复时间范围列表
+          恢复列表
         </button>
       </form>
-      <span class="hint" style="margin-left: auto">服务端查询，不受已加载条数上限影响</span>
-    </div>
-    <div v-if="faultTraceQueryError" class="error-banner" style="margin-bottom: 10px">
-      {{ faultTraceQueryError }}
-    </div>
-    <div v-if="faultTraceQuery" class="analysis-range-bar" style="margin-bottom: 10px">
-      <div>
-        <strong>Trace ID 查询结果</strong>
-        <span>{{ faultTraceQuery.id }} · 共 {{ faultTraceQuery.total }} 条</span>
-      </div>
-    </div>
-    <div v-if="filteredFaultTraces.length === 0" class="empty" style="padding: 30px 0">
+    </header>
+    <div v-if="faultTraceQueryError" class="error-banner">{{ faultTraceQueryError }}</div>
+    <div v-if="filteredFaultTraces.length === 0" class="empty fault-empty">
       <div class="icon">📭</div>
-      <div>
-        {{
-          faultTraceQuery
-            ? '未查询到该 Trace ID 的异常 Trace'
-            : currentOp === 'GET'
-              ? 'GET 无故障 Trace'
-              : faultTimeRange
-                ? '框选范围内无故障 Trace'
-                : '暂无故障 Trace'
-        }}
-      </div>
+      <div>{{ faultTraceQuery ? '未查询到匹配的故障实例' : '当前诊断范围内没有故障实例' }}</div>
     </div>
     <div
-      v-if="filteredFaultTraces.length"
-      class="table-wrap fault-table-wrap"
+      v-else
+      class="table-wrap"
       role="region"
       tabindex="0"
-      aria-label="通断异常 Trace 列表，可左右滚动"
+      aria-label="通断故障实例列表，可左右滚动"
     >
-      <table class="fault-compact-table">
-        <colgroup>
-          <col style="width: 86px" />
-          <col style="width: 132px" />
-          <col style="width: 128px" />
-          <col style="width: 168px" />
-          <col style="width: 96px" />
-          <col style="width: 100px" />
-          <col style="width: 64px" />
-          <col style="width: 176px" />
-          <col style="width: 110px" />
-          <col style="width: 140px" />
-        </colgroup>
+      <table class="fault-instance-table">
         <thead>
           <tr>
-            <th>故障类型</th>
-            <th>时间</th>
+            <th>发生时间</th>
+            <th>故障码</th>
+            <th>具体故障 / 故障域</th>
+            <th>影响链路</th>
+            <th>Pod 上下文</th>
             <th>Trace ID</th>
-            <th>Pod IP</th>
-            <th>集群</th>
-            <th>主机IP</th>
-            <th>操作类型</th>
-            <th>故障码 / 故障名称</th>
-            <th>故障域</th>
-            <th>操作</th>
+            <th>证据</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in pagedFaultTraces" :key="row.trace_id">
+            <td class="mono">{{ (row.timestamp || '').slice(0, 19) }}</td>
             <td>
-              <div class="task-actions">
-                <span
-                  v-for="tag in traceTags(row.trace_id, 'fault')"
-                  :key="tag.type"
-                  :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
-                  >{{ tag.label }}</span
+              <span v-for="code in faultCodesOf(row)" :key="code" class="fault-code-chip">{{
+                code
+              }}</span
+              ><span v-if="faultCodesOf(row).length === 0">-</span>
+            </td>
+            <td>
+              <strong class="fault-name">{{ failureModeNamesOf(row) }}</strong
+              ><small class="fault-domain">{{ failureDomainsOf(row) }}</small>
+            </td>
+            <td class="route-cell">
+              <span>{{ row.src_ip || '-' }}</span
+              ><i>→</i><span>{{ row.dst_ip || '-' }}</span>
+            </td>
+            <td>
+              <div class="trace-pods" :title="faultPodIps(row).join('\n')">
+                <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{
+                  ip
+                }}</span
+                ><span
+                  v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length"
+                  class="trace-chip"
+                  >+{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}</span
                 >
               </div>
-            </td>
-            <td style="font-size: 12px; font-family: monospace">
-              {{ (row.timestamp || '').slice(0, 19) }}
             </td>
             <td>
               <span class="trace-chip" :title="row.trace_id">{{ shortTraceId(row.trace_id) }}</span>
             </td>
             <td>
-              <div class="trace-pod-cell" :title="faultPodIps(row).join('\n')">
-                <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{
-                  ip
-                }}</span>
+              <div class="evidence-actions">
                 <span
-                  v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length"
-                  class="trace-chip more"
-                >
-                  +{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}
-                </span>
-              </div>
-            </td>
-            <td>
-              <span class="cell-ellipsis" :title="joinList(row.cluster_names)">{{
-                joinList(row.cluster_names)
-              }}</span>
-            </td>
-            <td>
-              <span class="cell-ellipsis" :title="joinList(row.host_names)">{{
-                joinList(row.host_names)
-              }}</span>
-            </td>
-            <td>{{ normalizeTraceOperation(row.operation) }}</td>
-            <td>
-              <span class="fault-code-chip" :title="faultModeTitle(row)">
-                {{ faultCodesOf(row).length ? '故障码 ' + faultCodesOf(row).join(' / ') : '-' }}
-              </span>
-            </td>
-            <td>
-              <span class="cell-ellipsis" :title="faultModeDomain(row)">{{
-                faultModeDomain(row)
-              }}</span>
-            </td>
-            <td>
-              <div class="task-actions">
-                <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-                  查看 Trace 详情
+                  v-for="tag in traceTags(row.trace_id, 'fault')"
+                  :key="tag.type"
+                  :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
+                  >{{ tag.label }}</span
+                ><button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
+                  Trace / 日志
                 </button>
               </div>
             </td>
@@ -570,10 +428,8 @@ const faultModeTitle = (row: any) =>
         </tbody>
       </table>
     </div>
-    <div
-      style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
-    >
-      <span style="font-size: 13px; color: var(--text2)"
+    <footer class="fault-table-footer">
+      <span
         >{{ faultTraceQuery ? '查询结果' : faultTracesTruncated ? '当前范围已加载' : '共' }}
         {{ filteredFaultTraces.length }} 条</span
       >
@@ -583,8 +439,8 @@ const faultModeTitle = (row: any) =>
         :pages="faultTracePages"
         @update:page="faultTracePage = $event"
       />
-    </div>
-  </div>
+    </footer>
+  </section>
 </template>
 
 <style scoped>
