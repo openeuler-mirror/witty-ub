@@ -15,6 +15,7 @@ from latency.task.worker.base import BaseWorker
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.common.zip_handler import ZipHandler
+import latency.task.process_handle as process_handle_module
 
 
 @pytest.mark.asyncio
@@ -73,3 +74,43 @@ async def test_full_pool_does_not_preprocess_pending_tasks(monkeypatch):
     await TaskHandler.handle_pending_tasks()
     preprocess.assert_not_awaited()
     run.assert_not_awaited()
+
+
+def test_remove_task_terminates_the_complete_task_process_group(monkeypatch):
+    class FakeProcess:
+        pid = 24680
+
+        def __init__(self):
+            self.alive = True
+            self.closed = False
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout=None):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def terminate(self):
+            raise AssertionError("owned task groups must use killpg")
+
+        def kill(self):
+            raise AssertionError("owned task groups must use killpg")
+
+    process = FakeProcess()
+    signals = []
+
+    def kill_group(pgid, sent_signal):
+        signals.append((pgid, sent_signal))
+        process.alive = False
+
+    monkeypatch.setattr(ProcessHandler, "tasks", {"task-id": process})
+    monkeypatch.setattr(process_handle_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(process_handle_module.os, "killpg", kill_group)
+
+    assert ProcessHandler.remove_task("task-id") is True
+    assert signals == [(process.pid, process_handle_module.signal.SIGTERM)]
+    assert process.closed is True
+    assert "task-id" not in ProcessHandler.tasks

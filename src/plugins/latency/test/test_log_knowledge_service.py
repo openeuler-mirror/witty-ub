@@ -6,9 +6,12 @@ import pytest
 
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.task import TaskPGManager
 from latency.exceptions import ConflictBizException
 from latency.schemas.request import CreateLogKnowledgeRequest
 from latency.services.log_knowledge import LogKnowledgeService
+from latency.task.worker.base import BaseWorker
 
 
 @pytest.fixture
@@ -102,3 +105,45 @@ async def test_commit_failure_does_not_return_success(monkeypatch, transaction_s
             CreateLogKnowledgeRequest(name="full_test", description="磁盘满")
         )
     transaction_session.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_kb_stops_all_task_trees_before_hiding_asset_and_continues_on_failure(
+    monkeypatch,
+):
+    actions = []
+    tasks = [MagicMock(id="task-ok"), MagicMock(id="task-failed")]
+
+    async def stop_task(task_id):
+        actions.append(("stop", task_id))
+        return task_id == "task-ok"
+
+    async def hide_asset(kb_id, changes):
+        actions.append(("hide", kb_id, changes))
+        return 1
+
+    monkeypatch.setattr(
+        LogKnowledgePGManager,
+        "get_log_kb_by_kb_id",
+        AsyncMock(return_value=MagicMock(id="kb-id")),
+    )
+    monkeypatch.setattr(
+        TaskPGManager, "list_tasks_by_kb_id", AsyncMock(return_value=tasks)
+    )
+    monkeypatch.setattr(BaseWorker, "stop", stop_task)
+    monkeypatch.setattr(LogKnowledgePGManager, "update_log_kb", hide_asset)
+    monkeypatch.setattr(
+        LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=[])
+    )
+    delete_config = AsyncMock()
+    monkeypatch.setattr(DiagnosisConfigPGManager, "delete", delete_config)
+
+    result = await LogKnowledgeService.delete_log_kb_by_kb_id("kb-id")
+
+    assert result.kb_id == "kb-id"
+    assert actions == [
+        ("stop", "task-ok"),
+        ("stop", "task-failed"),
+        ("hide", "kb-id", {"existed_status": False}),
+    ]
+    delete_config.assert_awaited_once_with("kb-id")

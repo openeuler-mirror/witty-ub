@@ -57,6 +57,8 @@ class FakePopen:
         self._timeout = timeout
         self._communicate_calls = 0
         self.wait_calls = []
+        self.terminate_calls = 0
+        self.kill_calls = 0
 
     def poll(self):
         return self.returncode
@@ -76,6 +78,12 @@ class FakePopen:
         self.wait_calls.append(timeout)
         self.returncode = -15
         return self.returncode
+
+    def terminate(self):
+        self.terminate_calls += 1
+
+    def kill(self):
+        self.kill_calls += 1
 
 
 def _run(coroutine):
@@ -914,6 +922,7 @@ def test_delete_brpc_log_stops_active_tasks_before_transactional_delete(
 
     async def stop_task(task_id):
         actions.append(("stop", task_id))
+        return True
 
     async def delete_log(log_file_id):
         actions.append(("delete", log_file_id))
@@ -1015,7 +1024,7 @@ def test_execute_tool_records_success_and_cleans_pid(monkeypatch, tmp_path):
     assert execution.returncode == 0
     assert execution.stdout == "tool stdout"
     assert execution.stderr == "tool stderr"
-    assert popen_calls[0][1]["start_new_session"] is True
+    assert "start_new_session" not in popen_calls[0][1]
     assert "task-success" not in BrpcLogDiagnosisWorker._processes
     assert not BrpcLogDiagnosisWorker._pid_path("task-success").exists()
 
@@ -1037,9 +1046,8 @@ def test_execute_tool_rejects_nonzero_return_code(monkeypatch, tmp_path):
     assert not BrpcLogDiagnosisWorker._pid_path("task-failed").exists()
 
 
-def test_execute_tool_terminates_process_group_on_timeout(monkeypatch, tmp_path):
+def test_execute_tool_terminates_process_on_timeout(monkeypatch, tmp_path):
     process = FakePopen(returncode=None, timeout=True)
-    signals = []
     monkeypatch.setenv("WITTY_DIR", str(tmp_path))
     monkeypatch.setenv("BRPC_DIAG_TIMEOUT_SECONDS", "0.1")
     monkeypatch.setattr(
@@ -1047,19 +1055,13 @@ def test_execute_tool_terminates_process_group_on_timeout(monkeypatch, tmp_path)
         "Popen",
         lambda *_args, **_kwargs: process,
     )
-    monkeypatch.setattr(
-        worker_module.os,
-        "killpg",
-        lambda pid, sent_signal: signals.append((pid, sent_signal)),
-    )
-
     with pytest.raises(BrpcDiagnosisWorkerError, match="运行超时"):
         BrpcLogDiagnosisWorker._execute_tool(
             "task-timeout",
             ["witty-ub-brpc-diag"],
         )
 
-    assert signals == [(process.pid, worker_module.signal.SIGTERM)]
+    assert process.terminate_calls == 1
     assert process.wait_calls == [5]
     assert not BrpcLogDiagnosisWorker._pid_path("task-timeout").exists()
 
@@ -1268,6 +1270,7 @@ def test_stop_uses_pid_file_after_outer_worker_was_killed(monkeypatch, tmp_path)
             (selected_pid, sent_signal)
         ),
     )
+    monkeypatch.setattr(worker_module.os, "getpgid", lambda selected_pid: selected_pid)
 
     def process_gone(_pid, _signal):
         raise ProcessLookupError

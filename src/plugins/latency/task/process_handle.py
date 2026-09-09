@@ -2,6 +2,8 @@
 import multiprocessing
 import asyncio
 import logging
+import os
+import signal
 from latency.config.config import Config
 from latency.database.engine import PGManager
 
@@ -44,8 +46,18 @@ class ProcessHandler:
         logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 
     @staticmethod
-    def subprocess_target(target, *args, **kwargs):
+    def subprocess_target(ready_event, target, *args, **kwargs):
         ProcessHandler._setup_child_process_logging()
+
+        # Every task owns a process group.  Native tools launched by a worker
+        # inherit this group, allowing cancellation to reap the complete tree
+        # instead of only the Python wrapper process.
+        try:
+            os.setsid()
+        except OSError:
+            logger.exception("[ProcessHandler] 创建任务进程组失败")
+        finally:
+            ready_event.set()
 
         config = Config().get_config()
         if config.db.backend == "postgresql":
@@ -75,7 +87,9 @@ class ProcessHandler:
             if not proc.is_alive()
         ]
         for tid in dead_tasks:
-            del ProcessHandler.tasks[tid]
+            process = ProcessHandler.tasks.pop(tid)
+            process.join()
+            process.close()
             logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
 
     @staticmethod
@@ -109,12 +123,17 @@ class ProcessHandler:
 
         if task_id not in ProcessHandler.tasks:
             try:
+                ready_event = multiprocessing.Event()
                 process = multiprocessing.Process(
                     target=ProcessHandler.subprocess_target,
-                    args=(target,) + args,
+                    args=(ready_event, target) + args,
                     kwargs=kwargs,
                 )
                 process.start()
+                if not ready_event.wait(timeout=ProcessHandler.time_out):
+                    logger.warning(
+                        "[ProcessHandler] 任务 %s 等待进程组初始化超时", task_id
+                    )
                 ProcessHandler.tasks[task_id] = process
                 logger.debug(f"[ProcessHandler] 任务 {task_id} 已添加到进程池，PID: {process.pid}")
                 ProcessHandler.lock.release()
@@ -135,26 +154,58 @@ class ProcessHandler:
         if not acquired:
             warning = f"获取锁失败，可能是进程池已满或其他原因。请稍后再试。"
             logger.warning(f"[ProcessHandler] %s", warning)
-            return
+            return False
         
         if task_id in ProcessHandler.tasks:
             process = ProcessHandler.tasks[task_id]
-            del ProcessHandler.tasks[task_id]
             try:
                 if process.is_alive():
                     pid = process.pid
-                    process.kill()
+                    try:
+                        pgid = os.getpgid(pid)
+                        if pgid == pid:
+                            os.killpg(pgid, signal.SIGTERM)
+                        else:
+                            # Never signal a group we do not own (for example
+                            # the API server's group if setsid failed).
+                            process.terminate()
+                    except ProcessLookupError:
+                        pass
                     process.join(timeout=10)
                     if process.is_alive():
-                        warning = f"任务 {task_id} (PID: {pid}) 在10秒后仍未终止"
-                        logger.warning(f"[ProcessHandler] %s", warning)
+                        try:
+                            pgid = os.getpgid(pid)
+                            if pgid == pid:
+                                os.killpg(pgid, signal.SIGKILL)
+                            else:
+                                process.kill()
+                        except ProcessLookupError:
+                            pass
+                        process.join(timeout=5)
+                    if process.is_alive():
+                        logger.warning(
+                            "[ProcessHandler] 任务 %s (PID: %s) 强制终止后仍存活",
+                            task_id,
+                            pid,
+                        )
+                        ProcessHandler.lock.release()
+                        return False
                     else:
-                        logger.info(f"[ProcessHandler] 任务 {task_id} (PID: {pid}) 已被杀死并确认终止")
+                        logger.info(
+                            "[ProcessHandler] 任务 %s (PID: %s) 及其子进程已终止",
+                            task_id,
+                            pid,
+                        )
                 else:
                     logger.debug(f"[ProcessHandler] 任务 {task_id} 进程已自然结束")
+                ProcessHandler.tasks.pop(task_id, None)
+                process.close()
             except Exception as e:
                 logger.warning(f"[ProcessHandler] 清理进程 {task_id} 失败: {e}")
+                ProcessHandler.lock.release()
+                return False
             logger.debug(f"[ProcessHandler] 任务 {task_id} 已从进程池移除")
         else:
             logger.debug(f"[ProcessHandler] 任务 {task_id} 不在进程池中，可能已结束或未启动")
         ProcessHandler.lock.release()
+        return True
