@@ -3550,7 +3550,7 @@ button {
   --fault-sub-head-height: var(--aggregate-body-row-height);
   --fault-sub-row-height: var(--aggregate-body-row-height);
   --fault-sub-pagination-height: var(--aggregate-body-row-height);
-  grid-template-columns: max-content minmax(0, max-content) minmax(136px, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr) 136px;
 }
 
 .fault-aggregate-event-frame .fault-code-scroll .aggregate-latency-body {

@@ -2691,8 +2691,10 @@ onBeforeUnmount(() => {
 const faultTraceScrollGridStyle = computed(() => {
   const width = faultTraceScrollColumns.widths.reduce((sum, w) => sum + w, 0)
   return {
-    gridTemplateColumns: faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' '),
-    width: `${width}px`,
+    gridTemplateColumns: faultTraceScrollColumns.widths
+      .map((w) => `minmax(${w}px, ${w}fr)`)
+      .join(' '),
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -2701,8 +2703,8 @@ const faultDetailTraceScrollGridStyle = computed(() => {
   const widths = faultTraceScrollColumns.widths.slice(1)
   const width = widths.reduce((sum, w) => sum + w, 0)
   return {
-    gridTemplateColumns: widths.map((w) => `${w}px`).join(' '),
-    width: `${width}px`,
+    gridTemplateColumns: widths.map((w) => `minmax(${w}px, ${w}fr)`).join(' '),
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -5173,16 +5175,13 @@ const hasFaultChartMetricData = computed(() =>
   Object.values(faultChartMetrics.value).some((metrics) => metrics.length > 0),
 )
 const faultAggregatedEventCodeColumnMinWidth = 132
-const faultAggregatedEventCodeColumnMaxWidth = 220
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
   const minWidth = columnCount * faultAggregatedEventCodeColumnMinWidth
-  const preferredWidth = columnCount * faultAggregatedEventCodeColumnMaxWidth
-  const width = `clamp(${minWidth}px, 100%, ${preferredWidth}px)`
   return {
-    gridTemplateColumns: `repeat(${columnCount}, minmax(${faultAggregatedEventCodeColumnMinWidth}px, ${faultAggregatedEventCodeColumnMaxWidth}px))`,
-    width,
-    minWidth: width,
+    gridTemplateColumns: `repeat(${columnCount}, minmax(${faultAggregatedEventCodeColumnMinWidth}px, 1fr))`,
+    width: '100%',
+    minWidth: `${minWidth}px`,
   }
 })
 const paginatedFaultAggregatedEventRows = computed(() => faultAggregatedEventRows.value)
@@ -9839,8 +9838,10 @@ const brpcAbnormalThreadInterfaceGridStyle = computed(() => {
   const width = columnCount * BRPC_INTERFACE_COLUMN_WIDTH
   return {
     gridTemplateColumns:
-      columnCount > 0 ? `repeat(${columnCount}, ${BRPC_INTERFACE_COLUMN_WIDTH}px)` : 'none',
-    width: `${width}px`,
+      columnCount > 0
+        ? `repeat(${columnCount}, minmax(${BRPC_INTERFACE_COLUMN_WIDTH}px, 1fr))`
+        : 'none',
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -10577,8 +10578,8 @@ const brpcEventInterfaceGridStyle = computed(() => {
   const columnCount = Math.max(1, brpcEventInterfaceColumns.value.length)
   const width = columnCount * BRPC_INTERFACE_COLUMN_WIDTH
   return {
-    gridTemplateColumns: `repeat(${columnCount}, ${BRPC_INTERFACE_COLUMN_WIDTH}px)`,
-    width: `${width}px`,
+    gridTemplateColumns: `repeat(${columnCount}, minmax(${BRPC_INTERFACE_COLUMN_WIDTH}px, 1fr))`,
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -14334,6 +14335,7 @@ onBeforeUnmount(() => {
                           class="aggregate-latency-scrollbar-spacer fault-code-scrollbar-spacer"
                           :style="{
                             width: faultAggregatedEventCodeGridStyle.width,
+                            minWidth: faultAggregatedEventCodeGridStyle.minWidth,
                           }"
                         ></div>
                       </div>
@@ -15641,7 +15643,10 @@ onBeforeUnmount(() => {
                     >
                       <div
                         class="brpc-event-interface-scrollbar-spacer"
-                        :style="{ width: brpcEventInterfaceGridStyle.width }"
+                        :style="{
+                          width: brpcEventInterfaceGridStyle.width,
+                          minWidth: brpcEventInterfaceGridStyle.minWidth,
+                        }"
                       ></div>
                     </div>
                     <div
@@ -15955,7 +15960,10 @@ onBeforeUnmount(() => {
                     >
                       <div
                         class="brpc-event-interface-scrollbar-spacer"
-                        :style="{ width: brpcAbnormalThreadInterfaceGridStyle.width }"
+                        :style="{
+                          width: brpcAbnormalThreadInterfaceGridStyle.width,
+                          minWidth: brpcAbnormalThreadInterfaceGridStyle.minWidth,
+                        }"
                       ></div>
                     </div>
                     <div
