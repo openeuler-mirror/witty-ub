@@ -2497,15 +2497,16 @@ const isPositiveArabicInteger = (value: DiagnosisConfigInputValue) => {
 const validateDiagnosisAnalyzerParams = () => {
   const invalidFields = new Set<string>()
   analyzerThresholdOptions.forEach(({ key }) => {
-    if (!isPositiveArabicDecimal(diagnosisConfigDraft.logAnalyzerParams[key])) {
+    const value = diagnosisConfigDraft.logAnalyzerParams[key]
+    if (!isPositiveArabicDecimal(value) || Number(value) > 1000) {
       invalidFields.add(key)
     }
   })
   diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
-    if (!isPositiveArabicInteger(size)) {
+    if (!isPositiveArabicInteger(size) || Number(size) > 10000) {
       invalidFields.add(getSlidingWindowFieldId(index, 'size'))
     }
-    if (!isPositiveArabicInteger(step)) {
+    if (!isPositiveArabicInteger(step) || Number(step) > 1000) {
       invalidFields.add(getSlidingWindowFieldId(index, 'step'))
     }
   })
@@ -3949,12 +3950,27 @@ const getNullableFiniteNumber = (record: Record<string, unknown>, key: string) =
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+// The parser persists the legacy total_latency field in milliseconds, while the
+// yuanrong breakdown fields are persisted in microseconds.  Keep the conversion
+// at the UI boundary so charts, bars and tooltips all consume milliseconds.
+const getLatencyMilliseconds = (record: Record<string, unknown>, key: string) => {
+  if (key === 'total_latency_us') {
+    const totalMs = getNullableFiniteNumber(record, 'total_latency')
+    if (totalMs !== null) return totalMs
+  }
+  const value = getNullableFiniteNumber(record, key)
+  return value !== null && key.endsWith('_us') ? value / 1000 : value
+}
+
 const buildLatencyBreakdownSegments = (
   totalLatency: number | null,
   getValue: (key: string) => number | null,
   configs: LatencyBreakdownConfig[] = latencyBreakdownSeriesConfig,
 ): LatencyBreakdownSegment[] => {
-  const values = configs.map((config) => getValue(config.key))
+  const values = configs.map((config) => {
+    const rawValue = getValue(config.key)
+    return config.unit === 'us' && rawValue !== null ? rawValue / 1000 : rawValue
+  })
   const parsedStageTotal = values.reduce<number>(
     (sum, value) =>
       typeof value === 'number' && Number.isFinite(value) && value > 0 ? sum + value : sum,
@@ -3968,11 +3984,10 @@ const buildLatencyBreakdownSegments = (
         : 0
 
   return configs.map((config, index) => {
-    const rawValue = values[index] ?? null
-    const value = config.unit === 'us' && typeof rawValue === 'number' ? rawValue / 1000 : rawValue
+    const value = values[index] ?? null
     const width =
-      typeof rawValue === 'number' && rawValue > 0 && scale > 0
-        ? Math.min(100, (rawValue / scale) * 100)
+      typeof value === 'number' && value > 0 && scale > 0
+        ? Math.min(100, (value / scale) * 100)
         : 0
     return {
       key: config.key,
@@ -3991,7 +4006,7 @@ const buildLatencyBreakdownSegments = (
 const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) => {
   const raw = row.raw && typeof row.raw === 'object' ? (row.raw as Record<string, unknown>) : row
   const yuanrongSegments = buildLatencyBreakdownSegments(
-    getNullableFiniteNumber(raw, 'total_latency_us'),
+    getLatencyMilliseconds(raw, 'total_latency_us'),
     (key) => getNullableFiniteNumber(raw, key),
   )
   if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
@@ -4292,7 +4307,8 @@ const topSlowChartRows = computed<TopSlowChartRow[]>(() =>
   topSlowRequests.value
     .map((request) => {
       const date = parseMetricDate(request)
-      const totalLatency = finiteLatencyValue(request.total_latency_us)
+      const totalLatencyMs = getLatencyMilliseconds(request, 'total_latency_us')
+      const totalLatency = finiteLatencyValue(totalLatencyMs, 1000)
       if (!date || totalLatency <= 0) return null
 
       const segments = {} as Record<TopSlowSegmentKey, number>
@@ -4427,10 +4443,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 
       const values = latencySeriesConfig.value.reduce(
         (acc, series) => {
-          let value = getFiniteMetricValue(metric, series.key)
-          if (value !== null && typeof series.key === 'string' && series.key.endsWith('_us')) {
-            value = value / 1000
-          }
+          const value = getLatencyMilliseconds(metric, series.key)
           acc[series.key] = value
           return acc
         },
@@ -4463,7 +4476,9 @@ const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
   return allDetailParseResults.value
     .map((result) => {
       const date = parseMetricDate(result)
-      const totalLatency = finiteLatencyValue(result.total_latency)
+      // TopSlowChartRow uses microseconds internally because every breakdown
+      // segment comes from a *_us field. total_latency is the legacy ms field.
+      const totalLatency = finiteLatencyValue(result.total_latency, 1000)
       if (!date || totalLatency <= 0) return null
 
       const segments = {} as Record<TopSlowSegmentKey, number>
@@ -8102,13 +8117,21 @@ const getTimeWindowSummaryValue = (twEvent: TimeWindowAggregatedEvent, metric: s
   return typeof val === 'number' ? val : null
 }
 
-const getAveragedYuanrongMetric = (record: object, key: string) =>
-  getNullableFiniteNumber(record as Record<string, unknown>, `ave_${key}`)
+const getP99YuanrongMetric = (record: object, key: string) =>
+  getNullableFiniteNumber(record as Record<string, unknown>, `p99_${key}`)
+
+const getP99YuanrongTotalMilliseconds = (record: object) => {
+  const raw = record as Record<string, unknown>
+  const totalMs = getNullableFiniteNumber(raw, 'p99_total_latency')
+  if (totalMs !== null) return totalMs
+  const totalUs = getNullableFiniteNumber(raw, 'p99_total_latency_us')
+  return totalUs === null ? null : totalUs / 1000
+}
 
 const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
   const yuanrongSegments = buildLatencyBreakdownSegments(
-    getAveragedYuanrongMetric(twEvent, 'total_latency_us'),
-    (key) => getAveragedYuanrongMetric(twEvent, key),
+    getP99YuanrongTotalMilliseconds(twEvent),
+    (key) => getP99YuanrongMetric(twEvent, key),
   )
   if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
   return buildLatencyBreakdownSegments(
@@ -8120,8 +8143,8 @@ const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
 
 const getTimeWindowIpPairBreakdownSegments = (ipPair: TimeWindowAggregatedIpPair) => {
   const yuanrongSegments = buildLatencyBreakdownSegments(
-    getAveragedYuanrongMetric(ipPair, 'total_latency_us'),
-    (key) => getAveragedYuanrongMetric(ipPair, key),
+    getP99YuanrongTotalMilliseconds(ipPair),
+    (key) => getP99YuanrongMetric(ipPair, key),
   )
   if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
   return buildLatencyBreakdownSegments(
@@ -17429,7 +17452,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="aggregate-cell latency-breakdown-header">
                         <span>各阶段时延分解（P99）</span>
-                        <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
+                        <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
                       </div>
                     </div>
                   </div>
@@ -18741,7 +18764,7 @@ onBeforeUnmount(() => {
               </div>
 
               <h4 class="analyzer-group-title">时延阈值</h4>
-              <p class="analyzer-parameter-hint">输入大于0的数字</p>
+              <p class="analyzer-parameter-hint">输入大于0且不超过1000的数字</p>
               <div class="analyzer-threshold-grid">
                 <label
                   v-for="option in analyzerThresholdOptions"
@@ -18770,7 +18793,9 @@ onBeforeUnmount(() => {
                 <div>
                   <h4 class="analyzer-group-title">滑动窗口</h4>
                   <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
-                  <p class="analyzer-parameter-hint">输入大于0的整数</p>
+                  <p class="analyzer-parameter-hint">
+                    窗口大小输入1–10000的整数，窗口步长输入1–1000的整数
+                  </p>
                 </div>
                 <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
                   + 添加窗口
