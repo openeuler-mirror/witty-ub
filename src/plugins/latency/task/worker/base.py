@@ -191,10 +191,13 @@ class BaseWorker:
         logger.warning(f"[BaseWorker] 停止任务 {task_id}, 当前状态: {task.status}, worker: {worker_name}")
         
         should_update_status = False
+        process_stopped = True
         if task.status == TaskStatusEnum.RUNNING:
-            await asyncio.to_thread(ProcessHandler.remove_task, task_id)
+            process_stopped = await asyncio.to_thread(
+                ProcessHandler.remove_task, task_id
+            )
             logger.warning(f"[BaseWorker] 已调用 ProcessHandler.remove_task({task_id})")
-            should_update_status = True
+            should_update_status = process_stopped
         elif task.status == TaskStatusEnum.PENDING:
             logger.warning(f"[BaseWorker] 任务 {task_id} 状态为 PENDING")
             should_update_status = True
@@ -211,6 +214,10 @@ class BaseWorker:
                 logger.warning(f"[BaseWorker] worker.stop 返回: {task_id_from_stop}")
         except Exception as e:
             logger.error(f"[BaseWorker] worker.stop 异常: {e}")
+
+        if not process_stopped:
+            logger.error("[BaseWorker] 任务 %s 的进程树未能确认终止", task_id)
+            return False
         
         if should_update_status:
             completed_at = local_now()

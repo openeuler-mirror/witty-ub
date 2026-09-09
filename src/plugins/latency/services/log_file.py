@@ -460,7 +460,11 @@ class LogFileService:
             logger.warning(f"任务 {task.id} 状态: {task.status} 类型: {task.task_type}")
             if task.status in [TaskStatusEnum.PENDING.value, TaskStatusEnum.RUNNING.value]:
                 logger.warning(f"正在停止任务 {task.id}")
-                await BaseWorker.stop(task.id)
+                stopped = await BaseWorker.stop(task.id)
+                if not stopped:
+                    raise RuntimeError(
+                        f"任务 {task.id} 的进程树未能确认终止，取消删除日志"
+                    )
                 logger.warning(f"已停止任务 {task.id}")
 
         # 所有数据库记录在同一事务内硬删除，避免部分提交后留下孤儿诊断数据。
