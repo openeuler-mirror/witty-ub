@@ -1,6 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from fastapi import APIRouter, Path, Body
+from fastapi import APIRouter, Body
 from typing import Annotated
 from latency.schemas.request import (
     ListSrcDstAggregatedEventRequest,
@@ -13,6 +13,7 @@ from latency.schemas.response import (
 )
 from latency.services.src_dst_aggregated_event import SrcDstAggregatedEventService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath
 
 router = APIRouter(prefix="/aggregated_event", tags=["aggregated_event"])
 
@@ -45,8 +46,9 @@ async def list_aggregated_events(
     ),
 )
 async def get_aggregated_event_by_id(
-    event_id: Annotated[str, Path()],
+    event_id: ResourceIdPath,
 ) -> GetSrcDstAggregatedEventResponse:
+    await ResourceIdService.require("aggregated_event", event_id)
     msg = await SrcDstAggregatedEventService.get_aggregated_event_by_id(event_id)
     return GetSrcDstAggregatedEventResponse(result=msg)
 

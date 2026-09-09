@@ -1,4 +1,5 @@
 import asyncio
+import zipfile
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -9,6 +10,8 @@ from sqlalchemy.dialects import postgresql
 
 import latency.services.brpc_diagnosis as service_module
 from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
+from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.task import TaskPGManager
 from latency.exceptions import BadRequestBizException, NotFoundBizException
 from latency.routers.brpc_diagnosis import _build_metric_sort_fields, router
 from latency.schemas.brpc_diagnosis import (
@@ -222,6 +225,85 @@ def test_hits_are_returned_with_single_batch_pagination(monkeypatch):
             "pod_name": "pod-a",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "source_layout",
+    ["local_archive", "uploaded_zip", "directory_archive"],
+)
+def test_thread_logs_read_preprocessed_archive_sources(
+    monkeypatch, tmp_path, source_layout
+):
+    store = QueryStore()
+    _configure_store(monkeypatch, store)
+    log_line = (
+        "[20260804 01:47:51.000000][pod-a][10.0.0.1][UMQ]"
+        "[umq.cc:Send:42][9][trace-a] runtime line\n"
+    )
+    archive_path = tmp_path / "logs.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("nested/10.0.0.1.log", log_line)
+    if source_layout == "directory_archive":
+        source_path = tmp_path / "server-logs"
+        source_path.mkdir()
+        archive_path.rename(source_path / archive_path.name)
+    else:
+        # LOCAL archive paths and browser UPLOADs both persist as an archive
+        # path in LogFile.file_path; their runtime-log read path is identical.
+        source_path = archive_path
+
+    async def get_task(task_id):
+        return (
+            SimpleNamespace(op_id="log-file-id")
+            if task_id == "task-normal"
+            else None
+        )
+
+    async def get_log_file(log_file_id):
+        if log_file_id != "log-file-id":
+            return None
+        return SimpleNamespace(id=log_file_id, file_path=str(source_path))
+
+    monkeypatch.setattr(TaskPGManager, "get_task_by_task_id", get_task)
+    monkeypatch.setattr(
+        LogFilePGManager, "get_log_file_by_log_file_id", get_log_file
+    )
+    monkeypatch.setattr(
+        service_module,
+        "default_preprocess_dir",
+        lambda _log_file_id: str(tmp_path / "preprocessed"),
+    )
+    monkeypatch.setattr(service_module, "needs_preprocess", lambda _source: True)
+
+    def preprocess(_source, output):
+        output_path = tmp_path / "preprocessed"
+        output_path.mkdir(exist_ok=True)
+        source_archive = (
+            next(source_path.glob("*.zip"))
+            if source_path.is_dir()
+            else source_path
+        )
+        with zipfile.ZipFile(source_archive) as archive:
+            archive.extractall(output_path)
+        return SimpleNamespace(output_dir=output)
+
+    monkeypatch.setattr(service_module, "preprocess_log_dir", preprocess)
+
+    async def run_inline(function, *args):
+        return function(*args)
+
+    monkeypatch.setattr(service_module.asyncio, "to_thread", run_inline)
+
+    result = asyncio.run(
+        BrpcDiagnosisService.list_thread_logs(
+            batch_id=BATCH_ID,
+            pod_ip=POD_IP,
+            thread_id=THREAD_ID,
+        )
+    )
+
+    assert result.total == 1
+    assert result.hits[0].message == "runtime line"
 
 
 def test_brpc_response_times_are_serialized_as_utc_plus_8_strings(monkeypatch):

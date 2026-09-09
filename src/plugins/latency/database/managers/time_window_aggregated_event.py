@@ -481,11 +481,11 @@ class TimeWindowAggregatedEventPGManager:
         interval: int,
     ) -> None:
         """TODO(Issue 2 follow-up): 分位桶表已携带 26 项 yuanrong 代表行值后，本方法仍对
-        log_parse_result（仅 top1000+异常 trace）做 func.avg()，曲线数据不完整。
+        log_parse_result（仅 top1000+异常 trace）做实时聚合，曲线数据不完整。
         未来应改读 latency_bucket_*；注意语义差异——桶表是每 (bucket, op, mode) 的
-        代表行原始值，而这里是全量 trace 的均值，两者口径不同，需先对齐前端展示语义。
+        代表行原始值，而这里是各字段独立计算的 P99，两者口径不同，需先对齐前端展示语义。
 
-        补齐当前页的 yuanrong_tool 分阶段均值。
+        补齐当前页的 yuanrong_tool 分阶段 P99。
 
         主列表仍从物化时间窗口表读取；这里只对已经分页出的时间桶查询明细表，
         因而保留上游预聚合路径的性能收益，同时避免横向时延柱只剩旧指标颜色。
@@ -544,22 +544,30 @@ class TimeWindowAggregatedEventPGManager:
                     LogParseResult.operation.in_(["DS_KV_CLIENT_SET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH"])
                 )
 
-        stmt = (
+        p99_columns = [
+            func.percentile_cont(0.99)
+            .within_group(column.asc())
+            .label(f"p99_{name}")
+            for name, column in _YUANRONG_BREAKDOWN_FIELDS
+        ]
+        pair_stmt = (
             select(
                 bucket_epoch,
                 LogParseResult.src_ip,
                 LogParseResult.dst_ip,
-                func.count().label("metric_weight"),
-                *[
-                    func.avg(column).label(f"ave_{name}")
-                    for name, column in _YUANRONG_BREAKDOWN_FIELDS
-                ],
+                *p99_columns,
             )
             .where(*filters)
             .group_by(bucket_epoch, LogParseResult.src_ip, LogParseResult.dst_ip)
         )
+        parent_stmt = (
+            select(bucket_epoch, *p99_columns)
+            .where(*filters)
+            .group_by(bucket_epoch)
+        )
         async with PGManager.session() as session:
-            rows = (await session.execute(stmt)).all()
+            pair_rows = (await session.execute(pair_stmt)).all()
+            parent_rows = (await session.execute(parent_stmt)).all()
 
         events_by_epoch = {
             int(
@@ -569,8 +577,7 @@ class TimeWindowAggregatedEventPGManager:
             ): event
             for event in events
         }
-        parent_values: dict[int, dict[str, list[tuple[float, int]]]] = {}
-        for row in rows:
+        for row in pair_rows:
             epoch = int(row.bucket_epoch)
             event = events_by_epoch.get(epoch)
             if event is None:
@@ -585,24 +592,17 @@ class TimeWindowAggregatedEventPGManager:
                 ),
                 None,
             )
-            weight = int(row.metric_weight or 0)
-            epoch_values = parent_values.setdefault(epoch, {})
             for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
-                value = getattr(row, f"ave_{name}")
+                value = getattr(row, f"p99_{name}")
                 if pair is not None:
-                    pair[f"ave_{name}"] = value
-                if value is not None and weight > 0:
-                    epoch_values.setdefault(name, []).append((float(value), weight))
+                    pair[f"p99_{name}"] = value
 
-        for epoch, metrics in parent_values.items():
-            event = events_by_epoch[epoch]
-            for name, weighted_values in metrics.items():
-                total_weight = sum(weight for _, weight in weighted_values)
-                event[f"ave_{name}"] = (
-                    sum(value * weight for value, weight in weighted_values) / total_weight
-                    if total_weight
-                    else None
-                )
+        for row in parent_rows:
+            event = events_by_epoch.get(int(row.bucket_epoch))
+            if event is None:
+                continue
+            for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
+                event[f"p99_{name}"] = getattr(row, f"p99_{name}")
 
     @staticmethod
     async def list_time_window_events(

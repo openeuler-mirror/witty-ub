@@ -186,10 +186,10 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         if process.poll() is not None:
             return
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            process.terminate()
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            process.kill()
             process.wait(timeout=5)
         except ProcessLookupError:
             return
@@ -231,7 +231,8 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             BrpcLogDiagnosisWorker._unregister_process(task_id, pid)
             return False
         try:
-            os.killpg(pid, signal.SIGTERM)
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
             BrpcLogDiagnosisWorker._unregister_process(task_id, pid)
             return False
@@ -245,7 +246,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 return True
             time.sleep(0.05)
         try:
-            os.killpg(pid, signal.SIGKILL)
+            os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         BrpcLogDiagnosisWorker._unregister_process(task_id, pid)
@@ -260,7 +261,6 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True,
         )
         try:
             BrpcLogDiagnosisWorker._register_process(task_id, process)

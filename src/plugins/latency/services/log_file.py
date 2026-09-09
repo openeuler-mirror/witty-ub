@@ -250,7 +250,16 @@ class LogFileService:
         log_file_task_types: dict[str, TaskTypeEnum] = {}
         for upload_log_file_config in req.upload_log_file_configs:
             log_type = upload_log_file_config.log_type
-            log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name, log_type=log_type)
+            name = upload_log_file_config.name
+            if not name:
+                source = upload_log_file_config.source
+                if hasattr(source, "filename") and source.filename:
+                    name = source.filename
+                elif isinstance(source, str) and source:
+                    name = os.path.basename(source.rstrip("/")) or source
+                else:
+                    name = "unnamed"
+            log_file_model = LogFileModel(kb_id=kb_id, name=name, log_type=log_type)
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 source_path = upload_log_file_config.source
                 source = os.path.abspath(source_path)
@@ -451,7 +460,11 @@ class LogFileService:
             logger.warning(f"任务 {task.id} 状态: {task.status} 类型: {task.task_type}")
             if task.status in [TaskStatusEnum.PENDING.value, TaskStatusEnum.RUNNING.value]:
                 logger.warning(f"正在停止任务 {task.id}")
-                await BaseWorker.stop(task.id)
+                stopped = await BaseWorker.stop(task.id)
+                if not stopped:
+                    raise RuntimeError(
+                        f"任务 {task.id} 的进程树未能确认终止，取消删除日志"
+                    )
                 logger.warning(f"已停止任务 {task.id}")
 
         # 所有数据库记录在同一事务内硬删除，避免部分提交后留下孤儿诊断数据。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -46,6 +47,11 @@ from latency.schemas.brpc_diagnosis import (
     ListBrpcDiagHitsMsg,
     ListBrpcPodEventsMsg,
     ListBrpcThreadEventsMsg,
+)
+from latency.task.log_preprocessor import (
+    default_preprocess_dir,
+    needs_preprocess,
+    preprocess_log_dir,
 )
 
 
@@ -327,6 +333,22 @@ class BrpcDiagnosisService:
             if log_file is None or not log_file.file_path:
                 raise NotFoundBizException(resource="UBSocket 诊断日志文件")
             file_path = log_file.file_path
+            log_file_id = log_file.id
+
+        # Diagnosis workers scan the preprocessed path, while LogFile.file_path
+        # deliberately keeps the original source.  Recreate/reuse that same
+        # path here for archives (including browser-uploaded ZIPs) and for
+        # directories containing archives; reading the archive bytes as text
+        # otherwise produces an empty runtime-log detail.
+        if os.path.exists(file_path) and await asyncio.to_thread(
+            needs_preprocess, file_path
+        ):
+            preprocess_result = await asyncio.to_thread(
+                preprocess_log_dir,
+                file_path,
+                default_preprocess_dir(log_file_id),
+            )
+            file_path = preprocess_result.output_dir
 
         # Build {timestamp_us: failure_mode_id} for fault matching
         fault_map: dict[int, str] = {}
@@ -804,7 +826,7 @@ class BrpcDiagnosisService:
             pod_ip,
         )
         if event_id != expected_id:
-            raise BadRequestBizException(message="event_id 与 Pod 分组键不匹配")
+            raise NotFoundBizException(resource="UBSocket Pod 聚合事件")
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisService._require_batch(session, batch_id)
             interface_rows = await BrpcDiagnosisPGManager.get_interface_hit_counts(
@@ -887,7 +909,7 @@ class BrpcDiagnosisService:
             thread_id,
         )
         if event_id != expected_id:
-            raise BadRequestBizException(message="event_id 与 Thread 分组键不匹配")
+            raise NotFoundBizException(resource="UBSocket Thread 聚合事件")
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisService._require_batch(session, batch_id)
             interface_rows = await BrpcDiagnosisPGManager.get_interface_hit_counts(

@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 
 from latency.ENUM.general import DiagnosisConfigLogType
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
@@ -11,6 +12,7 @@ from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.exceptions import BadRequestBizException, NotFoundBizException
 from latency.routers.diagnosis_config import router
 from latency.schemas.config import (
+    DSLogAnalyzerConfig,
     DiagnosisRuntimeConfig,
     KVCacheDiagnosisConfig,
     UBSocketDiagnosisConfig,
@@ -53,6 +55,78 @@ def _ubsocket_update() -> UBSocketDiagnosisConfig:
     return UBSocketDiagnosisConfig(
         log_filename_pattern={"brpc_log_file_patterns": ["new-ubsocket.log"]}
     )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "total_p99_threshold_ms",
+        "c2w_p99_threshold_ms",
+        "w2w_p99_threshold_ms",
+        "urma_link_p99_threshold_ms",
+        "query_meta_p99_threshold_ms",
+        "total_p9999_threshold_ms",
+        "total_pmax_threshold_ms",
+        "total_ave_threshold_ms",
+    ],
+)
+@pytest.mark.parametrize("invalid_value", [0, -1, 1000.01, float("inf"), float("nan"), "1"])
+def test_log_analyzer_rejects_invalid_latency_thresholds(field_name, invalid_value):
+    with pytest.raises(ValidationError):
+        DSLogAnalyzerConfig.model_validate({field_name: invalid_value})
+
+
+@pytest.mark.parametrize("valid_value", [0.01, 1000])
+def test_log_analyzer_accepts_latency_threshold_boundaries(valid_value):
+    config = DSLogAnalyzerConfig(total_p99_threshold_ms=valid_value)
+
+    assert config.total_p99_threshold_ms == valid_value
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("sliding_window_sizes", [0]),
+        ("sliding_window_sizes", [-1]),
+        ("sliding_window_sizes", [10001]),
+        ("sliding_window_sizes", [1.5]),
+        ("sliding_window_sizes", ["1"]),
+        ("sliding_window_steps", [0]),
+        ("sliding_window_steps", [-1]),
+        ("sliding_window_steps", [1001]),
+        ("sliding_window_steps", [1.5]),
+        ("sliding_window_steps", ["1"]),
+    ],
+)
+def test_log_analyzer_rejects_invalid_sliding_window_values(
+    field_name, invalid_value
+):
+    with pytest.raises(ValidationError):
+        DSLogAnalyzerConfig.model_validate({field_name: invalid_value})
+
+
+def test_log_analyzer_accepts_sliding_window_upper_boundaries():
+    config = DSLogAnalyzerConfig(
+        sliding_window_sizes=[10000], sliding_window_steps=[1000]
+    )
+
+    assert config.sliding_window_sizes == [10000]
+    assert config.sliding_window_steps == [1000]
+
+
+@pytest.mark.parametrize("invalid_value", [0, -0.01, 1.01, float("inf"), float("nan"), "0.5"])
+def test_log_analyzer_rejects_invalid_zone_anomaly_density(invalid_value):
+    with pytest.raises(ValidationError):
+        DSLogAnalyzerConfig.model_validate(
+            {"zone_anomaly_density_threshold": invalid_value}
+        )
+
+
+@pytest.mark.parametrize("valid_value", [0.01, 1])
+def test_log_analyzer_accepts_zone_anomaly_density_boundaries(valid_value):
+    config = DSLogAnalyzerConfig(zone_anomaly_density_threshold=valid_value)
+
+    assert config.zone_anomaly_density_threshold == valid_value
 
 
 @pytest.mark.asyncio

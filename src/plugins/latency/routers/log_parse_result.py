@@ -1,6 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from fastapi import APIRouter, Path, Body, Query
+from fastapi import APIRouter, Body, Query
 from typing import Annotated
 from latency.schemas.request import ListLogParseResultRequest, ListTracesByHostRequest, GetLatencyMetricsRequest
 from latency.schemas.response import (
@@ -12,6 +12,7 @@ from latency.schemas.response import (
 )
 from latency.services.log_parse_result import LogParseResultService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath, ResourceIdQuery
 
 router = APIRouter(prefix="/log_parse_result", tags=["log_parse_result"])
 
@@ -43,7 +44,7 @@ async def list_log_parse_results(
     ),
 )
 async def get_log_parse_options(
-    kb_id: Annotated[str, Query(description="知识库ID，用于过滤")],
+    kb_id: Annotated[ResourceIdQuery, Query(description="知识库ID，用于过滤")],
 ) -> GetLogParseOptionsResponse:
     """获取日志解析选项（集群和主机名称列表）
 
@@ -63,8 +64,9 @@ async def get_log_parse_options(
     ),
 )
 async def get_log_parse_result_by_id(
-    result_id: Annotated[str, Path()],
+    result_id: ResourceIdPath,
 ) -> GetLogParseResultResponse:
+    await ResourceIdService.require("log_parse_result", result_id)
     msg = await LogParseResultService.get_log_parse_result_by_id(result_id)
     return GetLogParseResultResponse(result=msg)
 

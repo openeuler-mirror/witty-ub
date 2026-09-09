@@ -25,6 +25,7 @@ from latency.schemas.brpc_diagnosis import (
 )
 from latency.services.brpc_diagnosis import BrpcDiagnosisService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import BrpcEventIdPath, ResourceIdPath
 
 
 router = APIRouter(prefix="/brpc-diagnosis", tags=["brpc-diagnosis"])
@@ -67,7 +68,7 @@ def _build_metric_sort_fields(
     operation_id="get_brpc_knowledge_scope",
 )
 async def get_knowledge_scope(
-    kb_id: Annotated[str, Path(min_length=1)],
+    kb_id: ResourceIdPath,
 ) -> BrpcKnowledgeScopeResponse:
     await ResourceIdService.require("kb", kb_id)
     result = await BrpcDiagnosisService.get_knowledge_scope(kb_id)
@@ -80,7 +81,7 @@ async def get_knowledge_scope(
     operation_id="get_brpc_knowledge_interface_timeline",
 )
 async def get_knowledge_interface_timeline(
-    kb_id: Annotated[str, Path(min_length=1)],
+    kb_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
     ],
@@ -145,7 +146,7 @@ async def _list_knowledge_events(
     operation_id="list_brpc_knowledge_pod_events",
 )
 async def list_knowledge_pod_events(
-    kb_id: Annotated[str, Path(min_length=1)],
+    kb_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
     ],
@@ -185,7 +186,7 @@ async def list_knowledge_pod_events(
     operation_id="list_brpc_knowledge_thread_events",
 )
 async def list_knowledge_thread_events(
-    kb_id: Annotated[str, Path(min_length=1)],
+    kb_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
     ],
@@ -225,7 +226,7 @@ async def list_knowledge_thread_events(
     operation_id="list_brpc_knowledge_abnormal_threads",
 )
 async def list_knowledge_abnormal_threads(
-    kb_id: Annotated[str, Path(min_length=1)],
+    kb_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp, Query(description=_QUERY_TIME_DESCRIPTION)
     ],
@@ -262,7 +263,7 @@ async def list_knowledge_abnormal_threads(
     description="Resolve the final imported UBSocket diagnosis batch for one task.",
 )
 async def get_batch_by_task_id(
-    task_id: Annotated[str, Path(min_length=1)],
+    task_id: ResourceIdPath,
 ) -> GetBrpcTaskBatchResponse:
     await ResourceIdService.require("task", task_id)
     result = await BrpcDiagnosisService.get_batch_by_task_id(task_id)
@@ -276,7 +277,7 @@ async def get_batch_by_task_id(
     description="Get metadata for exactly one imported UBSocket diagnosis batch.",
 )
 async def get_batch(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
 ) -> GetBrpcBatchResponse:
     result = await BrpcDiagnosisService.get_batch(batch_id)
     return GetBrpcBatchResponse(result=result)
@@ -294,7 +295,7 @@ async def get_batch(
     ),
 )
 async def list_hits(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     pod_ip: Annotated[str, Query(min_length=1)],
     thread_id: Annotated[int, Query()],
     page_num: Annotated[int, Query(ge=1)] = 1,
@@ -333,7 +334,7 @@ async def list_hits(
     ),
 )
 async def list_thread_logs(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     pod_ip: Annotated[str, Query(min_length=1)],
     thread_id: Annotated[int, Query()],
     start_time: Annotated[
@@ -367,7 +368,7 @@ async def list_thread_logs(
     ),
 )
 async def get_interface_timeline(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp,
         Query(description=_QUERY_TIME_DESCRIPTION),
@@ -406,7 +407,7 @@ async def get_interface_timeline(
     ),
 )
 async def list_pod_events(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp,
         Query(description=_QUERY_TIME_DESCRIPTION),
@@ -458,8 +459,8 @@ async def list_pod_events(
     ),
 )
 async def get_pod_event_detail(
-    batch_id: Annotated[str, Path(min_length=1)],
-    event_id: Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")],
+    batch_id: ResourceIdPath,
+    event_id: BrpcEventIdPath,
     window_start_time: Annotated[
         BrpcQueryTimestamp,
         Query(description=_QUERY_TIME_DESCRIPTION),
@@ -497,7 +498,7 @@ async def get_pod_event_detail(
     ),
 )
 async def list_thread_events(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp,
         Query(description=_QUERY_TIME_DESCRIPTION),
@@ -549,8 +550,8 @@ async def list_thread_events(
     ),
 )
 async def get_thread_event_detail(
-    batch_id: Annotated[str, Path(min_length=1)],
-    event_id: Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")],
+    batch_id: ResourceIdPath,
+    event_id: BrpcEventIdPath,
     window_start_time: Annotated[
         BrpcQueryTimestamp,
         Query(description=_QUERY_TIME_DESCRIPTION),
@@ -591,7 +592,7 @@ async def get_thread_event_detail(
     ),
 )
 async def list_abnormal_threads(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     start_time: Annotated[
         BrpcQueryTimestamp,
         Query(description=_QUERY_TIME_DESCRIPTION),
@@ -645,7 +646,7 @@ async def list_abnormal_threads(
     ),
 )
 async def get_abnormal_thread_detail(
-    batch_id: Annotated[str, Path(min_length=1)],
+    batch_id: ResourceIdPath,
     thread_key: Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")],
     pod_ip: Annotated[str, Query(min_length=1)],
     thread_id: Annotated[int, Query()],
