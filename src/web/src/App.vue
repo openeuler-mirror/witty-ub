@@ -9549,6 +9549,7 @@ const brpcSelectedFileName = ref('')
 // 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
 // profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
 const hasBrpcProfilingLogFile = computed(() => brpcProfilingFiles.value.length > 0)
+const hasBrpcProfilingData = computed(() => brpcAllRows.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -10707,8 +10708,13 @@ const applyBrpcFileFilter = () => {
   brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
   brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
   const firstInterface = brpcInterfaceNames.value.at(0)
-  if (firstInterface) {
-    brpcSingleIface.value = firstInterface
+  brpcSingleIface.value = firstInterface ?? ''
+  if (rows.length === 0) {
+    // ECharts keeps its previous option when rendering is skipped. Clear all
+    // instances so an empty time range cannot leave stale, apparently unfiltered data visible.
+    brpcSuccessChartInstance?.clear()
+    brpcSingleChartInstance?.clear()
+    brpcLatencyChartInstance?.clear()
   }
   nextTick(() => {
     renderBrpcSuccessChart()
@@ -15208,6 +15214,13 @@ onBeforeUnmount(() => {
               >
                 无接口日志文件，请检查是否存在profiling文件
               </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
+              </div>
               <div v-else ref="brpcSuccessChartRef" class="chart-box"></div>
             </article>
 
@@ -15275,6 +15288,13 @@ onBeforeUnmount(() => {
               >
                 无接口日志文件，请检查是否存在profiling文件
               </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
+              </div>
               <div v-else ref="brpcSingleChartRef" class="chart-box"></div>
             </article>
 
@@ -15341,6 +15361,13 @@ onBeforeUnmount(() => {
                 role="status"
               >
                 无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
               </div>
               <div v-else ref="brpcLatencyChartRef" class="chart-box"></div>
             </article>
