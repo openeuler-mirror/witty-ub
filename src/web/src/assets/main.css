@@ -118,6 +118,8 @@ button {
   overflow: hidden;
   width: min(980px, calc(100vw - 32px));
   height: min(800px, calc(100vh - 106px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 106px);
   min-height: 420px;
   flex-direction: column;
   border: 1px solid rgba(203, 213, 225, 0.86);
@@ -128,6 +130,52 @@ button {
     0 8px 24px rgba(59, 130, 246, 0.1);
   animation: agent-panel-in 0.22s ease-out;
   transform-origin: right bottom;
+}
+
+.agent-panel-resize-handle {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+}
+
+.agent-panel-resize-top {
+  top: 0;
+  right: 14px;
+  left: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.agent-panel-resize-left {
+  top: 14px;
+  bottom: 14px;
+  left: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.agent-panel-resize-corner {
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+
+body.agent-panel-resizing {
+  user-select: none;
+}
+
+body.agent-panel-resizing-top {
+  cursor: ns-resize;
+}
+
+body.agent-panel-resizing-left {
+  cursor: ew-resize;
+}
+
+body.agent-panel-resizing-corner {
+  cursor: nwse-resize;
 }
 
 .agent-chat-header {
@@ -256,8 +304,13 @@ button {
   color: #26354d;
 }
 
-.agent-conversation-context strong { overflow-wrap: anywhere; }
-.agent-conversation-context span { color: #64748b; font-size: 0.8rem; }
+.agent-conversation-context strong {
+  overflow-wrap: anywhere;
+}
+.agent-conversation-context span {
+  color: #64748b;
+  font-size: 0.8rem;
+}
 .agent-session-dialog {
   display: grid;
   gap: 12px;
@@ -268,11 +321,32 @@ button {
   background: #f8fafc;
   color: #26354d;
 }
-.agent-session-dialog label { display: grid; gap: 6px; }
-.agent-session-dialog input { width: 100%; padding: 8px; border: 1px solid #91aff0; border-radius: 6px; }
-.agent-session-dialog > div { display: flex; justify-content: flex-end; gap: 12px; }
-.agent-session-dialog button { padding: 8px 12px; background: #eaf1ff; color: #315ecf; border-radius: 6px; cursor: pointer; }
-.agent-conversation-layout button:disabled { opacity: 0.5; cursor: not-allowed; }
+.agent-session-dialog label {
+  display: grid;
+  gap: 6px;
+}
+.agent-session-dialog input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #91aff0;
+  border-radius: 6px;
+}
+.agent-session-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.agent-session-dialog button {
+  padding: 8px 12px;
+  background: #eaf1ff;
+  color: #315ecf;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.agent-conversation-layout button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .agent-session-item {
   display: flex;
@@ -1613,7 +1687,6 @@ button {
   padding: 4px 9px 4px 10px;
 }
 
-
 .trace-filter-tag {
   background: #e6f9ed;
   color: #166534;
@@ -2103,7 +2176,6 @@ button {
   border: none;
 }
 
-
 .chart-title-actions {
   display: inline-flex;
   align-items: center;
@@ -2389,8 +2461,6 @@ button {
   flex-shrink: 0;
 }
 
-
-
 .latency-chart-panel {
   width: 100%;
   min-width: 0;
@@ -2516,33 +2586,6 @@ button {
   background: #fef2f2;
   color: var(--danger);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 .aggregate-table {
   overflow: visible;
@@ -2977,7 +3020,6 @@ button {
   font-weight: 400;
 }
 
-
 .anomaly-count {
   color: var(--danger);
 }
@@ -3338,8 +3380,6 @@ button {
   border-bottom: 0;
 }
 
-
-
 .fault-aggregate-sub-left {
   display: grid;
   grid-column: 1 / -1;
@@ -3439,14 +3479,6 @@ button {
   background: #f8fafc;
 }
 
-
-
-
-
-
-
-
-
 .fault-aggregate-sub-action {
   align-items: stretch;
   justify-content: flex-start;
@@ -3527,7 +3559,6 @@ button {
 .fault-aggregate-sub-pagination .pagination-pages {
   gap: 4px;
 }
-
 
 .fault-aggregate-sub-pagination-side,
 .fault-aggregate-sub-pagination-actions {
@@ -3943,8 +3974,6 @@ button {
   margin-right: 4px;
 }
 
-
-
 .abnormal-left-grid .aggregate-cell:last-child {
   border-right: 1px solid #eef2f8;
 }
@@ -3970,28 +3999,6 @@ button {
   border-right: 0;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 .metric-value {
   display: inline-block;
   border-radius: 20px;
@@ -4008,11 +4015,6 @@ button {
   color: var(--danger);
   font-weight: 800;
 }
-
-
-
-
-
 
 .fault-code-pill {
   display: inline-block;
@@ -4052,8 +4054,6 @@ button {
 .failure-mode-link-btn:hover {
   color: #1d4ed8;
 }
-
-
 
 .failure-mode-tag {
   display: inline-block;
@@ -4121,7 +4121,6 @@ button {
   padding-left: 8px;
 }
 
-
 .fault-detail-table .trace-actions-cell .trace-actions {
   min-height: 100%;
 }
@@ -4140,19 +4139,10 @@ button {
   padding-left: 6px;
 }
 
-
 .metric-table-error {
   color: var(--danger) !important;
   background: #fef2f2;
 }
-
-
-
-
-
-
-
-
 
 .trace-id {
   color: #2563eb !important;
@@ -4472,10 +4462,6 @@ button {
   font-weight: 700;
 }
 
-
-
-
-
 .filter-bar-list {
   display: grid;
   gap: 12px;
@@ -4584,7 +4570,6 @@ button {
   margin-bottom: 20px;
 }
 
-
 .trace-raw-log-item.log-error,
 .trace-raw-log-item.log-failure-mode,
 .trace-raw-log-table tr.log-error,
@@ -4592,8 +4577,6 @@ button {
   border-color: #fecaca;
   background: #fff7f7;
 }
-
-
 
 .trace-raw-log-table-wrapper {
   overflow-x: auto;
@@ -5237,13 +5220,6 @@ button {
   background: #cbd5e1;
 }
 
-
-
-
-
-
-
-
 .aggregate-parse-results {
   display: flex;
   flex: 1 1 auto;
@@ -5448,15 +5424,6 @@ button {
   overflow: hidden;
 }
 
-
-
-
-
-
-
-
-
-
 .parse-result-pagination {
   display: flex;
   flex: 0 0 auto;
@@ -5534,24 +5501,9 @@ button {
   padding: 9px 12px;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 .time-point-modal .ghost-btn {
   font-weight: 400;
 }
-
-
 
 .form-field {
   display: grid;
@@ -5782,7 +5734,6 @@ button {
   gap: 12px;
 }
 
-
 .parse-config-edit-btn {
   cursor: pointer;
   border: 1px solid #bfdbfe;
@@ -5907,9 +5858,6 @@ button {
   color: #15803d;
   font-size: 0.72rem;
 }
-
-
-
 
 .parse-config-section {
   padding: 4px 0 20px;
@@ -6260,11 +6208,6 @@ button {
   line-height: 1.5;
 }
 
-
-
-
-
-
 .parse-config-input-suffix {
   position: relative;
   display: block;
@@ -6318,7 +6261,6 @@ button {
 .parse-config-reset-btn:hover {
   color: #2563eb;
 }
-
 
 .log-upload-area {
   display: flex;
@@ -6544,7 +6486,6 @@ button {
   color: #991b1b;
 }
 
-
 .anomaly-badge {
   padding: 2px 10px;
   border-radius: 20px;
@@ -6635,8 +6576,6 @@ button {
   margin-left: 16px;
 }
 
-
-
 .log-monitor-btn.fault {
   border-color: #fed7aa;
   background: #fff7ed;
@@ -6647,7 +6586,6 @@ button {
   border-color: #fdba74;
   background: #ffedd5;
 }
-
 
 .log-file-refresh-btn {
   appearance: none;
@@ -6818,7 +6756,6 @@ button {
     padding-left: 45px;
   }
 
-
   .analyzer-threshold-grid {
     grid-template-columns: 1fr;
   }
@@ -6897,7 +6834,6 @@ button {
   font-size: 0.8rem;
   color: var(--primary);
 }
-
 
 .brpc-metric-select {
   height: 30px;
@@ -7447,13 +7383,6 @@ button {
   justify-content: center;
   height: 58px;
 }
-
-
-
-
-
-
-
 
 .brpc-event-detail-drawer {
   width: min(76vw, 1180px);

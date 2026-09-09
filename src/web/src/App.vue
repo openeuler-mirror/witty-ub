@@ -907,6 +907,15 @@ const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('c
 const isAgentLoggingIn = ref(false)
 const agentChatMessages = ref<AgentChatMessage[]>([])
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
+const agentChatPanelRef = ref<HTMLElement | null>(null)
+const agentPanelSize = reactive<{ width: number | null; height: number | null }>({
+  width: null,
+  height: null,
+})
+const agentPanelStyle = computed(() => ({
+  ...(agentPanelSize.width === null ? {} : { width: `${agentPanelSize.width}px` }),
+  ...(agentPanelSize.height === null ? {} : { height: `${agentPanelSize.height}px` }),
+}))
 const agentSessions = ref<OpenCodeSession[]>([])
 const agentSessionSearch = ref('')
 const isAgentSessionsLoading = ref(false)
@@ -986,6 +995,68 @@ let agentEventStreamSequence = 0
 let agentSessionListSequence = 0
 let agentHistoryEvents: MessageEvent<string>[] = []
 let shouldIgnoreNextAgentAbortError = false
+let agentPanelResize:
+  | {
+      direction: 'top' | 'left' | 'corner'
+      startX: number
+      startY: number
+      width: number
+      height: number
+    }
+  | undefined
+
+const resizeAgentPanel = (event: PointerEvent) => {
+  if (!agentPanelResize) return
+  const maxWidth = Math.max(320, window.innerWidth - 32)
+  const maxHeight = Math.max(320, window.innerHeight - 106)
+  const minWidth = Math.min(640, maxWidth)
+  const minHeight = Math.min(420, maxHeight)
+  if (agentPanelResize.direction !== 'top') {
+    agentPanelSize.width = Math.min(
+      maxWidth,
+      Math.max(minWidth, agentPanelResize.width + agentPanelResize.startX - event.clientX),
+    )
+  }
+  if (agentPanelResize.direction !== 'left') {
+    agentPanelSize.height = Math.min(
+      maxHeight,
+      Math.max(minHeight, agentPanelResize.height + agentPanelResize.startY - event.clientY),
+    )
+  }
+}
+
+const stopAgentPanelResize = () => {
+  if (!agentPanelResize) return
+  agentPanelResize = undefined
+  document.body.classList.remove(
+    'agent-panel-resizing',
+    'agent-panel-resizing-top',
+    'agent-panel-resizing-left',
+    'agent-panel-resizing-corner',
+  )
+  window.removeEventListener('pointermove', resizeAgentPanel)
+  window.removeEventListener('pointerup', stopAgentPanelResize)
+  window.removeEventListener('pointercancel', stopAgentPanelResize)
+}
+
+const startAgentPanelResize = (direction: 'top' | 'left' | 'corner', event: PointerEvent) => {
+  const panel = agentChatPanelRef.value
+  if (!panel) return
+  event.preventDefault()
+  const bounds = panel.getBoundingClientRect()
+  agentPanelResize = {
+    direction,
+    startX: event.clientX,
+    startY: event.clientY,
+    width: bounds.width,
+    height: bounds.height,
+  }
+  document.body.classList.add('agent-panel-resizing')
+  document.body.classList.add(`agent-panel-resizing-${direction}`)
+  window.addEventListener('pointermove', resizeAgentPanel)
+  window.addEventListener('pointerup', stopAgentPanelResize)
+  window.addEventListener('pointercancel', stopAgentPanelResize)
+}
 
 const nextAgentLocalMessageId = () => {
   agentLocalMessageSequence += 1
@@ -12299,6 +12370,7 @@ onUpdated(() => {
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
+  stopAgentPanelResize()
   closeAgentEventStream()
   brpcFaultTimelineRequestController?.abort()
   brpcFaultTimelineRequestController = null
@@ -18946,10 +19018,27 @@ onBeforeUnmount(() => {
 
     <aside
       v-if="isAbnormalMonitorPage && isAgentChatOpen"
+      ref="agentChatPanelRef"
       class="agent-chat-panel"
+      :style="agentPanelStyle"
       role="dialog"
       aria-label="AI 故障诊断助手"
     >
+      <div
+        class="agent-panel-resize-handle agent-panel-resize-top"
+        aria-hidden="true"
+        @pointerdown="startAgentPanelResize('top', $event)"
+      ></div>
+      <div
+        class="agent-panel-resize-handle agent-panel-resize-left"
+        aria-hidden="true"
+        @pointerdown="startAgentPanelResize('left', $event)"
+      ></div>
+      <div
+        class="agent-panel-resize-handle agent-panel-resize-corner"
+        aria-hidden="true"
+        @pointerdown="startAgentPanelResize('corner', $event)"
+      ></div>
       <header class="agent-chat-header">
         <button
           v-if="agentView !== 'login' && agentView !== 'chat'"

@@ -34,6 +34,7 @@ function setup() {
   const deferred = new Map()
   const failures = new Set()
   const ref = (value) => ({ value })
+  const reactive = (value) => value
   const window = {
     location: { href: 'http://localhost/' },
     localStorage: {
@@ -104,6 +105,7 @@ function setup() {
   }
   const get = new Function(
     'ref',
+    'reactive',
     'computed',
     'nextTick',
     'window',
@@ -122,6 +124,7 @@ function setup() {
   )
   const api = get(
     ref,
+    reactive,
     (fn) => ({
       get value() {
         return fn()
