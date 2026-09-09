@@ -923,8 +923,10 @@ const agentSessionDialogError = ref('')
 const agentSessionAssetIndex = ref<Record<string, string>>({})
 const agentSessionIndexStorageKey = 'witty-ub.agent-session-assets'
 const agentStorageKey = (key: string) => `${key}:${agentApiBase.value}`
-const activeAgentSessionTitle = computed(() =>
-  agentSessions.value.find((session) => session.id === agentSessionId.value)?.title || '新会话',
+const activeAgentSessionTitle = computed(
+  () =>
+    agentSessions.value.find((session) => session.id === agentSessionId.value)?.title ||
+    '开始新对话',
 )
 const isAgentConnectionUnavailable = computed(() => agentConnectionState.value !== 'connected')
 const connectedAgentModels = computed(() => {
@@ -1222,7 +1224,9 @@ const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
 
 const loadAgentSessionAssetIndex = () => {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(agentStorageKey(agentSessionIndexStorageKey)) || '{}')
+    const stored = JSON.parse(
+      window.localStorage.getItem(agentStorageKey(agentSessionIndexStorageKey)) || '{}',
+    )
     if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
       agentSessionAssetIndex.value = Object.fromEntries(
         Object.entries(stored).filter(([, value]) => typeof value === 'string'),
@@ -1344,7 +1348,8 @@ const createAgentSession = async () => {
   isAgentSessionCreating.value = true
   try {
     const created = await requestAgentApi<OpenCodeSession>('/session', {
-      method: 'POST', body: JSON.stringify({ title: '新会话' }),
+      method: 'POST',
+      body: JSON.stringify({}),
     })
     if (!created?.id) throw new Error('Agent 服务没有返回会话 ID。')
     if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
@@ -1354,8 +1359,12 @@ const createAgentSession = async () => {
     saveActiveAgentSession()
     agentSessionListSequence += 1
     isAgentSessionsLoading.value = false
-    agentSessions.value = [created, ...agentSessions.value.filter((item) => item.id !== created.id)]
-    return created
+    const session = await requestAgentApi<OpenCodeSession>(
+      `/session/${encodeURIComponent(created.id)}`,
+    )
+    if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
+    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)]
+    return session
   } finally {
     isAgentSessionCreating.value = false
   }
@@ -1365,13 +1374,7 @@ const newAgentConversation = async () => {
   if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
   resetAgentConversation()
   saveActiveAgentSession()
-  try {
-    await createAgentSession()
-    await connectAgentEvents()
-    await scrollAgentChatToBottom()
-  } catch (error) {
-    agentConnectionError.value = error instanceof Error ? error.message : '新建会话失败。'
-  }
+  await scrollAgentChatToBottom()
 }
 
 const refreshAgentSession = async (sessionId: string) => {
@@ -1447,8 +1450,9 @@ const openAgentSession = async (session: OpenCodeSession) => {
     if (sequence !== agentRequestSequence) return
     agentSessionStatuses.value = statuses
     agentChatMessages.value = toAgentChatMessages(messages)
-    const context = messages.find((message) => message.info.role === 'user')?.parts
-      ?.find((part) => part.type === 'text')?.text
+    const context = messages
+      .find((message) => message.info.role === 'user')
+      ?.parts?.find((part) => part.type === 'text')?.text
     const assetId = context?.match(/^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/)?.[1]
     if (assetId && !agentSessionAssetIndex.value[session.id]) {
       agentSessionAssetIndex.value[session.id] = assetId
@@ -1470,10 +1474,15 @@ const openAgentSession = async (session: OpenCodeSession) => {
     if (isAgentSending.value) {
       const last = agentChatMessages.value.at(-1)
       if (last?.role === 'assistant' && last.status !== 'error') last.status = 'thinking'
-      else agentChatMessages.value.push({
-        id: nextAgentLocalMessageId(), role: 'assistant', reasoning: '', content: '',
-        reasoningCollapsed: false, status: 'thinking',
-      })
+      else
+        agentChatMessages.value.push({
+          id: nextAgentLocalMessageId(),
+          role: 'assistant',
+          reasoning: '',
+          content: '',
+          reasoningCollapsed: false,
+          status: 'thinking',
+        })
     }
     isAgentHistoryLoading.value = false
     replayAgentHistoryEvents()
@@ -1512,14 +1521,18 @@ const submitAgentSessionDialog = async () => {
         `/session/${encodeURIComponent(session.id)}`,
         { method: 'PATCH', body: JSON.stringify({ title }) },
       )
-      agentSessions.value = agentSessions.value.map((item) => item.id === session.id ? updated : item)
+      agentSessions.value = agentSessions.value.map((item) =>
+        item.id === session.id ? updated : item,
+      )
       agentSessionDialog.value = null
       return
     }
     // Query live status instead of relying on a possibly stale sidebar badge.
     const statuses = await requestAgentApi<Record<string, { type: string }>>('/session/status')
     if (statuses[session.id] && statuses[session.id]?.type !== 'idle') {
-      await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}/abort`, { method: 'POST' })
+      await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}/abort`, {
+        method: 'POST',
+      })
     }
     const deleted = await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}`, {
       method: 'DELETE',
@@ -1565,8 +1578,9 @@ const selectDefaultAgentModel = () => {
   const connected = new Set(providers.connected)
   const configuredAgentModel = agentDefaultModel.value
   const preferredProviderId = configuredAgentModel.split('/')[0]
-  const orderedProviders = [...providers.all].sort((left, right) =>
-    Number(right.id === preferredProviderId) - Number(left.id === preferredProviderId),
+  const orderedProviders = [...providers.all].sort(
+    (left, right) =>
+      Number(right.id === preferredProviderId) - Number(left.id === preferredProviderId),
   )
   for (const provider of orderedProviders) {
     if (!connected.has(provider.id)) continue
@@ -1607,14 +1621,7 @@ const connectAgent = async (serverAddress: string, authHeader = '') => {
     agentView.value = selectDefaultAgentModel() ? 'chat' : 'models'
     resetAgentConversation()
     await loadAgentSessions()
-    let previousSession = ''
-    try {
-      previousSession = window.localStorage.getItem(agentStorageKey('witty-ub.active-session')) || ''
-    } catch {
-      // Browser storage is optional.
-    }
-    const restored = agentSessions.value.find((session) => session.id === previousSession)
-    if (restored) await openAgentSession(restored)
+    saveActiveAgentSession()
     saveAgentConnection()
   } catch (error) {
     agentConnectionState.value = 'disconnected'
@@ -1676,7 +1683,6 @@ const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
   }
 }
 
-
 const markAgentResponseFailed = (message: string) => {
   const pending = getPendingAssistantMessage()
   if (pending) {
@@ -1731,7 +1737,10 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentHistoryEvents.push(event)
     return
   }
-  if (payload.type === 'session.status' && ['busy', 'retry'].includes(properties?.status?.type || '')) {
+  if (
+    payload.type === 'session.status' &&
+    ['busy', 'retry'].includes(properties?.status?.type || '')
+  ) {
     isAgentSending.value = true
   }
 
@@ -1746,19 +1755,27 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       }
       if (!pending && !agentChatMessages.value.some((message) => message.messageId === messageId)) {
         pending = {
-          id: messageId, messageId, role: 'assistant', content: '', reasoning: '',
-          reasoningCollapsed: false, status: 'thinking',
+          id: messageId,
+          messageId,
+          role: 'assistant',
+          content: '',
+          reasoning: '',
+          reasoningCollapsed: false,
+          status: 'thinking',
         }
         agentChatMessages.value.push(pending)
       }
       if (pending && !pending.messageId) pending.messageId = messageId
     }
-    if (properties.info.error) markAgentResponseFailed(extractOpenCodeError(properties.info.error, '模型响应失败。'))
+    if (properties.info.error)
+      markAgentResponseFailed(extractOpenCodeError(properties.info.error, '模型响应失败。'))
     return
   }
 
   if (payload.type === 'message.part.delta' && properties?.messageID && properties.partID) {
-    const target = agentChatMessages.value.find((message) => message.messageId === properties.messageID)
+    const target = agentChatMessages.value.find(
+      (message) => message.messageId === properties.messageID,
+    )
     const part = target?.parts?.find((item) => item.id.endsWith(`:${properties.partID}`))
     if (target && part && properties.field === 'text') {
       part.text += properties.delta || ''
@@ -1804,12 +1821,15 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     if (agentSessionId.value) {
       void refreshAgentSession(agentSessionId.value)
       const sequence = agentRequestSequence
-      void requestAgentApi<OpenCodeMessage[]>(`/session/${encodeURIComponent(agentSessionId.value)}/message`)
+      void requestAgentApi<OpenCodeMessage[]>(
+        `/session/${encodeURIComponent(agentSessionId.value)}/message`,
+      )
         .then((messages) => {
           if (sequence === agentRequestSequence && !isAgentSending.value) {
             agentChatMessages.value = toAgentChatMessages(messages)
           }
-        }).catch(() => {
+        })
+        .catch(() => {
           // Keep the streamed response if history is temporarily unavailable.
         })
     }
@@ -1853,9 +1873,11 @@ const replayAgentHistoryEvents = () => {
     const target = agentChatMessages.value.find((message) => message.messageId === part.messageID)
     const existing = target?.parts?.find((item) => item.id === `${part.type}:${part.id}`)
     if (!existing || (part.text || '').startsWith(existing.text)) {
-      handleOpenCodeEvent(new MessageEvent('message', {
-        data: JSON.stringify({ type: 'message.part.updated', properties: { part } }),
-      }))
+      handleOpenCodeEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'message.part.updated', properties: { part } }),
+        }),
+      )
     }
   }
 }
@@ -1987,7 +2009,14 @@ const goBackAgentView = () => {
 }
 
 const sendAgentMessage = async () => {
-  if (isAgentHistoryLoading.value || isAgentHistoryFailed.value || isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
+  if (
+    isAgentHistoryLoading.value ||
+    isAgentHistoryFailed.value ||
+    isAgentSessionCreating.value ||
+    isAgentSessionSaving.value ||
+    isAgentSubmitting.value
+  )
+    return
   if (isAgentSending.value) {
     await abortAgentSession()
     return
@@ -2036,14 +2065,6 @@ const sendAgentMessage = async () => {
     const contextPrefix = conversationAssetId
       ? `当前会话对应的知识库 ID 是 ${conversationAssetId}。`
       : ''
-    const session = agentSessions.value.find((item) => item.id === sendingSessionId)
-    if (session?.title === '新会话') {
-      const updated = await requestAgentApi<OpenCodeSession>(`/session/${encodeURIComponent(sendingSessionId)}`, {
-        method: 'PATCH', body: JSON.stringify({ title: question.slice(0, 60) }),
-      })
-      if (requestSequence !== agentRequestSequence) return
-      Object.assign(session, updated)
-    }
     agentSessionStatuses.value[sendingSessionId] = { type: 'busy' }
     await requestAgentApi<void>(
       `/session/${encodeURIComponent(agentSessionId.value)}/prompt_async`,
@@ -3866,7 +3887,6 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
   return abnormal
 }
 
-
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
   typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
 
@@ -3988,9 +4008,7 @@ const buildLatencyBreakdownSegments = (
   return configs.map((config, index) => {
     const value = values[index] ?? null
     const width =
-      typeof value === 'number' && value > 0 && scale > 0
-        ? Math.min(100, (value / scale) * 100)
-        : 0
+      typeof value === 'number' && value > 0 && scale > 0 ? Math.min(100, (value / scale) * 100) : 0
     return {
       key: config.key,
       label: config.label,
@@ -4468,7 +4486,6 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
 })
 
-
 const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
   const operation =
     selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
@@ -4680,7 +4697,6 @@ const createLatencyEchartsOption = (
     })),
   }
 }
-
 
 const escapeChartHtml = (value: string) =>
   value
@@ -5485,8 +5501,6 @@ const faultDetailChartBuckets = computed<FaultChartBucket[]>(() => {
     }))
 })
 
-
-
 const getRecordString = (record: Record<string, unknown>, keys: string[], fallback = '-') => {
   for (const key of keys) {
     const value = record[key]
@@ -6218,7 +6232,6 @@ const selectChildFailureMode = async (childId: string) => {
 }
 
 const normalizeFilterText = (value: string) => value.trim()
-
 
 const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
   const filters = appliedFilters.value
@@ -7573,7 +7586,6 @@ const loadTopSlowChart = async () => {
     }
   }
 }
-
 
 const loadDetailParseResults = async (
   row: LatencyDetailRow,
@@ -9031,10 +9043,7 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return (
-    message.startsWith('Trace context logs stored:') ||
-    message.startsWith('任务失败：')
-  )
+  return message.startsWith('Trace context logs stored:') || message.startsWith('任务失败：')
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>
@@ -12780,7 +12789,9 @@ onBeforeUnmount(() => {
         <div class="service-unavailable-icon" aria-hidden="true">!</div>
         <h1>数据服务暂时不可用</h1>
         <p>当前无法加载资产库和任务状态，请稍后重试或联系管理员。</p>
-        <p class="service-unavailable-hint">服务恢复后可继续使用，任务状态以重新连接后的结果为准。</p>
+        <p class="service-unavailable-hint">
+          服务恢复后可继续使用，任务状态以重新连接后的结果为准。
+        </p>
         <button type="button" :disabled="isListLoading" @click="retryInitialDataLoad">
           {{ isListLoading ? '正在重试...' : '重新加载' }}
         </button>
@@ -15027,7 +15038,11 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-if="activeMonitorProduct === 'UBSocket'" id="brpc-monitor" class="monitor-section">
+        <section
+          v-if="activeMonitorProduct === 'UBSocket'"
+          id="brpc-monitor"
+          class="monitor-section"
+        >
           <header class="monitor-header">
             <h1>接口监控</h1>
             <p class="monitor-sub">
@@ -15345,7 +15360,9 @@ onBeforeUnmount(() => {
                 <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
                   {{ brpcFaultTimelineError }}
                 </div>
-                <div v-else-if="!brpcFaultScope" class="chart-state">暂无 UBSocket 接口故障数据</div>
+                <div v-else-if="!brpcFaultScope" class="chart-state">
+                  暂无 UBSocket 接口故障数据
+                </div>
                 <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
                   暂无 UBSocket 接口故障数时序数据
                 </div>
@@ -19125,11 +19142,22 @@ onBeforeUnmount(() => {
             <div>
               <strong>会话</strong>
             </div>
-            <button type="button" :disabled="isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting" @click="newAgentConversation">
+            <button
+              type="button"
+              :disabled="isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting"
+              @click="newAgentConversation"
+            >
               {{ isAgentSessionCreating ? '创建中…' : '＋ 新建' }}
             </button>
           </div>
-          <button class="agent-session-refresh" type="button" :disabled="isAgentSessionsLoading || isAgentSessionCreating || isAgentSessionSaving" @click="loadAgentSessions">刷新会话列表</button>
+          <button
+            class="agent-session-refresh"
+            type="button"
+            :disabled="isAgentSessionsLoading || isAgentSessionCreating || isAgentSessionSaving"
+            @click="loadAgentSessions"
+          >
+            刷新会话列表
+          </button>
           <input
             v-model.trim="agentSessionSearch"
             class="agent-search"
@@ -19146,16 +19174,42 @@ onBeforeUnmount(() => {
               :class="{ active: session.id === agentSessionId }"
               :title="session.title || '无标题会话'"
             >
-              <button class="agent-session-open" type="button" :disabled="isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting" :aria-current="session.id === agentSessionId ? 'true' : undefined" @click="openAgentSession(session)">
+              <button
+                class="agent-session-open"
+                type="button"
+                :disabled="isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting"
+                :aria-current="session.id === agentSessionId ? 'true' : undefined"
+                @click="openAgentSession(session)"
+              >
                 <strong>{{ session.title || '无标题会话' }}</strong>
                 <span>{{ getAgentSessionAssetName(session.id) }}</span>
-                <span>{{ agentSessionStatuses[session.id]?.type === 'busy' ? '正在回答' : agentSessionStatuses[session.id]?.type === 'retry' ? '正在重试连接' : session.time?.updated ? new Date(session.time.updated).toLocaleString() : '刚刚创建' }}</span>
+                <span>{{
+                  agentSessionStatuses[session.id]?.type === 'busy'
+                    ? '正在回答'
+                    : agentSessionStatuses[session.id]?.type === 'retry'
+                      ? '正在重试连接'
+                      : session.time?.updated
+                        ? new Date(session.time.updated).toLocaleString()
+                        : '刚刚创建'
+                }}</span>
               </button>
               <div class="agent-session-item-actions">
-                <button type="button" title="修改标题" :aria-label="`重命名会话 ${session.title || '无标题会话'}`" :disabled="isAgentSessionSaving || isAgentSubmitting" @click="showAgentSessionDialog('rename', session)">
+                <button
+                  type="button"
+                  title="修改标题"
+                  :aria-label="`重命名会话 ${session.title || '无标题会话'}`"
+                  :disabled="isAgentSessionSaving || isAgentSubmitting"
+                  @click="showAgentSessionDialog('rename', session)"
+                >
                   ✎
                 </button>
-                <button type="button" title="删除会话" :aria-label="`删除会话 ${session.title || '无标题会话'}`" :disabled="isAgentSessionSaving || isAgentSubmitting" @click="showAgentSessionDialog('delete', session)">
+                <button
+                  type="button"
+                  title="删除会话"
+                  :aria-label="`删除会话 ${session.title || '无标题会话'}`"
+                  :disabled="isAgentSessionSaving || isAgentSubmitting"
+                  @click="showAgentSessionDialog('delete', session)"
+                >
                   ×
                 </button>
               </div>
@@ -19172,18 +19226,54 @@ onBeforeUnmount(() => {
         <section class="agent-conversation-main">
           <div class="agent-conversation-context">
             <strong>{{ activeAgentSessionTitle }}</strong>
-            <span>{{ agentSessionId ? getAgentSessionAssetName(agentSessionId) : selectedAsset?.name || '请先选择资产库' }}</span>
+            <span>{{
+              agentSessionId
+                ? getAgentSessionAssetName(agentSessionId)
+                : selectedAsset?.name || '请先选择资产库'
+            }}</span>
           </div>
-          <form v-if="agentSessionDialog" class="agent-session-dialog" role="dialog" aria-modal="false" :aria-label="agentSessionDialog.kind === 'rename' ? '重命名会话' : '删除会话'" @submit.prevent="submitAgentSessionDialog" @keydown.esc="!isAgentSessionSaving && (agentSessionDialog = null)">
+          <form
+            v-if="agentSessionDialog"
+            class="agent-session-dialog"
+            role="dialog"
+            aria-modal="false"
+            :aria-label="agentSessionDialog.kind === 'rename' ? '重命名会话' : '删除会话'"
+            @submit.prevent="submitAgentSessionDialog"
+            @keydown.esc="!isAgentSessionSaving && (agentSessionDialog = null)"
+          >
             <strong>{{ agentSessionDialog.kind === 'rename' ? '重命名会话' : '删除会话' }}</strong>
-            <label v-if="agentSessionDialog.kind === 'rename'">会话标题
-              <input v-model="agentSessionTitleInput" aria-label="会话标题" maxlength="200" :disabled="isAgentSessionSaving" />
+            <label v-if="agentSessionDialog.kind === 'rename'"
+              >会话标题
+              <input
+                v-model="agentSessionTitleInput"
+                aria-label="会话标题"
+                maxlength="200"
+                :disabled="isAgentSessionSaving"
+              />
             </label>
-            <p v-else>确认删除「{{ agentSessionDialog.session.title || '无标题会话' }}」及其历史消息？正在运行的回答会停止，此操作无法撤销。</p>
+            <p v-else>
+              确认删除「{{
+                agentSessionDialog.session.title || '无标题会话'
+              }}」及其历史消息？正在运行的回答会停止，此操作无法撤销。
+            </p>
             <p v-if="agentSessionDialogError" role="alert">{{ agentSessionDialogError }}</p>
             <div>
-              <button type="button" :disabled="isAgentSessionSaving" @click="agentSessionDialog = null">取消</button>
-              <button type="submit" :disabled="isAgentSessionSaving">{{ isAgentSessionSaving ? '保存中…' : agentSessionDialog.kind === 'rename' ? '保存标题' : '确认删除' }}</button>
+              <button
+                type="button"
+                :disabled="isAgentSessionSaving"
+                @click="agentSessionDialog = null"
+              >
+                取消
+              </button>
+              <button type="submit" :disabled="isAgentSessionSaving">
+                {{
+                  isAgentSessionSaving
+                    ? '保存中…'
+                    : agentSessionDialog.kind === 'rename'
+                      ? '保存标题'
+                      : '确认删除'
+                }}
+              </button>
             </div>
           </form>
           <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
@@ -19246,7 +19336,13 @@ onBeforeUnmount(() => {
 
           <div v-if="agentConnectionError" class="agent-chat-error" role="alert">
             {{ agentConnectionError }}
-            <button v-if="agentSessionId" type="button" @click="openAgentSession({ id: agentSessionId })">重新加载会话</button>
+            <button
+              v-if="agentSessionId"
+              type="button"
+              @click="openAgentSession({ id: agentSessionId })"
+            >
+              重新加载会话
+            </button>
           </div>
 
           <form class="agent-chat-composer" @submit.prevent="sendAgentMessage">
@@ -19255,7 +19351,14 @@ onBeforeUnmount(() => {
               rows="1"
               aria-label="输入诊断问题"
               placeholder="输入你想诊断的问题…"
-              :disabled="isAgentSending || isAgentAborting || isAgentHistoryLoading || isAgentHistoryFailed || isAgentSessionCreating || isAgentSessionSaving"
+              :disabled="
+                isAgentSending ||
+                isAgentAborting ||
+                isAgentHistoryLoading ||
+                isAgentHistoryFailed ||
+                isAgentSessionCreating ||
+                isAgentSessionSaving
+              "
               @keydown.enter.exact.prevent="sendAgentMessage"
             ></textarea>
             <button
@@ -19264,7 +19367,12 @@ onBeforeUnmount(() => {
               :aria-label="isAgentSending ? '停止本次会话' : '发送消息'"
               :title="isAgentSending ? '停止本次会话' : '发送消息'"
               :disabled="
-                isAgentHistoryLoading || isAgentHistoryFailed || isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting || (isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting)
+                isAgentHistoryLoading ||
+                isAgentHistoryFailed ||
+                isAgentSessionCreating ||
+                isAgentSessionSaving ||
+                isAgentSubmitting ||
+                (isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting)
               "
             >
               <svg v-if="isAgentSending" viewBox="0 0 24 24" aria-hidden="true">
