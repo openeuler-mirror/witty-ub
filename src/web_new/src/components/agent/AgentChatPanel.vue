@@ -21,14 +21,24 @@ const {
   modelSearch,
   providerSearch,
   expandedProviderId,
+  sessionStatuses,
   sessionId,
   isSessionsLoading,
+  isHistoryLoading,
+  isHistoryFailed,
+  isSessionCreating,
+  isSessionSaving,
+  isSubmitting,
   sessionSearch,
   messages,
   input,
   isSending,
+  sessionDialog,
+  sessionTitleInput,
+  sessionDialogError,
   messagesRef,
   filteredSessions,
+  activeSessionTitle,
   filteredModels,
   filteredProviders,
   displayPartsOf,
@@ -37,11 +47,13 @@ const {
   loginLocalAgent,
   loginRemoteAgent,
   authorizeProvider,
+  refreshSessions,
   openConversation,
   newConversation,
-  renameConversation,
-  deleteConversation,
+  showSessionDialog,
+  submitSessionDialog,
   abortAgentSession,
+  suspend,
   sendMessage,
   scrollToBottom,
   sessionAssetName,
@@ -86,11 +98,13 @@ const onKeydown = (event: KeyboardEvent) => {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  syncAsset()
   restoreOnce()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  suspend()
 })
 
 const statusLabelOf = () =>
@@ -183,7 +197,12 @@ const onInputKeydown = (event: KeyboardEvent) => {
       </button>
     </header>
 
-    <div v-if="connectionError" class="agent-chat-error" role="alert">{{ connectionError }}</div>
+    <div v-if="connectionError" class="agent-chat-error" role="alert">
+      <span>{{ connectionError }}</span>
+      <button v-if="isHistoryFailed && sessionId" @click="openConversation(sessionId)">
+        重新加载会话
+      </button>
+    </div>
 
     <!-- ===== 登录视图 ===== -->
     <div v-if="view === 'login'" class="agent-view agent-login">
@@ -288,8 +307,21 @@ const onInputKeydown = (event: KeyboardEvent) => {
       <aside class="agent-session-manager">
         <div class="agent-session-bar">
           <strong>会话</strong>
-          <button class="btn btn-text btn-sm" @click="newConversation">＋ 新建</button>
+          <button
+            class="btn btn-text btn-sm"
+            :disabled="isSessionCreating || isSessionSaving || isSubmitting"
+            @click="newConversation"
+          >
+            {{ isSessionCreating ? '创建中…' : '＋ 新建' }}
+          </button>
         </div>
+        <button
+          class="btn btn-text btn-sm agent-session-refresh"
+          :disabled="isSessionsLoading || isSessionCreating || isSessionSaving"
+          @click="refreshSessions"
+        >
+          刷新会话列表
+        </button>
         <input class="input" v-model="sessionSearch" placeholder="搜索会话 / 资产" />
         <div v-if="isSessionsLoading" class="agent-empty">正在加载会话...</div>
         <div v-else-if="filteredSessions.length === 0" class="agent-empty">暂无会话</div>
@@ -307,19 +339,33 @@ const onInputKeydown = (event: KeyboardEvent) => {
           >
             <div class="agent-session-title">{{ session.title || session.id.slice(0, 12) }}</div>
             <div class="agent-session-meta">
-              <span>{{ sessionAssetName(session.id) || '未关联资产' }}</span>
+              <span>
+                {{ sessionAssetName(session.id) || '未关联资产' }}
+                ·
+                {{
+                  sessionStatuses[session.id]?.type === 'busy'
+                    ? '正在回答'
+                    : sessionStatuses[session.id]?.type === 'retry'
+                      ? '正在重试'
+                      : session.time?.updated
+                        ? new Date(session.time.updated).toLocaleString()
+                        : '空闲'
+                }}
+              </span>
               <span class="agent-session-actions">
                 <button
                   title="重命名"
                   :aria-label="'重命名会话：' + (session.title || session.id.slice(0, 12))"
-                  @click.stop="renameConversation(session.id)"
+                  :disabled="isSessionSaving || isSubmitting"
+                  @click.stop="showSessionDialog('rename', session)"
                 >
                   ✎
                 </button>
                 <button
                   title="删除"
                   :aria-label="'删除会话：' + (session.title || session.id.slice(0, 12))"
-                  @click.stop="deleteConversation(session.id)"
+                  :disabled="isSessionSaving || isSubmitting"
+                  @click.stop="showSessionDialog('delete', session)"
                 >
                   ×
                 </button>
@@ -330,8 +376,63 @@ const onInputKeydown = (event: KeyboardEvent) => {
       </aside>
 
       <div class="agent-conversation-main">
+        <div class="agent-conversation-context">
+          <strong>{{ activeSessionTitle }}</strong>
+          <span>{{
+            sessionId
+              ? sessionAssetName(sessionId) || '未关联资产'
+              : props.asset?.name || '未选择资产'
+          }}</span>
+        </div>
+        <form
+          v-if="sessionDialog"
+          class="agent-session-dialog"
+          role="dialog"
+          :aria-label="sessionDialog.kind === 'rename' ? '重命名会话' : '删除会话'"
+          @submit.prevent="submitSessionDialog"
+          @keydown.esc="!isSessionSaving && (sessionDialog = null)"
+        >
+          <strong>{{ sessionDialog.kind === 'rename' ? '重命名会话' : '删除会话' }}</strong>
+          <label v-if="sessionDialog.kind === 'rename'">
+            会话标题
+            <input
+              v-model="sessionTitleInput"
+              class="input"
+              maxlength="200"
+              :disabled="isSessionSaving"
+            />
+          </label>
+          <p v-else>
+            确认删除「{{
+              sessionDialog.session.title || '无标题会话'
+            }}」及其历史消息？正在运行的回答会先停止，此操作无法撤销。
+          </p>
+          <p v-if="sessionDialogError" class="agent-message-error" role="alert">
+            {{ sessionDialogError }}
+          </p>
+          <div>
+            <button
+              class="btn btn-default btn-sm"
+              type="button"
+              :disabled="isSessionSaving"
+              @click="sessionDialog = null"
+            >
+              取消
+            </button>
+            <button class="btn btn-primary btn-sm" type="submit" :disabled="isSessionSaving">
+              {{
+                isSessionSaving
+                  ? '保存中…'
+                  : sessionDialog.kind === 'rename'
+                    ? '保存标题'
+                    : '确认删除'
+              }}
+            </button>
+          </div>
+        </form>
         <div ref="messagesRef" class="agent-messages">
-          <div v-if="messages.length === 0" class="agent-welcome">
+          <div v-if="isHistoryLoading" class="agent-welcome">正在加载历史消息…</div>
+          <div v-else-if="messages.length === 0" class="agent-welcome">
             <div class="agent-welcome-icon">✦</div>
             <p>你好，我是故障诊断助手。</p>
             <p class="agent-welcome-hint">
@@ -365,9 +466,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
                   v-html="renderAgentMarkdown(part.text)"
                 />
               </template>
-              <div v-if="message.status === 'error'" class="agent-message-error">
-                {{ message.content }}
-              </div>
+              <div v-if="message.status === 'error'" class="agent-message-error">响应失败</div>
             </div>
           </div>
         </div>
@@ -378,13 +477,26 @@ const onInputKeydown = (event: KeyboardEvent) => {
             class="agent-input"
             rows="1"
             placeholder="描述故障现象或提问，Enter 发送，Shift+Enter 换行"
-            :disabled="isSending"
+            :disabled="
+              isSending ||
+              isHistoryLoading ||
+              isHistoryFailed ||
+              isSessionCreating ||
+              isSessionSaving
+            "
             @keydown="onInputKeydown"
           />
           <button
             v-if="!isSending"
             class="btn btn-primary agent-send"
-            :disabled="!input.trim()"
+            :disabled="
+              !input.trim() ||
+              isHistoryLoading ||
+              isHistoryFailed ||
+              isSessionCreating ||
+              isSessionSaving ||
+              isSubmitting
+            "
             @click="sendMessage"
           >
             发送
@@ -498,6 +610,17 @@ const onInputKeydown = (event: KeyboardEvent) => {
   color: var(--danger, #dc2626);
   font-size: 12px;
   padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.agent-chat-error button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
 }
 .agent-view {
   flex: 1;
@@ -609,6 +732,9 @@ const onInputKeydown = (event: KeyboardEvent) => {
   justify-content: space-between;
   align-items: center;
 }
+.agent-session-refresh {
+  align-self: flex-start;
+}
 .agent-session-list {
   display: flex;
   flex-direction: column;
@@ -634,8 +760,15 @@ const onInputKeydown = (event: KeyboardEvent) => {
 .agent-session-meta {
   display: flex;
   justify-content: space-between;
+  gap: 6px;
   color: var(--text3);
   margin-top: 2px;
+}
+.agent-session-meta > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .agent-session-actions button {
   border: none;
@@ -644,11 +777,53 @@ const onInputKeydown = (event: KeyboardEvent) => {
   color: var(--text3);
   padding: 0 2px;
 }
+.agent-session-actions button:disabled,
+.agent-conversation-layout button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .agent-conversation-main {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.agent-conversation-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.agent-conversation-context strong {
+  overflow-wrap: anywhere;
+}
+.agent-conversation-context span {
+  color: var(--text3);
+}
+.agent-session-dialog {
+  display: grid;
+  gap: 10px;
+  margin: 12px 16px 0;
+  padding: 14px;
+  border: 1px solid var(--primary, #2563eb);
+  border-radius: 10px;
+  background: var(--bg2, #f9fafb);
+  font-size: 12px;
+}
+.agent-session-dialog label {
+  display: grid;
+  gap: 6px;
+}
+.agent-session-dialog p {
+  margin: 0;
+}
+.agent-session-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .agent-messages {
   flex: 1;

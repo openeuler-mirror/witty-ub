@@ -5,6 +5,7 @@
 export type OpenCodeSession = {
   id: string
   title?: string
+  parentID?: string
   time?: { created?: number; updated?: number }
 }
 
@@ -25,18 +26,37 @@ export type OpenCodeProviderList = {
 export type OpenCodeMessagePart = { id?: string; type?: string; text?: string }
 
 export type OpenCodeMessage = {
-  info: { id?: string; role?: string; sessionID?: string }
+  info: {
+    id?: string
+    role?: string
+    sessionID?: string
+    error?: unknown
+    model?: { providerID?: string; modelID?: string }
+  }
   parts?: OpenCodeMessagePart[]
 }
+
+export type OpenCodeSessionStatus = { type?: string }
 
 export type AgentStreamEvent = {
   type: string
   properties?: {
     sessionID?: string
-    info?: { id?: string; role?: string; sessionID?: string }
+    info?: {
+      id?: string
+      role?: string
+      sessionID?: string
+      title?: string
+      error?: unknown
+      time?: { created?: number; updated?: number }
+    }
     part?: { id?: string; type?: string; text?: string; sessionID?: string; messageID?: string }
     status?: { type?: string }
     error?: unknown
+    messageID?: string
+    partID?: string
+    field?: string
+    delta?: string
   }
 }
 
@@ -113,8 +133,11 @@ export class AgentApi {
     return this.request<OpenCodeSession[]>('/session')
   }
 
-  createSession() {
-    return this.request<OpenCodeSession>('/session', { method: 'POST', body: '{}' })
+  createSession(title = '新会话') {
+    return this.request<OpenCodeSession>('/session', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    })
   }
 
   getSession(id: string) {
@@ -136,6 +159,10 @@ export class AgentApi {
     return this.request<OpenCodeMessage[]>(`/session/${encodeURIComponent(sessionId)}/message`)
   }
 
+  sessionStatuses() {
+    return this.request<Record<string, OpenCodeSessionStatus>>('/session/status')
+  }
+
   promptAsync(sessionId: string, providerID: string, modelID: string, text: string) {
     return this.request<unknown>(`/session/${encodeURIComponent(sessionId)}/prompt_async`, {
       method: 'POST',
@@ -154,7 +181,11 @@ export class AgentApi {
   }
 
   // SSE 用 fetch + ReadableStream（EventSource 无法带 Authorization header）
-  async openEventStream(signal: AbortSignal, onEvent: (event: AgentStreamEvent) => void) {
+  async openEventStream(
+    signal: AbortSignal,
+    onEvent: (event: AgentStreamEvent) => void,
+    onOpen?: () => void,
+  ) {
     const response = await fetch(`${this.apiBase}/event`, {
       headers: { Accept: 'text/event-stream', ...this.headers() },
       signal,
@@ -165,25 +196,31 @@ export class AgentApi {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    const emitFrame = (frame: string) => {
+      const data = frame
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n')
+      if (!data) return
+      try {
+        onEvent(JSON.parse(data) as AgentStreamEvent)
+      } catch {
+        // 非 JSON 帧忽略
+      }
+    }
+    onOpen?.()
     for (;;) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        buffer += decoder.decode()
+        if (buffer.trim()) emitFrame(buffer)
+        break
+      }
       buffer += decoder.decode(value, { stream: true })
       const frames = buffer.split(/\r?\n\r?\n/)
       buffer = frames.pop() ?? ''
-      for (const frame of frames) {
-        const data = frame
-          .split(/\r?\n/)
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trimStart())
-          .join('\n')
-        if (!data) continue
-        try {
-          onEvent(JSON.parse(data) as AgentStreamEvent)
-        } catch {
-          // 非 JSON 帧忽略
-        }
-      }
+      frames.forEach(emitFrame)
     }
   }
 }

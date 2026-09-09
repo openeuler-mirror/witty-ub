@@ -1,12 +1,15 @@
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, shallowRef } from 'vue'
 import {
   AgentApi,
   buildBasicAuthHeader,
   defaultAgentApiBase,
+  extractAgentError,
   isSecureRemoteAgentAddress,
   normalizeAgentServerAddress,
+  type AgentStreamEvent,
   type OpenCodeMessage,
   type OpenCodeSession,
+  type OpenCodeSessionStatus,
 } from '../api/agent'
 import { useToast } from './useToast'
 
@@ -39,8 +42,10 @@ export type AgentChatMessage = {
 
 const CONNECTION_KEY = 'witty-ub.agent-connection'
 const SESSION_ASSET_KEY = 'witty-ub.agent-session-assets'
+const ACTIVE_SESSION_KEY = 'witty-ub.active-session'
 const DEFAULT_MODEL_KEY = 'witty-ub.agent-default-model'
 const KNOWLEDGE_PREFIX_RE = /^当前(?:页面选中|会话对应)的知识库 ID 是 [^。]+。\n\n/
+const KNOWLEDGE_ID_RE = /^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/
 
 let state: ReturnType<typeof createAgentChatState> | null = null
 
@@ -49,11 +54,11 @@ export function useAgentChat() {
   return state
 }
 
-function createAgentChatState() {
+export function createAgentChatState() {
   const { toast } = useToast()
 
   const view = ref<AgentView>('login')
-  const api = ref<AgentApi | null>(null)
+  const api = shallowRef<AgentApi | null>(null)
   const connectionState = ref<'connected' | 'connecting' | 'disconnected'>('disconnected')
   const connectionError = ref('')
   const isLoggingIn = ref(false)
@@ -76,44 +81,78 @@ function createAgentChatState() {
 
   // 会话与消息
   const sessions = ref<OpenCodeSession[]>([])
+  const sessionStatuses = ref<Record<string, OpenCodeSessionStatus>>({})
+  const sessionDrafts = ref<Record<string, string>>({})
+  const sessionAssetIndex = ref<Record<string, string>>({})
   const sessionId = ref('')
   const isSessionsLoading = ref(false)
+  const isHistoryLoading = ref(false)
+  const isHistoryFailed = ref(false)
+  const isSessionCreating = ref(false)
+  const isSessionSaving = ref(false)
+  const isSubmitting = ref(false)
   const sessionSearch = ref('')
   const messages = ref<AgentChatMessage[]>([])
   const input = ref('')
   const isSending = ref(false)
+  const sessionDialog = ref<{ kind: 'rename' | 'delete'; session: OpenCodeSession } | null>(null)
+  const sessionTitleInput = ref('')
+  const sessionDialogError = ref('')
   const messagesRef = ref<HTMLElement | null>(null)
   const currentAsset = reactive<{ id: string; name: string }>({ id: '', name: '' })
 
   let eventController: AbortController | null = null
+  let eventReady: Promise<boolean> | null = null
+  let connectionSequence = 0
+  let requestSequence = 0
+  let sessionListSequence = 0
+  let eventStreamSequence = 0
+  let historyEvents: AgentStreamEvent[] = []
   let assistantMessageIds = new Set<string>()
-  let shouldIgnoreNextAbortError = false
+  let ignoredAbortError: { sessionId: string; sequence: number } | null = null
   let localMessageSeq = 0
 
   // ---------- 持久化（均不含凭据） ----------
 
-  const loadSessionAssetIndex = (): Record<string, string> => {
+  const storageKey = (baseKey: string, instance = api.value) =>
+    `${baseKey}:${instance?.apiBase ?? ''}`
+
+  const loadSessionAssetIndex = () => {
     try {
-      return JSON.parse(localStorage.getItem(SESSION_ASSET_KEY) ?? '{}')
+      sessionAssetIndex.value = JSON.parse(
+        localStorage.getItem(storageKey(SESSION_ASSET_KEY)) ?? '{}',
+      )
     } catch {
-      return {}
+      sessionAssetIndex.value = {}
     }
   }
 
-  const saveSessionAssetIndex = (index: Record<string, string>) => {
-    localStorage.setItem(SESSION_ASSET_KEY, JSON.stringify(index))
+  const saveSessionAssetIndex = () => {
+    try {
+      localStorage.setItem(storageKey(SESSION_ASSET_KEY), JSON.stringify(sessionAssetIndex.value))
+    } catch {
+      // Browser storage is optional.
+    }
   }
 
   const registerSessionAsset = (sid: string, assetId: string) => {
     if (!sid || !assetId) return
-    const index = loadSessionAssetIndex()
-    index[sid] = assetId
-    saveSessionAssetIndex(index)
+    sessionAssetIndex.value[sid] = assetId
+    saveSessionAssetIndex()
+  }
+
+  const saveActiveSession = () => {
+    try {
+      if (sessionId.value) localStorage.setItem(storageKey(ACTIVE_SESSION_KEY), sessionId.value)
+      else localStorage.removeItem(storageKey(ACTIVE_SESSION_KEY))
+    } catch {
+      // Browser storage is optional.
+    }
   }
 
   const loadDefaultModel = () => {
     try {
-      const saved = JSON.parse(localStorage.getItem(DEFAULT_MODEL_KEY) ?? 'null')
+      const saved = JSON.parse(localStorage.getItem(storageKey(DEFAULT_MODEL_KEY)) ?? 'null')
       if (saved?.providerID && saved?.modelID) selectedModel.value = saved
     } catch {
       // 忽略损坏数据
@@ -122,7 +161,7 @@ function createAgentChatState() {
 
   const saveDefaultModel = () => {
     if (selectedModel.value) {
-      localStorage.setItem(DEFAULT_MODEL_KEY, JSON.stringify(selectedModel.value))
+      localStorage.setItem(storageKey(DEFAULT_MODEL_KEY), JSON.stringify(selectedModel.value))
     }
   }
 
@@ -157,13 +196,22 @@ function createAgentChatState() {
 
   const refreshSessions = async () => {
     if (!api.value) return
+    const instance = api.value
+    const sequence = ++sessionListSequence
     isSessionsLoading.value = true
     try {
-      sessions.value = (await api.value.listSessions()) ?? []
+      const loaded = (await instance.listSessions()) ?? []
+      if (sequence !== sessionListSequence || instance !== api.value) return
+      sessions.value = loaded.sort(
+        (left, right) =>
+          (right.time?.updated ?? right.time?.created ?? 0) -
+          (left.time?.updated ?? left.time?.created ?? 0),
+      )
     } catch (error) {
+      if (sequence !== sessionListSequence || instance !== api.value) return
       connectionError.value = error instanceof Error ? error.message : '读取会话失败'
     } finally {
-      isSessionsLoading.value = false
+      if (sequence === sessionListSequence) isSessionsLoading.value = false
     }
   }
 
@@ -186,9 +234,10 @@ function createAgentChatState() {
     return true
   }
 
-  const loadModels = async (): Promise<boolean> => {
-    if (!api.value) return false
-    const list = await api.value.providers()
+  const loadModels = async (instance = api.value): Promise<boolean> => {
+    if (!instance) return false
+    const list = await instance.providers()
+    if (instance !== api.value) return false
     const all = list.all ?? []
     const connected = new Set(list.connected ?? [])
     connectedModels.value = all
@@ -208,24 +257,42 @@ function createAgentChatState() {
   }
 
   const connect = async (instance: AgentApi, nextView: AgentView = 'models') => {
+    const sequence = ++connectionSequence
+    closeEventStream()
+    requestSequence += 1
+    sessionListSequence += 1
     connectionState.value = 'connecting'
     connectionError.value = ''
     api.value = instance
+    sessions.value = []
+    sessionStatuses.value = {}
+    sessionDrafts.value = {}
+    selectedModel.value = null
+    loadSessionAssetIndex()
     try {
       const health = await instance.health()
+      if (sequence !== connectionSequence || instance !== api.value) return
       if (health && health.healthy === false) {
         throw new Error('OpenCode 服务器健康检查未通过')
       }
       connectionState.value = 'connected'
       persistConnection(instance)
       loadDefaultModel()
-      const hasModel = await loadModels()
+      const hasModel = await loadModels(instance)
+      if (sequence !== connectionSequence || instance !== api.value) return
       view.value = hasModel ? nextView : 'models'
-      if (view.value === 'chat') {
-        await refreshSessions()
-        await resetConversation()
+      await resetConversation()
+      await refreshSessions()
+      let previousSession = ''
+      try {
+        previousSession = localStorage.getItem(storageKey(ACTIVE_SESSION_KEY, instance)) ?? ''
+      } catch {
+        // Browser storage is optional.
       }
+      const restored = sessions.value.find((session) => session.id === previousSession)
+      if (restored) await openConversation(restored.id)
     } catch (error) {
+      if (sequence !== connectionSequence || instance !== api.value) return
       connectionState.value = 'disconnected'
       api.value = null
       connectionError.value = error instanceof Error ? error.message : '连接 OpenCode 服务器失败'
@@ -316,30 +383,83 @@ function createAgentChatState() {
     if (pending && !pending.content) pending.content = fallback
     if (pending) pending.status = 'done'
     isSending.value = false
+    if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
     void scrollToBottom()
     void refreshSessions()
+    const sequence = requestSequence
+    const sid = sessionId.value
+    if (api.value && sid) {
+      void api.value
+        .listMessages(sid)
+        .then((history) => {
+          if (sequence === requestSequence && sid === sessionId.value && !isSending.value) {
+            assistantMessageIds = new Set()
+            messages.value = toChatMessages(history ?? [])
+          }
+        })
+        .catch(() => null)
+    }
   }
 
   const markResponseFailed = (errorText: string) => {
     const pending = messages.value.find((message) => message.status === 'thinking')
     if (pending) {
       pending.status = 'error'
-      if (!pending.content) pending.content = errorText
+      if (!pending.parts.some((part) => part.id === `${pending.id}:error`)) {
+        pending.parts.push({ id: `${pending.id}:error`, type: 'text', text: errorText })
+      }
+      syncMessageText(pending)
     }
     isSending.value = false
+    if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
     connectionError.value = errorText
     void scrollToBottom()
   }
 
-  const handleAgentEvent = (event: { type: string; properties?: any }) => {
+  const handleAgentEvent = (event: AgentStreamEvent) => {
     const props = event.properties ?? {}
+    if (event.type === 'session.updated' && props.info?.id) {
+      sessions.value = sessions.value.map((session) =>
+        session.id === props.info?.id ? { ...session, ...props.info } : session,
+      )
+    }
     const eventSession = props.sessionID || props.info?.sessionID || props.part?.sessionID || ''
+    if (eventSession && event.type === 'session.status' && props.status?.type) {
+      sessionStatuses.value[eventSession] = { type: props.status.type }
+    }
     if (eventSession && eventSession !== sessionId.value) return
+    if (isHistoryLoading.value) {
+      historyEvents.push(event)
+      return
+    }
+
+    if (event.type === 'session.status' && ['busy', 'retry'].includes(props.status?.type ?? '')) {
+      isSending.value = true
+    }
 
     if (event.type === 'message.updated' && props.info?.role === 'assistant' && props.info.id) {
       assistantMessageIds.add(props.info.id)
-      const pending = messages.value.find((message) => message.status === 'thinking')
+      let pending = messages.value.find((message) => message.status === 'thinking')
+      if (pending?.messageId && pending.messageId !== props.info.id) {
+        pending.status = 'done'
+        pending = undefined
+      }
+      if (!pending && !messages.value.some((message) => message.messageId === props.info?.id)) {
+        pending = {
+          id: props.info.id,
+          role: 'assistant',
+          parts: [],
+          reasoning: '',
+          content: '',
+          status: 'thinking',
+          messageId: props.info.id,
+        }
+        messages.value.push(pending)
+      }
       if (pending && !pending.messageId) pending.messageId = props.info.id
+      if (props.info.error) {
+        markResponseFailed(extractAgentError(props.info.error) || '模型响应失败')
+      }
       return
     }
 
@@ -359,6 +479,17 @@ function createAgentChatState() {
       return
     }
 
+    if (event.type === 'message.part.delta' && props.messageID && props.partID) {
+      const target = messages.value.find((message) => message.messageId === props.messageID)
+      const part = target?.parts.find((item) => item.id.endsWith(`:${props.partID}`))
+      if (target && part && props.field === 'text') {
+        part.text += props.delta ?? ''
+        syncMessageText(target)
+        void scrollToBottom()
+      }
+      return
+    }
+
     if (
       event.type === 'session.idle' ||
       (event.type === 'session.status' && props.status?.type === 'idle')
@@ -368,42 +499,112 @@ function createAgentChatState() {
     }
 
     if (event.type === 'session.error') {
-      if (shouldIgnoreNextAbortError) {
-        shouldIgnoreNextAbortError = false
+      const errorSession = eventSession || sessionId.value
+      if (
+        ignoredAbortError?.sessionId === errorSession &&
+        ignoredAbortError.sequence === requestSequence
+      ) {
+        ignoredAbortError = null
         finishPending('')
         return
       }
-      markResponseFailed('Agent 处理出错，请稍后重试')
+      ignoredAbortError = null
+      markResponseFailed(extractAgentError(props.error) || 'Agent 处理出错，请稍后重试')
     }
   }
 
-  const connectEvents = async () => {
-    if (!api.value || eventController) return
+  const replayHistoryEvents = () => {
+    const queued = historyEvents
+    historyEvents = []
+    const parts = new Map<string, NonNullable<AgentStreamEvent['properties']>['part']>()
+    for (const event of queued) {
+      const props = event.properties
+      if (event.type === 'message.part.updated' && props?.part?.id) {
+        parts.set(props.part.id, { ...props.part })
+      } else if (event.type === 'message.part.delta' && props?.partID) {
+        const part = parts.get(props.partID)
+        if (part && props.field === 'text') part.text = (part.text ?? '') + (props.delta ?? '')
+      } else {
+        handleAgentEvent(event)
+      }
+    }
+    for (const part of parts.values()) {
+      if (!part) continue
+      const target = messages.value.find((message) => message.messageId === part.messageID)
+      const existing = target?.parts.find((item) => item.id === `${part.type}:${part.id}`)
+      if (!existing || (part.text ?? '').startsWith(existing.text)) {
+        handleAgentEvent({ type: 'message.part.updated', properties: { part } })
+      }
+    }
+  }
+
+  const closeEventStream = () => {
+    eventStreamSequence += 1
+    eventController?.abort()
+    eventController = null
+    eventReady = null
+  }
+
+  const connectEvents = (): Promise<boolean> => {
+    if (!api.value) return Promise.resolve(false)
+    if (eventController) return eventReady ?? Promise.resolve(true)
     eventController = new AbortController()
     const controller = eventController
-    try {
-      await api.value.openEventStream(controller.signal, handleAgentEvent)
-      if (!controller.signal.aborted) {
-        connectionState.value = 'disconnected'
-        connectionError.value = 'Agent 事件流连接已断开'
-      }
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        connectionState.value = 'disconnected'
-        connectionError.value = error instanceof Error ? error.message : 'Agent 事件流连接失败'
-      }
-    } finally {
-      if (eventController === controller) eventController = null
-    }
+    const sequence = ++eventStreamSequence
+    const instance = api.value
+    let settleReady: (connected: boolean) => void = () => undefined
+    eventReady = new Promise<boolean>((resolve) => {
+      settleReady = resolve
+    })
+    void instance
+      .openEventStream(controller.signal, handleAgentEvent, () => settleReady(true))
+      .then(() => {
+        if (sequence === eventStreamSequence && !controller.signal.aborted) {
+          connectionState.value = 'disconnected'
+          connectionError.value = 'Agent 事件流连接已断开'
+        }
+      })
+      .catch((error) => {
+        settleReady(false)
+        if (sequence === eventStreamSequence && !controller.signal.aborted) {
+          connectionState.value = 'disconnected'
+          connectionError.value = error instanceof Error ? error.message : 'Agent 事件流连接失败'
+        }
+      })
+      .finally(() => {
+        if (sequence === eventStreamSequence && eventController === controller) {
+          eventController = null
+          eventReady = null
+        }
+      })
+    return eventReady
+  }
+
+  const suspend = () => {
+    connectionSequence += 1
+    requestSequence += 1
+    sessionListSequence += 1
+    ignoredAbortError = null
+    historyEvents = []
+    isHistoryLoading.value = false
+    isSubmitting.value = false
+    closeEventStream()
   }
 
   // ---------- 会话与消息 ----------
 
   const resetConversation = async () => {
+    requestSequence += 1
+    closeEventStream()
     sessionId.value = ''
     messages.value = []
     assistantMessageIds = new Set()
+    historyEvents = []
+    ignoredAbortError = null
     isSending.value = false
+    isHistoryLoading.value = false
+    isHistoryFailed.value = false
+    isSubmitting.value = false
     connectionError.value = ''
     await scrollToBottom()
   }
@@ -426,8 +627,12 @@ function createAgentChatState() {
         parts,
         reasoning: '',
         content: '',
-        status: 'done',
+        status: item.info?.error ? 'error' : 'done',
         messageId: item.info?.id,
+      }
+      if (item.info?.error) {
+        const errorText = extractAgentError(item.info.error) || '模型响应失败'
+        message.parts.push({ id: `${message.id}:error`, type: 'text', text: errorText })
       }
       if (role === 'assistant') assistantMessageIds.add(item.info?.id ?? '')
       syncMessageText(message)
@@ -438,61 +643,160 @@ function createAgentChatState() {
   }
 
   const openConversation = async (sid: string) => {
-    if (!api.value || isSending.value) return
+    if (!api.value || isSessionCreating.value || isSessionSaving.value || isSubmitting.value) return
+    if (sessionId.value) sessionDrafts.value[sessionId.value] = input.value
+    await resetConversation()
     sessionId.value = sid
-    messages.value = []
-    assistantMessageIds = new Set()
+    input.value = sessionDrafts.value[sid] ?? ''
+    saveActiveSession()
+    const sequence = requestSequence
+    isHistoryLoading.value = true
+    isHistoryFailed.value = false
     try {
-      const history = (await api.value.listMessages(sid)) ?? []
+      const instance = api.value
+      const connected = await connectEvents()
+      if (sequence !== requestSequence || sid !== sessionId.value || instance !== api.value) return
+      if (!connected) throw new Error(connectionError.value || 'Agent 事件流连接失败')
+      const statuses = await instance.sessionStatuses()
+      const history = (await instance.listMessages(sid)) ?? []
+      if (sequence !== requestSequence || sid !== sessionId.value || instance !== api.value) return
+      sessionStatuses.value = statuses ?? {}
       messages.value = toChatMessages(history)
+      const context = history
+        .find((message) => message.info.role === 'user')
+        ?.parts?.find((part) => part.type === 'text')?.text
+      const assetId = context?.match(KNOWLEDGE_ID_RE)?.[1]
+      if (assetId && !sessionAssetIndex.value[sid]) registerSessionAsset(sid, assetId)
+      const historicalModel = [...history].reverse().find((message) => message.info.model)
+        ?.info.model
+      if (
+        historicalModel?.providerID &&
+        historicalModel.modelID &&
+        connectedModels.value.some(
+          (model) =>
+            model.providerID === historicalModel.providerID && model.id === historicalModel.modelID,
+        )
+      ) {
+        selectedModel.value = {
+          providerID: historicalModel.providerID,
+          modelID: historicalModel.modelID,
+        }
+      }
+      isSending.value = !!statuses[sid] && statuses[sid]?.type !== 'idle'
+      if (isSending.value) {
+        const last = messages.value.at(-1)
+        if (last?.role === 'assistant' && last.status !== 'error') last.status = 'thinking'
+        else {
+          messages.value.push({
+            id: `agent-assistant-${++localMessageSeq}`,
+            role: 'assistant',
+            parts: [],
+            reasoning: '',
+            content: '',
+            status: 'thinking',
+          })
+        }
+      }
+      isHistoryLoading.value = false
+      replayHistoryEvents()
     } catch (error) {
+      if (sequence !== requestSequence || sid !== sessionId.value) return
+      isHistoryFailed.value = true
+      historyEvents = []
+      closeEventStream()
       connectionError.value = error instanceof Error ? error.message : '读取会话历史失败'
+    } finally {
+      if (sequence === requestSequence) isHistoryLoading.value = false
     }
-    void connectEvents()
     await scrollToBottom()
   }
 
   const newConversation = async () => {
-    if (isSending.value) {
-      await abortAgentSession()
-    }
+    if (!api.value || isSessionCreating.value || isSessionSaving.value || isSubmitting.value) return
+    if (sessionId.value) sessionDrafts.value[sessionId.value] = input.value
     await resetConversation()
     view.value = 'chat'
-  }
-
-  const renameConversation = async (sid: string) => {
-    const title = window.prompt('新的会话名称')?.trim()
-    if (!title || !api.value) return
+    const sequence = requestSequence
+    const assetId = currentAsset.id
+    isSessionCreating.value = true
     try {
-      await api.value.renameSession(sid, title)
-      await refreshSessions()
+      const created = await api.value.createSession()
+      if (!created?.id) throw new Error('Agent 服务没有返回会话 ID')
+      if (sequence !== requestSequence) return
+      sessionId.value = created.id
+      registerSessionAsset(created.id, assetId)
+      saveActiveSession()
+      sessions.value = [created, ...sessions.value.filter((session) => session.id !== created.id)]
+      void connectEvents()
     } catch (error) {
-      toast(error instanceof Error ? error.message : '会话改名失败', 'error')
+      if (sequence === requestSequence) {
+        connectionError.value = error instanceof Error ? error.message : '新建会话失败'
+      }
+    } finally {
+      if (sequence === requestSequence) isSessionCreating.value = false
     }
   }
 
-  const deleteConversation = async (sid: string) => {
-    if (!api.value || !window.confirm('确认删除该会话？')) return
+  const showSessionDialog = (kind: 'rename' | 'delete', session: OpenCodeSession) => {
+    sessionDialog.value = { kind, session }
+    sessionTitleInput.value = session.title ?? ''
+    sessionDialogError.value = ''
+  }
+
+  const submitSessionDialog = async () => {
+    const dialog = sessionDialog.value
+    if (!dialog || !api.value || isSessionSaving.value) return
+    const { kind, session } = dialog
+    const title = sessionTitleInput.value.trim()
+    if (kind === 'rename' && !title) {
+      sessionDialogError.value = '请输入会话标题'
+      return
+    }
+    isSessionSaving.value = true
+    sessionDialogError.value = ''
     try {
-      await api.value.deleteSession(sid)
-      const index = loadSessionAssetIndex()
-      delete index[sid]
-      saveSessionAssetIndex(index)
-      await refreshSessions()
-      if (sessionId.value === sid) await resetConversation()
+      if (kind === 'rename') {
+        const updated = await api.value.renameSession(session.id, title)
+        sessions.value = sessions.value.map((item) =>
+          item.id === session.id ? { ...item, ...updated, title } : item,
+        )
+        sessionDialog.value = null
+        return
+      }
+      const statuses = await api.value.sessionStatuses()
+      if (statuses[session.id] && statuses[session.id]?.type !== 'idle') {
+        await api.value.abort(session.id)
+      }
+      const deleted = await api.value.deleteSession(session.id)
+      if (deleted === false) throw new Error('服务端未确认删除会话，请重试')
+      sessions.value = sessions.value.filter((item) => item.id !== session.id)
+      delete sessionAssetIndex.value[session.id]
+      saveSessionAssetIndex()
+      delete sessionDrafts.value[session.id]
+      delete sessionStatuses.value[session.id]
+      if (sessionId.value === session.id) {
+        await resetConversation()
+        saveActiveSession()
+      }
+      sessionDialog.value = null
     } catch (error) {
-      toast(error instanceof Error ? error.message : '删除会话失败', 'error')
+      sessionDialogError.value = error instanceof Error ? error.message : '保存会话失败'
+    } finally {
+      isSessionSaving.value = false
     }
   }
 
   const abortAgentSession = async () => {
     if (!api.value || !sessionId.value) return
-    shouldIgnoreNextAbortError = true
+    const abortingSessionId = sessionId.value
+    const sequence = ++requestSequence
+    ignoredAbortError = { sessionId: abortingSessionId, sequence }
     try {
-      await api.value.abort(sessionId.value)
+      await api.value.abort(abortingSessionId)
     } catch {
       // 中止失败也按已完成处理，等待事件流收尾
     }
+    if (sequence !== requestSequence) return
     const pending = messages.value.find((message) => message.status === 'thinking')
     if (pending) {
       pending.parts = [{ id: 'text:abort', type: 'text', text: '用户终止响应' }]
@@ -500,6 +804,7 @@ function createAgentChatState() {
       pending.status = 'done'
     }
     isSending.value = false
+    sessionStatuses.value[abortingSessionId] = { type: 'idle' }
     void scrollToBottom()
   }
 
@@ -507,15 +812,26 @@ function createAgentChatState() {
     if (sessionId.value) return sessionId.value
     if (!api.value) throw new Error('未连接 OpenCode 服务器')
     const created = await api.value.createSession()
+    if (!created?.id) throw new Error('Agent 服务没有返回会话 ID')
     sessionId.value = created.id
     registerSessionAsset(created.id, currentAsset.id)
+    saveActiveSession()
     sessions.value = [created, ...sessions.value]
     return sessionId.value
   }
 
   const sendMessage = async () => {
     const question = input.value.trim()
-    if (!question || isSending.value) return
+    if (
+      !question ||
+      isSending.value ||
+      isHistoryLoading.value ||
+      isHistoryFailed.value ||
+      isSessionCreating.value ||
+      isSessionSaving.value ||
+      isSubmitting.value
+    )
+      return
     if (!api.value) {
       connectionError.value = '尚未连接 OpenCode 服务器'
       return
@@ -543,13 +859,24 @@ function createAgentChatState() {
       status: 'thinking',
     })
     isSending.value = true
+    const sequence = ++requestSequence
+    ignoredAbortError = null
+    isSubmitting.value = true
     void scrollToBottom()
     try {
       const sid = await ensureSession()
+      if (sequence !== requestSequence) return
       void connectEvents()
-      const knowledgePrefix = currentAsset.id
-        ? `当前会话对应的知识库 ID 是 ${currentAsset.id}。\n\n`
-        : ''
+      const assetId = sessionAssetIndex.value[sid] || currentAsset.id
+      if (!sessionAssetIndex.value[sid]) registerSessionAsset(sid, assetId)
+      const knowledgePrefix = assetId ? `当前会话对应的知识库 ID 是 ${assetId}。\n\n` : ''
+      const session = sessions.value.find((item) => item.id === sid)
+      if (session?.title === '新会话') {
+        const updated = await api.value.renameSession(sid, question.slice(0, 60))
+        if (sequence !== requestSequence) return
+        Object.assign(session, updated)
+      }
+      sessionStatuses.value[sid] = { type: 'busy' }
       await api.value.promptAsync(
         sid,
         selectedModel.value.providerID,
@@ -557,26 +884,35 @@ function createAgentChatState() {
         `${knowledgePrefix}${question}`,
       )
     } catch (error) {
+      if (sequence !== requestSequence) return
       markResponseFailed(error instanceof Error ? error.message : '发送失败')
+    } finally {
+      if (sequence === requestSequence) isSubmitting.value = false
     }
   }
 
   // ---------- 视图辅助 ----------
 
   const sessionAssetName = (sid: string) => {
-    const assetId = loadSessionAssetIndex()[sid] ?? ''
+    const assetId = sessionAssetIndex.value[sid] ?? ''
     return assetId && assetId === currentAsset.id ? currentAsset.name : assetId
   }
 
   const filteredSessions = computed(() => {
     const keyword = sessionSearch.value.trim().toLowerCase()
-    if (!keyword) return sessions.value
-    return sessions.value.filter((session) => {
-      const title = (session.title ?? '').toLowerCase()
-      const asset = (sessionAssetName(session.id) ?? '').toLowerCase()
-      return title.includes(keyword) || asset.includes(keyword)
-    })
+    return sessions.value
+      .filter((session) => !session.parentID)
+      .filter((session) => {
+        if (!keyword) return true
+        const title = (session.title ?? '').toLowerCase()
+        const asset = (sessionAssetName(session.id) ?? '').toLowerCase()
+        return title.includes(keyword) || asset.includes(keyword)
+      })
   })
+
+  const activeSessionTitle = computed(
+    () => sessions.value.find((session) => session.id === sessionId.value)?.title || '新会话',
+  )
 
   const filteredModels = computed(() => {
     const keyword = modelSearch.value.trim().toLowerCase()
@@ -612,22 +948,19 @@ function createAgentChatState() {
   const setAsset = (asset: { id: string; name: string } | null) => {
     const nextId = asset?.id ?? ''
     if (currentAsset.id === nextId) return
+    const isInitialAsset = !currentAsset.id
+    if (sessionId.value) sessionDrafts.value[sessionId.value] = input.value
     currentAsset.id = nextId
     currentAsset.name = asset?.name ?? ''
-    // 切资产：重置会话与搜索（会话索引保留，历史可通过搜索找回）
-    sessionId.value = ''
-    messages.value = []
+    if (isInitialAsset) return
+    void resetConversation().then(saveActiveSession)
     sessionSearch.value = ''
   }
 
   const restore = async () => {
     const saved = restoreConnection()
     if (!saved) return
-    await connect(saved, 'login')
-    if (connectionState.value === 'connected') {
-      view.value = 'chat'
-      await refreshSessions()
-    }
+    await connect(saved, 'chat')
   }
 
   return {
@@ -649,14 +982,24 @@ function createAgentChatState() {
     providerSearch,
     expandedProviderId,
     sessions,
+    sessionStatuses,
     sessionId,
     isSessionsLoading,
+    isHistoryLoading,
+    isHistoryFailed,
+    isSessionCreating,
+    isSessionSaving,
+    isSubmitting,
     sessionSearch,
     messages,
     input,
     isSending,
+    sessionDialog,
+    sessionTitleInput,
+    sessionDialogError,
     messagesRef,
     filteredSessions,
+    activeSessionTitle,
     filteredModels,
     filteredProviders,
     displayPartsOf,
@@ -666,11 +1009,14 @@ function createAgentChatState() {
     loginLocalAgent,
     loginRemoteAgent,
     authorizeProvider,
+    refreshSessions,
     openConversation,
     newConversation,
-    renameConversation,
-    deleteConversation,
+    showSessionDialog,
+    submitSessionDialog,
     abortAgentSession,
+    closeEventStream,
+    suspend,
     sendMessage,
     scrollToBottom,
     sessionAssetName,
