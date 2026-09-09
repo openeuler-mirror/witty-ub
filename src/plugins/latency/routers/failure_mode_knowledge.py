@@ -1,12 +1,12 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from fastapi import APIRouter, Path, HTTPException
-from typing import Annotated
+from fastapi import APIRouter, HTTPException
 from latency.schemas.response import (
     GetFailureModeResponse,
     GetStatusCodeKnowledgeResponse,
 )
 from latency.services.failure_mode_knowledge import FailureModeKnowledge
+from latency.common.id_validation import FailureModeIdPath, StatusCodePath
 
 router = APIRouter(prefix="/failure_mode", tags=["failure_mode"])
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/failure_mode", tags=["failure_mode"])
     ),
 )
 async def get_status_code_knowledge(
-    status_code: Annotated[str, Path()],
+    status_code: StatusCodePath,
 ) -> GetStatusCodeKnowledgeResponse:
     msg = await FailureModeKnowledge.get_status_code_knowledge(status_code)
     if msg.status_code_info is None:
@@ -39,7 +39,7 @@ async def get_status_code_knowledge(
     ),
 )
 async def get_failure_mode_by_id(
-    failure_mode_id: Annotated[str, Path()],
+    failure_mode_id: FailureModeIdPath,
 ) -> GetFailureModeResponse:
     get_failure_mode_msg = (
         await FailureModeKnowledge.get_failure_mode_knowledege_by_id(failure_mode_id)

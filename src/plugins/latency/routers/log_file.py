@@ -2,7 +2,6 @@
 
 from fastapi import (
     APIRouter,
-    Path,
     Query,
     Body,
     Request,
@@ -29,13 +28,14 @@ from latency.schemas.response import (
 )
 from latency.services.log_file import LogFileService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath
 
 router = APIRouter(prefix="/log_file", tags=["log_file"])
 
 
 @router.post("/{kb_id}", response_model=UploadLogFilesResponse)
 async def upload_log_files(
-    kb_id: Annotated[str, Path()],
+    kb_id: ResourceIdPath,
     request: Request,
 ) -> UploadLogFilesResponse:
     await ResourceIdService.require("kb", kb_id)
@@ -78,7 +78,21 @@ async def upload_log_files(
             raise RequestValidationError(exc.errors())
     else:
         try:
-            req = UpLoadLogFilesRequest.model_validate(await request.json())
+            payload = await request.json()
+        except json.JSONDecodeError as exc:
+            raise RequestValidationError(
+                [
+                    {
+                        "type": "json_invalid",
+                        "loc": ("body", exc.pos),
+                        "msg": "JSON decode error",
+                        "input": {},
+                        "ctx": {"error": exc.msg},
+                    }
+                ]
+            ) from exc
+        try:
+            req = UpLoadLogFilesRequest.model_validate(payload)
         except ValidationError as exc:
             raise RequestValidationError(exc.errors())
 
@@ -100,9 +114,10 @@ async def upload_log_files(
     ),
 )
 async def run_brpc_diagnosis_by_log_file_id(
-    log_file_id: Annotated[str, Path()],
+    log_file_id: ResourceIdPath,
     req: Annotated[RunBrpcDiagnosisRequest, Body()],
 ) -> RunBrpcDiagnosisResponse:
+    await ResourceIdService.require("log", log_file_id)
     result = await LogFileService.run_brpc_diagnosis_by_log_file_id(
         log_file_id,
         req,
@@ -112,8 +127,9 @@ async def run_brpc_diagnosis_by_log_file_id(
 
 @router.delete("/{log_file_id}", response_model=DeleteLogFilesResponse)
 async def delete_log_file_by_log_file_id(
-    log_file_id: Annotated[str, Path()],
+    log_file_id: ResourceIdPath,
 ) -> DeleteLogFilesResponse:
+    await ResourceIdService.require("log", log_file_id)
     delete_log_files_msg = await LogFileService.delete_log_file_by_log_file_id(
         log_file_id
     )
@@ -122,18 +138,20 @@ async def delete_log_file_by_log_file_id(
 
 @router.put("/{log_file_id}", response_model=UpdateLogFileResponse)
 async def update_log_file(
-    log_file_id: Annotated[str, Path()],
+    log_file_id: ResourceIdPath,
     req: Annotated[UpdateLogFileRequest, Body()],
 ) -> UpdateLogFileResponse:
+    await ResourceIdService.require("log", log_file_id)
     update_log_file_msg = await LogFileService.update_log_file(log_file_id, req)
     return UpdateLogFileResponse(result=update_log_file_msg)
 
 
 @router.put("/run/{log_file_id}", response_model=RunOrStopLogParseResponse)
 async def run_or_stop_log_file_by_log_file_id(
-    log_file_id: Annotated[str, Path()],
+    log_file_id: ResourceIdPath,
     run: Annotated[bool, Query(description="是否运行日志文件，默认为true")] = True,
 ) -> RunOrStopLogParseResponse:
+    await ResourceIdService.require("log", log_file_id)
     update_log_file_msg = await LogFileService.run_or_stop_log_parse_by_log_file_id(
         log_file_id, run
     )
@@ -151,7 +169,7 @@ async def run_or_stop_log_file_by_log_file_id(
     ),
 )
 async def list_log_files(
-    kb_id: Annotated[str, Path()],
+    kb_id: ResourceIdPath,
     req: Annotated[ListLogFilesRequest, Body()],
 ) -> ListLogFilesResponse:
     list_log_files_msg = await LogFileService.list_log_files(kb_id, req)
@@ -168,7 +186,8 @@ async def list_log_files(
     ),
 )
 async def get_log_file_by_log_file_id(
-    log_file_id: Annotated[str, Path()],
+    log_file_id: ResourceIdPath,
 ) -> GetLogFileResponse:
+    await ResourceIdService.require("log", log_file_id)
     get_log_file_msg = await LogFileService.get_log_file_by_log_file_id(log_file_id)
     return GetLogFileResponse(result=get_log_file_msg)
