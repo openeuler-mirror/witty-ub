@@ -20,6 +20,7 @@ const {
   assets,
   assetsLoading,
   assetsError,
+  isInitialDataUnavailable,
   searchMode,
   searchKey,
   assetPage,
@@ -50,6 +51,7 @@ const {
   logFilesError,
   statusOf,
   progressOf,
+  progressMessageOf,
   statusLabel,
   statusBadgeClass,
   isRunningStatus,
@@ -181,7 +183,7 @@ onBeforeUnmount(() => {
   <main class="main">
     <!-- ============ 资产列表 ============ -->
     <template v-if="view === 'assets'">
-      <div class="operate-bar">
+      <div v-if="!isInitialDataUnavailable" class="operate-bar">
         <button class="btn btn-primary" @click="openAssetModal()">+ 创建资产</button>
         <div class="operate-right">
           <select class="select" v-model="searchMode">
@@ -193,7 +195,18 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="assetsLoading" class="empty">
+      <section v-if="isInitialDataUnavailable" class="service-unavailable" role="alert">
+        <div class="service-unavailable-icon" aria-hidden="true">!</div>
+        <h1>数据服务暂时不可用</h1>
+        <p>当前无法加载资产库和任务状态，请稍后重试或联系管理员。</p>
+        <p class="service-unavailable-hint">
+          服务恢复后可继续使用，任务状态以重新连接后的结果为准。
+        </p>
+        <button class="btn btn-primary" type="button" :disabled="assetsLoading" @click="loadAssets">
+          {{ assetsLoading ? '正在重试...' : '重新加载' }}
+        </button>
+      </section>
+      <div v-else-if="assetsLoading" class="empty">
         <div class="icon">⏳</div>
         <div>正在加载资产库...</div>
       </div>
@@ -287,7 +300,7 @@ onBeforeUnmount(() => {
           <div class="toolbar-primary">
             <button class="btn btn-primary" @click="openCreateTask">+ 创建任务</button>
             <button
-              v-if="taskTypeFilter !== 'brpc'"
+              v-if="taskTypeFilter !== 'UBSocket'"
               class="btn btn-default"
               @click="openParseConfig"
             >
@@ -297,8 +310,8 @@ onBeforeUnmount(() => {
           <div class="operate-right toolbar-filters" aria-label="任务筛选">
             <select class="select" v-model="taskTypeFilter">
               <option value="">全部类型</option>
-              <option value="kv-cache">KVCache</option>
-              <option value="brpc">UBSocket</option>
+              <option value="KVCache">KVCache</option>
+              <option value="UBSocket">UBSocket</option>
             </select>
             <select class="select" v-model="taskFilterStatus">
               <option value="">全部状态</option>
@@ -350,17 +363,29 @@ onBeforeUnmount(() => {
                 </td>
                 <td>
                   <span
-                    :class="['badge', file.log_type === 'brpc' ? 'badge-pending' : 'badge-success']"
+                    :class="[
+                      'badge',
+                      file.log_type === 'UBSocket' ? 'badge-pending' : 'badge-success',
+                    ]"
                   >
-                    {{ file.log_type === 'brpc' ? 'UBSocket' : 'KVCache' }}
+                    {{ file.log_type }}
                   </span>
                 </td>
                 <td>
-                  <div class="progress-cell">
-                    <div class="progress-bar">
-                      <div class="fill" :style="{ width: progressOf(file) + '%' }"></div>
+                  <div class="task-progress-stack">
+                    <div class="progress-cell">
+                      <div class="progress-bar">
+                        <div class="fill" :style="{ width: progressOf(file) + '%' }"></div>
+                      </div>
+                      <span>{{ Math.round(progressOf(file)) }}%</span>
                     </div>
-                    <span>{{ Math.round(progressOf(file)) }}%</span>
+                    <div
+                      v-if="progressMessageOf(file)"
+                      :class="['task-progress-message', { failed: isFailed(file) }]"
+                      :title="progressMessageOf(file)"
+                    >
+                      {{ progressMessageOf(file) }}
+                    </div>
                   </div>
                 </td>
                 <td>

@@ -20,6 +20,9 @@ function createAssetsState() {
   const assets = ref<LogKnowledge[]>([])
   const assetsLoading = ref(false)
   const assetsError = ref('')
+  const isInitialDataUnavailable = computed(
+    () => Boolean(assetsError.value) && assets.value.length === 0 && !selectedAsset.value,
+  )
   const searchMode = ref<'all' | 'name' | 'desc'>('all')
   const searchKey = ref('')
   const assetPage = ref(1)
@@ -44,9 +47,7 @@ function createAssetsState() {
   const assetPages = computed(() =>
     Math.max(1, Math.ceil(filteredAssets.value.length / assetPageSize)),
   )
-  const pagedAssets = computed(() =>
-    paginate(filteredAssets.value, assetPage.value, assetPageSize),
-  )
+  const pagedAssets = computed(() => paginate(filteredAssets.value, assetPage.value, assetPageSize))
 
   const loadAssets = async () => {
     assetsLoading.value = true
@@ -163,6 +164,7 @@ function createAssetsState() {
     assets,
     assetsLoading,
     assetsError,
+    isInitialDataUnavailable,
     searchMode,
     searchKey,
     assetPage,

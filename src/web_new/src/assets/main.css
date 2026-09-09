@@ -371,6 +371,25 @@ tr:hover td {
   color: var(--text2);
 }
 
+.task-progress-stack {
+  display: flex;
+  max-width: 240px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-progress-message {
+  overflow: hidden;
+  color: var(--text2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-progress-message.failed {
+  color: var(--danger);
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
@@ -458,6 +477,51 @@ tr:hover td {
   border: 1px solid #fecaca;
   color: var(--danger);
   font-size: 13px;
+}
+
+.service-unavailable {
+  display: flex;
+  min-height: calc(100vh - 150px);
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  color: var(--text2);
+  text-align: center;
+}
+
+.service-unavailable-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  background: #fef2f2;
+  color: var(--danger);
+  font-size: 26px;
+  font-weight: 700;
+  place-items: center;
+}
+
+.service-unavailable h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 22px;
+}
+
+.service-unavailable p {
+  max-width: 520px;
+  margin: 12px 0 0;
+  line-height: 1.7;
+}
+
+.service-unavailable .service-unavailable-hint {
+  margin-top: 4px;
+  color: var(--text3);
+  font-size: 13px;
+}
+
+.service-unavailable button {
+  margin-top: 22px;
 }
 
 /* Pagination */

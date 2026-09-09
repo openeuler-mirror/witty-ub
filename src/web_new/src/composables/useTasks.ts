@@ -1,6 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue'
-import type { LogFileModel } from '../types'
+import type { LogFileModel, LogType } from '../types'
 import { clampProgress, errorText, paginate, toDatetimeString } from '../utils/format'
+import { latestTaskReport, taskProgressMessage } from '../utils/taskProgress'
 import { useToast } from './useToast'
 import { useAssets } from './useAssets'
 import {
@@ -34,11 +35,11 @@ function createTasksState() {
   const statusOf = (file: LogFileModel) => file.overall_status || 'unknown'
 
   const progressOf = (file: LogFileModel) => {
-    const reports = file.task?.task_reports ?? []
-    const lastReport = reports.length > 0 ? reports[reports.length - 1] : undefined
-    const progress = file.overall_progress ?? lastReport?.progress ?? 0
+    const progress = file.overall_progress ?? latestTaskReport(file)?.progress ?? 0
     return clampProgress(progress)
   }
+
+  const progressMessageOf = (file: LogFileModel) => taskProgressMessage(file)
 
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
@@ -86,7 +87,7 @@ function createTasksState() {
   const loadBrpcDiagnosisStatuses = async () => {
     const asset = assets.selectedAsset.value
     if (!asset) return
-    const targets = logFiles.value.filter((file) => file.log_type === 'brpc' && isSuccess(file))
+    const targets = logFiles.value.filter((file) => file.log_type === 'UBSocket' && isSuccess(file))
     const next: Record<string, string> = {}
     await Promise.all(
       targets.map(async (file) => {
@@ -171,7 +172,7 @@ function createTasksState() {
   const brpcDiagStatusOf = (file: LogFileModel) => brpcDiagStatusByFile.value[file.id] || 'none'
 
   const canRunBrpcDiagnosis = (file: LogFileModel) => {
-    if (file.log_type !== 'brpc' || !isSuccess(file)) return false
+    if (file.log_type !== 'UBSocket' || !isSuccess(file)) return false
     return ['none', 'failed', 'cancelled'].includes(brpcDiagStatusOf(file))
   }
 
@@ -210,7 +211,7 @@ function createTasksState() {
     }
   }
 
-  const taskTypeFilter = ref('')
+  const taskTypeFilter = ref<'' | LogType>('')
   const taskFilterStatus = ref('')
   const taskSearch = ref('')
   const taskPage = ref(1)
@@ -219,7 +220,7 @@ function createTasksState() {
   const filteredTasks = computed(() => {
     let list = logFiles.value
     if (taskTypeFilter.value) {
-      list = list.filter((file) => (file.log_type || 'kv-cache') === taskTypeFilter.value)
+      list = list.filter((file) => file.log_type === taskTypeFilter.value)
     }
     if (taskFilterStatus.value) {
       list = list.filter((file) => statusOf(file) === taskFilterStatus.value)
@@ -255,7 +256,7 @@ function createTasksState() {
   const taskError = ref('')
   const newTask = reactive({
     name: '',
-    taskType: 'kv-cache' as 'kv-cache' | 'brpc',
+    taskType: 'KVCache' as LogType,
     sourceType: 'local' as 'local' | 'remote' | 'upload',
     source: '',
     uploadFiles: [] as File[],
@@ -267,7 +268,7 @@ function createTasksState() {
 
   const openCreateTask = () => {
     newTask.name = ''
-    newTask.taskType = 'kv-cache'
+    newTask.taskType = 'KVCache'
     newTask.sourceType = 'local'
     newTask.source = ''
     newTask.uploadFiles = []
@@ -352,6 +353,7 @@ function createTasksState() {
     getLogFileId,
     statusOf,
     progressOf,
+    progressMessageOf,
     statusLabel,
     statusBadgeClass,
     isRunningStatus,

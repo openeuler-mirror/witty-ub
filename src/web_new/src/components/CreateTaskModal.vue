@@ -29,17 +29,23 @@ const {
         <div class="form-group">
           <label class="form-label">任务类型</label>
           <label class="radio">
-            <input type="radio" value="kv-cache" v-model="newTask.taskType" /> KVCache 日志
+            <input type="radio" value="KVCache" v-model="newTask.taskType" /> KVCache 日志
           </label>
           <label class="radio">
-            <input type="radio" value="brpc" v-model="newTask.taskType" /> UBSocket 接口
+            <input type="radio" value="UBSocket" v-model="newTask.taskType" /> UBSocket 接口
           </label>
         </div>
         <div class="form-group">
           <label class="form-label">日志来源</label>
-          <label class="radio"><input type="radio" value="local" v-model="newTask.sourceType" /> 本地路径</label>
-          <label class="radio"><input type="radio" value="remote" v-model="newTask.sourceType" /> 远程 URL</label>
-          <label class="radio"><input type="radio" value="upload" v-model="newTask.sourceType" /> 上传文件</label>
+          <label class="radio"
+            ><input type="radio" value="local" v-model="newTask.sourceType" /> 本地路径</label
+          >
+          <label class="radio"
+            ><input type="radio" value="remote" v-model="newTask.sourceType" /> 远程 URL</label
+          >
+          <label class="radio"
+            ><input type="radio" value="upload" v-model="newTask.sourceType" /> 上传文件</label
+          >
         </div>
         <div v-if="newTask.sourceType === 'local'" class="form-group">
           <input
@@ -49,7 +55,11 @@ const {
           />
         </div>
         <div v-else-if="newTask.sourceType === 'remote'" class="form-group">
-          <input class="input" v-model="newTask.source" placeholder="https://example.com/logs.zip" />
+          <input
+            class="input"
+            v-model="newTask.source"
+            placeholder="https://example.com/logs.zip"
+          />
         </div>
         <div v-else class="form-group">
           <input type="file" multiple class="file-input" @change="onTaskFilesChange" />
@@ -76,11 +86,14 @@ const {
       </div>
       <div class="modal-footer">
         <button class="btn btn-default" @click="closeCreateTask">取消</button>
-        <button class="btn btn-primary" :disabled="savingTask || !canSubmitTask" @click="createTask">
+        <button
+          class="btn btn-primary"
+          :disabled="savingTask || !canSubmitTask"
+          @click="createTask"
+        >
           {{ savingTask ? '提交中...' : '确认创建' }}
         </button>
       </div>
     </div>
   </div>
-
 </template>
