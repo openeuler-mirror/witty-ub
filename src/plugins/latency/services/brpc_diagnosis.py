@@ -804,7 +804,7 @@ class BrpcDiagnosisService:
             pod_ip,
         )
         if event_id != expected_id:
-            raise BadRequestBizException(message="event_id 与 Pod 分组键不匹配")
+            raise NotFoundBizException(resource="UBSocket Pod 聚合事件")
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisService._require_batch(session, batch_id)
             interface_rows = await BrpcDiagnosisPGManager.get_interface_hit_counts(
@@ -887,7 +887,7 @@ class BrpcDiagnosisService:
             thread_id,
         )
         if event_id != expected_id:
-            raise BadRequestBizException(message="event_id 与 Thread 分组键不匹配")
+            raise NotFoundBizException(resource="UBSocket Thread 聚合事件")
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisService._require_batch(session, batch_id)
             interface_rows = await BrpcDiagnosisPGManager.get_interface_hit_counts(

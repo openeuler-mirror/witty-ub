@@ -250,7 +250,16 @@ class LogFileService:
         log_file_task_types: dict[str, TaskTypeEnum] = {}
         for upload_log_file_config in req.upload_log_file_configs:
             log_type = upload_log_file_config.log_type
-            log_file_model = LogFileModel(kb_id=kb_id, name=upload_log_file_config.name, log_type=log_type)
+            name = upload_log_file_config.name
+            if not name:
+                source = upload_log_file_config.source
+                if hasattr(source, "filename") and source.filename:
+                    name = source.filename
+                elif isinstance(source, str) and source:
+                    name = os.path.basename(source.rstrip("/")) or source
+                else:
+                    name = "unnamed"
+            log_file_model = LogFileModel(kb_id=kb_id, name=name, log_type=log_type)
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 source_path = upload_log_file_config.source
                 source = os.path.abspath(source_path)
