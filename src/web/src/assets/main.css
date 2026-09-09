@@ -238,6 +238,42 @@ button {
   overflow-y: auto;
 }
 
+.agent-session-refresh {
+  margin-bottom: 12px;
+  padding: 6px;
+  background: transparent;
+  color: #315ecf;
+  cursor: pointer;
+}
+
+.agent-conversation-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid #e1e8f2;
+  color: #26354d;
+}
+
+.agent-conversation-context strong { overflow-wrap: anywhere; }
+.agent-conversation-context span { color: #64748b; font-size: 0.8rem; }
+.agent-session-dialog {
+  display: grid;
+  gap: 12px;
+  margin: 12px 18px;
+  padding: 16px;
+  border: 1px solid #91aff0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #26354d;
+}
+.agent-session-dialog label { display: grid; gap: 6px; }
+.agent-session-dialog input { width: 100%; padding: 8px; border: 1px solid #91aff0; border-radius: 6px; }
+.agent-session-dialog > div { display: flex; justify-content: flex-end; gap: 12px; }
+.agent-session-dialog button { padding: 8px 12px; background: #eaf1ff; color: #315ecf; border-radius: 6px; cursor: pointer; }
+.agent-conversation-layout button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .agent-session-item {
   display: flex;
   align-items: center;
