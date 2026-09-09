@@ -38,6 +38,8 @@ export type TaskModel = {
   duration_seconds?: number | null
 }
 
+export type LogType = 'KVCache' | 'UBSocket'
+
 export type LogFileModel = {
   id: string
   kb_id: string
@@ -47,7 +49,7 @@ export type LogFileModel = {
   file_size: number
   anomaly_cnt: number
   trace_failure_event_cnt?: number
-  log_type: string
+  log_type: LogType
   task: TaskModel | null
   overall_progress?: number
   existed_status: boolean

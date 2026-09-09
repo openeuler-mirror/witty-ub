@@ -33,6 +33,7 @@ import type {
   LatencyPoint,
   LogFileModel,
   LogKnowledge,
+  LogType,
   ScopeData,
   TimeWindowBucket,
 } from '../types'
@@ -162,7 +163,10 @@ function createOverviewState() {
 
   const assetTypeFilter = ref<'kvcache' | 'brpc'>('kvcache')
   const analysisTab = ref<'latency' | 'disconnect'>('latency')
-  const analysisModule = reactive({ latency: 'overview', fault: 'chart' })
+  const analysisModule = reactive({
+    latency: 'overview',
+    disconnect: 'faults' as 'faults' | 'events',
+  })
   const latencyOp = ref('GET')
   const faultOp = ref('GET')
   const currentOp = computed(() =>
@@ -171,12 +175,11 @@ function createOverviewState() {
   const realOp = computed<'get' | 'set'>(() => currentOp.value.toLowerCase() as 'get' | 'set')
   const isAssetMode = computed(() => view.value === 'home' && assetTab.value === 'overview')
   const isBrpcTask = computed(() => assetTypeFilter.value === 'brpc')
+  const selectedLogType = computed<LogType>(() =>
+    assetTypeFilter.value === 'brpc' ? 'UBSocket' : 'KVCache',
+  )
   const scopeTasks = computed(() =>
-    logFiles.value.filter(
-      (file) =>
-        (file.log_type || 'kv-cache') ===
-          (assetTypeFilter.value === 'brpc' ? 'brpc' : 'kv-cache') && isSuccess(file),
-    ),
+    logFiles.value.filter((file) => file.log_type === selectedLogType.value && isSuccess(file)),
   )
   const scopeTaskCount = computed(() => scopeTasks.value.length)
 
@@ -446,7 +449,7 @@ function createOverviewState() {
   // ---------- BRPC 接口监控（/brpc_profiling/knowledge 全量 + 文件客户端过滤，P2.1） ----------
 
   const brpcScopeTasks = computed(() =>
-    logFiles.value.filter((file) => file.log_type === 'brpc' && isSuccess(file)),
+    logFiles.value.filter((file) => file.log_type === 'UBSocket' && isSuccess(file)),
   )
   const brpcLoading = ref(false)
   const brpcMonitorError = ref('')
@@ -1447,6 +1450,73 @@ function createOverviewState() {
     })
   })
 
+  /** 通断主视图以故障码为第一分析维度；空字符串表示当前时段内的全部故障。 */
+  const selectedFaultCode = ref('')
+  const faultCodeSummaries = computed(() => {
+    const summaries = new Map<
+      string,
+      {
+        code: string
+        traceCount: number
+        endpoints: Set<string>
+        pairs: Set<string>
+        modeIds: Set<string>
+        firstSeen: string
+        lastSeen: string
+      }
+    >()
+    activeFaultTraces.value.forEach((trace) => {
+      const endpoints = [trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean)
+      const pair = trace.src_ip && trace.dst_ip ? `${trace.src_ip} → ${trace.dst_ip}` : ''
+      const modeIds = String(trace.failure_mode || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+      normalizeFaultCodes(trace.status_code).forEach((code) => {
+        if (!summaries.has(code)) {
+          summaries.set(code, {
+            code,
+            traceCount: 0,
+            endpoints: new Set(),
+            pairs: new Set(),
+            modeIds: new Set(),
+            firstSeen: '',
+            lastSeen: '',
+          })
+        }
+        const summary = summaries.get(code)!
+        summary.traceCount += 1
+        endpoints.forEach((ip: string) => summary.endpoints.add(ip))
+        if (pair) summary.pairs.add(pair)
+        modeIds.forEach((id) => summary.modeIds.add(id))
+        const timestamp = String(trace.timestamp || '').slice(0, 19)
+        if (timestamp && (!summary.firstSeen || timestamp < summary.firstSeen)) {
+          summary.firstSeen = timestamp
+        }
+        if (timestamp && (!summary.lastSeen || timestamp > summary.lastSeen)) {
+          summary.lastSeen = timestamp
+        }
+      })
+    })
+    return [...summaries.values()]
+      .sort((a, b) => b.traceCount - a.traceCount || a.code.localeCompare(b.code))
+      .map((summary) => ({
+        code: summary.code,
+        traceCount: summary.traceCount,
+        endpointCount: summary.endpoints.size,
+        pairCount: summary.pairs.size,
+        modeIds: [...summary.modeIds],
+        firstSeen: summary.firstSeen,
+        lastSeen: summary.lastSeen,
+      }))
+  })
+  const faultScopedTraces = computed(() => {
+    if (!selectedFaultCode.value) return activeFaultTraces.value
+    return activeFaultTraces.value.filter((trace) =>
+      normalizeFaultCodes(trace.status_code).includes(selectedFaultCode.value),
+    )
+  })
+
   const kpiData = computed(() => {
     const kpi = scopeData.value.kpi[realOp.value] || {
       traceTotal: 0,
@@ -1459,8 +1529,10 @@ function createOverviewState() {
       const endpointFaults = new Map<string, number>()
       activeFaultTraces.value.forEach((trace) => {
         normalizeFaultCodes(trace.status_code).forEach((code) => codes.add(code))
-        ;[trace.src_ip, trace.dst_ip].forEach((ip) => {
-          if (!ip) return
+        const traceEndpoints = new Set<string>(
+          [trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean),
+        )
+        traceEndpoints.forEach((ip) => {
           endpoints.add(ip)
           endpointFaults.set(ip, (endpointFaults.get(ip) || 0) + 1)
         })
@@ -1470,6 +1542,11 @@ function createOverviewState() {
         totalTraces: activeFaultTraces.value.length,
         anomalyTraces: codes.size,
         anomalyRate: '—' as string | number,
+        linkCount: new Set(
+          activeFaultTraces.value
+            .filter((trace) => trace.src_ip && trace.dst_ip)
+            .map((trace) => `${trace.src_ip}→${trace.dst_ip}`),
+        ).size,
         endpointCount: endpoints.size,
         worstEndpoint: worst?.[0] ?? '-',
         worstEndpointAnomaly: worst?.[1] ?? 0,
@@ -1490,6 +1567,7 @@ function createOverviewState() {
       totalTraces: kpi.traceTotal,
       anomalyTraces: kpi.anomalyTotal,
       anomalyRate: rate,
+      linkCount: 0,
       endpointCount: endpointSet.size,
       worstEndpoint: worst?.[0] ?? '-',
       worstEndpointAnomaly: worst?.[1] ?? 0,
@@ -2212,26 +2290,6 @@ function createOverviewState() {
     if (chart) chart.dispatchAction({ type: 'brush', areas: [] })
   }
 
-  const faultPodAgg = computed(() => {
-    const map = new Map<string, { ip: string; faults: number; codes: Set<string> }>()
-    activeFaultTraces.value.forEach((trace) => {
-      const ips = [
-        ...new Set([trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean)),
-      ]
-      ips.forEach((ip: string) => {
-        if (!ip) return
-        if (!map.has(ip)) map.set(ip, { ip, faults: 0, codes: new Set() })
-        const stat = map.get(ip)!
-        stat.faults += 1
-        normalizeFaultCodes(trace.status_code).forEach((code) => stat.codes.add(code))
-      })
-    })
-    return [...map.values()]
-      .sort((a, b) => b.faults - a.faults)
-      .slice(0, 10)
-      .map((stat) => ({ ip: stat.ip, faults: stat.faults, codes: [...stat.codes] }))
-  })
-
   // ---------- P1.6 通断 Trace ID 服务端查询（独立于已加载数据与截断上限） ----------
 
   const faultTraceIdInput = ref('')
@@ -2269,7 +2327,13 @@ function createOverviewState() {
   }
 
   // 查询态覆盖主列表；退出查询态恢复 disconnectFilter.time 联动
-  const filteredFaultTraces = computed(() => faultTraceQuery.value?.rows ?? activeFaultTraces.value)
+  const filteredFaultTraces = computed(() => {
+    const rows = faultTraceQuery.value?.rows ?? faultScopedTraces.value
+    if (!selectedFaultCode.value || !faultTraceQuery.value) return rows
+    return rows.filter((trace) =>
+      normalizeFaultCodes(trace.status_code).includes(selectedFaultCode.value),
+    )
+  })
 
   const faultTracePageSize = 10
   const faultTracePage = ref(1)
@@ -2482,16 +2546,6 @@ function createOverviewState() {
     void loadFaultAggPairs(1)
   }
 
-  // 时间/op 变化：重置排序/分页/展开，惰性重查（卸载后恢复时立即生效）
-  watch([() => disconnectFilter.time.value, currentOp], () => {
-    faultAggSortField.value = 'timestamp'
-    faultAggSortDesc.value = false
-    faultAggExpandedKey.value = ''
-    faultAggPairsSeq += 1
-    faultAggPairs.value = []
-    void loadFaultAggEvents(1)
-  })
-
   // ---------- 对象详情（窗 × 端点/链路，服务端分页，P0.5） ----------
 
   type ObjectDetailDomain = 'latency' | 'disconnect'
@@ -2507,6 +2561,8 @@ function createOverviewState() {
     total: 0,
     page: 1,
     pageSize: 10,
+    focus: { kind: 'none' } as AnalysisFocus,
+    statusCodes: [] as string[],
     timeOverride: null as { start: number; end: number; label: string } | null,
   })
   let objectDetailSeq = 0
@@ -2519,7 +2575,7 @@ function createOverviewState() {
     const asset = selectedAsset.value
     if (!asset) return
     const filter = objectDetail.domain === 'latency' ? latencyFilter : disconnectFilter
-    const focus = filter.focus.value
+    const focus = objectDetail.focus
     const window = objectDetail.timeOverride ?? filter.timeWindow.value
     const seq = ++objectDetailSeq
     objectDetail.loading = true
@@ -2541,7 +2597,10 @@ function createOverviewState() {
               ...baseQuery,
               logId: latencyFilter.logId.value,
             })
-          : await fetchFaultTracePage(asset.id, baseQuery)
+          : await fetchFaultTracePage(asset.id, {
+              ...baseQuery,
+              statusCodes: objectDetail.statusCodes,
+            })
       if (seq !== objectDetailSeq) return
       objectDetail.rows = result.rows
       objectDetail.total = result.total
@@ -2562,21 +2621,29 @@ function createOverviewState() {
     domain: ObjectDetailDomain,
     focus: AnalysisFocus,
     timeOverride?: ObjectDetailOverride,
+    statusCodes: string[] = [],
+    syncFocus = true,
   ) => {
     if (focus.kind === 'none') {
       toast('请先在拓扑或列表中选择端点或链路', 'info')
       return
     }
     const filter = domain === 'latency' ? latencyFilter : disconnectFilter
-    if (focus.kind === 'pod') filter.setFocusPod(focus.ip)
-    else if (focus.kind === 'link') filter.setFocusLink(focus.src, focus.dst)
+    if (syncFocus && focus.kind === 'pod') filter.setFocusPod(focus.ip)
+    else if (syncFocus && focus.kind === 'link') filter.setFocusLink(focus.src, focus.dst)
     objectDetail.domain = domain
-    objectDetail.title =
+    objectDetail.focus = focus
+    objectDetail.statusCodes = [...statusCodes]
+    const objectTitle =
       focus.kind === 'pod'
         ? `端点 ${focus.ip}`
         : focus.kind === 'link'
           ? `链路 ${focus.src} → ${focus.dst}`
           : '对象详情'
+    objectDetail.title =
+      domain === 'disconnect' && statusCodes.length
+        ? `故障码 ${statusCodes.join(' / ')} · ${objectTitle}`
+        : objectTitle
     objectDetail.windowLabel = timeOverride?.label ?? filter.timeLabel.value
     objectDetail.timeOverride = timeOverride ?? null
     objectDetail.page = 1
@@ -2615,10 +2682,20 @@ function createOverviewState() {
 
   // 通断域入口（P0.7）：按通断接口真实字段发送 endpoint_ip / src+dst
   const enterFaultDetail = (ip: string) => {
-    openObjectDetail('disconnect', { kind: 'pod', ip })
+    openObjectDetail(
+      'disconnect',
+      { kind: 'pod', ip },
+      undefined,
+      selectedFaultCode.value ? [selectedFaultCode.value] : [],
+    )
   }
   const enterFaultLinkDetail = (src: string, dst: string) => {
-    openObjectDetail('disconnect', { kind: 'link', src, dst })
+    openObjectDetail(
+      'disconnect',
+      { kind: 'link', src, dst },
+      undefined,
+      selectedFaultCode.value ? [selectedFaultCode.value] : [],
+    )
   }
   // P1.7：桶点 IP 对，以桶窗为时间上下文打开链路故障 Trace（不回写 disconnectFilter.time）
   const enterFaultAggPairDetail = (src: string, dst: string, bucket: FaultAggBucket) => {
@@ -2633,6 +2710,8 @@ function createOverviewState() {
         end,
         label: `${bucket.start_time} ~ ${bucket.end_time}`,
       },
+      [],
+      false,
     )
   }
 
@@ -2776,9 +2855,7 @@ function createOverviewState() {
   const trendRef = ref<HTMLElement | null>(null)
   const slowRef = ref<HTMLElement | null>(null)
   const faultChartRef = ref<HTMLElement | null>(null)
-  const faultPodRef = ref<HTMLElement | null>(null)
   const faultTopoRef = ref<HTMLElement | null>(null)
-  const faultPieRefs: Record<string, HTMLElement | null> = {}
   const brpcSuccessRef = ref<HTMLElement | null>(null)
   const brpcP99Ref = ref<HTMLElement | null>(null)
   const brpcSuccessOverviewRef = ref<HTMLElement | null>(null)
@@ -3547,7 +3624,7 @@ function createOverviewState() {
 
   const faultActivePairs = computed(() => {
     const map = new Map<string, { src: string; dst: string; faults: number; codes: string[] }>()
-    activeFaultTraces.value.forEach((trace) => {
+    faultScopedTraces.value.forEach((trace) => {
       const src = trace.src_ip
       const dst = trace.dst_ip
       if (!src || !dst) return
@@ -3567,7 +3644,7 @@ function createOverviewState() {
       string,
       { ip: string; faults: number; src: number; dst: number; codes: string[] }
     >()
-    activeFaultTraces.value.forEach((trace) => {
+    faultScopedTraces.value.forEach((trace) => {
       const ips = [
         ...new Set([trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean)),
       ]
@@ -3673,53 +3750,6 @@ function createOverviewState() {
     })
   }
 
-  const renderFaultPieCharts = () => {
-    nextTick(() => {
-      const faultEl = faultPieRefs['faults']
-      if (faultEl) {
-        const chart = getChart(faultEl)
-        setChartOption(chart, {
-          tooltip: { trigger: 'item', formatter: '{b}<br/>故障: {c} ({d}%)' },
-          series: [
-            {
-              type: 'pie',
-              radius: ['40%', '70%'],
-              data: faultPodStats.value.map((stat) => ({ name: stat.ip, value: stat.faults })),
-              label: { fontSize: 11 },
-            },
-          ],
-        })
-      }
-      const codeEl = faultPieRefs['codes']
-      if (codeEl) {
-        const chart = getChart(codeEl)
-        const codeMap = new Map<string, number>()
-        activeFaultTraces.value.forEach((trace) => {
-          const codes = normalizeFaultCodes(trace.status_code)
-          if (codes.length === 0) {
-            codeMap.set('0', (codeMap.get('0') || 0) + 1)
-            return
-          }
-          codes.forEach((code) => codeMap.set(code, (codeMap.get(code) || 0) + 1))
-        })
-        setChartOption(chart, {
-          tooltip: { trigger: 'item', formatter: '{b}<br/>次数: {c} ({d}%)' },
-          series: [
-            {
-              type: 'pie',
-              radius: ['40%', '70%'],
-              data: [...codeMap.entries()].map(([code, count]) => ({
-                name: code === '0' ? '无故障码' : `故障码 ${code}`,
-                value: count,
-              })),
-              label: { fontSize: 11 },
-            },
-          ],
-        })
-      }
-    })
-  }
-
   const abnormalTraceIdSet = computed(
     () => new Set((scopeData.value.abnormal || []).map((row: any) => row.trace_id).filter(Boolean)),
   )
@@ -3758,43 +3788,6 @@ function createOverviewState() {
     return tags
   }
 
-  const renderFaultPodChart = () => {
-    nextTick(() => {
-      const el = faultPodRef.value
-      if (!el) return
-      const chart = getChart(el)
-      const rows = [...faultPodAgg.value].reverse()
-      setChartOption(chart, {
-        tooltip: {
-          trigger: 'item',
-          formatter: (params: any) => `<b>${params.name}</b><br/>故障次数：${params.value}`,
-        },
-        grid: { left: 118, right: 24, top: 12, bottom: 28 },
-        xAxis: { type: 'value', name: '故障次数', axisLabel: { fontSize: 10 } },
-        yAxis: {
-          type: 'category',
-          data: rows.map((row) => row.ip),
-          axisLabel: { fontSize: 10, fontFamily: 'monospace' },
-        },
-        series: [
-          {
-            type: 'bar',
-            barMaxWidth: 18,
-            data: rows.map((row) => ({
-              name: row.ip,
-              value: row.faults,
-              itemStyle: { color: row.faults > 5 ? '#EF4444' : '#F59E0B' },
-            })),
-          },
-        ],
-      })
-      chart.off('click')
-      chart.on('click', (params: any) => {
-        if (params.name) enterFaultDetail(params.name)
-      })
-    })
-  }
-
   const renderFaultChart = () => {
     nextTick(() => {
       const el = faultChartRef.value
@@ -3802,7 +3795,11 @@ function createOverviewState() {
       const chart = getChart(el)
       // P1.6：按所选尺度再分桶后的展示数据；原始秒级数据仅用于空态与抽稀判断
       const displayData = faultChartDisplayData.value
-      const codes = Object.keys(displayData)
+      const codes = selectedFaultCode.value
+        ? Object.prototype.hasOwnProperty.call(displayData, selectedFaultCode.value)
+          ? [selectedFaultCode.value]
+          : []
+        : Object.keys(displayData)
       if (codes.length === 0) {
         chart.clear()
         return
@@ -4087,9 +4084,7 @@ function createOverviewState() {
         }
       } else {
         renderFaultTopology()
-        renderFaultPieCharts()
         renderFaultChart()
-        renderFaultPodChart()
       }
     })
   }
@@ -4119,9 +4114,7 @@ function createOverviewState() {
         await loadFaultSection(op, generation)
         if (generation !== overviewRequestGeneration) return
         renderFaultTopology()
-        renderFaultPieCharts()
         renderFaultChart()
-        renderFaultPodChart()
       }
     }
   }
@@ -4131,28 +4124,46 @@ function createOverviewState() {
     if (overviewWatchersBound) return
     overviewWatchersBound = true
 
+    const resetLatencyScope = () => {
+      latencyFilter.clearTime()
+      latencyFilter.clearFocus()
+      latencyFilter.clearWhitelist()
+      if (analysisWindowTimer) clearTimeout(analysisWindowTimer)
+      analysisWindowTimer = null
+      void loadAnalysisWindow()
+    }
+    const resetDisconnectScope = () => {
+      disconnectFilter.clearTime()
+      disconnectFilter.clearFocus()
+      selectedFaultCode.value = ''
+      clearFaultTraceQuery()
+    }
+
+    watch([assetTypeFilter, assetTab], () => {
+      if (!isAssetMode.value) return
+      resetLatencyScope()
+      resetDisconnectScope()
+      void loadOverviewForTab()
+    })
+    watch([latencyOp, overviewScale], () => {
+      if (!isAssetMode.value || isBrpcTask.value || analysisTab.value !== 'latency') return
+      resetLatencyScope()
+      void loadOverviewForTab()
+    })
+    watch(faultOp, () => {
+      if (!isAssetMode.value || isBrpcTask.value || analysisTab.value !== 'disconnect') return
+      resetDisconnectScope()
+      void loadOverviewForTab()
+    })
+    watch(analysisTab, () => {
+      if (isAssetMode.value && !isBrpcTask.value) void loadOverviewForTab()
+    })
     watch(
-      [
-        currentOp,
-        assetTypeFilter,
-        assetTab,
-        analysisTab,
-        () => analysisModule.latency,
-        () => analysisModule.fault,
-        overviewScale,
-      ],
+      () => analysisModule.latency,
       () => {
-        if (!isAssetMode.value) return
-        // 操作/粒度/页签切换：重置时延域时间与对象，恢复全域时间轴
-        latencyFilter.clearTime()
-        latencyFilter.clearFocus()
-        latencyFilter.clearWhitelist()
-        if (analysisWindowTimer) clearTimeout(analysisWindowTimer)
-        analysisWindowTimer = null
-        void loadAnalysisWindow()
-        disconnectFilter.clearTime()
-        disconnectFilter.clearFocus()
-        void loadOverviewForTab()
+        if (isAssetMode.value && !isBrpcTask.value && analysisTab.value === 'latency') {
+          void loadOverviewForTab()
+        }
       },
     )
 
@@ -4238,14 +4249,13 @@ function createOverviewState() {
       { deep: true },
     )
 
-    // 通断时间窗是拓扑、KPI、饼图、端点表和 Trace 列表的共同过滤器。
+    // 通断时间窗与故障码共同驱动趋势、拓扑、端点、链路和实例列表。
     watch(
-      () => disconnectFilter.time.value,
+      [() => disconnectFilter.time.value, selectedFaultCode],
       () => {
         if (!isAssetMode.value || isBrpcTask.value || analysisTab.value !== 'disconnect') return
         renderFaultTopology()
-        renderFaultPieCharts()
-        renderFaultPodChart()
+        renderFaultChart()
       },
       { deep: true },
     )
@@ -4364,13 +4374,15 @@ function createOverviewState() {
     brpcFaultThreadPages,
     brpcFaultTimelineRef,
     faultActivePairs,
+    activeFaultTraces,
+    faultCodeSummaries,
     faultPodStats,
     faultTopoRef,
-    faultPieRefs,
     renderFaultTopology,
-    renderFaultPieCharts,
     latencyFilter,
     disconnectFilter,
+    selectedFaultCode,
+    faultScopedTraces,
     clearAnalysisTime,
     analysisWindowData,
     analysisWindowLoading,
@@ -4486,8 +4498,6 @@ function createOverviewState() {
     faultChartScale,
     faultChartScaleOptions,
     faultOp,
-    faultPodAgg,
-    faultPodRef,
     faultTimeRange,
     faultTraceIdInput,
     faultTracePage,
@@ -4557,7 +4567,6 @@ function createOverviewState() {
     renderBrpcFaultTimeline,
     submitBrpcThreadSearch,
     renderFaultChart,
-    renderFaultPodChart,
     renderSlowChart,
     renderTopology,
     renderTrendChart,

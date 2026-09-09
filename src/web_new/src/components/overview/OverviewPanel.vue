@@ -11,6 +11,7 @@ import {
 import LatencyOverview from './LatencyOverview.vue'
 import LatencyTrend from './LatencyTrend.vue'
 import DisconnectMonitor from './DisconnectMonitor.vue'
+import DisconnectAggregateEvents from './DisconnectAggregateEvents.vue'
 import BRPCInterfaceMonitor from './BRPCInterfaceMonitor.vue'
 import BRPCFaultMonitor from './BRPCFaultMonitor.vue'
 import PageNav from '../common/PageNav.vue'
@@ -294,16 +295,20 @@ onBeforeUnmount(() => {
             class="kpi-num"
             :style="{
               color:
-                Number(kpiData.anomalyRate) > 5
+                analysisTab === 'disconnect'
                   ? 'var(--danger)'
-                  : Number(kpiData.anomalyRate) > 1
-                    ? 'var(--warning)'
-                    : 'var(--success)',
+                  : Number(kpiData.anomalyRate) > 5
+                    ? 'var(--danger)'
+                    : Number(kpiData.anomalyRate) > 1
+                      ? 'var(--warning)'
+                      : 'var(--success)',
             }"
           >
-            {{ kpiData.anomalyRate }}%
+            {{ analysisTab === 'disconnect' ? kpiData.linkCount : kpiData.anomalyRate + '%' }}
           </div>
-          <div class="kpi-label">异常率</div>
+          <div class="kpi-label">
+            {{ analysisTab === 'disconnect' ? '受影响链路数' : '异常率' }}
+          </div>
         </div>
         <div class="kpi-card">
           <div class="kpi-num">{{ kpiData.endpointCount }}</div>
@@ -354,7 +359,28 @@ onBeforeUnmount(() => {
 
       <!-- ===== 通断故障监控 ===== -->
       <template v-else-if="!isBrpcTask">
-        <DisconnectMonitor />
+        <div class="view-tabs" role="tablist" aria-label="通断分析视图">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="analysisModule.disconnect === 'faults'"
+            :class="['view-tab', { active: analysisModule.disconnect === 'faults' }]"
+            @click="analysisModule.disconnect = 'faults'"
+          >
+            故障诊断
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="analysisModule.disconnect === 'events'"
+            :class="['view-tab', { active: analysisModule.disconnect === 'events' }]"
+            @click="analysisModule.disconnect = 'events'"
+          >
+            聚合事件
+          </button>
+        </div>
+        <DisconnectMonitor v-if="analysisModule.disconnect === 'faults'" />
+        <DisconnectAggregateEvents v-else />
       </template>
 
       <!-- ===== UBSocket 监控 ===== -->

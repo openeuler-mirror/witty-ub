@@ -206,6 +206,7 @@ export interface FaultTracePageQuery {
   srcIp?: string
   dstIp?: string
   endpointIp?: string
+  statusCodes?: string[]
   pageNum: number
   pageCnt: number
 }
@@ -224,6 +225,7 @@ export const fetchFaultTracePage = async (kbId: string, query: FaultTracePageQue
         src_ip: query.srcIp,
         dst_ip: query.dstIp,
         endpoint_ip: query.endpointIp,
+        status_codes: query.statusCodes,
         page_num: query.pageNum,
         page_cnt: query.pageCnt,
       }),
