@@ -1417,6 +1417,30 @@ def collect_logs(root: Path, known_symbols: set[str]) -> list[LogEntry]:
     return entries
 
 
+def resolve_source_root(path: Path) -> Path:
+    candidate = path.expanduser().resolve()
+    if not candidate.is_dir():
+        raise ValueError(f"源码目录不存在：{candidate}")
+
+    candidates = [
+        candidate,
+        candidate / "src",
+        candidate / "src/hcom/umq/src",
+    ]
+    for source_root in candidates:
+        include_root = source_root.parent / "include/umq"
+        if (
+            (source_root / "umq_api.c").is_file()
+            and all((include_root / header).is_file() for header in ("umq_api.h", "umq_dfx_api.h", "umq_pro_api.h"))
+        ):
+            return source_root
+
+    raise ValueError(
+        "无法从输入路径定位UMQ源码目录src/hcom/umq/src及其public header："
+        f"{candidate}"
+    )
+
+
 def build_json_result(
     entries: list[LogEntry],
     error_definitions: dict[str, int],
@@ -1470,7 +1494,7 @@ def main() -> int:
     parser.add_argument(
         "source",
         type=Path,
-        help="UMQ的源码目录",
+        help="ubs-comm仓库根目录（也兼容src/hcom/umq或src/hcom/umq/src目录）",
     )
     parser.add_argument(
         "--output",
@@ -1480,11 +1504,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    root = args.source.expanduser().resolve()
-    if not root.exists():
-        parser.error(f"目录不存在：{root}")
-    if not root.is_dir():
-        parser.error(f"指定路径不是目录：{root}")
+    try:
+        root = resolve_source_root(args.source)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     known_symbols = set(ERROR_DEFINITIONS)
 

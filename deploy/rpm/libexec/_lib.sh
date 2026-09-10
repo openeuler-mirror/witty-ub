@@ -272,6 +272,8 @@ configure_web_selinux() {
     done
     mkdir -p /run/witty-ub-web /var/log/witty-ub-web || return 1
     # Nginx 静态根目录与打包配置一致。仅标记 Web 子目录，不开放后端数据。
+    # SELinux 将 /run 等效到 /var/run，fcontext 规则必须使用 /var/run。
+    # Nginx 和 systemd 的实际运行路径仍使用 /run。
     while read -r type path; do
         pattern="$(printf '%s' "$path" | sed 's/[][\.^$*+?(){}|]/\\&/g')(/.*)?"
         semanage fcontext -a -t "$type" "$pattern" 2>/dev/null ||
@@ -281,7 +283,7 @@ configure_web_selinux() {
 httpd_sys_content_t /var/witty-ub/web
 httpd_config_t ${WITTY_ETC_DIR}/web
 httpd_log_t /var/log/witty-ub-web
-httpd_var_run_t /run/witty-ub-web
+httpd_var_run_t /var/run/witty-ub-web
 EOF
     # 8080 在部分发行版已属于其他端口类型；本服务固定使用该端口。
     semanage port -a -t http_port_t -p tcp 8080 2>/dev/null ||

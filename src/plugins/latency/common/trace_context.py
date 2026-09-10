@@ -20,6 +20,26 @@ def split_pid_tid(pid_tid: str) -> tuple[str, str]:
     return pid.strip(), tid.strip()
 
 
+def match_trace_context_trace_id(
+    raw_trace_id: str, raw_text: str, trace_ids: set[str]
+) -> str:
+    """Pick the trace id that associates a raw log line with a trace set.
+
+    The latency parsers prefer an explicit ``trace_id=...`` inside the message
+    over the format column (``resolve_trace_id``), so a trace's
+    ``log_parse_result.trace_id`` can differ from the raw line's 6th column.
+    Match the format column first (keeps connectivity/fault traces keyed by the
+    column), then fall back to the resolved trace id so latency-only traces can
+    still surface their raw logs.
+    """
+    if raw_trace_id and raw_trace_id in trace_ids:
+        return raw_trace_id
+    resolved = LogParser.resolve_trace_id(raw_trace_id, raw_text)
+    if resolved and resolved in trace_ids:
+        return resolved
+    return ""
+
+
 def build_trace_context_event(
     log_id: str,
     log_dir: str,
@@ -36,8 +56,10 @@ def build_trace_context_event(
     if len(parts) < LogParser.RunCol.MSG + 1 or not parts[0].startswith("20"):
         return None
 
-    trace_id = parts[LogParser.RunCol.TRACE_ID].strip()
-    if trace_id not in trace_ids:
+    trace_id = match_trace_context_trace_id(
+        parts[LogParser.RunCol.TRACE_ID].strip(), raw_text, trace_ids
+    )
+    if not trace_id:
         return None
 
     is_access_log = len(parts) >= LogParser.AccessCol.RESP_MSG + 1
@@ -59,7 +81,7 @@ def build_trace_context_event(
         message = "|".join(parts[LogParser.RunCol.MSG :]).strip()
 
     return LogFailureEventModel(
-        id=str(uuid.uuid5(uuid.NAMESPACE_URL, raw_text)),
+        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{log_id}:{trace_id}:{raw_text}")),
         log_id=log_id,
         log_file=log_file,
         raw_text=raw_text,

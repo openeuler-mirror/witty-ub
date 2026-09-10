@@ -122,7 +122,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "source",
         type=Path,
-        help="UBSocket的csrc源码目录，例如/root/openeuler/ubs-comm/src/ubsocket/csrc",
+        help="ubs-comm仓库根目录（也兼容src/ubsocket或src/ubsocket/csrc目录）",
     )
     return parser.parse_args()
 
@@ -144,7 +144,7 @@ def resolve_source_root(path: Path) -> tuple[Path, Path]:
         return source_root, candidate
 
     raise ValueError(
-        "无法定位UBSocket源码，需要传入src/ubsocket/csrc目录："
+        "无法从输入路径定位UBSocket源码目录src/ubsocket/csrc："
         f"{candidate}"
     )
 

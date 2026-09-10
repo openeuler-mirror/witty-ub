@@ -297,6 +297,24 @@ type BrpcProfilingFileOption = {
   source_file: string
 }
 
+type BrpcProfilingRow = {
+  timestamp: string | null
+  log_id: string
+  interface_name: string
+  source_file: string | null
+  success_count: number
+  failure_count: number
+  total_ns: number
+  avg_ns: number
+  max_ns: number
+  min_ns: number
+  p50_ns: number | null
+  p90_ns: number | null
+  p95_ns: number | null
+  p99_ns: number | null
+  p999_ns: number | null
+}
+
 type BrpcInterfaceHit = {
   component: string
   interface_id: string
@@ -597,6 +615,7 @@ type TraceDetailRow = {
   w2wUrmaLatency: number | null
   sdkProcess: number | null
   sdkRpc: number | null
+  workerTotalLatency: number | null
   localWorkerCost: number | null
   localWorkerLock: number | null
   remoteWorkerCost: number | null
@@ -3294,8 +3313,6 @@ const selectedFaultAggregatedEventDetail = ref<FaultAggregatedEventDetail | null
 const selectedFaultTraceFailureModeId = ref('')
 const selectedTraceFailureModeId = ref('')
 const selectedChildFailureModeId = ref('')
-const traceSubFaultBatchSize = 20
-const visibleTraceSubFaultCount = ref(traceSubFaultBatchSize)
 const traceFailureLogsByTrace = ref<Record<string, TraceLogRow[]>>({})
 const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[]>>({})
 const isTraceLogsLoading = ref(false)
@@ -3606,7 +3623,6 @@ type GlobalFilterState = {
   podIps: string[]
   sourcePodIps: string[]
   targetPodIps: string[]
-  traceBoards: string[]
 }
 
 type AssetState = {
@@ -3641,7 +3657,6 @@ const createEmptyFilters = (): GlobalFilterState => ({
   podIps: [],
   sourcePodIps: [],
   targetPodIps: [],
-  traceBoards: [],
 })
 
 const filterDraftInput = reactive({
@@ -3662,7 +3677,6 @@ const traceFilterDialog = reactive({
   addPodIp: false,
   addSourcePodIp: false,
   addTargetPodIp: false,
-  addTraceBoard: false,
 })
 
 const abnormalTraceFilterDialog = reactive({
@@ -3772,7 +3786,7 @@ const getLatencySeriesConfig = (
     ['total_latency_us', '总时延', '#d32f2f'],
     ['sdk_processing_us', 'SDK处理', '#5470c6'],
     ['master_processing_us', 'Master处理', '#91cc75'],
-    ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
+    ['worker_access_latency_us', 'Worker端总时延', '#fac858'],
     ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
     ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
     ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
@@ -4191,6 +4205,7 @@ type TraceDelayKey =
   | 'w2wUrmaLatency'
   | 'sdkProcess'
   | 'sdkRpc'
+  | 'workerTotalLatency'
   | 'localWorkerCost'
   | 'localWorkerLock'
   | 'remoteWorkerCost'
@@ -4237,6 +4252,13 @@ const traceDelayColumns = [
   },
   { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
+  {
+    key: 'workerTotalLatency',
+    label: 'Worker端总时延 (ms)',
+    metric: 'worker_total_latency',
+    threshold: 100,
+    unit: 'ms',
+  },
   { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
@@ -4338,10 +4360,11 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) =>
-  typeof value === 'number' && Number.isFinite(value)
-    ? `${formatMetricValue(value)} ${column.unit}`
-    : '未解析'
+const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (value < 0) return '无效值'
+  return `${formatMetricValue(value)} ${column.unit}`
+}
 
 type TopSlowSegmentKey = string
 
@@ -4366,7 +4389,7 @@ type TopSlowChartRow = {
 const getTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
   { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
   { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-  { key: 'worker_access_latency_us', label: 'Worker Access时延', color: '#fac858' },
+  { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
   { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
   { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
   { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
@@ -4488,6 +4511,7 @@ const getTraceDelayStatusLabel = (
 ) => {
   const value = getTraceDelayValue(trace, column)
   if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (value < 0) return '无效值'
   return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
 }
 
@@ -4599,6 +4623,7 @@ let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
 let faultDetailChartInstance: ECharts | null = null
 let topSlowChartInstance: ECharts | null = null
+let topSlowTooltipPinned = false
 
 const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   const ranges: Array<[Record<string, number>, Record<string, number>]> = []
@@ -4777,6 +4802,60 @@ const escapeChartHtml = (value: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
 
+const copyTextToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    textarea.remove()
+    return copied
+  }
+}
+
+const handleTopSlowTooltipClick = async (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target : null
+  const button = target?.closest<HTMLButtonElement>('.top-slow-tooltip-copy')
+  if (!button) return
+
+  event.stopPropagation()
+  const traceId = button.dataset.traceId
+  if (!traceId) return
+
+  const copied = await copyTextToClipboard(traceId)
+  button.textContent = copied ? '已复制' : '复制失败'
+  window.setTimeout(() => {
+    if (button.isConnected) button.textContent = '复制'
+  }, 1500)
+}
+
+const unpinTopSlowTooltip = () => {
+  if (!topSlowTooltipPinned) return
+
+  topSlowTooltipPinned = false
+  topSlowChartInstance?.setOption({
+    tooltip: { alwaysShowContent: false, triggerOn: 'mousemove|click', hideDelay: 0 },
+  })
+  topSlowChartInstance?.dispatchAction({ type: 'hideTip' })
+  topSlowChartInstance?.setOption({ tooltip: { hideDelay: 300 } })
+}
+
+const handleTopSlowTooltipOutsideClick = (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest('.top-slow-tooltip')) return
+
+  unpinTopSlowTooltip()
+}
+
+const renderTopSlowTooltipTrace = (traceId: string, operation: string) =>
+  `<div class="top-slow-tooltip-trace"><small>${escapeChartHtml(traceId)} · ${escapeChartHtml(operation)}</small><button type="button" class="top-slow-tooltip-copy" data-trace-id="${escapeChartHtml(traceId)}" aria-label="复制 trace ID">复制</button></div>`
+
 const formatTopSlowLatency = (value: number) => `${value.toFixed(2)} ms`
 
 const formatTopSlowMetric = (seriesName: string | undefined, value: number) => {
@@ -4819,6 +4898,8 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      enterable: true,
+      hideDelay: 300,
       order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
@@ -4842,7 +4923,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong>${renderTopSlowTooltipTrace(row.traceId, row.operation)}<div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -4929,6 +5010,8 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      enterable: true,
+      hideDelay: 300,
       order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
@@ -4952,7 +5035,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong>${renderTopSlowTooltipTrace(row.traceId, row.operation)}<div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -5188,8 +5271,39 @@ const renderTopSlowEchart = () => {
     topSlowChartInstance.dispose()
     topSlowChartInstance = null
   }
+  const shouldBindTooltipPinning = topSlowChartInstance === null
   topSlowChartInstance ??= echarts.init(element)
+  topSlowTooltipPinned = false
   topSlowChartInstance.setOption(createTopSlowEchartsOption(topSlowChartRows.value), true)
+  if (shouldBindTooltipPinning) {
+    topSlowChartInstance.on('click', (params: unknown) => {
+      const event = params as {
+        componentType?: string
+        seriesType?: string
+        seriesIndex?: number
+        dataIndex?: number
+        event?: { event?: MouseEvent }
+      }
+      if (
+        event.componentType !== 'series' ||
+        event.seriesType !== 'bar' ||
+        typeof event.seriesIndex !== 'number' ||
+        typeof event.dataIndex !== 'number'
+      )
+        return
+
+      event.event?.event?.stopPropagation()
+      topSlowTooltipPinned = true
+      topSlowChartInstance?.setOption({
+        tooltip: { alwaysShowContent: true, triggerOn: 'none' },
+      })
+      topSlowChartInstance?.dispatchAction({
+        type: 'showTip',
+        seriesIndex: event.seriesIndex,
+        dataIndex: event.dataIndex,
+      })
+    })
+  }
   topSlowChartInstance.resize()
 }
 
@@ -5586,6 +5700,11 @@ const getDisplayHost = (record: Record<string, unknown>) => {
   return host.toLowerCase() === 'unknown' ? '-' : host
 }
 
+const getDisplayCluster = (record: Record<string, unknown>) => {
+  const cluster = getRecordString(record, ['cluster_name', 'clusterName', 'cluster'], '-').trim()
+  return cluster.toLowerCase() === 'null' ? '-' : cluster
+}
+
 const stringifyDetailValue = (value: unknown) => {
   if (typeof value === 'string') return value.trim()
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
@@ -5750,7 +5869,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       operation: normalizeTraceOperation(
         getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
       ),
-      clusterName: getRecordString(record, ['cluster_name'], 'null'),
+      clusterName: getDisplayCluster(record),
       host: getDisplayHost(record),
       totalLatency: getRecordNullableNumber(record, [
         'total_latency',
@@ -6122,12 +6241,7 @@ const selectedTraceFailureModeDisplayErrorCode = computed(() => {
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  void loadRelatedFailureModeDetails(
-    failureModeId,
-    selectedTraceFailureModeIds.value,
-    selectedTraceAccessFailureModeIds.value,
-  )
+  void loadRelatedFailureModeDetails(failureModeId, selectedTraceFailureModeIds.value)
 }
 
 const selectedFaultTraceFailureModeIds = computed<string[]>(() => {
@@ -6170,12 +6284,7 @@ const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: st
 const selectFaultTraceFailureMode = (failureModeId: string) => {
   selectedFaultTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  void loadRelatedFailureModeDetails(
-    failureModeId,
-    selectedFaultTraceFailureModeIds.value,
-    selectedFaultTraceAccessFailureModeIds.value,
-  )
+  void loadRelatedFailureModeDetails(failureModeId, selectedFaultTraceFailureModeIds.value)
 }
 
 const getFailureModeChildren = (failureMode?: FailureModeKnowledgeModel | null) =>
@@ -6196,24 +6305,24 @@ const normalizeFailureModeErrorCode = (rawErrorCode: string | number | null | un
   return errorCode
 }
 
-const getRelatedFailureModeIds = (
+const getRelatedChildFailureModeIds = (
   failureMode: FailureModeKnowledgeModel | null | undefined,
   traceFailureModeIds: string[],
-  accessFailureModeIds: Set<string>,
 ) => {
   const traceFailureModeIdSet = new Set(traceFailureModeIds)
-  const matchedChildIds = getFailureModeChildren(failureMode).filter((childId) =>
-    traceFailureModeIdSet.has(childId),
-  )
-  if (matchedChildIds.length > 0) return matchedChildIds
+  return getFailureModeChildren(failureMode).filter((childId) => traceFailureModeIdSet.has(childId))
+}
 
+const getSameErrorCodeFailureModeIds = (
+  failureMode: FailureModeKnowledgeModel | null | undefined,
+  traceFailureModeIds: string[],
+) => {
   const errorCode = normalizeFailureModeErrorCode(failureMode?.error_code)
   if (!errorCode) return []
 
-  // 子故障交集为空时，只在当前 trace 已命中的故障模式中筛选同码项，
-  // 避免从故障模式知识库中收集全量同码故障。
+  // 只在当前 trace 已命中的全部故障模式中筛选同码项（含 access 故障），避免从知识库收集全量同码故障。
   return traceFailureModeIds.filter((failureModeId) => {
-    if (failureModeId === failureMode?.id || accessFailureModeIds.has(failureModeId)) return false
+    if (failureModeId === failureMode?.id) return false
     const candidateErrorCode = normalizeFailureModeErrorCode(
       failureModeDetailsById.value[failureModeId]?.error_code,
     )
@@ -6221,19 +6330,28 @@ const getRelatedFailureModeIds = (
   })
 }
 
-const selectedTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(
+const selectedTraceRelatedChildFailureModeIds = computed(() =>
+  getRelatedChildFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
+)
+
+const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
+  getSameErrorCodeFailureModeIds(
     selectedTraceFailureMode.value,
     selectedTraceFailureModeIds.value,
-    selectedTraceAccessFailureModeIds.value,
   ),
 )
 
-const selectedFaultTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(
+const selectedFaultTraceRelatedChildFailureModeIds = computed(() =>
+  getRelatedChildFailureModeIds(
     selectedFaultTraceFailureMode.value,
     selectedFaultTraceFailureModeIds.value,
-    selectedFaultTraceAccessFailureModeIds.value,
+  ),
+)
+
+const selectedFaultTraceSameErrorCodeFailureModeIds = computed(() =>
+  getSameErrorCodeFailureModeIds(
+    selectedFaultTraceFailureMode.value,
+    selectedFaultTraceFailureModeIds.value,
   ),
 )
 
@@ -6252,54 +6370,22 @@ const getRelatedFailureModeLabel = (failureModeId: string, isAccessFailure: bool
   return getFailureModeLabel(failureModeId, isAccessFailure, '未知相关故障')
 }
 
-const getVisibleRelatedFailureModeIds = (relatedFailureModeIds: string[]) =>
-  relatedFailureModeIds.slice(0, visibleTraceSubFaultCount.value)
-
-const getVisibleRelatedFailureModeCount = (relatedFailureModeIds: string[]) =>
-  Math.min(visibleTraceSubFaultCount.value, relatedFailureModeIds.length)
-
 const loadRelatedFailureModeDetails = async (
   failureModeId: string,
   traceFailureModeIds: string[],
-  accessFailureModeIds: Set<string>,
 ) => {
   const parentFailureMode =
     failureModeDetailsById.value[failureModeId] ?? (await loadFailureModeDetail(failureModeId))
-  const relatedFailureModeIds = getVisibleRelatedFailureModeIds(
-    getRelatedFailureModeIds(parentFailureMode, traceFailureModeIds, accessFailureModeIds),
-  )
+  const relatedFailureModeIds = [
+    ...getRelatedChildFailureModeIds(parentFailureMode, traceFailureModeIds),
+    ...getSameErrorCodeFailureModeIds(parentFailureMode, traceFailureModeIds),
+  ]
   await Promise.all(relatedFailureModeIds.map((relatedId) => loadFailureModeDetail(relatedId)))
 }
 
-const loadMoreRelatedFailureModes = async (relatedFailureModeIds: string[]) => {
-  const previousVisibleCount = visibleTraceSubFaultCount.value
-  visibleTraceSubFaultCount.value = Math.min(
-    previousVisibleCount + traceSubFaultBatchSize,
-    relatedFailureModeIds.length,
-  )
-  await Promise.all(
-    relatedFailureModeIds
-      .slice(previousVisibleCount, visibleTraceSubFaultCount.value)
-      .map((relatedId) => loadFailureModeDetail(relatedId)),
-  )
-}
-
-const collapseRelatedFailureModes = (relatedFailureModeIds: string[]) => {
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  if (
-    !relatedFailureModeIds
-      .slice(0, traceSubFaultBatchSize)
-      .includes(selectedChildFailureModeId.value)
-  ) {
-    selectedChildFailureModeId.value = ''
-  }
-}
-
 const selectChildFailureMode = async (childId: string) => {
-  selectedChildFailureModeId.value = selectedChildFailureModeId.value === childId ? '' : childId
-  if (selectedChildFailureModeId.value) {
-    await loadFailureModeDetail(childId)
-  }
+  selectedChildFailureModeId.value = childId
+  await loadFailureModeDetail(childId)
 }
 
 const normalizeFilterText = (value: string) => value.trim()
@@ -6423,6 +6509,7 @@ const toFaultTraceTableRow = (
     w2wUrmaLatency: null,
     sdkProcess: null,
     sdkRpc: null,
+    workerTotalLatency: null,
     localWorkerCost: null,
     localWorkerLock: null,
     remoteWorkerCost: null,
@@ -6450,7 +6537,6 @@ const closeTraceDialog = () => {
   selectedTrace.value = null
   selectedTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
 }
 
 const loadTraceLatencyData = async (traceId: string): Promise<LogParseResultModel | null> => {
@@ -6509,6 +6595,7 @@ const openFaultTraceDialog = async (trace: TraceDetailRow) => {
       w2wUrmaLatency: latencyData.w2w_urma_latency ?? null,
       sdkProcess: latencyData.sdk_process ?? null,
       sdkRpc: latencyData.sdk_rpc ?? null,
+      workerTotalLatency: latencyData.worker_total_latency ?? null,
       localWorkerCost: latencyData.local_worker_cost ?? null,
       localWorkerLock: latencyData.local_worker_lock ?? null,
       remoteWorkerCost: latencyData.remote_worker_cost ?? null,
@@ -6523,7 +6610,6 @@ const closeFaultTraceDialog = () => {
   selectedFaultTrace.value = null
   selectedFaultTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
 }
 
 const openParseResultChain = async (row: ParseResultTableRow) => {
@@ -6550,6 +6636,7 @@ const openParseResultChain = async (row: ParseResultTableRow) => {
     w2wUrmaLatency: row.w2wUrmaLatency,
     sdkProcess: row.sdkProcess,
     sdkRpc: row.sdkRpc,
+    workerTotalLatency: row.workerTotalLatency,
     localWorkerCost: row.localWorkerCost,
     localWorkerLock: row.localWorkerLock,
     remoteWorkerCost: row.remoteWorkerCost,
@@ -6623,12 +6710,10 @@ const removeFilterValue = (category: FilterTagCategory, value: string) => {
   globalFilters[key] = globalFilters[key].filter((item) => item !== value)
 }
 
-const resetFilterCategory = (category: FilterTagCategory | 'time' | 'traceBoard') => {
+const resetFilterCategory = (category: FilterTagCategory | 'time') => {
   if (category === 'time') {
     globalFilters.startTime = ''
     globalFilters.endTime = ''
-  } else if (category === 'traceBoard') {
-    globalFilters.traceBoards = []
   } else {
     const key = filterTagCollections[category]
     globalFilters[key] = [] as never
@@ -6942,6 +7027,7 @@ const viewAbnormalTraceLink = async (row: AbnormalTraceRow) => {
     w2wUrmaLatency: row.w2wUrmaLatency,
     sdkProcess: row.sdkProcess,
     sdkRpc: row.sdkRpc,
+    workerTotalLatency: row.workerTotalLatency,
     localWorkerCost: row.localWorkerCost,
     localWorkerLock: row.localWorkerLock,
     remoteWorkerCost: row.remoteWorkerCost,
@@ -7013,20 +7099,11 @@ const confirmFaultAggregatedPodIpFilterDialog = () => {
   closeFaultAggregatedPodIpFilterDialog()
 }
 
-const removeTraceBoardValue = (traceId: string) => {
-  globalFilters.traceBoards = globalFilters.traceBoards.filter((item) => item !== traceId)
-  filterApplyMessage.value = ''
-}
-
-const addTraceBoardValue = (traceId: string) => {
-  if (!globalFilters.traceBoards.includes(traceId)) {
-    globalFilters.traceBoards.push(traceId)
-  }
-  filterApplyMessage.value = ''
-}
-
 const isTraceFilterValueAvailable = (value?: string) =>
   Boolean(value && value !== 'null' && value !== '-')
+
+const getTraceFilterDisplayValue = (value?: string) =>
+  isTraceFilterValueAvailable(value) ? value : '该字段内容缺失，不可选择'
 
 const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.trace = trace
@@ -7035,7 +7112,6 @@ const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.addPodIp = false
   traceFilterDialog.addSourcePodIp = false
   traceFilterDialog.addTargetPodIp = false
-  traceFilterDialog.addTraceBoard = false
   traceFilterDialog.open = true
 }
 
@@ -7063,10 +7139,6 @@ const confirmTraceFilterDialog = () => {
   if (traceFilterDialog.addTargetPodIp && isTraceFilterValueAvailable(trace.podIp)) {
     addTargetPodIpFilter(trace.podIp)
   }
-  if (traceFilterDialog.addTraceBoard) {
-    addTraceBoardValue(trace.traceId)
-  }
-
   closeTraceFilterDialog()
 }
 
@@ -7078,7 +7150,6 @@ const snapshotCurrentFilters = (): GlobalFilterState => ({
   podIps: globalFilters.podIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   sourcePodIps: globalFilters.sourcePodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   targetPodIps: globalFilters.targetPodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
-  traceBoards: [],
 })
 
 const getActiveFilterCount = (filters: GlobalFilterState) => {
@@ -8248,7 +8319,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
-    clusterName: getRecordString(record, ['cluster_name'], 'null'),
+    clusterName: getDisplayCluster(record),
     host: getDisplayHost(record),
     totalLatency: getRecordNullableNumber(record, ['total_latency']),
     queryMetaLatency: getRecordNullableNumber(record, ['worker_query_meta_latency']),
@@ -9542,13 +9613,14 @@ const loadFaultPage = async () => {
 // ============================================================
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
-const brpcAllRows = ref<Record<string, any>[]>([])
-const brpcAllFileRows = ref<Record<string, any>[]>([])
+const brpcAllRows = ref<BrpcProfilingRow[]>([])
+const brpcAllFileRows = ref<BrpcProfilingRow[]>([])
 const brpcProfilingFiles = ref<BrpcProfilingFileOption[]>([])
 const brpcSelectedFileName = ref('')
 // 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
 // profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
 const hasBrpcProfilingLogFile = computed(() => brpcProfilingFiles.value.length > 0)
+const hasBrpcProfilingData = computed(() => brpcAllRows.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -10671,7 +10743,7 @@ const getBrpcProfilingFileLabel = (file: BrpcProfilingFileOption) =>
   `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
 
 const isBrpcProfilingRowWithinTimeRange = (
-  row: Record<string, any>,
+  row: BrpcProfilingRow,
   filters: GlobalFilterState,
 ): boolean => {
   const raw = row?.timestamp
@@ -10707,8 +10779,13 @@ const applyBrpcFileFilter = () => {
   brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
   brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
   const firstInterface = brpcInterfaceNames.value.at(0)
-  if (firstInterface) {
-    brpcSingleIface.value = firstInterface
+  brpcSingleIface.value = firstInterface ?? ''
+  if (rows.length === 0) {
+    // ECharts keeps its previous option when rendering is skipped. Clear all
+    // instances so an empty time range cannot leave stale, apparently unfiltered data visible.
+    brpcSuccessChartInstance?.clear()
+    brpcSingleChartInstance?.clear()
+    brpcLatencyChartInstance?.clear()
   }
   nextTick(() => {
     renderBrpcSuccessChart()
@@ -10738,7 +10815,7 @@ const loadBrpcMonitorData = async () => {
     const queryString = query.size > 0 ? `?${query.toString()}` : ''
     const result = await request<{
       files: BrpcProfilingFileOption[]
-      rows: Record<string, any>[]
+      rows: BrpcProfilingRow[]
     }>(`/brpc_profiling/knowledge/${encodeURIComponent(assetId)}${queryString}`)
 
     if (requestSequence !== brpcProfilingRequestSequence || selectedAssetId.value !== assetId) {
@@ -10776,7 +10853,7 @@ const loadBrpcMonitorData = async () => {
 
 // 按接口名和时间戳聚合数据，返回 Map<interface_name, Map<timestamp, row>>
 const buildBrpcDataMap = () => {
-  const map = new Map<string, Map<string, Record<string, any>>>()
+  const map = new Map<string, Map<string, BrpcProfilingRow>>()
   for (const row of brpcAllRows.value) {
     const iface = row.interface_name
     const ts = row.timestamp
@@ -10807,7 +10884,7 @@ const calcFailureRate = (success: number, failure: number): number => {
 }
 
 const getBrpcMetricValue = (
-  row: Record<string, any> | undefined,
+  row: BrpcProfilingRow | undefined,
   metric: string,
 ): number | null => {
   if (!row) return null
@@ -12089,6 +12166,13 @@ const loadAbnormalMonitorPage = async () => {
   await loadLatencyPage()
 }
 
+const scrollMonitorPageToTop = () => {
+  assetDetailRef.value?.scrollTo({
+    top: 0,
+    behavior: 'smooth',
+  })
+}
+
 const openMonitorPage = async (section: MonitorSection = 'latency') => {
   if (!selectedAssetId.value) return
   const previousProduct = activeMonitorProduct.value
@@ -12105,8 +12189,12 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
         ? loadBrpcAbnormalThreads(1)
         : loadBrpcAggregatedEvents(1)
     await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
+    if (section === 'brpc') {
+      scrollMonitorPageToTop()
+      return
+    }
     document
-      .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
+      .getElementById('brpc-fault-monitor')
       ?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
@@ -12126,6 +12214,10 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   }
 
   await nextTick()
+  if (targetSection === 'latency') {
+    scrollMonitorPageToTop()
+    return
+  }
   document.getElementById(targetSection === 'fault' ? 'kv-fault' : 'kv-latency')?.scrollIntoView({
     behavior: 'smooth',
     block: 'start',
@@ -12360,6 +12452,8 @@ onMounted(() => {
     assetDetailResizeObserver.observe(assetDetailRef.value)
   }
   document.addEventListener('click', handleStatusCodePopoverOutsideClick)
+  document.addEventListener('click', handleTopSlowTooltipClick)
+  document.addEventListener('click', handleTopSlowTooltipOutsideClick)
 })
 
 onUpdated(() => {
@@ -12379,6 +12473,8 @@ onBeforeUnmount(() => {
   assetDetailResizeObserver?.disconnect()
   assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
+  document.removeEventListener('click', handleTopSlowTooltipClick)
+  document.removeEventListener('click', handleTopSlowTooltipOutsideClick)
   latencyChartInstance?.dispose()
   topSlowChartInstance?.dispose()
   detailLatencyChartInstance?.dispose()
@@ -12818,38 +12914,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="trace-board-panel" aria-label="Trace看板">
-        <div class="filter-header">
-          <span>Trace看板</span>
-          <button
-            class="reset-category-btn reset-all-filter-btn"
-            type="button"
-            @click="resetFilterCategory('traceBoard')"
-          >
-            重置
-          </button>
-        </div>
-        <div class="trace-board-body">
-          <div class="selected-tags">
-            <span
-              v-for="traceId in globalFilters.traceBoards"
-              :key="traceId"
-              class="filter-tag trace-filter-tag"
-            >
-              {{ traceId }}
-              <button type="button" class="remove-tag" @click="removeTraceBoardValue(traceId)">
-                ×
-              </button>
-            </span>
-            <span v-if="globalFilters.traceBoards.length === 0" class="empty-hint"
-              >未添加Trace</span
-            >
-          </div>
-        </div>
-        <div class="trace-board-footer">
-          <button class="show-trace-view-btn" type="button">展示视图</button>
-        </div>
-      </section>
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
@@ -12870,6 +12934,9 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-else-if="activePage === 'abnormal'" class="monitor-page">
+        <div class="monitor-asset-label">
+          当前资产库：{{ selectedAsset?.name || selectedAssetId || '未选择' }}
+        </div>
         <section v-if="activeMonitorProduct === 'KVCache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">
@@ -13005,7 +13072,7 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="top-slow-chart-description">
-                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace ID。
               </p>
               <div class="top-slow-chart-panel">
                 <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
@@ -15208,6 +15275,13 @@ onBeforeUnmount(() => {
               >
                 无接口日志文件，请检查是否存在profiling文件
               </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
+              </div>
               <div v-else ref="brpcSuccessChartRef" class="chart-box"></div>
             </article>
 
@@ -15275,6 +15349,13 @@ onBeforeUnmount(() => {
               >
                 无接口日志文件，请检查是否存在profiling文件
               </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
+              </div>
               <div v-else ref="brpcSingleChartRef" class="chart-box"></div>
             </article>
 
@@ -15341,6 +15422,13 @@ onBeforeUnmount(() => {
                 role="status"
               >
                 无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
               </div>
               <div v-else ref="brpcLatencyChartRef" class="chart-box"></div>
             </article>
@@ -16938,21 +17026,10 @@ onBeforeUnmount(() => {
           <div class="filter-bar-list">
             <div class="filter-bar">
               <div class="filter-bar-info">
-                <span class="filter-bar-label">Trace ID</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.traceId }}</span>
-              </div>
-              <div class="filter-bar-options">
-                <label class="trace-filter-option">
-                  <input v-model="traceFilterDialog.addTraceBoard" type="checkbox" />
-                  <span>添加到Trace看板</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="filter-bar">
-              <div class="filter-bar-info">
                 <span class="filter-bar-label">Pod IP</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.podIp || 'null' }}</span>
+                <span class="filter-bar-value">
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.podIp) }}
+                </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
@@ -16986,7 +17063,7 @@ onBeforeUnmount(() => {
               <div class="filter-bar-info">
                 <span class="filter-bar-label">集群</span>
                 <span class="filter-bar-value">
-                  {{ traceFilterDialog.trace?.clusterName || 'null' }}
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.clusterName) }}
                 </span>
               </div>
               <div class="filter-bar-options">
@@ -17004,7 +17081,9 @@ onBeforeUnmount(() => {
             <div class="filter-bar">
               <div class="filter-bar-info">
                 <span class="filter-bar-label">主机</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.host || 'null' }}</span>
+                <span class="filter-bar-value">
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.host) }}
+                </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
@@ -18210,74 +18289,72 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="trace-fault-detail-item trace-fault-detail-wide">
                       <span class="trace-fault-detail-label">相关故障</span>
-                      <span
-                        v-if="selectedTraceRelatedFailureModeIds.length === 0"
-                        class="trace-fault-detail-value"
-                      >
-                        -
-                      </span>
-                      <div v-else class="trace-sub-fault-block">
-                        <div class="trace-sub-fault-list trace-sub-fault-list-limited">
-                          <button
-                            v-for="childId in getVisibleRelatedFailureModeIds(
-                              selectedTraceRelatedFailureModeIds,
-                            )"
-                            :key="childId"
-                            type="button"
-                            class="trace-sub-fault"
-                            :class="{ active: selectedChildFailureModeId === childId }"
-                            @click="selectChildFailureMode(childId)"
+                      <div class="trace-related-fault-columns">
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">相关子故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace命中的子故障</span>
+                          <span
+                            v-if="getFailureModeChildren(selectedTraceFailureMode).length === 0"
+                            class="trace-fault-detail-value"
+                            >当前故障为根因节点，无子故障</span
                           >
-                            {{
-                              getRelatedFailureModeLabel(
-                                childId,
-                                selectedTraceAccessFailureModeIds.has(childId),
-                              )
-                            }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="selectedTraceRelatedFailureModeIds.length > traceSubFaultBatchSize"
-                          class="trace-sub-fault-toolbar"
-                        >
-                          <span>
-                            已展示
-                            {{
-                              getVisibleRelatedFailureModeCount(selectedTraceRelatedFailureModeIds)
-                            }}
-                            / {{ selectedTraceRelatedFailureModeIds.length }}
-                          </span>
-                          <div class="trace-sub-fault-toolbar-actions">
+                          <span
+                            v-else-if="selectedTraceRelatedChildFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >当前Trace未命中子故障</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
                             <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedTraceRelatedFailureModeIds,
-                                ) < selectedTraceRelatedFailureModeIds.length
-                              "
+                              v-for="childId in selectedTraceRelatedChildFailureModeIds"
+                              :key="childId"
                               type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                loadMoreRelatedFailureModes(selectedTraceRelatedFailureModeIds)
-                              "
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === childId }"
+                              @click="selectChildFailureMode(childId)"
                             >
-                              加载更多
-                            </button>
-                            <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedTraceRelatedFailureModeIds,
-                                ) > traceSubFaultBatchSize
-                              "
-                              type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                collapseRelatedFailureModes(selectedTraceRelatedFailureModeIds)
-                              "
-                            >
-                              收起
+                              {{
+                                getRelatedFailureModeLabel(
+                                  childId,
+                                  selectedTraceAccessFailureModeIds.has(childId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">同错误码故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace中错误码相同的故障</span>
+                          <span
+                            v-if="selectedTraceSameErrorCodeFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >{{
+                              selectedTraceFailureModeDisplayErrorCode
+                                ? '该故障的错误码为' +
+                                  selectedTraceFailureModeDisplayErrorCode +
+                                  '，当前Trace不存在同错误码故障'
+                                : '该故障不具有错误码'
+                            }}</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
+                            <button
+                              v-for="relatedId in selectedTraceSameErrorCodeFailureModeIds"
+                              :key="relatedId"
+                              type="button"
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === relatedId }"
+                              @click="selectChildFailureMode(relatedId)"
+                            >
+                              {{
+                                getRelatedFailureModeLabel(
+                                  relatedId,
+                                  selectedTraceAccessFailureModeIds.has(relatedId),
+                                )
+                              }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="trace-sub-fault-block">
                         <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
                           <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
                             <div class="trace-fault-detail-item">
@@ -18328,7 +18405,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section>
-            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-section-title trace-section-title-with-hint">
+              <span>⏱️ 时延明细</span>
+              <span class="trace-section-hint">
+                总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
+              </span>
+            </div>
             <div class="trace-delay-table-wrapper">
               <table class="trace-delay-table">
                 <thead>
@@ -18499,78 +18581,74 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="trace-fault-detail-item trace-fault-detail-wide">
                       <span class="trace-fault-detail-label">相关故障</span>
-                      <span
-                        v-if="selectedFaultTraceRelatedFailureModeIds.length === 0"
-                        class="trace-fault-detail-value"
-                      >
-                        -
-                      </span>
-                      <div v-else class="trace-sub-fault-block">
-                        <div class="trace-sub-fault-list trace-sub-fault-list-limited">
-                          <button
-                            v-for="childId in getVisibleRelatedFailureModeIds(
-                              selectedFaultTraceRelatedFailureModeIds,
-                            )"
-                            :key="childId"
-                            type="button"
-                            class="trace-sub-fault"
-                            :class="{ active: selectedChildFailureModeId === childId }"
-                            @click="selectChildFailureMode(childId)"
+                      <div class="trace-related-fault-columns">
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">相关子故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace命中的子故障</span>
+                          <span
+                            v-if="
+                              getFailureModeChildren(selectedFaultTraceFailureMode).length === 0
+                            "
+                            class="trace-fault-detail-value"
+                            >当前故障为根因节点，无子故障</span
                           >
-                            {{
-                              getRelatedFailureModeLabel(
-                                childId,
-                                selectedFaultTraceAccessFailureModeIds.has(childId),
-                              )
-                            }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="
-                            selectedFaultTraceRelatedFailureModeIds.length > traceSubFaultBatchSize
-                          "
-                          class="trace-sub-fault-toolbar"
-                        >
-                          <span>
-                            已展示
-                            {{
-                              getVisibleRelatedFailureModeCount(
-                                selectedFaultTraceRelatedFailureModeIds,
-                              )
-                            }}
-                            / {{ selectedFaultTraceRelatedFailureModeIds.length }}
-                          </span>
-                          <div class="trace-sub-fault-toolbar-actions">
+                          <span
+                            v-else-if="selectedFaultTraceRelatedChildFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >当前Trace未命中子故障</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
                             <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedFaultTraceRelatedFailureModeIds,
-                                ) < selectedFaultTraceRelatedFailureModeIds.length
-                              "
+                              v-for="childId in selectedFaultTraceRelatedChildFailureModeIds"
+                              :key="childId"
                               type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                loadMoreRelatedFailureModes(selectedFaultTraceRelatedFailureModeIds)
-                              "
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === childId }"
+                              @click="selectChildFailureMode(childId)"
                             >
-                              加载更多
-                            </button>
-                            <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedFaultTraceRelatedFailureModeIds,
-                                ) > traceSubFaultBatchSize
-                              "
-                              type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                collapseRelatedFailureModes(selectedFaultTraceRelatedFailureModeIds)
-                              "
-                            >
-                              收起
+                              {{
+                                getRelatedFailureModeLabel(
+                                  childId,
+                                  selectedFaultTraceAccessFailureModeIds.has(childId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">同错误码故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace中错误码相同的故障</span>
+                          <span
+                            v-if="selectedFaultTraceSameErrorCodeFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >{{
+                              selectedFaultTraceFailureModeDisplayErrorCode
+                                ? '该故障的错误码为' +
+                                  selectedFaultTraceFailureModeDisplayErrorCode +
+                                  '，当前Trace不存在同错误码故障'
+                                : '该故障不具有错误码'
+                            }}</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
+                            <button
+                              v-for="relatedId in selectedFaultTraceSameErrorCodeFailureModeIds"
+                              :key="relatedId"
+                              type="button"
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === relatedId }"
+                              @click="selectChildFailureMode(relatedId)"
+                            >
+                              {{
+                                getRelatedFailureModeLabel(
+                                  relatedId,
+                                  selectedFaultTraceAccessFailureModeIds.has(relatedId),
+                                )
+                              }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="trace-sub-fault-block">
                         <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
                           <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
                             <div class="trace-fault-detail-item">
@@ -18621,7 +18699,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section>
-            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-section-title trace-section-title-with-hint">
+              <span>⏱️ 时延明细</span>
+              <span class="trace-section-hint">
+                总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
+              </span>
+            </div>
             <div class="trace-delay-table-wrapper">
               <table class="trace-delay-table">
                 <thead>

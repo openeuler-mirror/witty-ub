@@ -6,11 +6,11 @@ description: "分析 UBSOCKET 组件源码，以代码中 ERROR 日志输出宏�
 
 ## 目标
 
-根据 UBSOCKET 组件的源码生成对应的故障模式树。故障模式树以 UBSOCKET 组件的同步函数调用关系和异步数据处理关系为参考，以源码中各个函数内部的 ERROR 日志输出为单位，覆盖整个源码仓中指定范围的故障发生点。你需要 UBSOCKET 组件的源码路径作为输入，输出指定格式的故障模式树。
+根据 UBSOCKET 组件的源码生成对应的故障模式树。故障模式树以 UBSOCKET 组件的同步函数调用关系和异步数据处理关系为参考，以源码中各个函数内部的 ERROR 日志输出为单位，覆盖整个源码仓中指定范围的故障发生点。你只需要提供 `ubs-comm` 源码仓根路径，脚本会严格下探到 `src/ubsocket/csrc`，输出指定格式的故障模式树。
 
 ## 输入
 
-- UBSOCKET 组件的源码路径
+- `ubs-comm` 源码仓根路径（例如 `/root/openeuler/ubs-comm`）。脚本也兼容直接传入 `src/ubsocket` 或 `src/ubsocket/csrc`，但同一次生成中的所有步骤必须使用同一个输入路径。
 
 禁止参考旧结果，包括项目中已存在的旧产物、git 历史提交和 `/tmp` 中存在的临时文件，必须重新调用脚本和skill进行分析
 
@@ -22,7 +22,7 @@ description: "分析 UBSOCKET 组件源码，以代码中 ERROR 日志输出宏�
     - **故障名称**：该字段是节点标题，是对该故障模式的高度概括
     - **故障现象**：通过日志关键字识别故障现象，需给出识别该日志的关键字
     - **故障原因**：故障模式对应具体故障原因，如故障还需向下级故障匹配，无法定位到根因，填写“向下级匹配”
-    - **解决办法**：故障模式对应具体解决方法，默认填写“无”
+    - **解决办法**：具体节点必须结合日志触发条件、失败来源、相关调用链及资源/状态处理源码进行分析，给出可能的解决办法；无法唯一确定修复方式时，应说明适用条件并提供可由源码支持的排查或修复方向，不得默认填写“无”
     - **函数名**：调用 `UBS_VLOG_ERR/UBS_SLOG_ERR` 日志宏的函数，只填写`find_ubsocket_log_err.py`脚本输出的裸函数名
     - **文件名**：日志宏所在的源码裸文件名，根据`find_ubsocket_log_err.py`脚本输出的`file`字段填写，不得携带目录路径
 
@@ -42,6 +42,11 @@ description: "分析 UBSOCKET 组件源码，以代码中 ERROR 日志输出宏�
 
 1. 根据 if 条件或下层函数调用的语义总结产生该故障的直接原因，最好是结合本函数的作用
 2. 建议在故障名称的基础上扩写，如“初始化A时参数无效”可扩写为“初始化A时传入的参数B无效，导致无法完成初始化操作”
+
+### `解决办法`要求
+
+1. 必须阅读故障点及必要上下游源码，结合触发条件、返回值或状态传播、资源生命周期和失败后的处理逻辑分析解决办法。
+2. 提供源码证据能够支持的可能解决办法，优先写明需要修正的参数、状态、资源、配置、调用顺序或失败处理；不能静态确定唯一方案时，使用“可能需要……”等有条件表述并给出验证方向，不得仅填写“无”。
 
 ### `函数名`要求
 
@@ -167,7 +172,7 @@ description: "分析 UBSOCKET 组件源码，以代码中 ERROR 日志输出宏�
 调用`find_ubsocket_log_err.py`，提取 UBSOCKET 源码中的`UBS_VLOG_ERR/UBS_SLOG_ERR`日志点。脚本输出的`file`字段是相对源码路径；生成故障模式的`文件名`时取该路径的最后一级裸文件名：
 
 ```bash
-python3 .opencode/skills/failure-mode-generation-ubsocket/scripts/find_ubsocket_log_err.py <path-to-ubsocket-src>
+python3 .opencode/skills/failure-mode-generation-ubsocket/scripts/find_ubsocket_log_err.py <path-to-ubs-comm-root>
 ```
 
 ### 步骤二：生成同步调用链候选
@@ -175,7 +180,7 @@ python3 .opencode/skills/failure-mode-generation-ubsocket/scripts/find_ubsocket_
 调用`generate_ubsocket_callchains.py`，提取四个公共 API 的候选函数调用链：
 
 ```bash
-python3 .opencode/skills/failure-mode-generation-ubsocket/scripts/generate_ubsocket_callchains.py <path-to-ubsocket-csrc>
+python3 .opencode/skills/failure-mode-generation-ubsocket/scripts/generate_ubsocket_callchains.py <path-to-ubs-comm-root>
 ```
 
 ### 步骤三：确定分析范围
