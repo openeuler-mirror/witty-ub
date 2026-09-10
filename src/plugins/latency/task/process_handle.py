@@ -16,10 +16,7 @@ class ProcessHandler:
 
     tasks = {}  # 存储进程的字典
     lock = multiprocessing.Lock()  # 创建一个锁对象
-    max_processes = min(
-        Config().get_config().task.cpu_limit,
-        Config().get_config().task.max_concurrent_tasks,
-    )
+    max_processes = max(1, Config().get_config().task.cpu_limit)
     time_out = 10
 
     @staticmethod
