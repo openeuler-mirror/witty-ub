@@ -29,6 +29,8 @@ function createTasksState() {
   const logFilesTotal = ref(0)
   const logFilesLoading = ref(false)
   const logFilesError = ref('')
+  // 当前 logFiles 所属资产库：切库时先清空，避免总览/任务页沿用上一个库的任务
+  const logFilesAssetId = ref('')
 
   const getLogFileId = (file: LogFileModel) => file.id
 
@@ -112,14 +114,22 @@ function createTasksState() {
   }
 
   const loadLogFiles = async (kbId: string, silent = false) => {
+    if (logFilesAssetId.value !== kbId) {
+      logFilesAssetId.value = kbId
+      logFiles.value = []
+      logFilesTotal.value = 0
+      brpcDiagStatusByFile.value = {}
+    }
     if (!silent) logFilesLoading.value = true
     logFilesError.value = ''
     try {
       const files = await listAllLogFiles(kbId)
+      if (logFilesAssetId.value !== kbId) return
       logFiles.value = files
       logFilesTotal.value = files.length
       await loadBrpcDiagnosisStatuses()
     } catch (error) {
+      if (logFilesAssetId.value !== kbId) return
       logFilesError.value = errorText(error)
     } finally {
       if (!silent) logFilesLoading.value = false
@@ -350,6 +360,7 @@ function createTasksState() {
     logFilesTotal,
     logFilesLoading,
     logFilesError,
+    logFilesAssetId,
     getLogFileId,
     statusOf,
     progressOf,

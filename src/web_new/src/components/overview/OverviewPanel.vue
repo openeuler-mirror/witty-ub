@@ -16,7 +16,12 @@ import BRPCInterfaceMonitor from './BRPCInterfaceMonitor.vue'
 import BRPCFaultMonitor from './BRPCFaultMonitor.vue'
 import PageNav from '../common/PageNav.vue'
 
-const props = defineProps<{ asset: LogKnowledge | null; logFiles: LogFileModel[] }>()
+const props = defineProps<{
+  asset: LogKnowledge | null
+  logFiles: LogFileModel[]
+  logFilesAssetId?: string
+  logFilesLoading?: boolean
+}>()
 
 const {
   bindOverviewWatchers,
@@ -44,6 +49,7 @@ const {
   brpcThreadTimelineRef,
   openBrpcFaultDetail,
   brpcLoading,
+  brpcFaultLoading,
   brpcMonitorError,
   brpcMonitorTab,
   closeObjectDetail,
@@ -73,6 +79,8 @@ const {
 } = useOverviewData({
   getAsset: () => props.asset,
   getLogFiles: () => props.logFiles,
+  getLogFilesAssetId: () => props.logFilesAssetId ?? '',
+  getLogFilesLoading: () => props.logFilesLoading ?? false,
 })
 
 bindOverviewWatchers()
@@ -107,6 +115,11 @@ const brpcThreadFailureModeLabel = (id: string) =>
   brpcThreadDetail.value?.failure_modes?.find((mode: any) => mode.failure_mode_id === id)
     ?.failure_mode_name ||
   id
+
+// 分析数据加载中：仅在页头提示，不再整块替换内容（避免切 GET/SET 时整页闪烁）
+const analysisLoading = computed(
+  () => overviewLoading.value || brpcLoading.value || brpcFaultLoading.value,
+)
 const selectBrpcGraphNode = (id: string) => {
   brpcSelectedGraphNodeId.value = brpcSelectedGraphNodeId.value === id ? '' : id
 }
@@ -208,6 +221,9 @@ onBeforeUnmount(() => {
               : '跨任务汇总'
           }}
         </span>
+        <span v-if="analysisLoading" class="analysis-loading-chip" role="status">
+          <span class="analysis-loading-dot" aria-hidden="true"></span>正在加载分析数据…
+        </span>
       </div>
       <div v-if="!isBrpcTask" class="scope-controls">
         <template v-if="!isBrpcTask">
@@ -270,146 +286,142 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div v-if="overviewLoading || brpcLoading" class="empty" style="padding: 28px 0">
-      <div class="icon">⏳</div>
-      <div>正在加载分析数据...</div>
-    </div>
-    <template v-else>
-      <div v-if="!isBrpcTask" class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-num">{{ kpiData.totalTraces.toLocaleString() }}</div>
-          <div class="kpi-label">
-            {{ analysisTab === 'disconnect' ? '通断/故障 Trace 数' : '总 Trace 数' }}
-          </div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-num" style="color: var(--danger)">
-            {{ kpiData.anomalyTraces.toLocaleString() }}
-          </div>
-          <div class="kpi-label">
-            {{ analysisTab === 'disconnect' ? '故障码数' : '异常 Trace 数' }}
-          </div>
-        </div>
-        <div class="kpi-card">
-          <div
-            class="kpi-num"
-            :style="{
-              color:
-                analysisTab === 'disconnect'
-                  ? 'var(--danger)'
-                  : Number(kpiData.anomalyRate) > 5
-                    ? 'var(--danger)'
-                    : Number(kpiData.anomalyRate) > 1
-                      ? 'var(--warning)'
-                      : 'var(--success)',
-            }"
-          >
-            {{ analysisTab === 'disconnect' ? kpiData.linkCount : kpiData.anomalyRate + '%' }}
-          </div>
-          <div class="kpi-label">
-            {{ analysisTab === 'disconnect' ? '受影响链路数' : '异常率' }}
-          </div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-num">{{ kpiData.endpointCount }}</div>
-          <div class="kpi-label">
-            {{ analysisTab === 'disconnect' ? '故障端点数' : '当前范围端点数' }}
-          </div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-num" style="font-size: 15px; color: var(--danger)">
-            {{ kpiData.worstEndpoint }}
-          </div>
-          <div class="kpi-label">
-            {{
-              analysisTab === 'disconnect'
-                ? '故障最多端点 · ' + kpiData.worstEndpointAnomaly + ' 次'
-                : '当前范围最差端点 · 异常 ' + kpiData.worstEndpointAnomaly
-            }}
-          </div>
+    <!-- 加载中不再整体替换内容：切 GET/SET 或切数据域时只提示，不清空已渲染的图与指标，
+         避免整页闪烁 -->
+    <div v-if="!isBrpcTask" class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-num">{{ kpiData.totalTraces.toLocaleString() }}</div>
+        <div class="kpi-label">
+          {{ analysisTab === 'disconnect' ? '通断/故障 Trace 数' : '总 Trace 数' }}
         </div>
       </div>
-
-      <!-- ===== 时延故障监控 ===== -->
-      <template v-if="!isBrpcTask && analysisTab === 'latency'">
-        <div class="view-tabs" role="tablist" aria-label="时延分析视图">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="analysisModule.latency === 'overview'"
-            :class="['view-tab', { active: analysisModule.latency === 'overview' }]"
-            @click="analysisModule.latency = 'overview'"
-          >
-            Pod 分析
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="analysisModule.latency === 'trend'"
-            :class="['view-tab', { active: analysisModule.latency === 'trend' }]"
-            @click="analysisModule.latency = 'trend'"
-          >
-            指标趋势与异常分析
-          </button>
+      <div class="kpi-card">
+        <div class="kpi-num" style="color: var(--danger)">
+          {{ kpiData.anomalyTraces.toLocaleString() }}
         </div>
-
-        <LatencyOverview v-if="analysisModule.latency === 'overview'" />
-        <LatencyTrend v-if="analysisModule.latency === 'trend'" />
-      </template>
-
-      <!-- ===== 通断故障监控 ===== -->
-      <template v-else-if="!isBrpcTask">
-        <div class="view-tabs" role="tablist" aria-label="通断分析视图">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="analysisModule.disconnect === 'faults'"
-            :class="['view-tab', { active: analysisModule.disconnect === 'faults' }]"
-            @click="analysisModule.disconnect = 'faults'"
-          >
-            故障诊断
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="analysisModule.disconnect === 'events'"
-            :class="['view-tab', { active: analysisModule.disconnect === 'events' }]"
-            @click="analysisModule.disconnect = 'events'"
-          >
-            聚合事件
-          </button>
+        <div class="kpi-label">
+          {{ analysisTab === 'disconnect' ? '故障码数' : '异常 Trace 数' }}
         </div>
-        <DisconnectMonitor v-if="analysisModule.disconnect === 'faults'" />
-        <DisconnectAggregateEvents v-else />
-      </template>
-
-      <!-- ===== UBSocket 监控 ===== -->
-      <template v-else>
-        <div v-if="brpcMonitorError" class="error-banner">{{ brpcMonitorError }}</div>
-        <div class="analysis-tabs" role="tablist" aria-label="UBSocket 分析类型">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="brpcMonitorTab === 'iface'"
-            :class="['analysis-tab', { active: brpcMonitorTab === 'iface' }]"
-            @click="brpcMonitorTab = 'iface'"
-          >
-            接口监控
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="brpcMonitorTab === 'fault'"
-            :class="['analysis-tab', { active: brpcMonitorTab === 'fault' }]"
-            @click="openBrpcFaultTab"
-          >
-            通断故障监控
-          </button>
+      </div>
+      <div class="kpi-card">
+        <div
+          class="kpi-num"
+          :style="{
+            color:
+              analysisTab === 'disconnect'
+                ? 'var(--danger)'
+                : Number(kpiData.anomalyRate) > 5
+                  ? 'var(--danger)'
+                  : Number(kpiData.anomalyRate) > 1
+                    ? 'var(--warning)'
+                    : 'var(--success)',
+          }"
+        >
+          {{ analysisTab === 'disconnect' ? kpiData.linkCount : kpiData.anomalyRate + '%' }}
         </div>
+        <div class="kpi-label">
+          {{ analysisTab === 'disconnect' ? '受影响链路数' : '异常率' }}
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num">{{ kpiData.endpointCount }}</div>
+        <div class="kpi-label">
+          {{ analysisTab === 'disconnect' ? '故障端点数' : '当前范围端点数' }}
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num" style="font-size: 15px; color: var(--danger)">
+          {{ kpiData.worstEndpoint }}
+        </div>
+        <div class="kpi-label">
+          {{
+            analysisTab === 'disconnect'
+              ? '故障最多端点 · ' + kpiData.worstEndpointAnomaly + ' 次'
+              : '当前范围最差端点 · 异常 ' + kpiData.worstEndpointAnomaly
+          }}
+        </div>
+      </div>
+    </div>
 
-        <BRPCInterfaceMonitor v-if="brpcMonitorTab === 'iface'" />
-        <BRPCFaultMonitor v-if="brpcMonitorTab === 'fault'" />
-      </template>
+    <!-- ===== 时延故障监控 ===== -->
+    <template v-if="!isBrpcTask && analysisTab === 'latency'">
+      <div class="view-tabs" role="tablist" aria-label="时延分析视图">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="analysisModule.latency === 'overview'"
+          :class="['view-tab', { active: analysisModule.latency === 'overview' }]"
+          @click="analysisModule.latency = 'overview'"
+        >
+          Pod 分析
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="analysisModule.latency === 'trend'"
+          :class="['view-tab', { active: analysisModule.latency === 'trend' }]"
+          @click="analysisModule.latency = 'trend'"
+        >
+          指标趋势与异常分析
+        </button>
+      </div>
+
+      <LatencyOverview v-if="analysisModule.latency === 'overview'" />
+      <LatencyTrend v-if="analysisModule.latency === 'trend'" />
+    </template>
+
+    <!-- ===== 通断故障监控 ===== -->
+    <template v-else-if="!isBrpcTask">
+      <div class="view-tabs" role="tablist" aria-label="通断分析视图">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="analysisModule.disconnect === 'faults'"
+          :class="['view-tab', { active: analysisModule.disconnect === 'faults' }]"
+          @click="analysisModule.disconnect = 'faults'"
+        >
+          故障诊断
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="analysisModule.disconnect === 'events'"
+          :class="['view-tab', { active: analysisModule.disconnect === 'events' }]"
+          @click="analysisModule.disconnect = 'events'"
+        >
+          聚合事件
+        </button>
+      </div>
+      <DisconnectMonitor v-if="analysisModule.disconnect === 'faults'" />
+      <DisconnectAggregateEvents v-else />
+    </template>
+
+    <!-- ===== UBSocket 监控 ===== -->
+    <template v-else>
+      <div v-if="brpcMonitorError" class="error-banner">{{ brpcMonitorError }}</div>
+      <div class="analysis-tabs" role="tablist" aria-label="UBSocket 分析类型">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="brpcMonitorTab === 'iface'"
+          :class="['analysis-tab', { active: brpcMonitorTab === 'iface' }]"
+          @click="brpcMonitorTab = 'iface'"
+        >
+          接口监控
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="brpcMonitorTab === 'fault'"
+          :class="['analysis-tab', { active: brpcMonitorTab === 'fault' }]"
+          @click="openBrpcFaultTab"
+        >
+          通断故障监控
+        </button>
+      </div>
+
+      <BRPCInterfaceMonitor v-if="brpcMonitorTab === 'iface'" />
+      <BRPCFaultMonitor v-if="brpcMonitorTab === 'fault'" />
     </template>
   </template>
 

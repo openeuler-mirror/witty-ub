@@ -828,6 +828,35 @@ tr:hover td {
   font-size: 12px;
 }
 
+/* 分析数据加载提示：就地提示，不再整块替换内容（避免切 GET/SET 时整页闪烁） */
+.analysis-loading-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--text2);
+  font-size: 12px;
+}
+
+.analysis-loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary, #1e6fff);
+  animation: analysis-loading-pulse 1s ease-in-out infinite;
+}
+
+@keyframes analysis-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .scope-controls,
 .scope-field {
   display: flex;

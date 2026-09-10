@@ -1,4 +1,13 @@
-import { computed, nextTick, reactive, ref, shallowRef, watch } from 'vue'
+import {
+  computed,
+  effectScope,
+  getCurrentScope,
+  nextTick,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
+} from 'vue'
 import { getInstanceByDom, init, use, type ECharts } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, GraphChart, HeatmapChart, LineChart, PieChart } from 'echarts/charts'
@@ -80,13 +89,17 @@ import { createAnalysisFilter, type AnalysisFocus } from './useAnalysisFilter'
 export type UseOverviewDataOptions = {
   getAsset: () => LogKnowledge | null
   getLogFiles: () => LogFileModel[]
+  // 当前任务列表所属的资产库 id（切库瞬间用于判定任务与资产是否匹配）
+  getLogFilesAssetId?: () => string
+  // 任务列表是否仍在加载（未返回前不发按库查询）
+  getLogFilesLoading?: () => boolean
 }
 
 // dataOptions 用 shallowRef 承载：computed 依赖它，避免 state 先于 options 创建时
 // 把「options 缺失」的空结果固化进缓存（P1.1 总览外调用 useOverviewData 触发）
 const dataOptionsRef = shallowRef<UseOverviewDataOptions | null>(null)
 const dataOptions = computed(() => dataOptionsRef.value)
-let overviewState: ReturnType<typeof createOverviewState> | null = null
+let overviewState: ReturnType<typeof createOverviewStateInner> | null = null
 
 export function useOverviewData(options?: UseOverviewDataOptions) {
   if (options) dataOptionsRef.value = options
@@ -94,14 +107,64 @@ export function useOverviewData(options?: UseOverviewDataOptions) {
   return overviewState
 }
 
+/**
+ * 总览状态是模块级单例，但 OverviewPanel 会随「返回资产列表 / 切到任务页」卸载。
+ * 因此所有 watcher 必须挂在脱离组件实例的 effect scope 上：
+ * 否则首次挂载创建的 watcher 会在卸载时被 Vue 自动停止，而 bindOverviewWatchers
+ * 的幂等守卫不会再次绑定，导致再次进入资产库后不再自动加载（串数据 / 图表丢失）。
+ */
 function createOverviewState() {
+  const scope = effectScope(true)
+  return scope.run(() => createOverviewStateInner())!
+}
+
+function createOverviewStateInner() {
+  // 状态创建时所在的 effect scope：createOverviewState 传入的是脱离组件的 scope，
+  // bindOverviewWatchers 必须在这个 scope 里绑定 watcher（它由组件调用，
+  // 否则 watcher 会挂到组件实例上，组件卸载即失效）。
+  const overviewScope = getCurrentScope() ?? effectScope(true)
   const selectedAsset = computed(() => dataOptions.value?.getAsset() ?? null)
   const logFiles = computed(() => dataOptions.value?.getLogFiles() ?? [])
+  // 任务列表所属资产库：与 selectedAsset 不一致时（切库后新任务列表尚未到达）
+  // 一律不做按库查询，避免用上一个资产库的任务当分析口径
+  const scopedAssetId = computed(() => dataOptions.value?.getLogFilesAssetId?.() ?? '')
+  const tracksLogFilesOwner = computed(() => Boolean(dataOptions.value?.getLogFilesAssetId))
+  // 任务列表是否仍在返回：为真时任何按库查询都推迟到 logFiles watcher
+  const logFilesPending = computed(() =>
+    Boolean(dataOptions.value?.getLogFilesLoading?.() ?? false),
+  )
+  const assetScoped = computed(() => {
+    const asset = selectedAsset.value
+    if (!asset) return false
+    // 未提供属主 getter 的调用方（单测等）按“已匹配”处理
+    if (!tracksLogFilesOwner.value) return true
+    return scopedAssetId.value === asset.id
+  })
   const view = ref<'assets' | 'home'>('home')
   const assetTab = ref<'overview' | 'tasks'>('overview')
   const { toast } = useToast()
   const isSuccess = (file: LogFileModel) =>
     ['successful', 'successful_pending_remove'].includes(file.overall_status || '')
+
+  // ============ 图表绘制调度（必须排在 DOM 补丁之后） ============
+  // 直接调用 nextTick 可能在「loading 占位 → 真实图表容器」这次 flush 之前执行，
+  // 此时模板 ref 仍为 null，图表会被静默丢弃（表现为图区空白）。
+  // 统一用 post 阶段 watcher 收口：数据/占位状态与 DOM 都稳定后才绘制。
+  const pendingChartRenders = new Set<() => void>()
+  const chartRenderTicket = ref(0)
+  const afterDomUpdate = (draw: () => void) => {
+    pendingChartRenders.add(draw)
+    chartRenderTicket.value += 1
+  }
+  watch(
+    chartRenderTicket,
+    () => {
+      const scheduled = [...pendingChartRenders]
+      pendingChartRenders.clear()
+      scheduled.forEach((draw) => draw())
+    },
+    { flush: 'post' },
+  )
 
   const diagnosisConfig = rawDiagnosisConfig as any
   const latencyThresholds = {
@@ -144,6 +207,8 @@ function createOverviewState() {
     faultTraces: new Map<string, { total: number; rows: any[]; truncated: boolean }>(),
   }
   let lastLogFilesKey = ''
+  // 切库后等新任务列表到达，再决定默认数据域（见 logFiles watcher）
+  let domainAutoSelectPending = false
   let overviewRequestGeneration = 0
   const faultTraceIdsWithLatency = reactive<Record<'get' | 'set', Set<string>>>({
     get: new Set(),
@@ -179,7 +244,9 @@ function createOverviewState() {
     assetTypeFilter.value === 'brpc' ? 'UBSocket' : 'KVCache',
   )
   const scopeTasks = computed(() =>
-    logFiles.value.filter((file) => file.log_type === selectedLogType.value && isSuccess(file)),
+    assetScoped.value
+      ? logFiles.value.filter((file) => file.log_type === selectedLogType.value && isSuccess(file))
+      : [],
   )
   const scopeTaskCount = computed(() => scopeTasks.value.length)
 
@@ -248,7 +315,8 @@ function createOverviewState() {
 
     // P1.5：KVCache 时延域按日志文件收窄，logId 参与 key 与请求
     const logId = latencyFilter.logId.value
-    const scaleKey = `${op}:${overviewScale.value}:${logId ?? ''}`
+    // 缓存 key 必须带资产库 id：切库后同一个 op/尺度不能复用上一个库的聚合结果
+    const scaleKey = `${asset.id}:${op}:${overviewScale.value}:${logId ?? ''}`
     let timeWindows = sectionCaches.timeWindows.get(scaleKey)
     if (!timeWindows) {
       overviewLoading.value = true
@@ -334,7 +402,7 @@ function createOverviewState() {
     const effectiveLogId = trendLogId.value
     let latency: any[] = []
     if (effectiveLogId) {
-      const latencyKey = `${op}:${pct}:${trendScale.value}:${effectiveLogId}`
+      const latencyKey = `${asset.id}:${op}:${pct}:${trendScale.value}:${effectiveLogId}`
       if (sectionCaches.latency.has(latencyKey)) {
         latency = sectionCaches.latency.get(latencyKey)!
       } else {
@@ -344,7 +412,7 @@ function createOverviewState() {
       }
     }
 
-    const trendListKey = `${op}:${logId ?? ''}`
+    const trendListKey = `${asset.id}:${op}:${logId ?? ''}`
     let topSlow = sectionCaches.topSlow.get(trendListKey)
     if (!topSlow) {
       topSlow = await fetchTopSlow(asset.id, op, logId)
@@ -398,18 +466,19 @@ function createOverviewState() {
     const asset = selectedAsset.value
     if (!asset) return
 
-    let faultChart = sectionCaches.faultChart.get(op)
+    const faultKey = `${asset.id}:${op}`
+    let faultChart = sectionCaches.faultChart.get(faultKey)
     if (!faultChart) {
       faultChart = await fetchFaultChart(asset.id, op)
       if (generation !== overviewRequestGeneration) return
-      sectionCaches.faultChart.set(op, faultChart)
+      sectionCaches.faultChart.set(faultKey, faultChart)
     }
 
-    let faultTraces = sectionCaches.faultTraces.get(op)
+    let faultTraces = sectionCaches.faultTraces.get(faultKey)
     if (!faultTraces) {
       faultTraces = await fetchFaultTraces(asset.id, op)
       if (generation !== overviewRequestGeneration) return
-      sectionCaches.faultTraces.set(op, faultTraces)
+      sectionCaches.faultTraces.set(faultKey, faultTraces)
     }
     faultTracesTruncated.value = faultTraces.truncated
     if (overlapLoadedFor.fault !== op) {
@@ -449,7 +518,9 @@ function createOverviewState() {
   // ---------- BRPC 接口监控（/brpc_profiling/knowledge 全量 + 文件客户端过滤，P2.1） ----------
 
   const brpcScopeTasks = computed(() =>
-    logFiles.value.filter((file) => file.log_type === 'UBSocket' && isSuccess(file)),
+    assetScoped.value
+      ? logFiles.value.filter((file) => file.log_type === 'UBSocket' && isSuccess(file))
+      : [],
   )
   const brpcLoading = ref(false)
   const brpcMonitorError = ref('')
@@ -716,7 +787,7 @@ function createOverviewState() {
   }
 
   const renderBrpcFaultTimeline = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcFaultTimelineRef.value
       if (!el) return
       const chart = getChart(el)
@@ -762,7 +833,7 @@ function createOverviewState() {
   })
 
   const renderBrpcThreadGraph = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcThreadGraphRef.value
       if (!el) return
       const chart = getChart(el)
@@ -836,7 +907,7 @@ function createOverviewState() {
 
   // P2.3 线程详情：接口命中时序（1m 粒度）
   const renderBrpcThreadTimeline = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcThreadTimelineRef.value
       if (!el) return
       const chart = getChart(el)
@@ -874,7 +945,7 @@ function createOverviewState() {
 
   // P2.2 事件详情：当前窗内接口故障时序（10s 粒度）
   const renderBrpcEventTimeline = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcEventTimelineRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3041,7 +3112,7 @@ function createOverviewState() {
   }
 
   const renderTopology = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = topoRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3242,7 +3313,7 @@ function createOverviewState() {
     Math.max(0, Math.min(n - 1, Math.round((pct / 100) * (n - 1))))
 
   const renderAnomalyChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = anomalyRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3381,7 +3452,7 @@ function createOverviewState() {
   }
 
   const renderTrendChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = trendRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3509,7 +3580,7 @@ function createOverviewState() {
   }
 
   const renderSlowChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = slowRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3693,7 +3764,7 @@ function createOverviewState() {
   }
 
   const renderFaultTopology = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = faultTopoRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3895,7 +3966,7 @@ function createOverviewState() {
   }
 
   const renderFaultChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = faultChartRef.value
       if (!el) return
       const chart = getChart(el)
@@ -3994,7 +4065,7 @@ function createOverviewState() {
   }
 
   const renderBrpcCharts = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const trend = brpcTrend.value
       ;[
         { ref: brpcSuccessRef, yName: '成功率 %', data: trend.success, color: '#00B365' },
@@ -4025,7 +4096,7 @@ function createOverviewState() {
 
   // P2.1 成功率总览：按勾选接口逐条曲线，指标可切换（成功率/失败率/请求数/成功量/失败量）
   const renderBrpcSuccessOverviewChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcSuccessOverviewRef.value
       if (!el) return
       const chart = getChart(el)
@@ -4074,7 +4145,7 @@ function createOverviewState() {
 
   // P2.1 单接口监控：成功率 + 失败率双曲线
   const renderBrpcSingleChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcSingleRef.value
       if (!el) return
       const chart = getChart(el)
@@ -4127,7 +4198,7 @@ function createOverviewState() {
 
   // P2.1 单接口时延：avg / P99 / max（ms）
   const renderBrpcLatencyChart = () => {
-    nextTick(() => {
+    afterDomUpdate(() => {
       const el = brpcLatencyRef.value
       if (!el) return
       const chart = getChart(el)
@@ -4197,6 +4268,8 @@ function createOverviewState() {
   const loadOverviewForTab = async () => {
     const generation = ++overviewRequestGeneration
     if (!isAssetMode.value) return
+    // 任务列表还停留在上一个资产库时不发按库查询，等日志列表 watcher 再触发
+    if (!assetScoped.value) return
     if (assetTypeFilter.value === 'brpc') {
       await loadBrpcData()
       if (brpcMonitorTab.value === 'fault') await loadBrpcFaultData()
@@ -4228,7 +4301,10 @@ function createOverviewState() {
   const bindOverviewWatchers = () => {
     if (overviewWatchersBound) return
     overviewWatchersBound = true
+    overviewScope.run(() => bindOverviewWatchersInScope())
+  }
 
+  const bindOverviewWatchersInScope = () => {
     const resetLatencyScope = () => {
       latencyFilter.clearTime()
       latencyFilter.clearFocus()
@@ -4242,6 +4318,71 @@ function createOverviewState() {
       disconnectFilter.clearFocus()
       selectedFaultCode.value = ''
       clearFaultTraceQuery()
+    }
+
+    // 切库重置：所有按资产聚合的状态必须清空，且让在途请求全部失效，
+    // 否则上一个资产库的结果会残留到新资产库（串数据）。
+    const resetAssetScope = () => {
+      ++overviewRequestGeneration
+      ++analysisWindowSeq
+      ++objectDetailSeq
+      ++traceDrawerRequestSeq
+      ++brpcProfilingSeq
+      ++brpcThreadLogsRequestSeq
+      if (analysisWindowTimer) clearTimeout(analysisWindowTimer)
+      analysisWindowTimer = null
+      analysisWindowBuckets.value = null
+      analysisWindowLoading.value = false
+      timelineTruncated.value = false
+      scopeData.value = emptyScopeData()
+      clearSectionCaches()
+      lastLogFilesKey = ''
+      domainAutoSelectPending = true
+      faultTraceIdsWithLatency.get.clear()
+      faultTraceIdsWithLatency.set.clear()
+      latencyTraceIdsWithFault.get.clear()
+      latencyTraceIdsWithFault.set.clear()
+      latencyFilter.clearTime()
+      latencyFilter.clearFocus()
+      latencyFilter.clearWhitelist()
+      latencyFilter.logId.value = undefined
+      disconnectFilter.clearTime()
+      disconnectFilter.clearFocus()
+      disconnectFilter.logId.value = undefined
+      selectedFaultCode.value = ''
+      clearFaultTraceQuery()
+      objectDetail.open = false
+      detailDrawerOpen.value = false
+      detailDrawerRow.value = null
+      traceDrawerLogs.value = []
+      overviewLoading.value = false
+      overviewError.value = ''
+      // UBSocket（BRPC）监控状态
+      brpcLoading.value = false
+      brpcMonitorError.value = ''
+      brpcProfilingFiles.value = []
+      brpcAllProfilingRows.value = []
+      brpcSelectedFileKey.value = ''
+      brpcSuccessSelectedIfaces.value = []
+      brpcSingleIface.value = ''
+      brpcFaultSelectedLogId.value = ''
+      brpcFaultBatch.value = null
+      brpcFaultBatchId.value = ''
+      brpcFaultTimelineSeries.value = []
+      brpcAggregatedEvents.value = []
+      brpcAggregatedEventTotal.value = 0
+      brpcAggregatedEventPage.value = 1
+      brpcAbnormalThreads.value = []
+      brpcAbnormalThreadTotal.value = 0
+      brpcAbnormalThreadPage.value = 1
+      brpcThreadSearchInput.value = ''
+      brpcThreadSearchQuery.value = ''
+      brpcFaultLoading.value = false
+      brpcFaultError.value = ''
+      brpcFaultDetail.value = null
+      brpcThreadLogs.value = []
+      brpcThreadDetail.value = null
+      brpcSelectedGraphNodeId.value = ''
     }
 
     watch([assetTypeFilter, assetTab], () => {
@@ -4330,7 +4471,8 @@ function createOverviewState() {
     )
 
     // TopK / 排序 变化 → 重算 Pod 列表并回到第 1 页
-    watch([overview.topK, overview.sortBy], () => {
+    // 注意：overview 是 reactive 对象，直接取值不是合法 watch source（永远不触发）
+    watch([() => overview.topK, () => overview.sortBy], () => {
       podPage.value = 1
       if (
         isAssetMode.value &&
@@ -4392,17 +4534,47 @@ function createOverviewState() {
 
     watch(
       () => dataOptions.value?.getAsset()?.id,
-      () => {
-        clearSectionCaches()
+      (assetId, previousAssetId) => {
+        if (assetId !== previousAssetId) resetAssetScope()
+        // 任务列表尚未返回：交给 logFiles watcher 在拿到列表后再加载
+        if (logFilesPending.value) return
         void loadOverviewForTab()
       },
       { immediate: true },
     )
     watch(
-      () => dataOptions.value?.getLogFiles(),
-      () => {
-        const files = dataOptions.value?.getLogFiles() ?? []
-        const key = files.map((file) => `${file.id}:${file.overall_status}`).join('|')
+      [
+        () => dataOptions.value?.getLogFiles(),
+        () => dataOptions.value?.getLogFilesAssetId?.() ?? '',
+        () => dataOptions.value?.getLogFilesLoading?.() ?? false,
+      ],
+      ([files, filesAssetId, logFilesLoading]) => {
+        const list = files ?? []
+        const ownerMatches = Boolean(filesAssetId) && filesAssetId === selectedAsset.value?.id
+        // 任务列表还没返回：等 loading 结束再决定数据域并发请求
+        if (ownerMatches && logFilesLoading) return
+        // 首次拿到该资产库的任务列表时，把数据域落到真正有已完成任务的域，
+        // 避免「上一个库停在 UBSocket，新库只有 KVCache」这类空壳页面
+        let domainSwitched = false
+        if (domainAutoSelectPending && ownerMatches) {
+          domainAutoSelectPending = false
+          const hasKvcache = list.some(
+            (file) => file.log_type === 'KVCache' && isSuccess(file as LogFileModel),
+          )
+          const hasUbsocket = list.some(
+            (file) => file.log_type === 'UBSocket' && isSuccess(file as LogFileModel),
+          )
+          if (assetTypeFilter.value === 'kvcache' && !hasKvcache && hasUbsocket) {
+            assetTypeFilter.value = 'brpc'
+            domainSwitched = true
+          } else if (assetTypeFilter.value === 'brpc' && !hasUbsocket && hasKvcache) {
+            assetTypeFilter.value = 'kvcache'
+            domainSwitched = true
+          }
+        }
+        const key =
+          `${filesAssetId}|` +
+          (files ?? []).map((file) => `${file.id}:${file.overall_status}`).join('|')
         // P1.5：默认跨任务汇总；仅在已选日志失效时回到“全部任务”
         const tasks = scopeTasks.value
         const current = latencyFilter.logId.value
@@ -4413,8 +4585,12 @@ function createOverviewState() {
           clearSectionCaches()
           lastLogFilesKey = key
         }
-        if (isAssetMode.value) void loadOverviewForTab()
+        // 域已切换时由 assetTypeFilter watcher 触发加载，避免同一次进入资产库重复请求
+        if (isAssetMode.value && !domainSwitched) void loadOverviewForTab()
       },
+      // immediate：OverviewPanel 是异步组件，挂载可能晚于任务列表返回，
+      // 首评必须用「当前已加载的任务列表」判定数据域并按页签加载
+      { immediate: true },
     )
 
     // P1.5：用户切换日志文件 → 清缓存并按当前页签重载

@@ -49,6 +49,7 @@ const {
   logFilesTotal,
   logFilesLoading,
   logFilesError,
+  logFilesAssetId,
   statusOf,
   progressOf,
   progressMessageOf,
@@ -291,7 +292,12 @@ onBeforeUnmount(() => {
         id="asset-analysis-panel"
         aria-labelledby="asset-analysis-tab"
       >
-        <OverviewPanel :asset="selectedAsset" :log-files="logFiles" />
+        <OverviewPanel
+          :asset="selectedAsset"
+          :log-files="logFiles"
+          :log-files-asset-id="logFilesAssetId"
+          :log-files-loading="logFilesLoading"
+        />
       </section>
 
       <!-- ====== 任务管理 ====== -->
