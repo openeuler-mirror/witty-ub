@@ -218,13 +218,8 @@ class KVCacheLogParseWorker(BaseWorker):
 
     @staticmethod
     def _new_parallel_scanner() -> ParallelFileScanner:
-        task_config = Config().get_config().task
         return ParallelFileScanner(
-            max_processes=min(
-                os.cpu_count() or 1,
-                task_config.parse_workers,
-                max(1, task_config.cpu_limit // task_config.max_concurrent_tasks),
-            ),
+            max_processes=os.cpu_count(),
             split_strategy=TaskSplitStrategy.BY_FILE_SIZE,
             use_multiprocessing=True,
             decompress=False,
