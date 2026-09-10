@@ -1941,6 +1941,19 @@ body.agent-panel-resizing-corner {
   margin: 0 auto;
 }
 
+.monitor-asset-label {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid #d0d5dd;
+  background: var(--primary-soft);
+  color: #1e3c72;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .monitor-section {
   width: 100%;
   min-width: 0;
