@@ -262,8 +262,10 @@ SELinux 拒绝通常伴随 `Permission denied`，需区分静态文件访问、�
 RPM manager 在渲染前端配置后会为 Web 静态文件、配置、日志和 PID 目录设置持久
 SELinux 标签，将 TCP 8080 标记为 `http_port_t`，并开启
 `httpd_can_network_connect` 以访问本机或远端后端。该布尔值作用于同一 SELinux
-域的 Web 服务。Enforcing 保持启用；缺少管理工具时部署会提示安装
-`policycoreutils-python-utils`（旧系统为 `policycoreutils-python`）及 `policycoreutils`。
+域的 Web 服务。Enforcing 保持启用；Web RPM 在 spec 中声明 SELinux 工具依赖，
+由 dnf/yum 安装时拉齐。`/usr/sbin/semanage` 文件依赖用于适配不同发行版的软件包名称。
+旧版 RPM 缺少工具时可先执行 `sudo dnf install -y /usr/sbin/semanage policycoreutils`
+（使用 yum 的系统将 dnf 替换为 yum），再重新部署。
 升级后执行 `sudo witty-ub manager deploy`，会重新渲染配置并重启 Web 服务。
 
 HTTP 413 表示请求体超过限制；本项目默认配置和模板均设为 `client_max_body_size 20G`，
