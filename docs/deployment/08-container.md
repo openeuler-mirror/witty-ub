@@ -118,7 +118,9 @@ secrets:
 
 ```bash
 docker network create witty-ub-network
-docker volume create witty-ub-data witty-ub-uploads witty-ub-results
+docker volume create witty-ub-data
+docker volume create witty-ub-uploads
+docker volume create witty-ub-results
 
 docker run -d \
   --name witty-ub-backend \
@@ -234,7 +236,10 @@ docker compose down    # 停止并删除
 ```bash
 # 创建网络和数据卷
 docker network create witty-ub-network
-docker volume create witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results
+docker volume create witty-ub-data
+docker volume create witty-ub-logs
+docker volume create witty-ub-uploads
+docker volume create witty-ub-results
 
 # 启动容器（默认 WITTY_ROLE=all）
 docker run -d \
@@ -341,7 +346,7 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `PG_PORT` | `5432` | PG 端口 |
 | `PG_DATABASE` | `witty-ub` | PG 数据库名 |
 | `PG_USER` | `witty-ub` | PG 用户名 |
-| `PG_PASSWORD` | （见密钥文件） | 一般无需设置：容器入口从 `/run/secrets/pg_password`（挂载自 `/etc/witty-ub/pg.passwd`，0640 root:root）读取并注入后端进程；仅在 PG 已另行配置口令且不使用密钥文件时才需要显式传入 |
+| `PG_PASSWORD` | （见密钥文件） | 一般无需设置：容器入口从 `/run/secrets/pg_password`（挂载自 `/etc/witty-ub/pg.passwd`，0440 root:root）读取并注入后端进程；仅在 PG 已另行配置口令且不使用密钥文件时才需要显式传入 |
 | `LOG_LEVEL` | `info` | 日志级别 |
 
 ---

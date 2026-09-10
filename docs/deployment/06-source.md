@@ -66,7 +66,7 @@ export PG_DATABASE=witty-ub
 export PG_USER=witty-ub
 ```
 
-> 口令由 `deploy/host/run_backend.sh` 从权限为 `0600` 的 `deploy/pg.passwd` 读取，无需也不建议手动 export。
+> 口令由 `deploy/host/run_backend.sh` 从权限为 `0400` 的 `deploy/pg.passwd` 读取，无需也不建议手动 export。
 
 ### 验证与防火墙
 

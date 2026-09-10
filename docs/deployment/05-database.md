@@ -13,7 +13,7 @@
 - 用户名：`witty-ub`
 - 密码：必须使用唯一的强口令
 
-> 使用部署脚本首次初始化时，可按提示隐藏输入至少 6 位字母数字口令；直接回车或非交互部署会自动生成随机口令。口令写入独立密钥文件（源码 host / RPM 包部署权限 0600，Docker 部署权限 0640），不回写 `deploy.conf` —— 配置文件始终保持 `<CHANGE_ME>` 占位；脚本在写入后会**校验实际权限**，不符合预期即报错退出。密钥文件路径按部署形态不同：
+> 使用部署脚本首次初始化时，可按提示隐藏输入至少 6 位字母数字口令；直接回车或非交互部署会自动生成随机口令。口令写入独立密钥文件（源码 host 部署 0400，容器化 PG 0440，RPM 包部署 0600），不回写 `deploy.conf` —— 配置文件始终保持 `<CHANGE_ME>` 占位；脚本在写入后会**校验实际权限**，不符合预期即报错退出。密钥文件路径按部署形态不同：
 >
 > - **源码 host 部署**（`deploy_pg.sh --rpm/--apt`）：`deploy/pg.passwd`
 > - **Docker 部署**（`deploy_pg.sh --docker`）和 **RPM 包部署**（`witty-ub manager deploy`）：`/etc/witty-ub/pg.passwd`
@@ -42,10 +42,10 @@ docker network create witty-ub-network
 docker volume create pg15-data
 
 # 创建密钥（也可运行 bash deploy/deploy_pg.sh --docker 自动生成）
-# 目录需可被部署用户遍历（0755），密钥本身 0640 root:root：
-# PG 容器内的 postgres 用户为 uid=26/gid=0，必须组可读才能读到 /run/secrets/pg_password
+# 目录需可被部署用户遍历（0755），密钥本身 0440 root:root：
+# PG 容器内的 postgres 用户为 uid=26/gid=0，需组可读才能读到 /run/secrets/pg_password
 sudo install -d -m 0755 /etc/witty-ub
-printf '%s' "<STRONG_PASSWORD>" | sudo install -m 0640 -o root -g root /dev/stdin /etc/witty-ub/pg.passwd
+printf '%s' "<STRONG_PASSWORD>" | sudo install -m 0440 -o root -g root /dev/stdin /etc/witty-ub/pg.passwd
 
 # 启动 PG 容器
 docker run -d \

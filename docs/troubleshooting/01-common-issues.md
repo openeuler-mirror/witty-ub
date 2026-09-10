@@ -226,17 +226,24 @@ docker exec witty-ub curl --noproxy 127.0.0.1 http://127.0.0.1:9772/health_check
 或 `password authentication failed`。
 
 **原因**: PG 容器以 `uid=26(postgres) gid=0` 运行，只读挂载进来的密钥文件必须**组可读**，
-即 `0640`、属主 `root:root`；目录 `/etc/witty-ub` 也需可被部署用户遍历，否则脚本会误报
+即 `0440`、属主 `root:root`；目录 `/etc/witty-ub` 也需可被部署用户遍历，否则脚本会误报
 "PG 密钥文件不存在"。
+
+密钥权限由读取方决定，`deploy_witty.sh` 会自动设置并校验：
+
+| 场景 | 读取方 | 权限 |
+| ------ | -------- | ------ |
+| 容器化 PG | PG 容器 `uid26/gid0` | `0440` |
+| 宿主机 / 远端 PG | 应用容器 root 或宿主机启动器 | `0400` |
 
 **排查与修复**:
 
 ```bash
-# 1. 查看密钥文件权限（期望 0640 root:root）
+# 1. 查看密钥文件权限（容器化 PG 期望 0440 root:root）
 sudo stat -c '%a %U:%G %n' /etc/witty-ub/pg.passwd
 
-# 2. 权限不对时修正（deploy_pg.sh 与 deploy_witty.sh 会自动收紧并校验，手工创建时最容易漏）
-sudo chmod 0640 /etc/witty-ub/pg.passwd
+# 2. 权限不对时修正（deploy_pg.sh 与 deploy_witty.sh 会自动设置并校验）
+sudo chmod 0440 /etc/witty-ub/pg.passwd
 sudo chmod 0755 /etc/witty-ub
 
 # 3. 重建/重启容器使新权限生效
@@ -245,6 +252,67 @@ bash deploy/docker/manage.sh install-pg     # 或者 docker restart postgres
 
 宿主机 PG（RPM/源码）场景下脚本会自动查找 `/etc/witty-ub/pg.passwd` → `deploy/pg.passwd`；
 使用外部 PG 实例时可显式指定：`PG_SECRET_FILE=/path/to/pg.passwd bash deploy/docker/manage.sh install-witty`。
+
+---
+
+## 10. 密钥选错：宿主机 PG 场景误用容器化 PG 的口令
+
+**症状**: `bash deploy/docker/manage.sh install-witty` 以非 0 退出，脚本只提示
+`[ERROR] witty-ub (all) not healthy within 180s` 与 `[ERROR] Latency Plugin failed to start`；
+容器内 `/var/log/witty-ub/latency_server.log` 才是真正的根因:
+
+```text
+asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "witty-ub"
+ERROR:    Application startup failed. Exiting.
+```
+
+**原因**: 容器化 PG 使用 `/etc/witty-ub/pg.passwd`，宿主机 RPM/源码 PG 使用
+`deploy/pg.passwd`。宿主机 PG 在跑而仓库密钥缺失时，脚本回退到系统密钥，而该口令属于上一轮
+的 PG 容器，与宿主机 PG 不匹配。此时脚本会打印 `Host PostgreSQL service detected, but the
+repo secret is missing` 告警。
+
+**排查与修复**:
+
+```bash
+# 1. 确认宿主机 PG 在跑、且哪份密钥存在
+systemctl is-active postgresql
+ls -l deploy/pg.passwd /etc/witty-ub/pg.passwd 2>/dev/null
+
+# 2. 首选：用仓库密钥重新部署宿主机 PG（会重建口令与 pg_hba）
+sudo bash deploy/deploy_pg.sh --rpm
+bash deploy/docker/manage.sh install-witty
+
+# 3. 或者：显式指定正确密钥（不重建 PG）
+PG_SECRET_FILE=/path/to/correct/pg.passwd bash deploy/docker/manage.sh install-witty
+```
+
+> `deploy_witty.sh` 失败时会追加打印容器内 `latency_server.log` 的最后 20 行。
+
+---
+
+## 11. 分离部署：前端容器 unhealthy（实为后端不可达）
+
+**症状**: `docker ps` 显示 `witty-ub-frontend` 为 `unhealthy`，但前端页面仍可打开；
+`curl http://<前端IP>:32413/health_check` 返回 502。
+
+**原因**: frontend 的健康检查经 Nginx 反代探测远端后端 `WITTY_BACKEND_URL/health_check`，
+因此后端停机后前端在连续 3 次失败（interval 30s）转为 `unhealthy`，后端恢复后自动回到
+`healthy`；`install-frontend` 在后端未就绪时会以非 0 退出。
+
+**排查与修复**:
+
+```bash
+# 1. 在后端节点确认服务本身
+curl -s http://<后端IP>:9772/health_check          # {"status":"ok"}
+
+# 2. 在前端节点确认反代上游与连通性
+docker exec witty-ub-frontend grep proxy_pass /etc/witty-ub/web/nginx.conf
+docker exec witty-ub-frontend curl -s --noproxy '*' http://<后端IP>:9772/health_check
+
+# 3. 后端未起 → 先在 BE 执行 install-pg + install-backend；后端起但不可达 → 查 9772 防火墙
+```
+
+> 分离部署必须先部署后端再部署前端；跨机时后端机器需对前端机器放通 9772。
 
 ---
 
