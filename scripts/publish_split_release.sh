@@ -53,14 +53,21 @@ APP_IMAGE="${REPO}/witty-ub"
 log() { echo "[publish] $*"; }
 
 require() {
-  command -v docker >/dev/null 2>&1 || { echo "docker not found" >&2; exit 1; }
-  docker buildx version >/dev/null 2>&1 || { echo "docker buildx not available" >&2; exit 1; }
+  command -v docker >/dev/null 2>&1 || {
+    echo "docker not found" >&2
+    exit 1
+  }
+  docker buildx version >/dev/null 2>&1 || {
+    echo "docker buildx not available" >&2
+    exit 1
+  }
 }
 
 ensure_builder() {
   # A docker-container buildx driver is required for cross-platform (multi-arch)
   # builds. The default "docker" driver cannot build amd64 while on arm64 (and
-  # vice-versa). Bootstrap also installs the QEMU/binfmt handlers.
+  # vice-versa). Note: this does NOT install QEMU/binfmt - on Linux hosts that
+  # must be pre-installed (e.g. tonistiigi/binfmt); Docker Desktop bundles it.
   if docker buildx ls 2>/dev/null | grep -qE "${BUILDER}"; then
     log "using existing buildx builder '${BUILDER}'"
   else
@@ -83,11 +90,14 @@ build_web() {
   fi
   pushd "${web_dir}" >/dev/null
   log "installing web dependencies (npm)"
-  npm install --no-audit --no-fund
+  npm ci --no-audit --no-fund
   log "building web frontend"
   export HUSKY=0
   npm run build-only
-  [ -d dist ] || { echo "ERROR: web build did not produce src/web/dist" >&2; exit 1; }
+  [ -d dist ] || {
+    echo "ERROR: web build did not produce src/web/dist" >&2
+    exit 1
+  }
   popd >/dev/null
   log "web dist ready"
 }
@@ -147,19 +157,31 @@ publish_app() {
 
 verify() {
   log "verifying published manifest lists"
-  docker buildx imagetools inspect "${APP_IMAGE}:${VERSION}" >/dev/null 2>&1 \
-    || { echo "ERROR: All-in-One manifest missing for ${VERSION}" >&2; exit 1; }
-  docker buildx imagetools inspect "${APP_IMAGE}:backend" >/dev/null 2>&1 \
-    || { echo "ERROR: backend manifest missing" >&2; exit 1; }
-  docker buildx imagetools inspect "${APP_IMAGE}:frontend" >/dev/null 2>&1 \
-    || { echo "ERROR: frontend manifest missing" >&2; exit 1; }
+  docker buildx imagetools inspect "${APP_IMAGE}:${VERSION}" >/dev/null 2>&1 ||
+    {
+      echo "ERROR: All-in-One manifest missing for ${VERSION}" >&2
+      exit 1
+    }
+  docker buildx imagetools inspect "${APP_IMAGE}:backend" >/dev/null 2>&1 ||
+    {
+      echo "ERROR: backend manifest missing" >&2
+      exit 1
+    }
+  docker buildx imagetools inspect "${APP_IMAGE}:frontend" >/dev/null 2>&1 ||
+    {
+      echo "ERROR: frontend manifest missing" >&2
+      exit 1
+    }
   log "OK: All-in-One / backend / frontend are multi-arch manifest lists"
 }
 
 main() {
   require
-  [ "${PUBLISH_BASE}" = "1" ] || [ "${PUBLISH_APP}" = "1" ] \
-    || { echo "nothing to do" >&2; exit 1; }
+  [ "${PUBLISH_BASE}" = "1" ] || [ "${PUBLISH_APP}" = "1" ] ||
+    {
+      echo "nothing to do" >&2
+      exit 1
+    }
   if [ "${VERSION}" = "latest" ]; then
     log "WARNING: VERSION=latest means this is a moving snapshot, not a release."
   fi

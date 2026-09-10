@@ -6,7 +6,7 @@ witty-ub 超节点故障智能监控诊断平台是基于故障树驱动的诊�
 
 该工具采用 client-server 架构，支持在超节点系统中部署服务，并通过 Web 前端进行交互式操作和可视化展示。
 
-***
+---
 
 ## 核心功能模块
 
@@ -237,11 +237,10 @@ witty-ub 超节点故障智能监控诊断平台是基于故障树驱动的诊�
 ![Agent智能体对话1](../figures/web-ui/Agent智能体对话1.png)
 ![Agent智能体对话2](../figures/web-ui/Agent智能体对话2.png)
 
-***
+---
 
 ## 相关文档
 
 - 数据采集工具使用指南 → [02-data-collection-guide.md](02-data-collection-guide.md)
 - 配置参考手册 → [03-configuration-reference.md](03-configuration-reference.md)
 - 部署指南 → [../deployment/01-overview.md](../deployment/01-overview.md)
-

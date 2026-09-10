@@ -2,6 +2,9 @@
 
 本文档介绍 witty-ub 容器运行时常见问题的排查方法，包括 seccomp/clone3 问题、Docker 版本兼容性、日志管理、容器内调试和生产环境建议。
 
+> **容器名速查**：单机 All-in-One = `witty-ub`（Web 32412）；分离部署 = `witty-ub-backend`（API 9772，无 Web）+ `witty-ub-frontend`（Web 32413，反代后端）；数据库 = `postgres`（宿主机 15432）。
+> **PG 密钥**：PG 容器要求 `/etc/witty-ub/pg.passwd` 为 `0440 root:root`（容器内 postgres 用户 uid26/gid0 读），否则会崩溃循环，详见 [常见问题 · PG 容器崩溃循环](01-common-issues.md#9-pg-容器崩溃循环--后端连不上数据库)。
+
 ---
 
 ## 1. seccomp/clone3 问题
@@ -9,6 +12,7 @@
 ### 问题描述
 
 **症状**: 容器启动后运行异常，出现以下情况之一:
+
 - Latency Plugin 报 `RuntimeError: can't start new thread`
 - 容器内进程创建失败或线程池无法扩展
 - OpenCode 服务无法正常启动
@@ -77,9 +81,12 @@ docker run -d \
   -p 32412:8080 \
   -v witty-ub-data:/var/witty-ub/data \
   -v witty-ub-logs:/var/log/witty-ub \
+  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
   --security-opt seccomp=unconfined \
   witty-ub:latest
 ```
+
+> 该容器是**增补的调试容器**：`witty-ub` 名称若已被现有部署占用，请改用别的 `--name` 与端口。缺少 `/run/secrets/pg_password` 挂载时入口会直接退出（数据库口令为必需项）。
 
 **使用 docker compose**:
 
@@ -96,15 +103,21 @@ services:
     volumes:
       - witty-ub-data:/var/witty-ub/data
       - witty-ub-logs:/var/log/witty-ub
+    secrets:
+      - pg_password
     security_opt:
       - seccomp=unconfined
+
+secrets:
+  pg_password:
+    file: /etc/witty-ub/pg.passwd
 ```
 
 然后重新创建容器:
 
 ```bash
-docker compose down
-docker compose up -d
+docker compose --profile allinone down
+docker compose --profile allinone up -d
 docker logs -f witty-ub
 ```
 
@@ -185,31 +198,53 @@ docker compose version
 ### 低版本 Docker 注意事项
 
 如果 Docker 版本低于 20.10:
+
 1. 可能遇到 seccomp/clone3 问题（见上文）
 2. 不支持 `docker compose` 命令，需使用 `docker-compose`（带连字符）
 3. 多架构构建功能受限
 
 ### 升级 Docker
 
-**在 openEuler 上**:
+**在 openEuler 24.03 上**（该发行版官方源只有 `docker-engine 18.09` / `docker-compose 1.22`，
+即上文点名"不可用"的版本；也不提供 `yum-utils`、`yum-config-manager`，因此不能照抄
+CentOS/RHEL 的通用步骤）:
 
 ```bash
 # 卸载旧版本
 sudo yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
 
-# 安装依赖
-sudo yum install -y yum-utils
+# 配置 Docker CE 仓库：openEuler 的 $releasever 是 24.03，不能直接用 centos 的 repo 文件，
+# 需显式固定为 centos/9（依赖 container-selinux 由 openEuler 源提供）
+sudo tee /etc/yum.repos.d/docker-ce.repo >/dev/null <<'EOF'
+[docker-ce-stable]
+name=Docker CE Stable
+baseurl=https://download.docker.com/linux/centos/9/$basearch/stable
+enabled=1
+gpgcheck=1
+gpgkey=https://download.docker.com/linux/centos/gpg
+EOF
 
-# 添加 Docker 仓库
-sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-# 安装 Docker
-sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# 安装 Docker（实测：Docker CE 29.x + Compose v2 插件）
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin
 
 # 启动 Docker
-sudo systemctl start docker
-sudo systemctl enable docker
+sudo systemctl enable --now docker
+
+# 授权当前用户（否则 docker info 报 permission denied，部署脚本会提示加入 docker 组）
+sudo usermod -aG docker "$USER" && newgrp docker
+
+# 校验
+docker version
+docker compose version
 ```
+
+> 完全离线环境：在用网机器执行
+> `dnf download --resolve docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin`，
+> 把 RPM 与 `container-selinux` 一起带到目标机后 `sudo dnf install ./*.rpm`。
+>
+> 若目标机不能改仓库，也可用 Docker 官方静态包
+> （`https://download.docker.com/linux/static/stable/<arch>/docker-<ver>.tgz`）解压到
+> `/usr/bin` 并自行提供 `docker.service`（无 `docker compose` 插件，需改用 `docker run` 系列命令）。
 
 ---
 
@@ -219,14 +254,13 @@ sudo systemctl enable docker
 
 ```bash
 # 使用 docker compose
-docker compose logs
-docker compose logs -f
-docker compose logs --tail=100
-docker compose logs --since 2024-01-01T10:00:00
+docker compose --profile split logs -f              # 分离；单机用 --profile allinone
+docker compose --profile split logs --tail=100
+docker compose --profile split logs --since 2024-01-01T10:00:00
 
 # 使用纯 Docker 命令
-docker logs witty-ub
-docker logs -f witty-ub
+docker logs witty-ub                                 # 单机
+docker logs -f witty-ub-frontend                     # 分离前端
 docker logs --tail=100 witty-ub
 docker logs --since 2024-01-01T10:00:00 witty-ub
 ```
@@ -236,7 +270,7 @@ docker logs --since 2024-01-01T10:00:00 witty-ub
 容器内日志路径:
 
 | 日志类型 | 路径 |
-|---------|------|
+| --------- | ------ |
 | Nginx 访问日志 | `/var/log/witty-ub-web/access.log` |
 | Nginx 错误日志 | `/var/log/witty-ub-web/error.log` |
 | Latency 服务日志 | `/var/log/witty-ub/latency_server.log` |

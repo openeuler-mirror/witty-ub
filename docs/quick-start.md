@@ -12,27 +12,37 @@ witty-ub 超节点故障智能监控诊断平台提供 KVCache 和 URMA 组件�
 
 ```bash
 # 宿主机部署
-# 单机: 前后端同机
-bash deploy/host/deploy.sh --deploy
-
 # 分离: 后端节点（有数据的机器）
 bash deploy/host/deploy.sh --deploy --role backend
 
 # 分离: 前端节点（能访问 Agent/LLM 的机器）
 WITTY_BACKEND_URL=http://<后端IP>:9772 \
   bash deploy/host/deploy.sh --deploy --role frontend
+
+# 单机（前后端同机，验证/演示用）
+bash deploy/host/deploy.sh --deploy
 ```
 
 → [宿主机脚本部署](./deployment/02-script-host.md)
 
 ```bash
-# 容器部署（单机）
-bash deploy/docker/manage.sh
-# 选择 [1] 一键安装
+# 容器分离部署（推荐；跨机拆分见文档）
+# 后端节点：PG + 后端（暴露 9772）
+bash deploy/docker/manage.sh install-pg
+bash deploy/docker/manage.sh install-backend
 
-# 容器分离部署（同机双容器, 跨机拆分见文档）
-docker compose --profile split up -d
+# 前端节点：Nginx + OpenCode（暴露 32413，反代后端）
+WITTY_BACKEND_URL=http://<后端IP>:9772 bash deploy/docker/manage.sh install-frontend
+
+# 同机验证也可以直接用仓库自带 compose（两 profile 互斥）
+docker compose --profile split up -d          # postgres + backend + frontend
+docker compose --profile allinone up -d       # 单机全量
+
+# 单机 All-in-One（脚本）
+bash deploy/docker/manage.sh install-all
 ```
+
+> `docker-compose.yml` 用 profile 区分形态（`split` / `allinone`，互斥）；不带 profile 只会拉起 `postgres`。脚本部署（`manage.sh`）与 compose 二选一，不要混用。
 
 → [容器脚本部署](./deployment/03-script-container.md) | [容器分离部署](./deployment/08-container.md)
 

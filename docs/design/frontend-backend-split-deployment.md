@@ -43,8 +43,8 @@
 
 | 部署形态 | 前端托管 | 硬编码的同机假设 |
 | ---------- | ---------- | ------------------ |
-| Docker（`docker-compose.yml` + `Dockerfile`） | 容器内 Nginx 8080 | [docker/nginx.conf](../../docker/nginx.conf) 反代 `127.0.0.1:9772/4096`；entrypoint 同机拉起全部服务；OpenCode 绑 `127.0.0.1` |
-| RPM（`witty-ub` + `witty-ub-manager`） | `witty-ub-web.service`（Nginx 8080） | [packaging/nginx/witty-ub-web.conf](../../packaging/nginx/witty-ub-web.conf) 反代 `127.0.0.1:9772/4096`；manager.sh 只管本机 systemd units |
+| Docker（`docker-compose.yml` + `Dockerfile`） | 容器内 Nginx 8080 | 容器内静态 `docker/nginx.conf` 反代 `127.0.0.1:9772/4096`；entrypoint 同机拉起全部服务；OpenCode 绑 `127.0.0.1` |
+| RPM（`witty-ub` + `witty-ub-manager`） | `witty-ub-web.service`（Nginx 8080） | 静态 `packaging/nginx/witty-ub-web.conf` 反代 `127.0.0.1:9772/4096`；manager.sh 只管本机 systemd units |
 | 源码/宿主机（`deploy/host/deploy.sh`） | vite preview 5173（dist/） | vite proxy 指向 `127.0.0.1`；deploy.sh 假定前后端同仓同机（systemd user units 成对安装） |
 
 其它耦合：
@@ -97,7 +97,7 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 
 ### 4.2 Nginx 配置统一模板化
 
-- 合并 [docker/nginx.conf](../../docker/nginx.conf) 与 [packaging/nginx/witty-ub-web.conf](../../packaging/nginx/witty-ub-web.conf) 为一份模板 `packaging/nginx/witty-ub-web.conf.template`，上游以占位符表达：
+- 合并 `docker/nginx.conf` 与 `packaging/nginx/witty-ub-web.conf` 为一份模板 `packaging/nginx/witty-ub-web.conf.template`，上游以占位符表达：
   - `${WITTY_BACKEND_URL}`（默认 `http://127.0.0.1:9772`）
   - `${WITTY_AGENT_URL}`（默认 `http://127.0.0.1:4096`）
 - 部署时由脚本 `envsubst` 渲染生成最终 conf（Docker entrypoint / RPM systemd `ExecStartPre` / host deploy.sh 三处复用同一模板）。

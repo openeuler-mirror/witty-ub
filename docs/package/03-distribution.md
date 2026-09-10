@@ -42,8 +42,8 @@
 
 - `docker` + `docker buildx`，且使用 `docker-container` driver（默认 `docker`
   driver 不支持交叉构建）。
-- 交叉构建依赖 QEMU / binfmt；`docker buildx create --driver docker-container` 的
-  bootstrap 会自动注册，无需单独安装。
+- 交叉构建依赖 QEMU / binfmt：Docker Desktop 已内置；Linux 宿主机需预先安装
+  （如 `docker run --privileged --rm tonistiigi/binfmt --install all`）。
 - 目标镜像仓需允许创建子仓库并推送（Harbor 项目权限；若无建仓权限需先建好
   仓库）。
 - 构建主机需能访问依赖仓库；基础镜像的 base 也要能拉取。
@@ -83,6 +83,7 @@ git clone --branch "$VER" --depth 1 <upstream-url> witty-ub-src
 cd witty-ub-src
 
 pushd src/web
+export HUSKY=0
 npm ci --no-audit --no-fund && npm run build-only
 popd
 ```
@@ -99,9 +100,17 @@ docker buildx use witty-ub-builder
 ### 3. 发布基础镜像（每个都是多架构）
 
 ```bash
-docker buildx build --platform "$PLATFORMS" --push -f Dockerfile.base --target base           -t "$REG/witty-ub-base:latest"           -t "$REG/witty-ub-base:$VER" .
-docker buildx build --platform "$PLATFORMS" --push -f Dockerfile.base --target base-backend    -t "$REG/witty-ub-base-backend:latest"    -t "$REG/witty-ub-base-backend:$VER" .
-docker buildx build --platform "$PLATFORMS" --push -f Dockerfile.base --target base-frontend   -t "$REG/witty-ub-base-frontend:latest"   -t "$REG/witty-ub-base-frontend:$VER" .
+docker buildx build --platform "$PLATFORMS" --push \
+  -f Dockerfile.base --target base \
+  -t "$REG/witty-ub-base:latest" -t "$REG/witty-ub-base:$VER" .
+
+docker buildx build --platform "$PLATFORMS" --push \
+  -f Dockerfile.base --target base-backend \
+  -t "$REG/witty-ub-base-backend:latest" -t "$REG/witty-ub-base-backend:$VER" .
+
+docker buildx build --platform "$PLATFORMS" --push \
+  -f Dockerfile.base --target base-frontend \
+  -t "$REG/witty-ub-base-frontend:latest" -t "$REG/witty-ub-base-frontend:$VER" .
 ```
 
 > 三个 base 都要随发布一起重新构建，不要复用历史 base：应用镜像的
@@ -189,7 +198,7 @@ gunzip -c witty-ub.tar.gz | docker load
   改用目标环境可达的源。
 - 前端必须原生构建：不要用 `--platform` 让 buildx 在模拟环境跑
   `npm run build-only`；应在宿主机先构建出 `src/web/dist`。`.dockerignore` 的
-  `dist/` 会排除该目录，若 `COPY src/web/dist` 报错需放开这行。
+  `dist/` 只匹配 context 根目录，不会排除 `src/web/dist`，无需额外处理。
 - 角色镜像依赖 base：`backend` / `frontend` target 的运行时 base 必须先发布到
   仓库，否则全新机器拉不到。
 - 磁盘空间：双架构构建 base 占用较大空间，预留 10GB+。
