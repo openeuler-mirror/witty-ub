@@ -4553,6 +4553,19 @@ body.agent-panel-resizing-corner {
   padding-bottom: 6px;
 }
 
+.trace-section-title-with-hint {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trace-section-hint {
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .trace-log-list {
   display: grid;
   gap: 12px;
