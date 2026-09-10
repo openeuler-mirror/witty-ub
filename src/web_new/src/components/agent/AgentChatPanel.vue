@@ -295,8 +295,13 @@ const onInputKeydown = (event: KeyboardEvent) => {
 
     <!-- ===== 登录视图 ===== -->
     <div v-if="view === 'login'" class="agent-view agent-login">
+      <div class="agent-login-hero">
+        <span class="agent-login-badge" aria-hidden="true">✦</span>
+        <h2>连接 OpenCode</h2>
+        <p>选择本地服务器，或使用登录信息连接远程服务器。</p>
+      </div>
       <button
-        class="agent-login-card"
+        class="agent-login-card agent-login-primary"
         :disabled="isLoggingIn || connectionState === 'connecting'"
         @click="loginLocalAgent"
       >
@@ -304,7 +309,8 @@ const onInputKeydown = (event: KeyboardEvent) => {
         <span>127.0.0.1:4096 · 无需用户名和密码</span>
       </button>
       <form class="agent-login-card" @submit.prevent="loginRemoteAgent">
-        <strong>连接远程 OpenCode 服务器</strong>
+        <strong>远程连接</strong>
+        <span>使用远程服务器的登录信息</span>
         <input class="input" v-model="remoteAddress" placeholder="IP:端口号" autocomplete="url" />
         <input
           class="input"
@@ -762,8 +768,68 @@ const onInputKeydown = (event: KeyboardEvent) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 420px;
+  max-width: 460px;
   margin: 0 auto;
+  width: 100%;
+  padding-top: 8px;
+}
+
+/* A3：登录视图视觉对标旧版（居中徽标 + 标题 + 渐变主按钮 + 远程连接卡片） */
+.agent-login-hero {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.agent-login-badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.28);
+  margin-bottom: 6px;
+}
+.agent-login-hero h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.agent-login-hero p {
+  font-size: 12px;
+  color: var(--text3);
+}
+/* 需要压过 .agent-login-card 的 background/border，故用双类选择器 */
+.agent-login-card.agent-login-primary {
+  border: none;
+  color: #fff;
+  background: linear-gradient(135deg, #4f6ef7, #6d4df6);
+  box-shadow: 0 10px 24px rgba(79, 110, 247, 0.3);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.agent-login-primary strong {
+  color: #fff;
+  font-size: 14px;
+}
+.agent-login-primary span {
+  color: rgba(255, 255, 255, 0.82);
+}
+.agent-login-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(79, 110, 247, 0.36);
+}
+.agent-login-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .agent-login-card {
   display: flex;
@@ -773,7 +839,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px;
-  background: var(--bg2, #f9fafb);
+  background: var(--surface, #fff);
   font-size: 13px;
 }
 .agent-login-card span {
