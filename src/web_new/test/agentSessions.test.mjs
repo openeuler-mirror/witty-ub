@@ -201,17 +201,31 @@ test('event stream flushes a final frame without a trailing blank line', async (
   }
 })
 
-test('new sessions are saved immediately and dialog rename/delete updates server state', async () => {
-  const { state, servers, cleanup } = setup()
+test('new conversation clears the window and creates the session lazily on first send', async () => {
+  const { state, servers, storage, cleanup } = setup()
   try {
     await state.loginLocalAgent()
     assert.equal(state.connectionState.value, 'connected', state.connectionError.value)
     state.setAsset({ id: 'kb-new', name: '测试资产' })
     await flush()
+    await state.openConversation('a')
     await state.newConversation()
+    // A2：新建对话只清空窗口，不预建服务端会话
+    assert.equal(state.sessionId.value, '')
+    assert.deepEqual(state.messages.value, [])
+    assert.equal(state.activeSessionTitle.value, '开始新对话')
+    assert.equal(storage.get('witty-ub.active-session:/agent-api'), undefined)
+    // 首次发送才惰性创建会话
+    const sessionsBefore = servers.local.sessions.length
+    state.input.value = '首次提问'
+    await state.sendMessage()
+    await flush()
     const id = state.sessionId.value
     assert.ok(id.startsWith('created-'))
+    assert.equal(servers.local.sessions.length, sessionsBefore + 1)
     assert.equal(state.sessionAssetName(id), '测试资产')
+    // A2：不再用首条问题改写标题
+    assert.equal(state.activeSessionTitle.value, '开始新对话')
     const session = state.sessions.value.find((item) => item.id === id)
     state.showSessionDialog('rename', session)
     state.sessionTitleInput.value = '诊断记录'
@@ -270,8 +284,8 @@ test('late history cannot overwrite the selected conversation', async () => {
   }
 })
 
-test('reconnect restores the active conversation and historical model errors', async () => {
-  const { state, servers, cleanup } = setup()
+test('reconnect starts an empty window and history/model errors return on explicit open', async () => {
+  const { state, servers, storage, cleanup } = setup()
   try {
     servers.local.histories.b.push({
       info: { id: 'error-b', role: 'assistant', error: { data: { message: '连接失败' } } },
@@ -279,7 +293,14 @@ test('reconnect restores the active conversation and historical model errors', a
     })
     await state.loginLocalAgent()
     await state.openConversation('b')
+    assert.equal(state.messages.value.at(-1).content, '连接失败')
     await state.loginLocalAgent()
+    // A2：连接后进入「开始新对话」空窗口，不自动恢复上次会话
+    assert.equal(state.sessionId.value, '')
+    assert.equal(state.messages.value.length, 0)
+    assert.equal(storage.get('witty-ub.active-session:/agent-api'), undefined)
+    // 显式打开仍恢复历史与历史错误态
+    await state.openConversation('b')
     assert.equal(state.sessionId.value, 'b')
     assert.equal(state.messages.value.at(-1).status, 'error')
     assert.equal(state.messages.value.at(-1).content, '连接失败')
@@ -288,14 +309,16 @@ test('reconnect restores the active conversation and historical model errors', a
   }
 })
 
-test('initial asset sync keeps the conversation restored during connection', async () => {
+test('initial asset sync does not restore the stored conversation on connect', async () => {
   const { state, storage, cleanup } = setup()
   try {
     storage.set('witty-ub.active-session:/agent-api', 'a')
     state.setAsset({ id: 'kb-a', name: '测试资产' })
     await state.loginLocalAgent()
-    assert.equal(state.sessionId.value, 'a')
-    assert.equal(state.messages.value[0].content, '问题 A')
+    // A2：连接后不自动恢复历史会话，活动会话标识被清除
+    assert.equal(state.sessionId.value, '')
+    assert.equal(state.messages.value.length, 0)
+    assert.equal(storage.get('witty-ub.active-session:/agent-api'), undefined)
   } finally {
     await cleanup()
   }

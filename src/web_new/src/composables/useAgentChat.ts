@@ -283,14 +283,8 @@ export function createAgentChatState() {
       view.value = hasModel ? nextView : 'models'
       await resetConversation()
       await refreshSessions()
-      let previousSession = ''
-      try {
-        previousSession = localStorage.getItem(storageKey(ACTIVE_SESSION_KEY, instance)) ?? ''
-      } catch {
-        // Browser storage is optional.
-      }
-      const restored = sessions.value.find((session) => session.id === previousSession)
-      if (restored) await openConversation(restored.id)
+      // A2（对齐旧版 e3dbde3c）：连接后进入空窗口「开始新对话」，不自动恢复上次会话
+      saveActiveSession()
     } catch (error) {
       if (sequence !== connectionSequence || instance !== api.value) return
       connectionState.value = 'disconnected'
@@ -712,29 +706,12 @@ export function createAgentChatState() {
   }
 
   const newConversation = async () => {
-    if (!api.value || isSessionCreating.value || isSessionSaving.value || isSubmitting.value) return
+    if (!api.value || isSessionSaving.value || isSubmitting.value) return
     if (sessionId.value) sessionDrafts.value[sessionId.value] = input.value
+    // A2（对齐旧版 e3dbde3c）：只清空窗口，「开始新对话」；会话在首次发送时惰性创建
     await resetConversation()
     view.value = 'chat'
-    const sequence = requestSequence
-    const assetId = currentAsset.id
-    isSessionCreating.value = true
-    try {
-      const created = await api.value.createSession()
-      if (!created?.id) throw new Error('Agent 服务没有返回会话 ID')
-      if (sequence !== requestSequence) return
-      sessionId.value = created.id
-      registerSessionAsset(created.id, assetId)
-      saveActiveSession()
-      sessions.value = [created, ...sessions.value.filter((session) => session.id !== created.id)]
-      void connectEvents()
-    } catch (error) {
-      if (sequence === requestSequence) {
-        connectionError.value = error instanceof Error ? error.message : '新建会话失败'
-      }
-    } finally {
-      if (sequence === requestSequence) isSessionCreating.value = false
-    }
+    saveActiveSession()
   }
 
   const showSessionDialog = (kind: 'rename' | 'delete', session: OpenCodeSession) => {
@@ -811,12 +788,12 @@ export function createAgentChatState() {
   const ensureSession = async () => {
     if (sessionId.value) return sessionId.value
     if (!api.value) throw new Error('未连接 OpenCode 服务器')
-    const created = await api.value.createSession()
+    const created = await api.value.createSessionWithDetail()
     if (!created?.id) throw new Error('Agent 服务没有返回会话 ID')
     sessionId.value = created.id
     registerSessionAsset(created.id, currentAsset.id)
     saveActiveSession()
-    sessions.value = [created, ...sessions.value]
+    sessions.value = [created, ...sessions.value.filter((session) => session.id !== created.id)]
     return sessionId.value
   }
 
@@ -870,12 +847,7 @@ export function createAgentChatState() {
       const assetId = sessionAssetIndex.value[sid] || currentAsset.id
       if (!sessionAssetIndex.value[sid]) registerSessionAsset(sid, assetId)
       const knowledgePrefix = assetId ? `当前会话对应的知识库 ID 是 ${assetId}。\n\n` : ''
-      const session = sessions.value.find((item) => item.id === sid)
-      if (session?.title === '新会话') {
-        const updated = await api.value.renameSession(sid, question.slice(0, 60))
-        if (sequence !== requestSequence) return
-        Object.assign(session, updated)
-      }
+      // A2（对齐旧版 e3dbde3c）：不再用首条问题改写标题，标题由 OpenCode 生成
       sessionStatuses.value[sid] = { type: 'busy' }
       await api.value.promptAsync(
         sid,
@@ -911,7 +883,7 @@ export function createAgentChatState() {
   })
 
   const activeSessionTitle = computed(
-    () => sessions.value.find((session) => session.id === sessionId.value)?.title || '新会话',
+    () => sessions.value.find((session) => session.id === sessionId.value)?.title || '开始新对话',
   )
 
   const filteredModels = computed(() => {

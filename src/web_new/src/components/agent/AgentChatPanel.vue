@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useAgentChat } from '../../composables/useAgentChat'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
 import type { LogKnowledge } from '../../types'
@@ -65,6 +65,78 @@ const open = ref(false)
 const fabRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 
+// A1（对齐旧版 eed74f7e）：面板可拖拽缩放（上/左/左上角手柄）
+const panelSize = reactive<{ width: number | null; height: number | null }>({
+  width: null,
+  height: null,
+})
+const panelStyle = computed(() => ({
+  ...(panelSize.width === null ? {} : { width: `${panelSize.width}px` }),
+  ...(panelSize.height === null ? {} : { height: `${panelSize.height}px` }),
+}))
+let panelResize:
+  | {
+      direction: 'top' | 'left' | 'corner'
+      startX: number
+      startY: number
+      width: number
+      height: number
+    }
+  | undefined
+
+const resizePanel = (event: PointerEvent) => {
+  if (!panelResize) return
+  const maxWidth = Math.max(320, window.innerWidth - 32)
+  const maxHeight = Math.max(320, window.innerHeight - 106)
+  const minWidth = Math.min(640, maxWidth)
+  const minHeight = Math.min(420, maxHeight)
+  if (panelResize.direction !== 'top') {
+    panelSize.width = Math.min(
+      maxWidth,
+      Math.max(minWidth, panelResize.width + panelResize.startX - event.clientX),
+    )
+  }
+  if (panelResize.direction !== 'left') {
+    panelSize.height = Math.min(
+      maxHeight,
+      Math.max(minHeight, panelResize.height + panelResize.startY - event.clientY),
+    )
+  }
+}
+
+const stopPanelResize = () => {
+  if (!panelResize) return
+  panelResize = undefined
+  document.body.classList.remove(
+    'agent-panel-resizing',
+    'agent-panel-resizing-top',
+    'agent-panel-resizing-left',
+    'agent-panel-resizing-corner',
+  )
+  window.removeEventListener('pointermove', resizePanel)
+  window.removeEventListener('pointerup', stopPanelResize)
+  window.removeEventListener('pointercancel', stopPanelResize)
+}
+
+const startPanelResize = (direction: 'top' | 'left' | 'corner', event: PointerEvent) => {
+  const panel = panelRef.value
+  if (!panel) return
+  event.preventDefault()
+  const bounds = panel.getBoundingClientRect()
+  panelResize = {
+    direction,
+    startX: event.clientX,
+    startY: event.clientY,
+    width: bounds.width,
+    height: bounds.height,
+  }
+  document.body.classList.add('agent-panel-resizing')
+  document.body.classList.add(`agent-panel-resizing-${direction}`)
+  window.addEventListener('pointermove', resizePanel)
+  window.addEventListener('pointerup', stopPanelResize)
+  window.addEventListener('pointercancel', stopPanelResize)
+}
+
 // 切资产：登记当前资产并重置会话视角
 const syncAsset = () =>
   setAsset(props.asset ? { id: props.asset.id, name: props.asset.name } : null)
@@ -104,6 +176,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  stopPanelResize()
   suspend()
 })
 
@@ -163,11 +236,27 @@ const onInputKeydown = (event: KeyboardEvent) => {
     id="agent-chat-panel"
     ref="panelRef"
     class="agent-chat-panel"
+    :style="panelStyle"
     role="dialog"
     aria-modal="true"
     aria-label="AI 故障诊断助手"
     tabindex="-1"
   >
+    <div
+      class="agent-panel-resize-handle agent-panel-resize-top"
+      aria-hidden="true"
+      @pointerdown="startPanelResize('top', $event)"
+    ></div>
+    <div
+      class="agent-panel-resize-handle agent-panel-resize-left"
+      aria-hidden="true"
+      @pointerdown="startPanelResize('left', $event)"
+    ></div>
+    <div
+      class="agent-panel-resize-handle agent-panel-resize-corner"
+      aria-hidden="true"
+      @pointerdown="startPanelResize('corner', $event)"
+    ></div>
     <header class="agent-chat-header">
       <button
         v-if="view !== 'chat' && connectionState === 'connected'"
@@ -552,6 +641,8 @@ const onInputKeydown = (event: KeyboardEvent) => {
   bottom: 102px;
   width: min(980px, calc(100vw - 32px));
   height: min(800px, calc(100vh - 166px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 106px);
   background: var(--bg, #fff);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -560,6 +651,46 @@ const onInputKeydown = (event: KeyboardEvent) => {
   flex-direction: column;
   overflow: hidden;
   z-index: 69;
+}
+
+/* A1：拖拽缩放手柄（上边 / 左边 / 左上角） */
+.agent-panel-resize-handle {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+}
+.agent-panel-resize-top {
+  top: 0;
+  right: 14px;
+  left: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.agent-panel-resize-left {
+  top: 14px;
+  bottom: 14px;
+  left: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.agent-panel-resize-corner {
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+:global(body.agent-panel-resizing) {
+  user-select: none;
+}
+:global(body.agent-panel-resizing-top) {
+  cursor: ns-resize;
+}
+:global(body.agent-panel-resizing-left) {
+  cursor: ew-resize;
+}
+:global(body.agent-panel-resizing-corner) {
+  cursor: nwse-resize;
 }
 .agent-chat-header {
   display: flex;
