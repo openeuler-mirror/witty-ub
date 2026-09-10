@@ -3623,20 +3623,32 @@ function createOverviewState() {
   }
 
   const faultActivePairs = computed(() => {
-    const map = new Map<string, { src: string; dst: string; faults: number; codes: string[] }>()
+    const map = new Map<
+      string,
+      { src: string; dst: string; faults: number; codes: string[]; codeCounts: Map<string, number> }
+    >()
     faultScopedTraces.value.forEach((trace) => {
       const src = trace.src_ip
       const dst = trace.dst_ip
       if (!src || !dst) return
       const key = `${src}|${dst}`
-      if (!map.has(key)) map.set(key, { src, dst, faults: 0, codes: [] })
+      if (!map.has(key)) map.set(key, { src, dst, faults: 0, codes: [], codeCounts: new Map() })
       const pair = map.get(key)!
       pair.faults += 1
       normalizeFaultCodes(trace.status_code).forEach((code) => {
+        pair.codeCounts.set(code, (pair.codeCounts.get(code) ?? 0) + 1)
         if (!pair.codes.includes(code)) pair.codes.push(code)
       })
     })
-    return [...map.values()].sort((a, b) => b.faults - a.faults)
+    return [...map.values()]
+      .map((pair) => ({
+        ...pair,
+        // 故障码按计数降序，便于链路/拓扑按主导故障码着色与展示
+        codes: [...pair.codeCounts.entries()]
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([code]) => code),
+      }))
+      .sort((a, b) => b.faults - a.faults)
   })
 
   const faultPodStats = computed(() => {
@@ -3662,12 +3674,33 @@ function createOverviewState() {
     return [...map.values()].sort((a, b) => b.faults - a.faults)
   })
 
+  // 故障码 → 颜色：按当前范围故障 Trace 数降序分配调色板，时序图与拓扑图共用同一映射
+  const faultCodeColors = ['#EF4444', '#F59E0B', '#1E6FFF', '#8B5CF6', '#00B365']
+  const faultCodeColorOrder = computed(() => {
+    const counts = new Map<string, number>()
+    faultScopedTraces.value.forEach((trace) => {
+      normalizeFaultCodes(trace.status_code).forEach((code) => {
+        counts.set(code, (counts.get(code) ?? 0) + 1)
+      })
+    })
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([code]) => code)
+  })
+  const faultCodeColor = (code: string) => {
+    const index = faultCodeColorOrder.value.indexOf(code)
+    return faultCodeColors[index >= 0 ? index % faultCodeColors.length : 0]
+  }
+
   const renderFaultTopology = () => {
     nextTick(() => {
       const el = faultTopoRef.value
       if (!el) return
       const chart = getChart(el)
-      const nodeMap = new Map<string, { ip: string; faults: number; src: number; dst: number }>()
+      const nodeMap = new Map<
+        string,
+        { ip: string; faults: number; src: number; dst: number; codes: Set<string> }
+      >()
       faultActivePairs.value.forEach((pair) => {
         ;(
           [
@@ -3675,49 +3708,113 @@ function createOverviewState() {
             ['dst', pair.dst],
           ] as const
         ).forEach(([role, ip]) => {
-          if (!nodeMap.has(ip)) nodeMap.set(ip, { ip, faults: 0, src: 0, dst: 0 })
+          if (!nodeMap.has(ip)) nodeMap.set(ip, { ip, faults: 0, src: 0, dst: 0, codes: new Set() })
           const node = nodeMap.get(ip)!
           node.faults += pair.faults
+          pair.codes.forEach((code) => node.codes.add(code))
           if (role === 'src') node.src += pair.faults
           else node.dst += pair.faults
         })
       })
-      const maxFaults = Math.max(...[...nodeMap.values()].map((node) => node.faults), 1)
-      const nodes = [...nodeMap.values()].map((node) => ({
-        name: node.ip,
-        faults: node.faults,
-        src: node.src,
-        dst: node.dst,
-        symbolSize: 16 + (node.faults / maxFaults) * 44,
-        itemStyle: {
-          color: node.faults > 20 ? '#EF4444' : node.faults > 5 ? '#F59E0B' : '#1E6FFF',
-        },
-        label: { show: true, fontSize: 11, formatter: '{b}' },
-      }))
-      const links = faultActivePairs.value.map((pair) => ({
-        source: pair.src,
-        target: pair.dst,
-        faults: pair.faults,
-        codes: pair.codes,
-        value: pair.faults,
-        lineStyle: {
-          color: '#EF4444',
-          width: 1 + (pair.faults / maxFaults) * 5,
-          curveness: 0.2,
-          opacity: 0.85,
-        },
-      }))
+      if (nodeMap.size === 0) {
+        chart.clear()
+        return
+      }
+
+      // 与时延拓扑同款等比环形布局：坐标落在正方形绘图区，避免横向画布拉伸变形
+      const ordered = [...nodeMap.values()].sort(
+        (a, b) => b.faults - a.faults || a.ip.localeCompare(b.ip),
+      )
+      const positions = new Map<string, { x: number; y: number }>()
+      ordered.forEach((node, index) => {
+        const angle = -Math.PI / 2 + (index / ordered.length) * Math.PI * 2
+        positions.set(node.ip, { x: Math.cos(angle), y: Math.sin(angle) })
+      })
+
+      const pairCounts = faultActivePairs.value.map((pair) => pair.faults)
+      const minCount = Math.min(...pairCounts)
+      const maxCount = Math.max(...pairCounts)
+      const maxNodeFaults = Math.max(...ordered.map((node) => node.faults))
+
+      const nodes = ordered.map((node) => {
+        const pos = positions.get(node.ip)
+        const color = faultCodeColor([...node.codes][0] ?? '')
+        return {
+          name: node.ip,
+          faults: node.faults,
+          src: node.src,
+          dst: node.dst,
+          codes: [...node.codes],
+          x: pos?.x,
+          y: pos?.y,
+          symbol: 'circle',
+          symbolSize: 26 + Math.sqrt(node.faults / maxNodeFaults) * 34,
+          cursor: 'pointer',
+          itemStyle: {
+            color,
+            borderColor: 'rgba(0,0,0,0.18)',
+            borderWidth: 1.5,
+            shadowBlur: 6,
+            shadowColor: 'rgba(31, 64, 117, 0.25)',
+          },
+          label: {
+            show: true,
+            position:
+              pos && pos.x > 0.35
+                ? 'right'
+                : pos && pos.x < -0.35
+                  ? 'left'
+                  : pos && pos.y > 0
+                    ? 'bottom'
+                    : 'top',
+            distance: 7,
+            formatter: node.ip,
+            color: '#1E293B',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: 11,
+            fontWeight: 600,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderRadius: 3,
+            padding: [2, 4],
+          },
+        }
+      })
+
+      const links = faultActivePairs.value.map((pair) => {
+        const normalized = Math.log1p(pair.faults - minCount) / Math.log1p(maxCount - minCount || 1)
+        const width = 2 + normalized * 4.5
+        return {
+          source: pair.src,
+          target: pair.dst,
+          faults: pair.faults,
+          codes: pair.codes,
+          value: pair.faults,
+          lineStyle: {
+            color: faultCodeColor(pair.codes[0] ?? ''),
+            width,
+            opacity: 0.9,
+            curveness: pair.src < pair.dst ? 0.1 : -0.1,
+          },
+          symbolSize: [0, 7 + normalized * 6],
+        }
+      })
+
+      const graphSize = Math.max(200, Math.min(el.clientWidth - 40, el.clientHeight - 30))
+      const graphLeft = Math.max(30, (el.clientWidth - graphSize) / 2)
+      const graphTop = Math.max(20, (el.clientHeight - graphSize) / 2)
+
       setChartOption(chart, {
+        animation: false,
         tooltip: {
           trigger: 'item',
           formatter: (params: any) => {
             if (params.dataType === 'node') {
               const data = params.data
-              return `<b>${data.name}</b><br/>故障次数: ${data.faults}<br/>出方向: ${data.src} &nbsp; 入方向: ${data.dst}`
+              return `<b>${data.name}</b><br/>故障次数: ${data.faults}<br/>出方向(源): ${data.src} &nbsp; 入方向(目标): ${data.dst}<br/>关联故障码: ${data.codes.join(', ') || '-'}`
             }
             if (params.dataType === 'edge') {
               const data = params.data
-              return `<b>${data.source} → ${data.target}</b><br/>故障次数: ${data.faults}<br/>故障码: ${data.codes.join(', ') || '-'}`
+              return `<b>${data.source} → ${data.target}</b><br/>故障次数: ${data.faults}<br/>故障码: ${data.codes.join(', ') || '-'}<br/><span style="color:#94a3b8">点击查看该链路故障 Trace</span>`
             }
             return ''
           },
@@ -3725,15 +3822,24 @@ function createOverviewState() {
         series: [
           {
             type: 'graph',
-            layout: 'force',
+            layout: 'none',
+            preserveAspect: true,
             roam: true,
-            draggable: true,
+            draggable: false,
+            cursor: 'pointer',
+            left: graphLeft,
+            top: graphTop,
+            width: graphSize,
+            height: graphSize,
             edgeSymbol: ['none', 'arrow'],
-            edgeSymbolSize: 8,
-            force: { repulsion: 520, edgeLength: [130, 280], gravity: 0.12 },
+            labelLayout: { hideOverlap: true },
             data: nodes,
             links,
-            emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
+            emphasis: {
+              focus: 'adjacency',
+              lineStyle: { width: 7, opacity: 1 },
+              itemStyle: { shadowBlur: 14 },
+            },
           },
         ],
       })
@@ -3804,17 +3910,16 @@ function createOverviewState() {
         chart.clear()
         return
       }
-      const colors = ['#EF4444', '#F59E0B', '#1E6FFF', '#8B5CF6', '#00B365']
       const times = [
         ...new Set(codes.flatMap((code) => (displayData[code] ?? []).map((point) => point.time))),
       ].sort()
-      const series = codes.map((code, index) => ({
+      const series = codes.map((code) => ({
         name: `故障码 ${code}`,
         type: 'line',
         smooth: true,
         stack: 'fault',
-        lineStyle: { width: 2, color: colors[index % colors.length] ?? '#EF4444' },
-        itemStyle: { color: colors[index % colors.length] ?? '#EF4444' },
+        lineStyle: { width: 2, color: faultCodeColor(code) },
+        itemStyle: { color: faultCodeColor(code) },
         data: times.map((time) => {
           const point = (displayData[code] ?? []).find((item) => item.time === time)
           return point ? point.err_cnt : 0
@@ -4376,6 +4481,8 @@ function createOverviewState() {
     faultActivePairs,
     activeFaultTraces,
     faultCodeSummaries,
+    faultCodeColor,
+    faultCodeColorOrder,
     faultPodStats,
     faultTopoRef,
     renderFaultTopology,

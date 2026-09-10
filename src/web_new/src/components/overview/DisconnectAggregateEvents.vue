@@ -53,23 +53,6 @@ watch([faultAggInterval, currentOp, () => disconnectFilter.time.value], reload)
 </script>
 
 <template>
-  <section class="aggregate-intro">
-    <div>
-      <span class="aggregate-eyebrow">精确聚合视图</span>
-      <h2>按时间桶定位故障峰值，再下钻到通信链路</h2>
-      <p>
-        这里保留旧版最有价值的“时间桶 → 源/目标 IP 对 → 故障
-        Trace”路径，适合核对故障数量与批量定位。
-      </p>
-    </div>
-    <div class="aggregate-scope">
-      <span>当前操作</span><strong>{{ currentOp }}</strong> <span>时间范围</span
-      ><strong>{{
-        faultTimeRange ? `${faultTimeRange.start} ~ ${faultTimeRange.end}` : '全部时段'
-      }}</strong>
-    </div>
-  </section>
-
   <div class="aggregate-notes" role="note">
     <span>服务端完整聚合，不受主视图 2500 条明细保护上限影响</span>
     <span>不随单日志文件选择收窄</span>
@@ -80,7 +63,10 @@ watch([faultAggInterval, currentOp, () => disconnectFilter.time.value], reload)
     <header class="aggregate-header">
       <div>
         <h2 class="section-card-title">故障时间桶矩阵</h2>
-        <p>点击整行展开该时间桶内的源 IP → 目标 IP 故障贡献。</p>
+        <p>
+          {{ currentOp }} ·
+          {{ faultTimeRange ? `${faultTimeRange.start} ~ ${faultTimeRange.end}` : '全部时段' }}
+        </p>
       </div>
       <label class="aggregate-scale" for="fault-agg-interval">
         <span>聚合尺度</span>
@@ -227,46 +213,11 @@ watch([faultAggInterval, currentOp, () => disconnectFilter.time.value], reload)
 </template>
 
 <style scoped>
-.aggregate-intro {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 20px 22px;
-  margin-bottom: 12px;
-  border: 1px solid #dbe5f2;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f8fbff, #eef4ff);
-}
-.aggregate-eyebrow {
-  color: var(--primary);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-.aggregate-intro h2 {
-  margin: 5px 0 6px;
-  font-size: 18px;
-}
-.aggregate-intro p,
 .aggregate-header p {
   margin: 0;
   color: var(--text2);
   font-size: 12px;
   line-height: 1.6;
-}
-.aggregate-scope {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 5px 10px;
-  align-content: center;
-  min-width: 260px;
-  color: var(--text2);
-  font-size: 11px;
-}
-.aggregate-scope strong {
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
 }
 .aggregate-notes {
   display: flex;
@@ -381,11 +332,9 @@ watch([faultAggInterval, currentOp, () => disconnectFilter.time.value], reload)
   font-size: 11px;
 }
 @media (max-width: 800px) {
-  .aggregate-intro {
+  .aggregate-header {
     flex-direction: column;
-  }
-  .aggregate-scope {
-    min-width: 0;
+    align-items: flex-start;
   }
 }
 </style>

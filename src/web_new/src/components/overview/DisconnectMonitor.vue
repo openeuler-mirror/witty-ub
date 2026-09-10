@@ -19,6 +19,8 @@ const {
   faultChartSampled,
   faultChartScale,
   faultChartScaleOptions,
+  faultCodeColor,
+  faultCodeColorOrder,
   faultCodeSummaries,
   faultPodStats,
   faultScopedTraces,
@@ -49,6 +51,8 @@ const selectedSummary = computed(() =>
 const selectedModeIds = computed(() => selectedSummary.value?.modeIds ?? [])
 const topFaultPairs = computed(() => faultActivePairs.value.slice(0, 8))
 const topFaultEndpoints = computed(() => faultPodStats.value.slice(0, 8))
+const faultCodeColorsLimit = 5
+const legendCodes = computed(() => faultCodeColorOrder.value.slice(0, faultCodeColorsLimit))
 const scopeLabel = computed(() =>
   selectedFaultCode.value ? `故障码 ${selectedFaultCode.value}` : '全部故障码',
 )
@@ -107,23 +111,9 @@ const failureDomainsOf = (row: any) => {
 </script>
 
 <template>
-  <section class="fault-journey" aria-label="通断故障诊断路径">
-    <div>
-      <span class="fault-eyebrow">故障诊断</span>
-      <h2>从故障码出发，定位影响范围并核对现场证据</h2>
-      <p>故障码是入口，具体故障、时间、链路、端点、Trace 与运行日志共同构成诊断结论。</p>
-    </div>
-    <ol>
-      <li class="active"><b>1</b><span>识别故障码</span></li>
-      <li><b>2</b><span>理解故障</span></li>
-      <li><b>3</b><span>定位影响</span></li>
-      <li><b>4</b><span>核验证据</span></li>
-    </ol>
-  </section>
-
   <div class="analysis-range-bar">
     <div>
-      <strong>当前诊断范围</strong>
+      <strong>当前范围</strong>
       <span
         >{{ currentOp }} ·
         {{ faultTimeRange ? `${faultTimeRange.start} ~ ${faultTimeRange.end}` : '全部时段' }} ·
@@ -154,7 +144,7 @@ const failureDomainsOf = (row: any) => {
         @click="selectFaultCode('')"
       >
         <span class="fault-code-token all">ALL</span>
-        <span class="fault-code-main"><b>全部故障</b><small>查看当前范围整体情况</small></span>
+        <span class="fault-code-main"><b>全部故障</b></span>
         <strong>{{ activeFaultTraces.length }}</strong>
       </button>
       <button
@@ -177,15 +167,13 @@ const failureDomainsOf = (row: any) => {
     <div class="fault-code-detail">
       <header class="fault-detail-header">
         <div>
-          <span class="fault-eyebrow">{{ selectedFaultCode ? '当前故障码' : '全部故障概览' }}</span>
           <h2>
-            {{ selectedFaultCode ? `故障码 ${selectedFaultCode}` : '选择一个故障码查看具体语义' }}
+            {{ selectedFaultCode ? `故障码 ${selectedFaultCode}` : '全部故障概览' }}
           </h2>
           <p v-if="selectedSummary">
             关联 {{ selectedSummary.traceCount }} 条 Trace，影响
             {{ selectedSummary.endpointCount }} 个端点、{{ selectedSummary.pairCount }} 条有向链路。
           </p>
-          <p v-else>左侧按影响规模列出当前时段内的故障码。选择后，下方全部内容只分析该故障码。</p>
         </div>
         <div v-if="selectedSummary" class="fault-time-span">
           <span
@@ -228,9 +216,7 @@ const failureDomainsOf = (row: any) => {
   <section class="section-card">
     <header class="fault-section-header">
       <div>
-        <span class="fault-step">时间定位</span>
         <h2 class="section-card-title">{{ scopeLabel }} · 发生趋势</h2>
-        <p>拖拽框选时间范围后，影响链路、端点与故障实例同步收窄。</p>
       </div>
       <div class="fault-chart-controls">
         <span
@@ -257,12 +243,7 @@ const failureDomainsOf = (row: any) => {
   <section class="section-card">
     <header class="fault-section-header">
       <div>
-        <span class="fault-step">影响定位</span>
         <h2 class="section-card-title">{{ scopeLabel }} · 影响链路与端点</h2>
-        <p>
-          拓扑呈现通信方向；右侧按故障 Trace 数列出热点链路和端点。点击即可查看当前范围内的故障
-          Trace。
-        </p>
       </div>
     </header>
     <div class="fault-impact-workbench">
@@ -271,6 +252,14 @@ const failureDomainsOf = (row: any) => {
           <span>{{ faultActivePairs.length }} 条链路</span>
           <span>{{ faultPodStats.length }} 个端点</span>
           <span>线宽 / 节点大小 = 故障 Trace 数</span>
+          <span
+            v-for="code in legendCodes"
+            :key="code"
+            class="topo-code-legend"
+            :title="`故障码 ${code}`"
+          >
+            <i :style="{ background: faultCodeColor(code) }"></i>{{ code }}
+          </span>
         </div>
         <div ref="faultTopoRef" class="fault-topology"></div>
       </div>
@@ -319,7 +308,6 @@ const failureDomainsOf = (row: any) => {
   <section class="section-card">
     <header class="fault-section-header trace-header">
       <div>
-        <span class="fault-step">现场证据</span>
         <h2 class="section-card-title">{{ scopeLabel }} · 故障实例</h2>
         <p>
           {{
@@ -444,78 +432,16 @@ const failureDomainsOf = (row: any) => {
 </template>
 
 <style scoped>
-.fault-journey {
-  display: flex;
-  justify-content: space-between;
-  gap: 28px;
-  padding: 20px 22px;
-  margin-bottom: 12px;
-  border: 1px solid #dbe5f2;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f8fbff, #eef4ff);
-}
-.fault-eyebrow,
-.fault-step {
-  color: var(--primary);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.fault-journey h2,
 .fault-detail-header h2 {
   margin: 5px 0 6px;
   font-size: 18px;
 }
-.fault-journey p,
 .fault-detail-header p,
 .fault-section-header p {
   margin: 0;
   color: var(--text2);
   font-size: 12px;
   line-height: 1.6;
-}
-.fault-journey ol {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.fault-journey li {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  min-width: 92px;
-  color: var(--text3);
-  font-size: 10px;
-}
-.fault-journey li:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 13px;
-  left: calc(50% + 16px);
-  width: calc(100% - 32px);
-  height: 1px;
-  background: #cbd5e1;
-}
-.fault-journey li b {
-  display: grid;
-  place-items: center;
-  width: 27px;
-  height: 27px;
-  border: 1px solid #cbd5e1;
-  border-radius: 50%;
-  background: #fff;
-  color: var(--text2);
-}
-.fault-journey li.active b {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: #fff;
 }
 .fault-warning {
   padding: 10px 14px;
@@ -738,6 +664,17 @@ const failureDomainsOf = (row: any) => {
   color: var(--text2);
   font-size: 10px;
 }
+.topo-code-legend {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--text2);
+}
+.topo-code-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
 .fault-topology {
   height: 430px;
 }
@@ -888,9 +825,6 @@ const failureDomainsOf = (row: any) => {
   padding: 32px 0;
 }
 @media (max-width: 1000px) {
-  .fault-journey {
-    flex-direction: column;
-  }
   .fault-code-workbench {
     grid-template-columns: 1fr;
   }
