@@ -2,6 +2,9 @@
 
 本文档介绍 witty-ub 容器运行时常见问题的排查方法，包括 seccomp/clone3 问题、Docker 版本兼容性、日志管理、容器内调试和生产环境建议。
 
+> **容器名速查**：单机 All-in-One = `witty-ub`（Web 32412）；分离部署 = `witty-ub-backend`（API 9772，无 Web）+ `witty-ub-frontend`（Web 32413，反代后端）；数据库 = `postgres`（宿主机 15432）。
+> **PG 密钥**：PG 容器要求 `/etc/witty-ub/pg.passwd` 为 `0640 root:root`（容器内 postgres 用户 uid26/gid0 读），否则会崩溃循环，详见 [常见问题 · PG 容器崩溃循环](01-common-issues.md#9-pg-容器崩溃循环--后端连不上数据库)。
+
 ---
 
 ## 1. seccomp/clone3 问题
@@ -77,9 +80,12 @@ docker run -d \
   -p 32412:8080 \
   -v witty-ub-data:/var/witty-ub/data \
   -v witty-ub-logs:/var/log/witty-ub \
+  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
   --security-opt seccomp=unconfined \
   witty-ub:latest
 ```
+
+> 该容器是**增补的调试容器**：`witty-ub` 名称若已被现有部署占用，请改用别的 `--name` 与端口。缺少 `/run/secrets/pg_password` 挂载时入口会直接退出（数据库口令为必需项）。
 
 **使用 docker compose**:
 
@@ -96,15 +102,21 @@ services:
     volumes:
       - witty-ub-data:/var/witty-ub/data
       - witty-ub-logs:/var/log/witty-ub
+    secrets:
+      - pg_password
     security_opt:
       - seccomp=unconfined
+
+secrets:
+  pg_password:
+    file: /etc/witty-ub/pg.passwd
 ```
 
 然后重新创建容器:
 
 ```bash
-docker compose down
-docker compose up -d
+docker compose --profile allinone down
+docker compose --profile allinone up -d
 docker logs -f witty-ub
 ```
 
@@ -219,14 +231,13 @@ sudo systemctl enable docker
 
 ```bash
 # 使用 docker compose
-docker compose logs
-docker compose logs -f
-docker compose logs --tail=100
-docker compose logs --since 2024-01-01T10:00:00
+docker compose --profile split logs -f              # 分离；单机用 --profile allinone
+docker compose --profile split logs --tail=100
+docker compose --profile split logs --since 2024-01-01T10:00:00
 
 # 使用纯 Docker 命令
-docker logs witty-ub
-docker logs -f witty-ub
+docker logs witty-ub                                 # 单机
+docker logs -f witty-ub-frontend                     # 分离前端
 docker logs --tail=100 witty-ub
 docker logs --since 2024-01-01T10:00:00 witty-ub
 ```
