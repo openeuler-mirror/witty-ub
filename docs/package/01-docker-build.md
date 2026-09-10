@@ -22,7 +22,7 @@ witty-ub 采用分层镜像架构：
 - Docker 17.05+（多阶段构建最低要求）
 - Docker 19.03+ + buildx 插件（`--platform` 指定平台构建）
 - Docker 20.10+ + buildx 插件（`--multi` 双架构构建）
-- Node.js 18+ 和 npm（前端构建）
+- Node.js 20.18.2+ 和 npm（前端构建；`src/web/package.json` 的 `engines` 要求 `node >= 20.18.2`）
 - Git
 
 > 无 buildx 的低版本 Docker（< 19.03）可使用 `--platform local`（默认）或[方法三：纯 Docker 命令](#方法三纯-docker-命令)。脚本会自动检测 buildx 可用性并回退。
@@ -44,7 +44,9 @@ bash build.sh
 bash build.sh --version v1.0.0
 ```
 
-脚本自动执行：前端构建 → base 镜像 → 应用镜像。
+脚本自动执行：base 镜像 → 前端构建 → 应用镜像。
+
+> **tag 与部署的衔接**：`--version vX.Y.Z` 会产出 `witty-ub:vX.Y.Z`，同时额外打一个 `witty-ub:latest` 别名，便于 `deploy/docker/deploy_witty.sh` 直接使用（部署脚本默认查找 `witty-ub:latest` / `witty-ub:<role>`）。若使用自定义 tag 未打 latest，请在部署时显式设置 `WITTY_IMAGE=witty-ub:vX.Y.Z`。推送到镜像仓时以 `<repo>:<version>` 为准，不打 latest 别名。
 
 ### 构建参数
 
@@ -68,7 +70,7 @@ bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub
 bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub --version v1.0.0
 ```
 
-> 多架构构建需要 QEMU 支持（脚本自动安装），结果必须推送到镜像仓库。低版本 Docker（< 19.03，无 buildx）不支持双架构构建，需在各架构机器上分别构建后推送至同一 tag。
+> 多架构构建需要 QEMU binfmt 支持：Docker Desktop 自带；Linux 宿主机需预先安装（如 `docker run --privileged --rm tonistiigi/binfmt --install all`）。构建结果必须推送到镜像仓库。低版本 Docker（< 19.03，无 buildx）不支持双架构构建，需在各架构机器上分别构建后推送至同一 tag。
 
 ---
 
@@ -78,10 +80,13 @@ bash build.sh --multi --registry hub-harbor.oepkgs.net/neocopilot/witty-ub --ver
 
 > 需要 Docker Compose。Docker 20.10+ 内置 `docker compose`（插件式 v2）；低版本需单独安装 `docker-compose`（v1，命令为 `docker-compose`）。
 
-### 前置条件
+### 前置步骤
 
 ```bash
-# 1. 构建 base 镜像
+# 0. 生成 PG 密钥文件（compose 通过 secrets 引用 /etc/witty-ub/pg.passwd）
+bash deploy/deploy_pg.sh --docker   # 若文件已存在可跳过
+
+# 1. 构建 base 镜像（必须显式指定 --target base，Dockerfile.base 最后一个 stage 是 base-frontend）
 docker build -f Dockerfile.base --target base -t witty-ub-base:latest .
 
 # 2. 构建前端
@@ -98,15 +103,18 @@ docker buildx use default 2>/dev/null || true
 
 ```bash
 # 构建并启动
-docker compose up -d --build        # Docker 20.10+（Compose v2）
-# docker-compose up -d --build      # 低版本（Compose v1）
+docker compose --profile allinone up -d --build   # Docker 20.10+（Compose v2）：单机全量
+# docker compose --profile split  up -d --build   # 分离部署（postgres + backend + frontend）
+# docker-compose --profile allinone up -d --build # 低版本（Compose v1，需 1.28+ 才支持 profile）
 
 # 仅构建
-docker compose build
+docker compose --profile allinone build
 
 # 不使用缓存
-docker compose build --no-cache
+docker compose --profile allinone build --no-cache
 ```
+
+> 仓库 `docker-compose.yml` 用 profile 区分形态（`allinone` / `split`，互斥）；不带 profile 只会拉起 `postgres`。详见[容器化部署](../deployment/08-container.md)。
 
 ---
 

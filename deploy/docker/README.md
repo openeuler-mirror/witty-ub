@@ -9,9 +9,9 @@
 ## 脚本文件
 
 | 文件 | 说明 |
-|------|------|
-| `manage.sh` | 统一管理入口（交互式菜单 + 命令行） |
-| `deploy_witty.sh` | witty-ub 容器部署 |
+| ------ | ------ |
+| `manage.sh` | 统一管理入口（交互式菜单 + 命令行，含分离部署） |
+| `deploy_witty.sh` | witty-ub 容器部署（`--role all/backend/frontend`） |
 | `deploy_pg.sh` | PostgreSQL 容器部署 |
 
 ---
@@ -24,34 +24,40 @@
 bash manage.sh
 ```
 
-```
+```text
 ========================================
-  witty-ub 部署管理器
+  witty-ub Deployment Manager
 ========================================
 
-  📦  安装
-    1) 一键安装：PG + witty-ub（Docker）
-    2) 仅安装 PostgreSQL
-    3) 仅安装 witty-ub
+  📦  Install
+    1) One-shot install: PG + witty-ub (Docker)
+    2) Install PostgreSQL only
+    3) Install witty-ub only
 
-  🗑️  卸载
-    4) 一键卸载：全部删除（含数据）
-    5) 仅卸载 witty-ub 容器
-    6) 仅卸载 PostgreSQL 容器
+  🗑️  Uninstall
+    4) Uninstall everything (including data)
+    5) Uninstall witty-ub containers only
+    6) Uninstall the PostgreSQL container only
 
-  🔧  管理
-    7) 启动全部
-    8) 停止全部
-    9) 重启全部
-   10) 查看状态
-   11) 查看日志
+  🔧  Manage
+    7) Start all
+    8) Stop all
+    9) Restart all (auto-detect: local/Docker)
+   10) Show status
+   11) Show logs
 
-  💻  工具
-   12) 进入 psql（PG）
-   13) 进入容器 Shell
+  💻  Tools
+   12) Open psql (PG)
+   13) Open container shell
 
-    0) 退出
+  🔀  Split frontend/backend deployment
+   14) Install the witty-ub backend only (role=backend)
+   15) Install the witty-ub frontend only (role=frontend)
+
+    0) Quit
 ```
+
+> 容器部署脚本的用户可见输出（日志 / 菜单 / 提示）统一使用**英文**，与 `build.sh`、`docker/entrypoint.sh`、`scripts/publish_split_release.sh` 等既有脚本保持一致；本仓库文档（`docs/`、README）使用中文。
 
 ### 命令行模式
 
@@ -61,6 +67,10 @@ bash manage.sh install-all
 
 # 仅安装 witty-ub
 bash manage.sh install-witty
+
+# 分离部署：后端 / 前端（可分别在不同机器执行）
+bash manage.sh install-backend
+bash manage.sh install-frontend
 
 # 查看状态
 bash manage.sh status
@@ -73,15 +83,19 @@ bash manage.sh logs
 
 ## 内部调用链
 
-```
+```text
 manage.sh
   ├── [1] 一键安装
   │     ├── deploy_pg.sh --docker
   │     └── deploy_witty.sh
   ├── [2] 仅安装 PG
   │     └── deploy_pg.sh [--docker | --rpm]
-  └── [3] 仅安装 witty-ub
-        └── deploy_witty.sh
+  ├── [3] 仅安装 witty-ub
+  │     └── deploy_witty.sh
+  ├── [14] 仅安装 witty-ub 后端（分离）
+  │     └── deploy_witty.sh --role backend
+  └── [15] 仅安装 witty-ub 前端（分离）
+        └── deploy_witty.sh --role frontend
 ```
 
 ---
@@ -101,22 +115,24 @@ manage.sh
 
 ### witty-ub 应用部署
 
-脚本自动完成以下步骤：
+脚本自动完成以下步骤（按 `--role` 分角色，默认 all）：
 
-1. **拉取镜像**：优先使用本地镜像，否则从 `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest` 拉取
-2. **验证镜像**：检查镜像完整性
+1. **拉取镜像**：优先使用本地镜像，否则从 `hub-harbor.oepkgs.net/neocopilot/witty-ub:<角色tag>` 拉取
+2. **验证镜像**：检查镜像完整性（frontend 校验 Nginx/Web/Agent 资产，其余校验 BRPC 工具与数据）
 3. **创建网络**：复用已有的 Docker 网络
-4. **创建数据卷**：创建应用数据卷
-5. **配置 OpenCode**：准备 OpenCode 配置目录
-6. **自动检测 PG**：检测 PostgreSQL 部署方式，自动配置连接参数
-7. **启动容器**：启动 witty-ub 容器
+4. **创建数据卷**：all/backend 建 `witty-ub-data/logs/uploads/results`，frontend 建 `witty-ub-experience-data`
+5. **配置 OpenCode**：all/frontend 准备 OpenCode 配置目录
+6. **自动检测 PG**：all/backend 检测 PostgreSQL 部署方式，自动配置连接参数；frontend 不连数据库
+7. **启动容器**：容器名分别为 `<名称>`、`<名称>-backend`、`<名称>-frontend`；backend 暴露 9772，frontend 暴露 32413 并按 `WITTY_BACKEND_URL` 反代后端
 8. **健康检查**：等待应用就绪（最多 180 秒）
 
 ---
 
 ## 配置文件
 
-所有脚本共用 `deploy/deploy.conf`（旧名 `pg.conf` 仍兼容），修改后全局生效。
+所有脚本共用 `deploy/deploy.conf`（旧名 `pg.conf` 仍兼容）。`manage.sh` 与 `deploy_witty.sh` 都会加载该文件，配置优先级为：**环境变量 > `deploy.conf` > 脚本内置默认值**。
+
+> 无 TTY 环境（CI、`ssh host 'cmd'`、脚本调用）下所有交互提示自动取默认值（即上面的优先级结果），可直接使用 `install-all` / `install-pg` / `install-backend` / `install-frontend` 等命令行子命令。
 
 ### 完整配置项
 
@@ -132,7 +148,9 @@ PG_PASSWORD="<CHANGE_ME>"    # 占位符，实际口令在 /etc/witty-ub/pg.pass
 PG_HOST_IN_CONTAINER=""
 PG_PORT_IN_CONTAINER=""
 
-# ---------- PG 性能调优（留空自动计算）----------
+# ---------- PG 性能调优（暂未实现，设置无效）----------
+# 说明：部署脚本不注入以下参数，PG 使用镜像默认值；如需调优请在 deploy_pg.sh
+# 的 docker run 中自行追加 -e POSTGRESQL_*，或直接修改 PG 配置。
 # PG_SHARED_BUFFERS=""
 # PG_EFFECTIVE_CACHE_SIZE=""
 # PG_WORK_MEM=""
@@ -153,25 +171,33 @@ WITTY_IMAGE=""                          # 留空自动选择
 WITTY_HOST_PORT="32412"
 WITTY_LOG_LEVEL="info"
 WITTY_EXTRA_MOUNTS="/home:/home:ro"     # 额外挂载（可选）
+
+# ---------- 前后端分离部署 ----------
+WITTY_BACKEND_HOST_PORT="9772"          # 后端容器宿主机端口（容器内 9772）
+WITTY_FRONTEND_HOST_PORT="32413"        # 前端容器宿主机端口（容器内 8080）
+WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 = http://witty-ub-backend:9772，跨机填 http://<后端IP>:9772
 ```
 
 ### 镜像拉取优先级
 
-| 脚本 | 优先级 | 镜像 |
-|------|--------|------|
-| `deploy_witty.sh` | 1 | `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest` |
-| | 2 | `witty-ub:latest` |
-| `deploy_pg.sh` | 1 | `quay.io/sclorg/postgresql-15-c9s:latest` |
-| | 3 | `postgres:latest` |
+| 脚本 | 角色 | 优先级 | 镜像 |
+| ------ | ------ | ------ | ------ |
+| `deploy_witty.sh` | all | 1 | `hub-harbor.oepkgs.net/neocopilot/witty-ub:latest` |
+| | | 2 | `witty-ub:latest` |
+| `deploy_witty.sh` | backend | 1 | `hub-harbor.oepkgs.net/neocopilot/witty-ub:backend` |
+| | | 2 | `witty-ub:backend` |
+| `deploy_witty.sh` | frontend | 1 | `hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend` |
+| | | 2 | `witty-ub:frontend` |
+| `deploy_pg.sh` | - | 1 | `quay.io/sclorg/postgresql-15-c9s:latest` |
 
 > 脚本优先使用本地已有镜像，本地没有时按顺序拉取，拉取失败自动回退到下一个。
 
 ### PG 连接自动检测
 
-`deploy_witty.sh` 启动时自动检测 PostgreSQL 部署方式：
+`deploy_witty.sh` 启动时自动检测 PostgreSQL 部署方式（all/backend 角色）：
 
 | 优先级 | 检测条件 | 连接结果 |
-|--------|---------|---------|
+| ------ | ------ | ------ |
 | 0 | `deploy.conf` 显式设置 `PG_HOST_IN_CONTAINER` | 使用配置值 |
 | 1 | 同网络 PG 容器正在运行 | `postgres:5432` |
 | 2 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
@@ -192,11 +218,13 @@ bash manage.sh
 ### PG 在宿主机（RPM 部署）
 
 ```bash
-bash manage.sh
-# 选择 [3] 仅安装 witty-ub
-# 脚本自动检测 RPM PG
+# 1) 初始化宿主机 PG（写入 deploy/pg.passwd，配置 listen_addresses/pg_hba 并重启服务）
+sudo bash deploy/deploy_pg.sh --rpm
 
-# 或在 pg.conf 中手动指定
+# 2) 部署容器 witty-ub：脚本自动检测宿主机 PG，并自动查找 deploy/pg.passwd
+bash manage.sh install-witty
+
+# 如需手动指定容器内的 PG 地址（deploy.conf 中）：
 # PG_HOST_IN_CONTAINER=172.18.0.1
 # PG_PORT_IN_CONTAINER=5432
 ```
@@ -204,7 +232,7 @@ bash manage.sh
 ### 自定义端口部署
 
 ```bash
-# 修改 pg.conf
+# 修改 deploy/deploy.conf
 # WITTY_HOST_PORT=8080
 
 bash manage.sh
@@ -214,12 +242,32 @@ bash manage.sh
 ### 多实例部署（修改容器名）
 
 ```bash
-# 修改 pg.conf
+# 修改 deploy/deploy.conf
 # WITTY_CONTAINER_NAME=witty-ub-test
 # WITTY_HOST_PORT=32413
 
 bash manage.sh
 # 选择 [3] 仅安装 witty-ub
+```
+
+### 前后端分离部署（同机）
+
+```bash
+bash manage.sh
+# 选择 [2] 仅安装 PostgreSQL（或复用已有 PG）
+# 选择 [14] 安装后端（角色 backend，宿主机 9772）
+# 选择 [15] 安装前端（角色 frontend，宿主机 32413，反代 witty-ub-backend:9772）
+```
+
+### 前后端分离部署（跨机）
+
+```bash
+# 后端机器：部署 PG + backend，并对前端机器开放 9772
+bash manage.sh install-pg
+bash manage.sh install-backend
+
+# 前端机器：WITTY_BACKEND_URL 指向后端机器
+WITTY_BACKEND_URL=http://<后端机器IP>:9772 bash manage.sh install-frontend
 ```
 
 ### 完全卸载
@@ -235,7 +283,7 @@ bash manage.sh
 ```bash
 bash manage.sh
 # 选择 [11] 查看日志
-# 选择查看 PG 或 witty-ub 日志
+# 选择查看 PG、witty-ub 或分离角色容器（backend/frontend）日志
 ```
 
 ---
@@ -243,13 +291,16 @@ bash manage.sh
 ## 故障排查
 
 | 问题 | 排查方式 |
-|------|---------|
+| ------ | ------ |
 | 镜像拉取失败 | 检查网络、镜像仓库地址、本地 tag 是否已设置 |
-| 容器启动后健康检查失败 | `docker logs witty-ub` 查看日志 |
+| 容器启动后健康检查失败 | `docker logs witty-ub`（或 `witty-ub-backend` / `witty-ub-frontend`）查看日志 |
 | PG 连接被拒 | 确认 PG 容器状态 `docker ps \| grep postgres` |
-| PG RPM 未检测到 | 在 `pg.conf` 中手动设置 `PG_HOST_IN_CONTAINER` |
+| PG 容器反复重启（`Permission denied`） | `sudo chmod 0640 /etc/witty-ub/pg.passwd`（需 0640 root:root，容器内 postgres 用户经 gid 0 读取） |
+| PG RPM 未检测到 | 在 `deploy.conf` 中手动设置 `PG_HOST_IN_CONTAINER`（宿主机 PG 需 `listen_addresses='*'` 且已重启） |
+| 分离前端 unhealthy | 前端经反代探测 `WITTY_BACKEND_URL/health_check`，确认后端容器已就绪且地址可达 |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
 | 容器已有数据但无法启动 | 检查数据卷完整性、PG 数据目录权限 |
+| 与 compose 混用报容器名冲突 | 脚本与 `docker-compose.yml` 互斥（容器名/卷名/网络名一致），请二选一 |
 
 ---
 

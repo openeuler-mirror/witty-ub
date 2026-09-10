@@ -31,8 +31,11 @@ bash deploy/docker/manage.sh
 # 选择 [1] 一键安装
 
 # 容器分离部署（同机双容器, 跨机拆分见文档）
-docker compose --profile split up -d
+docker compose --profile split up -d          # postgres + backend + frontend
+# 单机全量（仓库自带 compose）：docker compose --profile allinone up -d
 ```
+
+> `docker-compose.yml` 用 profile 区分形态（`split` / `allinone`，互斥）；不带 profile 只会拉起 `postgres`。脚本部署（`manage.sh`）与 compose 二选一，不要混用。
 
 → [容器脚本部署](./deployment/03-script-container.md) | [容器分离部署](./deployment/08-container.md)
 
