@@ -144,9 +144,8 @@ witty-ub/
 │       └── deploy_witty.sh       # witty-ub 部署
 ├── docker/                       # 容器配置
 │   ├── entrypoint.sh             # 容器启动脚本（按 WITTY_ROLE 分角色）
-│   ├── healthcheck.sh            # 角色感知健康检查
-│   └── nginx.conf                # Nginx 配置
-├── packaging/nginx/              # Nginx 配置模板（占位符渲染）
+│   └── healthcheck.sh            # 角色感知健康检查
+├── packaging/nginx/              # Nginx 配置模板（唯一来源，entrypoint/manager/host 渲染）
 ├── src/                          # 源码
 ├── data/                         # 数据文件
 ├── config/                       # 配置文件

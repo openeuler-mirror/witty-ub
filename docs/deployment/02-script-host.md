@@ -195,7 +195,7 @@ bash deploy/host/install_deps.sh
 
 ### 配置文件 deploy.conf（后端节点）
 
-部署脚本读取 `deploy/deploy.conf` 的 PostgreSQL 连接配置。密码存放在独立密钥文件 `deploy/pg.passwd`（权限 0600），不回写 `deploy.conf`：
+部署脚本读取 `deploy/deploy.conf` 的 PostgreSQL 连接配置。密码存放在独立密钥文件 `deploy/pg.passwd`（权限 0400），不回写 `deploy.conf`：
 
 ```conf
 PG_HOST="127.0.0.1"

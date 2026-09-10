@@ -3,7 +3,7 @@
 本文档介绍 witty-ub 容器运行时常见问题的排查方法，包括 seccomp/clone3 问题、Docker 版本兼容性、日志管理、容器内调试和生产环境建议。
 
 > **容器名速查**：单机 All-in-One = `witty-ub`（Web 32412）；分离部署 = `witty-ub-backend`（API 9772，无 Web）+ `witty-ub-frontend`（Web 32413，反代后端）；数据库 = `postgres`（宿主机 15432）。
-> **PG 密钥**：PG 容器要求 `/etc/witty-ub/pg.passwd` 为 `0640 root:root`（容器内 postgres 用户 uid26/gid0 读），否则会崩溃循环，详见 [常见问题 · PG 容器崩溃循环](01-common-issues.md#9-pg-容器崩溃循环--后端连不上数据库)。
+> **PG 密钥**：PG 容器要求 `/etc/witty-ub/pg.passwd` 为 `0440 root:root`（容器内 postgres 用户 uid26/gid0 读），否则会崩溃循环，详见 [常见问题 · PG 容器崩溃循环](01-common-issues.md#9-pg-容器崩溃循环--后端连不上数据库)。
 
 ---
 
@@ -205,25 +205,46 @@ docker compose version
 
 ### 升级 Docker
 
-**在 openEuler 上**:
+**在 openEuler 24.03 上**（该发行版官方源只有 `docker-engine 18.09` / `docker-compose 1.22`，
+即上文点名"不可用"的版本；也不提供 `yum-utils`、`yum-config-manager`，因此不能照抄
+CentOS/RHEL 的通用步骤）:
 
 ```bash
 # 卸载旧版本
 sudo yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
 
-# 安装依赖
-sudo yum install -y yum-utils
+# 配置 Docker CE 仓库：openEuler 的 $releasever 是 24.03，不能直接用 centos 的 repo 文件，
+# 需显式固定为 centos/9（依赖 container-selinux 由 openEuler 源提供）
+sudo tee /etc/yum.repos.d/docker-ce.repo >/dev/null <<'EOF'
+[docker-ce-stable]
+name=Docker CE Stable
+baseurl=https://download.docker.com/linux/centos/9/$basearch/stable
+enabled=1
+gpgcheck=1
+gpgkey=https://download.docker.com/linux/centos/gpg
+EOF
 
-# 添加 Docker 仓库
-sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-# 安装 Docker
-sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# 安装 Docker（实测：Docker CE 29.x + Compose v2 插件）
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin
 
 # 启动 Docker
-sudo systemctl start docker
-sudo systemctl enable docker
+sudo systemctl enable --now docker
+
+# 授权当前用户（否则 docker info 报 permission denied，部署脚本会提示加入 docker 组）
+sudo usermod -aG docker "$USER" && newgrp docker
+
+# 校验
+docker version
+docker compose version
 ```
+
+> 完全离线环境：在用网机器执行
+> `dnf download --resolve docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin`，
+> 把 RPM 与 `container-selinux` 一起带到目标机后 `sudo dnf install ./*.rpm`。
+>
+> 若目标机不能改仓库，也可用 Docker 官方静态包
+> （`https://download.docker.com/linux/static/stable/<arch>/docker-<ver>.tgz`）解压到
+> `/usr/bin` 并自行提供 `docker.service`（无 `docker compose` 插件，需改用 `docker run` 系列命令）。
 
 ---
 
