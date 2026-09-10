@@ -266,7 +266,7 @@ sync_pg_credentials() {
     [ -n "$PUSER" ] || PUSER="witty-ub"
     [ -n "$PDB" ] || PDB="witty-ub"
     [ -n "$PPASS" ] || {
-        _warn "pg.conf 未设置 PG_PASSWORD，跳过"
+        _warn "deploy.conf 未设置 PG_PASSWORD，跳过"
         return 0
     }
 
