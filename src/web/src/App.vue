@@ -12095,6 +12095,13 @@ const loadAbnormalMonitorPage = async () => {
   await loadLatencyPage()
 }
 
+const scrollMonitorPageToTop = () => {
+  assetDetailRef.value?.scrollTo({
+    top: 0,
+    behavior: 'smooth',
+  })
+}
+
 const openMonitorPage = async (section: MonitorSection = 'latency') => {
   if (!selectedAssetId.value) return
   const previousProduct = activeMonitorProduct.value
@@ -12111,8 +12118,12 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
         ? loadBrpcAbnormalThreads(1)
         : loadBrpcAggregatedEvents(1)
     await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
+    if (section === 'brpc') {
+      scrollMonitorPageToTop()
+      return
+    }
     document
-      .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
+      .getElementById('brpc-fault-monitor')
       ?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
@@ -12132,6 +12143,10 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   }
 
   await nextTick()
+  if (targetSection === 'latency') {
+    scrollMonitorPageToTop()
+    return
+  }
   document.getElementById(targetSection === 'fault' ? 'kv-fault' : 'kv-latency')?.scrollIntoView({
     behavior: 'smooth',
     block: 'start',
@@ -12876,6 +12891,9 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-else-if="activePage === 'abnormal'" class="monitor-page">
+        <div class="monitor-asset-label">
+          当前资产库：{{ selectedAsset?.name || selectedAssetId || '未选择' }}
+        </div>
         <section v-if="activeMonitorProduct === 'KVCache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">
