@@ -297,6 +297,24 @@ type BrpcProfilingFileOption = {
   source_file: string
 }
 
+type BrpcProfilingRow = {
+  timestamp: string | null
+  log_id: string
+  interface_name: string
+  source_file: string | null
+  success_count: number
+  failure_count: number
+  total_ns: number
+  avg_ns: number
+  max_ns: number
+  min_ns: number
+  p50_ns: number | null
+  p90_ns: number | null
+  p95_ns: number | null
+  p99_ns: number | null
+  p999_ns: number | null
+}
+
 type BrpcInterfaceHit = {
   component: string
   interface_id: string
@@ -4594,6 +4612,7 @@ let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
 let faultDetailChartInstance: ECharts | null = null
 let topSlowChartInstance: ECharts | null = null
+let topSlowTooltipPinned = false
 
 const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   const ranges: Array<[Record<string, number>, Record<string, number>]> = []
@@ -4772,6 +4791,60 @@ const escapeChartHtml = (value: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
 
+const copyTextToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    textarea.remove()
+    return copied
+  }
+}
+
+const handleTopSlowTooltipClick = async (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target : null
+  const button = target?.closest<HTMLButtonElement>('.top-slow-tooltip-copy')
+  if (!button) return
+
+  event.stopPropagation()
+  const traceId = button.dataset.traceId
+  if (!traceId) return
+
+  const copied = await copyTextToClipboard(traceId)
+  button.textContent = copied ? '已复制' : '复制失败'
+  window.setTimeout(() => {
+    if (button.isConnected) button.textContent = '复制'
+  }, 1500)
+}
+
+const unpinTopSlowTooltip = () => {
+  if (!topSlowTooltipPinned) return
+
+  topSlowTooltipPinned = false
+  topSlowChartInstance?.setOption({
+    tooltip: { alwaysShowContent: false, triggerOn: 'mousemove|click', hideDelay: 0 },
+  })
+  topSlowChartInstance?.dispatchAction({ type: 'hideTip' })
+  topSlowChartInstance?.setOption({ tooltip: { hideDelay: 300 } })
+}
+
+const handleTopSlowTooltipOutsideClick = (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest('.top-slow-tooltip')) return
+
+  unpinTopSlowTooltip()
+}
+
+const renderTopSlowTooltipTrace = (traceId: string, operation: string) =>
+  `<div class="top-slow-tooltip-trace"><small>${escapeChartHtml(traceId)} · ${escapeChartHtml(operation)}</small><button type="button" class="top-slow-tooltip-copy" data-trace-id="${escapeChartHtml(traceId)}" aria-label="复制 trace ID">复制</button></div>`
+
 const formatTopSlowLatency = (value: number) => `${value.toFixed(2)} ms`
 
 const formatTopSlowMetric = (seriesName: string | undefined, value: number) => {
@@ -4814,6 +4887,8 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      enterable: true,
+      hideDelay: 300,
       order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
@@ -4837,7 +4912,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong>${renderTopSlowTooltipTrace(row.traceId, row.operation)}<div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -4924,6 +4999,8 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      enterable: true,
+      hideDelay: 300,
       order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
@@ -4947,7 +5024,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong>${renderTopSlowTooltipTrace(row.traceId, row.operation)}<div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -5183,8 +5260,39 @@ const renderTopSlowEchart = () => {
     topSlowChartInstance.dispose()
     topSlowChartInstance = null
   }
+  const shouldBindTooltipPinning = topSlowChartInstance === null
   topSlowChartInstance ??= echarts.init(element)
+  topSlowTooltipPinned = false
   topSlowChartInstance.setOption(createTopSlowEchartsOption(topSlowChartRows.value), true)
+  if (shouldBindTooltipPinning) {
+    topSlowChartInstance.on('click', (params: unknown) => {
+      const event = params as {
+        componentType?: string
+        seriesType?: string
+        seriesIndex?: number
+        dataIndex?: number
+        event?: { event?: MouseEvent }
+      }
+      if (
+        event.componentType !== 'series' ||
+        event.seriesType !== 'bar' ||
+        typeof event.seriesIndex !== 'number' ||
+        typeof event.dataIndex !== 'number'
+      )
+        return
+
+      event.event?.event?.stopPropagation()
+      topSlowTooltipPinned = true
+      topSlowChartInstance?.setOption({
+        tooltip: { alwaysShowContent: true, triggerOn: 'none' },
+      })
+      topSlowChartInstance?.dispatchAction({
+        type: 'showTip',
+        seriesIndex: event.seriesIndex,
+        dataIndex: event.dataIndex,
+      })
+    })
+  }
   topSlowChartInstance.resize()
 }
 
@@ -9502,8 +9610,8 @@ const loadFaultPage = async () => {
 // ============================================================
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
-const brpcAllRows = ref<Record<string, any>[]>([])
-const brpcAllFileRows = ref<Record<string, any>[]>([])
+const brpcAllRows = ref<BrpcProfilingRow[]>([])
+const brpcAllFileRows = ref<BrpcProfilingRow[]>([])
 const brpcProfilingFiles = ref<BrpcProfilingFileOption[]>([])
 const brpcSelectedFileName = ref('')
 // 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
@@ -10632,7 +10740,7 @@ const getBrpcProfilingFileLabel = (file: BrpcProfilingFileOption) =>
   `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
 
 const isBrpcProfilingRowWithinTimeRange = (
-  row: Record<string, any>,
+  row: BrpcProfilingRow,
   filters: GlobalFilterState,
 ): boolean => {
   const raw = row?.timestamp
@@ -10704,7 +10812,7 @@ const loadBrpcMonitorData = async () => {
     const queryString = query.size > 0 ? `?${query.toString()}` : ''
     const result = await request<{
       files: BrpcProfilingFileOption[]
-      rows: Record<string, any>[]
+      rows: BrpcProfilingRow[]
     }>(`/brpc_profiling/knowledge/${encodeURIComponent(assetId)}${queryString}`)
 
     if (requestSequence !== brpcProfilingRequestSequence || selectedAssetId.value !== assetId) {
@@ -10742,7 +10850,7 @@ const loadBrpcMonitorData = async () => {
 
 // 按接口名和时间戳聚合数据，返回 Map<interface_name, Map<timestamp, row>>
 const buildBrpcDataMap = () => {
-  const map = new Map<string, Map<string, Record<string, any>>>()
+  const map = new Map<string, Map<string, BrpcProfilingRow>>()
   for (const row of brpcAllRows.value) {
     const iface = row.interface_name
     const ts = row.timestamp
@@ -10773,7 +10881,7 @@ const calcFailureRate = (success: number, failure: number): number => {
 }
 
 const getBrpcMetricValue = (
-  row: Record<string, any> | undefined,
+  row: BrpcProfilingRow | undefined,
   metric: string,
 ): number | null => {
   if (!row) return null
@@ -12341,6 +12449,8 @@ onMounted(() => {
     assetDetailResizeObserver.observe(assetDetailRef.value)
   }
   document.addEventListener('click', handleStatusCodePopoverOutsideClick)
+  document.addEventListener('click', handleTopSlowTooltipClick)
+  document.addEventListener('click', handleTopSlowTooltipOutsideClick)
 })
 
 onUpdated(() => {
@@ -12360,6 +12470,8 @@ onBeforeUnmount(() => {
   assetDetailResizeObserver?.disconnect()
   assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
+  document.removeEventListener('click', handleTopSlowTooltipClick)
+  document.removeEventListener('click', handleTopSlowTooltipOutsideClick)
   latencyChartInstance?.dispose()
   topSlowChartInstance?.dispose()
   detailLatencyChartInstance?.dispose()
@@ -12957,7 +13069,7 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="top-slow-chart-description">
-                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace ID。
               </p>
               <div class="top-slow-chart-panel">
                 <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
