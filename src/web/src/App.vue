@@ -615,6 +615,7 @@ type TraceDetailRow = {
   w2wUrmaLatency: number | null
   sdkProcess: number | null
   sdkRpc: number | null
+  workerTotalLatency: number | null
   localWorkerCost: number | null
   localWorkerLock: number | null
   remoteWorkerCost: number | null
@@ -3785,7 +3786,7 @@ const getLatencySeriesConfig = (
     ['total_latency_us', '总时延', '#d32f2f'],
     ['sdk_processing_us', 'SDK处理', '#5470c6'],
     ['master_processing_us', 'Master处理', '#91cc75'],
-    ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
+    ['worker_access_latency_us', 'Worker端总时延', '#fac858'],
     ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
     ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
     ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
@@ -4204,6 +4205,7 @@ type TraceDelayKey =
   | 'w2wUrmaLatency'
   | 'sdkProcess'
   | 'sdkRpc'
+  | 'workerTotalLatency'
   | 'localWorkerCost'
   | 'localWorkerLock'
   | 'remoteWorkerCost'
@@ -4250,6 +4252,13 @@ const traceDelayColumns = [
   },
   { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
+  {
+    key: 'workerTotalLatency',
+    label: 'Worker端总时延 (ms)',
+    metric: 'worker_total_latency',
+    threshold: 100,
+    unit: 'ms',
+  },
   { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
@@ -4351,10 +4360,11 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) =>
-  typeof value === 'number' && Number.isFinite(value)
-    ? `${formatMetricValue(value)} ${column.unit}`
-    : '未解析'
+const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (value < 0) return '无效值'
+  return `${formatMetricValue(value)} ${column.unit}`
+}
 
 type TopSlowSegmentKey = string
 
@@ -4379,7 +4389,7 @@ type TopSlowChartRow = {
 const getTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
   { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
   { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-  { key: 'worker_access_latency_us', label: 'Worker Access时延', color: '#fac858' },
+  { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
   { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
   { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
   { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
@@ -4501,6 +4511,7 @@ const getTraceDelayStatusLabel = (
 ) => {
   const value = getTraceDelayValue(trace, column)
   if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (value < 0) return '无效值'
   return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
 }
 
@@ -6498,6 +6509,7 @@ const toFaultTraceTableRow = (
     w2wUrmaLatency: null,
     sdkProcess: null,
     sdkRpc: null,
+    workerTotalLatency: null,
     localWorkerCost: null,
     localWorkerLock: null,
     remoteWorkerCost: null,
@@ -6583,6 +6595,7 @@ const openFaultTraceDialog = async (trace: TraceDetailRow) => {
       w2wUrmaLatency: latencyData.w2w_urma_latency ?? null,
       sdkProcess: latencyData.sdk_process ?? null,
       sdkRpc: latencyData.sdk_rpc ?? null,
+      workerTotalLatency: latencyData.worker_total_latency ?? null,
       localWorkerCost: latencyData.local_worker_cost ?? null,
       localWorkerLock: latencyData.local_worker_lock ?? null,
       remoteWorkerCost: latencyData.remote_worker_cost ?? null,
@@ -6623,6 +6636,7 @@ const openParseResultChain = async (row: ParseResultTableRow) => {
     w2wUrmaLatency: row.w2wUrmaLatency,
     sdkProcess: row.sdkProcess,
     sdkRpc: row.sdkRpc,
+    workerTotalLatency: row.workerTotalLatency,
     localWorkerCost: row.localWorkerCost,
     localWorkerLock: row.localWorkerLock,
     remoteWorkerCost: row.remoteWorkerCost,
@@ -7013,6 +7027,7 @@ const viewAbnormalTraceLink = async (row: AbnormalTraceRow) => {
     w2wUrmaLatency: row.w2wUrmaLatency,
     sdkProcess: row.sdkProcess,
     sdkRpc: row.sdkRpc,
+    workerTotalLatency: row.workerTotalLatency,
     localWorkerCost: row.localWorkerCost,
     localWorkerLock: row.localWorkerLock,
     remoteWorkerCost: row.remoteWorkerCost,
@@ -18390,7 +18405,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section>
-            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-section-title trace-section-title-with-hint">
+              <span>⏱️ 时延明细</span>
+              <span class="trace-section-hint">
+                总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
+              </span>
+            </div>
             <div class="trace-delay-table-wrapper">
               <table class="trace-delay-table">
                 <thead>
@@ -18679,7 +18699,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section>
-            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-section-title trace-section-title-with-hint">
+              <span>⏱️ 时延明细</span>
+              <span class="trace-section-hint">
+                总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
+              </span>
+            </div>
             <div class="trace-delay-table-wrapper">
               <table class="trace-delay-table">
                 <thead>
