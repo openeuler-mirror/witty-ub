@@ -28,7 +28,7 @@ description: 分析 URMA C 源码，生成以公开 URMA API 为根、以 URMA_L
 - `故障现象`：格式为“依次匹配`关键字1`、`关键字2`”；按格式占位符切分并匹配日志中的全部非空字面量，去除字面量末尾的换行符。
 - `错误码`：具体节点按 `/tmp/urma_log_err.json` 填写；确定的 URMA 宏（包括由 errno 映射得到的宏）写成 `URMA_EINVAL(22)`，空指针哨兵写字符串 `NULL` 或 `nullptr`，裸 `0/-1` 写 JSON number，无法静态确定或没有错误返回时写 JSON null。根节点写 JSON null。
 - `故障原因`：根据日志分支条件、失败来源和函数作用说明直接原因；需要继续匹配下游时填“向下级匹配”。
-- `解决办法`：具体节点默认“无”，根节点填“向下级匹配”。
+- `解决办法`：根节点填“向下级匹配”。具体节点必须分析故障点及必要上下游源码，结合触发条件、失败来源、状态传播和资源处理给出可能的解决办法；无法唯一确定时须注明适用条件并给出源码支持的排查或修复方向，不得默认填写“无”。`references/function_additional_info.md` 指定函数的解决办法必须保留并优先采用，可结合源码补充但不得删除或改写其既有方案。
 - `函数名`：只填裸 C 函数名，不带文件、类型、provider 或其他限定。
 - `文件名`：源码裸文件名，根据`find_urma_log_err.py`脚本输出的`file`字段填写，不得携带目录路径。
 
@@ -165,7 +165,7 @@ python3 .opencode/skills/failure-mode-generation-urma/scripts/generate_urma_call
 
 4. 按节点、聚合、故障边、归属及 URMA 异步规则分析源码，生成 `data/urma/urma_failure_mode.json`。
 
-5. 根据 `./references/function_additional_info.md` 的内容对相关函数的故障原因和解决办法进行修正。
+5. 对每个具体节点分析故障点及必要上下游源码并给出可能的解决办法；随后根据 `./references/function_additional_info.md` 修正相关函数，其中指定的解决办法必须保留并优先采用，可结合源码补充其适用条件或验证步骤，但不得删除或改写既有方案。
 
 6. 在 `data/failure_mode_tree.json` 中新增或覆盖 `urma`，保留其他内容。每个节点都必须作为 key 出现，叶子值为 `[]`。
 
