@@ -6,6 +6,7 @@ import uuid
 import subprocess
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
+from latency.common.trace_context import match_trace_context_trace_id
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
@@ -104,8 +105,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                         if len(parts) < 7:
                             continue
 
-                        trace_id = parts[5].strip() if len(parts) > 5 else ""
-                        if not trace_id or trace_id not in trace_id_set:
+                        trace_id = match_trace_context_trace_id(
+                            parts[5].strip() if len(parts) > 5 else "",
+                            raw_line,
+                            trace_id_set,
+                        )
+                        if not trace_id:
                             continue
 
                         if is_access_log and len(parts) <= 7:
