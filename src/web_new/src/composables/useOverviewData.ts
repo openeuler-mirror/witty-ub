@@ -798,6 +798,13 @@ function createOverviewStateInner() {
   const brpcMonitorTab = ref<'iface' | 'fault'>('iface')
   const brpcFaultTab = ref<'event' | 'thread'>('event')
   const brpcFaultSelectedLogId = ref('')
+  // U5：聚合事件表的时间间隔（服务端支持 1s / 1m / 1h），改变后重拉当前页
+  const brpcEventWindowSize = ref<'1s' | '1m' | '1h'>('1m')
+  const brpcEventWindowOptions = [
+    { value: '1s', label: '秒' },
+    { value: '1m', label: '分' },
+    { value: '1h', label: '时' },
+  ] as const
   const brpcFaultBatch = ref<any>(null)
   const brpcFaultTimelineSeries = ref<any[]>([])
   const brpcAggregatedEvents = ref<any[]>([])
@@ -851,41 +858,134 @@ function createOverviewStateInner() {
     return { startDate, endDate }
   }
 
+  // U5：UBSocket 公共 API 故障时序的时间聚合尺度（客户端再分桶，不改查询口径）
+  const brpcFaultScaleOptions = [
+    { value: 10, label: '10 秒' },
+    { value: 60, label: '1 分钟' },
+    { value: 600, label: '10 分钟' },
+    { value: 3600, label: '1 小时' },
+  ] as const
+  const brpcFaultScale = ref<number>(60)
+
+  const brpcFaultSeriesLabel = (series: any) =>
+    String(series.interface_name ?? '') +
+    (series.function_name ? `（${series.function_name}）` : '')
+
+  const brpcFaultSeriesOptions = computed(() =>
+    brpcFaultTimelineSeries.value.map((series: any, index: number) => ({
+      id: String(series.interface_id ?? brpcFaultSeriesLabel(series)),
+      label: brpcFaultSeriesLabel(series),
+      color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8',
+    })),
+  )
+  const brpcFaultVisibleSeriesIds = ref<string[]>([])
+  watch(brpcFaultSeriesOptions, (options) => {
+    brpcFaultVisibleSeriesIds.value = brpcFaultVisibleSeriesIds.value.filter((id) =>
+      options.some((option) => option.id === id),
+    )
+    if (brpcFaultVisibleSeriesIds.value.length === 0) {
+      brpcFaultVisibleSeriesIds.value = options.map((option) => option.id)
+    }
+  })
+
+  // 按当前尺度把每个接口的秒/分钟点再聚合求和，用于横轴缩放下仍可读
+  const brpcFaultTimelineView = computed(() => {
+    const scaleMs = Math.max(1, brpcFaultScale.value) * 1000
+    return brpcFaultTimelineSeries.value.map((series: any, index: number) => {
+      const buckets = new Map<number, number>()
+      ;(series.points || []).forEach((point: any) => {
+        const ms = tsToEpochMs(String(point.window_start_time ?? ''))
+        if (!Number.isFinite(ms)) return
+        const bucketStart = Math.floor(ms / scaleMs) * scaleMs
+        buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + (point.interface_hit_count ?? 0))
+      })
+      return {
+        id: String(series.interface_id ?? brpcFaultSeriesLabel(series)),
+        label: brpcFaultSeriesLabel(series),
+        color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8',
+        points: [...buckets.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([bucketStart, count]) => ({ time: epochMsToTs(bucketStart), count })),
+      }
+    })
+  })
+
+  const brpcFaultZoomed = ref(false)
+  let brpcFaultZoomBound = false
+
   const renderBrpcFaultTimeline = () => {
     afterDomUpdate(() => {
       const el = brpcFaultTimelineRef.value
       if (!el) return
       const chart = getChart(el)
-      const seriesList = brpcFaultTimelineSeries.value
+      const seriesList = brpcFaultTimelineView.value.filter((series) =>
+        brpcFaultVisibleSeriesIds.value.includes(series.id),
+      )
       const times = [
         ...new Set(
-          seriesList.flatMap((series) =>
-            (series.points || []).map((point: any) => point.window_start_time),
-          ),
+          seriesList.flatMap((series) => series.points.map((point) => point.time)),
         ),
       ].sort()
       setChartOption(chart, {
-        tooltip: { trigger: 'axis' },
-        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
-        grid: { left: 56, right: 20, top: 42, bottom: 42 },
+        tooltip: { trigger: 'axis', order: 'valueDesc' },
+        // 图例由卡片内的「曲线选择」承担，避免长接口名把图例挤出行外
+        legend: { show: false },
+        grid: { left: 56, right: 24, top: 24, bottom: 62 },
+        dataZoom: [
+          { type: 'inside', start: 0, end: 100 },
+          { type: 'slider', height: 16, bottom: 8, start: 0, end: 100 },
+        ],
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(String(time))),
           axisLabel: { fontSize: 10, rotate: 30 },
         },
         yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
-        series: seriesList.map((series) => ({
-          name: series.interface_name + (series.function_name ? `（${series.function_name}）` : ''),
-          type: 'line',
-          smooth: true,
-          data: times.map((time) => {
-            const point = (series.points || []).find((item: any) => item.window_start_time === time)
-            return point?.interface_hit_count ?? 0
-          }),
-          lineStyle: { width: 2 },
-        })),
+        series: seriesList.map((series) => {
+          const byTime = new Map(
+            series.points.map((point) => [point.time, point.count] as const),
+          )
+          return {
+            name: series.label,
+            type: 'line',
+            smooth: true,
+            symbol: 'none',
+            connectNulls: true,
+            data: times.map((time) => byTime.get(time) ?? 0),
+            lineStyle: { width: 2, color: series.color },
+            itemStyle: { color: series.color },
+          }
+        }),
       })
+      if (!brpcFaultZoomBound) {
+        brpcFaultZoomBound = true
+        chart.on('dataZoom', () => {
+          const option = chart.getOption() as any
+          const zoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] : null
+          brpcFaultZoomed.value = !!zoom && (zoom.start > 0.5 || zoom.end < 99.5)
+        })
+      }
     })
+  }
+
+  const resetBrpcFaultZoom = () => {
+    const el = brpcFaultTimelineRef.value
+    if (!el) return
+    const chart = getInstanceByDom(el)
+    chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+    brpcFaultZoomed.value = false
+  }
+
+  const selectAllBrpcFaultSeries = () => {
+    brpcFaultVisibleSeriesIds.value = brpcFaultSeriesOptions.value.map((option) => option.id)
+  }
+  const clearBrpcFaultSeries = () => {
+    brpcFaultVisibleSeriesIds.value = []
+  }
+  const toggleBrpcFaultSeries = (id: string) => {
+    brpcFaultVisibleSeriesIds.value = brpcFaultVisibleSeriesIds.value.includes(id)
+      ? brpcFaultVisibleSeriesIds.value.filter((item) => item !== id)
+      : [...brpcFaultVisibleSeriesIds.value, id]
   }
 
   // P2.3 线程详情：failure_graph 节点/边图（点击节点查看故障模式）
@@ -1074,6 +1174,7 @@ function createOverviewStateInner() {
           endDate,
           brpcAggregatedEventPage.value,
           brpcFaultPageSize,
+          brpcEventWindowSize.value,
         ),
         fetchBrpcAbnormalThreads(
           batchId,
@@ -1100,6 +1201,11 @@ function createOverviewStateInner() {
   const changeBrpcFaultLog = async () => {
     brpcAggregatedEventPage.value = 1
     brpcAbnormalThreadPage.value = 1
+    await loadBrpcFaultData()
+  }
+
+  const changeBrpcEventWindowSize = async () => {
+    brpcAggregatedEventPage.value = 1
     await loadBrpcFaultData()
   }
 
@@ -4677,6 +4783,12 @@ function createOverviewStateInner() {
       renderFaultChart()
     })
 
+    // U5：UBSocket 故障时序的展示尺度/曲线勾选变化只重绘，不重查
+    watch([brpcFaultScale, brpcFaultVisibleSeriesIds], () => {
+      if (!isAssetMode.value || !isBrpcTask.value) return
+      renderBrpcFaultTimeline()
+    })
+
     // U1：UBSocket 文件/指标/曲线勾选/单接口变化 → 重绘接口监控图
     watch(
       [
@@ -4820,13 +4932,25 @@ function createOverviewStateInner() {
     brpcFaultError,
     brpcFaultEventPages,
     brpcFaultLoading,
+    brpcEventWindowOptions,
+    brpcEventWindowSize,
+    changeBrpcEventWindowSize,
     brpcFaultLogOptions,
     brpcFaultPageSize,
     brpcFaultQueryRange,
+    brpcFaultScale,
+    brpcFaultScaleOptions,
     brpcFaultSelectedLogId,
+    brpcFaultSeriesOptions,
     brpcFaultTab,
     brpcFaultThreadPages,
     brpcFaultTimelineRef,
+    brpcFaultVisibleSeriesIds,
+    brpcFaultZoomed,
+    clearBrpcFaultSeries,
+    resetBrpcFaultZoom,
+    selectAllBrpcFaultSeries,
+    toggleBrpcFaultSeries,
     faultActivePairs,
     activeFaultTraces,
     faultCodeSummaries,

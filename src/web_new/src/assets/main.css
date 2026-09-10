@@ -1871,3 +1871,33 @@ tr:hover td {
   font-size: 13px;
   background: var(--bg);
 }
+
+/* U5：通断故障监控结果区（页签 + 聚合指标/时间间隔） */
+
+.fault-result-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.fault-result-bar .view-tabs {
+  margin-bottom: 0;
+}
+
+.fault-result-controls {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fault-result-controls .fault-result-static {
+  font-size: 13px;
+  color: var(--text);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}

@@ -11,24 +11,36 @@ const {
   brpcAggregatedEventTotal,
   brpcAggregatedEvents,
   brpcEventHitTotal,
+  brpcEventWindowOptions,
+  brpcEventWindowSize,
   brpcFaultBatch,
   brpcFaultError,
   brpcFaultEventPages,
   brpcFaultLoading,
   brpcFaultLogOptions,
+  brpcFaultScale,
+  brpcFaultScaleOptions,
   brpcFaultSelectedLogId,
+  brpcFaultSeriesOptions,
   brpcFaultTab,
   brpcFaultThreadPages,
   brpcFaultTimelineRef,
+  brpcFaultVisibleSeriesIds,
+  brpcFaultZoomed,
   brpcThreadSearchInput,
   brpcThreadSearchQuery,
   changeBrpcFaultLog,
+  changeBrpcEventWindowSize,
+  clearBrpcFaultSeries,
   clearBrpcThreadSearch,
   goBrpcFaultEventsPage,
   goBrpcFaultThreadsPage,
   openBrpcFaultDetail,
   renderBrpcFaultTimeline,
+  resetBrpcFaultZoom,
+  selectAllBrpcFaultSeries,
   submitBrpcThreadSearch,
+  toggleBrpcFaultSeries,
 } = useOverviewData()
 
 onMounted(() => {
@@ -80,29 +92,93 @@ onMounted(() => {
     </div>
 
     <div class="section-card">
-      <div class="section-card-title">UBSocket 接口故障数时序分布</div>
-      <div ref="brpcFaultTimelineRef" style="height: 300px"></div>
+      <div class="section-card-title">
+        📈 UBSocket 公共API故障时序分布
+        <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px">
+          <button
+            v-if="brpcFaultZoomed"
+            class="btn btn-sm btn-text"
+            type="button"
+            @click="resetBrpcFaultZoom"
+          >
+            重置缩放
+          </button>
+          <label class="hint" for="brpc-fault-scale">时间聚合尺度</label>
+          <select id="brpc-fault-scale" class="select" v-model.number="brpcFaultScale">
+            <option v-for="option in brpcFaultScaleOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </span>
+      </div>
+      <p class="monitor-card-hint">
+        横坐标会根据时间范围缩放，图中数据为缩放后的抽稀结果；拖动下方滑块可框选时间范围
+      </p>
+      <div v-if="brpcFaultSeriesOptions.length > 0" class="series-toggle">
+        <span class="series-toggle-label">曲线选择：</span>
+        <span class="series-toggle-count">
+          已选 {{ brpcFaultVisibleSeriesIds.length }}/{{ brpcFaultSeriesOptions.length }}
+        </span>
+        <button class="btn btn-sm btn-text" type="button" @click="selectAllBrpcFaultSeries">
+          全选
+        </button>
+        <button class="btn btn-sm btn-text" type="button" @click="clearBrpcFaultSeries">
+          清空
+        </button>
+        <label
+          v-for="series in brpcFaultSeriesOptions"
+          :key="series.id"
+          class="series-toggle-option"
+        >
+          <input
+            type="checkbox"
+            :checked="brpcFaultVisibleSeriesIds.includes(series.id)"
+            @change="toggleBrpcFaultSeries(series.id)"
+          />
+          <span class="series-dot" :style="{ backgroundColor: series.color }"></span>
+          {{ series.label }}
+        </label>
+      </div>
+      <div ref="brpcFaultTimelineRef" style="height: 320px"></div>
     </div>
 
-    <div class="view-tabs" role="tablist" aria-label="UBSocket 故障结果视图">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="brpcFaultTab === 'event'"
-        :class="['view-tab', { active: brpcFaultTab === 'event' }]"
-        @click="brpcFaultTab = 'event'"
-      >
-        聚合事件
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="brpcFaultTab === 'thread'"
-        :class="['view-tab', { active: brpcFaultTab === 'thread' }]"
-        @click="brpcFaultTab = 'thread'"
-      >
-        异常 Thread
-      </button>
+    <div class="fault-result-bar">
+      <div class="view-tabs" role="tablist" aria-label="UBSocket 故障结果视图">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="brpcFaultTab === 'event'"
+          :class="['view-tab', { active: brpcFaultTab === 'event' }]"
+          @click="brpcFaultTab = 'event'"
+        >
+          聚合事件
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="brpcFaultTab === 'thread'"
+          :class="['view-tab', { active: brpcFaultTab === 'thread' }]"
+          @click="brpcFaultTab = 'thread'"
+        >
+          异常 Thread
+        </button>
+      </div>
+      <!-- 聚合指标固定为 Pod IP（异常 Thread 视图即线程聚合），时间间隔走服务端 window_size -->
+      <div v-if="brpcFaultTab === 'event'" class="fault-result-controls">
+        <span class="hint">聚合指标</span>
+        <span class="fault-result-static">Pod IP</span>
+        <label class="hint" for="brpc-event-window">时间间隔</label>
+        <select
+          id="brpc-event-window"
+          class="select"
+          v-model="brpcEventWindowSize"
+          @change="changeBrpcEventWindowSize"
+        >
+          <option v-for="option in brpcEventWindowOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
     </div>
 
     <template v-if="brpcFaultTab === 'event'">

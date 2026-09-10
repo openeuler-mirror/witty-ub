@@ -475,12 +475,13 @@ export const fetchBrpcPodEvents = (
   end: Date,
   pageNum: number,
   pageCnt: number,
+  windowSize: '1s' | '1m' | '1h' = '1m',
 ) =>
   request<{ total: number; events: any[] }>(
     `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/pod-events?${toQueryString({
       start_time: formatFullTimeLabel(start),
       end_time: formatFullTimeLabel(end),
-      window_size: '1m',
+      window_size: windowSize,
       page_num: pageNum,
       page_cnt: pageCnt,
     })}`,
