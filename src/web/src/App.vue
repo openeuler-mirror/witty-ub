@@ -6230,11 +6230,7 @@ const selectedTraceFailureModeDisplayErrorCode = computed(() => {
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  void loadRelatedFailureModeDetails(
-    failureModeId,
-    selectedTraceFailureModeIds.value,
-    selectedTraceAccessFailureModeIds.value,
-  )
+  void loadRelatedFailureModeDetails(failureModeId, selectedTraceFailureModeIds.value)
 }
 
 const selectedFaultTraceFailureModeIds = computed<string[]>(() => {
@@ -6277,11 +6273,7 @@ const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: st
 const selectFaultTraceFailureMode = (failureModeId: string) => {
   selectedFaultTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  void loadRelatedFailureModeDetails(
-    failureModeId,
-    selectedFaultTraceFailureModeIds.value,
-    selectedFaultTraceAccessFailureModeIds.value,
-  )
+  void loadRelatedFailureModeDetails(failureModeId, selectedFaultTraceFailureModeIds.value)
 }
 
 const getFailureModeChildren = (failureMode?: FailureModeKnowledgeModel | null) =>
@@ -6313,14 +6305,13 @@ const getRelatedChildFailureModeIds = (
 const getSameErrorCodeFailureModeIds = (
   failureMode: FailureModeKnowledgeModel | null | undefined,
   traceFailureModeIds: string[],
-  accessFailureModeIds: Set<string>,
 ) => {
   const errorCode = normalizeFailureModeErrorCode(failureMode?.error_code)
   if (!errorCode) return []
 
-  // 只在当前 trace 已命中的故障模式中筛选同码项，避免从知识库收集全量同码故障。
+  // 只在当前 trace 已命中的全部故障模式中筛选同码项（含 access 故障），避免从知识库收集全量同码故障。
   return traceFailureModeIds.filter((failureModeId) => {
-    if (failureModeId === failureMode?.id || accessFailureModeIds.has(failureModeId)) return false
+    if (failureModeId === failureMode?.id) return false
     const candidateErrorCode = normalizeFailureModeErrorCode(
       failureModeDetailsById.value[failureModeId]?.error_code,
     )
@@ -6336,7 +6327,6 @@ const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
   getSameErrorCodeFailureModeIds(
     selectedTraceFailureMode.value,
     selectedTraceFailureModeIds.value,
-    selectedTraceAccessFailureModeIds.value,
   ),
 )
 
@@ -6351,7 +6341,6 @@ const selectedFaultTraceSameErrorCodeFailureModeIds = computed(() =>
   getSameErrorCodeFailureModeIds(
     selectedFaultTraceFailureMode.value,
     selectedFaultTraceFailureModeIds.value,
-    selectedFaultTraceAccessFailureModeIds.value,
   ),
 )
 
@@ -6373,13 +6362,12 @@ const getRelatedFailureModeLabel = (failureModeId: string, isAccessFailure: bool
 const loadRelatedFailureModeDetails = async (
   failureModeId: string,
   traceFailureModeIds: string[],
-  accessFailureModeIds: Set<string>,
 ) => {
   const parentFailureMode =
     failureModeDetailsById.value[failureModeId] ?? (await loadFailureModeDetail(failureModeId))
   const relatedFailureModeIds = [
     ...getRelatedChildFailureModeIds(parentFailureMode, traceFailureModeIds),
-    ...getSameErrorCodeFailureModeIds(parentFailureMode, traceFailureModeIds, accessFailureModeIds),
+    ...getSameErrorCodeFailureModeIds(parentFailureMode, traceFailureModeIds),
   ]
   await Promise.all(relatedFailureModeIds.map((relatedId) => loadFailureModeDetail(relatedId)))
 }
@@ -18341,7 +18329,12 @@ onBeforeUnmount(() => {
                               :class="{ active: selectedChildFailureModeId === relatedId }"
                               @click="selectChildFailureMode(relatedId)"
                             >
-                              {{ getRelatedFailureModeLabel(relatedId, false) }}
+                              {{
+                                getRelatedFailureModeLabel(
+                                  relatedId,
+                                  selectedTraceAccessFailureModeIds.has(relatedId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
@@ -18625,7 +18618,12 @@ onBeforeUnmount(() => {
                               :class="{ active: selectedChildFailureModeId === relatedId }"
                               @click="selectChildFailureMode(relatedId)"
                             >
-                              {{ getRelatedFailureModeLabel(relatedId, false) }}
+                              {{
+                                getRelatedFailureModeLabel(
+                                  relatedId,
+                                  selectedFaultTraceAccessFailureModeIds.has(relatedId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
