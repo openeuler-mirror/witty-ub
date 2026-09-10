@@ -92,7 +92,7 @@ flowchart TB
 ## 各层说明
 
 | 层 | 组件 | 数据结构 | 关键点 |
-|----|------|----------|--------|
+| ---- | ------ | ---------- | -------- |
 | **① 扫描** | `ParallelFileScanner` (多进程) | `{label: [entries]}` → 列式 dict | 每 entry 一行, 31 列 TRACE_COLUMNS + 2 内部列(_label/_src_rank), 稀疏+None 对齐 |
 | **② df_trace** | `build_trace_frame` (polars) | `pl.DataFrame` 每 trace 一行 | `group_by(tid)` + merge spec: `first()` 取首个非空, src/dst 按 max_rank(URMA>RemotePull) |
 | **③ 三路消费** | `_aggregate_polars` / `compute_bucket_stats_from_frame` / `_build_anomalous_detail_rows` | 3 类 dataclass + 代表行 | **一份 df_trace, 三种视角**; 聚合 66ms / 桶统计 4 档 / 明细仅异常 |
@@ -102,7 +102,7 @@ flowchart TB
 ## 性能对比(347,471 traces)
 
 | 阶段 | 旧 numpy | Polars |
-|------|---------|--------|
+| ------ | --------- | -------- |
 | 聚合 | 131.9s | **66ms** (~2000x) |
 | 总解析 | ~155s | **8s** |
 

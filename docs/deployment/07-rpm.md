@@ -251,7 +251,6 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 - 宿主机脚本部署 → [02-script-host.md](02-script-host.md)
 - 容器脚本部署 → [03-script-container.md](03-script-container.md)
 
-
 ### SELinux 与前端 413 排查
 
 `前端页面未就绪` 只表示首页探测失败，并不能直接认定为 SELinux。

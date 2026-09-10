@@ -213,6 +213,7 @@ docker exec witty-ub curl --noproxy 127.0.0.1 http://127.0.0.1:9772/health_check
 **解决方案**:
 
 确保使用正确的基础镜像版本:
+
 - `openeuler/openeuler:24.03-lts-sp4` (推荐，包含完整依赖)
 - 基础版本 `24.03-lts` 可能缺少部分包
 
