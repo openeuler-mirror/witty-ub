@@ -50,7 +50,7 @@ docker load -i witty-ub.tar
 | 单机 All-in-One | `docker compose --profile allinone up -d` | `postgres` + `witty-ub` |
 
 > 直接 `docker compose up -d`（不带 profile）只会拉起 `postgres`。`postgres` 服务不带 profile，两种形态共用数据库。
-
+>
 > **镜像来源**：compose 中每个服务同时声明了 `build`（源码构建）与 `image`（`witty-ub:<role>`）。
 > 本地已有对应 tag 时 compose 直接使用；否则会转入源码构建（需要先构建 base 镜像，见[镜像构建](../package/01-docker-build.md)）。
 > 使用现成镜像时，请先按上面的"获取镜像"完成 `docker pull` + `docker tag`，再执行 `up`。

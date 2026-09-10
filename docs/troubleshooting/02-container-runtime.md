@@ -12,6 +12,7 @@
 ### 问题描述
 
 **症状**: 容器启动后运行异常，出现以下情况之一:
+
 - Latency Plugin 报 `RuntimeError: can't start new thread`
 - 容器内进程创建失败或线程池无法扩展
 - OpenCode 服务无法正常启动
@@ -197,6 +198,7 @@ docker compose version
 ### 低版本 Docker 注意事项
 
 如果 Docker 版本低于 20.10:
+
 1. 可能遇到 seccomp/clone3 问题（见上文）
 2. 不支持 `docker compose` 命令，需使用 `docker-compose`（带连字符）
 3. 多架构构建功能受限
@@ -247,7 +249,7 @@ docker logs --since 2024-01-01T10:00:00 witty-ub
 容器内日志路径:
 
 | 日志类型 | 路径 |
-|---------|------|
+| --------- | ------ |
 | Nginx 访问日志 | `/var/log/witty-ub-web/access.log` |
 | Nginx 错误日志 | `/var/log/witty-ub-web/error.log` |
 | Latency 服务日志 | `/var/log/witty-ub/latency_server.log` |

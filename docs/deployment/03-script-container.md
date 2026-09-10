@@ -96,7 +96,7 @@ PG_DATABASE="witty-ub"
 > **PG 密码**：Docker 部署时口令存放在 `/etc/witty-ub/pg.passwd`（权限 0640，属主 root；容器内 postgres 用户经 gid 0 读取），由 `deploy_pg.sh --docker` 生成。`deploy_witty.sh` 将该文件只读挂载到 `/run/secrets/pg_password`，容器入口启动后端前才读取并注入进程环境；密码不会写入 `deploy.conf`、运行时 TOML 或 `docker inspect` 可见的容器环境配置。
 >
 > **宿主机 PG（RPM/源码）场景**：`deploy_pg.sh --rpm/--apt` 生成的密钥在 `deploy/pg.passwd`；`deploy_witty.sh` 按 `/etc/witty-ub/pg.passwd` → `deploy/pg.passwd` 的顺序自动查找，无需手工搬运。宿主机 PG 需允许 Docker 网关访问（`listen_addresses='*'` + `pg_hba` 放通），`deploy_pg.sh --rpm` 会自动完成并**重启**服务。
-
+>
 > **脚本与 compose 互斥**：`deploy/docker/manage.sh`（脚本）与仓库 `docker-compose.yml` 使用相同的容器名/卷名/网络名，二者**不要混用**（同名容器会冲突，卷名不同会数据分裂）。compose 用法见 [手动容器部署](08-container.md)。
 
 ### 环境变量覆盖
