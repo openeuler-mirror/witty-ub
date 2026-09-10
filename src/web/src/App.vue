@@ -3606,7 +3606,6 @@ type GlobalFilterState = {
   podIps: string[]
   sourcePodIps: string[]
   targetPodIps: string[]
-  traceBoards: string[]
 }
 
 type AssetState = {
@@ -3641,7 +3640,6 @@ const createEmptyFilters = (): GlobalFilterState => ({
   podIps: [],
   sourcePodIps: [],
   targetPodIps: [],
-  traceBoards: [],
 })
 
 const filterDraftInput = reactive({
@@ -3662,7 +3660,6 @@ const traceFilterDialog = reactive({
   addPodIp: false,
   addSourcePodIp: false,
   addTargetPodIp: false,
-  addTraceBoard: false,
 })
 
 const abnormalTraceFilterDialog = reactive({
@@ -6623,12 +6620,10 @@ const removeFilterValue = (category: FilterTagCategory, value: string) => {
   globalFilters[key] = globalFilters[key].filter((item) => item !== value)
 }
 
-const resetFilterCategory = (category: FilterTagCategory | 'time' | 'traceBoard') => {
+const resetFilterCategory = (category: FilterTagCategory | 'time') => {
   if (category === 'time') {
     globalFilters.startTime = ''
     globalFilters.endTime = ''
-  } else if (category === 'traceBoard') {
-    globalFilters.traceBoards = []
   } else {
     const key = filterTagCollections[category]
     globalFilters[key] = [] as never
@@ -7013,18 +7008,6 @@ const confirmFaultAggregatedPodIpFilterDialog = () => {
   closeFaultAggregatedPodIpFilterDialog()
 }
 
-const removeTraceBoardValue = (traceId: string) => {
-  globalFilters.traceBoards = globalFilters.traceBoards.filter((item) => item !== traceId)
-  filterApplyMessage.value = ''
-}
-
-const addTraceBoardValue = (traceId: string) => {
-  if (!globalFilters.traceBoards.includes(traceId)) {
-    globalFilters.traceBoards.push(traceId)
-  }
-  filterApplyMessage.value = ''
-}
-
 const isTraceFilterValueAvailable = (value?: string) =>
   Boolean(value && value !== 'null' && value !== '-')
 
@@ -7035,7 +7018,6 @@ const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.addPodIp = false
   traceFilterDialog.addSourcePodIp = false
   traceFilterDialog.addTargetPodIp = false
-  traceFilterDialog.addTraceBoard = false
   traceFilterDialog.open = true
 }
 
@@ -7063,10 +7045,6 @@ const confirmTraceFilterDialog = () => {
   if (traceFilterDialog.addTargetPodIp && isTraceFilterValueAvailable(trace.podIp)) {
     addTargetPodIpFilter(trace.podIp)
   }
-  if (traceFilterDialog.addTraceBoard) {
-    addTraceBoardValue(trace.traceId)
-  }
-
   closeTraceFilterDialog()
 }
 
@@ -7078,7 +7056,6 @@ const snapshotCurrentFilters = (): GlobalFilterState => ({
   podIps: globalFilters.podIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   sourcePodIps: globalFilters.sourcePodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   targetPodIps: globalFilters.targetPodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
-  traceBoards: [],
 })
 
 const getActiveFilterCount = (filters: GlobalFilterState) => {
@@ -12839,38 +12816,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="trace-board-panel" aria-label="Trace看板">
-        <div class="filter-header">
-          <span>Trace看板</span>
-          <button
-            class="reset-category-btn reset-all-filter-btn"
-            type="button"
-            @click="resetFilterCategory('traceBoard')"
-          >
-            重置
-          </button>
-        </div>
-        <div class="trace-board-body">
-          <div class="selected-tags">
-            <span
-              v-for="traceId in globalFilters.traceBoards"
-              :key="traceId"
-              class="filter-tag trace-filter-tag"
-            >
-              {{ traceId }}
-              <button type="button" class="remove-tag" @click="removeTraceBoardValue(traceId)">
-                ×
-              </button>
-            </span>
-            <span v-if="globalFilters.traceBoards.length === 0" class="empty-hint"
-              >未添加Trace</span
-            >
-          </div>
-        </div>
-        <div class="trace-board-footer">
-          <button class="show-trace-view-btn" type="button">展示视图</button>
-        </div>
-      </section>
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
@@ -16981,19 +16926,6 @@ onBeforeUnmount(() => {
 
         <div class="modal-body">
           <div class="filter-bar-list">
-            <div class="filter-bar">
-              <div class="filter-bar-info">
-                <span class="filter-bar-label">Trace ID</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.traceId }}</span>
-              </div>
-              <div class="filter-bar-options">
-                <label class="trace-filter-option">
-                  <input v-model="traceFilterDialog.addTraceBoard" type="checkbox" />
-                  <span>添加到Trace看板</span>
-                </label>
-              </div>
-            </div>
-
             <div class="filter-bar">
               <div class="filter-bar-info">
                 <span class="filter-bar-label">Pod IP</span>
