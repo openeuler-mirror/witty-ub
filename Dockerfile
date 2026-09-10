@@ -112,9 +112,7 @@ RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/sc
 # Copy web frontend (pre-built locally)
 COPY src/web/dist /var/witty-ub/web/
 
-# Copy nginx configuration (container-optimized default + template for split
-# deployment; entrypoint renders the template with WITTY_BACKEND_URL/WITTY_AGENT_URL)
-COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
+# Nginx config is rendered from this template at container start (docker/entrypoint.sh)
 COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
 
 RUN find /var/witty-ub/web -type d -exec chmod 0755 {} \; && \
@@ -176,9 +174,6 @@ COPY --from=builder-cpp /build/witty_ub_diagnostician/skills/experience-skill/sc
 # Copy web frontend (pre-built locally)
 COPY src/web/dist /var/witty-ub/web/
 
-# Copy nginx configuration (container-optimized default + template for split
-# deployment; entrypoint renders the template with WITTY_BACKEND_URL/WITTY_AGENT_URL)
-COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
 COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
 
 # Copy latency plugin

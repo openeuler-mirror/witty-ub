@@ -77,9 +77,7 @@ RUN mkdir -p /etc/witty-ub/web \
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
 
-# Container-optimized nginx default + template (entrypoint renders with
-# WITTY_BACKEND_URL/WITTY_AGENT_URL)
-COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
+# Nginx config is rendered from this template at container start (docker/entrypoint.sh)
 COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
 
 COPY docker/entrypoint.sh /entrypoint.sh
@@ -120,9 +118,6 @@ RUN mkdir -p /var/witty-ub/latency/file/file_upload \
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/bin/opencode
 
-# Container-optimized nginx default + template (entrypoint renders with
-# WITTY_BACKEND_URL/WITTY_AGENT_URL)
-COPY docker/nginx.conf /etc/witty-ub/web/nginx.conf
 COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.template
 
 COPY docker/entrypoint.sh /entrypoint.sh

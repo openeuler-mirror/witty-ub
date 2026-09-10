@@ -80,7 +80,7 @@ elif [ -n "$PG_PORT_OVERRIDE" ]; then
     PG_PORT="$PG_PORT_OVERRIDE"
 fi
 
-# PG 密码独立密钥文件（Docker 模式 0640，其余 0600）：ensure_pg_password 生成/写入，不回写 deploy.conf。
+# PG 密码独立密钥文件（Docker 模式 0440，其余 0400）：ensure_pg_password 生成/写入，不回写 deploy.conf。
 # Docker 部署 → /etc/witty-ub/pg.passwd（系统级稳定路径，不依赖仓库目录）；
 # 源码 host 部署（--rpm/--apt）→ deploy/pg.passwd（仓库目录内，开发/源码部署场景）。
 # 环境变量 PG_SECRET_FILE 可覆盖（测试/自定义路径）。
@@ -97,7 +97,7 @@ log_warn() { echo "[WARN]  $*"; }
 log_error() { echo "[ERROR] $*"; }
 
 ensure_pg_password() {
-    # 密码存放于独立密钥文件 PG_SECRET_FILE（Docker 模式 0640，其余 0600），
+    # 密码存放于独立密钥文件 PG_SECRET_FILE（Docker 模式 0440，其余 0400），
     # 不回写 deploy.conf —— 配置文件保持 <CHANGE_ME> 占位，杜绝污染源码/RPM 安装文件。
     # Docker 模式: /etc/witty-ub/pg.passwd；源码 host 模式: deploy/pg.passwd。
     #
@@ -151,13 +151,13 @@ ensure_pg_password() {
     log_info "PostgreSQL password saved to ${PG_SECRET_FILE}"
 }
 
-# 密钥文件目标权限：Docker 模式 0640（容器内 postgres 以 uid26/gid0 运行，需组可读），
-# 其余模式 0600（仅属主可读）。
+# 密钥文件目标权限：Docker 模式 0440（容器内 postgres 以 uid26/gid0 运行，需组可读且不需写），
+# 其余模式 0400（仅属主可读）。
 _pg_secret_mode() {
     if [ "$DEPLOY_MODE" = "docker" ]; then
-        echo "0640"
+        echo "0440"
     else
-        echo "0600"
+        echo "0400"
     fi
 }
 
@@ -183,8 +183,7 @@ _secure_pg_secret_permissions() {
     fi
 }
 
-# 权限收紧后必须校验：不符合预期时 PG 容器读不到密钥（Permission denied → 崩溃循环），
-# 这里直接失败并给出修复命令，避免"日志说 0640、实际 0600"的静默错误。
+# 权限收紧后必须校验：不符合预期时 PG 容器读不到密钥（Permission denied → 崩溃循环）。
 _assert_pg_secret_mode() {
     local expected actual
     expected="$(_pg_secret_mode)"
@@ -192,7 +191,7 @@ _assert_pg_secret_mode() {
         stat -f '%Lp' "$PG_SECRET_FILE" 2>/dev/null ||
         sudo -n stat -c '%a' "$PG_SECRET_FILE" 2>/dev/null || true)"
     actual="$(printf '%s' "$actual" | tr -d '\r\n')"
-    # stat 输出不带前导 0（640 / 600），按八进制数值比较，避免 "640" != "0640" 的误判
+    # stat 输出不带前导 0（440 / 400），按八进制数值比较
     if [ -z "$actual" ] || [ "$((8#$actual))" -ne "$((8#$expected))" ]; then
         log_error "Unexpected secret file mode: ${PG_SECRET_FILE} (expected ${expected}, actual ${actual:-unknown})"
         log_error "Fix it manually and retry: sudo chmod ${expected} ${PG_SECRET_FILE}"
@@ -210,6 +209,8 @@ _write_pg_secret() {
     if ! mkdir -p "$secret_dir" 2>/dev/null; then
         sudo mkdir -p "$secret_dir"
     fi
+    # 0400/0440 的既有密钥需先恢复属主写位才能原地重写
+    [ -w "$PG_SECRET_FILE" ] || chmod u+w "$PG_SECRET_FILE" 2>/dev/null || true
     if ! (umask 077 && printf '%s' "$password" >"$PG_SECRET_FILE") 2>/dev/null; then
         # 普通用户运行时密钥目录可能需要 root 权限（如 /etc/witty-ub）
         printf '%s' "$password" | sudo sh -c "umask 077 && cat > '$PG_SECRET_FILE'"

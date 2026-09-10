@@ -50,12 +50,22 @@ WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
 WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
 PG_VOLUME="${PG_VOLUME:-pg15-data}"
 
-# ---------- 本地开发模式配置（非 Docker 部署） ----------
-BACKEND_SERVICE="${BACKEND_SERVICE:-witty-ub-backend.service}"
-BACKEND_PORT="${BACKEND_PORT:-9772}"
-FRONTEND_PORT="${FRONTEND_PORT:-5173}"
-FRONTEND_DIR="${FRONTEND_DIR:-${DEPLOY_DIR}/../src/web}"
-VITE_LOG_FILE="${VITE_LOG_FILE:-/tmp/witty-vite.log}"
+# ---------- 全局选项：-y / --yes 跳过确认（卸载类命令在非交互环境下必需） ----------
+ASSUME_YES=0
+_cli_args=()
+for _arg in "$@"; do
+    case "$_arg" in
+    -y | --yes) ASSUME_YES=1 ;;
+    *) _cli_args+=("$_arg") ;;
+    esac
+done
+unset _arg
+if [ ${#_cli_args[@]} -gt 0 ]; then
+    set -- "${_cli_args[@]}"
+else
+    set --
+fi
+unset _cli_args
 
 # ---------- 加载配置 ----------
 if [ -f "$CONF_FILE" ]; then
@@ -86,7 +96,17 @@ check_docker() {
         return 1
     fi
     if ! docker info &>/dev/null; then
-        log_error "Docker daemon is not running."
+        local _err _user
+        _err="$(docker info 2>&1 || true)"
+        _user="$(id -un 2>/dev/null || echo '<user>')"
+        if printf '%s' "$_err" | grep -qiE 'permission denied|docker\.sock'; then
+            log_error "Cannot access the Docker daemon socket (permission denied)."
+            log_error "Current user '${_user}' is probably not in the 'docker' group."
+            log_error "  sudo usermod -aG docker ${_user} && newgrp docker   # or re-login"
+        else
+            log_error "Docker daemon is not running."
+            log_error "  sudo systemctl start docker"
+        fi
         return 1
     fi
     return 0
@@ -131,6 +151,10 @@ remove_image_if_unused() {
 
 confirm() {
     local msg="$1"
+    if [ "${ASSUME_YES:-0}" = "1" ]; then
+        log_info "${msg} (auto-confirmed by --yes)"
+        return 0
+    fi
     echo ""
     ask "${msg} (y/N): " choice
     case "$choice" in
@@ -601,207 +625,6 @@ do_restart() {
     done
 }
 
-port_listening() {
-    local port="$1"
-    if command -v ss &>/dev/null; then
-        ss -tln 2>/dev/null | grep -q ":${port} "
-    elif command -v netstat &>/dev/null; then
-        netstat -tln 2>/dev/null | grep -q ":${port} "
-    else
-        return 1
-    fi
-}
-
-find_pid_by_port() {
-    local port="$1"
-    local pid=""
-    if command -v ss &>/dev/null; then
-        pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -1 || true)
-    fi
-    if [ -z "$pid" ] && command -v pgrep &>/dev/null; then
-        pid=$(pgrep -f "node ./node_modules/.bin/vite" | head -1 || true)
-    fi
-    echo "$pid"
-}
-
-is_local_mode() {
-    if command -v systemctl &>/dev/null; then
-        local backend_state
-        backend_state=$(systemctl --user is-active "${BACKEND_SERVICE}" 2>/dev/null || true)
-        if [ "$backend_state" = "active" ]; then
-            return 0
-        fi
-    fi
-    if port_listening "${FRONTEND_PORT}"; then
-        return 0
-    fi
-    return 1
-}
-
-# 以裸进程方式重启后端（systemd user 单元不可用时的回退；与 deploy.sh 的
-# nohup 启动方式一致）。按端口 9772 找进程 → 停止 → 重新拉起 → 健康检查。
-restart_backend_bare() {
-    local old_pid
-    old_pid=$(find_pid_by_port "${BACKEND_PORT}")
-    if [ -n "$old_pid" ]; then
-        log_info "Stopping old backend process: PID ${old_pid}"
-        kill "$old_pid" 2>/dev/null || true
-        for _ in 1 2 3; do
-            if ! kill -0 "$old_pid" 2>/dev/null; then
-                break
-            fi
-            sleep 1
-        done
-        if kill -0 "$old_pid" 2>/dev/null; then
-            log_warn "Old backend process ${old_pid} did not exit within 3s; killing it"
-            kill -9 "$old_pid" 2>/dev/null || true
-        fi
-    else
-        log_info "No old backend process listening on port ${BACKEND_PORT}"
-    fi
-    sleep 1
-
-    local latency_dir="${DEPLOY_DIR}/../src/plugins/latency"
-    latency_dir=$(cd "$latency_dir" 2>/dev/null && pwd || echo "")
-    if [ -z "$latency_dir" ] || [ ! -f "$latency_dir/.venv/bin/activate" ]; then
-        log_error "Backend directory or venv not found: ${latency_dir}"
-        return 1
-    fi
-    local project_dir
-    project_dir=$(cd "${DEPLOY_DIR}/.." && pwd)
-    local log_dir="${project_dir}/.deploy-logs"
-    mkdir -p "$log_dir"
-
-    (
-        source "$latency_dir/.venv/bin/activate"
-        export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
-        export CONFIG="${CONFIG:-$project_dir/config/diagnosis_config.toml}"
-        export PYTHONPATH="$project_dir/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
-        cd "$latency_dir"
-        nohup python3 -u access/fastapi_server.py >"${log_dir}/backend.log" 2>&1 &
-        echo $! >"${log_dir}/backend.pid"
-    )
-    log_ok "Backend bare process started in background (log: ${log_dir}/backend.log)"
-
-    log_info "Waiting for backend health check (up to 30s) ..."
-    local ok=0
-    local j=0
-    while [ "$j" -lt 30 ]; do
-        j=$((j + 1))
-        if curl -sf --max-time 3 "http://127.0.0.1:${BACKEND_PORT}/health_check" >/dev/null 2>&1; then
-            ok=1
-            log_ok "Backend health check passed: http://127.0.0.1:${BACKEND_PORT}/health_check"
-            break
-        fi
-        sleep 1
-    done
-    if [ "$ok" -ne 1 ]; then
-        log_error "Backend health check failed (not passing within 30s); see ${log_dir}/backend.log"
-        return 1
-    fi
-}
-
-do_restart_local() {
-    sep
-    echo "Local dev mode restart (backend: systemd user unit or bare process; frontend: vite dev server)"
-    sep
-
-    log_info "Restarting backend service: ${BACKEND_SERVICE}"
-    if command -v systemctl &>/dev/null && systemctl --user restart "${BACKEND_SERVICE}" 2>/dev/null; then
-        log_ok "Restarted backend service: ${BACKEND_SERVICE}"
-    else
-        # systemd user 单元不可用 → 按裸进程重启（与 deploy.sh 的 nohup 方式一致）
-        log_warn "systemd service ${BACKEND_SERVICE} unavailable; restarting as a bare process"
-        restart_backend_bare
-    fi
-
-    log_info "Restarting the frontend vite dev server (port ${FRONTEND_PORT})"
-    local old_pid
-    old_pid=$(find_pid_by_port "${FRONTEND_PORT}")
-    if [ -n "$old_pid" ]; then
-        log_info "Stopping old vite process: PID ${old_pid}"
-        kill "$old_pid" 2>/dev/null || true
-        for _ in 1 2 3; do
-            if ! kill -0 "$old_pid" 2>/dev/null; then
-                break
-            fi
-            sleep 1
-        done
-        if kill -0 "$old_pid" 2>/dev/null; then
-            log_warn "Old vite process ${old_pid} did not exit within 3s; killing it"
-            kill -9 "$old_pid" 2>/dev/null || true
-        fi
-        log_ok "Stopped old vite process: PID ${old_pid}"
-    else
-        log_warn "No old vite process listening on port ${FRONTEND_PORT}"
-    fi
-    sleep 1
-
-    local frontend_dir
-    frontend_dir=$(cd "${FRONTEND_DIR}" 2>/dev/null && pwd || echo "")
-    if [ -z "$frontend_dir" ]; then
-        log_error "Frontend directory not found: ${FRONTEND_DIR}"
-        return 1
-    fi
-    if [ ! -x "${frontend_dir}/node_modules/.bin/vite" ]; then
-        log_error "vite is not installed: ${frontend_dir}/node_modules/.bin/vite not found; run 'npm install' in ${frontend_dir} first"
-        return 1
-    fi
-
-    log_info "Starting vite dev server (dir: ${frontend_dir}, log: ${VITE_LOG_FILE})"
-    (
-        cd "$frontend_dir" &&
-            nohup node ./node_modules/.bin/vite --host 0.0.0.0 --port "${FRONTEND_PORT}" >"${VITE_LOG_FILE}" 2>&1 &
-    )
-    log_ok "vite dev server started in the background"
-
-    sep
-    log_info "Health check (waiting up to 30s) ..."
-    local wait_secs=30
-    local backend_ok=0
-    local frontend_ok=0
-    local j=0
-    while [ "$j" -lt "$wait_secs" ]; do
-        j=$((j + 1))
-        if [ "$backend_ok" -eq 0 ] && curl -sf --max-time 3 "http://127.0.0.1:${BACKEND_PORT}/health_check" >/dev/null 2>&1; then
-            backend_ok=1
-            log_ok "Backend health check passed: http://127.0.0.1:${BACKEND_PORT}/health_check"
-        fi
-        if [ "$frontend_ok" -eq 0 ] && port_listening "${FRONTEND_PORT}"; then
-            frontend_ok=1
-            log_ok "Frontend is ready: port ${FRONTEND_PORT} is listening"
-        fi
-        if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
-            break
-        fi
-        sleep 1
-    done
-
-    sep
-    if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
-        log_ok "Local dev environment restart completed!"
-        log_ok "  Web UI:   http://localhost:${FRONTEND_PORT}"
-        log_ok "  API:      http://localhost:${BACKEND_PORT}/health_check"
-        return 0
-    fi
-    if [ "$backend_ok" -eq 0 ]; then
-        log_error "Backend health check failed (not passing within ${wait_secs}s): http://127.0.0.1:${BACKEND_PORT}/health_check"
-    fi
-    if [ "$frontend_ok" -eq 0 ]; then
-        log_error "Frontend failed to start (port ${FRONTEND_PORT} not listening within ${wait_secs}s); see log: ${VITE_LOG_FILE}"
-    fi
-    return 1
-}
-
-do_restart_all() {
-    if is_local_mode; then
-        do_restart_local
-    else
-        log_info "No local dev mode detected (systemd/vite); restarting Docker containers"
-        do_restart
-    fi
-}
-
 show_status() {
     check_docker || return 1
     sep
@@ -940,7 +763,7 @@ show_menu() {
     echo "  🔧  Manage"
     echo "    7) Start all"
     echo "    8) Stop all"
-    echo "    9) Restart all (auto-detect: local/Docker)"
+    echo "    9) Restart all containers"
     echo "   10) Show status"
     echo "   11) Show logs"
     echo ""
@@ -971,7 +794,7 @@ main() {
         6) do_uninstall_pg ;;
         7) do_start ;;
         8) do_stop ;;
-        9) do_restart_all ;;
+        9) do_restart ;;
         10) show_status ;;
         11) do_logs ;;
         12) do_psql ;;
@@ -1004,7 +827,7 @@ if [ $# -gt 0 ]; then
     uninstall-pg) do_uninstall_pg ;;
     start) do_start ;;
     stop) do_stop ;;
-    restart) do_restart_all ;;
+    restart) do_restart ;;
     status) show_status ;;
     logs) do_logs ;;
     psql) do_psql ;;
@@ -1016,6 +839,7 @@ witty-ub Deployment Manager
 Usage:
   bash deploy/docker/manage.sh              # interactive menu (default)
   bash deploy/docker/manage.sh <command>    # command-line mode
+  bash deploy/docker/manage.sh uninstall --yes   # non-interactive uninstall
 
 Commands:
   install           One-shot install: PG + witty-ub (Docker)
@@ -1023,16 +847,20 @@ Commands:
   install-witty     Install witty-ub only (All-in-One)
   install-backend   Install witty-ub backend only (split, role=backend)
   install-frontend  Install witty-ub frontend only (split, role=frontend)
-  uninstall         Uninstall everything (including data)
+  uninstall         Uninstall everything (including data); --yes = non-interactive
   uninstall-witty   Uninstall witty-ub containers only (including split roles)
-  uninstall-pg      Uninstall PostgreSQL container only
+  uninstall-pg      Uninstall the PostgreSQL container only
   start             Start all
   stop              Stop all
-  restart           Restart all (auto-detect: local systemd+vite / Docker)
+  restart           Restart all containers
   status            Show status
   logs              Show logs
   psql              Open psql
   shell             Open container shell
+
+Options:
+  -y, --yes         Assume "yes" for confirmation prompts (required by uninstall
+                    in CI / ssh sessions; otherwise the prompt defaults to No)
 EOF
         ;;
     *)

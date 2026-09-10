@@ -2,10 +2,10 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2026. All rights reserved.
 # witty-ub 容器一键部署脚本
 # 用法:
-#   bash deploy/deploy_witty.sh                          # 默认部署 All-in-One
-#   bash deploy/deploy_witty.sh --role backend           # 分离部署：仅后端（FastAPI，暴露 9772）
-#   bash deploy/deploy_witty.sh --role frontend          # 分离部署：仅前端（Nginx+OpenCode，暴露 32413）
-#   bash deploy/deploy_witty.sh --image <custom-image:tag>  # 指定镜像
+#   bash deploy/docker/deploy_witty.sh                          # 默认部署 All-in-One
+#   bash deploy/docker/deploy_witty.sh --role backend           # 分离部署：仅后端（FastAPI，暴露 9772）
+#   bash deploy/docker/deploy_witty.sh --role frontend          # 分离部署：仅前端（Nginx+OpenCode，暴露 32413）
+#   bash deploy/docker/deploy_witty.sh --image <custom-image:tag>  # 指定镜像
 
 set -e
 
@@ -146,6 +146,13 @@ if [ "$ROLE" != "frontend" ] && [ -z "${PG_SECRET_FILE:-}" ]; then
         fi
     elif pg_secret_exists "$SYSTEM_PG_SECRET_FILE"; then
         PG_SECRET_FILE="$SYSTEM_PG_SECRET_FILE"
+        # 宿主机 PG 在跑而仓库密钥缺失：系统密钥可能是上一轮容器化 PG 的残留，需告警。
+        if host_pg_service_running; then
+            log_warn "Host PostgreSQL service detected, but the repo secret is missing: ${REPO_PG_SECRET_FILE}"
+            log_warn "Falling back to ${PG_SECRET_FILE}, which may belong to a containerized PG and hold a different password"
+            log_warn "If the backend fails with 'password authentication failed', restore the host PG secret or run:"
+            log_warn "  sudo bash deploy/deploy_pg.sh --rpm   (or export PG_SECRET_FILE=<correct secret>)"
+        fi
     elif pg_secret_exists "$REPO_PG_SECRET_FILE"; then
         PG_SECRET_FILE="$REPO_PG_SECRET_FILE"
         log_warn "${SYSTEM_PG_SECRET_FILE} not found; using repo secret ${PG_SECRET_FILE} (host PG scenario)"
@@ -154,6 +161,30 @@ if [ "$ROLE" != "frontend" ] && [ -z "${PG_SECRET_FILE:-}" ]; then
     fi
 fi
 PG_SECRET_FILE="${PG_SECRET_FILE:-$SYSTEM_PG_SECRET_FILE}"
+
+# 密钥目标权限：容器化 PG 0440（容器内 postgres uid26/gid0 需组可读），其余 0400（仅属主可读）。
+# 最终值在 detect_pg_config 之后确定。
+PG_SECRET_MODE="0400"
+
+pg_secret_mode() {
+    stat -c '%a' "$PG_SECRET_FILE" 2>/dev/null ||
+        stat -f '%Lp' "$PG_SECRET_FILE" 2>/dev/null ||
+        sudo -n stat -c '%a' "$PG_SECRET_FILE" 2>/dev/null || true
+}
+
+# 设置目标权限并校验
+enforce_pg_secret_mode() {
+    local want="$1" actual
+    chmod "$want" "$PG_SECRET_FILE" 2>/dev/null ||
+        sudo -n chmod "$want" "$PG_SECRET_FILE" 2>/dev/null || true
+    actual="$(printf '%s' "$(pg_secret_mode)" | tr -d '\r\n')"
+    if [ -z "$actual" ] || [ "$((8#${actual}))" -ne "$((8#${want}))" ]; then
+        log_error "Cannot set the PG secret file mode to ${want}: ${PG_SECRET_FILE} (actual: ${actual:-unknown})"
+        log_error "Run as root (or with passwordless sudo) so the file can be secured, e.g.:"
+        log_error "  sudo chmod ${want} ${PG_SECRET_FILE}"
+        exit 1
+    fi
+}
 
 if [ "$ROLE" = "frontend" ]; then
     log_info "Role 'frontend' does not use the database; skipping PG secret checks"
@@ -165,29 +196,19 @@ else
         exit 1
     fi
 
-    # 权限收紧到 0640（容器内 postgres 用户 uid26/gid0 需组可读）；属主为 root 时回退 sudo -n。
-    if chmod 0640 "$PG_SECRET_FILE" 2>/dev/null || sudo -n chmod 0640 "$PG_SECRET_FILE" 2>/dev/null; then
-        :
-    fi
-    _pg_secret_perms="$(stat -c '%a' "$PG_SECRET_FILE" 2>/dev/null ||
-        stat -f '%Lp' "$PG_SECRET_FILE" 2>/dev/null ||
-        sudo -n stat -c '%a' "$PG_SECRET_FILE" 2>/dev/null || true)"
+    _pg_secret_perms="$(pg_secret_mode)"
     _pg_secret_perms="$(printf '%s' "$_pg_secret_perms" | tr -d '\r\n')"
     if [ -z "$_pg_secret_perms" ]; then
         log_error "Cannot read the mode of the PG secret file: ${PG_SECRET_FILE}"
         log_error "Make sure the current user or 'sudo -n' can access the file (a too-strict parent directory also triggers this)"
         exit 1
     fi
-    if [ "$((8#${_pg_secret_perms}))" -gt "$((8#640))" ]; then
-        log_error "PG secret file is too permissive (mode ${_pg_secret_perms}): ${PG_SECRET_FILE} (expected <= 640)"
-        log_error "Run: sudo chmod 0640 ${PG_SECRET_FILE}"
-        exit 1
+    if [ "$((8#${_pg_secret_perms}))" -gt "$((8#440))" ]; then
+        log_warn "PG secret file is too permissive (mode ${_pg_secret_perms}); tightening to 0400"
+        enforce_pg_secret_mode "0400"
+        _pg_secret_perms="$(printf '%s' "$(pg_secret_mode)" | tr -d '\r\n')"
     fi
-    case "$_pg_secret_perms" in
-    0*) _pg_secret_perms_display="$_pg_secret_perms" ;;
-    *) _pg_secret_perms_display="0${_pg_secret_perms}" ;;
-    esac
-    log_info "PG secret file ready: ${PG_SECRET_FILE} (mode ${_pg_secret_perms_display})"
+    log_info "PG secret file ready: ${PG_SECRET_FILE} (mode ${_pg_secret_perms}, target ${PG_SECRET_MODE})"
 
     _SECRET_PW="$( {
         cat "$PG_SECRET_FILE" 2>/dev/null || sudo -n cat "$PG_SECRET_FILE" 2>/dev/null
@@ -242,12 +263,21 @@ OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 check_docker() {
     if ! command -v docker &>/dev/null; then
         log_error "Docker not found. Please install Docker first:"
-        log_error "  curl -fsSL https://get.docker.com | sh"
+        log_error "  see docs/troubleshooting/02-container-runtime.md (openEuler 24.03 需先配置 docker-ce 仓库)"
         exit 1
     fi
     if ! docker info &>/dev/null; then
-        log_error "Docker daemon is not running. Please start Docker:"
-        log_error "  systemctl start docker"
+        local _err _user
+        _err="$(docker info 2>&1 || true)"
+        _user="$(id -un 2>/dev/null || echo '<user>')"
+        if printf '%s' "$_err" | grep -qiE 'permission denied|docker\.sock'; then
+            log_error "Cannot access the Docker daemon socket (permission denied)."
+            log_error "Current user '${_user}' is probably not in the 'docker' group:"
+            log_error "  sudo usermod -aG docker ${_user} && newgrp docker   # or re-login"
+        else
+            log_error "Docker daemon is not running. Please start Docker:"
+            log_error "  sudo systemctl start docker"
+        fi
         exit 1
     fi
 }
@@ -398,7 +428,9 @@ fi
 # 3.2 准备数据卷
 log_info "Preparing Docker volumes ..."
 if [ "$ROLE" = "frontend" ]; then
-    ROLE_VOLUMES=(witty-ub-experience-data)
+    # frontend 也挂 witty-ub-logs：否则镜像声明的 VOLUME /var/log/witty-ub 会生成匿名卷，
+    # 容器重建后日志丢失且残留孤儿卷（与文档"witty-ub-logs 通用"的描述保持一致）。
+    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data)
 else
     ROLE_VOLUMES=(witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results)
 fi
@@ -488,6 +520,18 @@ if [ "$ROLE" != "frontend" ]; then
     detect_pg_config
 fi
 
+# 3.5.1 确定密钥最终权限：PG 容器消费 → 0440，其余 → 0400
+if [ "$ROLE" != "frontend" ]; then
+    if [ "$PG_SECRET_FILE" = "$SYSTEM_PG_SECRET_FILE" ] &&
+        docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${PG_CONTAINER_NAME:-postgres}"; then
+        PG_SECRET_MODE="0440"
+    else
+        PG_SECRET_MODE="0400"
+    fi
+    enforce_pg_secret_mode "$PG_SECRET_MODE"
+    log_info "PG secret mode enforced: ${PG_SECRET_FILE} (${PG_SECRET_MODE})"
+fi
+
 # 3.6 启动容器
 log_info "Starting container ${CONTAINER_NAME} (role: ${ROLE}) ..."
 
@@ -523,6 +567,7 @@ frontend)
         --name "${CONTAINER_NAME}" \
         --restart unless-stopped \
         -p "${HOST_PORT}:8080" \
+        -v witty-ub-logs:/var/log/witty-ub \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
         "${EXTRA_MOUNT_ARGS[@]}" \
@@ -584,6 +629,9 @@ else
     log_error "witty-ub (${ROLE}) not healthy within ${MAX_WAIT}s (health: ${HEALTH})"
     log_error "Container logs (last 20 lines):"
     docker logs --tail 20 "${CONTAINER_NAME}" 2>&1 | sed 's/^/    /' || true
+    log_error "Application log /var/log/witty-ub/latency_server.log (last 20 lines):"
+    docker exec "${CONTAINER_NAME}" tail -n 20 /var/log/witty-ub/latency_server.log 2>/dev/null |
+        sed 's/^/    /' || true
     exit 1
 fi
 
@@ -609,6 +657,9 @@ if [ "$VERIFY_OK" -ne 1 ]; then
     log_error "Container state: $(docker inspect --format='{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "${CONTAINER_NAME}" 2>/dev/null || echo unknown)"
     log_error "Container logs (last 20 lines):"
     docker logs --tail 20 "${CONTAINER_NAME}" 2>&1 | sed 's/^/    /' || true
+    log_error "Application log /var/log/witty-ub/latency_server.log (last 20 lines):"
+    docker exec "${CONTAINER_NAME}" tail -n 20 /var/log/witty-ub/latency_server.log 2>/dev/null |
+        sed 's/^/    /' || true
     exit 1
 fi
 
