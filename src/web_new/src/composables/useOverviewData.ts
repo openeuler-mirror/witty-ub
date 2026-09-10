@@ -637,6 +637,67 @@ function createOverviewStateInner() {
   const brpcSuccessSelectedIfaces = ref<string[]>([])
   const brpcSingleIface = ref('')
 
+  // U1：接口配色与勾选色点一致（对齐旧版 BRPC_INTERFACE_COLORS，21 色覆盖全部接口）
+  const BRPC_INTERFACE_COLORS = [
+    '#5470c6',
+    '#91cc75',
+    '#fac858',
+    '#ee6666',
+    '#73c0de',
+    '#3ba272',
+    '#fc8452',
+    '#9a60b4',
+    '#ea7ccc',
+    '#48b8d0',
+    '#f6a25c',
+    '#6f7bd7',
+    '#c15c5c',
+    '#6aa0d8',
+    '#b5c46b',
+    '#d48265',
+    '#91c7ae',
+    '#749f83',
+    '#ca8622',
+    '#bda29a',
+    '#6e7074',
+  ]
+  const brpcIfaceColor = (iface: string) => {
+    const index = brpcIfaceNames.value.indexOf(iface)
+    return BRPC_INTERFACE_COLORS[index >= 0 ? index % BRPC_INTERFACE_COLORS.length : 20]
+  }
+
+  // U1b：单接口监控的指标多选（对齐旧版 brpcSingleMetrics）
+  const BRPC_SINGLE_METRIC_COLORS: Record<string, string> = {
+    requestCount: '#5470c6',
+    successRate: '#91cc75',
+    failureRate: '#ee6666',
+    successCount: '#fac858',
+    failureCount: '#73c0de',
+  }
+  const brpcSingleMetrics = brpcSuccessMetricOptions
+  const brpcSingleSelectedMetrics = ref<string[]>(['requestCount', 'successRate', 'failureRate'])
+  const brpcSingleMetricColor = (metric: string) => BRPC_SINGLE_METRIC_COLORS[metric] ?? '#94a3b8'
+  const isBrpcRateMetric = (metric: string) =>
+    metric === 'successRate' || metric === 'failureRate'
+
+  // U1c：时延监控（µs）指标与多接口勾选（对齐旧版 brpcLatencyMetrics）
+  const brpcLatencyMetrics = [
+    { value: 'total_ns', label: 'total' },
+    { value: 'avg_ns', label: 'avg' },
+    { value: 'max_ns', label: 'max' },
+    { value: 'min_ns', label: 'min' },
+    { value: 'p50_ns', label: 'P50' },
+    { value: 'p90_ns', label: 'P90' },
+    { value: 'p95_ns', label: 'P95' },
+    { value: 'p99_ns', label: 'P99' },
+    { value: 'p999_ns', label: 'P999' },
+  ]
+  const brpcLatencyMetric = ref('avg_ns')
+  const brpcLatencySelectedIfaces = ref<string[]>([])
+
+  // 文件存在但该文件没有任何 profiling 行 → 「当前筛选时间范围内无数据」（对齐上游 0e663a22）
+  const brpcHasRows = computed(() => brpcFileRows.value.length > 0)
+
   const brpcRowMetric = (row: any, metric: BrpcSuccessMetric): number => {
     const ok = row.success_count ?? 0
     const fail = row.failure_count ?? 0
@@ -712,6 +773,10 @@ function createOverviewStateInner() {
       names.includes(name),
     )
     if (brpcSuccessSelectedIfaces.value.length === 0) brpcSuccessSelectedIfaces.value = [...names]
+    brpcLatencySelectedIfaces.value = brpcLatencySelectedIfaces.value.filter((name) =>
+      names.includes(name),
+    )
+    if (brpcLatencySelectedIfaces.value.length === 0) brpcLatencySelectedIfaces.value = [...names]
     if (!names.includes(brpcSingleIface.value)) brpcSingleIface.value = names[0] ?? ''
   })
 
@@ -2928,9 +2993,9 @@ function createOverviewStateInner() {
   const faultChartRef = ref<HTMLElement | null>(null)
   const faultTopoRef = ref<HTMLElement | null>(null)
   const brpcSuccessRef = ref<HTMLElement | null>(null)
-  const brpcP99Ref = ref<HTMLElement | null>(null)
   const brpcSuccessOverviewRef = ref<HTMLElement | null>(null)
   const brpcSingleRef = ref<HTMLElement | null>(null)
+  const brpcLatencyMonitorRef = ref<HTMLElement | null>(null)
   const brpcLatencyRef = ref<HTMLElement | null>(null)
   const brpcFaultTimelineRef = ref<HTMLElement | null>(null)
   const brpcEventTimelineRef = ref<HTMLElement | null>(null)
@@ -4067,29 +4132,57 @@ function createOverviewStateInner() {
   const renderBrpcCharts = () => {
     afterDomUpdate(() => {
       const trend = brpcTrend.value
-      ;[
-        { ref: brpcSuccessRef, yName: '成功率 %', data: trend.success, color: '#00B365' },
-        { ref: brpcP99Ref, yName: 'P99 (ms)', data: trend.p99, color: '#EF4444' },
-      ].forEach(({ ref, yName, data, color }) => {
-        const el = ref.value
-        if (!el) return
-        const chart = getChart(el)
-        setChartOption(chart, {
-          tooltip: { trigger: 'axis' },
-          grid: { left: 56, right: 20, top: 24, bottom: 40 },
-          xAxis: { type: 'category', data: trend.times, axisLabel: { fontSize: 10 } },
-          yAxis: { type: 'value', name: yName, axisLabel: { fontSize: 10 } },
-          series: [
-            {
-              type: 'line',
-              smooth: true,
-              symbol: 'none',
-              lineStyle: { width: 2, color },
-              itemStyle: { color },
-              data,
-            },
-          ],
-        })
+      const el = brpcSuccessRef.value
+      if (!el) return
+      const chart = getChart(el)
+      // 全接口聚合趋势：左轴成功率(%)、右轴 P99(ms)，避免两个单线图各自难以对照
+      setChartOption(chart, {
+        tooltip: { trigger: 'axis' },
+        // 双轴图例居中，避免与右轴名（P99 (ms)）在右上角重叠
+        legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 56, top: 46, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: trend.times,
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: [
+          {
+            type: 'value',
+            name: '成功率 %',
+            min: 0,
+            max: 100,
+            axisLabel: { fontSize: 10 },
+          },
+          {
+            type: 'value',
+            name: 'P99 (ms)',
+            axisLabel: { fontSize: 10 },
+            splitLine: { show: false },
+          },
+        ],
+        series: [
+          {
+            name: '平均成功率',
+            type: 'line',
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { width: 2, color: '#00B365' },
+            itemStyle: { color: '#00B365' },
+            yAxisIndex: 0,
+            data: trend.success,
+          },
+          {
+            name: '最高 P99',
+            type: 'line',
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { width: 2, color: '#EF4444' },
+            itemStyle: { color: '#EF4444' },
+            yAxisIndex: 1,
+            data: trend.p99,
+          },
+        ],
       })
     })
   }
@@ -4111,12 +4204,14 @@ function createOverviewStateInner() {
           if (row.interface_name !== iface || !row.timestamp) return
           rowByTs.set(String(row.timestamp).slice(0, 19), row)
         })
+        const color = brpcIfaceColor(iface)
         return {
           name: iface,
           type: 'line',
           smooth: true,
           symbol: 'none',
-          lineStyle: { width: 2 },
+          lineStyle: { width: 2, color },
+          itemStyle: { color },
           data: times.map((time) => {
             const row = rowByTs.get(time)
             return row ? brpcRowMetric(row, metric) : null
@@ -4124,7 +4219,12 @@ function createOverviewStateInner() {
         }
       })
       setChartOption(chart, {
-        tooltip: { trigger: 'axis' },
+        tooltip: {
+          trigger: 'axis',
+          order: 'valueDesc',
+          valueFormatter: (value: unknown) =>
+            typeof value === 'number' ? `${value}${isRate ? '%' : ''}` : '-',
+        },
         legend: { show: false },
         grid: { left: 56, right: 20, top: 24, bottom: 42 },
         xAxis: {
@@ -4143,7 +4243,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // P2.1 单接口监控：成功率 + 失败率双曲线
+  // U1b 单接口监控：指标多选（请求数/成功率/失败率/成功量/失败量），数量与比率分离双轴
   const renderBrpcSingleChart = () => {
     afterDomUpdate(() => {
       const el = brpcSingleRef.value
@@ -4156,42 +4256,50 @@ function createOverviewStateInner() {
         if (row.interface_name !== iface || !row.timestamp) return
         rowByTs.set(String(row.timestamp).slice(0, 19), row)
       })
+      const selectedMetrics = brpcSingleSelectedMetrics.value.filter((metric) =>
+        brpcSingleMetrics.some((option) => option.value === metric),
+      )
       setChartOption(chart, {
-        tooltip: { trigger: 'axis' },
-        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
-        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        tooltip: { trigger: 'axis', order: 'valueDesc' },
+        // 图例居中放，避免与右轴名（比率 %）在右上角重叠
+        legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 56, right: 56, top: 46, bottom: 42 },
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
           axisLabel: { fontSize: 10, rotate: 30 },
         },
-        yAxis: { type: 'value', name: '%', max: 100, axisLabel: { fontSize: 10 } },
-        series: [
+        yAxis: [
           {
-            name: '成功率',
-            type: 'line',
-            smooth: true,
-            symbol: 'none',
-            lineStyle: { width: 2, color: '#00B365' },
-            itemStyle: { color: '#00B365' },
-            data: times.map((time) => {
-              const row = rowByTs.get(time)
-              return row ? brpcRowMetric(row, 'successRate') : null
-            }),
+            type: 'value',
+            name: '数量',
+            axisLabel: { fontSize: 10 },
           },
           {
-            name: '失败率',
-            type: 'line',
-            smooth: true,
-            symbol: 'none',
-            lineStyle: { width: 2, color: '#EF4444' },
-            itemStyle: { color: '#EF4444' },
-            data: times.map((time) => {
-              const row = rowByTs.get(time)
-              return row ? brpcRowMetric(row, 'failureRate') : null
-            }),
+            type: 'value',
+            name: '比率 %',
+            min: 0,
+            max: 100,
+            axisLabel: { fontSize: 10 },
+            splitLine: { show: false },
           },
         ],
+        series: selectedMetrics.map((metric) => {
+          const color = brpcSingleMetricColor(metric)
+          return {
+            name: brpcSingleMetrics.find((option) => option.value === metric)?.label ?? metric,
+            type: 'line',
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { width: 2, color },
+            itemStyle: { color },
+            yAxisIndex: isBrpcRateMetric(metric) ? 1 : 0,
+            data: times.map((time) => {
+              const row = rowByTs.get(time)
+              return row ? brpcRowMetric(row, metric as BrpcSuccessMetric) : null
+            }),
+          }
+        }),
       })
     })
   }
@@ -4240,6 +4348,58 @@ function createOverviewStateInner() {
     })
   }
 
+  // U1c 时延监控（µs）：指标下拉（total/avg/max/min/P50/P90/P95/P99/P999）+ 多接口曲线勾选
+  const renderBrpcLatencyMonitorChart = () => {
+    afterDomUpdate(() => {
+      const el = brpcLatencyMonitorRef.value
+      if (!el) return
+      const chart = getChart(el)
+      const times = brpcIfaceTimestamps.value
+      const metricKey = brpcLatencyMetric.value
+      const metricLabel = brpcLatencyMetrics.find((item) => item.value === metricKey)?.label ?? metricKey
+      const series = brpcLatencySelectedIfaces.value.map((iface) => {
+        const rowByTs = new Map<string, any>()
+        brpcFileRows.value.forEach((row) => {
+          if (row.interface_name !== iface || !row.timestamp) return
+          rowByTs.set(String(row.timestamp).slice(0, 19), row)
+        })
+        const color = brpcIfaceColor(iface)
+        return {
+          name: iface,
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { width: 2, color },
+          itemStyle: { color },
+          data: times.map((time) => {
+            const value = rowByTs.get(time)?.[metricKey]
+            // profiling 行内时延字段单位为 ns，图表标注 µs，需在 UI 边界换算（旧版同口径）
+            return typeof value === 'number' && Number.isFinite(value)
+              ? +(value / 1000).toFixed(2)
+              : null
+          }),
+        }
+      })
+      setChartOption(chart, {
+        tooltip: {
+          trigger: 'axis',
+          order: 'valueDesc',
+          valueFormatter: (value: unknown) =>
+            typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
+        },
+        legend: { show: false },
+        grid: { left: 62, right: 20, top: 24, bottom: 42 },
+        xAxis: {
+          type: 'category',
+          data: times.map((time) => formatChartTs(time)),
+          axisLabel: { fontSize: 10, rotate: 30 },
+        },
+        yAxis: { type: 'value', name: `${metricLabel} (µs)`, axisLabel: { fontSize: 10 } },
+        series,
+      })
+    })
+  }
+
   const renderAnalysisModules = () => {
     nextTick(() => {
       if (!isAssetMode.value) return
@@ -4247,6 +4407,7 @@ function createOverviewStateInner() {
         renderBrpcCharts()
         renderBrpcSuccessOverviewChart()
         renderBrpcSingleChart()
+        renderBrpcLatencyMonitorChart()
         renderBrpcLatencyChart()
         return
       }
@@ -4364,7 +4525,10 @@ function createOverviewStateInner() {
       brpcAllProfilingRows.value = []
       brpcSelectedFileKey.value = ''
       brpcSuccessSelectedIfaces.value = []
+      brpcLatencySelectedIfaces.value = []
       brpcSingleIface.value = ''
+      brpcSingleSelectedMetrics.value = ['requestCount', 'successRate', 'failureRate']
+      brpcLatencyMetric.value = 'avg_ns'
       brpcFaultSelectedLogId.value = ''
       brpcFaultBatch.value = null
       brpcFaultBatchId.value = ''
@@ -4513,14 +4677,23 @@ function createOverviewStateInner() {
       renderFaultChart()
     })
 
-    // P2.1：UBSocket 文件/指标/曲线勾选/单接口变化 → 重绘接口监控图
+    // U1：UBSocket 文件/指标/曲线勾选/单接口变化 → 重绘接口监控图
     watch(
-      [brpcFileRows, brpcSuccessMetric, brpcSuccessSelectedIfaces, brpcSingleIface],
+      [
+        brpcFileRows,
+        brpcSuccessMetric,
+        brpcSuccessSelectedIfaces,
+        brpcSingleIface,
+        brpcSingleSelectedMetrics,
+        brpcLatencyMetric,
+        brpcLatencySelectedIfaces,
+      ],
       () => {
         if (!isAssetMode.value || !isBrpcTask.value) return
         renderBrpcCharts()
         renderBrpcSuccessOverviewChart()
         renderBrpcSingleChart()
+        renderBrpcLatencyMonitorChart()
         renderBrpcLatencyChart()
       },
       { deep: true },
@@ -4708,19 +4881,27 @@ function createOverviewStateInner() {
     brpcFaultTimelineSeries,
     brpcFileKey,
     brpcFileLabel,
+    brpcHasRows,
+    brpcIfaceColor,
     brpcIfaceNames,
     brpcInterfaces,
     brpcKpi,
+    brpcLatencyMetric,
+    brpcLatencyMetrics,
+    brpcLatencyMonitorRef,
     brpcLatencyRef,
+    brpcLatencySelectedIfaces,
     brpcLoading,
     brpcMonitorError,
     brpcMonitorTab,
-    brpcP99Ref,
     brpcProfilingFiles,
     brpcScopeTasks,
     brpcSelectedFileKey,
     brpcSingleIface,
+    brpcSingleMetricColor,
+    brpcSingleMetrics,
     brpcSingleRef,
+    brpcSingleSelectedMetrics,
     brpcSuccessMetric,
     brpcSuccessMetricOptions,
     brpcSuccessOverviewRef,
@@ -4843,6 +5024,7 @@ function createOverviewStateInner() {
     renderBrpcCharts,
     renderBrpcEventTimeline,
     renderBrpcLatencyChart,
+    renderBrpcLatencyMonitorChart,
     renderBrpcSingleChart,
     renderBrpcSuccessOverviewChart,
     renderBrpcThreadGraph,
