@@ -1901,3 +1901,33 @@ tr:hover td {
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
+
+/* X1：最慢请求图 tooltip（ECharts tooltip 挂到 body，必须是全局样式） */
+
+.slow-tooltip-trace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.slow-tooltip-trace small {
+  color: var(--text2);
+}
+
+.slow-tooltip-copy {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.slow-tooltip-copy:hover {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+}

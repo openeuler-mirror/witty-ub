@@ -1371,7 +1371,7 @@ function createOverviewStateInner() {
     { key: 'total_latency_us', label: '总时延', cat: 'SDK' },
     { key: 'sdk_processing_us', label: 'SDK处理', cat: 'SDK' },
     { key: 'master_processing_us', label: 'Master处理', cat: 'Master/Worker' },
-    { key: 'worker_access_latency_us', label: 'Worker Access时延', cat: 'Master/Worker' },
+    { key: 'worker_access_latency_us', label: 'Worker端总时延', cat: 'Master/Worker' },
     { key: 'remote_worker_internal_us', label: 'Remote Worker内部', cat: 'Master/Worker' },
     { key: 'local_worker_internal_us', label: 'Local Worker内部', cat: 'Master/Worker' },
     {
@@ -1838,7 +1838,7 @@ function createOverviewStateInner() {
       ['total_latency_us', '总时延', '#d32f2f'],
       ['sdk_processing_us', 'SDK处理', '#5470c6'],
       ['master_processing_us', 'Master处理', '#91cc75'],
-      ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
+      ['worker_access_latency_us', 'Worker端总时延', '#fac858'],
       ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
       ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
       ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
@@ -1974,7 +1974,7 @@ function createOverviewStateInner() {
   const topSlowSegmentConfig = [
     { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
     { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-    { key: 'worker_access_latency_us', label: 'Worker Access时延', color: '#fac858' },
+    { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
     { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
     { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
     { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
@@ -2056,7 +2056,7 @@ function createOverviewStateInner() {
   const traceBreakdownKeys = [
     { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
     { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-    { key: 'worker_access_latency_us', label: 'Worker Access', color: '#fac858' },
+    { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
     { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
     { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
     { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#ea7ccc' },
@@ -2179,7 +2179,7 @@ function createOverviewStateInner() {
       { key: 'master_rpc_network_us', label: '网络', value: mv('master_rpc_network_us') },
       { key: 'master_rpc_framework_us', label: '框架', value: mv('master_rpc_framework_us') },
     ])
-    push(0, 'worker_access_latency_us', 'Worker Access', mv('worker_access_latency_us'), [
+    push(0, 'worker_access_latency_us', 'Worker端总时延', mv('worker_access_latency_us'), [
       {
         key: '__worker_internal',
         label: 'Worker 内部',
@@ -2241,7 +2241,7 @@ function createOverviewStateInner() {
     { key: 'sdk_rpc_total_us', label: 'SDK RPC', color: '#fc8452' },
     { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
     { key: 'master_rpc_total_us', label: 'Master RPC', color: '#c23531' },
-    { key: 'worker_access_latency_us', label: 'Worker Access', color: '#8B5CF6' },
+    { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#8B5CF6' },
   ]
 
   const podStageLegend = podStageMain.map((s) => ({ label: s.label, color: s.color }))
@@ -2306,7 +2306,7 @@ function createOverviewStateInner() {
       ),
       build(
         'worker_access_latency_us',
-        'Worker Access',
+        'Worker端总时延',
         '#8B5CF6',
         ['Worker内部', 'URMA'],
         [[], ['urma_processing_us']],
@@ -2349,7 +2349,7 @@ function createOverviewStateInner() {
     { label: 'SDK RPC', color: '#ea7ccc' },
     { label: 'Master处理', color: '#91cc75' },
     { label: 'Master RPC', color: '#c23531' },
-    { label: 'Worker Access', color: '#fac858' },
+    { label: 'Worker端总时延', color: '#fac858' },
     { label: 'SDK RPC·网络', color: '#fc8452' },
     { label: 'SDK RPC·框架', color: '#9a60b4' },
     { label: 'Master RPC·网络', color: '#ff9f7f' },
@@ -2394,7 +2394,7 @@ function createOverviewStateInner() {
     { key: 'sdk_rpc_total_us', label: 'SDK RPC' },
     { key: 'master_processing_us', label: 'Master处理' },
     { key: 'master_rpc_total_us', label: 'Master RPC' },
-    { key: 'worker_access_latency_us', label: 'Worker Access' },
+    { key: 'worker_access_latency_us', label: 'Worker端总时延' },
   ]
   const _TREND_COLOR: Record<string, string> = {
     sdk_rpc_network_us: '#fc8452',
@@ -2465,7 +2465,7 @@ function createOverviewStateInner() {
       },
       {
         key: 'worker_access_latency_us',
-        label: 'Worker Access',
+        label: 'Worker端总时延',
         color: colorOf('worker_access_latency_us'),
         value: mv('worker_access_latency_us'),
         children: [
@@ -3750,11 +3750,92 @@ function createOverviewStateInner() {
     })
   }
 
+  // X1（对齐上游 3f2c6a9e）：最慢请求图 tooltip 可点击固定，并支持一键复制 Trace ID
+  const escapeChartHtml = (value: unknown) =>
+    String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+
+  const copyTextToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand('copy')
+      textarea.remove()
+      return copied
+    }
+  }
+
+  let slowTooltipPinned = false
+  let slowTooltipBound = false
+
+  const unpinSlowTooltip = (chart: ECharts) => {
+    if (!slowTooltipPinned) return
+    slowTooltipPinned = false
+    chart.setOption({
+      tooltip: { alwaysShowContent: false, triggerOn: 'mousemove|click', hideDelay: 0 },
+    })
+    chart.dispatchAction({ type: 'hideTip' })
+    chart.setOption({ tooltip: { hideDelay: 300 } })
+  }
+
+  const handleSlowTooltipCopyClick = async (event: MouseEvent) => {
+    const target = event.target instanceof Element ? event.target : null
+    const button = target?.closest<HTMLButtonElement>('.slow-tooltip-copy')
+    if (!button) return
+    event.stopPropagation()
+    const traceId = button.dataset.traceId
+    if (!traceId) return
+    const copied = await copyTextToClipboard(traceId)
+    button.textContent = copied ? '已复制' : '复制失败'
+    window.setTimeout(() => {
+      if (button.isConnected) button.textContent = '复制'
+    }, 1500)
+  }
+
+  const handleSlowTooltipDocumentClick = (event: MouseEvent) => {
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('.slow-tooltip')) return
+    const chart = slowRef.value ? getInstanceByDom(slowRef.value) : null
+    if (chart) unpinSlowTooltip(chart)
+  }
+
+  const bindSlowTooltipInteractions = (chart: ECharts) => {
+    if (slowTooltipBound) return
+    slowTooltipBound = true
+    chart.on('click', (params: any) => {
+      if (params.componentType !== 'series' || params.seriesType !== 'bar') return
+      ;(params.event?.event as MouseEvent | undefined)?.stopPropagation()
+      slowTooltipPinned = true
+      chart.setOption({ tooltip: { alwaysShowContent: true, triggerOn: 'none' } })
+      chart.dispatchAction({
+        type: 'showTip',
+        seriesIndex: params.seriesIndex,
+        dataIndex: params.dataIndex,
+      })
+    })
+    document.addEventListener('click', handleSlowTooltipDocumentClick)
+    document.addEventListener('click', (event) => {
+      void handleSlowTooltipCopyClick(event)
+    })
+  }
+
   const renderSlowChart = () => {
     afterDomUpdate(() => {
       const el = slowRef.value
       if (!el) return
       const chart = getChart(el)
+      bindSlowTooltipInteractions(chart)
       const rows = slowChartRows.value
       const labels = rows.map((row) => row.timestampLabel)
       const initialEnd = Math.min(100, (50 / rows.length) * 100)
@@ -3794,6 +3875,9 @@ function createOverviewStateInner() {
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
           appendToBody: true,
+          // X1（对齐上游 3f2c6a9e）：tooltip 可交互，支持一键复制 Trace ID
+          enterable: true,
+          hideDelay: 300,
           formatter: (params: any) => {
             const items = Array.isArray(params) ? params : []
             const row = rows[items[0]?.dataIndex]
@@ -3811,7 +3895,7 @@ function createOverviewStateInner() {
                   `<div style="display:flex;justify-content:space-between;gap:16px"><span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:6px"></i>${item.seriesName}</span><b>${formatMetric(item.seriesName, item.value)}</b></div>`,
               )
               .join('')
-            return `<div style="min-width:260px"><strong>${row.timestampLabel}</strong><br/><small>${row.traceId} · ${row.operation}</small><div style="margin:6px 0;border-top:1px solid #D9E0E8"></div>${details}<div style="margin-top:6px;display:flex;justify-content:space-between"><span>总时延</span><b style="color:#EF4444">${formatLatency(row.totalLatency / 1000)}</b></div></div>`
+            return `<div class="slow-tooltip" style="min-width:260px"><strong>${row.timestampLabel}</strong><div class="slow-tooltip-trace"><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><button type="button" class="slow-tooltip-copy" data-trace-id="${escapeChartHtml(row.traceId)}">复制</button></div><div style="margin:6px 0;border-top:1px solid #D9E0E8"></div>${details}<div style="margin-top:6px;display:flex;justify-content:space-between"><span>总时延</span><b style="color:#EF4444">${formatLatency(row.totalLatency / 1000)}</b></div></div>`
           },
         },
         legend: {

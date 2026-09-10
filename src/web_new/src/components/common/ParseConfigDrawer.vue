@@ -110,12 +110,14 @@ const isPositiveInteger = (value: unknown) =>
 
 const validate = () => {
   const invalid = new Set<string>()
+  // X4（对齐上游 fc88f485）：上限与后端 schema 一致，避免保存后请求被 422 拒绝
   THRESHOLD_OPTIONS.forEach(({ key }) => {
-    if (!isPositiveDecimal(draft.logAnalyzerParams[key])) invalid.add(key)
+    const value = draft.logAnalyzerParams[key]
+    if (!isPositiveDecimal(value) || Number(value) > 1000) invalid.add(key)
   })
   draft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
-    if (!isPositiveInteger(size)) invalid.add(slidingFieldId(index, 'size'))
-    if (!isPositiveInteger(step)) invalid.add(slidingFieldId(index, 'step'))
+    if (!isPositiveInteger(size) || Number(size) > 10000) invalid.add(slidingFieldId(index, 'size'))
+    if (!isPositiveInteger(step) || Number(step) > 1000) invalid.add(slidingFieldId(index, 'step'))
   })
   const density = draft.logAnalyzerParams.zone_anomaly_density_threshold
   if (!isPositiveDecimal(density) || Number(density) > 1)
