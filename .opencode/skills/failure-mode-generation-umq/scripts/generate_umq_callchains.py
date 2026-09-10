@@ -114,7 +114,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "source",
         type=Path,
-        help="UMQ的src源码目录，例如src/hcom/umq/src",
+        help="ubs-comm仓库根目录（也兼容src/hcom/umq或src/hcom/umq/src目录）",
     )
     parser.add_argument(
         "-o",
@@ -150,7 +150,7 @@ def resolve_source_root(path: Path) -> tuple[Path, Path]:
             return source_root, include_root
 
     raise ValueError(
-        "无法定位UMQ源码和public header，需要传入src/hcom/umq/src目录："
+        "无法从输入路径定位UMQ源码目录src/hcom/umq/src及其public header："
         f"{candidate}"
     )
 

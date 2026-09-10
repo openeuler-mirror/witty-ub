@@ -101,5 +101,6 @@ python3 .opencode/skills/failure-mode-generation-kvcache/scripts/analyze_kvcache
 - 唯一 K_* 必须有完整传播证据；动态、多码或外部码写 `null`。
 - `need_skill` 由非空 `skill_analysis` 推导；错误码已确定但日志模板未确定时仍必须进入 semantic lane。
 - 原则上不得生成“无稳定关键字”。源码分析后仍无法得到业务稳定字面量时，必须记录完整证据并显式禁用该节点的日志匹配。
+- 每个 runtime 节点都必须通过分析故障点及必要上下游源码给出可能的解决办法；无法唯一确定时写明适用条件和验证方向，不得默认填写“无”。
 - 每个 runtime 节点必须有真实父节点，DAG 不得成环。
 - 任何候选、错误码、关系或排除都必须可由当前源码快照和 checkpoint 证据追溯。
