@@ -8,15 +8,19 @@
 
 ```bash
 # 使用 docker compose
-docker compose ps
-docker compose logs witty-ub
-docker compose exec -it witty-ub bash
+docker compose --profile split ps        # 分离部署；单机用 --profile allinone
+docker compose --profile split logs -f witty-ub-backend
+docker compose --profile split exec -it witty-ub-backend bash
 
 # 使用纯 Docker 命令
 docker ps
-docker logs witty-ub
-docker exec -it witty-ub /bin/bash
+docker logs witty-ub                # 单机 All-in-One
+docker logs witty-ub-backend        # 分离部署后端
+docker logs witty-ub-frontend       # 分离部署前端
+docker exec -it witty-ub-backend /bin/bash
 ```
+
+> 容器名与端口：单机 `witty-ub`（Web 32412）；分离部署 `witty-ub-backend`（API 9772）+ `witty-ub-frontend`（Web 32413）；数据库容器统一为 `postgres`（宿主机 15432）。
 
 ---
 
@@ -48,11 +52,14 @@ docker compose up -d
 
 ```bash
 # 查看端口占用
-netstat -tlnp | grep 32412
+ss -tlnp | grep -E '32412|32413|9772|15432'
 
-# 修改 docker-compose.yml 中的端口映射（只需修改宿主机端口）
+# 修改 deploy/deploy.conf（脚本部署）或 docker-compose.yml（compose 部署）中的宿主机端口
+# WITTY_HOST_PORT="32412"        # 单机
+# WITTY_FRONTEND_HOST_PORT="32413"  # 分离前端
+# WITTY_BACKEND_HOST_PORT="9772"    # 分离后端
 ports:
-  - "32413:8080"  # 改为其他可用端口
+  - "32412:8080"  # compose：只需改冒号左侧的宿主机端口
 ```
 
 ---
@@ -81,7 +88,8 @@ docker exec witty-ub chmod -R 755 /var/witty-ub
 
 ```bash
 # 查看 Latency 服务日志
-docker exec witty-ub cat /var/log/witty-ub/latency_server.log
+docker exec witty-ub cat /var/log/witty-ub/latency_server.log          # 单机
+docker exec witty-ub-backend cat /var/log/witty-ub/latency_server.log  # 分离后端
 
 # 手动启动 Latency 服务
 docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
@@ -90,6 +98,8 @@ docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
 # 检查健康状态
 docker exec witty-ub curl http://localhost:9772/health_check
 ```
+
+若日志中出现 `asyncpg ... ConnectionError` / `Application startup failed`，说明**数据库不可达或口令不匹配**，请先看文末"PG 容器崩溃循环 / 后端连不上数据库"。
 
 ---
 
@@ -205,6 +215,35 @@ docker exec witty-ub curl --noproxy 127.0.0.1 http://127.0.0.1:9772/health_check
 确保使用正确的基础镜像版本:
 - `openeuler/openeuler:24.03-lts-sp4` (推荐，包含完整依赖)
 - 基础版本 `24.03-lts` 可能缺少部分包
+
+---
+
+## 9. PG 容器崩溃循环 / 后端连不上数据库
+
+**症状**: `docker ps` 显示 `postgres` 反复 `Restarting`；`docker logs postgres` 出现
+`/run/secrets/pg_password: Permission denied`；witty-ub 后端日志报 `ConnectionRefusedError`
+或 `password authentication failed`。
+
+**原因**: PG 容器以 `uid=26(postgres) gid=0` 运行，只读挂载进来的密钥文件必须**组可读**，
+即 `0640`、属主 `root:root`；目录 `/etc/witty-ub` 也需可被部署用户遍历，否则脚本会误报
+"PG 密钥文件不存在"。
+
+**排查与修复**:
+
+```bash
+# 1. 查看密钥文件权限（期望 0640 root:root）
+sudo stat -c '%a %U:%G %n' /etc/witty-ub/pg.passwd
+
+# 2. 权限不对时修正（deploy_pg.sh 与 deploy_witty.sh 会自动收紧并校验，手工创建时最容易漏）
+sudo chmod 0640 /etc/witty-ub/pg.passwd
+sudo chmod 0755 /etc/witty-ub
+
+# 3. 重建/重启容器使新权限生效
+bash deploy/docker/manage.sh install-pg     # 或者 docker restart postgres
+```
+
+宿主机 PG（RPM/源码）场景下脚本会自动查找 `/etc/witty-ub/pg.passwd` → `deploy/pg.passwd`；
+使用外部 PG 实例时可显式指定：`PG_SECRET_FILE=/path/to/pg.passwd bash deploy/docker/manage.sh install-witty`。
 
 ---
 
