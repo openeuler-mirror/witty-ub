@@ -3294,8 +3294,6 @@ const selectedFaultAggregatedEventDetail = ref<FaultAggregatedEventDetail | null
 const selectedFaultTraceFailureModeId = ref('')
 const selectedTraceFailureModeId = ref('')
 const selectedChildFailureModeId = ref('')
-const traceSubFaultBatchSize = 20
-const visibleTraceSubFaultCount = ref(traceSubFaultBatchSize)
 const traceFailureLogsByTrace = ref<Record<string, TraceLogRow[]>>({})
 const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[]>>({})
 const isTraceLogsLoading = ref(false)
@@ -6119,7 +6117,6 @@ const selectedTraceFailureModeDisplayErrorCode = computed(() => {
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
   void loadRelatedFailureModeDetails(
     failureModeId,
     selectedTraceFailureModeIds.value,
@@ -6167,7 +6164,6 @@ const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: st
 const selectFaultTraceFailureMode = (failureModeId: string) => {
   selectedFaultTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
   void loadRelatedFailureModeDetails(
     failureModeId,
     selectedFaultTraceFailureModeIds.value,
@@ -6193,22 +6189,23 @@ const normalizeFailureModeErrorCode = (rawErrorCode: string | number | null | un
   return errorCode
 }
 
-const getRelatedFailureModeIds = (
+const getRelatedChildFailureModeIds = (
+  failureMode: FailureModeKnowledgeModel | null | undefined,
+  traceFailureModeIds: string[],
+) => {
+  const traceFailureModeIdSet = new Set(traceFailureModeIds)
+  return getFailureModeChildren(failureMode).filter((childId) => traceFailureModeIdSet.has(childId))
+}
+
+const getSameErrorCodeFailureModeIds = (
   failureMode: FailureModeKnowledgeModel | null | undefined,
   traceFailureModeIds: string[],
   accessFailureModeIds: Set<string>,
 ) => {
-  const traceFailureModeIdSet = new Set(traceFailureModeIds)
-  const matchedChildIds = getFailureModeChildren(failureMode).filter((childId) =>
-    traceFailureModeIdSet.has(childId),
-  )
-  if (matchedChildIds.length > 0) return matchedChildIds
-
   const errorCode = normalizeFailureModeErrorCode(failureMode?.error_code)
   if (!errorCode) return []
 
-  // 子故障交集为空时，只在当前 trace 已命中的故障模式中筛选同码项，
-  // 避免从故障模式知识库中收集全量同码故障。
+  // 只在当前 trace 已命中的故障模式中筛选同码项，避免从知识库收集全量同码故障。
   return traceFailureModeIds.filter((failureModeId) => {
     if (failureModeId === failureMode?.id || accessFailureModeIds.has(failureModeId)) return false
     const candidateErrorCode = normalizeFailureModeErrorCode(
@@ -6218,16 +6215,27 @@ const getRelatedFailureModeIds = (
   })
 }
 
-const selectedTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(
+const selectedTraceRelatedChildFailureModeIds = computed(() =>
+  getRelatedChildFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
+)
+
+const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
+  getSameErrorCodeFailureModeIds(
     selectedTraceFailureMode.value,
     selectedTraceFailureModeIds.value,
     selectedTraceAccessFailureModeIds.value,
   ),
 )
 
-const selectedFaultTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(
+const selectedFaultTraceRelatedChildFailureModeIds = computed(() =>
+  getRelatedChildFailureModeIds(
+    selectedFaultTraceFailureMode.value,
+    selectedFaultTraceFailureModeIds.value,
+  ),
+)
+
+const selectedFaultTraceSameErrorCodeFailureModeIds = computed(() =>
+  getSameErrorCodeFailureModeIds(
     selectedFaultTraceFailureMode.value,
     selectedFaultTraceFailureModeIds.value,
     selectedFaultTraceAccessFailureModeIds.value,
@@ -6249,12 +6257,6 @@ const getRelatedFailureModeLabel = (failureModeId: string, isAccessFailure: bool
   return getFailureModeLabel(failureModeId, isAccessFailure, '未知相关故障')
 }
 
-const getVisibleRelatedFailureModeIds = (relatedFailureModeIds: string[]) =>
-  relatedFailureModeIds.slice(0, visibleTraceSubFaultCount.value)
-
-const getVisibleRelatedFailureModeCount = (relatedFailureModeIds: string[]) =>
-  Math.min(visibleTraceSubFaultCount.value, relatedFailureModeIds.length)
-
 const loadRelatedFailureModeDetails = async (
   failureModeId: string,
   traceFailureModeIds: string[],
@@ -6262,41 +6264,16 @@ const loadRelatedFailureModeDetails = async (
 ) => {
   const parentFailureMode =
     failureModeDetailsById.value[failureModeId] ?? (await loadFailureModeDetail(failureModeId))
-  const relatedFailureModeIds = getVisibleRelatedFailureModeIds(
-    getRelatedFailureModeIds(parentFailureMode, traceFailureModeIds, accessFailureModeIds),
-  )
+  const relatedFailureModeIds = [
+    ...getRelatedChildFailureModeIds(parentFailureMode, traceFailureModeIds),
+    ...getSameErrorCodeFailureModeIds(parentFailureMode, traceFailureModeIds, accessFailureModeIds),
+  ]
   await Promise.all(relatedFailureModeIds.map((relatedId) => loadFailureModeDetail(relatedId)))
 }
 
-const loadMoreRelatedFailureModes = async (relatedFailureModeIds: string[]) => {
-  const previousVisibleCount = visibleTraceSubFaultCount.value
-  visibleTraceSubFaultCount.value = Math.min(
-    previousVisibleCount + traceSubFaultBatchSize,
-    relatedFailureModeIds.length,
-  )
-  await Promise.all(
-    relatedFailureModeIds
-      .slice(previousVisibleCount, visibleTraceSubFaultCount.value)
-      .map((relatedId) => loadFailureModeDetail(relatedId)),
-  )
-}
-
-const collapseRelatedFailureModes = (relatedFailureModeIds: string[]) => {
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  if (
-    !relatedFailureModeIds
-      .slice(0, traceSubFaultBatchSize)
-      .includes(selectedChildFailureModeId.value)
-  ) {
-    selectedChildFailureModeId.value = ''
-  }
-}
-
 const selectChildFailureMode = async (childId: string) => {
-  selectedChildFailureModeId.value = selectedChildFailureModeId.value === childId ? '' : childId
-  if (selectedChildFailureModeId.value) {
-    await loadFailureModeDetail(childId)
-  }
+  selectedChildFailureModeId.value = childId
+  await loadFailureModeDetail(childId)
 }
 
 const normalizeFilterText = (value: string) => value.trim()
@@ -6447,7 +6424,6 @@ const closeTraceDialog = () => {
   selectedTrace.value = null
   selectedTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
 }
 
 const loadTraceLatencyData = async (traceId: string): Promise<LogParseResultModel | null> => {
@@ -6520,7 +6496,6 @@ const closeFaultTraceDialog = () => {
   selectedFaultTrace.value = null
   selectedFaultTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
 }
 
 const openParseResultChain = async (row: ParseResultTableRow) => {
@@ -18187,74 +18162,67 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="trace-fault-detail-item trace-fault-detail-wide">
                       <span class="trace-fault-detail-label">相关故障</span>
-                      <span
-                        v-if="selectedTraceRelatedFailureModeIds.length === 0"
-                        class="trace-fault-detail-value"
-                      >
-                        -
-                      </span>
-                      <div v-else class="trace-sub-fault-block">
-                        <div class="trace-sub-fault-list trace-sub-fault-list-limited">
-                          <button
-                            v-for="childId in getVisibleRelatedFailureModeIds(
-                              selectedTraceRelatedFailureModeIds,
-                            )"
-                            :key="childId"
-                            type="button"
-                            class="trace-sub-fault"
-                            :class="{ active: selectedChildFailureModeId === childId }"
-                            @click="selectChildFailureMode(childId)"
+                      <div class="trace-related-fault-columns">
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">相关子故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace命中的子故障</span>
+                          <span
+                            v-if="getFailureModeChildren(selectedTraceFailureMode).length === 0"
+                            class="trace-fault-detail-value"
+                            >当前故障为根因节点，无子故障</span
                           >
-                            {{
-                              getRelatedFailureModeLabel(
-                                childId,
-                                selectedTraceAccessFailureModeIds.has(childId),
-                              )
-                            }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="selectedTraceRelatedFailureModeIds.length > traceSubFaultBatchSize"
-                          class="trace-sub-fault-toolbar"
-                        >
-                          <span>
-                            已展示
-                            {{
-                              getVisibleRelatedFailureModeCount(selectedTraceRelatedFailureModeIds)
-                            }}
-                            / {{ selectedTraceRelatedFailureModeIds.length }}
-                          </span>
-                          <div class="trace-sub-fault-toolbar-actions">
+                          <span
+                            v-else-if="selectedTraceRelatedChildFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >当前Trace未命中子故障</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
                             <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedTraceRelatedFailureModeIds,
-                                ) < selectedTraceRelatedFailureModeIds.length
-                              "
+                              v-for="childId in selectedTraceRelatedChildFailureModeIds"
+                              :key="childId"
                               type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                loadMoreRelatedFailureModes(selectedTraceRelatedFailureModeIds)
-                              "
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === childId }"
+                              @click="selectChildFailureMode(childId)"
                             >
-                              加载更多
-                            </button>
-                            <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedTraceRelatedFailureModeIds,
-                                ) > traceSubFaultBatchSize
-                              "
-                              type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                collapseRelatedFailureModes(selectedTraceRelatedFailureModeIds)
-                              "
-                            >
-                              收起
+                              {{
+                                getRelatedFailureModeLabel(
+                                  childId,
+                                  selectedTraceAccessFailureModeIds.has(childId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">同错误码故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace中错误码相同的故障</span>
+                          <span
+                            v-if="selectedTraceSameErrorCodeFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >{{
+                              selectedTraceFailureModeDisplayErrorCode
+                                ? '该故障的错误码为' +
+                                  selectedTraceFailureModeDisplayErrorCode +
+                                  '，当前Trace不存在同错误码故障'
+                                : '该故障不具有错误码'
+                            }}</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
+                            <button
+                              v-for="relatedId in selectedTraceSameErrorCodeFailureModeIds"
+                              :key="relatedId"
+                              type="button"
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === relatedId }"
+                              @click="selectChildFailureMode(relatedId)"
+                            >
+                              {{ getRelatedFailureModeLabel(relatedId, false) }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="trace-sub-fault-block">
                         <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
                           <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
                             <div class="trace-fault-detail-item">
@@ -18476,78 +18444,69 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="trace-fault-detail-item trace-fault-detail-wide">
                       <span class="trace-fault-detail-label">相关故障</span>
-                      <span
-                        v-if="selectedFaultTraceRelatedFailureModeIds.length === 0"
-                        class="trace-fault-detail-value"
-                      >
-                        -
-                      </span>
-                      <div v-else class="trace-sub-fault-block">
-                        <div class="trace-sub-fault-list trace-sub-fault-list-limited">
-                          <button
-                            v-for="childId in getVisibleRelatedFailureModeIds(
-                              selectedFaultTraceRelatedFailureModeIds,
-                            )"
-                            :key="childId"
-                            type="button"
-                            class="trace-sub-fault"
-                            :class="{ active: selectedChildFailureModeId === childId }"
-                            @click="selectChildFailureMode(childId)"
+                      <div class="trace-related-fault-columns">
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">相关子故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace命中的子故障</span>
+                          <span
+                            v-if="
+                              getFailureModeChildren(selectedFaultTraceFailureMode).length === 0
+                            "
+                            class="trace-fault-detail-value"
+                            >当前故障为根因节点，无子故障</span
                           >
-                            {{
-                              getRelatedFailureModeLabel(
-                                childId,
-                                selectedFaultTraceAccessFailureModeIds.has(childId),
-                              )
-                            }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="
-                            selectedFaultTraceRelatedFailureModeIds.length > traceSubFaultBatchSize
-                          "
-                          class="trace-sub-fault-toolbar"
-                        >
-                          <span>
-                            已展示
-                            {{
-                              getVisibleRelatedFailureModeCount(
-                                selectedFaultTraceRelatedFailureModeIds,
-                              )
-                            }}
-                            / {{ selectedFaultTraceRelatedFailureModeIds.length }}
-                          </span>
-                          <div class="trace-sub-fault-toolbar-actions">
+                          <span
+                            v-else-if="selectedFaultTraceRelatedChildFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >当前Trace未命中子故障</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
                             <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedFaultTraceRelatedFailureModeIds,
-                                ) < selectedFaultTraceRelatedFailureModeIds.length
-                              "
+                              v-for="childId in selectedFaultTraceRelatedChildFailureModeIds"
+                              :key="childId"
                               type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                loadMoreRelatedFailureModes(selectedFaultTraceRelatedFailureModeIds)
-                              "
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === childId }"
+                              @click="selectChildFailureMode(childId)"
                             >
-                              加载更多
-                            </button>
-                            <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedFaultTraceRelatedFailureModeIds,
-                                ) > traceSubFaultBatchSize
-                              "
-                              type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                collapseRelatedFailureModes(selectedFaultTraceRelatedFailureModeIds)
-                              "
-                            >
-                              收起
+                              {{
+                                getRelatedFailureModeLabel(
+                                  childId,
+                                  selectedFaultTraceAccessFailureModeIds.has(childId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">同错误码故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace中错误码相同的故障</span>
+                          <span
+                            v-if="selectedFaultTraceSameErrorCodeFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >{{
+                              selectedFaultTraceFailureModeDisplayErrorCode
+                                ? '该故障的错误码为' +
+                                  selectedFaultTraceFailureModeDisplayErrorCode +
+                                  '，当前Trace不存在同错误码故障'
+                                : '该故障不具有错误码'
+                            }}</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
+                            <button
+                              v-for="relatedId in selectedFaultTraceSameErrorCodeFailureModeIds"
+                              :key="relatedId"
+                              type="button"
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === relatedId }"
+                              @click="selectChildFailureMode(relatedId)"
+                            >
+                              {{ getRelatedFailureModeLabel(relatedId, false) }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="trace-sub-fault-block">
                         <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
                           <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
                             <div class="trace-fault-detail-item">

@@ -4683,6 +4683,42 @@ body.agent-panel-resizing-corner {
   gap: 10px;
 }
 
+.trace-related-fault-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trace-related-fault-column {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.trace-related-fault-title {
+  color: #334155;
+  font-size: 0.82rem;
+}
+
+.trace-related-fault-hint {
+  margin-left: 8px;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.trace-related-fault-column > .trace-fault-detail-value,
+.trace-related-fault-column > .trace-sub-fault-list {
+  margin-top: 9px;
+}
+
+@media (max-width: 760px) {
+  .trace-related-fault-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .trace-sub-fault {
   cursor: pointer;
   border: 1px solid #bfdbfe;
