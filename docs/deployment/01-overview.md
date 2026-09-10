@@ -137,7 +137,6 @@ witty-ub/
 │   │   ├── deploy.sh             # 一键部署脚本（--role backend/frontend）
 │   │   ├── install_deps.sh       # 依赖安装
 │   │   ├── run_frontend.sh       # 前端启动器 (vite preview / dev 回退)
-│   │   ├── test_full_deploy.sh   # 全量部署回归测试
 │   │   ├── systemd/              # systemd user unit 模板
 │   │   └── _lib.sh               # 共享工具库
 │   └── docker/                   # 容器部署

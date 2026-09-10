@@ -2,7 +2,7 @@
 
 本文档汇总 witty-ub 系统的所有配置项，包括环境变量、端口映射、数据卷、Nginx 配置、OpenCode 配置和 deploy.conf 配置。
 
-> **PG 密码**：`deploy.conf` 中 `PG_PASSWORD` 仅为 `<CHANGE_ME>` 占位符。实际口令只存放在独立密钥文件（源码 host 部署为 `deploy/pg.passwd`，Docker/RPM 部署为 `/etc/witty-ub/pg.passwd`，权限 0600），不写入运行时 TOML。源码/RPM 启动器或 Docker 容器入口仅在启动后端时读取并注入进程环境；Docker 使用 `/run/secrets/pg_password` 只读挂载，不在容器配置中设置 `PG_PASSWORD`。
+> **PG 密码**：`deploy.conf` 中 `PG_PASSWORD` 仅为 `<CHANGE_ME>` 占位符。实际口令只存放在独立密钥文件（源码 host 部署为 `deploy/pg.passwd`，权限 0600；Docker/RPM 部署为 `/etc/witty-ub/pg.passwd`，Docker 权限 0640、RPM 权限 0600），不写入运行时 TOML。源码/RPM 启动器或 Docker 容器入口仅在启动后端时读取并注入进程环境；Docker 使用 `/run/secrets/pg_password` 只读挂载，不在容器配置中设置 `PG_PASSWORD`。
 
 ---
 
@@ -51,10 +51,8 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 }
 ```
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `apiBase` | `""` | 后端 API 基址；留空 = 同源（经 Nginx 反代），设为 `http://<后端>:9772` 则浏览器直连 |
-| `agentApiBase` | `/agent-api` | OpenCode Agent API 基址 |
+- `apiBase`（默认 `""`）：后端 API 基址；留空 = 同源（经 Nginx 反代），设为 `http://<后端>:9772` 则浏览器直连
+- `agentApiBase`（默认 `/agent-api`）：OpenCode Agent API 基址
 
 ### PostgreSQL 容器环境变量
 
@@ -63,9 +61,8 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 | `POSTGRESQL_USER` | `witty-ub` | 数据库用户 |
 | `POSTGRESQL_PASSWORD` | （见密钥文件） | 数据库密码；由部署脚本从 `pg.passwd` 密钥文件读取后注入 PG 容器 |
 | `POSTGRESQL_DATABASE` | `witty-ub` | 数据库名称 |
-| `POSTGRESQL_SHARED_BUFFERS` | `2GB` | 共享缓冲区大小 |
-| `POSTGRESQL_EFFECTIVE_CACHE_SIZE` | `6GB` | 有效缓存大小 |
-| `POSTGRESQL_MAX_CONNECTIONS` | `200` | 最大连接数 |
+
+> 性能调优变量（`POSTGRESQL_SHARED_BUFFERS` / `POSTGRESQL_EFFECTIVE_CACHE_SIZE` / `POSTGRESQL_MAX_CONNECTIONS` 等）**当前部署脚本不会注入**，PG 使用镜像默认值。如需调优，请在 `deploy/deploy_pg.sh` 的 `docker run` 中追加 `-e` 参数，或直接修改 PG 配置。
 
 ---
 
@@ -84,10 +81,12 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 
 | 服务 | 容器内端口 | 宿主机端口 | 说明 |
 | ------ | ----------- | ----------- | ------ |
-| Web UI (Nginx) | 8080 | 32412 | Web 界面和 API 代理 |
-| Latency Plugin API | 9772 | 9772 | 后端 API 服务（FastAPI） |
-| OpenCode Server | 4096 | 4096 | AI 诊断服务 |
-| PostgreSQL | 5432 | 15432 | 数据库服务 |
+| Web UI (Nginx) | 8080 | 32412 | Web 界面和 API/Agent 代理（对外唯一入口） |
+| Latency Plugin API | 9772 | 不发布 | 仅容器内，经 Nginx 按路径前缀（`/health_check`、`/log_file` 等）反代 |
+| OpenCode Server | 4096 | 不发布 | 仅容器内，经 Nginx `/agent-api/` 反代 |
+| PostgreSQL | 5432 | 15432 | 数据库服务（`PG_PORT`） |
+
+> 需要从宿主机直接访问 API/OpenCode 时（排查用），可 `docker exec -it witty-ub curl --noproxy 127.0.0.1 http://127.0.0.1:9772/health_check`，或自行在 `docker run`/compose 中追加 `-p`。
 
 RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432。
 
@@ -108,7 +107,7 @@ RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432�
 
 ### 目录结构
 
-```
+```text
 /var/witty-ub/
 ├── data/                    # 数据目录
 │   ├── failure_mode_tree.json
@@ -180,7 +179,7 @@ server {
 
 ## OpenCode 配置
 
-### 配置文件位置
+### 配置文件位置（OpenCode）
 
 - **宿主机**：`~/.config/opencode/opencode.jsonc`
 - **容器内**：`/root/.config/opencode/opencode.jsonc`
@@ -235,7 +234,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 ### 配置注意事项
 
 > **API-key 仅支持直接修改配置文件时**：如果用户的 API-key 只支持直接修改 opencode 的配置文件（即无法通过前端页面配置），此时无需在前端页面进行配置，直接在本机的 opencode 配置文件（通常是 `~/.config/opencode/opencode.jsonc`）按照 API-key 提供方给出的教程进行配置即可，平台会自动识别大模型。
-
+>
 > **Docker 部署修改 opencode 配置**：docker 部署时，如果需要修改 opencode 配置文件，请在宿主机上进行操作。部署时会将宿主机的 opencode 配置目录（`~/.config/opencode/`）映射到容器中（`/root/.config/opencode/`），在容器内直接修改不会持久化。
 
 ---
@@ -304,10 +303,8 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 
 ### RPM 部署专用配置
 
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `PG_DATA_DIR` | （自动探测） | PostgreSQL 数据目录 |
-| `PG_SERVICE_NAME` | （自动探测） | PostgreSQL 服务名 |
+- `PG_DATA_DIR`（自动探测）：PostgreSQL 数据目录
+- `PG_SERVICE_NAME`（自动探测）：PostgreSQL 服务名
 
 ---
 
