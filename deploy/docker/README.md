@@ -12,7 +12,7 @@
 | ------ | ------ |
 | `manage.sh` | 统一管理入口（交互式菜单 + 命令行，含分离部署） |
 | `deploy_witty.sh` | witty-ub 容器部署（`--role all/backend/frontend`） |
-| `deploy_pg.sh` | PostgreSQL 容器部署 |
+| `../deploy_pg.sh` | PostgreSQL 部署（`--docker` / `--rpm` / `--apt`，位于 `deploy/` 目录） |
 
 ---
 
@@ -42,7 +42,7 @@ bash manage.sh
   🔧  Manage
     7) Start all
     8) Stop all
-    9) Restart all (auto-detect: local/Docker)
+    9) Restart all containers
    10) Show status
    11) Show logs
 
@@ -62,21 +62,27 @@ bash manage.sh
 ### 命令行模式
 
 ```bash
-# 一键安装
+# 分离部署：后端节点
+bash manage.sh install-pg
+bash manage.sh install-backend
+
+# 分离部署：前端节点
+WITTY_BACKEND_URL=http://<后端IP>:9772 bash manage.sh install-frontend
+
+# 单机 All-in-One（一键安装）
 bash manage.sh install-all
 
-# 仅安装 witty-ub
+# 仅安装 witty-ub（复用已有 PG）
 bash manage.sh install-witty
-
-# 分离部署：后端 / 前端（可分别在不同机器执行）
-bash manage.sh install-backend
-bash manage.sh install-frontend
 
 # 查看状态
 bash manage.sh status
 
 # 查看日志
 bash manage.sh logs
+
+# 非交互卸载（CI / ssh；缺省交互确认默认为 No，必须加 --yes）
+bash manage.sh uninstall --yes
 ```
 
 ---
@@ -109,7 +115,7 @@ manage.sh
 1. **拉取镜像**：使用 `quay.io/sclorg/postgresql-15-c9s:latest`，由安全入口从密钥挂载读取密码
 2. **创建网络**：创建 Docker 网络 `witty-ub-network`
 3. **创建数据卷**：创建持久化数据卷 `pg15-data`
-4. **启动容器**：启动 PostgreSQL 容器，自动配置性能参数
+4. **启动容器**：启动 PostgreSQL 容器
 5. **健康检查**：等待数据库就绪（最多 120 秒）
 6. **连接验证**：测试数据库连接是否正常
 
@@ -126,6 +132,9 @@ manage.sh
 7. **启动容器**：容器名分别为 `<名称>`、`<名称>-backend`、`<名称>-frontend`；backend 暴露 9772，frontend 暴露 32413 并按 `WITTY_BACKEND_URL` 反代后端
 8. **健康检查**：等待应用就绪（最多 180 秒）
 
+> 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
+> 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
+
 ---
 
 ## 配置文件
@@ -133,6 +142,7 @@ manage.sh
 所有脚本共用 `deploy/deploy.conf`（旧名 `pg.conf` 仍兼容）。`manage.sh` 与 `deploy_witty.sh` 都会加载该文件，配置优先级为：**环境变量 > `deploy.conf` > 脚本内置默认值**。
 
 > 无 TTY 环境（CI、`ssh host 'cmd'`、脚本调用）下所有交互提示自动取默认值（即上面的优先级结果），可直接使用 `install-all` / `install-pg` / `install-backend` / `install-frontend` 等命令行子命令。
+> 例外是**卸载类命令**：二次确认的安全默认值是 No，非交互执行必须显式加 `--yes`，否则会"未删除任何资源但退出码为 0"（`bash manage.sh uninstall --yes`）。
 
 ### 完整配置项
 
@@ -147,17 +157,6 @@ PG_PASSWORD="<CHANGE_ME>"    # 占位符，实际口令在 /etc/witty-ub/pg.pass
 # 容器内访问 PG（留空自动检测）
 PG_HOST_IN_CONTAINER=""
 PG_PORT_IN_CONTAINER=""
-
-# ---------- PG 性能调优（暂未实现，设置无效）----------
-# 说明：部署脚本不注入以下参数，PG 使用镜像默认值；如需调优请在 deploy_pg.sh
-# 的 docker run 中自行追加 -e POSTGRESQL_*，或直接修改 PG 配置。
-# PG_SHARED_BUFFERS=""
-# PG_EFFECTIVE_CACHE_SIZE=""
-# PG_WORK_MEM=""
-# PG_MAINTENANCE_WORK_MEM=""
-# PG_WAL_BUFFERS=""
-# PG_MAX_WAL_SIZE=""
-# PG_MAX_CONNECTIONS=""
 
 # ---------- PG Docker ----------
 PG_CONTAINER_NAME="postgres"
@@ -295,9 +294,11 @@ bash manage.sh
 | 镜像拉取失败 | 检查网络、镜像仓库地址、本地 tag 是否已设置 |
 | 容器启动后健康检查失败 | `docker logs witty-ub`（或 `witty-ub-backend` / `witty-ub-frontend`）查看日志 |
 | PG 连接被拒 | 确认 PG 容器状态 `docker ps \| grep postgres` |
-| PG 容器反复重启（`Permission denied`） | `sudo chmod 0640 /etc/witty-ub/pg.passwd`（需 0640 root:root，容器内 postgres 用户经 gid 0 读取） |
+| PG 容器反复重启（`Permission denied`） | `sudo chmod 0440 /etc/witty-ub/pg.passwd` |
 | PG RPM 未检测到 | 在 `deploy.conf` 中手动设置 `PG_HOST_IN_CONTAINER`（宿主机 PG 需 `listen_addresses='*'` 且已重启） |
-| 分离前端 unhealthy | 前端经反代探测 `WITTY_BACKEND_URL/health_check`，确认后端容器已就绪且地址可达 |
+| 部署失败只提示 `Latency Plugin failed to start` | PG 口令不匹配：查看脚本追加打印的 `/var/log/witty-ub/latency_server.log`，见[常见问题 §10](../../docs/troubleshooting/01-common-issues.md) |
+| 分离前端 unhealthy，但前端页面能打开 | 远端后端不可达：先在 BE 执行 `curl http://<BE>:9772/health_check`，见[常见问题 §11](../../docs/troubleshooting/01-common-issues.md) |
+| 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker`（脚本已区分该错误与"守护进程未启动"） |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
 | 容器已有数据但无法启动 | 检查数据卷完整性、PG 数据目录权限 |
 | 与 compose 混用报容器名冲突 | 脚本与 `docker-compose.yml` 互斥（容器名/卷名/网络名一致），请二选一 |

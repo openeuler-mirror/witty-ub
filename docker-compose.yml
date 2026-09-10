@@ -135,6 +135,8 @@ services:
     volumes:
       # OpenCode LLM 配置与经验库留在前端节点
       - ~/.config/opencode:/root/.config/opencode
+      # 日志卷与单机/后端保持一致（否则 /var/log/witty-ub 会生成匿名卷）
+      - witty-ub-logs:/var/log/witty-ub
       # experience-skill persistent data (experience.db)
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
     environment:
