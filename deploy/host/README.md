@@ -144,7 +144,7 @@ PG_PASSWORD="<CHANGE_ME>"   # 占位符，实际口令在 deploy/pg.passwd
 
 ### 环境变量覆盖
 
-通过环境变量临时覆盖 `pg.conf` 中的配置：
+通过环境变量临时覆盖 `deploy.conf` 中的配置：
 
 ```bash
 PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh
