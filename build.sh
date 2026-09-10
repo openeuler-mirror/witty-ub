@@ -67,6 +67,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# 应用镜像标签跟随 --version（本地构建时同样生效，与文档"指定版本"一致）
+APP_IMAGE="witty-ub:${VERSION}"
+
 if [ "$PLATFORM" = "linux/amd64,linux/arm64" ] && [ -z "$REGISTRY" ]; then
     echo "Error: --registry is required when building multi-architecture images"
     show_usage
@@ -75,7 +78,7 @@ fi
 
 if [ "$USE_RPM" = "true" ] && [ -z "$REPO_URL" ]; then
     echo "Error: --repo-url is required when building with --rpm"
-    echo "       Example: --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<子目录>"
+    echo "       Example: --repo-url http://121.36.84.172/dailybuild/EBS-openEuler-24.03-LTS-SP3/<subdir>"
     show_usage
     exit 1
 fi
@@ -137,8 +140,10 @@ build_base() {
     echo "Platform: $PLATFORM"
     echo "============================================"
 
+    # --target base is required: the last stage in Dockerfile.base is
+    # base-frontend, and docker build defaults to the final stage only.
     if [ "$PLATFORM" = "local" ]; then
-        docker build -f Dockerfile.base -t "$BASE_IMAGE" .
+        docker build -f Dockerfile.base --target base -t "$BASE_IMAGE" .
     else
         target_image="$BASE_IMAGE"
         if [ -n "$REGISTRY" ]; then
@@ -152,12 +157,14 @@ build_base() {
                 --platform "$PLATFORM" \
                 --push \
                 -f Dockerfile.base \
+                --target base \
                 -t "$target_image" .
         else
             docker buildx build \
                 --platform "$PLATFORM" \
                 --load \
                 -f Dockerfile.base \
+                --target base \
                 -t "$target_image" \
                 -t "$BASE_IMAGE" .
         fi
@@ -178,7 +185,7 @@ build_web() {
     cd src/web
 
     echo "Ensuring npm dependencies are installed..."
-    npm install
+    npm ci --no-audit --no-fund
 
     echo "Building frontend..."
     export HUSKY=0
@@ -192,6 +199,18 @@ build_web() {
     cd ../..
 }
 
+# 部署脚本（deploy/docker/deploy_witty.sh）默认查找 witty-ub:latest；本地/--load
+# 构建时同时打 latest 别名，避免 `--version v1.0.0` 产出的镜像在部署阶段找不到
+# （推送到 registry 时仍以 <repo>:<version> 为准，不在此处打别名）。
+tag_latest_alias() {
+    local built_tag="$1"
+    if [ -n "$REGISTRY" ] || [ "$built_tag" = "witty-ub:latest" ]; then
+        return 0
+    fi
+    docker tag "$built_tag" witty-ub:latest
+    echo "[INFO] Also tagged witty-ub:latest for the deploy scripts (${built_tag} kept)"
+}
+
 build_app() {
     echo ""
     echo "============================================"
@@ -203,6 +222,7 @@ build_app() {
 
     if [ "$PLATFORM" = "local" ]; then
         docker build -f Dockerfile -t "$APP_IMAGE" .
+        tag_latest_alias "$APP_IMAGE"
     else
         target_image="$APP_IMAGE"
         build_args=()
@@ -229,6 +249,7 @@ build_app() {
                 "${build_args[@]}" \
                 -f Dockerfile \
                 -t "$target_image" .
+            tag_latest_alias "$target_image"
         fi
     fi
 }
@@ -259,6 +280,8 @@ build_rpm() {
             --target "$RPM_ROLE" \
             -f Dockerfile.rpm \
             -t "$target_image" .
+        # 角色镜像本身就是部署脚本查找的 tag（witty-ub:<role>）；仅 all 需要 latest 别名
+        [ "$RPM_ROLE" = "all" ] && tag_latest_alias "$target_image"
     elif [ "$PLATFORM" = "linux/amd64,linux/arm64" ]; then
         docker buildx build \
             --build-arg REPO_URL="$REPO_URL_FULL" \
@@ -275,6 +298,7 @@ build_rpm() {
             --load \
             -f Dockerfile.rpm \
             -t "$target_image" .
+        [ "$RPM_ROLE" = "all" ] && tag_latest_alias "$target_image"
     fi
 }
 
