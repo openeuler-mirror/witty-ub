@@ -5581,6 +5581,11 @@ const getDisplayHost = (record: Record<string, unknown>) => {
   return host.toLowerCase() === 'unknown' ? '-' : host
 }
 
+const getDisplayCluster = (record: Record<string, unknown>) => {
+  const cluster = getRecordString(record, ['cluster_name', 'clusterName', 'cluster'], '-').trim()
+  return cluster.toLowerCase() === 'null' ? '-' : cluster
+}
+
 const stringifyDetailValue = (value: unknown) => {
   if (typeof value === 'string') return value.trim()
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
@@ -5745,7 +5750,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       operation: normalizeTraceOperation(
         getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
       ),
-      clusterName: getRecordString(record, ['cluster_name'], 'null'),
+      clusterName: getDisplayCluster(record),
       host: getDisplayHost(record),
       totalLatency: getRecordNullableNumber(record, [
         'total_latency',
@@ -6986,6 +6991,9 @@ const confirmFaultAggregatedPodIpFilterDialog = () => {
 const isTraceFilterValueAvailable = (value?: string) =>
   Boolean(value && value !== 'null' && value !== '-')
 
+const getTraceFilterDisplayValue = (value?: string) =>
+  isTraceFilterValueAvailable(value) ? value : '该字段内容缺失，不可选择'
+
 const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.trace = trace
   traceFilterDialog.addCluster = false
@@ -8200,7 +8208,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
-    clusterName: getRecordString(record, ['cluster_name'], 'null'),
+    clusterName: getDisplayCluster(record),
     host: getDisplayHost(record),
     totalLatency: getRecordNullableNumber(record, ['total_latency']),
     queryMetaLatency: getRecordNullableNumber(record, ['worker_query_meta_latency']),
@@ -16904,7 +16912,9 @@ onBeforeUnmount(() => {
             <div class="filter-bar">
               <div class="filter-bar-info">
                 <span class="filter-bar-label">Pod IP</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.podIp || 'null' }}</span>
+                <span class="filter-bar-value">
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.podIp) }}
+                </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
@@ -16938,7 +16948,7 @@ onBeforeUnmount(() => {
               <div class="filter-bar-info">
                 <span class="filter-bar-label">集群</span>
                 <span class="filter-bar-value">
-                  {{ traceFilterDialog.trace?.clusterName || 'null' }}
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.clusterName) }}
                 </span>
               </div>
               <div class="filter-bar-options">
@@ -16956,7 +16966,9 @@ onBeforeUnmount(() => {
             <div class="filter-bar">
               <div class="filter-bar-info">
                 <span class="filter-bar-label">主机</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.host || 'null' }}</span>
+                <span class="filter-bar-value">
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.host) }}
+                </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
