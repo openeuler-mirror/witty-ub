@@ -892,7 +892,21 @@ function createOverviewStateInner() {
   const brpcDetailHasParent = computed(() => brpcDetailStack.value.length > 1)
   const closeBrpcFaultDetail = () => {
     brpcDetailStack.value = brpcDetailStack.value.slice(0, -1)
-    if (brpcDetailStack.value.length === 0) brpcThreadLogsRequestSeq += 1
+    if (brpcDetailStack.value.length === 0) {
+      brpcThreadLogsRequestSeq += 1
+      return
+    }
+    // 出栈后上层弹窗的 DOM 会被重新创建，图容器也是新节点，需要用保留的数据重绘
+    const top = brpcDetailStack.value.at(-1)
+    if (top?.thread_key) {
+      if (brpcThreadDetail.value) {
+        renderBrpcThreadTimeline()
+      }
+      return
+    }
+    if (brpcEventDetail.value) {
+      renderBrpcEventTimeline()
+    }
   }
   const brpcFaultBatchId = ref('')
   const brpcThreadLogs = ref<any[]>([])
@@ -1515,20 +1529,22 @@ function createOverviewStateInner() {
   const openBrpcFaultDetail = (row: any, asChild = false) => {
     // 从聚合事件弹窗里打开 Thread 明细时压栈（asChild），从列表打开时重置栈
     brpcDetailStack.value = asChild ? [...brpcDetailStack.value, row] : [row]
-    brpcThreadLogs.value = []
-    brpcThreadLogsError.value = ''
-    brpcEventDetail.value = null
-    brpcEventDetailTimeline.value = []
-    brpcEventDetailThreads.value = []
-    brpcEventDetailError.value = ''
-    brpcThreadDetail.value = null
-    brpcThreadDetailError.value = ''
-    brpcSelectedGraphNodeId.value = ''
-    // 聚合事件行（无 thread_key）：加载组件计数 / 当前窗时序 / 关联线程（P2.2）
+    // 聚合事件行（无 thread_key）：只重置事件详情并加载；
+    // 不能顺带清空 Thread 侧状态，否则从事件弹窗压栈 Thread 时会把父级数据一起抹掉
     if (row && !row.thread_key) {
+      brpcEventDetail.value = null
+      brpcEventDetailTimeline.value = []
+      brpcEventDetailThreads.value = []
+      brpcEventDetailError.value = ''
       void loadBrpcEventDetail(row)
       return
     }
+    // Thread 行：只重置 Thread 侧状态（父级聚合事件详情保留，返回时直接复用）
+    brpcThreadLogs.value = []
+    brpcThreadLogsError.value = ''
+    brpcThreadDetail.value = null
+    brpcThreadDetailError.value = ''
+    brpcSelectedGraphNodeId.value = ''
     // 仅异常 Thread 行（带 thread_key）并行加载运行日志与 P2.3 线程详情
     if (!row?.thread_key || row?.thread_id == null || !row?.pod_ip) return
     const batch = brpcFaultBatch.value
