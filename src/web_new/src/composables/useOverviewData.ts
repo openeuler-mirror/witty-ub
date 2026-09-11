@@ -266,6 +266,19 @@ function createOverviewStateInner() {
   // 全域时间轴是否被截断（total 超出加载上限）
   const timelineTruncated = ref(false)
 
+  /**
+   * 阶段（yuanrong 分解）字段口径：请求带 stat_type=p99 时，后端只把 p99_<metric> 挂到
+   * ip_pair 上（上游 fc88f485 起，`_attach_yuanrong_breakdown` 由 ave_ 改 p99_）；
+   * 历史/其他口径响应仍可能是 ave_<metric>，所以先 p99 再 ave 回退。
+   */
+  const pairStageMetric = (pair: any, key: string): number | null => {
+    for (const field of [`p99_${key}`, `ave_${key}`]) {
+      const value = pair?.[field]
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+    }
+    return null
+  }
+
   const toAggregatedPairs = (events: TimeWindowBucket[], op: 'get' | 'set'): AggregatedPair[] => {
     const pairs: AggregatedPair[] = []
     let key = 0
@@ -277,9 +290,7 @@ function createOverviewStateInner() {
         const total = pair.log_parse_result_cnt ?? pair.anomaly_cnt ?? 0
         const pairMetricValues: Record<string, number | null> = {}
         allMetrics.forEach((metric) => {
-          const value = pair[`ave_${metric.key}`]
-          pairMetricValues[metric.key] =
-            typeof value === 'number' && Number.isFinite(value) ? value : null
+          pairMetricValues[metric.key] = pairStageMetric(pair, metric.key)
         })
         pairs.push({
           key: String(key++),
@@ -1604,8 +1615,8 @@ function createOverviewStateInner() {
     allMetrics.filter((metric) =>
       timeBuckets.value.some((bucket) =>
         (bucket.ip_pairs ?? []).some((pair) => {
-          const value = pair[`ave_${metric.key}`]
-          return typeof value === 'number' && Number.isFinite(value) && value > 0
+          const value = pairStageMetric(pair, metric.key)
+          return value !== null && value > 0
         }),
       ),
     ),
@@ -2195,7 +2206,7 @@ function createOverviewStateInner() {
     const segments = podBreakdownSegments(stat)
     if (!segments.length) return '各阶段时延分解：暂无阶段数据'
     return (
-      '各阶段时延（ms，各阶段为相互包含的独立测量，非可加分区）\n' +
+      '各阶段时延（ms，P99；各阶段为相互包含的独立测量，非可加分区）\n' +
       segments.map((s) => `${s.label} ${s.valueMs.toFixed(2)}ms`).join('\n')
     )
   }
