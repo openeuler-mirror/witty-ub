@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import BlockTable from '../common/BlockTable.vue'
 import PageNav from '../common/PageNav.vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 
@@ -382,52 +381,71 @@ onMounted(() => {
         <div>{{ brpcThreadSearchQuery ? '未搜索到匹配的异常 Thread' : '暂无异常 Thread' }}</div>
       </div>
       <div v-else class="table-wrap">
-        <BlockTable
-          :rows="brpcAbnormalThreads"
-          :row-key="(row) => row.thread_key"
-          :left-cols="['110px', '130px', '150px', '96px']"
-          :mid-width="brpcThreadInterfaceColumns.length * 132 + 'px'"
-        >
-          <template #left-head>
-            <span class="col-nowrap">线程ID</span>
-            <span class="col-nowrap">Pod IP</span>
-            <span class="col-nowrap">Pod 名称</span>
-            <span class="col-num">命中数</span>
-          </template>
-          <template #left="{ row: thread }">
-            <span class="col-nowrap">
-              <span class="thread-id-pill" :title="thread.thread_key">{{ thread.thread_id }}</span>
-            </span>
-            <span class="col-nowrap agg-mono">{{ thread.pod_ip }}</span>
-            <span class="col-nowrap">{{ thread.pod_name || '-' }}</span>
-            <span class="col-num">{{ thread.total_interface_hit_count }}</span>
-          </template>
-          <template #mid-head>
-            <div
-              v-for="column in brpcThreadInterfaceColumns"
-              :key="column.id"
-              class="col-num matrix-head-cell"
-              :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
-            >
-              <small class="matrix-head-component">{{ column.component }}</small>
-              <span class="matrix-head-name">{{ column.interfaceName }}</span>
-              <code class="matrix-head-function">{{ column.functionName }}</code>
-            </div>
-          </template>
-          <template #mid="{ row: thread }">
-            <div v-for="column in brpcThreadInterfaceColumns" :key="column.id" class="col-num">
-              <span :class="{ 'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id) }">
-                {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
-              </span>
-            </div>
-          </template>
-          <template #right-head>操作</template>
-          <template #right="{ row: thread }">
-            <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
-              详情
-            </button>
-          </template>
-        </BlockTable>
+        <table class="fixed-table matrix-table">
+          <colgroup>
+            <col style="width: 110px" />
+            <col style="width: 130px" />
+            <col style="width: 150px" />
+            <col style="width: 96px" />
+            <col v-for="column in brpcThreadInterfaceColumns" :key="column.id" style="width: 132px" />
+            <col style="width: 110px" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="col-nowrap col-thread-left-0">线程ID</th>
+              <th class="col-nowrap col-thread-left-110">Pod IP</th>
+              <th class="col-nowrap col-thread-left-240">Pod 名称</th>
+              <th class="col-num col-thread-left-390">命中数</th>
+              <th
+                v-for="column in brpcThreadInterfaceColumns"
+                :key="column.id"
+                class="col-num matrix-head-cell"
+                :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
+              >
+                <small class="matrix-head-component">{{ column.component }}</small>
+                <span class="matrix-head-name">{{ column.interfaceName }}</span>
+                <code class="matrix-head-function">{{ column.functionName }}</code>
+              </th>
+              <th class="col-nowrap col-sticky-right-0">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="thread in brpcAbnormalThreads" :key="thread.thread_key">
+              <td class="col-nowrap col-thread-left-0">
+                <span class="thread-id-pill" :title="thread.thread_key">
+                  {{ thread.thread_id }}
+                </span>
+              </td>
+              <td
+                class="col-nowrap col-thread-left-110"
+                style="font-family: monospace"
+              >
+                {{ thread.pod_ip }}
+              </td>
+              <td class="col-nowrap col-thread-left-240">{{ thread.pod_name || '-' }}</td>
+              <td class="col-num col-thread-left-390">{{ thread.total_interface_hit_count }}</td>
+              <td
+                v-for="column in brpcThreadInterfaceColumns"
+                :key="column.id"
+                class="col-num"
+              >
+                <span
+                  :class="{
+                    'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id),
+                  }"
+                >
+                  {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
+                </span>
+              </td>
+              <td class="col-nowrap col-sticky-right-0">
+                <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
+                  详情
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div class="table-foot">
         <span class="hint">
           共 {{ brpcAbnormalThreadTotal }} 条

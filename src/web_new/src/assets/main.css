@@ -2209,8 +2209,7 @@ table .col-num {
 
 /* ---------- 三段式聚合表：左固定 / 中间滚动 / 右固定（行高一致即对齐） ---------- */
 
-.agg-table,
-.bt-table {
+.agg-table {
   display: flex;
   align-items: flex-start;
   border: 1px solid var(--border);
@@ -2219,40 +2218,33 @@ table .col-num {
   background: var(--surface);
 }
 
-.agg-block,
-.bt-block {
+.agg-block {
   display: flex;
   flex-direction: column;
 }
 
 .agg-left,
-.agg-right,
-.bt-left,
-.bt-right {
+.agg-right {
   flex: none;
   background: var(--surface);
 }
 
-.agg-right,
-.bt-right {
+.agg-right {
   border-left: 1px solid var(--border);
 }
 
-.agg-mid,
-.bt-mid {
+.agg-mid {
   flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
 }
 
-.agg-mid-inner,
-.bt-mid-inner {
+.agg-mid-inner {
   display: flex;
   flex-direction: column;
 }
 
-.agg-row,
-.bt-row {
+.agg-row {
   display: grid;
   align-items: center;
   gap: 8px;
@@ -2264,8 +2256,7 @@ table .col-num {
   height: 44px;
 }
 
-.agg-head,
-.bt-head {
+.agg-head {
   height: 56px;
   background: var(--bg);
   font-weight: 600;
@@ -2274,16 +2265,14 @@ table .col-num {
   align-items: center;
 }
 
-.agg-row.agg-subhead,
-.bt-row.bt-subhead {
+.agg-row.agg-subhead {
   height: 32px;
   background: var(--bg);
   font-size: 11px;
   color: var(--text2);
 }
 
-.agg-row.agg-subrow,
-.bt-row.bt-subrow {
+.agg-row.agg-subrow {
   height: 44px;
 }
 
@@ -2300,30 +2289,19 @@ table .col-num {
 }
 
 .agg-right-main,
-.agg-right-sub,
-.bt-right-grid {
+.agg-right-sub {
+  grid-template-columns: 110px;
   justify-items: start;
 }
 
-.agg-right-main,
-.agg-right-sub {
-  grid-template-columns: 110px;
-}
-
-.bt-right-grid {
-  grid-template-columns: 110px;
-}
-
-.agg-mid-grid,
-.bt-mid-grid {
+.agg-mid-grid {
   grid-auto-flow: column;
   grid-auto-columns: 132px;
   gap: 0;
   padding: 0;
 }
 
-.agg-mid-grid > *,
-.bt-mid-grid > * {
+.agg-mid-grid > * {
   padding: 0 10px;
   overflow: hidden;
   text-overflow: ellipsis;
