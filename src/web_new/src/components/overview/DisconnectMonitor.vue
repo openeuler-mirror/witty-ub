@@ -2,6 +2,7 @@
 import { computed, onMounted, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import { normalizeFaultCodes, normalizeTraceOperation } from '../../utils/format'
+import BlockTable from '../common/BlockTable.vue'
 import PageNav from '../common/PageNav.vue'
 
 const {
@@ -356,65 +357,59 @@ const failureDomainsOf = (row: any) => {
       tabindex="0"
       aria-label="通断故障实例列表，可左右滚动"
     >
-      <table class="fault-instance-table">
-        <thead>
-          <tr>
-            <th>发生时间</th>
-            <th>故障码</th>
-            <th>具体故障 / 故障域</th>
-            <th>影响链路</th>
-            <th>Pod 上下文</th>
-            <th>Trace ID</th>
-            <th>证据</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in pagedFaultTraces" :key="row.trace_id">
-            <td class="mono">{{ (row.timestamp || '').slice(0, 19) }}</td>
-            <td>
-              <span v-for="code in faultCodesOf(row)" :key="code" class="fault-code-chip">{{
-                code
-              }}</span
-              ><span v-if="faultCodesOf(row).length === 0">-</span>
-            </td>
-            <td>
-              <strong class="fault-name">{{ failureModeNamesOf(row) }}</strong
-              ><small class="fault-domain">{{ failureDomainsOf(row) }}</small>
-            </td>
-            <td class="route-cell">
-              <span>{{ row.src_ip || '-' }}</span
-              ><i>→</i><span>{{ row.dst_ip || '-' }}</span>
-            </td>
-            <td>
-              <div class="trace-pods" :title="faultPodIps(row).join('\n')">
-                <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{
-                  ip
-                }}</span
-                ><span
-                  v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length"
-                  class="trace-chip"
-                  >+{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}</span
-                >
-              </div>
-            </td>
-            <td>
-              <span class="trace-chip" :title="row.trace_id">{{ shortTraceId(row.trace_id) }}</span>
-            </td>
-            <td>
-              <div class="evidence-actions">
-                <span
-                  v-for="tag in traceTags(row.trace_id, 'fault')"
-                  :key="tag.type"
-                  :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
-                  >{{ tag.label }}</span
-                ><button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-                  Trace / 日志
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <BlockTable
+        :rows="pagedFaultTraces"
+        :row-key="(row: any) => row.trace_id"
+        :left-cols="['150px', '150px', '300px']"
+        :right-cols="['150px']"
+        mid-width="620px"
+      >
+        <template #left-head>
+          <span>发生时间</span><span>故障码</span><span>具体故障 / 故障域</span>
+        </template>
+        <template #left="{ row }">
+          <span class="agg-mono col-nowrap">{{ (row.timestamp || '').slice(0, 19) }}</span>
+          <span class="chip-row-nowrap">
+            <span v-for="code in faultCodesOf(row)" :key="code" class="fault-code-chip">{{
+              code
+            }}</span>
+            <span v-if="faultCodesOf(row).length === 0">-</span>
+          </span>
+          <span class="col-nowrap">
+            <strong class="fault-name">{{ failureModeNamesOf(row) }}</strong>
+            <small class="fault-domain">{{ failureDomainsOf(row) }}</small>
+          </span>
+        </template>
+        <template #mid-head>
+          <span>影响链路</span><span>Pod 上下文</span><span>Trace ID</span>
+        </template>
+        <template #mid="{ row }">
+          <span class="route-cell col-nowrap">
+            <span>{{ row.src_ip || '-' }}</span><i>→</i><span>{{ row.dst_ip || '-' }}</span>
+          </span>
+          <span class="trace-pods col-nowrap" :title="faultPodIps(row).join('\n')">
+            <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
+            <span v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length" class="trace-chip"
+              >+{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}</span
+            >
+          </span>
+          <span class="col-nowrap">
+            <span class="trace-chip" :title="row.trace_id">{{ shortTraceId(row.trace_id) }}</span>
+          </span>
+        </template>
+        <template #right-head>证据</template>
+        <template #right="{ row }">
+          <span class="evidence-actions">
+            <span
+              v-for="tag in traceTags(row.trace_id, 'fault')"
+              :key="tag.type"
+              :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
+              >{{ tag.label }}</span
+            >
+            <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">Trace / 日志</button>
+          </span>
+        </template>
+      </BlockTable>
     </div>
     <footer class="fault-table-footer">
       <span
