@@ -2617,9 +2617,11 @@ table .col-num {
 .fault-instance-block .fault-scroll .fault-name,
 .fault-instance-block .fault-scroll .fault-domain {
   display: inline;
-  white-space: nowrap;
+  /* 完整显示（可换行），不再 nowrap/省略 */
+  white-space: normal;
   overflow: visible;
   text-overflow: clip;
+  overflow-wrap: anywhere;
 }
 .fault-instance-block .fault-scroll .fault-domain::before {
   content: ' ';
