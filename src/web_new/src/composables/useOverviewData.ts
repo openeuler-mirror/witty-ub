@@ -64,6 +64,7 @@ import {
   fetchBrpcEventDetail,
   fetchBrpcInterfaceTimeline,
   fetchBrpcPodEvents,
+  fetchBrpcThreadEvents,
   fetchBrpcProfilingKnowledge,
   fetchBrpcThreadDetail,
   fetchBrpcThreadLogs,
@@ -790,6 +791,12 @@ function createOverviewStateInner() {
   const brpcFaultSelectedLogId = ref('')
   // U5：聚合事件表的时间间隔（服务端支持 1s / 1m / 1h），改变后重拉当前页
   const brpcEventWindowSize = ref<'1s' | '1m' | '1h'>('1m')
+  // 聚合指标：Pod IP / 线程 ID（对齐旧版 brpcEventAggregation）
+  const brpcEventAggregation = ref<'pod' | 'thread'>('pod')
+  const brpcEventAggregationOptions = [
+    { value: 'pod', label: 'Pod IP' },
+    { value: 'thread', label: '线程 ID' },
+  ] as const
   const brpcEventWindowOptions = [
     { value: '1s', label: '秒' },
     { value: '1m', label: '分' },
@@ -884,6 +891,45 @@ function createOverviewStateInner() {
     const start = (page - 1) * BRPC_EVENT_WINDOW_PAGE_SIZE
     return brpcEventWindows.value.slice(start, start + BRPC_EVENT_WINDOW_PAGE_SIZE)
   })
+  /** 从一组行（Thread / 事件）的 interface_hits 汇总出接口列（三行表头信息） */
+  const brpcInterfaceColumnsOf = (rows: any[]) => {
+    const columns = new Map<
+      string,
+      { id: string; component: string; interfaceName: string; functionName: string }
+    >()
+    for (const row of rows) {
+      for (const hit of row?.interface_hits ?? []) {
+        const id = String(hit?.interface_id ?? hit?.interface_name ?? '-')
+        if (columns.has(id)) continue
+        columns.set(id, {
+          id,
+          component: String(hit?.component ?? ''),
+          interfaceName: String(hit?.interface_name ?? '-'),
+          functionName: String(hit?.function_name ?? '-'),
+        })
+      }
+    }
+    return [...columns.values()].sort((first, second) =>
+      first.interfaceName.localeCompare(second.interfaceName),
+    )
+  }
+
+  /** 异常 Thread 列表的接口列 */
+  const brpcThreadInterfaceColumns = computed(() =>
+    brpcInterfaceColumnsOf(brpcAbnormalThreads.value),
+  )
+
+  /** 聚合事件详情弹窗内「关联异常 Thread」的接口列 */
+  const brpcEventDetailThreadInterfaceColumns = computed(() =>
+    brpcInterfaceColumnsOf(brpcEventDetailThreads.value),
+  )
+
+  /** 单行（Pod / Thread 事件）在某个接口列上的命中数 */
+  const brpcRowInterfaceCountOf = (row: any, interfaceId: string) =>
+    (row?.interface_hits ?? [])
+      .filter((hit: any) => String(hit?.interface_id ?? hit?.interface_name ?? '-') === interfaceId)
+      .reduce((sum: number, hit: any) => sum + (hit?.interface_hit_count ?? 0), 0)
+
   const toggleBrpcEventWindow = (key: string) => {
     brpcExpandedEventWindow.value = brpcExpandedEventWindow.value === key ? '' : key
   }
@@ -1353,14 +1399,17 @@ function createOverviewStateInner() {
       const { startDate, endDate } = brpcFaultQueryRange(batch)
       const [timelineResult, eventsResult, threadsResult] = await Promise.all([
         fetchBrpcInterfaceTimeline(batchId, startDate, endDate),
-        fetchBrpcPodEvents(
-          batchId,
-          startDate,
-          endDate,
-          1,
-          BRPC_EVENT_FETCH_PAGE_CNT,
-          brpcEventWindowSize.value,
-        ),
+        (async (): Promise<{ total?: number; events?: any[]; threads?: any[] }> =>
+          (brpcEventAggregation.value === 'thread'
+            ? fetchBrpcThreadEvents
+            : fetchBrpcPodEvents)(
+            batchId,
+            startDate,
+            endDate,
+            1,
+            BRPC_EVENT_FETCH_PAGE_CNT,
+            brpcEventWindowSize.value,
+          ))(),
         fetchBrpcAbnormalThreads(
           batchId,
           startDate,
@@ -1371,7 +1420,7 @@ function createOverviewStateInner() {
         ),
       ])
       brpcFaultTimelineSeries.value = timelineResult.series ?? []
-      brpcAggregatedEvents.value = eventsResult.events ?? []
+      brpcAggregatedEvents.value = eventsResult.events ?? eventsResult.threads ?? []
       brpcAggregatedEventTotal.value = eventsResult.total ?? 0
       brpcAggregatedEventsTruncated.value =
         (eventsResult.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
@@ -1393,6 +1442,12 @@ function createOverviewStateInner() {
   }
 
   const changeBrpcEventWindowSize = async () => {
+    await loadBrpcAggregatedEvents()
+  }
+
+  const changeBrpcEventAggregation = async () => {
+    brpcAggregatedEventPage.value = 1
+    brpcExpandedEventWindow.value = ''
     await loadBrpcAggregatedEvents()
   }
 
@@ -1438,7 +1493,9 @@ function createOverviewStateInner() {
     brpcEventListLoading.value = true
     try {
       const { startDate, endDate } = brpcFaultQueryRange(batch)
-      const result = await fetchBrpcPodEvents(
+      const fetchEvents =
+        brpcEventAggregation.value === 'thread' ? fetchBrpcThreadEvents : fetchBrpcPodEvents
+      const result: { total?: number; events?: any[]; threads?: any[] } = await fetchEvents(
         batchId,
         startDate,
         endDate,
@@ -1447,7 +1504,7 @@ function createOverviewStateInner() {
         brpcEventWindowSize.value,
       )
       if (seq !== brpcEventListSeq) return
-      brpcAggregatedEvents.value = result.events ?? []
+      brpcAggregatedEvents.value = result.events ?? result.threads ?? []
       brpcAggregatedEventTotal.value = result.total ?? 0
       brpcAggregatedEventsTruncated.value = (result.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
       brpcAggregatedEventPage.value = 1
@@ -5261,8 +5318,14 @@ function createOverviewStateInner() {
     brpcFaultError,
     brpcFaultEventPages,
     brpcFaultLoading,
+    brpcEventAggregation,
+    brpcEventAggregationOptions,
+    brpcRowInterfaceCountOf,
+    brpcThreadInterfaceColumns,
+    brpcEventDetailThreadInterfaceColumns,
     brpcEventWindowOptions,
     brpcEventWindowSize,
+    changeBrpcEventAggregation,
     changeBrpcEventWindowSize,
     brpcFaultLogOptions,
     brpcFaultPageSize,

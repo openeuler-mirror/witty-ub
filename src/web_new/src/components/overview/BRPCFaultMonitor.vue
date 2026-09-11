@@ -15,8 +15,12 @@ const {
   brpcEventWindowPageRows,
   brpcEventWindowPages,
   brpcEventWindows,
+  brpcEventAggregation,
+  brpcEventAggregationOptions,
   brpcEventWindowOptions,
   brpcEventWindowSize,
+  brpcRowInterfaceCountOf,
+  brpcThreadInterfaceColumns,
   brpcExpandedEventWindow,
   brpcFaultBatch,
   brpcFaultError,
@@ -35,6 +39,7 @@ const {
   brpcThreadSearchQuery,
   brpcThreadListLoading,
   brpcEventListLoading,
+  changeBrpcEventAggregation,
   changeBrpcFaultLog,
   changeBrpcEventWindowSize,
   clearBrpcFaultSeries,
@@ -175,7 +180,17 @@ onMounted(() => {
       <!-- 聚合指标固定为 Pod IP（异常 Thread 视图即线程聚合），时间间隔走服务端 window_size -->
       <div v-if="brpcFaultTab === 'event'" class="fault-result-controls">
         <span class="hint">聚合指标</span>
-        <span class="fault-result-static">Pod IP</span>
+        <select
+          id="brpc-event-aggregation"
+          class="select"
+          aria-label="聚合指标"
+          v-model="brpcEventAggregation"
+          @change="changeBrpcEventAggregation"
+        >
+          <option v-for="option in brpcEventAggregationOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
         <label class="hint" for="brpc-event-window">时间间隔</label>
         <select
           id="brpc-event-window"
@@ -254,41 +269,62 @@ onMounted(() => {
                   <td :colspan="brpcEventInterfaceColumns.length + 3" class="matrix-detail-cell">
                     <table class="matrix-detail-table">
                       <colgroup>
-                        <col style="width: 130px" />
-                        <col style="width: 150px" />
-                        <col style="width: 90px" />
-                        <col />
-                        <col style="width: 120px" />
+                        <template v-if="brpcEventAggregation === 'thread'">
+                          <col style="width: 96px" />
+                          <col style="width: 130px" />
+                          <col style="width: 104px" />
+                        </template>
+                        <template v-else>
+                          <col style="width: 150px" />
+                          <col style="width: 180px" />
+                        </template>
+                        <col style="width: 96px" />
+                        <col v-for="column in brpcEventInterfaceColumns" :key="column.id" style="width: 132px" />
+                        <col style="width: 110px" />
                       </colgroup>
                       <thead>
                         <tr>
+                          <th v-if="brpcEventAggregation === 'thread'" class="col-nowrap">线程 ID</th>
                           <th class="col-nowrap">Pod IP</th>
                           <th class="col-nowrap">Pod 名称</th>
-                          <th class="col-num">命中数</th>
-                          <th>主要接口</th>
+                          <th class="col-num">故障总数</th>
+                          <th
+                            v-for="column in brpcEventInterfaceColumns"
+                            :key="column.id"
+                            class="col-num matrix-head-cell"
+                            :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
+                          >
+                            <code class="matrix-head-function">{{ column.functionName }}</code>
+                          </th>
                           <th class="col-nowrap">操作</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr v-for="pod in window.pods" :key="pod.event_id">
+                          <td
+                            v-if="brpcEventAggregation === 'thread'"
+                            class="col-nowrap"
+                            style="font-family: monospace"
+                          >
+                            {{ pod.thread_id ?? '-' }}
+                          </td>
                           <td class="col-nowrap" style="font-family: monospace">
                             {{ pod.pod_ip }}
                           </td>
                           <td class="col-nowrap">{{ pod.pod_name || '-' }}</td>
                           <td class="col-num">{{ pod.hitTotal }}</td>
-                          <td>
-                            <div class="cell-scroll">
-                              <div class="chip-row chip-row-nowrap">
-                                <span
-                                  v-for="hit in pod.interface_hits || []"
-                                  :key="hit.interface_id"
-                                  class="trace-chip"
-                                >
-                                  {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                                </span>
-                                <span v-if="!(pod.interface_hits || []).length" class="hint">-</span>
-                              </div>
-                            </div>
+                          <td
+                            v-for="column in brpcEventInterfaceColumns"
+                            :key="column.id"
+                            class="col-num"
+                          >
+                            <span
+                              :class="{
+                                'matrix-zero': !brpcRowInterfaceCountOf(pod, column.id),
+                              }"
+                            >
+                              {{ brpcRowInterfaceCountOf(pod, column.id) || '-' }}
+                            </span>
                           </td>
                           <td class="col-nowrap">
                             <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(pod)">
@@ -357,51 +393,63 @@ onMounted(() => {
         <div>{{ brpcThreadSearchQuery ? '未搜索到匹配的异常 Thread' : '暂无异常 Thread' }}</div>
       </div>
       <div v-else class="table-wrap">
-        <table class="fixed-table">
+        <table class="fixed-table matrix-table">
           <colgroup>
             <col style="width: 110px" />
             <col style="width: 130px" />
             <col style="width: 150px" />
-            <col style="width: 90px" />
-            <col />
             <col style="width: 96px" />
+            <col v-for="column in brpcThreadInterfaceColumns" :key="column.id" style="width: 132px" />
+            <col style="width: 110px" />
           </colgroup>
           <thead>
             <tr>
-              <th class="col-nowrap">线程ID</th>
-              <th class="col-nowrap">Pod IP</th>
-              <th class="col-nowrap">Pod 名称</th>
-              <th class="col-num">命中数</th>
-              <th>接口概要</th>
-              <th class="col-nowrap">操作</th>
+              <th class="col-nowrap col-thread-left-0">线程ID</th>
+              <th class="col-nowrap col-thread-left-110">Pod IP</th>
+              <th class="col-nowrap col-thread-left-240">Pod 名称</th>
+              <th class="col-num col-thread-left-390">命中数</th>
+              <th
+                v-for="column in brpcThreadInterfaceColumns"
+                :key="column.id"
+                class="col-num matrix-head-cell"
+                :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
+              >
+                <small class="matrix-head-component">{{ column.component }}</small>
+                <span class="matrix-head-name">{{ column.interfaceName }}</span>
+                <code class="matrix-head-function">{{ column.functionName }}</code>
+              </th>
+              <th class="col-nowrap col-sticky-right-0">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="thread in brpcAbnormalThreads" :key="thread.thread_key">
-              <td class="col-nowrap">
+              <td class="col-nowrap col-thread-left-0">
                 <span class="thread-id-pill" :title="thread.thread_key">
                   {{ thread.thread_id }}
                 </span>
               </td>
-              <td class="col-nowrap" style="font-family: monospace">{{ thread.pod_ip }}</td>
-              <td class="col-nowrap">{{ thread.pod_name || '-' }}</td>
-              <td class="col-num">{{ thread.total_interface_hit_count }}</td>
-              <td>
-                <div class="cell-scroll">
-                  <div class="chip-row chip-row-nowrap">
-                    <span
-                      v-for="hit in thread.interface_hits || []"
-                      :key="hit.interface_id"
-                      class="trace-chip"
-                      :title="`${hit.component || ''} / ${hit.interface_name || ''} / ${hit.function_name || ''}`"
-                    >
-                      {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                    </span>
-                    <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
-                  </div>
-                </div>
+              <td
+                class="col-nowrap col-thread-left-110"
+                style="font-family: monospace"
+              >
+                {{ thread.pod_ip }}
               </td>
-              <td class="col-nowrap">
+              <td class="col-nowrap col-thread-left-240">{{ thread.pod_name || '-' }}</td>
+              <td class="col-num col-thread-left-390">{{ thread.total_interface_hit_count }}</td>
+              <td
+                v-for="column in brpcThreadInterfaceColumns"
+                :key="column.id"
+                class="col-num"
+              >
+                <span
+                  :class="{
+                    'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id),
+                  }"
+                >
+                  {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
+                </span>
+              </td>
+              <td class="col-nowrap col-sticky-right-0">
                 <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
                   详情
                 </button>

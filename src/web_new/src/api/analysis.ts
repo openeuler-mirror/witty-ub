@@ -487,6 +487,25 @@ export const fetchBrpcPodEvents = (
     })}`,
   )
 
+// 聚合指标=线程 ID：按 窗口 × Pod × 线程 聚合（字段含 thread_id）
+export const fetchBrpcThreadEvents = (
+  batchId: string,
+  start: Date,
+  end: Date,
+  pageNum: number,
+  pageCnt: number,
+  windowSize: '1s' | '1m' | '1h' = '1m',
+) =>
+  request<{ total: number; events?: any[]; threads?: any[] }>(
+    `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/thread-events?${toQueryString({
+      start_time: formatFullTimeLabel(start),
+      end_time: formatFullTimeLabel(end),
+      window_size: windowSize,
+      page_num: pageNum,
+      page_cnt: pageCnt,
+    })}`,
+  )
+
 // P2.2 聚合事件详情：组件计数（failure_modes）+ hit_total
 export const fetchBrpcEventDetail = (
   batchId: string,

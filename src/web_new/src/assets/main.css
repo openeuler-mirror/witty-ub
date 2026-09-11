@@ -1586,8 +1586,8 @@ tr:hover td {
   position: fixed;
   top: 50%;
   left: 50%;
-  width: min(1200px, 94vw);
-  height: min(88vh, 920px);
+  width: min(1400px, 96vw);
+  height: min(92vh, 1040px);
   background: #fff;
   border-radius: var(--radius-lg);
   z-index: 300;
@@ -1640,6 +1640,26 @@ tr:hover td {
   color: #fff;
   font-size: 18px;
   cursor: pointer;
+}
+
+/* Trace 运行日志：整表等宽字体（对齐旧版） */
+.log-table {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.log-table th {
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+.log-table td {
+  vertical-align: top;
+}
+
+.log-table td:last-child {
+  font-size: 12px;
+  white-space: normal;
 }
 
 .module-tabs {
@@ -2132,6 +2152,32 @@ table .col-num {
 
 .col-sticky-left-330 {
   left: 330px;
+}
+
+/* 异常 Thread 表左固定列（累计偏移） */
+.col-thread-left-0,
+.col-thread-left-110,
+.col-thread-left-240,
+.col-thread-left-390 {
+  position: sticky;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.col-thread-left-0 {
+  left: 0;
+}
+
+.col-thread-left-110 {
+  left: 110px;
+}
+
+.col-thread-left-240 {
+  left: 240px;
+}
+
+.col-thread-left-390 {
+  left: 390px;
 }
 
 .col-sticky-right-0 {
