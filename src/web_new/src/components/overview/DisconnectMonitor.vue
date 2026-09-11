@@ -360,10 +360,10 @@ const failureDomainsOf = (row: any) => {
       <BlockTable
         :rows="pagedFaultTraces"
         :row-key="(row: any) => row.trace_id"
-        :left-cols="['150px', '110px', '120px', '340px']"
-        :right-cols="['190px']"
-        :mid-cols="['200px', '260px', '220px']"
-        mid-width="680px"
+        :left-cols="['150px', '110px', '120px', '380px']"
+        :right-cols="['170px']"
+        :mid-cols="['330px', '240px', '240px']"
+        mid-width="810px"
       >
         <template #left-head>
           <span>发生时间</span><span>故障类型</span><span>故障码</span><span>具体故障 / 故障域</span>
@@ -385,7 +385,7 @@ const failureDomainsOf = (row: any) => {
             >
             <span v-if="traceTags(row.trace_id, 'fault').length === 0" class="hint">-</span>
           </span>
-          <span>
+          <span class="agg-cell-wrap">
             <span class="fault-name">{{ failureModeNamesOf(row) }}</span>
             <span class="fault-domain">{{ failureDomainsOf(row) }}</span>
           </span>
@@ -397,7 +397,7 @@ const failureDomainsOf = (row: any) => {
           <span class="route-cell col-nowrap">
             <span>{{ row.src_ip || '-' }}</span><i>→</i><span>{{ row.dst_ip || '-' }}</span>
           </span>
-          <span class="trace-pods col-nowrap" :title="faultPodIps(row).join('\n')">
+          <span class="trace-pods agg-cell-wrap" :title="faultPodIps(row).join('\n')">
             <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
             <span v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length" class="trace-chip"
               >+{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}</span
@@ -431,6 +431,31 @@ const failureDomainsOf = (row: any) => {
 </template>
 
 <style scoped>
+/* 影响链路必须单行显示（src → dst），不换行 */
+.agg-mid-grid .route-cell,
+.agg-mid-grid .route-cell > * {
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+.agg-mid-grid .route-cell i {
+  flex: none;
+}
+/* BlockTable 内：具体故障/故障域允许换行显示全量，不再 nowrap+省略号 */
+.agg-cell-wrap :deep(.fault-name),
+.agg-cell-wrap :deep(.fault-domain),
+.agg-cell-wrap .fault-name,
+.agg-cell-wrap .fault-domain {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.agg-cell-wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  flex-wrap: wrap;
+}
+
 .fault-detail-header h2 {
   margin: 5px 0 6px;
   font-size: 18px;

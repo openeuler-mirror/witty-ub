@@ -2529,3 +2529,11 @@ table .col-num {
   font-weight: 400;
   color: var(--text3);
 }
+
+/* 允许换行的单元格（覆盖中区默认 nowrap+ellipsis） */
+.agg-mid-grid > .agg-cell-wrap,
+.agg-row > .agg-cell-wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}

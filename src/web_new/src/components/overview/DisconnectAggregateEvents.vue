@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
+import BlockTable from '../common/BlockTable.vue'
 import PageNav from '../common/PageNav.vue'
 
 const {
@@ -89,115 +90,98 @@ watch([faultAggInterval, currentOp, () => disconnectFilter.time.value], reload)
     </div>
 
     <template v-else>
-      <div class="table-wrap" role="region" tabindex="0" aria-label="通断聚合事件表，可左右滚动">
-        <table class="fault-agg-table">
-          <thead>
-            <tr>
-              <th class="expand-column"></th>
-              <th class="sortable" @click="faultAggSortBy('timestamp')">
-                开始时间
-                <span v-if="faultAggSortField === 'timestamp'" class="sort-mark">{{
-                  faultAggSortDesc ? '↓' : '↑'
-                }}</span>
-              </th>
-              <th>结束时间</th>
-              <th
-                v-for="code in faultAggErrCodes"
-                :key="code"
-                class="sortable num"
-                @click="faultAggSortBy(code)"
-              >
-                {{ code === 'all' ? '故障总数' : `故障码 ${code}` }}
-                <span v-if="faultAggSortField === code" class="sort-mark">{{
-                  faultAggSortDesc ? '↓' : '↑'
-                }}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="row in faultAggRows" :key="bucketKey(row)">
-              <tr
-                :class="{ 'row-expanded': bucketKey(row) === faultAggExpandedKey }"
-                @click="toggleFaultAggBucket(row)"
-              >
-                <td class="expand-mark">
-                  {{ bucketKey(row) === faultAggExpandedKey ? '▾' : '▸' }}
-                </td>
-                <td class="mono">{{ row.start_time }}</td>
-                <td class="mono">{{ row.end_time }}</td>
-                <td v-for="code in faultAggErrCodes" :key="code" class="num">
-                  {{ aggCount(row, code) || '-' }}
-                </td>
-              </tr>
-              <tr v-if="bucketKey(row) === faultAggExpandedKey" class="pair-subrow">
-                <td :colspan="3 + faultAggErrCodes.length">
-                  <div class="pair-heading">
-                    <strong>桶内故障链路</strong>
-                    <span>{{ row.start_time }} ~ {{ row.end_time }}</span>
-                  </div>
-                  <div v-if="faultAggPairsLoading" class="hint pair-state">IP 对加载中…</div>
-                  <div v-else-if="faultAggPairs.length === 0" class="hint pair-state">
-                    该时间桶内无源/目标 IP 对
-                  </div>
-                  <template v-else>
-                    <table class="fault-agg-pair-table">
-                      <thead>
-                        <tr>
-                          <th>源 IP</th>
-                          <th>目标 IP</th>
-                          <th
-                            v-for="code in faultAggPairsErrCodes"
-                            :key="code"
-                            class="sortable num"
-                            @click.stop="faultAggPairsSortBy(code)"
-                          >
-                            {{ code === 'all' ? '故障总数' : `故障码 ${code}` }}
-                            <span v-if="faultAggPairsSortField === code" class="sort-mark">{{
-                              faultAggPairsSortDesc ? '↓' : '↑'
-                            }}</span>
-                          </th>
-                          <th>证据</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="pair in faultAggPairs" :key="pair.src_ip + '→' + pair.dst_ip">
-                          <td class="mono">{{ pair.src_ip || '-' }}</td>
-                          <td class="mono">{{ pair.dst_ip || '-' }}</td>
-                          <td v-for="code in faultAggPairsErrCodes" :key="code" class="num">
-                            {{ aggCount(pair, code) || '-' }}
-                          </td>
-                          <td>
-                            <button
-                              class="btn btn-sm btn-primary"
-                              @click.stop="
-                                enterFaultAggPairDetail(
-                                  pair.src_ip,
-                                  pair.dst_ip,
-                                  faultAggExpandedBucket!,
-                                )
-                              "
-                            >
-                              查看故障 Trace
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <footer class="aggregate-footer">
-                      <span>共 {{ faultAggPairsTotal }} 对</span>
-                      <PageNav
-                        v-if="faultAggPairsPages > 1"
-                        :page="faultAggPairsPage"
-                        :pages="faultAggPairsPages"
-                        @update:page="loadFaultAggPairs"
-                      />
-                    </footer>
-                  </template>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+      <BlockTable
+        :rows="faultAggRows"
+        :row-key="(row: any) => bucketKey(row)"
+        :left-cols="['170px', '170px', '110px']"
+        :right-cols="['110px']"
+        :mid-cols="faultAggErrCodes.map(() => '126px')"
+        :mid-width="faultAggErrCodes.length * 126 + 'px'"
+        :expanded-key="faultAggExpandedKey"
+        :sub-rows-of="() => faultAggPairs"
+        :sub-key="(pair: any) => String(pair.src_ip) + '->' + String(pair.dst_ip)"
+      >
+        <template #left-head>
+          <span class="sortable" @click="faultAggSortBy('timestamp')">
+            开始时间
+            <span v-if="faultAggSortField === 'timestamp'" class="sort-mark">{{
+              faultAggSortDesc ? '↓' : '↑'
+            }}</span>
+          </span>
+          <span>结束时间</span>
+          <span class="col-num">故障总数</span>
+        </template>
+        <template #left="{ row }">
+          <span class="agg-mono col-nowrap">{{ row.start_time }}</span>
+          <span class="agg-mono col-nowrap">{{ row.end_time }}</span>
+          <span class="col-num">{{ aggCount(row, 'all') || '-' }}</span>
+        </template>
+        <template #left-subhead>
+          <span>源 IP</span><span>目标 IP</span><span class="col-num">故障总数</span>
+        </template>
+        <template #left-sub="{ row: pair }">
+          <span class="agg-mono col-nowrap">{{ pair.src_ip || '-' }}</span>
+          <span class="agg-mono col-nowrap">{{ pair.dst_ip || '-' }}</span>
+          <span class="col-num">{{ aggCount(pair, 'all') || '-' }}</span>
+        </template>
+
+        <template #mid-head>
+          <div
+            v-for="code in faultAggErrCodes"
+            :key="code"
+            class="col-num sortable"
+            @click="faultAggSortBy(code)"
+          >
+            {{ code === 'all' ? '故障总数' : `故障码 ${code}` }}
+            <span v-if="faultAggSortField === code" class="sort-mark">{{
+              faultAggSortDesc ? '↓' : '↑'
+            }}</span>
+          </div>
+        </template>
+        <template #mid="{ row }">
+          <div v-for="code in faultAggErrCodes" :key="code" class="col-num">
+            {{ aggCount(row, code) || '-' }}
+          </div>
+        </template>
+        <template #mid-subhead>
+          <div v-for="code in faultAggPairsErrCodes" :key="code" class="col-num">
+            {{ code === 'all' ? '故障总数' : `故障码 ${code}` }}
+          </div>
+        </template>
+        <template #mid-sub="{ row: pair }">
+          <div v-for="code in faultAggPairsErrCodes" :key="code" class="col-num">
+            {{ aggCount(pair, code) || '-' }}
+          </div>
+        </template>
+
+        <template #right-head>操作</template>
+        <template #right="{ row }">
+          <button class="btn btn-sm btn-default" @click="toggleFaultAggBucket(row)">
+            {{ bucketKey(row) === faultAggExpandedKey ? '收起' : '展开' }}
+          </button>
+        </template>
+        <template #right-subhead>操作</template>
+        <template #right-sub="{ row: pair }">
+          <button
+            class="btn btn-sm btn-primary"
+            @click="enterFaultAggPairDetail(pair.src_ip, pair.dst_ip, faultAggExpandedBucket!)"
+          >
+            查看故障 Trace
+          </button>
+        </template>
+      </BlockTable>
+
+      <div v-if="faultAggExpandedKey" class="table-foot" style="margin-top: 8px">
+        <span class="hint">
+          桶内故障链路共 {{ faultAggPairsTotal }} 对
+          <template v-if="faultAggPairsLoading"> · 加载中…</template>
+        </span>
+        <PageNav
+          v-if="faultAggPairsPages > 1"
+          :page="faultAggPairsPage"
+          :pages="faultAggPairsPages"
+          @update:page="loadFaultAggPairs"
+        />
       </div>
       <footer class="aggregate-footer">
         <span>共 {{ faultAggTotal }} 桶{{ faultAggLoading ? ' · 刷新中…' : '' }}</span>
