@@ -129,7 +129,7 @@ class LogParseResultPGManager:
     @staticmethod
     async def add_log_parse_results(
         results: list[LogParseResultStorage],
-        batch_size: int = 100_000,
+        batch_size: int = 2048,
     ) -> bool:
         """Bulk insert log_parse_result rows using asyncpg COPY."""
         LogParseResultPGManager.last_store_metrics = {}
@@ -181,6 +181,72 @@ class LogParseResultPGManager:
         return True
 
     @staticmethod
+    async def add_log_parse_result_batches(batches) -> int:
+        """Stream bounded detail batches through one connection and one COPY.
+
+        asyncpg consumes the records iterator incrementally; neither all rows nor
+        all storage tuples are materialized. A COPY error aborts the stream.
+        """
+        started = time.perf_counter()
+        metrics = {"rows": 0, "batch_count": 0, "success": False,
+                   "build_seconds": 0.0, "convert_seconds": 0.0}
+
+        def records():
+            iterator = iter(batches)
+            last_log = time.perf_counter()
+            while True:
+                tick = time.perf_counter()
+                try:
+                    batch = next(iterator)
+                except StopIteration:
+                    metrics["build_seconds"] += time.perf_counter() - tick
+                    return
+                metrics["build_seconds"] += time.perf_counter() - tick
+                try:
+                    if batch:
+                        metrics["batch_count"] += 1
+                    for row in batch:
+                        tick = time.perf_counter()
+                        record = result_to_pg_tuple(row)
+                        metrics["convert_seconds"] += time.perf_counter() - tick
+                        metrics["rows"] += 1
+                        yield record
+                finally:
+                    batch.clear()
+                now = time.perf_counter()
+                if now - last_log >= 5:
+                    logger.info("[perf][detail.copy] rows=%d elapsed_s=%.3f build_s=%.3f convert_s=%.3f",
+                                metrics["rows"], now - started,
+                                metrics["build_seconds"], metrics["convert_seconds"])
+                    last_log = now
+
+        stream = records()
+        try:
+            async with PGManager.connection() as conn:
+                raw = await conn.get_raw_connection()
+                metrics["acquire_seconds"] = time.perf_counter() - started
+                tick = time.perf_counter()
+                await raw.driver_connection.copy_records_to_table(
+                    "log_parse_result", records=stream, columns=COPY_COLUMNS,
+                )
+                metrics["copy_seconds"] = time.perf_counter() - tick
+                tick = time.perf_counter()
+            metrics["commit_seconds"] = time.perf_counter() - tick
+            metrics["success"] = True
+            logger.info("[Store][PG] streamed %d rows in %d bounded batches",
+                        metrics["rows"], metrics["batch_count"])
+            return metrics["rows"]
+        finally:
+            # Close a partially consumed generator on COPY failure/cancellation.
+            stream.close()
+            close_batches = getattr(batches, "close", None)
+            if close_batches is not None:
+                close_batches()
+            metrics["total_seconds"] = time.perf_counter() - started
+            LogParseResultPGManager.last_store_metrics = metrics
+            logger.info("[perf][detail.store] %s", metrics)
+
+    @staticmethod
     async def delete_by_log_id(log_id: str) -> bool:
         """Soft delete all log_parse_result rows for a log_id."""
         async with PGManager.session() as session:
@@ -219,8 +285,11 @@ class LogParseResultPGManager:
             .distinct()
         )
         async with PGManager.session() as session:
-            rows = await session.execute(stmt)
-            return {row[0].strip() for row in rows.all() if row[0].strip()}
+            rows = await session.stream(stmt.execution_options(yield_per=8192))
+            try:
+                return {row[0].strip() async for row in rows if row[0].strip()}
+            finally:
+                await rows.close()
 
     @staticmethod
     def _build_stats_select_exprs(field_names: list[str]) -> list[Any]:
