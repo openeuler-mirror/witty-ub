@@ -2,74 +2,26 @@ from datetime import datetime
 import os
 
 from pydantic import (
-    AfterValidator,
-    BaseModel,
-    ConfigDict,
     Field,
     ValidationInfo,
     field_validator,
 )
-from typing import Annotated, Optional, Any, List, Union
+from typing import Optional, Any, List, Union
 from fastapi import UploadFile
 from latency.ENUM.general import DiagnosisConfigLogType, SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.ENUM.sampling import SampleMode
 
-
-class StrictRequestModel(BaseModel):
-    """Base class for API request payloads without implicit type coercion."""
-
-    model_config = ConfigDict(strict=True)
-
-
-def _validate_time_str(value: str) -> str:
-    try:
-        datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-    except ValueError as exc:
-        raise ValueError("时间必须使用 YYYY-MM-DD HH:MM:SS 格式") from exc
-    return value
-
-
-# Time-range filter strings shared by list/metrics requests and parse configs.
-TimeStr = Annotated[str, AfterValidator(_validate_time_str)]
-
-
-class SortField(StrictRequestModel):
-    """
-    排序字段配置
-    
-    用于配置单个排序字段及其排序方向
-    """
-    field: str = Field(description="排序字段名称")
-    order: Optional[str] = Field(default="desc", description="排序方向：asc升序，desc降序")
-
-
-class ParseConfig(StrictRequestModel):
-    """
-    日志解析配置
-    
-    用于配置解析器的行为，包括时间范围过滤、耗时阈值过滤等
-    """
-    start_time: Optional[TimeStr] = Field(
-        default=None,
-        description="日志内容时间范围开始，格式 YYYY-MM-DD HH:MM:SS"
-    )
-    end_time: Optional[TimeStr] = Field(
-        default=None,
-        description="日志内容时间范围结束，格式 YYYY-MM-DD HH:MM:SS"
-    )
-    min_elapsed_ms: Optional[int] = Field(
-        default=None,
-        description="最小耗时阈值（毫秒），用于过滤快速操作"
-    )
-    
-    def is_time_filter_enabled(self) -> bool:
-        """判断是否启用了时间过滤"""
-        return self.start_time is not None or self.end_time is not None
-    
-    def is_elapsed_filter_enabled(self) -> bool:
-        """判断是否启用了耗时过滤"""
-        return self.min_elapsed_ms is not None
+# Re-export the parse-side config classes (no FastAPI dependency) so that
+# existing ``from latency.schemas.request import ParseConfig`` imports keep
+# working. Worker processes import these directly from
+# ``latency.schemas.parse_config`` to avoid pulling in FastAPI at spawn time.
+from latency.schemas.parse_config import (  # noqa: F401
+    ParseConfig,
+    SortField,
+    StrictRequestModel,
+    TimeStr,
+)
 
 
 class RunBrpcDiagnosisRequest(StrictRequestModel):
