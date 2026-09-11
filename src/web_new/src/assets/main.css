@@ -2052,6 +2052,110 @@ table .col-num {
   min-width: 100%;
 }
 
+/* 自绘 DAG：外层滚动视口 + 绝对定位节点 + SVG 连线 */
+.graph-canvas {
+  position: relative;
+  min-width: 100%;
+}
+
+.graph-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 1.4;
+  opacity: 0.9;
+}
+
+.graph-edge-cross {
+  stroke: #f59e0b;
+  stroke-width: 2.2;
+}
+
+.graph-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1.4px solid #2563eb;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  line-height: 18px;
+  transition:
+    box-shadow 0.12s ease,
+    transform 0.12s ease;
+}
+
+.graph-node-mode {
+  border-color: #dc2626;
+}
+
+.graph-node.hit {
+  border-width: 2.4px;
+}
+
+.graph-node:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+}
+
+.graph-node.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-bg);
+}
+
+.graph-node-id {
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.graph-node-mode .graph-node-id {
+  color: #dc2626;
+}
+
+.graph-node-name {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  color: #172033;
+}
+
+.graph-node-tail {
+  font-size: 11px;
+  line-height: 18px;
+  color: #667085;
+}
+
+.graph-node-line {
+  display: block;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-node-count {
+  color: #667085;
+}
+
+.graph-node-fn {
+  color: #475467;
+}
+
 .graph-legend {
   display: inline-flex;
   flex-wrap: wrap;

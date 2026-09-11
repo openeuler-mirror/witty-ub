@@ -45,7 +45,6 @@ const {
   brpcThreadDetailError,
   brpcThreadGraphLayout,
   brpcThreadDetailLoading,
-  brpcThreadGraphRef,
   brpcThreadLogs,
   brpcThreadLogsLoading,
   brpcThreadLogsError,
@@ -620,12 +619,105 @@ onBeforeUnmount(() => {
           </div>
           <div v-else class="graph-viewport">
             <div
-              ref="brpcThreadGraphRef"
+              class="graph-canvas"
               :style="{
-                width: Math.max(720, brpcThreadGraphLayout?.width ?? 720) + 'px',
-                height: Math.max(320, brpcThreadGraphLayout?.height ?? 320) + 'px',
+                width: (brpcThreadGraphLayout?.width ?? 720) + 'px',
+                height: (brpcThreadGraphLayout?.height ?? 320) + 'px',
               }"
-            ></div>
+            >
+              <svg
+                class="graph-edges"
+                :width="brpcThreadGraphLayout?.width ?? 720"
+                :height="brpcThreadGraphLayout?.height ?? 320"
+              >
+                <defs>
+                  <marker
+                    id="brpc-graph-arrow"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+                  </marker>
+                  <marker
+                    id="brpc-graph-arrow-cross"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
+                  </marker>
+                </defs>
+                <path
+                  v-for="link in brpcThreadGraphLayout?.links ?? []"
+                  :key="link.id"
+                  :d="link.d"
+                  :class="['graph-edge', { 'graph-edge-cross': link.cross }]"
+                  :marker-end="link.cross ? 'url(#brpc-graph-arrow-cross)' : 'url(#brpc-graph-arrow)'"
+                />
+              </svg>
+              <button
+                v-for="node in brpcThreadGraphLayout?.nodes ?? []"
+                :key="node.id"
+                type="button"
+                :class="[
+                  'graph-node',
+                  node.nodeType === 'interface' ? 'graph-node-interface' : 'graph-node-mode',
+                  { active: brpcSelectedGraphNodeId === node.id, hit: node.directlyHit },
+                ]"
+                :style="{
+                  left: node.x + 'px',
+                  top: node.y + 'px',
+                  width: node.width + 'px',
+                  height: node.height + 'px',
+                }"
+                :title="node.nodeType === 'interface'
+                  ? `${node.name}${node.functionName ? ' / ' + node.functionName : ''}`
+                  : `${node.name}（命中 ${node.hitCount} 次）`"
+                @click="
+                  brpcSelectedGraphNodeId =
+                    brpcSelectedGraphNodeId === node.id ? '' : node.id
+                "
+              >
+                <span class="graph-node-id">
+                  <span
+                    v-for="(line, index) in node.idLines"
+                    :key="`id-${index}`"
+                    class="graph-node-line"
+                    >{{ line }}</span
+                  >
+                </span>
+                <span class="graph-node-name">
+                  <span
+                    v-for="(line, index) in node.nameLines"
+                    :key="`name-${index}`"
+                    class="graph-node-line"
+                    >{{ line }}</span
+                  >
+                </span>
+                <span
+                  :class="[
+                    'graph-node-tail',
+                    node.nodeType === 'interface' ? 'graph-node-fn' : 'graph-node-count',
+                  ]"
+                >
+                  <span
+                    v-for="(line, index) in node.nodeType === 'interface'
+                      ? node.tailLines
+                      : [`命中 ${node.hitCount}`]"
+                    :key="`tail-${index}`"
+                    class="graph-node-line"
+                    >{{ line }}</span
+                  >
+                </span>
+              </button>
+            </div>
           </div>
 
           <!-- P2.3：选中节点详情 -->

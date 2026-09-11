@@ -1069,25 +1069,53 @@ function createOverviewStateInner() {
     )
   })
 
-  // P2.3 故障模式视图：确定性分层布局（对齐旧版），节点不会漂到可视区外，容器按图尺寸滚动
-  const BRPC_GRAPH_NODE_W = 168
-  const BRPC_GRAPH_NODE_H = 52
-  const BRPC_GRAPH_H_GAP = 96
-  const BRPC_GRAPH_V_GAP = 28
-  const BRPC_GRAPH_MARGIN = 40
+  // P2.3 故障模式视图：自绘 DAG（HTML + SVG）
+  // 不用 ECharts graph：其 view 坐标系会对节点做补偿缩放（符号缩小、文字不缩），导致边框变形与文字溢出
+  const BRPC_GRAPH_NODE_W = 200
+  const BRPC_GRAPH_TEXT_MAX_W = 168
+  const BRPC_GRAPH_H_GAP = 110
+  const BRPC_GRAPH_V_GAP = 24
+  const BRPC_GRAPH_MARGIN = 36
+  const BRPC_GRAPH_LINE_H = 18
+
+  /** 文本宽度估算：CJK/全角按字号计宽，ASCII 按 0.58 倍；用于换行与节点定尺 */
+  const brpcGraphTextWidth = (text: string, fontSize: number) => {
+    let width = 0
+    for (const char of text) {
+      width += /[\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(char) ? fontSize : fontSize * 0.58
+    }
+    return width
+  }
+
+  const brpcGraphWrapText = (value: unknown, fontSize: number, maxWidth: number) => {
+    const text = String(value ?? '-') || '-'
+    const lines: string[] = []
+    let line = ''
+    for (const char of text) {
+      const candidate = line + char
+      if (line && brpcGraphTextWidth(candidate, fontSize) > maxWidth) {
+        lines.push(line)
+        line = char
+      } else {
+        line = candidate
+      }
+    }
+    lines.push(line || '-')
+    return lines.slice(0, 3)
+  }
 
   const brpcThreadGraphLayout = computed(() => {
     const graph = brpcThreadDetail.value?.failure_graph
-    const nodes: any[] = graph?.nodes ?? []
-    if (!nodes.length) return null
-    const ids = new Set(nodes.map((node) => node.node_id))
+    const rawNodes: any[] = graph?.nodes ?? []
+    if (!rawNodes.length) return null
+    const ids = new Set(rawNodes.map((node) => node.node_id))
     const edges = (graph?.edges ?? []).filter(
       (edge: any) => ids.has(edge.source_node_id) && ids.has(edge.target_node_id),
     )
-    // 最长路径分层：固定轮次收敛，避免环上死循环
+    // 最长路径分层：固定轮次收敛，避免环形边导致死循环
     const depth = new Map<string, number>()
-    nodes.forEach((node) => depth.set(node.node_id, 0))
-    for (let round = 0; round < nodes.length; round += 1) {
+    rawNodes.forEach((node) => depth.set(node.node_id, 0))
+    for (let round = 0; round < rawNodes.length; round += 1) {
       let changed = false
       edges.forEach((edge: any) => {
         const next = (depth.get(edge.source_node_id) ?? 0) + 1
@@ -1098,135 +1126,98 @@ function createOverviewStateInner() {
       })
       if (!changed) break
     }
-    const layers = new Map<number, any[]>()
-    nodes.forEach((node) => {
-      const level = depth.get(node.node_id) ?? 0
-      const bucket = layers.get(level) ?? []
-      bucket.push(node)
-      layers.set(level, bucket)
+    const nodes = rawNodes.map((node) => {
+      const idLines = brpcGraphWrapText(node.node_id, 11, BRPC_GRAPH_TEXT_MAX_W)
+      const nameLines = brpcGraphWrapText(node.name || node.node_id, 12, BRPC_GRAPH_TEXT_MAX_W)
+      const tailLines =
+        node.node_type === 'interface'
+          ? brpcGraphWrapText(node.function_name || '-', 11, BRPC_GRAPH_TEXT_MAX_W)
+          : [`命中 ${node.hit_count ?? 0}`]
+      // 上下内边距 8px + 边框 2px，避免最后一行贴边被裁
+      const height =
+        16 + (idLines.length + nameLines.length + tailLines.length) * BRPC_GRAPH_LINE_H
+      return {
+        id: node.node_id,
+        nodeType: node.node_type,
+        name: node.name || node.node_id,
+        functionName: node.function_name,
+        hitCount: node.hit_count ?? 0,
+        directlyHit: !!node.directly_hit,
+        component: node.component,
+        width: BRPC_GRAPH_NODE_W,
+        height,
+        idLines,
+        nameLines,
+        tailLines,
+        x: 0,
+        y: 0,
+      }
     })
-    const levels = [...layers.keys()].sort((first, second) => first - second)
-    const maxPerLayer = Math.max(...[...layers.values()].map((bucket) => bucket.length), 1)
-    const laneHeight = maxPerLayer * BRPC_GRAPH_NODE_H + (maxPerLayer - 1) * BRPC_GRAPH_V_GAP
-    const positions = new Map<string, { x: number; y: number }>()
+    const byDepth = new Map<number, typeof nodes>()
+    nodes.forEach((node) => {
+      const level = depth.get(node.id) ?? 0
+      const bucket = byDepth.get(level) ?? []
+      bucket.push(node)
+      byDepth.set(level, bucket)
+    })
+    const levels = [...byDepth.keys()].sort((first, second) => first - second)
+    const laneHeights = levels.map((level) => {
+      const bucket = byDepth.get(level) ?? []
+      return (
+        bucket.reduce((sum, node) => sum + node.height, 0) +
+        Math.max(0, bucket.length - 1) * BRPC_GRAPH_V_GAP
+      )
+    })
+    const maxLaneHeight = Math.max(...laneHeights, 0)
     levels.forEach((level, levelIndex) => {
-      const bucket = layers.get(level) ?? []
-      const usedHeight = bucket.length * BRPC_GRAPH_NODE_H + (bucket.length - 1) * BRPC_GRAPH_V_GAP
-      let y = BRPC_GRAPH_MARGIN + (laneHeight - usedHeight) / 2
+      const bucket = byDepth.get(level) ?? []
+      let y = BRPC_GRAPH_MARGIN + (maxLaneHeight - laneHeights[levelIndex]!) / 2
       bucket.forEach((node) => {
-        positions.set(node.node_id, {
-          x: BRPC_GRAPH_MARGIN + levelIndex * (BRPC_GRAPH_NODE_W + BRPC_GRAPH_H_GAP),
-          y,
-        })
-        y += BRPC_GRAPH_NODE_H + BRPC_GRAPH_V_GAP
+        node.x = BRPC_GRAPH_MARGIN + levelIndex * (BRPC_GRAPH_NODE_W + BRPC_GRAPH_H_GAP)
+        node.y = y
+        y += node.height + BRPC_GRAPH_V_GAP
       })
     })
     const levelCount = levels.length || 1
+    const width =
+      BRPC_GRAPH_MARGIN * 2 +
+      levelCount * BRPC_GRAPH_NODE_W +
+      Math.max(0, levelCount - 1) * BRPC_GRAPH_H_GAP
+    const height = BRPC_GRAPH_MARGIN * 2 + Math.max(maxLaneHeight, BRPC_GRAPH_NODE_W / 2)
+    const nodeById = new Map(nodes.map((node) => [node.id, node]))
+    const links = edges.map((edge: any) => {
+      const source = nodeById.get(edge.source_node_id)
+      const target = nodeById.get(edge.target_node_id)
+      const cross = edge.edge_type === 'cross_component'
+      if (!source || !target) return null
+      // 出口取源节点右侧中点，入口取目标节点左侧中点；控制点做水平偏移形成缓弯
+      const x1 = source.x + source.width
+      const y1 = source.y + source.height / 2
+      const x2 = target.x
+      const y2 = target.y + target.height / 2
+      const curve = Math.max(28, Math.abs(x2 - x1) * 0.4)
+      return {
+        id: `${edge.source_node_id}->${edge.target_node_id}`,
+        cross,
+        d: `M ${x1} ${y1} C ${x1 + curve} ${y1}, ${x2 - curve} ${y2}, ${x2} ${y2}`,
+        x1,
+        y1,
+        x2,
+        y2,
+      }
+    })
     return {
-      width: BRPC_GRAPH_MARGIN * 2 + levelCount * BRPC_GRAPH_NODE_W + (levelCount - 1) * BRPC_GRAPH_H_GAP,
-      height: BRPC_GRAPH_MARGIN * 2 + laneHeight,
-      positions,
-      edges,
+      width,
+      height,
+      nodes: nodes.map((node) => ({
+        ...node,
+        outgoing: links.filter(
+          (link: { id: string } | null) => link && link.id.startsWith(`${node.id}->`),
+        ).length,
+      })),
+      links: links.filter(Boolean) as Array<{ id: string; cross: boolean; d: string }>,
     }
   })
-
-  const renderBrpcThreadGraph = () => {
-    afterDomUpdate(() => {
-      const el = brpcThreadGraphRef.value
-      if (!el) return
-      const chart = getChart(el)
-      chart.resize()
-      const graph = brpcThreadDetail.value?.failure_graph
-      const layout = brpcThreadGraphLayout.value
-      if (!graph || !graph.nodes?.length || !layout) {
-        chart.clear()
-        return
-      }
-      setChartOption(chart, {
-        tooltip: {
-          trigger: 'item',
-          formatter: (params: any) => {
-            if (params.dataType !== 'node') return ''
-            const data = params.data
-            return data.nodeType === 'interface'
-              ? `<b>${data.nodeName}</b>${data.functionName ? `<br/>${data.functionName}` : ''}`
-              : `<b>${data.nodeName}</b><br/>命中 ${data.hitCount ?? 0} 次`
-          },
-        },
-        series: [
-          {
-            type: 'graph',
-            layout: 'none',
-            roam: true,
-            draggable: true,
-            // 不要给 top/left/right/bottom：否则 ECharts 会把节点包围盒缩放铺满画布，
-            // 与「容器按图尺寸、视口滚动」的旧版表现不一致
-            zoom: 1,
-            edgeSymbol: ['none', 'arrow'],
-            edgeSymbolSize: 7,
-            data: graph.nodes.map((node: any) => {
-              const position = layout.positions.get(node.node_id) ?? { x: 0, y: 0 }
-              const accent = node.node_type === 'interface' ? '#2563eb' : '#dc2626'
-              const lines = [
-                `{code|${String(node.node_id ?? '').slice(0, 20)}}`,
-                `{name|${String(node.name || node.node_id || '').slice(0, 16)}}`,
-                node.node_type === 'interface'
-                  ? `{fn|${String(node.function_name || '-').slice(0, 20)}}`
-                  : `{count|命中 ${node.hit_count ?? 0}}`,
-              ]
-              return {
-                name: node.node_id,
-                nodeId: node.node_id,
-                nodeType: node.node_type,
-                nodeName: node.name || node.node_id,
-                functionName: node.function_name,
-                hitCount: node.hit_count,
-                x: position.x + BRPC_GRAPH_NODE_W / 2,
-                y: position.y + BRPC_GRAPH_NODE_H / 2,
-                symbol: 'roundRect',
-                symbolKeepAspect: false,
-                symbolSize: [BRPC_GRAPH_NODE_W, BRPC_GRAPH_NODE_H],
-                itemStyle: {
-                  color: 'rgba(255,255,255,0.97)',
-                  borderColor: accent,
-                  borderWidth: node.directly_hit ? 2.4 : 1.4,
-                  shadowBlur: 6,
-                  shadowColor: 'rgba(15,23,42,0.12)',
-                },
-                label: {
-                  show: true,
-                  formatter: lines.join('\n'),
-                  rich: {
-                    code: { color: accent, fontSize: 10, fontWeight: 700, lineHeight: 14 },
-                    name: { color: '#172033', fontSize: 12, fontWeight: 600, lineHeight: 15 },
-                    fn: { color: '#475467', fontSize: 10, lineHeight: 14 },
-                    count: { color: '#667085', fontSize: 11, lineHeight: 15 },
-                  },
-                },
-              }
-            }),
-            links: layout.edges.map((edge: any) => ({
-              source: edge.source_node_id,
-              target: edge.target_node_id,
-              lineStyle: {
-                curveness: 0.12,
-                opacity: 0.9,
-                width: edge.edge_type === 'cross_component' ? 2.4 : 1.4,
-                color: edge.edge_type === 'cross_component' ? '#f59e0b' : '#94a3b8',
-              },
-            })),
-            emphasis: { focus: 'adjacency' },
-          },
-        ],
-      })
-      chart.off('click')
-      chart.on('click', (params: any) => {
-        if (params.dataType !== 'node') return
-        brpcSelectedGraphNodeId.value =
-          brpcSelectedGraphNodeId.value === params.data.nodeId ? '' : params.data.nodeId
-      })
-    })
-  }
 
   // P2.3 线程详情：接口命中时序（1m 粒度）
   const renderBrpcThreadTimeline = () => {
@@ -1510,7 +1501,6 @@ function createOverviewStateInner() {
         if (seq !== brpcThreadLogsRequestSeq) return
         brpcThreadLogs.value = logsResult.hits ?? []
         brpcThreadDetail.value = detailResult
-        renderBrpcThreadGraph()
         renderBrpcThreadTimeline()
       } catch (error) {
         if (seq !== brpcThreadLogsRequestSeq) return
@@ -3269,7 +3259,6 @@ function createOverviewStateInner() {
   const brpcLatencyRef = ref<HTMLElement | null>(null)
   const brpcFaultTimelineRef = ref<HTMLElement | null>(null)
   const brpcEventTimelineRef = ref<HTMLElement | null>(null)
-  const brpcThreadGraphRef = ref<HTMLElement | null>(null)
   const brpcThreadTimelineRef = ref<HTMLElement | null>(null)
 
   const getChart = (element: HTMLElement) => getInstanceByDom(element) || init(element)
@@ -5204,7 +5193,6 @@ function createOverviewStateInner() {
     brpcThreadDetail,
     brpcThreadDetailError,
     brpcThreadDetailLoading,
-    brpcThreadGraphRef,
     brpcThreadSearchInput,
     brpcThreadSearchQuery,
     brpcThreadTimelineRef,
@@ -5354,7 +5342,6 @@ function createOverviewStateInner() {
     renderBrpcLatencyMonitorChart,
     renderBrpcSingleChart,
     renderBrpcSuccessOverviewChart,
-    renderBrpcThreadGraph,
     renderBrpcThreadTimeline,
     renderBrpcFaultTimeline,
     submitBrpcThreadSearch,
