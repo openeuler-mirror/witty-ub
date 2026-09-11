@@ -11,6 +11,8 @@ const props = withDefaults(
     leftCols: string[]
     rightCols?: string[]
     midWidth?: string
+    /** 中间区各列宽度，如 ['220px','260px','240px']；不传则按 132px 均分 */
+    midCols?: string[]
     expandedKey?: string
     subRowsOf?: (row: any) => any[]
     subKey?: (sub: any) => string
@@ -18,6 +20,7 @@ const props = withDefaults(
   {
     rightCols: () => ['110px'],
     midWidth: '',
+    midCols: () => [],
     expandedKey: '',
     subRowsOf: undefined,
     subKey: undefined,
@@ -26,6 +29,9 @@ const props = withDefaults(
 
 const leftTemplate = () => props.leftCols.join(' ')
 const rightTemplate = () => props.rightCols.join(' ')
+const midTemplate = () =>
+  props.midCols.length ? props.midCols.join(' ') : `repeat(${Math.max(1, props.midCols.length)}, 132px)`
+const midGridStyle = () => (props.midCols.length ? { gridTemplateColumns: midTemplate() } : {})
 const subId = (row: any, sub: any) => (props.subKey ? props.subKey(sub) : props.rowKey(row))
 </script>
 
@@ -57,19 +63,20 @@ const subId = (row: any, sub: any) => (props.subKey ? props.subKey(sub) : props.
 
     <div class="agg-block agg-mid">
       <div class="agg-mid-inner" :style="midWidth ? { width: midWidth } : {}">
-        <div class="agg-row agg-head agg-mid-grid"><slot name="mid-head" /></div>
+        <div class="agg-row agg-head agg-mid-grid" :style="midGridStyle()"><slot name="mid-head" /></div>
         <template v-for="row in rows" :key="`m-${rowKey(row)}`">
-          <div class="agg-row agg-mid-grid">
+          <div class="agg-row agg-mid-grid" :style="midGridStyle()">
             <slot name="mid" :row="row" />
           </div>
           <template v-if="subRowsOf && expandedKey === rowKey(row)">
-            <div class="agg-row agg-subhead agg-mid-grid">
+            <div class="agg-row agg-subhead agg-mid-grid" :style="midGridStyle()">
               <slot name="mid-subhead" :row="row" />
             </div>
             <div
               v-for="sub in subRowsOf(row)"
               :key="`ms-${subId(row, sub)}`"
               class="agg-row agg-subrow agg-mid-grid"
+              :style="midGridStyle()"
             >
               <slot name="mid-sub" :row="sub" />
             </div>

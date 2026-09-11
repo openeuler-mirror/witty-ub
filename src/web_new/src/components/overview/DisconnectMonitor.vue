@@ -360,12 +360,13 @@ const failureDomainsOf = (row: any) => {
       <BlockTable
         :rows="pagedFaultTraces"
         :row-key="(row: any) => row.trace_id"
-        :left-cols="['150px', '150px', '300px']"
-        :right-cols="['150px']"
-        mid-width="620px"
+        :left-cols="['150px', '110px', '120px', '340px']"
+        :right-cols="['190px']"
+        :mid-cols="['200px', '260px', '220px']"
+        mid-width="680px"
       >
         <template #left-head>
-          <span>发生时间</span><span>故障码</span><span>具体故障 / 故障域</span>
+          <span>发生时间</span><span>故障类型</span><span>故障码</span><span>具体故障 / 故障域</span>
         </template>
         <template #left="{ row }">
           <span class="agg-mono col-nowrap">{{ (row.timestamp || '').slice(0, 19) }}</span>
@@ -375,9 +376,18 @@ const failureDomainsOf = (row: any) => {
             }}</span>
             <span v-if="faultCodesOf(row).length === 0">-</span>
           </span>
-          <span class="col-nowrap">
-            <strong class="fault-name">{{ failureModeNamesOf(row) }}</strong>
-            <small class="fault-domain">{{ failureDomainsOf(row) }}</small>
+          <span class="fault-type-cell">
+            <span
+              v-for="tag in traceTags(row.trace_id, 'fault')"
+              :key="tag.type"
+              :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
+              >{{ tag.label }}</span
+            >
+            <span v-if="traceTags(row.trace_id, 'fault').length === 0" class="hint">-</span>
+          </span>
+          <span>
+            <span class="fault-name">{{ failureModeNamesOf(row) }}</span>
+            <span class="fault-domain">{{ failureDomainsOf(row) }}</span>
           </span>
         </template>
         <template #mid-head>
@@ -400,12 +410,6 @@ const failureDomainsOf = (row: any) => {
         <template #right-head>证据</template>
         <template #right="{ row }">
           <span class="evidence-actions">
-            <span
-              v-for="tag in traceTags(row.trace_id, 'fault')"
-              :key="tag.type"
-              :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
-              >{{ tag.label }}</span
-            >
             <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">Trace / 日志</button>
           </span>
         </template>
