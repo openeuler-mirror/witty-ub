@@ -2609,10 +2609,10 @@ table .col-num {
 }
 /* Pod 上下文 / Trace ID 的 chip 显示完整，不裁切 */
 .fault-instance-block .trace-chip {
-  max-width: none;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: nowrap;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
 }
 .fault-instance-block .fault-scroll .fault-name,
 .fault-instance-block .fault-scroll .fault-domain {

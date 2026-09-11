@@ -362,8 +362,8 @@ const failureDomainsOf = (row: any) => {
         :row-key="(row: any) => row.trace_id"
         :left-cols="['150px', '100px', '110px']"
         :right-cols="['160px']"
-        :mid-cols="['520px', '300px', '240px', '150px']"
-        mid-width="1210px"
+        :mid-cols="['520px', '300px', '200px', '280px']"
+        mid-width="1300px"
         class="fault-instance-block"
       >
         <template #left-head>
@@ -388,7 +388,7 @@ const failureDomainsOf = (row: any) => {
           </span>
         </template>
         <template #mid-head>
-          <span>具体故障 / 故障域</span><span>影响链路</span><span>Pod 上下文</span
+          <span>具体故障 / 故障域</span><span>影响链路</span><span>Pod IP</span
           ><span>Trace ID</span>
         </template>
         <template #mid="{ row }">
@@ -412,13 +412,14 @@ const failureDomainsOf = (row: any) => {
             style="display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 4px; overflow-x: auto; overflow-y: hidden; white-space: nowrap"
             :title="faultPodIps(row).join('\n')"
           >
-            <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
-            <span v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length" class="trace-chip"
-              >+{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}</span
-            >
+            <span v-for="ip in faultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
           </span>
-          <span style="overflow: visible; white-space: nowrap; text-overflow: clip">
-            <span class="trace-chip" :title="row.trace_id">{{ shortTraceId(row.trace_id) }}</span>
+          <span
+            style="overflow: visible; white-space: nowrap; text-overflow: clip"
+          >
+            <span class="trace-chip agg-mono" style="max-width: none" :title="row.trace_id">{{
+              row.trace_id || '-'
+            }}</span>
           </span>
         </template>
         <template #right-head>证据</template>
