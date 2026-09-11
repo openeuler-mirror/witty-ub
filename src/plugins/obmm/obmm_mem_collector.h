@@ -30,4 +30,4 @@ public:
 };
 }
 
-#endif //OBMM_MEM_COLLECTOR_H
+#endif // OBMM_MEM_COLLECTOR_H

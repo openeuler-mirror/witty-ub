@@ -6,7 +6,7 @@ witty-ub 超节点故障智能监控诊断平台是基于故障树驱动的诊�
 
 该工具采用 client-server 架构，支持在超节点系统中部署服务，并通过 Web 前端进行交互式操作和可视化展示。
 
-***
+---
 
 ## 核心功能模块
 
@@ -102,6 +102,8 @@ witty-ub 超节点故障智能监控诊断平台是基于故障树驱动的诊�
 ### 步骤 4：新建日志解析任务
 
 输入后端服务所在服务器上的日志路径，点击"添加"，或点击"上传 ZIP 文件"上传本地打包好的日志，会自动创建解析任务，并在任务列表中显示。解析完成后，会显示当前任务的时延异常数和通断异常数。
+
+日志解析时间计算公式：日志解析时间 = 资产库更新时间T2 - 具体解析任务创建时间T1
 
 ![日志解析任务](../figures/web-ui/日志解析任务.png)
 
@@ -235,11 +237,10 @@ witty-ub 超节点故障智能监控诊断平台是基于故障树驱动的诊�
 ![Agent智能体对话1](../figures/web-ui/Agent智能体对话1.png)
 ![Agent智能体对话2](../figures/web-ui/Agent智能体对话2.png)
 
-***
+---
 
 ## 相关文档
 
 - 数据采集工具使用指南 → [02-data-collection-guide.md](02-data-collection-guide.md)
 - 配置参考手册 → [03-configuration-reference.md](03-configuration-reference.md)
 - 部署指南 → [../deployment/01-overview.md](../deployment/01-overview.md)
-

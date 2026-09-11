@@ -10,7 +10,7 @@
 # 由 manager.sh 的 deploy 子命令调用，幂等：已存在的资源（包/数据目录/用户/库）
 # 跳过创建。按 RPM/APT 包管理器选择安装方式，不支持 Docker 模式。
 #
-# 配置来源: /etc/witty-ub/pg.conf（由 witty-ub-manager 子包安装）
+# 配置来源: /etc/witty-ub/deploy.conf（由 witty-ub-manager 子包安装，兼容旧名 pg.conf）
 
 set -euo pipefail
 
@@ -83,7 +83,15 @@ _write_pg_secret() {
     [ -d "$secret_dir" ] || mkdir -p "$secret_dir"
     # umask 兜底: 即便 install -m 失败, 文件也不会变成 0644。
     ( umask 077 && printf '%s' "$password" > "$PG_SECRET_FILE" )
-    chmod 0600 "$PG_SECRET_FILE" 2>/dev/null || true
+    chmod 0600 "$PG_SECRET_FILE" 2>/dev/null ||
+        sudo chmod 0600 "$PG_SECRET_FILE" 2>/dev/null || true
+    # 权限校验：本文件仅属主可读，权限不符时后端启动器会读不到口令
+    local _mode
+    _mode="$(stat -c '%a' "$PG_SECRET_FILE" 2>/dev/null || stat -f '%Lp' "$PG_SECRET_FILE" 2>/dev/null || echo "")"
+    if [ -z "$_mode" ] || [ "$((8#${_mode}))" -ne "$((8#600))" ]; then
+        _err "密钥文件权限不符合预期: $PG_SECRET_FILE（期望 0600，实际 ${_mode:-无法获取}）"
+        return 1
+    fi
     _log "密钥文件已写入: $PG_SECRET_FILE (mode 0600)"
 }
 
@@ -202,7 +210,7 @@ deploy_rpm() {
     _step_header "PostgreSQL 部署 (RPM)"
 
     _require_root || return 1
-    _load_pg_credentials || { _err "无法加载 PG 凭据（/etc/witty-ub/pg.conf）"; return 1; }
+    _load_pg_credentials || { _err "无法加载 PG 凭据（/etc/witty-ub/deploy.conf）"; return 1; }
     ensure_pg_password
 
     # Step 1: 安装 PostgreSQL
@@ -294,7 +302,7 @@ deploy_apt() {
     _step_header "PostgreSQL 部署 (APT)"
 
     _require_root || return 1
-    _load_pg_credentials || { _err "无法加载 PG 凭据（/etc/witty-ub/pg.conf）"; return 1; }
+    _load_pg_credentials || { _err "无法加载 PG 凭据（/etc/witty-ub/deploy.conf）"; return 1; }
     ensure_pg_password
 
     # Step 1: 安装 PostgreSQL

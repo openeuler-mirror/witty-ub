@@ -1,4 +1,4 @@
-"""Transactional data access primitives for BRPC diagnosis results."""
+"""Transactional data access primitives for UBSocket diagnosis results."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ BRPC_TIMELINE_WINDOW_US = (
 
 
 class BrpcDiagnosisPGManager:
-    """BRPC diagnosis operations scoped to a caller-owned transaction.
+    """UBSocket diagnosis operations scoped to a caller-owned transaction.
 
     The manager never commits or rolls back. Importers should call these methods
     with one ``AsyncSession`` obtained from ``PGManager.session()`` so schema,

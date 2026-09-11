@@ -153,17 +153,17 @@ bool Database::AppendConditions(string tableName, ConditionMap conditions, strin
     }
     return true;
 }
-OP_RET Database::OpenDb(string currDbName_, bool enableHis_)
+OP_RET Database::OpenDb(string dbName, bool enableHisFlag)
 {
-    currDbName = currDbName_;
-    enableHis = enableHis_;
-    int rc1 = sqlite3_open(currDbName.c_str(), &currDb);
+    this->currDbName = dbName;
+    this->enableHis = enableHisFlag;
+    int rc1 = sqlite3_open(dbName.c_str(), &currDb);
     int rc2 = 0;
-    if (enableHis) {
-        hisDbName = currDbName + "_history";
+    if (enableHisFlag) {
+        hisDbName = dbName + "_history";
         rc2 = sqlite3_open(hisDbName.c_str(), &hisDb);
     }
-    if (rc1 || rc2) {
+    if (rc1 != SQLITE_OK || rc2 != SQLITE_OK) {
         return OP_RET::FAIL;
     } else {
         return OP_RET::SUCCESS;
@@ -190,7 +190,7 @@ int Database::CreateTableOp(sqlite3 *db, string tableName, TableParams params, v
     }
     sql += ");";
     LOG_DEBUG << "execute SQL on table: " << tableName;
-    int rc = sqlite3_exec(db, sql.c_str(), NULL, NULL, &errMsg);
+    int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
         cout << "create table error: " << errMsg << endl;
     }
@@ -198,9 +198,6 @@ int Database::CreateTableOp(sqlite3 *db, string tableName, TableParams params, v
     return rc;
 }
 
-// void Database::CreateTable(string tableName, vector<tuple<string, string, bool, bool>> createTableParams) {
-//     return;
-// }
 // createTableParams: name, type, not null, primary key
 OP_RET Database::CreateTable(string tableName, TableParams createTableParams)
 {
@@ -465,12 +462,10 @@ OP_RET Database::DropTable(sqlite3 *db, string tableName)
         return OP_RET::FAIL;
     }
     cout << "dropping " << tableName << endl;
-    char *errMsg;
     string sql = "DROP TABLE IF EXISTS " + tableName + ";";
-    int rc = sqlite3_exec(db, sql.c_str(), NULL, NULL, &errMsg);
+    int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, nullptr);
     if (rc != SQLITE_OK) {
-        cout << "drop table error: " << tableName << " " << errMsg << endl;
-        sqlite3_free(errMsg);
+        cout << "drop table error: " << tableName << " " << sqlite3_errmsg(db) << endl;
         return OP_RET::FAIL;
     } else {
         return OP_RET::SUCCESS;
@@ -487,7 +482,7 @@ OP_RET Database::Close()
     }
     currDb = nullptr;
     hisDb = nullptr;
-    if (rc1 || rc2) {
+    if (rc1 != SQLITE_OK || rc2 != SQLITE_OK) {
         return OP_RET::FAIL;
     }
     return OP_RET::SUCCESS;

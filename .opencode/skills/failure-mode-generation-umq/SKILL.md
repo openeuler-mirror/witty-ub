@@ -6,7 +6,7 @@ description: "分析 UMQ 组件源码，以公共 API 同步调用链和异步�
 
 ## 目标与输入
 
-输入 UMQ 组件源码路径，基于公共 API 的同步调用和异步数据处理关系生成故障模式树。禁止参考项目旧产物、git 历史和`/tmp`临时文件；必须重新运行本 skill 的脚本并分析源码。
+输入 `ubs-comm` 源码仓根路径（例如 `/root/openeuler/ubs-comm`），脚本严格下探到 `src/hcom/umq/src`，基于公共 API 的同步调用和异步数据处理关系生成故障模式树。也兼容直接传入 `src/hcom/umq` 或 `src/hcom/umq/src`，但同一次生成中的所有步骤必须使用同一个输入路径。禁止参考项目旧产物、git 历史和`/tmp`临时文件；必须重新运行本 skill 的脚本并分析源码。
 
 ## 输出与节点格式
 
@@ -18,7 +18,7 @@ description: "分析 UMQ 组件源码，以公共 API 同步调用链和异步�
   - **故障现象**：给出识别日志所需的全部关键字。以`%d`、`%s`等格式占位符分割日志字面量，保留各段；格式为“依次匹配`关键字1`、`关键字2`”。无占位符时匹配完整字面量，如`Provider Bond register ops failed`。
   - **错误码**：具体节点按“错误码填写规则”填写；根节点为 JSON null。
   - **故障原因**：根据触发条件或下层调用语义总结直接原因，最好结合本函数作用并在故障名称上扩写；仍需向下匹配、无法定位根因时填“向下级匹配”。
-  - **解决办法**：默认“无”。
+  - **解决办法**：具体节点必须分析故障点及必要上下游源码，结合触发条件、失败来源、状态传播和资源处理给出可能的解决办法；无法唯一确定时须注明适用条件并给出源码支持的排查或修复方向，不得默认填写“无”。
   - **函数名**：仅填脚本输出的裸函数名，不得含类、结构体、命名空间或`::`。全限定名只保留最后一级（如`umq::Queue::Create`填`Create`）；根节点填`roots`中的 API 裸函数名。不得为区分同名函数重新添加限定符，应以文件、行号和日志内容区分。
   - **文件名**：源码裸文件名，根据`find_umq_log_err.py`脚本输出的`file`字段填写，不得携带目录路径。
 
@@ -54,6 +54,7 @@ description: "分析 UMQ 组件源码，以公共 API 同步调用链和异步�
 ### 具体故障节点
 
 - 按本 skill 填写日志故障的各字段；是否为中间节点只由下游关系决定。
+- 解决办法必须来自对当前源码的分析。优先说明需修正的参数、状态、资源、配置、调用顺序或失败处理；源码只能支持候选方案时，以“可能需要……”等有条件表述给出方案和验证方向，不得臆造唯一结论。
 - 无纳入日志的同步/异步函数仅用于推导传播，不生成节点。仅在其确实继续返回下游失败或通过共享数据、缓冲池/队列等状态等价传播时，才跳过它连接最近上下游日志节点。
 - 下游失败若被忽略、恢复或转为成功，且未留下后续 API 检查的等价状态，不得连接上游具体节点；满足“失败被吞掉但日志可观测”时，只由相关根节点归属。
 
@@ -106,7 +107,7 @@ description: "分析 UMQ 组件源码，以公共 API 同步调用链和异步�
 
 ## 错误码填写规则
 
-先运行`scripts/find_umq_log_err.py <UMQ源码路径>`并读取`/tmp/umq_log_err.json`。用顶层`error_definitions`查十进制值，用每条日志的`log_macro`、`error_code`、`error_source`、`error_expression`、`needs_skill`确定输出。
+先运行`scripts/find_umq_log_err.py <ubs-comm源码仓根路径>`并读取`/tmp/umq_log_err.json`。用顶层`error_definitions`查十进制值，用每条日志的`log_macro`、`error_code`、`error_source`、`error_expression`、`needs_skill`确定输出。
 
 `错误码`仅允许错误码 string、裸整数或 JSON null，例如`"UMQ_ERR_EINVAL(22)"`、`0`、`null`。`UMQ_FAIL`和`UMQ_INVALID_*`也是可输出符号。宏值直接取`error_definitions`；即使源码`return -UMQ_ERR_EINVAL`也输出`UMQ_ERR_EINVAL(22)`而非负值。裸`0/-1`输出 JSON number，不加引号。一条日志能确定多个具体错误码时，结合日志语义选择最合适者。
 
@@ -131,8 +132,8 @@ description: "分析 UMQ 组件源码，以公共 API 同步调用链和异步�
 
 ## 操作步骤
 
-1. 运行`python3 .opencode/skills/failure-mode-generation-umq/scripts/find_umq_log_err.py <path-to-umq-src>`提取日志点。脚本输出的`file`字段是相对源码路径；生成故障模式的`文件名`时取该路径最后一级裸文件名。
-2. 运行`python3 .opencode/skills/failure-mode-generation-umq/scripts/generate_umq_callchains.py <path-to-umq-src>`生成候选调用链。读取`/tmp/umq_api_callchains.json`：以`roots`确定根和编号，以`functions/edges`定位候选路径；检查`analysis/unresolved_indirect_calls`并结合源码补全间接调用。候选调用关系必须按故障传播规则复核。
+1. 运行`python3 .opencode/skills/failure-mode-generation-umq/scripts/find_umq_log_err.py <path-to-ubs-comm-root>`提取日志点。脚本只扫描自动定位的`src/hcom/umq/src`；输出的`file`字段相对该目录，生成故障模式的`文件名`时取路径最后一级裸文件名。
+2. 运行`python3 .opencode/skills/failure-mode-generation-umq/scripts/generate_umq_callchains.py <path-to-ubs-comm-root>`生成候选调用链。读取`/tmp/umq_api_callchains.json`：以`roots`确定根和编号，以`functions/edges`定位候选路径；检查`analysis/unresolved_indirect_calls`并结合源码补全间接调用。候选调用关系必须按故障传播规则复核。
 3. 按“公共 API 根节点”和“异步数据处理链”确定同步、异步分析范围。
 4. 按错误码规则处理脚本结论，并对`needs_skill=true`项分析源码。
 5. 按日志范围、节点格式、聚合及图结构生成`./data/umq/umq_failure_mode.json`。

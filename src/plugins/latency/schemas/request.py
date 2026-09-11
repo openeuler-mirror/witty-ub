@@ -1,14 +1,40 @@
 from datetime import datetime
+import os
 
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional, Any, List, Union
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+)
+from typing import Annotated, Optional, Any, List, Union
 from fastapi import UploadFile
-from latency.ENUM.general import SourceType
+from latency.ENUM.general import DiagnosisConfigLogType, SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.ENUM.sampling import SampleMode
 
 
-class SortField(BaseModel):
+class StrictRequestModel(BaseModel):
+    """Base class for API request payloads without implicit type coercion."""
+
+    model_config = ConfigDict(strict=True)
+
+
+def _validate_time_str(value: str) -> str:
+    try:
+        datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise ValueError("时间必须使用 YYYY-MM-DD HH:MM:SS 格式") from exc
+    return value
+
+
+# Time-range filter strings shared by list/metrics requests and parse configs.
+TimeStr = Annotated[str, AfterValidator(_validate_time_str)]
+
+
+class SortField(StrictRequestModel):
     """
     排序字段配置
     
@@ -18,17 +44,17 @@ class SortField(BaseModel):
     order: Optional[str] = Field(default="desc", description="排序方向：asc升序，desc降序")
 
 
-class ParseConfig(BaseModel):
+class ParseConfig(StrictRequestModel):
     """
     日志解析配置
     
     用于配置解析器的行为，包括时间范围过滤、耗时阈值过滤等
     """
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="日志内容时间范围开始，格式 YYYY-MM-DD HH:MM:SS"
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="日志内容时间范围结束，格式 YYYY-MM-DD HH:MM:SS"
     )
@@ -46,10 +72,10 @@ class ParseConfig(BaseModel):
         return self.min_elapsed_ms is not None
 
 
-class RunBrpcDiagnosisRequest(BaseModel):
+class RunBrpcDiagnosisRequest(StrictRequestModel):
     start_time: str = Field(
         ...,
-        description="BRPC 日志扫描开始时间，UTC+8，格式 YYYY-MM-DD HH:MM:SS",
+        description="UBSocket 日志扫描开始时间，UTC+8，格式 YYYY-MM-DD HH:MM:SS",
     )
 
     @field_validator("start_time")
@@ -64,7 +90,7 @@ class RunBrpcDiagnosisRequest(BaseModel):
         return value
 
 
-class CreateLogKnowledgeRequest(BaseModel):
+class CreateLogKnowledgeRequest(StrictRequestModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
     name: str = Field(..., min_length=1, description="知识名称")
     description: str = Field(..., min_length=1, description="知识描述")
@@ -78,22 +104,22 @@ class CreateLogKnowledgeRequest(BaseModel):
         return value
 
 
-class UpdateLogKnowledgeRequest(BaseModel):
+class UpdateLogKnowledgeRequest(StrictRequestModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
     name: Optional[str] = Field(default=None, description="知识名称")
     description: Optional[str] = Field(default=None, description="知识描述")
 
 
-class ListLogKnowledgeRequest(BaseModel):
+class ListLogKnowledgeRequest(StrictRequestModel):
     name: Optional[str] = Field(default=None, description="知识名称，支持模糊查询")
     description: Optional[str] = Field(
         default=None, description="知识描述，支持模糊查询"
     )
-    created_at_start: Optional[str] = Field(
+    created_at_start: Optional[TimeStr] = Field(
         default=None,
         description="知识创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    created_at_end: Optional[TimeStr] = Field(
         default=None,
         description="知识创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -105,48 +131,52 @@ class ListLogKnowledgeRequest(BaseModel):
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class UpLoadLogFileConfig(BaseModel):
+class UpLoadLogFileConfig(StrictRequestModel):
     name: Optional[str] = Field(default=None, description="日志文件名称")
-    source_type: Optional[SourceType] = Field(
-        default=None, description="日志文件来源类型，支持local、remote和upload"
+    source_type: SourceType = Field(
+        ..., strict=False, description="日志文件来源类型，支持local、remote和upload"
     )
     source: str | UploadFile = Field(
-        default=None,
+        ...,
         description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
     )
-    log_type: Optional[str] = Field(
-        default="kv-cache",
-        description="日志类型：kv-cache（默认）或 brpc",
+    log_type: DiagnosisConfigLogType = Field(
+        ...,
+        strict=False,
+        description="日志类型：KVCache 或 UBSocket",
     )
 
+    @field_validator("source")
+    @classmethod
+    def validate_local_source(cls, value: str | UploadFile, info: ValidationInfo):
+        if info.data.get("source_type") == SourceType.LOCAL and (
+            not isinstance(value, str) or not os.path.isabs(value)
+        ):
+            raise ValueError("source_type为local时，source必须是绝对路径")
+        return value
 
-class UpLoadLogFilesRequest(BaseModel):
+
+class UpLoadLogFilesRequest(StrictRequestModel):
     upload_log_file_configs: list[UpLoadLogFileConfig] = Field(
-        default_factory=list, min_length=1, description="日志文件配置列表"
+        ..., min_length=1, description="日志文件配置列表"
     )
     parse_config: Optional[ParseConfig] = Field(
         default=None, description="全局解析配置，应用于所有上传的日志文件"
     )
 
 
-class UpdateLogFileRequest(BaseModel):
-    name: Optional[str] = Field(default=None, description="日志文件名称")
-    source_type: Optional[SourceType] = Field(
-        default=None, description="日志文件来源类型，支持local、remote和upload"
-    )
-    source: str | UploadFile = Field(
-        default=None,
-        description="日志文件来源，当source_type为local时，source为日志文件的绝对路径；当source_type为remote时，source为日志文件的URL地址；当source_type为upload时，source为上传的日志文件对象",
-    )
+class UpdateLogFileRequest(UpLoadLogFileConfig):
+    # 参数与方法和UpLoadLogFileConfig一致
+    pass
 
 
-class ListLogFilesRequest(BaseModel):
+class ListLogFilesRequest(StrictRequestModel):
     name: Optional[str] = Field(default=None, description="日志文件名称，支持模糊查询")
-    created_at_start: Optional[str] = Field(
+    created_at_start: Optional[TimeStr] = Field(
         default=None,
         description="日志文件创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    created_at_end: Optional[TimeStr] = Field(
         default=None,
         description="日志文件创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -158,7 +188,7 @@ class ListLogFilesRequest(BaseModel):
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class ListSrcDstAggregatedEventRequest(BaseModel):
+class ListSrcDstAggregatedEventRequest(StrictRequestModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的聚合事件")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
@@ -166,11 +196,11 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
     kb_id: str = Field(..., description="知识库ID，用于过滤")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="聚合事件时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="聚合事件时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -187,14 +217,14 @@ class ListSrcDstAggregatedEventRequest(BaseModel):
     )
 
 
-class ListAnomalousEventChainRequest(BaseModel):
+class ListAnomalousEventChainRequest(StrictRequestModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件链")
     kb_id: str = Field(..., description="知识库ID，用于过滤")
     page_cnt: int = Field(default=10, description="每页的异常事件链数量，默认为10")
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class ListLogParseResultRequest(BaseModel):
+class ListLogParseResultRequest(StrictRequestModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的解析结果")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的解析结果")
     kb_id: str = Field(..., description="知识库ID，用于过滤")
@@ -205,13 +235,13 @@ class ListLogParseResultRequest(BaseModel):
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
-    start_time: Optional[str] = Field(default=None, description="日志事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
-    end_time: Optional[str] = Field(default=None, description="日志事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
-    created_at_start: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(default=None, description="日志事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
+    end_time: Optional[TimeStr] = Field(default=None, description="日志事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS")
+    created_at_start: Optional[TimeStr] = Field(
         default=None,
         description="日志解析结果创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    created_at_end: Optional[TimeStr] = Field(
         default=None,
         description="日志解析结果创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -231,14 +261,14 @@ class ListLogParseResultRequest(BaseModel):
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class ListLogFailureEventResultRequest(BaseModel):
+class ListLogFailureEventResultRequest(StrictRequestModel):
     kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
     log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")
     trace_ids: list[str] = Field(
         default_factory=list, description="trace_id列表"
     )
 
-class ListTraceFailureEventResultRequest(BaseModel):
+class ListTraceFailureEventResultRequest(StrictRequestModel):
     kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
     trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的故障事件")
     pod_names: Optional[list[str]] = Field(
@@ -259,11 +289,11 @@ class ListTraceFailureEventResultRequest(BaseModel):
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
     )
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -279,7 +309,7 @@ class ListTraceFailureEventResultRequest(BaseModel):
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class ListAnomalousEventRequest(BaseModel):
+class ListAnomalousEventRequest(StrictRequestModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志的异常事件")
     aggregated_event_id: Optional[str] = Field(default=None, description="聚合事件ID，用于过滤指定聚合事件的异常事件")
     kb_id: str = Field(..., description="知识库ID，用于过滤")
@@ -291,14 +321,14 @@ class ListAnomalousEventRequest(BaseModel):
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class ListTracesByHostRequest(BaseModel):
+class ListTracesByHostRequest(StrictRequestModel):
     host: str = Field(..., description="主机名或IP地址")
     kb_id: str = Field(..., description="知识库ID，用于过滤")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -315,18 +345,18 @@ class ListTracesByHostRequest(BaseModel):
     sort_by: str = Field(default="timestamp", description="排序字段")
     sort_order: str = Field(default="desc", description="排序方向")
 
-class ListTimeAggregatedFailureEventRequest(BaseModel):
+class ListTimeAggregatedFailureEventRequest(StrictRequestModel):
     kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     src_ip: Optional[str] = Field(default=None, description="源 IP 地址，用于精确过滤")
     dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，用于精确过滤")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -353,13 +383,13 @@ class ListTimeAggregatedFailureEventRequest(BaseModel):
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
-class ListPodAggregatedFailureEventRequest(BaseModel):
+class ListPodAggregatedFailureEventRequest(StrictRequestModel):
     kb_id: str = Field(..., description="知识库ID，用于过滤")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -382,18 +412,18 @@ class ListPodAggregatedFailureEventRequest(BaseModel):
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
-class ListSrcDstAggregatedFailureEventRequest(BaseModel):
+class ListSrcDstAggregatedFailureEventRequest(StrictRequestModel):
     kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     src_ip: Optional[str] = Field(default=None, description="源 IP 地址，用于精确过滤")
     dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，用于精确过滤")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的开始时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="故障trace事件时间范围查询的结束时间（基于timestamp字段），格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -416,7 +446,7 @@ class ListSrcDstAggregatedFailureEventRequest(BaseModel):
     page_cnt: int = Field(default=10, description="每页的聚合事件数量，默认为10")
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
-class GetLatencyMetricsRequest(BaseModel):
+class GetLatencyMetricsRequest(StrictRequestModel):
     """获取延迟指标时间曲线请求"""
     kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
@@ -424,11 +454,11 @@ class GetLatencyMetricsRequest(BaseModel):
     host: Optional[str] = Field(default=None, description="主机名或 IP 地址，可选")
     src_ip: Optional[str] = Field(default=None, description="源 IP 地址，可选")
     dst_ip: Optional[str] = Field(default=None, description="目的 IP 地址，可选")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="开始时间，格式为 YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="结束时间，格式为 YYYY-MM-DD HH:MM:SS",
     )
@@ -442,6 +472,7 @@ class GetLatencyMetricsRequest(BaseModel):
     )
     sample_mode: SampleMode = Field(
         default=SampleMode.P99,
+        strict=False,
         description="采样模式：none-不采样，max-最大值，avg-平均值，min-最小值，p99/p95/p9999-百分位"
     )
     sort_by: str = Field(default="timestamp", description="排序字段")
@@ -456,7 +487,7 @@ class GetLatencyMetricsRequest(BaseModel):
         description="日志文件ID,用于直接查分位统计表;为空时回退实时聚合",
     )
 
-class GetErrCodeMetricsRequest(BaseModel):
+class GetErrCodeMetricsRequest(StrictRequestModel):
     """获取故障码指标时间曲线请求"""
     kb_id: str = Field(..., description="日志知识库ID")
     src_ip: Optional[str] = Field(default=None, description="源 IP 地址，用于精确过滤")
@@ -473,11 +504,11 @@ class GetErrCodeMetricsRequest(BaseModel):
     pod_names: Optional[list[str]] = Field(
         default_factory=list, description="pod名"
     )
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -491,7 +522,7 @@ class GetErrCodeMetricsRequest(BaseModel):
     )
 
 
-class CreateDiagnosisCaseRequest(BaseModel):
+class CreateDiagnosisCaseRequest(StrictRequestModel):
     kb_id: str = Field(..., description="来源日志知识库ID")
     fault_type: str = Field(default="unknown", description="故障类型：latency/connectivity/mixed/unknown")
     title: Optional[str] = Field(default=None, description="案例标题")
@@ -510,7 +541,7 @@ class CreateDiagnosisCaseRequest(BaseModel):
     source_log_ids: list[str] = Field(default_factory=list, description="来源日志ID")
 
 
-class SearchDiagnosisCasesRequest(BaseModel):
+class SearchDiagnosisCasesRequest(StrictRequestModel):
     kb_id: str = Field(..., description="知识库ID过滤")
     fault_type: Optional[str] = Field(default=None, description="故障类型过滤")
     status_codes: list[str] = Field(default_factory=list, description="待匹配状态码")
@@ -526,24 +557,24 @@ class SearchDiagnosisCasesRequest(BaseModel):
     page_cnt: int = Field(default=10, description="每页数量")
     page_num: int = Field(default=1, ge=1, description="页码")
 
-class CreateTaskRequest(BaseModel):
-    task_type: TaskTypeEnum = Field(..., description="任务类型")
+class CreateTaskRequest(StrictRequestModel):
+    task_type: TaskTypeEnum = Field(..., strict=False, description="任务类型")
     op_id: str = Field(..., description="操作ID，关联的业务对象ID")
     kb_id: str = Field(..., description="知识库ID")
     task_name: Optional[str] = Field(default=None, description="任务名称")
 
 
-class ListTimeWindowAggregatedEventRequest(BaseModel):
+class ListTimeWindowAggregatedEventRequest(StrictRequestModel):
     """时间窗口聚合事件查询请求"""
     kb_id: str = Field(..., description="知识库ID，用于过滤")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
-    start_time: Optional[str] = Field(
+    start_time: Optional[TimeStr] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    end_time: Optional[str] = Field(
+    end_time: Optional[TimeStr] = Field(
         default=None,
         description="结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )
@@ -571,16 +602,16 @@ class ListTimeWindowAggregatedEventRequest(BaseModel):
     page_num: int = Field(default=1, ge=1, description="页码，默认为1表示第一页")
 
 
-class ListTasksRequest(BaseModel):
-    task_type: Optional[TaskTypeEnum] = Field(default=None, description="任务类型")
-    status: Optional[TaskStatusEnum] = Field(default=None, description="任务状态")
+class ListTasksRequest(StrictRequestModel):
+    task_type: Optional[TaskTypeEnum] = Field(default=None, strict=False, description="任务类型")
+    status: Optional[TaskStatusEnum] = Field(default=None, strict=False, description="任务状态")
     kb_id: str = Field(..., description="知识库ID")
     op_id: Optional[str] = Field(default=None, description="操作ID")
-    created_at_start: Optional[str] = Field(
+    created_at_start: Optional[TimeStr] = Field(
         default=None,
         description="任务创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
     )
-    created_at_end: Optional[str] = Field(
+    created_at_end: Optional[TimeStr] = Field(
         default=None,
         description="任务创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
     )

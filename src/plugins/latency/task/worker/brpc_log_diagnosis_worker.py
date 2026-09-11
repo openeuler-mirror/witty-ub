@@ -1,4 +1,4 @@
-"""Worker that runs the BRPC diagnosis binary and imports its V2.1 output."""
+"""Worker that runs the UBSocket diagnosis binary and imports its V2.1 output."""
 
 from __future__ import annotations
 
@@ -58,12 +58,12 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         task = TaskModel(
             kb_id=log_file.kb_id,
             op_id=op_id,
-            task_name=f"诊断 BRPC 日志 {log_file.file_path}",
+            task_name=f"诊断 UBSocket 日志 {log_file.file_path}",
             task_type=TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER,
             status=TaskStatusEnum.PENDING,
         )
         await TaskPGManager.add_task(task)
-        await BaseWorker.report(task.id, "初始化 BRPC 诊断任务", 0.0)
+        await BaseWorker.report(task.id, "初始化 UBSocket 诊断任务", 0.0)
         return task.id
 
     @staticmethod
@@ -74,12 +74,12 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         retry_limit = Config().get_config().task.task_retry_times
         if task.retry_times >= retry_limit:
             logger.warning(
-                "BRPC diagnosis task %s reached retry limit %d",
+                "UBSocket diagnosis task %s reached retry limit %d",
                 task_id,
                 retry_limit,
             )
             return False
-        await BaseWorker.report(task_id, "重新初始化 BRPC 诊断任务", 0.0)
+        await BaseWorker.report(task_id, "重新初始化 UBSocket 诊断任务", 0.0)
         return True
 
     @staticmethod
@@ -98,11 +98,11 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             parsed = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
         except (TypeError, ValueError) as exc:
             raise BrpcDiagnosisWorkerError(
-                "BRPC diagnosis start_time must use YYYY-MM-DD HH:MM:SS"
+                "UBSocket diagnosis start_time must use YYYY-MM-DD HH:MM:SS"
             ) from exc
         if parsed.strftime("%Y-%m-%d %H:%M:%S") != start_time:
             raise BrpcDiagnosisWorkerError(
-                "BRPC diagnosis start_time must use YYYY-MM-DD HH:MM:SS"
+                "UBSocket diagnosis start_time must use YYYY-MM-DD HH:MM:SS"
             )
         return start_time
 
@@ -113,7 +113,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         parse_config = TaskHandler.get_task_config(task_id)
         if parse_config is not None and parse_config.end_time:
             logger.info(
-                "BRPC diagnosis ignores ParseConfig.end_time=%s; "
+                "UBSocket diagnosis ignores ParseConfig.end_time=%s; "
                 "the binary scans until its own startup time",
                 parse_config.end_time,
             )
@@ -148,7 +148,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
     @staticmethod
     def _pid_path(task_id: str) -> Path:
         if _TASK_ID_PATTERN.fullmatch(task_id) is None:
-            raise BrpcDiagnosisWorkerError(f"invalid BRPC task ID: {task_id!r}")
+            raise BrpcDiagnosisWorkerError(f"invalid UBSocket task ID: {task_id!r}")
         return BrpcLogDiagnosisWorker._output_dir() / f".worker_{task_id}.pid"
 
     @staticmethod
@@ -164,7 +164,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             try:
                 temp_path.unlink(missing_ok=True)
             except OSError:
-                logger.warning("failed to clean temporary BRPC worker PID file")
+                logger.warning("failed to clean temporary UBSocket worker PID file")
 
     @staticmethod
     def _unregister_process(task_id: str, pid: int | None = None) -> None:
@@ -179,17 +179,17 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             if pid is None or stored_pid == pid:
                 pid_path.unlink()
         except (OSError, ValueError, BrpcDiagnosisWorkerError) as exc:
-            logger.warning("failed to clean BRPC worker PID file: %s", exc)
+            logger.warning("failed to clean UBSocket worker PID file: %s", exc)
 
     @staticmethod
     def _terminate_popen(process: subprocess.Popen[str]) -> None:
         if process.poll() is not None:
             return
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            process.terminate()
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            process.kill()
             process.wait(timeout=5)
         except ProcessLookupError:
             return
@@ -225,13 +225,14 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             return False
         if not BrpcLogDiagnosisWorker._pid_matches_task(pid, task_id):
             logger.warning(
-                "refusing to terminate stale or unexpected BRPC worker PID %s",
+                "refusing to terminate stale or unexpected UBSocket worker PID %s",
                 pid,
             )
             BrpcLogDiagnosisWorker._unregister_process(task_id, pid)
             return False
         try:
-            os.killpg(pid, signal.SIGTERM)
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
             BrpcLogDiagnosisWorker._unregister_process(task_id, pid)
             return False
@@ -245,7 +246,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 return True
             time.sleep(0.05)
         try:
-            os.killpg(pid, signal.SIGKILL)
+            os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         BrpcLogDiagnosisWorker._unregister_process(task_id, pid)
@@ -253,14 +254,13 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     def _execute_tool(task_id: str, command: list[str]) -> BrpcToolExecution:
-        logger.info("running BRPC diagnosis command: %s", command)
+        logger.info("running UBSocket diagnosis command: %s", command)
         timeout = BrpcLogDiagnosisWorker._timeout_seconds()
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True,
         )
         try:
             BrpcLogDiagnosisWorker._register_process(task_id, process)
@@ -270,19 +270,19 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 BrpcLogDiagnosisWorker._terminate_popen(process)
                 stdout, stderr = process.communicate()
                 logger.error(
-                    "BRPC diagnosis timed out; returncode=%s stdout=%s stderr=%s",
+                    "UBSocket diagnosis timed out; returncode=%s stdout=%s stderr=%s",
                     process.returncode,
                     stdout or exc.stdout or "",
                     stderr or exc.stderr or "",
                 )
-                raise BrpcDiagnosisWorkerError("BRPC 诊断工具运行超时") from exc
+                raise BrpcDiagnosisWorkerError("UBSocket 诊断工具运行超时") from exc
 
-            logger.info("BRPC diagnosis stdout: %s", stdout)
-            logger.info("BRPC diagnosis stderr: %s", stderr)
-            logger.info("BRPC diagnosis return code: %d", process.returncode)
+            logger.info("UBSocket diagnosis stdout: %s", stdout)
+            logger.info("UBSocket diagnosis stderr: %s", stderr)
+            logger.info("UBSocket diagnosis return code: %d", process.returncode)
             if process.returncode != 0:
                 raise BrpcDiagnosisWorkerError(
-                    f"BRPC 诊断工具返回非零状态: {process.returncode}"
+                    f"UBSocket 诊断工具返回非零状态: {process.returncode}"
                 )
             return BrpcToolExecution(
                 command=tuple(command),
@@ -304,7 +304,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         task_id: str,
     ) -> list[str]:
         if _TASK_ID_PATTERN.fullmatch(task_id) is None:
-            raise BrpcDiagnosisWorkerError(f"invalid BRPC task ID: {task_id!r}")
+            raise BrpcDiagnosisWorkerError(f"invalid UBSocket task ID: {task_id!r}")
         binary_path = (
             Path(os.getenv("WITTY_INSTALL_PATH", WITTY_INSTALL_PATH_DEFAULT))
             / "witty-ub-brpc-diag"
@@ -329,7 +329,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         batch_path = BrpcLogDiagnosisWorker._output_dir() / f"batch_{task_id}.jsonl"
         if not batch_path.is_file():
             raise BrpcDiagnosisWorkerError(
-                f"BRPC 诊断输出 batch 文件不存在: {batch_path}"
+                f"UBSocket 诊断输出 batch 文件不存在: {batch_path}"
             )
         try:
             with batch_path.open("r", encoding="utf-8") as batch_file:
@@ -338,11 +338,11 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             batch = BrpcDiagBatch.model_validate(raw_batch)
         except (OSError, json.JSONDecodeError, ValidationError) as exc:
             raise BrpcDiagnosisWorkerError(
-                f"BRPC 诊断 batch 首行无效: {batch_path}"
+                f"UBSocket 诊断 batch 首行无效: {batch_path}"
             ) from exc
         if batch.task_id != task_id:
             raise BrpcDiagnosisWorkerError(
-                f"BRPC 诊断 batch task_id 不匹配: {batch.task_id!r}"
+                f"UBSocket 诊断 batch task_id 不匹配: {batch.task_id!r}"
             )
         schema_path = (
             BrpcLogDiagnosisWorker._output_dir()
@@ -350,23 +350,23 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         )
         if not schema_path.is_file():
             raise BrpcDiagnosisWorkerError(
-                f"BRPC 诊断输出 schema 文件不存在: {schema_path}"
+                f"UBSocket 诊断输出 schema 文件不存在: {schema_path}"
             )
         return schema_path, batch_path
 
     @staticmethod
     async def _mark_failed(task_id: str, message: str) -> None:
         try:
-            await BaseWorker.report(task_id, f"BRPC 诊断失败: {message}", 100.0)
+            await BaseWorker.report(task_id, f"UBSocket 诊断失败: {message}", 100.0)
         except Exception:
-            logger.exception("failed to report BRPC diagnosis failure")
+            logger.exception("failed to report UBSocket diagnosis failure")
         try:
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value},
             )
         except Exception:
-            logger.exception("failed to update BRPC diagnosis task status")
+            logger.exception("failed to update UBSocket diagnosis task status")
 
     @staticmethod
     async def run(
@@ -377,23 +377,23 @@ class BrpcLogDiagnosisWorker(BaseWorker):
         try:
             task = await TaskPGManager.get_task_by_task_id(task_id)
             if task is None:
-                logger.error("BRPC diagnosis task not found: %s", task_id)
+                logger.error("UBSocket diagnosis task not found: %s", task_id)
                 return False
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.RUNNING.value},
             )
-            await BaseWorker.report(task_id, "开始 BRPC 日志诊断", 5.0)
+            await BaseWorker.report(task_id, "开始 UBSocket 日志诊断", 5.0)
 
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             if log_file is None:
                 raise BrpcDiagnosisWorkerError(
-                    f"BRPC diagnosis LogFile does not exist: {task.op_id}"
+                    f"UBSocket diagnosis LogFile does not exist: {task.op_id}"
                 )
             selected_log = Path(log_dir or log_file.file_path)
             if not selected_log.exists():
                 raise BrpcDiagnosisWorkerError(
-                    f"BRPC diagnosis log path not found: {selected_log}"
+                    f"UBSocket diagnosis log path not found: {selected_log}"
                 )
             if start_time is None:
                 start_time = BrpcLogDiagnosisWorker._resolve_start_time(task_id)
@@ -404,14 +404,14 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 start_time,
                 task_id,
             )
-            await BaseWorker.report(task_id, f"BRPC 诊断数据源: {selected_log}", 15.0)
+            await BaseWorker.report(task_id, f"UBSocket 诊断数据源: {selected_log}", 15.0)
 
             BrpcLogDiagnosisWorker._execute_tool(task_id, command)
-            await BaseWorker.report(task_id, "BRPC 诊断工具运行完成", 60.0)
+            await BaseWorker.report(task_id, "UBSocket 诊断工具运行完成", 60.0)
 
             current_task = await TaskPGManager.get_task_by_task_id(task_id)
             if current_task is None or current_task.status == TaskStatusEnum.CANCELLED:
-                logger.warning("BRPC diagnosis task was cancelled: %s", task_id)
+                logger.warning("UBSocket diagnosis task was cancelled: %s", task_id)
                 return False
 
             schema_path, batch_path = BrpcLogDiagnosisWorker._result_paths(task_id)
@@ -420,16 +420,16 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 batch_path=batch_path,
                 expected_task_id=task_id,
             )
-            await BaseWorker.report(task_id, "BRPC 诊断结果导入完成", 90.0)
+            await BaseWorker.report(task_id, "UBSocket 诊断结果导入完成", 90.0)
             await LogKnowledgePGManager.touch_log_kb(log_file.kb_id)
             await TaskPGManager.update_task(
                 task_id,
                 {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},
             )
-            await BaseWorker.report(task_id, "BRPC 诊断任务成功", 100.0)
+            await BaseWorker.report(task_id, "UBSocket 诊断任务成功", 100.0)
             return True
         except Exception as exc:
-            logger.exception("BRPC diagnosis task %s failed: %s", task_id, exc)
+            logger.exception("UBSocket diagnosis task %s failed: %s", task_id, exc)
             await BrpcLogDiagnosisWorker._mark_failed(task_id, str(exc))
             return False
 

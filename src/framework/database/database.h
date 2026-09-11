@@ -21,7 +21,7 @@
 
 namespace database {
 using namespace std;
-enum OP_RET {
+enum class OP_RET {
     SUCCESS = 0,
     FAIL = 1,
     NOT_FOUND = 2,
@@ -41,7 +41,7 @@ using TableParams = vector<tuple<string, string, bool, bool>>;
 
 class Database {
 public:
-    OP_RET OpenDb(string currDbName_, bool enableHis_);
+    OP_RET OpenDb(string dbName, bool enableHisFlag);
     // name, type, null, primary_key
     OP_RET CreateTable(string tableName, TableParams createTableParams);
     OP_RET InsertData(string tableName, DataMap data);

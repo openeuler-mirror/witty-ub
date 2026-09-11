@@ -144,6 +144,31 @@ sudo witty-ub manager deploy
 
 ---
 
+## 兼容场景：升级后切换分离部署
+
+从旧版单包升级，或直接安装 meta 包 `witty-ub` 的机器，backend 与 web 子包同机存在，角色自动探测为单机（`all`），`deploy` 会在本机同时部署前后端。若要按分离部署重新部署，用 `WITTY_ROLE_FORCE` 覆盖角色探测，并停用本机不再运行的服务：
+
+```bash
+# 后端节点（原单机或已装 meta 包）
+sudo systemctl disable --now witty-ub-web                # 停用前端服务
+sudo WITTY_ROLE_FORCE=backend witty-ub manager deploy    # 仅初始化 PostgreSQL + 启动 latency
+
+# 前端节点
+sudo systemctl disable --now witty-ub-latency            # 停用后端服务（如有）
+sudo WITTY_ROLE_FORCE=frontend witty-ub manager deploy --backend http://<后端IP>:9772
+```
+
+> `WITTY_ROLE_FORCE` 仅对单次命令生效，后续 `start/stop/restart/status/logs/config` 均需携带同名变量。
+
+若希望恢复角色自动探测，可移除本机不需要的子包（meta 包依赖子包，会随之移除）：
+
+```bash
+sudo dnf remove -y witty-ub-web       # 后端节点：保留 witty-ub-backend + witty-ub-manager
+sudo dnf remove -y witty-ub-backend   # 前端节点：保留 witty-ub-web + witty-ub-manager
+```
+
+---
+
 ## PG 连接配置（后端节点）
 
 PG 连接配置位于 `/etc/witty-ub/deploy.conf`（旧安装的 `pg.conf` 自动兼容）。默认值：`host=127.0.0.1 port=5432 db/user=witty-ub`。
@@ -158,7 +183,7 @@ PG 连接配置位于 `/etc/witty-ub/deploy.conf`（旧安装的 `pg.conf` 自�
 
 ## 服务管理
 
-`witty-ub manager` 按本机已安装子包探测角色，只操作本机服务：
+`witty-ub manager` 按本机已安装子包探测角色，只操作本机服务；特殊场景可用 `WITTY_ROLE_FORCE=all|backend|frontend` 覆盖探测（见[兼容场景：升级后切换分离部署](#兼容场景升级后切换分离部署)）：
 
 ```bash
 sudo witty-ub manager             # 交互式菜单
@@ -204,7 +229,7 @@ sudo dnf remove -y witty-ub-web witty-ub-manager        # 前端节点彻底卸�
 sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # 单机彻底卸载
 ```
 
-> 从旧版单包 `witty-ub` 升级：直接 `sudo dnf update -y witty-ub`，meta 包会拉入三个子包，角色自动探测为单机，已有数据与配置保留。
+> 从旧版单包 `witty-ub` 升级：直接 `sudo dnf update -y witty-ub`，meta 包会拉入三个子包，角色自动探测为单机，已有数据与配置保留。如需切换为分离部署，见[兼容场景：升级后切换分离部署](#兼容场景升级后切换分离部署)。
 
 ---
 
@@ -225,3 +250,25 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 - 数据库手动部署 → [05-database.md](05-database.md)
 - 宿主机脚本部署 → [02-script-host.md](02-script-host.md)
 - 容器脚本部署 → [03-script-container.md](03-script-container.md)
+
+### SELinux 与前端 413 排查
+
+`前端页面未就绪` 只表示首页探测失败，并不能直接认定为 SELinux。
+先查看 `journalctl -u witty-ub-web -n 50 --no-pager`、
+`/var/log/witty-ub-web/error.log` 和 `ausearch -m AVC -ts recent`。
+SELinux 拒绝通常伴随 `Permission denied`，需区分静态文件访问、端口监听和反代连接。
+
+RPM manager 在渲染前端配置后会为 Web 静态文件、配置、日志和 PID 目录设置持久
+SELinux 标签，将 TCP 8080 标记为 `http_port_t`，并开启
+`httpd_can_network_connect` 以访问本机或远端后端。该布尔值作用于同一 SELinux
+域的 Web 服务。Enforcing 保持启用；Web RPM 在 spec 中声明 SELinux 工具依赖，
+由 dnf/yum 安装时拉齐。`/usr/sbin/semanage` 文件依赖用于适配不同发行版的软件包名称。
+旧版 RPM 缺少工具时可先执行 `sudo dnf install -y /usr/sbin/semanage policycoreutils`
+（使用 yum 的系统将 dnf 替换为 yum），再重新部署。
+升级后执行 `sudo witty-ub manager deploy`，会重新渲染配置并重启 Web 服务。
+
+HTTP 413 表示请求体超过限制；本项目默认配置和模板均设为 `client_max_body_size 20G`，
+后端上传采用流式转发。旧 RPM 默认配置缺少该设置；RPM 的 `%config(noreplace)`
+可能保留旧配置，需要重新部署使模板生效。如果仍然报 413，检查实际加载的配置：
+`sudo nginx -T -c /etc/witty-ub/web/nginx.conf`，并检查外层网关的上传限制。
+20G 为整个请求体上限，包含 multipart 元数据。

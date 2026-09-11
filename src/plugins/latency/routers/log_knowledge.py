@@ -1,6 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from fastapi import APIRouter, Body, Path
+from fastapi import APIRouter, Body
 from typing import Annotated
 from latency.schemas.request import (
     CreateLogKnowledgeRequest,
@@ -16,6 +16,7 @@ from latency.schemas.response import (
 )
 from latency.services.log_knowledge import LogKnowledgeService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath
 
 router = APIRouter(prefix="/log_kb", tags=["Knowledge Base"])
 
@@ -30,7 +31,7 @@ async def create_log_kb(
 
 @router.delete("/{kb_id}", response_model=DeleteLogKnowledgeResponse)
 async def delete_log_kb_by_kb_id(
-    kb_id: Annotated[str, Path()],
+    kb_id: ResourceIdPath,
 ) -> DeleteLogKnowledgeResponse:
     await ResourceIdService.require("kb", kb_id)
     delete_log_kb_msg = await LogKnowledgeService.delete_log_kb_by_kb_id(kb_id)
@@ -39,7 +40,7 @@ async def delete_log_kb_by_kb_id(
 
 @router.put("/{kb_id}", response_model=UpdateLogKnowledgeResponse)
 async def update_log_kb(
-    kb_id: Annotated[str, Path()],
+    kb_id: ResourceIdPath,
     req: Annotated[UpdateLogKnowledgeRequest, Body()],
 ) -> UpdateLogKnowledgeResponse:
     await ResourceIdService.require("kb", kb_id)
@@ -57,7 +58,7 @@ async def update_log_kb(
     ),
 )
 async def get_log_kb_by_kb_id(
-    kb_id: Annotated[str, Path()],
+    kb_id: ResourceIdPath,
 ) -> GetLogKnowledgeResponse:
     await ResourceIdService.require("kb", kb_id)
     get_log_kb_msg = await LogKnowledgeService.get_log_kb_by_kb_id(kb_id)

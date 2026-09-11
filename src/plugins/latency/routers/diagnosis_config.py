@@ -6,6 +6,8 @@ from latency.ENUM.general import DiagnosisConfigLogType
 from latency.schemas.config import DiagnosisConfigUpdate
 from latency.schemas.response import DiagnosisConfigResponse
 from latency.services.diagnosis_config import DiagnosisConfigService
+from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath
 
 
 router = APIRouter(prefix="/diagnosis_config", tags=["Diagnosis Config"])
@@ -21,10 +23,11 @@ async def require_configurable_log_type(
 
 @router.get("/{kb_id}", response_model=DiagnosisConfigResponse)
 async def get_diagnosis_config(
-    kb_id: str,
+    kb_id: ResourceIdPath,
     log_type: Annotated[DiagnosisConfigLogType, Query(description="日志类型")],
 ) -> DiagnosisConfigResponse:
     """获取指定资产库的诊断配置；旧资产库会自动初始化默认配置。"""
+    await ResourceIdService.require("kb", kb_id)
     return DiagnosisConfigResponse(
         result=await DiagnosisConfigService.get(kb_id, log_type)
     )
@@ -32,11 +35,12 @@ async def get_diagnosis_config(
 
 @router.put("/{kb_id}", response_model=DiagnosisConfigResponse)
 async def update_diagnosis_config(
-    kb_id: str,
+    kb_id: ResourceIdPath,
     log_type: Annotated[DiagnosisConfigLogType, Depends(require_configurable_log_type)],
     req: Annotated[DiagnosisConfigUpdate, Body()],
 ) -> DiagnosisConfigResponse:
     """更新指定资产库的配置，不写回原始 diagnosis_config.toml。"""
+    await ResourceIdService.require("kb", kb_id)
     return DiagnosisConfigResponse(
         result=await DiagnosisConfigService.update(kb_id, log_type, req)
     )
@@ -44,10 +48,11 @@ async def update_diagnosis_config(
 
 @router.post("/{kb_id}/reset", response_model=DiagnosisConfigResponse)
 async def reset_diagnosis_config(
-    kb_id: str,
+    kb_id: ResourceIdPath,
     log_type: Annotated[DiagnosisConfigLogType, Depends(require_configurable_log_type)],
 ) -> DiagnosisConfigResponse:
     """使用服务启动时读取的可信原始配置快照恢复诊断配置。"""
+    await ResourceIdService.require("kb", kb_id)
     return DiagnosisConfigResponse(
         result=await DiagnosisConfigService.reset(kb_id, log_type)
     )

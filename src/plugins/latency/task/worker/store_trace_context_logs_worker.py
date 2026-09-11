@@ -7,6 +7,7 @@ import shutil
 
 from latency.task.worker.base import BaseWorker
 from latency.config.config import Config
+from latency.common.trace_context import match_trace_context_trace_id
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_parse_result import LogParseResultPGManager
@@ -182,9 +183,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                 if len(parts) < 7:
                                     continue
                                 
-                                trace_id = parts[5].strip() if len(parts) > 5 else ""
+                                trace_id = match_trace_context_trace_id(
+                                    parts[5].strip() if len(parts) > 5 else "",
+                                    raw_line,
+                                    trace_id_set,
+                                )
                                 
-                                if not trace_id or trace_id not in trace_id_set:
+                                if not trace_id:
                                     continue
                                 
                                 timestamp = parts[0].strip()

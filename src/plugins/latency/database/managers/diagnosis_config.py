@@ -2,7 +2,7 @@
 """PostgreSQL-specific manager for diagnosis_config."""
 from __future__ import annotations
 
-from datetime import datetime
+from latency.common.local_time import local_now
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -40,7 +40,7 @@ class DiagnosisConfigPGManager:
         if session is None:
             async with PGManager.session() as own_session:
                 return await DiagnosisConfigPGManager.upsert(kb_id, config, own_session)
-        now = datetime.now()
+        now = local_now()
         mapping = {
             "kb_id": kb_id,
             "config_json": config.model_dump(mode="json"),

@@ -1,7 +1,8 @@
-"""Read-only service layer for imported BRPC diagnosis results."""
+"""Read-only service layer for imported UBSocket diagnosis results."""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -47,6 +48,11 @@ from latency.schemas.brpc_diagnosis import (
     ListBrpcPodEventsMsg,
     ListBrpcThreadEventsMsg,
 )
+from latency.task.log_preprocessor import (
+    default_preprocess_dir,
+    needs_preprocess,
+    preprocess_log_dir,
+)
 
 
 WINDOW_SIZE_US: dict[BrpcWindowSize, int] = {
@@ -82,7 +88,7 @@ class BrpcDiagnosisService:
     async def _require_batch(session, batch_id: str):
         batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
         if batch is None:
-            raise NotFoundBizException(resource="BRPC 诊断 batch")
+            raise NotFoundBizException(resource="UBSocket 诊断 batch")
         return batch
 
     @staticmethod
@@ -145,7 +151,7 @@ class BrpcDiagnosisService:
                 task_id,
             )
         if batch is None:
-            raise NotFoundBizException(resource="BRPC 诊断 batch")
+            raise NotFoundBizException(resource="UBSocket 诊断 batch")
         return GetBrpcTaskBatchMsg(task_id=task_id, batch_id=batch.batch_id)
 
     @staticmethod
@@ -153,7 +159,7 @@ class BrpcDiagnosisService:
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
         if batch is None:
-            raise NotFoundBizException(resource="BRPC 诊断 batch")
+            raise NotFoundBizException(resource="UBSocket 诊断 batch")
         return GetBrpcBatchMsg(
             batch=BrpcDiagBatchMetadata.model_validate(batch)
         )
@@ -165,7 +171,7 @@ class BrpcDiagnosisService:
                 session, kb_id
             )
         if not batches:
-            raise NotFoundBizException(resource="资产库 BRPC 诊断数据")
+            raise NotFoundBizException(resource="资产库 UBSocket 诊断数据")
         return BrpcKnowledgeScopeMsg(
             kb_id=kb_id,
             batch_count=len(batches),
@@ -181,7 +187,7 @@ class BrpcDiagnosisService:
                 session, kb_id
             )
         if not batches:
-            raise NotFoundBizException(resource="资产库 BRPC 诊断数据")
+            raise NotFoundBizException(resource="资产库 UBSocket 诊断数据")
         return [batch.batch_id for batch in batches]
 
     @staticmethod
@@ -208,7 +214,7 @@ class BrpcDiagnosisService:
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
             if batch is None:
-                raise NotFoundBizException(resource="BRPC 诊断 batch")
+                raise NotFoundBizException(resource="UBSocket 诊断 batch")
             total, rows = await BrpcDiagnosisPGManager.list_hits(
                 session,
                 batch_id=batch_id,
@@ -230,7 +236,7 @@ class BrpcDiagnosisService:
                     page_cnt=1,
                 )
                 if thread_total == 0:
-                    raise NotFoundBizException(resource="BRPC Thread")
+                    raise NotFoundBizException(resource="UBSocket Thread")
 
         return ListBrpcDiagHitsMsg(
             batch_id=batch_id,
@@ -292,7 +298,7 @@ class BrpcDiagnosisService:
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
             if batch is None:
-                raise NotFoundBizException(resource="BRPC 诊断 batch")
+                raise NotFoundBizException(resource="UBSocket 诊断 batch")
 
             # Validate the requested thread before resolving and reading files.
             thread_total, hit_rows = await BrpcDiagnosisPGManager.list_hits(
@@ -315,18 +321,34 @@ class BrpcDiagnosisService:
                     page_cnt=1,
                 )
                 if unfiltered_total == 0:
-                    raise NotFoundBizException(resource="BRPC Thread")
+                    raise NotFoundBizException(resource="UBSocket Thread")
 
             # Resolve batch → task → log file path
             task = await TaskPGManager.get_task_by_task_id(batch.task_id)
             if task is None or not task.op_id:
-                raise NotFoundBizException(resource="BRPC 诊断 task")
+                raise NotFoundBizException(resource="UBSocket 诊断 task")
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(
                 task.op_id
             )
             if log_file is None or not log_file.file_path:
-                raise NotFoundBizException(resource="BRPC 诊断日志文件")
+                raise NotFoundBizException(resource="UBSocket 诊断日志文件")
             file_path = log_file.file_path
+            log_file_id = log_file.id
+
+        # Diagnosis workers scan the preprocessed path, while LogFile.file_path
+        # deliberately keeps the original source.  Recreate/reuse that same
+        # path here for archives (including browser-uploaded ZIPs) and for
+        # directories containing archives; reading the archive bytes as text
+        # otherwise produces an empty runtime-log detail.
+        if os.path.exists(file_path) and await asyncio.to_thread(
+            needs_preprocess, file_path
+        ):
+            preprocess_result = await asyncio.to_thread(
+                preprocess_log_dir,
+                file_path,
+                default_preprocess_dir(log_file_id),
+            )
+            file_path = preprocess_result.output_dir
 
         # Build {timestamp_us: failure_mode_id} for fault matching
         fault_map: dict[int, str] = {}
@@ -353,7 +375,7 @@ class BrpcDiagnosisService:
         elif os.path.isfile(file_path):
             files_to_read = [file_path]
         else:
-            logger.warning("BRPC thread-logs: log file not found: %s", file_path)
+            logger.warning("UBSocket thread-logs: log file not found: %s", file_path)
             return ListBrpcDiagHitsMsg(
                 batch_id=batch_id, total=0, hits=[]
             )
@@ -454,7 +476,7 @@ class BrpcDiagnosisService:
                             )
                         )
             except (IOError, OSError) as exc:
-                logger.warning("BRPC thread-logs: failed to read %s: %s", fpath, exc)
+                logger.warning("UBSocket thread-logs: failed to read %s: %s", fpath, exc)
 
         all_logs.sort(key=lambda h: h.time)
 
@@ -499,7 +521,7 @@ class BrpcDiagnosisService:
             if _batch_ids is None:
                 batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
                 if batch is None:
-                    raise NotFoundBizException(resource="BRPC 诊断 batch")
+                    raise NotFoundBizException(resource="UBSocket 诊断 batch")
             query_batch_ids: str | list[str] = _batch_ids or batch_id
             # Precomputed buckets preserve the fast scale-switching behavior of
             # the KVC timeline. Only incomplete edge windows need to touch raw
@@ -558,7 +580,7 @@ class BrpcDiagnosisService:
                     node.node_id == interface_id and node.node_type == "interface"
                     for node in schema.nodes
                 ):
-                    raise NotFoundBizException(resource="BRPC 接口")
+                    raise NotFoundBizException(resource="UBSocket 接口")
 
         series = BrpcDiagnosisService._zero_fill_timeline(
             aggregates=aggregates,
@@ -804,7 +826,7 @@ class BrpcDiagnosisService:
             pod_ip,
         )
         if event_id != expected_id:
-            raise BadRequestBizException(message="event_id 与 Pod 分组键不匹配")
+            raise NotFoundBizException(resource="UBSocket Pod 聚合事件")
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisService._require_batch(session, batch_id)
             interface_rows = await BrpcDiagnosisPGManager.get_interface_hit_counts(
@@ -840,7 +862,7 @@ class BrpcDiagnosisService:
                 batch.schema_id,
             )
         if not failure_rows or schema is None:
-            raise NotFoundBizException(resource="BRPC Pod 聚合事件")
+            raise NotFoundBizException(resource="UBSocket Pod 聚合事件")
         interface_hits = BrpcDiagnosisService._interface_hits(interface_rows)
         failures = BrpcDiagnosisService._failure_mode_hits(failure_rows)
         return GetBrpcPodEventDetailMsg(
@@ -887,7 +909,7 @@ class BrpcDiagnosisService:
             thread_id,
         )
         if event_id != expected_id:
-            raise BadRequestBizException(message="event_id 与 Thread 分组键不匹配")
+            raise NotFoundBizException(resource="UBSocket Thread 聚合事件")
         async with PGManager.session() as session:
             batch = await BrpcDiagnosisService._require_batch(session, batch_id)
             interface_rows = await BrpcDiagnosisPGManager.get_interface_hit_counts(
@@ -926,7 +948,7 @@ class BrpcDiagnosisService:
                 batch.schema_id,
             )
         if not failure_rows or schema is None:
-            raise NotFoundBizException(resource="BRPC Thread 聚合事件")
+            raise NotFoundBizException(resource="UBSocket Thread 聚合事件")
         interface_hits = BrpcDiagnosisService._interface_hits(interface_rows)
         failures = BrpcDiagnosisService._failure_mode_hits(failure_rows)
         return GetBrpcThreadEventDetailMsg(
@@ -1116,7 +1138,7 @@ class BrpcDiagnosisService:
                 batch.schema_id,
             )
         if not summaries or not failure_rows or schema is None:
-            raise NotFoundBizException(resource="BRPC 异常 Thread")
+            raise NotFoundBizException(resource="UBSocket 异常 Thread")
         return GetBrpcAbnormalThreadDetailMsg(
             thread=BrpcDiagnosisService._abnormal_thread_from_row(
                 batch_id,

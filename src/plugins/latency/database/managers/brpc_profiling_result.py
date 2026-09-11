@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""BRPC profiling 结果数据库管理器。"""
+"""UBSocket profiling 结果数据库管理器。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class BrpcProfilingResultPGManager:
-    """BRPC profiling 结果 PostgreSQL 管理器"""
+    """UBSocket profiling 结果 PostgreSQL 管理器"""
 
     @staticmethod
     def _has_successful_parse_task(log_id_column):
@@ -43,7 +43,7 @@ class BrpcProfilingResultPGManager:
         log_id: str,
         records: list[BrpcProfilingRecord],
     ) -> bool:
-        """批量写入 BRPC profiling 结果。
+        """批量写入 UBSocket profiling 结果。
 
         Args:
             log_id: 关联的日志文件 ID
@@ -83,11 +83,11 @@ class BrpcProfilingResultPGManager:
                 await session.commit()
 
             logger.info(
-                f"[PG] 写入 BRPC profiling 结果: {len(models)} 条, log_id={log_id}"
+                f"[PG] 写入 UBSocket profiling 结果: {len(models)} 条, log_id={log_id}"
             )
             return True
         except Exception:
-            logger.exception("[PG] 写入 BRPC profiling 结果失败")
+            logger.exception("[PG] 写入 UBSocket profiling 结果失败")
             raise
 
     @staticmethod
@@ -107,10 +107,10 @@ class BrpcProfilingResultPGManager:
                 )
                 await session.execute(stmt)
                 await session.commit()
-            logger.info(f"[PG] 删除 BRPC profiling 结果: log_id={log_id}")
+            logger.info(f"[PG] 删除 UBSocket profiling 结果: log_id={log_id}")
             return True
         except Exception as e:
-            logger.error(f"[PG] 删除 BRPC profiling 结果失败: {e}")
+            logger.error(f"[PG] 删除 UBSocket profiling 结果失败: {e}")
             return False
 
     @staticmethod
@@ -133,7 +133,7 @@ class BrpcProfilingResultPGManager:
                 count = result.scalar() or 0
             return count
         except Exception as e:
-            logger.error(f"[PG] 统计 BRPC profiling 结果失败: {e}")
+            logger.error(f"[PG] 统计 UBSocket profiling 结果失败: {e}")
             return 0
 
     @staticmethod
@@ -161,7 +161,7 @@ class BrpcProfilingResultPGManager:
                 count = result.scalar() or 0
             return count
         except Exception as e:
-            logger.error(f"[PG] 统计 BRPC profiling 文件数量失败: {e}")
+            logger.error(f"[PG] 统计 UBSocket profiling 文件数量失败: {e}")
             return 0
 
     @staticmethod
@@ -189,7 +189,7 @@ class BrpcProfilingResultPGManager:
                 names = [row[0] for row in result.all()]
             return names
         except Exception as e:
-            logger.error(f"[PG] 获取 BRPC profiling 文件名列表失败: {e}")
+            logger.error(f"[PG] 获取 UBSocket profiling 文件名列表失败: {e}")
             return []
 
     @staticmethod
@@ -217,7 +217,7 @@ class BrpcProfilingResultPGManager:
                 timestamps = [row[0] for row in result.all() if row[0] is not None]
             return timestamps
         except Exception as e:
-            logger.error(f"[PG] 获取 BRPC profiling timestamp 列表失败: {e}")
+            logger.error(f"[PG] 获取 UBSocket profiling timestamp 列表失败: {e}")
             return []
 
     @staticmethod
@@ -254,7 +254,7 @@ class BrpcProfilingResultPGManager:
                 rows = result.scalars().all()
             return list(rows)
         except Exception as e:
-            logger.error(f"[PG] 获取 BRPC profiling 全部结果失败: {e}")
+            logger.error(f"[PG] 获取 UBSocket profiling 全部结果失败: {e}")
             return []
 
     @staticmethod
@@ -360,5 +360,5 @@ class BrpcProfilingResultPGManager:
                 rows = result.scalars().all()
             return list(rows)
         except Exception as e:
-            logger.error(f"[PG] 获取 BRPC profiling 结果失败: {e}")
+            logger.error(f"[PG] 获取 UBSocket profiling 结果失败: {e}")
             return []

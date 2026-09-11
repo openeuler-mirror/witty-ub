@@ -17,140 +17,132 @@
 #include "logger.h"
 
 namespace failure::log {
-    std::string EscapeRegex(const std::string& str)
-    {
-        return re2::RE2::QuoteMeta(str);
-    }
+std::string EscapeRegex(const std::string &str)
+{
+    return re2::RE2::QuoteMeta(str);
+}
 
-    bool AppendRangeGroup(
-        const std::string& fieldExpr,
-        std::vector<std::string>& fields,
-        std::string& patternStr
-    )
-    {
-        size_t rangeStart = fieldExpr.find('(');
-        if (rangeStart == std::string::npos) {
-            fields.push_back(fieldExpr);
-            patternStr += "(.*)";
-            return true;
-        }
-
-        size_t rangeEnd = fieldExpr.find(')', rangeStart);
-        if (rangeEnd == std::string::npos) {
-            LOG_WARN << "invalid field range: " << fieldExpr;
-            return false;
-        }
-
-        fields.push_back(fieldExpr.substr(0, rangeStart));
-        std::vector<std::string> range;
-        failure::Split(range, fieldExpr.substr(rangeStart + 1, rangeEnd - rangeStart - 1), '/', true);
-        patternStr += "(";
-        for (size_t i = 0; i < range.size(); ++i) {
-            if (!range[i].empty()) {
-                patternStr += EscapeRegex(range[i]);
-            }
-            if (i + 1 != range.size()) {
-                patternStr += '|';
-            }
-        }
-        patternStr += ')';
+bool AppendRangeGroup(const std::string &fieldExpr, std::vector<std::string> &fields, std::string &patternStr)
+{
+    size_t rangeStart = fieldExpr.find('(');
+    if (rangeStart == std::string::npos) {
+        fields.push_back(fieldExpr);
+        patternStr += "(.*)";
         return true;
     }
 
-    LogTemplate::LogTemplate(const FailureMode& mode)
-        : mode_(mode)
-    {
-        CreateRegexCaptor(mode.manifest);
+    size_t rangeEnd = fieldExpr.find(')', rangeStart);
+    if (rangeEnd == std::string::npos) {
+        LOG_WARN << "invalid field range: " << fieldExpr;
+        return false;
     }
 
-    std::optional<std::unordered_map<std::string, std::string>> LogTemplate::Match(const std::string& line) const
-    {
-        if (auto attributes = CaptureFields(line)) {
-            return attributes;
+    fields.push_back(fieldExpr.substr(0, rangeStart));
+    std::vector<std::string> range;
+    failure::Split(range, fieldExpr.substr(rangeStart + 1, rangeEnd - rangeStart - 1), '/', true);
+    patternStr += "(";
+    for (size_t i = 0; i < range.size(); ++i) {
+        if (!range[i].empty()) {
+            patternStr += EscapeRegex(range[i]);
         }
+        if (i + 1 != range.size()) {
+            patternStr += '|';
+        }
+    }
+    patternStr += ')';
+    return true;
+}
+
+LogTemplate::LogTemplate(const FailureMode &mode) : mode_(mode)
+{
+    CreateRegexCaptor(mode.manifest);
+}
+
+std::optional<std::unordered_map<std::string, std::string>> LogTemplate::Match(const std::string &line) const
+{
+    if (auto attributes = CaptureFields(line)) {
+        return attributes;
+    }
+    return std::nullopt;
+}
+
+std::optional<FailureEvent> LogTemplate::CreateEvent(std::unordered_map<std::string, std::string> &&attributes,
+                                                     std::string &&line) const
+{
+    auto it = attributes.find("datetime");
+    if (it == attributes.end()) {
+        return std::nullopt;
+    }
+    auto timestamp = failure::DatetimeStrToTimestamp(it->second);
+    if (!timestamp) {
         return std::nullopt;
     }
 
-    std::optional<FailureEvent> LogTemplate::CreateEvent(
-        std::unordered_map<std::string, std::string>&& attributes,
-        std::string&& line
-    ) const
-    {
-        auto it = attributes.find("datetime");
-        if (it == attributes.end()) {
-            return std::nullopt;
+    FailureEvent event;
+    event.timestamp = *timestamp;
+    event.component = mode_.component;
+    event.text = std::move(line);
+    event.attributes = std::move(attributes);
+    return event;
+}
+
+std::string LogTemplate::Escape(const std::string &str)
+{
+    return re2::RE2::QuoteMeta(str);
+}
+
+void LogTemplate::CreateRegexCaptor(const std::string &manifest)
+{
+    std::string patternStr;
+    size_t pos = 0;
+    size_t start = manifest.find("<", pos);
+    while (start != std::string::npos) {
+        patternStr += Escape(manifest.substr(pos, start - pos));
+        size_t end = manifest.find(">", start + 1);
+        if (end == std::string::npos) {
+            LOG_WARN << "unclosed field name pack < >: " << manifest;
+            break;
         }
-        auto timestamp = failure::DatetimeStrToTimestamp(it->second);
-        if (!timestamp) {
-            return std::nullopt;
+        std::string fieldExpr = manifest.substr(start + 1, end - start - 1);
+        if (fieldExpr.empty()) {
+            patternStr += ".*";
+        } else if (!AppendRangeGroup(fieldExpr, fields_, patternStr)) {
+            break;
         }
 
-        FailureEvent event;
-        event.timestamp = *timestamp;
-        event.component = mode_.component;
-        event.text = std::move(line);
-        event.attributes = std::move(attributes);
-        return event;
+        pos = end + 1;
+        start = manifest.find("<", pos);
     }
-
-    std::string LogTemplate::Escape(const std::string& str)
-    {
-        return re2::RE2::QuoteMeta(str);
+    if (start == std::string::npos) {
+        patternStr += Escape(manifest.substr(pos));
     }
-
-    void LogTemplate::CreateRegexCaptor(const std::string& manifest)
-    {
-        std::string patternStr;
-        size_t pos = 0;
-        while (true) {
-            size_t start = manifest.find("<", pos);
-            if (start == std::string::npos) {
-                patternStr += Escape(manifest.substr(pos));
-                break;
-            }
-            patternStr += Escape(manifest.substr(pos, start - pos));
-            size_t end = manifest.find(">", start + 1);
-            if (end == std::string::npos) {
-                LOG_WARN << "unclosed field name pack < >: " << manifest;
-                break;
-            }
-            std::string fieldExpr = manifest.substr(start + 1, end - start - 1);
-            if (fieldExpr.empty()) {
-                patternStr += ".*";
-            } else if (!AppendRangeGroup(fieldExpr, fields_, patternStr)) {
-                break;
-            }
-
-            pos = end + 1;
-        }
-        pattern_ = std::make_unique<re2::RE2>(patternStr, re2::RE2::Options());
-        if (!pattern_->ok()) {
-            LOG_ERROR << "failed to compile log template regex: " << pattern_->error()
-                      << ", pattern: " << patternStr;
-        }
-    }
-
-    std::optional<std::unordered_map<std::string, std::string>> LogTemplate::CaptureFields(const std::string& line) const
-    {
-        if (!pattern_ || !pattern_->ok()) {
-            return std::nullopt;
-        }
-
-        std::vector<re2::StringPiece> groups(fields_.size() + 1);
-        re2::StringPiece input(line);
-        if (pattern_->Match(input, 0, input.size(), re2::RE2::UNANCHORED, groups.data(), groups.size())) {
-            std::unordered_map<std::string, std::string> res;
-            if (fields_.size() != groups.size() - 1) {
-                LOG_ERROR << "the size of fields to be matched (" << fields_.size()
-                          << ") does not match the number of captured ones (" << (groups.size() - 1) << ")";
-                return std::nullopt;
-            }
-            res.reserve(fields_.size());
-            for (size_t i = 1; i < groups.size(); ++i) {
-                res.emplace(fields_[i - 1], std::string(groups[i]));
-            }
-            return res;
-        }
-        return std::nullopt;
+    pattern_ = std::make_unique<re2::RE2>(patternStr, re2::RE2::Options());
+    if (!pattern_->ok()) {
+        LOG_ERROR << "failed to compile log template regex: " << pattern_->error() << ", pattern: " << patternStr;
     }
 }
+
+std::optional<std::unordered_map<std::string, std::string>> LogTemplate::CaptureFields(const std::string &line) const
+{
+    if (!pattern_ || !pattern_->ok()) {
+        return std::nullopt;
+    }
+
+    std::vector<re2::StringPiece> groups(fields_.size() + 1);
+    re2::StringPiece input(line);
+    if (pattern_->Match(input, 0, input.size(), re2::RE2::UNANCHORED, groups.data(), groups.size())) {
+        std::unordered_map<std::string, std::string> res;
+        if (fields_.size() != groups.size() - 1) {
+            LOG_ERROR << "the size of fields to be matched (" << fields_.size()
+                      << ") does not match the number of captured ones (" << (groups.size() - 1) << ")";
+            return std::nullopt;
+        }
+        res.reserve(fields_.size());
+        for (size_t i = 1; i < groups.size(); ++i) {
+            res.emplace(fields_[i - 1], std::string(groups[i]));
+        }
+        return res;
+    }
+    return std::nullopt;
+}
+} // namespace failure::log

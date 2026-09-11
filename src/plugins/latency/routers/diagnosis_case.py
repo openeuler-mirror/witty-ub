@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Path
+from fastapi import APIRouter, Body
 
 from latency.schemas.request import CreateDiagnosisCaseRequest, SearchDiagnosisCasesRequest
 from latency.schemas.response import (
@@ -10,6 +10,7 @@ from latency.schemas.response import (
 )
 from latency.services.diagnosis_case import DiagnosisCaseService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath
 
 
 router = APIRouter(prefix="/diagnosis_case", tags=["Diagnosis Case"])
@@ -34,8 +35,9 @@ async def create_diagnosis_case(
     ),
 )
 async def get_diagnosis_case(
-    case_id: Annotated[str, Path()],
+    case_id: ResourceIdPath,
 ) -> GetDiagnosisCaseResponse:
+    await ResourceIdService.require("diagnosis_case", case_id)
     msg = await DiagnosisCaseService.get_case(case_id)
     return GetDiagnosisCaseResponse(result=msg)
 
@@ -60,7 +62,7 @@ async def search_diagnosis_cases(
 
 @router.post("/{case_id}/hit", response_model=GetDiagnosisCaseResponse)
 async def mark_diagnosis_case_hit(
-    case_id: Annotated[str, Path()],
+    case_id: ResourceIdPath,
 ) -> GetDiagnosisCaseResponse:
     await ResourceIdService.require("diagnosis_case", case_id)
     msg = await DiagnosisCaseService.mark_case_hit(case_id)

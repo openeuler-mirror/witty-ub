@@ -630,6 +630,26 @@ def collect_logs(root: Path) -> list[LogEntry]:
     return entries
 
 
+def resolve_source_root(path: Path) -> Path:
+    candidate = path.expanduser().resolve()
+    if not candidate.is_dir():
+        raise ValueError(f"源码目录不存在：{candidate}")
+
+    candidates = [
+        candidate,
+        candidate / "csrc",
+        candidate / "src/ubsocket/csrc",
+    ]
+    for source_root in candidates:
+        if (source_root / "core/ubsocket_socket.h").is_file():
+            return source_root
+
+    raise ValueError(
+        "无法从输入路径定位UBSocket源码目录src/ubsocket/csrc："
+        f"{candidate}"
+    )
+
+
 def build_json_result(entries: list[LogEntry]) -> dict:
     return {
         "log_macros": LOG_MACROS,
@@ -669,15 +689,14 @@ def main() -> int:
     parser.add_argument(
         "source",
         type=Path,
-        help="UBSocket的csrc源码目录，例如/root/openeuler/ubs-comm/src/ubsocket/csrc",
+        help="ubs-comm仓库根目录（也兼容src/ubsocket或src/ubsocket/csrc目录）",
     )
     args = parser.parse_args()
 
-    root = args.source.expanduser().resolve()
-    if not root.exists():
-        parser.error(f"目录不存在：{root}")
-    if not root.is_dir():
-        parser.error(f"指定路径不是目录：{root}")
+    try:
+        root = resolve_source_root(args.source)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     entries = collect_logs(root)
     try:

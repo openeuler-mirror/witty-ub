@@ -3,7 +3,8 @@ from dataclasses import dataclass, field as dataclass_field
 from itertools import repeat
 from typing import ClassVar, Optional
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
+from latency.ENUM.general import DiagnosisConfigLogType
+from latency.common.local_time import local_now, utc_now
 from latency.schemas.task import TaskModel
 
 YUANRONG_METRIC_FIELDS = (
@@ -32,11 +33,11 @@ class LogKnowledgeModel(BaseModel):
         True, description="知识是否存在的状态，默认为True表示存在"
     )
     created_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: utc_now().isoformat(timespec="milliseconds"),
         description="知识创建时间",
     )
     updated_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: utc_now().isoformat(timespec="milliseconds"),
         description="知识更新时间",
     )
 
@@ -49,7 +50,7 @@ class LogFileModel(BaseModel):
     file_size: int = Field(default=0, description="日志文件大小，单位字节")
     anomaly_cnt: int = Field(default=0, description="日志文件中包含的异常数量")
     trace_failure_event_cnt: int = Field(default=0, description="日志文件中包含的故障trace数量")
-    log_type: str = Field(default="kv-cache", description="日志类型：kv-cache 或 brpc")
+    log_type: DiagnosisConfigLogType = Field(default=DiagnosisConfigLogType.KVCACHE, description="日志类型：KVCache 或 UBSocket")
     task: TaskModel | None = Field(
         default=None,
         description="用于生成单条进度文案的摘要任务；其状态不代表日志级总状态",
@@ -64,14 +65,14 @@ class LogFileModel(BaseModel):
         le=100.0,
         description=(
             "KVCache 日志解析、故障定界和 trace 上下文落库的综合进度；"
-            "BRPC 为日志解析与诊断两个 worker 的平均进度"
+            "UBSocket 为日志解析与诊断两个 worker 的平均进度"
         ),
     )
     existed_status: bool = Field(
         default=True, description="知识是否存在的状态，默认为True表示存在"
     )
     created_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: utc_now().isoformat(timespec="milliseconds"),
         description="日志文件创建时间",
     )
 
@@ -195,7 +196,7 @@ class SrcDstAggregatedEventModel(BaseModel):
         True, description="知识是否存在的状态，默认为True表示存在"
     )
     created_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: local_now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="事件创建时间",
     )
 
@@ -260,7 +261,7 @@ class SrcDstAggregatedEventDataclass:
     p95_worker_total_latency: float | None = None
     existed_status: bool = True
     created_at: str = dataclass_field(
-        default_factory=lambda: datetime.now().strftime(
+        default_factory=lambda: local_now().strftime(
             "%Y-%m-%d %H:%M:%S.%f"
         )[:-3]
     )
@@ -382,7 +383,7 @@ class AnomalousEventModel(BaseModel):
         True, description="知识是否存在的状态，默认为True表示存在"
     )
     created_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: local_now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="异常事件创建时间",
     )
 
@@ -399,7 +400,7 @@ class AnomalousEventDataclass:
     anomaly_reason: str = ""
     existed_status: bool = True
     created_at: str = dataclass_field(
-        default_factory=lambda: datetime.now().strftime(
+        default_factory=lambda: local_now().strftime(
             "%Y-%m-%d %H:%M:%S.%f"
         )[:-3]
     )
@@ -419,7 +420,7 @@ class AnomalousEventChainModel(BaseModel):
         True, description="知识是否存在的状态，默认为True表示存在"
     )
     created_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: local_now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="异常事件链创建时间",
     )
 
@@ -536,7 +537,7 @@ class LogParseResultModel(BaseModel):
     client_remote_rpc_total_us: Optional[float] = None
     timestamp: Optional[str] = Field(default=None, description="事件时间戳")
     created_at: str = Field(
-        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        default_factory=lambda: local_now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="日志解析结果创建时间",
     )
 
@@ -901,7 +902,7 @@ class TimeWindowAggregatedEventDataclass:
     p99_worker_total_latency: float | None = None
     existed_status: bool = True
     created_at: str = dataclass_field(
-        default_factory=lambda: datetime.now().strftime(
+        default_factory=lambda: local_now().strftime(
             "%Y-%m-%d %H:%M:%S.%f"
         )[:-3]
     )

@@ -2,6 +2,7 @@ import uuid
 from typing import Any
 from pydantic import BaseModel, Field
 from datetime import datetime
+from latency.common.local_time import local_now
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 
 
@@ -13,7 +14,7 @@ class TaskReportModel(BaseModel):
         True, description="任务报告是否存在的状态，默认为True表示存在"
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(),
+        default_factory=lambda: local_now(),
         description="任务报告创建时间",
     )
 
@@ -36,7 +37,7 @@ class TaskModel(BaseModel):
         True, description="任务是否存在的状态，默认为True表示存在"
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(), description="任务创建时间"
+        default_factory=lambda: local_now(), description="任务创建时间"
     )
     completed_at: datetime | None = Field(
         default=None, description="任务完成时间"

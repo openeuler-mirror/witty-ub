@@ -1,7 +1,17 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 # witty-ub is licensed under the Mulan PSL v2.
-
-version: "3.8"
+#
+# 部署形态（按 profile 选择，互斥，不要同时启动）:
+#   单机 All-in-One : docker compose --profile allinone up -d
+#   前后端分离      : docker compose --profile split up -d
+# 说明: postgres 服务不带 profile（两个形态共用数据库）；直接 `docker compose up -d`
+#       只会拉起 postgres，请显式指定上面的 profile。
+# 镜像: 各服务同时声明了 build/image —— 本地已有 image 时 compose 直接使用，
+#       否则会尝试从源码构建（需要先构建 base 镜像，见 docs/package/01-docker-build.md）。
+#       只想用现成镜像时，先 `docker pull <harbor>/witty-ub:<role>` 并
+#       `docker tag` 成 witty-ub:<role>，再执行上面的 up 命令。
+# 注意: 本文件与 deploy/docker/manage.sh（脚本部署）使用相同的容器名/卷名/网络名，
+#       两套方式互斥；混用会出现同名容器冲突。
 
 services:
   postgres:
@@ -22,10 +32,10 @@ services:
       - -c
       - >-
         export POSTGRESQL_PASSWORD="$$(tr -d '\r\n' </run/secrets/pg_password)";
-        test -n "$$POSTGRESQL_PASSWORD";
+        test -n "$$POSTGRESQL_PASSWORD" || exit 1;
         exec /usr/bin/container-entrypoint /usr/bin/run-postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "witty-ub"]
+      test: ["CMD", "pg_isready", "-U", "witty-ub", "-d", "witty-ub"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,6 +48,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: witty-ub:latest
+    profiles: ["allinone"]
     container_name: witty-ub
     restart: unless-stopped
     ports:
@@ -88,7 +99,7 @@ services:
     restart: unless-stopped
     volumes:
       - witty-ub-data:/var/witty-ub/data
-      - witty-ub-backend-logs:/var/log/witty-ub
+      - witty-ub-logs:/var/log/witty-ub
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
     secrets:
@@ -124,9 +135,10 @@ services:
     volumes:
       # OpenCode LLM 配置与经验库留在前端节点
       - ~/.config/opencode:/root/.config/opencode
+      # 日志卷与单机/后端保持一致（否则 /var/log/witty-ub 会生成匿名卷）
+      - witty-ub-logs:/var/log/witty-ub
       # experience-skill persistent data (experience.db)
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
-      - witty-ub-frontend-logs:/var/log/witty-ub
     environment:
       - WITTY_ROLE=frontend
       # 容器网络内经服务名访问后端
@@ -137,24 +149,27 @@ services:
 volumes:
   pg15-data:
     driver: local
+    name: pg15-data
   witty-ub-data:
     driver: local
+    name: witty-ub-data
   witty-ub-logs:
     driver: local
-  witty-ub-backend-logs:
-    driver: local
-  witty-ub-frontend-logs:
-    driver: local
+    name: witty-ub-logs
   witty-ub-uploads:
     driver: local
+    name: witty-ub-uploads
   witty-ub-results:
     driver: local
+    name: witty-ub-results
   witty-ub-experience-data:
     driver: local
+    name: witty-ub-experience-data
 
 networks:
   witty-ub-network:
     driver: bridge
+    name: witty-ub-network
 
 secrets:
   pg_password:

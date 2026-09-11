@@ -1,6 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
-from fastapi import APIRouter, Path, Body
+from fastapi import APIRouter, Body
 from typing import Annotated
 from latency.schemas.request import CreateTaskRequest, ListTasksRequest
 from latency.schemas.response import (
@@ -12,6 +12,7 @@ from latency.schemas.response import (
 )
 from latency.services.task import TaskService
 from latency.services.resource_id import ResourceIdService
+from latency.common.id_validation import ResourceIdPath
 
 router = APIRouter(prefix="/task", tags=["task"])
 
@@ -27,16 +28,18 @@ async def create_task(
 
 @router.put("/stop/{task_id}", response_model=StopTaskResponse)
 async def stop_task(
-    task_id: Annotated[str, Path()],
+    task_id: ResourceIdPath,
 ) -> StopTaskResponse:
+    await ResourceIdService.require("task", task_id)
     msg = await TaskService.stop_task(task_id)
     return StopTaskResponse(result=msg)
 
 
 @router.delete("/{task_id}", response_model=DeleteTaskResponse)
 async def delete_task(
-    task_id: Annotated[str, Path()],
+    task_id: ResourceIdPath,
 ) -> DeleteTaskResponse:
+    await ResourceIdService.require("task", task_id)
     msg = await TaskService.delete_task(task_id)
     return DeleteTaskResponse(result=msg)
 
@@ -69,7 +72,8 @@ async def list_tasks(
     ),
 )
 async def get_task_by_id(
-    task_id: Annotated[str, Path()],
+    task_id: ResourceIdPath,
 ) -> GetTaskResponse:
+    await ResourceIdService.require("task", task_id)
     msg = await TaskService.get_task_by_id(task_id)
     return GetTaskResponse(result=msg)

@@ -15,6 +15,7 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import { displayServerTime } from './utils/serverTime'
 import rawDiagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
@@ -50,6 +51,7 @@ type AgentChatPart = {
 type OpenCodeSession = {
   id: string
   title?: string
+  parentID?: string
   time?: { created?: number; updated?: number }
 }
 
@@ -57,6 +59,8 @@ type OpenCodeMessage = {
   info: {
     id?: string
     role?: string
+    error?: unknown
+    model?: { providerID: string; modelID: string }
   }
   parts?: Array<{
     id?: string
@@ -70,10 +74,16 @@ type OpenCodeEvent = {
   properties?: {
     sessionID?: string
     messageID?: string
+    partID?: string
+    field?: string
+    delta?: string
     info?: {
       id?: string
       sessionID?: string
       role?: string
+      title?: string
+      time?: { created?: number; updated?: number }
+      error?: unknown
     }
     part?: {
       id?: string
@@ -117,7 +127,7 @@ type LogFileModel = {
   file_size: number
   anomaly_cnt: number
   trace_failure_event_cnt?: number
-  log_type?: string
+  log_type?: LogType
   task: TaskModel | null
   overall_status: string
   overall_progress?: number
@@ -285,6 +295,24 @@ type BrpcProfilingFileOption = {
   log_id: string
   log_name: string
   source_file: string
+}
+
+type BrpcProfilingRow = {
+  timestamp: string | null
+  log_id: string
+  interface_name: string
+  source_file: string | null
+  success_count: number
+  failure_count: number
+  total_ns: number
+  avg_ns: number
+  max_ns: number
+  min_ns: number
+  p50_ns: number | null
+  p90_ns: number | null
+  p95_ns: number | null
+  p99_ns: number | null
+  p999_ns: number | null
 }
 
 type BrpcInterfaceHit = {
@@ -587,6 +615,7 @@ type TraceDetailRow = {
   w2wUrmaLatency: number | null
   sdkProcess: number | null
   sdkRpc: number | null
+  workerTotalLatency: number | null
   localWorkerCost: number | null
   localWorkerLock: number | null
   remoteWorkerCost: number | null
@@ -897,11 +926,36 @@ const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('c
 const isAgentLoggingIn = ref(false)
 const agentChatMessages = ref<AgentChatMessage[]>([])
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
+const agentChatPanelRef = ref<HTMLElement | null>(null)
+const agentPanelSize = reactive<{ width: number | null; height: number | null }>({
+  width: null,
+  height: null,
+})
+const agentPanelStyle = computed(() => ({
+  ...(agentPanelSize.width === null ? {} : { width: `${agentPanelSize.width}px` }),
+  ...(agentPanelSize.height === null ? {} : { height: `${agentPanelSize.height}px` }),
+}))
 const agentSessions = ref<OpenCodeSession[]>([])
 const agentSessionSearch = ref('')
 const isAgentSessionsLoading = ref(false)
+const isAgentHistoryLoading = ref(false)
+const isAgentHistoryFailed = ref(false)
+const isAgentSessionCreating = ref(false)
+const isAgentSubmitting = ref(false)
+const agentSessionStatuses = ref<Record<string, { type: string }>>({})
+const agentSessionDrafts = ref<Record<string, string>>({})
+const agentSessionDialog = ref<{ kind: 'rename' | 'delete'; session: OpenCodeSession } | null>(null)
+const agentSessionTitleInput = ref('')
+const isAgentSessionSaving = ref(false)
+const agentSessionDialogError = ref('')
 const agentSessionAssetIndex = ref<Record<string, string>>({})
 const agentSessionIndexStorageKey = 'witty-ub.agent-session-assets'
+const agentStorageKey = (key: string) => `${key}:${agentApiBase.value}`
+const activeAgentSessionTitle = computed(
+  () =>
+    agentSessions.value.find((session) => session.id === agentSessionId.value)?.title ||
+    '开始新对话',
+)
 const isAgentConnectionUnavailable = computed(() => agentConnectionState.value !== 'connected')
 const connectedAgentModels = computed(() => {
   const data = agentProviders.value
@@ -941,6 +995,7 @@ const getAgentSessionAssetName = (sessionId: string) => {
 const filteredAgentSessions = computed(() => {
   const query = agentSessionSearch.value.trim().toLocaleLowerCase()
   return agentSessions.value
+    .filter((session) => !session.parentID)
     .filter((session) => {
       if (!query) return true
       return (
@@ -956,7 +1011,71 @@ let isAgentEventStreamConnected = false
 let agentLocalMessageSequence = 0
 let agentRequestSequence = 0
 let agentEventStreamSequence = 0
+let agentSessionListSequence = 0
+let agentHistoryEvents: MessageEvent<string>[] = []
 let shouldIgnoreNextAgentAbortError = false
+let agentPanelResize:
+  | {
+      direction: 'top' | 'left' | 'corner'
+      startX: number
+      startY: number
+      width: number
+      height: number
+    }
+  | undefined
+
+const resizeAgentPanel = (event: PointerEvent) => {
+  if (!agentPanelResize) return
+  const maxWidth = Math.max(320, window.innerWidth - 32)
+  const maxHeight = Math.max(320, window.innerHeight - 106)
+  const minWidth = Math.min(640, maxWidth)
+  const minHeight = Math.min(420, maxHeight)
+  if (agentPanelResize.direction !== 'top') {
+    agentPanelSize.width = Math.min(
+      maxWidth,
+      Math.max(minWidth, agentPanelResize.width + agentPanelResize.startX - event.clientX),
+    )
+  }
+  if (agentPanelResize.direction !== 'left') {
+    agentPanelSize.height = Math.min(
+      maxHeight,
+      Math.max(minHeight, agentPanelResize.height + agentPanelResize.startY - event.clientY),
+    )
+  }
+}
+
+const stopAgentPanelResize = () => {
+  if (!agentPanelResize) return
+  agentPanelResize = undefined
+  document.body.classList.remove(
+    'agent-panel-resizing',
+    'agent-panel-resizing-top',
+    'agent-panel-resizing-left',
+    'agent-panel-resizing-corner',
+  )
+  window.removeEventListener('pointermove', resizeAgentPanel)
+  window.removeEventListener('pointerup', stopAgentPanelResize)
+  window.removeEventListener('pointercancel', stopAgentPanelResize)
+}
+
+const startAgentPanelResize = (direction: 'top' | 'left' | 'corner', event: PointerEvent) => {
+  const panel = agentChatPanelRef.value
+  if (!panel) return
+  event.preventDefault()
+  const bounds = panel.getBoundingClientRect()
+  agentPanelResize = {
+    direction,
+    startX: event.clientX,
+    startY: event.clientY,
+    width: bounds.width,
+    height: bounds.height,
+  }
+  document.body.classList.add('agent-panel-resizing')
+  document.body.classList.add(`agent-panel-resizing-${direction}`)
+  window.addEventListener('pointermove', resizeAgentPanel)
+  window.addEventListener('pointerup', stopAgentPanelResize)
+  window.addEventListener('pointercancel', stopAgentPanelResize)
+}
 
 const nextAgentLocalMessageId = () => {
   agentLocalMessageSequence += 1
@@ -1179,6 +1298,7 @@ const extractOpenCodeError = (payload: unknown, fallback: string): string => {
 const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
   const response = await fetch(`${agentApiBase.value}${path}`, {
     ...init,
+    signal: init.signal || AbortSignal.timeout(30000),
     headers: {
       'Content-Type': 'application/json',
       ...(agentAuthHeader.value ? { Authorization: agentAuthHeader.value } : {}),
@@ -1194,9 +1314,13 @@ const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
 
 const loadAgentSessionAssetIndex = () => {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(agentSessionIndexStorageKey) || '{}')
+    const stored = JSON.parse(
+      window.localStorage.getItem(agentStorageKey(agentSessionIndexStorageKey)) || '{}',
+    )
     if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
-      agentSessionAssetIndex.value = stored as Record<string, string>
+      agentSessionAssetIndex.value = Object.fromEntries(
+        Object.entries(stored).filter(([, value]) => typeof value === 'string'),
+      ) as Record<string, string>
     }
   } catch {
     agentSessionAssetIndex.value = {}
@@ -1245,7 +1369,7 @@ const restoreAgentConnection = () => {
 const saveAgentSessionAssetIndex = () => {
   try {
     window.localStorage.setItem(
-      agentSessionIndexStorageKey,
+      agentStorageKey(agentSessionIndexStorageKey),
       JSON.stringify(agentSessionAssetIndex.value),
     )
   } catch {
@@ -1264,20 +1388,41 @@ const indexAgentSession = (sessionId: string) => {
 
 const loadAgentSessions = async () => {
   if (agentConnectionState.value !== 'connected') return
+  const sequence = ++agentSessionListSequence
   isAgentSessionsLoading.value = true
   try {
-    agentSessions.value = await requestAgentApi<OpenCodeSession[]>('/session')
+    const [sessions, statuses] = await Promise.all([
+      requestAgentApi<OpenCodeSession[]>('/session'),
+      requestAgentApi<Record<string, { type: string }>>('/session/status'),
+    ])
+    if (sequence !== agentSessionListSequence) return
+    agentSessions.value = sessions
+    agentSessionStatuses.value = statuses
   } catch (error) {
+    if (sequence !== agentSessionListSequence) return
     agentConnectionError.value = error instanceof Error ? error.message : '会话列表加载失败。'
   } finally {
-    isAgentSessionsLoading.value = false
+    if (sequence === agentSessionListSequence) isAgentSessionsLoading.value = false
+  }
+}
+
+const saveActiveAgentSession = () => {
+  try {
+    window.localStorage.setItem(agentStorageKey('witty-ub.active-session'), agentSessionId.value)
+  } catch {
+    // Browser storage is optional; the current conversation remains usable.
   }
 }
 
 const resetAgentConversation = () => {
+  if (agentSessionId.value) agentSessionDrafts.value[agentSessionId.value] = agentChatInput.value
   agentRequestSequence += 1
   closeAgentEventStream()
+  agentHistoryEvents = []
+  isAgentHistoryLoading.value = false
+  isAgentHistoryFailed.value = false
   agentSessionId.value = ''
+  agentChatInput.value = ''
   agentChatMessages.value = []
   assistantMessageIds.clear()
   isAgentSending.value = false
@@ -1288,34 +1433,49 @@ const resetAgentConversation = () => {
 
 const createAgentSession = async () => {
   if (!selectedAssetId.value) throw new Error('请先选择资产库。')
-  const created = await requestAgentApi<OpenCodeSession>('/session', {
-    method: 'POST',
-    body: JSON.stringify({}),
-  })
-  if (!created?.id) throw new Error('Agent 服务没有返回会话 ID。')
-  agentSessionId.value = created.id
-  indexAgentSession(created.id)
-  const session = await requestAgentApi<OpenCodeSession>(
-    `/session/${encodeURIComponent(created.id)}`,
-  )
-  agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)]
-  return session
+  const assetId = selectedAssetId.value
+  const sequence = agentRequestSequence
+  isAgentSessionCreating.value = true
+  try {
+    const created = await requestAgentApi<OpenCodeSession>('/session', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    if (!created?.id) throw new Error('Agent 服务没有返回会话 ID。')
+    if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
+    agentSessionId.value = created.id
+    agentSessionAssetIndex.value[created.id] = assetId
+    saveAgentSessionAssetIndex()
+    saveActiveAgentSession()
+    agentSessionListSequence += 1
+    isAgentSessionsLoading.value = false
+    const session = await requestAgentApi<OpenCodeSession>(
+      `/session/${encodeURIComponent(created.id)}`,
+    )
+    if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
+    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)]
+    return session
+  } finally {
+    isAgentSessionCreating.value = false
+  }
 }
 
 const newAgentConversation = async () => {
-  if (isAgentSending.value) await abortAgentSession()
+  if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
   resetAgentConversation()
+  saveActiveAgentSession()
   await scrollAgentChatToBottom()
 }
 
 const refreshAgentSession = async (sessionId: string) => {
+  const apiBase = agentApiBase.value
   try {
     const session = await requestAgentApi<OpenCodeSession>(
       `/session/${encodeURIComponent(sessionId)}`,
     )
+    if (apiBase !== agentApiBase.value) return
     const index = agentSessions.value.findIndex((item) => item.id === sessionId)
     if (index >= 0) agentSessions.value[index] = session
-    else agentSessions.value.unshift(session)
   } catch {
     // The conversation remains usable if its list metadata cannot be refreshed.
   }
@@ -1341,6 +1501,11 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
       if (role === 'user') {
         text = text.replace(/^当前(?:页面选中|会话对应)的知识库 ID 是 [^。]+。\n\n/, '')
       }
+      if (message.info.error) {
+        const error = extractOpenCodeError(message.info.error, '模型响应失败。')
+        parts.push({ id: 'error', type: 'text', text: error })
+        text = [text, error].filter(Boolean).join('\n\n')
+      }
       return {
         id: message.info.id || nextAgentLocalMessageId(),
         role,
@@ -1351,60 +1516,136 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
         parts: role === 'assistant' ? parts : undefined,
         reasoningCollapsed: true,
         content: text,
-        status: 'done',
+        status: message.info.error ? 'error' : 'done',
         messageId: message.info.id,
       }
     })
 
 const openAgentSession = async (session: OpenCodeSession) => {
-  if (isAgentSending.value) await abortAgentSession()
+  if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
   resetAgentConversation()
   agentSessionId.value = session.id
+  agentChatInput.value = agentSessionDrafts.value[session.id] || ''
+  saveActiveAgentSession()
+  const sequence = agentRequestSequence
+  isAgentHistoryLoading.value = true
   try {
+    // Subscribe first to capture completion/status events while history loads.
+    await connectAgentEvents()
+    if (sequence !== agentRequestSequence) return
+    const statuses = await requestAgentApi<Record<string, { type: string }>>('/session/status')
     const messages = await requestAgentApi<OpenCodeMessage[]>(
       `/session/${encodeURIComponent(session.id)}/message`,
     )
+    if (sequence !== agentRequestSequence) return
+    agentSessionStatuses.value = statuses
     agentChatMessages.value = toAgentChatMessages(messages)
+    const context = messages
+      .find((message) => message.info.role === 'user')
+      ?.parts?.find((part) => part.type === 'text')?.text
+    const assetId = context?.match(/^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/)?.[1]
+    if (assetId && !agentSessionAssetIndex.value[session.id]) {
+      agentSessionAssetIndex.value[session.id] = assetId
+      saveAgentSessionAssetIndex()
+    }
+    const model = [...messages].reverse().find((message) => message.info.model)?.info.model
+    const provider = agentProviders.value?.all.find((item) => item.id === model?.providerID)
+    const selectedModel = model && provider?.models[model.modelID]
+    if (provider && selectedModel && agentProviders.value?.connected.includes(provider.id)) {
+      selectedAgentProvider.value = provider
+      selectedAgentModel.value = selectedModel
+    }
     messages.forEach((message) => {
       if (message.info.role === 'assistant' && message.info.id) {
         assistantMessageIds.add(message.info.id)
       }
     })
-    await connectAgentEvents()
+    isAgentSending.value = !!statuses[session.id] && statuses[session.id]?.type !== 'idle'
+    if (isAgentSending.value) {
+      const last = agentChatMessages.value.at(-1)
+      if (last?.role === 'assistant' && last.status !== 'error') last.status = 'thinking'
+      else
+        agentChatMessages.value.push({
+          id: nextAgentLocalMessageId(),
+          role: 'assistant',
+          reasoning: '',
+          content: '',
+          reasoningCollapsed: false,
+          status: 'thinking',
+        })
+    }
+    isAgentHistoryLoading.value = false
+    replayAgentHistoryEvents()
     await scrollAgentChatToBottom()
   } catch (error) {
+    if (sequence !== agentRequestSequence) return
+    isAgentHistoryFailed.value = true
+    agentHistoryEvents = []
+    closeAgentEventStream()
     agentConnectionError.value = error instanceof Error ? error.message : '会话加载失败。'
+  } finally {
+    if (sequence === agentRequestSequence) isAgentHistoryLoading.value = false
   }
 }
 
-const renameAgentSession = async (session: OpenCodeSession) => {
-  const title = window.prompt('请输入新的会话标题', session.title || '')?.trim()
-  if (!title || title === session.title) return
-  try {
-    const updated = await requestAgentApi<OpenCodeSession>(
-      `/session/${encodeURIComponent(session.id)}`,
-      { method: 'PATCH', body: JSON.stringify({ title }) },
-    )
-    Object.assign(session, updated || { title })
-  } catch (error) {
-    agentConnectionError.value = error instanceof Error ? error.message : '修改会话标题失败。'
-  }
+const showAgentSessionDialog = (kind: 'rename' | 'delete', session: OpenCodeSession) => {
+  agentSessionDialog.value = { kind, session }
+  agentSessionTitleInput.value = session.title || ''
+  agentSessionDialogError.value = ''
 }
 
-const deleteAgentSession = async (session: OpenCodeSession) => {
-  if (!window.confirm(`确认删除会话「${session.title || '无标题会话'}」？`)) return
+const submitAgentSessionDialog = async () => {
+  const dialog = agentSessionDialog.value
+  if (!dialog || isAgentSessionSaving.value) return
+  const { session, kind } = dialog
+  const title = agentSessionTitleInput.value.trim()
+  if (kind === 'rename' && !title) {
+    agentSessionDialogError.value = '请输入会话标题。'
+    return
+  }
+  isAgentSessionSaving.value = true
+  agentSessionDialogError.value = ''
   try {
-    await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}`, {
+    if (kind === 'rename') {
+      const updated = await requestAgentApi<OpenCodeSession>(
+        `/session/${encodeURIComponent(session.id)}`,
+        { method: 'PATCH', body: JSON.stringify({ title }) },
+      )
+      agentSessions.value = agentSessions.value.map((item) =>
+        item.id === session.id ? updated : item,
+      )
+      agentSessionDialog.value = null
+      return
+    }
+    // Query live status instead of relying on a possibly stale sidebar badge.
+    const statuses = await requestAgentApi<Record<string, { type: string }>>('/session/status')
+    if (statuses[session.id] && statuses[session.id]?.type !== 'idle') {
+      await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}/abort`, {
+        method: 'POST',
+      })
+    }
+    const deleted = await requestAgentApi<boolean>(`/session/${encodeURIComponent(session.id)}`, {
       method: 'DELETE',
     })
+    if (!deleted) throw new Error('服务端未确认删除会话，请重试。')
+    agentSessionListSequence += 1
+    isAgentSessionsLoading.value = false
     agentSessions.value = agentSessions.value.filter((item) => item.id !== session.id)
     const nextIndex = { ...agentSessionAssetIndex.value }
     delete nextIndex[session.id]
     agentSessionAssetIndex.value = nextIndex
     saveAgentSessionAssetIndex()
-    if (agentSessionId.value === session.id) resetAgentConversation()
+    if (agentSessionId.value === session.id) {
+      resetAgentConversation()
+      saveActiveAgentSession()
+    }
+    delete agentSessionDrafts.value[session.id]
+    delete agentSessionStatuses.value[session.id]
+    agentSessionDialog.value = null
   } catch (error) {
-    agentConnectionError.value = error instanceof Error ? error.message : '删除会话失败。'
+    agentSessionDialogError.value = error instanceof Error ? error.message : '保存会话失败。'
+  } finally {
+    isAgentSessionSaving.value = false
   }
 }
 
@@ -1426,7 +1667,12 @@ const selectDefaultAgentModel = () => {
   if (!providers) return false
   const connected = new Set(providers.connected)
   const configuredAgentModel = agentDefaultModel.value
-  for (const provider of providers.all) {
+  const preferredProviderId = configuredAgentModel.split('/')[0]
+  const orderedProviders = [...providers.all].sort(
+    (left, right) =>
+      Number(right.id === preferredProviderId) - Number(left.id === preferredProviderId),
+  )
+  for (const provider of orderedProviders) {
     if (!connected.has(provider.id)) continue
     const configuredModelId = configuredAgentModel?.startsWith(`${provider.id}/`)
       ? configuredAgentModel.slice(provider.id.length + 1)
@@ -1453,6 +1699,10 @@ const connectAgent = async (serverAddress: string, authHeader = '') => {
   agentConnectionState.value = 'connecting'
   agentApiBase.value = normalizeAgentServerAddress(serverAddress)
   agentAuthHeader.value = authHeader
+  agentSessionListSequence += 1
+  agentSessions.value = []
+  agentSessionDrafts.value = {}
+  loadAgentSessionAssetIndex()
   try {
     const health = await requestAgentApi<OpenCodeHealthResult>('/global/health')
     if (!health?.healthy) throw new Error('OpenCode Server 健康检查未通过。')
@@ -1461,6 +1711,7 @@ const connectAgent = async (serverAddress: string, authHeader = '') => {
     agentView.value = selectDefaultAgentModel() ? 'chat' : 'models'
     resetAgentConversation()
     await loadAgentSessions()
+    saveActiveAgentSession()
     saveAgentConnection()
   } catch (error) {
     agentConnectionState.value = 'disconnected'
@@ -1522,12 +1773,15 @@ const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
   }
 }
 
-
 const markAgentResponseFailed = (message: string) => {
   const pending = getPendingAssistantMessage()
   if (pending) {
     pending.status = 'error'
-    pending.content = pending.content || message
+    pending.parts ||= []
+    if (!pending.parts.some((part) => part.id === `${pending.id}:error`)) {
+      pending.parts.push({ id: `${pending.id}:error`, type: 'text', text: message })
+    }
+    syncAgentMessageText(pending)
   }
   isAgentSending.value = false
   isAgentAborting.value = false
@@ -1557,16 +1811,66 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   }
 
   const properties = payload.properties
+  if (payload.type === 'session.updated' && properties?.info?.id) {
+    const updated = properties.info
+    agentSessions.value = agentSessions.value.map((item) =>
+      item.id === updated.id ? { ...item, ...updated } : item,
+    )
+  }
   const eventSessionId =
     properties?.sessionID || properties?.info?.sessionID || properties?.part?.sessionID
+  if (eventSessionId && payload.type === 'session.status' && properties?.status?.type) {
+    agentSessionStatuses.value[eventSessionId] = { type: properties.status.type }
+  }
   if (!eventSessionId || eventSessionId !== agentSessionId.value) return
+  if (isAgentHistoryLoading.value) {
+    agentHistoryEvents.push(event)
+    return
+  }
+  if (
+    payload.type === 'session.status' &&
+    ['busy', 'retry'].includes(properties?.status?.type || '')
+  ) {
+    isAgentSending.value = true
+  }
 
   if (payload.type === 'message.updated' && properties?.info?.role === 'assistant') {
     const messageId = properties.info.id
-    const pending = getPendingAssistantMessage()
+    let pending = getPendingAssistantMessage()
     if (messageId) {
       assistantMessageIds.add(messageId)
+      if (pending?.messageId && pending.messageId !== messageId) {
+        pending.status = 'done'
+        pending = undefined
+      }
+      if (!pending && !agentChatMessages.value.some((message) => message.messageId === messageId)) {
+        pending = {
+          id: messageId,
+          messageId,
+          role: 'assistant',
+          content: '',
+          reasoning: '',
+          reasoningCollapsed: false,
+          status: 'thinking',
+        }
+        agentChatMessages.value.push(pending)
+      }
       if (pending && !pending.messageId) pending.messageId = messageId
+    }
+    if (properties.info.error)
+      markAgentResponseFailed(extractOpenCodeError(properties.info.error, '模型响应失败。'))
+    return
+  }
+
+  if (payload.type === 'message.part.delta' && properties?.messageID && properties.partID) {
+    const target = agentChatMessages.value.find(
+      (message) => message.messageId === properties.messageID,
+    )
+    const part = target?.parts?.find((item) => item.id.endsWith(`:${properties.partID}`))
+    if (target && part && properties.field === 'text') {
+      part.text += properties.delta || ''
+      syncAgentMessageText(target)
+      void scrollAgentChatToBottom()
     }
     return
   }
@@ -1603,7 +1907,22 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       pending.reasoningCollapsed = true
     }
     isAgentSending.value = false
-    if (agentSessionId.value) void refreshAgentSession(agentSessionId.value)
+    agentSessionStatuses.value[eventSessionId] = { type: 'idle' }
+    if (agentSessionId.value) {
+      void refreshAgentSession(agentSessionId.value)
+      const sequence = agentRequestSequence
+      void requestAgentApi<OpenCodeMessage[]>(
+        `/session/${encodeURIComponent(agentSessionId.value)}/message`,
+      )
+        .then((messages) => {
+          if (sequence === agentRequestSequence && !isAgentSending.value) {
+            agentChatMessages.value = toAgentChatMessages(messages)
+          }
+        })
+        .catch(() => {
+          // Keep the streamed response if history is temporarily unavailable.
+        })
+    }
     void scrollAgentChatToBottom()
     return
   }
@@ -1619,6 +1938,37 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     markAgentResponseFailed(
       extractOpenCodeError(properties?.error ?? properties, 'Agent 处理消息时发生错误。'),
     )
+  }
+}
+
+const replayAgentHistoryEvents = () => {
+  const queued = agentHistoryEvents
+  agentHistoryEvents = []
+  const parts = new Map<string, NonNullable<NonNullable<OpenCodeEvent['properties']>['part']>>()
+  for (const event of queued) {
+    const payload = JSON.parse(event.data) as OpenCodeEvent
+    const props = payload.properties
+    if (payload.type === 'message.part.updated' && props?.part?.id) {
+      parts.set(props.part.id, { ...props.part })
+    } else if (payload.type === 'message.part.delta' && props?.partID) {
+      const part = parts.get(props.partID)
+      if (part && props.field === 'text') part.text = (part.text || '') + (props.delta || '')
+    } else {
+      handleOpenCodeEvent(event)
+    }
+  }
+  // A fetched snapshot may already contain queued text. Never append it twice
+  // or replace newer snapshot text with an earlier streaming fragment.
+  for (const part of parts.values()) {
+    const target = agentChatMessages.value.find((message) => message.messageId === part.messageID)
+    const existing = target?.parts?.find((item) => item.id === `${part.type}:${part.id}`)
+    if (!existing || (part.text || '').startsWith(existing.text)) {
+      handleOpenCodeEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'message.part.updated', properties: { part } }),
+        }),
+      )
+    }
   }
 }
 
@@ -1653,6 +2003,7 @@ const readAgentEventStream = async (
   try {
     while (true) {
       const { value, done } = await reader.read()
+      if (streamSequence !== agentEventStreamSequence || controller.signal.aborted) return
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const chunks = buffer.split(/\r?\n\r?\n/)
@@ -1700,6 +2051,7 @@ const connectAgentEvents = async () => {
       signal: controller.signal,
     })
     window.clearTimeout(timeoutId)
+    if (streamSequence !== agentEventStreamSequence) return
     if (!response.ok) {
       const payload = await response.json().catch(() => null)
       throw new Error(extractOpenCodeError(payload, `Agent 事件流连接失败：${response.status}`))
@@ -1711,6 +2063,7 @@ const connectAgentEvents = async () => {
     void readAgentEventStream(response, controller, streamSequence)
   } catch (error) {
     window.clearTimeout(timeoutId)
+    if (streamSequence !== agentEventStreamSequence) return
     isAgentEventStreamConnected = false
     agentConnectionState.value = 'disconnected'
     if (timedOut) throw new Error('连接 Agent 事件流超时。')
@@ -1746,6 +2099,14 @@ const goBackAgentView = () => {
 }
 
 const sendAgentMessage = async () => {
+  if (
+    isAgentHistoryLoading.value ||
+    isAgentHistoryFailed.value ||
+    isAgentSessionCreating.value ||
+    isAgentSessionSaving.value ||
+    isAgentSubmitting.value
+  )
+    return
   if (isAgentSending.value) {
     await abortAgentSession()
     return
@@ -1781,16 +2142,20 @@ const sendAgentMessage = async () => {
   agentChatMessages.value.push(assistantMessage)
   isAgentSending.value = true
   const requestSequence = ++agentRequestSequence
+  isAgentSubmitting.value = true
   await scrollAgentChatToBottom()
 
   try {
     await ensureAgentSession()
     if (requestSequence !== agentRequestSequence) return
+    const sendingSessionId = agentSessionId.value
+    if (!agentSessionAssetIndex.value[sendingSessionId]) indexAgentSession(sendingSessionId)
     const conversationAssetId =
       agentSessionAssetIndex.value[agentSessionId.value] || selectedAssetId.value
     const contextPrefix = conversationAssetId
       ? `当前会话对应的知识库 ID 是 ${conversationAssetId}。`
       : ''
+    agentSessionStatuses.value[sendingSessionId] = { type: 'busy' }
     await requestAgentApi<void>(
       `/session/${encodeURIComponent(agentSessionId.value)}/prompt_async`,
       {
@@ -1808,8 +2173,11 @@ const sendAgentMessage = async () => {
       },
     )
   } catch (error) {
-    agentConnectionState.value = 'disconnected'
+    if (requestSequence !== agentRequestSequence) return
+    if (agentSessionId.value) agentSessionStatuses.value[agentSessionId.value] = { type: 'idle' }
     markAgentResponseFailed(error instanceof Error ? error.message : '消息发送失败。')
+  } finally {
+    isAgentSubmitting.value = false
   }
 }
 
@@ -1818,6 +2186,7 @@ const abortAgentSession = async () => {
   isAgentAborting.value = true
   shouldIgnoreNextAgentAbortError = true
   agentRequestSequence += 1
+  const sequence = agentRequestSequence
   agentConnectionError.value = ''
 
   try {
@@ -1826,13 +2195,15 @@ const abortAgentSession = async () => {
         method: 'POST',
       })
     }
+    if (sequence !== agentRequestSequence) return
     markAgentResponseAborted()
   } catch (error) {
+    if (sequence !== agentRequestSequence) return
     shouldIgnoreNextAgentAbortError = false
     agentConnectionState.value = 'disconnected'
     agentConnectionError.value = error instanceof Error ? error.message : '停止会话失败。'
   } finally {
-    isAgentAborting.value = false
+    if (sequence === agentRequestSequence) isAgentAborting.value = false
     void scrollAgentChatToBottom()
   }
 }
@@ -1866,16 +2237,17 @@ let assetSelectionRequestSequence = 0
 watch(selectedAssetId, (nextAssetId, previousAssetId) => {
   if (!previousAssetId || nextAssetId === previousAssetId) return
   resetAgentConversation()
+  saveActiveAgentSession()
   agentSessionSearch.value = ''
 })
 const activePage = ref<'asset' | 'abnormal'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
-type MonitorProduct = 'kvcache' | 'brpc'
+type MonitorProduct = 'KVCache' | 'UBSocket'
 const activeMonitorSection = ref<MonitorSection>('latency')
 const activeMonitorProduct = computed<MonitorProduct>(() =>
   activeMonitorSection.value === 'brpc' || activeMonitorSection.value === 'brpc-fault'
-    ? 'brpc'
-    : 'kvcache',
+    ? 'UBSocket'
+    : 'KVCache',
 )
 const isAssetSidebarCollapsed = ref(false)
 const assetDetailRef = ref<HTMLElement | null>(null)
@@ -1890,18 +2262,18 @@ const isInitialDataUnavailable = computed(
 )
 
 const logSourceInput = ref('')
-type LogType = 'kv-cache' | 'brpc'
+type LogType = 'KVCache' | 'UBSocket'
 const getLogTypeStorageKey = (assetId: string) => `witty-ub.asset-detail.log-type:${assetId}`
 const getStoredLogType = (assetId: string): LogType => {
   try {
     const storedLogType = window.localStorage.getItem(getLogTypeStorageKey(assetId))
-    if (storedLogType === 'kv-cache' || storedLogType === 'brpc') return storedLogType
+    if (storedLogType === 'KVCache' || storedLogType === 'UBSocket') return storedLogType
   } catch {
     // localStorage may be unavailable in privacy-restricted browser contexts.
   }
-  return 'kv-cache'
+  return 'KVCache'
 }
-const logType = ref<LogType>('kv-cache')
+const logType = ref<LogType>('KVCache')
 watch(logType, (nextLogType) => {
   const assetId = selectedAssetId.value
   if (!assetId) return
@@ -2160,7 +2532,7 @@ const openParseConfigDrawer = async () => {
   diagnosisConfigImportAssetId.value = ''
   diagnosisConfigImportMessage.value = ''
   isParseConfigDrawerOpen.value = true
-  if (logType.value === 'brpc') {
+  if (logType.value === 'UBSocket') {
     isDiagnosisConfigLoading.value = false
     return
   }
@@ -2236,15 +2608,16 @@ const isPositiveArabicInteger = (value: DiagnosisConfigInputValue) => {
 const validateDiagnosisAnalyzerParams = () => {
   const invalidFields = new Set<string>()
   analyzerThresholdOptions.forEach(({ key }) => {
-    if (!isPositiveArabicDecimal(diagnosisConfigDraft.logAnalyzerParams[key])) {
+    const value = diagnosisConfigDraft.logAnalyzerParams[key]
+    if (!isPositiveArabicDecimal(value) || Number(value) > 1000) {
       invalidFields.add(key)
     }
   })
   diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
-    if (!isPositiveArabicInteger(size)) {
+    if (!isPositiveArabicInteger(size) || Number(size) > 10000) {
       invalidFields.add(getSlidingWindowFieldId(index, 'size'))
     }
-    if (!isPositiveArabicInteger(step)) {
+    if (!isPositiveArabicInteger(step) || Number(step) > 1000) {
       invalidFields.add(getSlidingWindowFieldId(index, 'step'))
     }
   })
@@ -2429,8 +2802,10 @@ onBeforeUnmount(() => {
 const faultTraceScrollGridStyle = computed(() => {
   const width = faultTraceScrollColumns.widths.reduce((sum, w) => sum + w, 0)
   return {
-    gridTemplateColumns: faultTraceScrollColumns.widths.map((w) => `${w}px`).join(' '),
-    width: `${width}px`,
+    gridTemplateColumns: faultTraceScrollColumns.widths
+      .map((w) => `minmax(${w}px, ${w}fr)`)
+      .join(' '),
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -2439,8 +2814,8 @@ const faultDetailTraceScrollGridStyle = computed(() => {
   const widths = faultTraceScrollColumns.widths.slice(1)
   const width = widths.reduce((sum, w) => sum + w, 0)
   return {
-    gridTemplateColumns: widths.map((w) => `${w}px`).join(' '),
-    width: `${width}px`,
+    gridTemplateColumns: widths.map((w) => `minmax(${w}px, ${w}fr)`).join(' '),
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -2938,8 +3313,6 @@ const selectedFaultAggregatedEventDetail = ref<FaultAggregatedEventDetail | null
 const selectedFaultTraceFailureModeId = ref('')
 const selectedTraceFailureModeId = ref('')
 const selectedChildFailureModeId = ref('')
-const traceSubFaultBatchSize = 20
-const visibleTraceSubFaultCount = ref(traceSubFaultBatchSize)
 const traceFailureLogsByTrace = ref<Record<string, TraceLogRow[]>>({})
 const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[]>>({})
 const isTraceLogsLoading = ref(false)
@@ -3250,7 +3623,6 @@ type GlobalFilterState = {
   podIps: string[]
   sourcePodIps: string[]
   targetPodIps: string[]
-  traceBoards: string[]
 }
 
 type AssetState = {
@@ -3285,7 +3657,6 @@ const createEmptyFilters = (): GlobalFilterState => ({
   podIps: [],
   sourcePodIps: [],
   targetPodIps: [],
-  traceBoards: [],
 })
 
 const filterDraftInput = reactive({
@@ -3306,7 +3677,6 @@ const traceFilterDialog = reactive({
   addPodIp: false,
   addSourcePodIp: false,
   addTargetPodIp: false,
-  addTraceBoard: false,
 })
 
 const abnormalTraceFilterDialog = reactive({
@@ -3416,7 +3786,7 @@ const getLatencySeriesConfig = (
     ['total_latency_us', '总时延', '#d32f2f'],
     ['sdk_processing_us', 'SDK处理', '#5470c6'],
     ['master_processing_us', 'Master处理', '#91cc75'],
-    ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
+    ['worker_access_latency_us', 'Worker端总时延', '#fac858'],
     ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
     ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
     ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
@@ -3602,7 +3972,6 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
   return abnormal
 }
 
-
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
   typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
 
@@ -3688,12 +4057,27 @@ const getNullableFiniteNumber = (record: Record<string, unknown>, key: string) =
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+// The parser persists the legacy total_latency field in milliseconds, while the
+// yuanrong breakdown fields are persisted in microseconds.  Keep the conversion
+// at the UI boundary so charts, bars and tooltips all consume milliseconds.
+const getLatencyMilliseconds = (record: Record<string, unknown>, key: string) => {
+  if (key === 'total_latency_us') {
+    const totalMs = getNullableFiniteNumber(record, 'total_latency')
+    if (totalMs !== null) return totalMs
+  }
+  const value = getNullableFiniteNumber(record, key)
+  return value !== null && key.endsWith('_us') ? value / 1000 : value
+}
+
 const buildLatencyBreakdownSegments = (
   totalLatency: number | null,
   getValue: (key: string) => number | null,
   configs: LatencyBreakdownConfig[] = latencyBreakdownSeriesConfig,
 ): LatencyBreakdownSegment[] => {
-  const values = configs.map((config) => getValue(config.key))
+  const values = configs.map((config) => {
+    const rawValue = getValue(config.key)
+    return config.unit === 'us' && rawValue !== null ? rawValue / 1000 : rawValue
+  })
   const parsedStageTotal = values.reduce<number>(
     (sum, value) =>
       typeof value === 'number' && Number.isFinite(value) && value > 0 ? sum + value : sum,
@@ -3707,12 +4091,9 @@ const buildLatencyBreakdownSegments = (
         : 0
 
   return configs.map((config, index) => {
-    const rawValue = values[index] ?? null
-    const value = config.unit === 'us' && typeof rawValue === 'number' ? rawValue / 1000 : rawValue
+    const value = values[index] ?? null
     const width =
-      typeof rawValue === 'number' && rawValue > 0 && scale > 0
-        ? Math.min(100, (rawValue / scale) * 100)
-        : 0
+      typeof value === 'number' && value > 0 && scale > 0 ? Math.min(100, (value / scale) * 100) : 0
     return {
       key: config.key,
       label: config.label,
@@ -3730,7 +4111,7 @@ const buildLatencyBreakdownSegments = (
 const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) => {
   const raw = row.raw && typeof row.raw === 'object' ? (row.raw as Record<string, unknown>) : row
   const yuanrongSegments = buildLatencyBreakdownSegments(
-    getNullableFiniteNumber(raw, 'total_latency_us'),
+    getLatencyMilliseconds(raw, 'total_latency_us'),
     (key) => getNullableFiniteNumber(raw, key),
   )
   if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
@@ -3824,6 +4205,7 @@ type TraceDelayKey =
   | 'w2wUrmaLatency'
   | 'sdkProcess'
   | 'sdkRpc'
+  | 'workerTotalLatency'
   | 'localWorkerCost'
   | 'localWorkerLock'
   | 'remoteWorkerCost'
@@ -3870,6 +4252,13 @@ const traceDelayColumns = [
   },
   { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
+  {
+    key: 'workerTotalLatency',
+    label: 'Worker端总时延 (ms)',
+    metric: 'worker_total_latency',
+    threshold: 100,
+    unit: 'ms',
+  },
   { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 1.5, unit: 'ms' },
   { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
@@ -3921,8 +4310,7 @@ const parseDateAsLocal = (raw: string): Date | null => {
   }
   // Parse as LOCAL time by extracting components and using
   // new Date(year, month-1, day, hours, minutes, seconds).
-  // This avoids the ECMAScript rule that "T"-separated
-  // datetime strings without timezone are parsed as UTC.
+  // Extract components explicitly to support the API's space-separated format.
   const normalized = cleaned.replace('T', ' ').replace(/Z$/i, '')
   const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/)
   if (match) {
@@ -3972,10 +4360,11 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) =>
-  typeof value === 'number' && Number.isFinite(value)
-    ? `${formatMetricValue(value)} ${column.unit}`
-    : '未解析'
+const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (value < 0) return '无效值'
+  return `${formatMetricValue(value)} ${column.unit}`
+}
 
 type TopSlowSegmentKey = string
 
@@ -4000,7 +4389,7 @@ type TopSlowChartRow = {
 const getTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
   { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
   { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-  { key: 'worker_access_latency_us', label: 'Worker Access时延', color: '#fac858' },
+  { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
   { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
   { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
   { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
@@ -4032,7 +4421,8 @@ const topSlowChartRows = computed<TopSlowChartRow[]>(() =>
   topSlowRequests.value
     .map((request) => {
       const date = parseMetricDate(request)
-      const totalLatency = finiteLatencyValue(request.total_latency_us)
+      const totalLatencyMs = getLatencyMilliseconds(request, 'total_latency_us')
+      const totalLatency = finiteLatencyValue(totalLatencyMs, 1000)
       if (!date || totalLatency <= 0) return null
 
       const segments = {} as Record<TopSlowSegmentKey, number>
@@ -4121,6 +4511,7 @@ const getTraceDelayStatusLabel = (
 ) => {
   const value = getTraceDelayValue(trace, column)
   if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (value < 0) return '无效值'
   return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
 }
 
@@ -4167,10 +4558,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 
       const values = latencySeriesConfig.value.reduce(
         (acc, series) => {
-          let value = getFiniteMetricValue(metric, series.key)
-          if (value !== null && typeof series.key === 'string' && series.key.endsWith('_us')) {
-            value = value / 1000
-          }
+          const value = getLatencyMilliseconds(metric, series.key)
           acc[series.key] = value
           return acc
         },
@@ -4193,7 +4581,6 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
     .filter((bucket): bucket is LatencyChartBucket => bucket !== null)
 })
 
-
 const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
   const operation =
     selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
@@ -4203,7 +4590,9 @@ const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
   return allDetailParseResults.value
     .map((result) => {
       const date = parseMetricDate(result)
-      const totalLatency = finiteLatencyValue(result.total_latency)
+      // TopSlowChartRow uses microseconds internally because every breakdown
+      // segment comes from a *_us field. total_latency is the legacy ms field.
+      const totalLatency = finiteLatencyValue(result.total_latency, 1000)
       if (!date || totalLatency <= 0) return null
 
       const segments = {} as Record<TopSlowSegmentKey, number>
@@ -4234,6 +4623,7 @@ let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
 let faultDetailChartInstance: ECharts | null = null
 let topSlowChartInstance: ECharts | null = null
+let topSlowTooltipPinned = false
 
 const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
   const ranges: Array<[Record<string, number>, Record<string, number>]> = []
@@ -4404,7 +4794,6 @@ const createLatencyEchartsOption = (
   }
 }
 
-
 const escapeChartHtml = (value: string) =>
   value
     .replaceAll('&', '&amp;')
@@ -4412,6 +4801,60 @@ const escapeChartHtml = (value: string) =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+
+const copyTextToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    textarea.remove()
+    return copied
+  }
+}
+
+const handleTopSlowTooltipClick = async (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target : null
+  const button = target?.closest<HTMLButtonElement>('.top-slow-tooltip-copy')
+  if (!button) return
+
+  event.stopPropagation()
+  const traceId = button.dataset.traceId
+  if (!traceId) return
+
+  const copied = await copyTextToClipboard(traceId)
+  button.textContent = copied ? '已复制' : '复制失败'
+  window.setTimeout(() => {
+    if (button.isConnected) button.textContent = '复制'
+  }, 1500)
+}
+
+const unpinTopSlowTooltip = () => {
+  if (!topSlowTooltipPinned) return
+
+  topSlowTooltipPinned = false
+  topSlowChartInstance?.setOption({
+    tooltip: { alwaysShowContent: false, triggerOn: 'mousemove|click', hideDelay: 0 },
+  })
+  topSlowChartInstance?.dispatchAction({ type: 'hideTip' })
+  topSlowChartInstance?.setOption({ tooltip: { hideDelay: 300 } })
+}
+
+const handleTopSlowTooltipOutsideClick = (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest('.top-slow-tooltip')) return
+
+  unpinTopSlowTooltip()
+}
+
+const renderTopSlowTooltipTrace = (traceId: string, operation: string) =>
+  `<div class="top-slow-tooltip-trace"><small>${escapeChartHtml(traceId)} · ${escapeChartHtml(operation)}</small><button type="button" class="top-slow-tooltip-copy" data-trace-id="${escapeChartHtml(traceId)}" aria-label="复制 trace ID">复制</button></div>`
 
 const formatTopSlowLatency = (value: number) => `${value.toFixed(2)} ms`
 
@@ -4455,6 +4898,8 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      enterable: true,
+      hideDelay: 300,
       order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
@@ -4478,7 +4923,7 @@ const createTopSlowEchartsOption = (rows: TopSlowChartRow[]): EChartsOption => {
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong>${renderTopSlowTooltipTrace(row.traceId, row.operation)}<div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -4565,6 +5010,8 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       appendToBody: true,
+      enterable: true,
+      hideDelay: 300,
       order: 'valueDesc',
       formatter: (params: unknown) => {
         const items = Array.isArray(params) ? params : []
@@ -4588,7 +5035,7 @@ const createFaultTraceEchartsOption = (rows: TopSlowChartRow[]): EChartsOption =
           )
           .join('')
 
-        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong><small>${escapeChartHtml(row.traceId)} · ${escapeChartHtml(row.operation)}</small><div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
+        return `<div class="top-slow-tooltip"><strong>${escapeChartHtml(row.timestampLabel)}</strong>${renderTopSlowTooltipTrace(row.traceId, row.operation)}<div class="top-slow-tooltip-total">总时延：${formatTopSlowLatency(row.totalLatency / 1000)}</div>${details}</div>`
       },
     },
     legend: {
@@ -4824,8 +5271,39 @@ const renderTopSlowEchart = () => {
     topSlowChartInstance.dispose()
     topSlowChartInstance = null
   }
+  const shouldBindTooltipPinning = topSlowChartInstance === null
   topSlowChartInstance ??= echarts.init(element)
+  topSlowTooltipPinned = false
   topSlowChartInstance.setOption(createTopSlowEchartsOption(topSlowChartRows.value), true)
+  if (shouldBindTooltipPinning) {
+    topSlowChartInstance.on('click', (params: unknown) => {
+      const event = params as {
+        componentType?: string
+        seriesType?: string
+        seriesIndex?: number
+        dataIndex?: number
+        event?: { event?: MouseEvent }
+      }
+      if (
+        event.componentType !== 'series' ||
+        event.seriesType !== 'bar' ||
+        typeof event.seriesIndex !== 'number' ||
+        typeof event.dataIndex !== 'number'
+      )
+        return
+
+      event.event?.event?.stopPropagation()
+      topSlowTooltipPinned = true
+      topSlowChartInstance?.setOption({
+        tooltip: { alwaysShowContent: true, triggerOn: 'none' },
+      })
+      topSlowChartInstance?.dispatchAction({
+        type: 'showTip',
+        seriesIndex: event.seriesIndex,
+        dataIndex: event.dataIndex,
+      })
+    })
+  }
   topSlowChartInstance.resize()
 }
 
@@ -4898,16 +5376,13 @@ const hasFaultChartMetricData = computed(() =>
   Object.values(faultChartMetrics.value).some((metrics) => metrics.length > 0),
 )
 const faultAggregatedEventCodeColumnMinWidth = 132
-const faultAggregatedEventCodeColumnMaxWidth = 220
 const faultAggregatedEventCodeGridStyle = computed(() => {
   const columnCount = Math.max(1, faultAggregatedEventCodes.value.length)
   const minWidth = columnCount * faultAggregatedEventCodeColumnMinWidth
-  const preferredWidth = columnCount * faultAggregatedEventCodeColumnMaxWidth
-  const width = `clamp(${minWidth}px, 100%, ${preferredWidth}px)`
   return {
-    gridTemplateColumns: `repeat(${columnCount}, minmax(${faultAggregatedEventCodeColumnMinWidth}px, ${faultAggregatedEventCodeColumnMaxWidth}px))`,
-    width,
-    minWidth: width,
+    gridTemplateColumns: `repeat(${columnCount}, minmax(${faultAggregatedEventCodeColumnMinWidth}px, 1fr))`,
+    width: '100%',
+    minWidth: `${minWidth}px`,
   }
 })
 const paginatedFaultAggregatedEventRows = computed(() => faultAggregatedEventRows.value)
@@ -5211,8 +5686,6 @@ const faultDetailChartBuckets = computed<FaultChartBucket[]>(() => {
     }))
 })
 
-
-
 const getRecordString = (record: Record<string, unknown>, keys: string[], fallback = '-') => {
   for (const key of keys) {
     const value = record[key]
@@ -5225,6 +5698,11 @@ const getRecordString = (record: Record<string, unknown>, keys: string[], fallba
 const getDisplayHost = (record: Record<string, unknown>) => {
   const host = getRecordString(record, ['host'], '-').trim()
   return host.toLowerCase() === 'unknown' ? '-' : host
+}
+
+const getDisplayCluster = (record: Record<string, unknown>) => {
+  const cluster = getRecordString(record, ['cluster_name', 'clusterName', 'cluster'], '-').trim()
+  return cluster.toLowerCase() === 'null' ? '-' : cluster
 }
 
 const stringifyDetailValue = (value: unknown) => {
@@ -5391,7 +5869,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       operation: normalizeTraceOperation(
         getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
       ),
-      clusterName: getRecordString(record, ['cluster_name'], 'null'),
+      clusterName: getDisplayCluster(record),
       host: getDisplayHost(record),
       totalLatency: getRecordNullableNumber(record, [
         'total_latency',
@@ -5763,12 +6241,7 @@ const selectedTraceFailureModeDisplayErrorCode = computed(() => {
 const selectTraceFailureMode = (failureModeId: string) => {
   selectedTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  void loadRelatedFailureModeDetails(
-    failureModeId,
-    selectedTraceFailureModeIds.value,
-    selectedTraceAccessFailureModeIds.value,
-  )
+  void loadRelatedFailureModeDetails(failureModeId, selectedTraceFailureModeIds.value)
 }
 
 const selectedFaultTraceFailureModeIds = computed<string[]>(() => {
@@ -5811,12 +6284,7 @@ const selectedChildFailureMode = computed<(FailureModeKnowledgeModel & { _id: st
 const selectFaultTraceFailureMode = (failureModeId: string) => {
   selectedFaultTraceFailureModeId.value = failureModeId
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  void loadRelatedFailureModeDetails(
-    failureModeId,
-    selectedFaultTraceFailureModeIds.value,
-    selectedFaultTraceAccessFailureModeIds.value,
-  )
+  void loadRelatedFailureModeDetails(failureModeId, selectedFaultTraceFailureModeIds.value)
 }
 
 const getFailureModeChildren = (failureMode?: FailureModeKnowledgeModel | null) =>
@@ -5837,24 +6305,24 @@ const normalizeFailureModeErrorCode = (rawErrorCode: string | number | null | un
   return errorCode
 }
 
-const getRelatedFailureModeIds = (
+const getRelatedChildFailureModeIds = (
   failureMode: FailureModeKnowledgeModel | null | undefined,
   traceFailureModeIds: string[],
-  accessFailureModeIds: Set<string>,
 ) => {
   const traceFailureModeIdSet = new Set(traceFailureModeIds)
-  const matchedChildIds = getFailureModeChildren(failureMode).filter((childId) =>
-    traceFailureModeIdSet.has(childId),
-  )
-  if (matchedChildIds.length > 0) return matchedChildIds
+  return getFailureModeChildren(failureMode).filter((childId) => traceFailureModeIdSet.has(childId))
+}
 
+const getSameErrorCodeFailureModeIds = (
+  failureMode: FailureModeKnowledgeModel | null | undefined,
+  traceFailureModeIds: string[],
+) => {
   const errorCode = normalizeFailureModeErrorCode(failureMode?.error_code)
   if (!errorCode) return []
 
-  // 子故障交集为空时，只在当前 trace 已命中的故障模式中筛选同码项，
-  // 避免从故障模式知识库中收集全量同码故障。
+  // 只在当前 trace 已命中的全部故障模式中筛选同码项（含 access 故障），避免从知识库收集全量同码故障。
   return traceFailureModeIds.filter((failureModeId) => {
-    if (failureModeId === failureMode?.id || accessFailureModeIds.has(failureModeId)) return false
+    if (failureModeId === failureMode?.id) return false
     const candidateErrorCode = normalizeFailureModeErrorCode(
       failureModeDetailsById.value[failureModeId]?.error_code,
     )
@@ -5862,19 +6330,28 @@ const getRelatedFailureModeIds = (
   })
 }
 
-const selectedTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(
+const selectedTraceRelatedChildFailureModeIds = computed(() =>
+  getRelatedChildFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
+)
+
+const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
+  getSameErrorCodeFailureModeIds(
     selectedTraceFailureMode.value,
     selectedTraceFailureModeIds.value,
-    selectedTraceAccessFailureModeIds.value,
   ),
 )
 
-const selectedFaultTraceRelatedFailureModeIds = computed(() =>
-  getRelatedFailureModeIds(
+const selectedFaultTraceRelatedChildFailureModeIds = computed(() =>
+  getRelatedChildFailureModeIds(
     selectedFaultTraceFailureMode.value,
     selectedFaultTraceFailureModeIds.value,
-    selectedFaultTraceAccessFailureModeIds.value,
+  ),
+)
+
+const selectedFaultTraceSameErrorCodeFailureModeIds = computed(() =>
+  getSameErrorCodeFailureModeIds(
+    selectedFaultTraceFailureMode.value,
+    selectedFaultTraceFailureModeIds.value,
   ),
 )
 
@@ -5893,58 +6370,25 @@ const getRelatedFailureModeLabel = (failureModeId: string, isAccessFailure: bool
   return getFailureModeLabel(failureModeId, isAccessFailure, '未知相关故障')
 }
 
-const getVisibleRelatedFailureModeIds = (relatedFailureModeIds: string[]) =>
-  relatedFailureModeIds.slice(0, visibleTraceSubFaultCount.value)
-
-const getVisibleRelatedFailureModeCount = (relatedFailureModeIds: string[]) =>
-  Math.min(visibleTraceSubFaultCount.value, relatedFailureModeIds.length)
-
 const loadRelatedFailureModeDetails = async (
   failureModeId: string,
   traceFailureModeIds: string[],
-  accessFailureModeIds: Set<string>,
 ) => {
   const parentFailureMode =
     failureModeDetailsById.value[failureModeId] ?? (await loadFailureModeDetail(failureModeId))
-  const relatedFailureModeIds = getVisibleRelatedFailureModeIds(
-    getRelatedFailureModeIds(parentFailureMode, traceFailureModeIds, accessFailureModeIds),
-  )
+  const relatedFailureModeIds = [
+    ...getRelatedChildFailureModeIds(parentFailureMode, traceFailureModeIds),
+    ...getSameErrorCodeFailureModeIds(parentFailureMode, traceFailureModeIds),
+  ]
   await Promise.all(relatedFailureModeIds.map((relatedId) => loadFailureModeDetail(relatedId)))
 }
 
-const loadMoreRelatedFailureModes = async (relatedFailureModeIds: string[]) => {
-  const previousVisibleCount = visibleTraceSubFaultCount.value
-  visibleTraceSubFaultCount.value = Math.min(
-    previousVisibleCount + traceSubFaultBatchSize,
-    relatedFailureModeIds.length,
-  )
-  await Promise.all(
-    relatedFailureModeIds
-      .slice(previousVisibleCount, visibleTraceSubFaultCount.value)
-      .map((relatedId) => loadFailureModeDetail(relatedId)),
-  )
-}
-
-const collapseRelatedFailureModes = (relatedFailureModeIds: string[]) => {
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
-  if (
-    !relatedFailureModeIds
-      .slice(0, traceSubFaultBatchSize)
-      .includes(selectedChildFailureModeId.value)
-  ) {
-    selectedChildFailureModeId.value = ''
-  }
-}
-
 const selectChildFailureMode = async (childId: string) => {
-  selectedChildFailureModeId.value = selectedChildFailureModeId.value === childId ? '' : childId
-  if (selectedChildFailureModeId.value) {
-    await loadFailureModeDetail(childId)
-  }
+  selectedChildFailureModeId.value = childId
+  await loadFailureModeDetail(childId)
 }
 
 const normalizeFilterText = (value: string) => value.trim()
-
 
 const matchesAbnormalTraceFilters = (row: AbnormalTraceRow) => {
   const filters = appliedFilters.value
@@ -6065,6 +6509,7 @@ const toFaultTraceTableRow = (
     w2wUrmaLatency: null,
     sdkProcess: null,
     sdkRpc: null,
+    workerTotalLatency: null,
     localWorkerCost: null,
     localWorkerLock: null,
     remoteWorkerCost: null,
@@ -6092,7 +6537,6 @@ const closeTraceDialog = () => {
   selectedTrace.value = null
   selectedTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
 }
 
 const loadTraceLatencyData = async (traceId: string): Promise<LogParseResultModel | null> => {
@@ -6151,6 +6595,7 @@ const openFaultTraceDialog = async (trace: TraceDetailRow) => {
       w2wUrmaLatency: latencyData.w2w_urma_latency ?? null,
       sdkProcess: latencyData.sdk_process ?? null,
       sdkRpc: latencyData.sdk_rpc ?? null,
+      workerTotalLatency: latencyData.worker_total_latency ?? null,
       localWorkerCost: latencyData.local_worker_cost ?? null,
       localWorkerLock: latencyData.local_worker_lock ?? null,
       remoteWorkerCost: latencyData.remote_worker_cost ?? null,
@@ -6165,7 +6610,6 @@ const closeFaultTraceDialog = () => {
   selectedFaultTrace.value = null
   selectedFaultTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
-  visibleTraceSubFaultCount.value = traceSubFaultBatchSize
 }
 
 const openParseResultChain = async (row: ParseResultTableRow) => {
@@ -6192,6 +6636,7 @@ const openParseResultChain = async (row: ParseResultTableRow) => {
     w2wUrmaLatency: row.w2wUrmaLatency,
     sdkProcess: row.sdkProcess,
     sdkRpc: row.sdkRpc,
+    workerTotalLatency: row.workerTotalLatency,
     localWorkerCost: row.localWorkerCost,
     localWorkerLock: row.localWorkerLock,
     remoteWorkerCost: row.remoteWorkerCost,
@@ -6265,12 +6710,10 @@ const removeFilterValue = (category: FilterTagCategory, value: string) => {
   globalFilters[key] = globalFilters[key].filter((item) => item !== value)
 }
 
-const resetFilterCategory = (category: FilterTagCategory | 'time' | 'traceBoard') => {
+const resetFilterCategory = (category: FilterTagCategory | 'time') => {
   if (category === 'time') {
     globalFilters.startTime = ''
     globalFilters.endTime = ''
-  } else if (category === 'traceBoard') {
-    globalFilters.traceBoards = []
   } else {
     const key = filterTagCollections[category]
     globalFilters[key] = [] as never
@@ -6584,6 +7027,7 @@ const viewAbnormalTraceLink = async (row: AbnormalTraceRow) => {
     w2wUrmaLatency: row.w2wUrmaLatency,
     sdkProcess: row.sdkProcess,
     sdkRpc: row.sdkRpc,
+    workerTotalLatency: row.workerTotalLatency,
     localWorkerCost: row.localWorkerCost,
     localWorkerLock: row.localWorkerLock,
     remoteWorkerCost: row.remoteWorkerCost,
@@ -6655,20 +7099,11 @@ const confirmFaultAggregatedPodIpFilterDialog = () => {
   closeFaultAggregatedPodIpFilterDialog()
 }
 
-const removeTraceBoardValue = (traceId: string) => {
-  globalFilters.traceBoards = globalFilters.traceBoards.filter((item) => item !== traceId)
-  filterApplyMessage.value = ''
-}
-
-const addTraceBoardValue = (traceId: string) => {
-  if (!globalFilters.traceBoards.includes(traceId)) {
-    globalFilters.traceBoards.push(traceId)
-  }
-  filterApplyMessage.value = ''
-}
-
 const isTraceFilterValueAvailable = (value?: string) =>
   Boolean(value && value !== 'null' && value !== '-')
+
+const getTraceFilterDisplayValue = (value?: string) =>
+  isTraceFilterValueAvailable(value) ? value : '该字段内容缺失，不可选择'
 
 const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.trace = trace
@@ -6677,7 +7112,6 @@ const openTraceFilterDialog = (trace: TraceFilterTarget) => {
   traceFilterDialog.addPodIp = false
   traceFilterDialog.addSourcePodIp = false
   traceFilterDialog.addTargetPodIp = false
-  traceFilterDialog.addTraceBoard = false
   traceFilterDialog.open = true
 }
 
@@ -6705,10 +7139,6 @@ const confirmTraceFilterDialog = () => {
   if (traceFilterDialog.addTargetPodIp && isTraceFilterValueAvailable(trace.podIp)) {
     addTargetPodIpFilter(trace.podIp)
   }
-  if (traceFilterDialog.addTraceBoard) {
-    addTraceBoardValue(trace.traceId)
-  }
-
   closeTraceFilterDialog()
 }
 
@@ -6720,7 +7150,6 @@ const snapshotCurrentFilters = (): GlobalFilterState => ({
   podIps: globalFilters.podIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   sourcePodIps: globalFilters.sourcePodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
   targetPodIps: globalFilters.targetPodIps.map(normalizeFilterText).filter(Boolean).slice(-1),
-  traceBoards: [],
 })
 
 const getActiveFilterCount = (filters: GlobalFilterState) => {
@@ -7300,7 +7729,6 @@ const loadTopSlowChart = async () => {
   }
 }
 
-
 const loadDetailParseResults = async (
   row: LatencyDetailRow,
   pageNum = detailParseResultsPage.value,
@@ -7842,13 +8270,21 @@ const getTimeWindowSummaryValue = (twEvent: TimeWindowAggregatedEvent, metric: s
   return typeof val === 'number' ? val : null
 }
 
-const getAveragedYuanrongMetric = (record: object, key: string) =>
-  getNullableFiniteNumber(record as Record<string, unknown>, `ave_${key}`)
+const getP99YuanrongMetric = (record: object, key: string) =>
+  getNullableFiniteNumber(record as Record<string, unknown>, `p99_${key}`)
+
+const getP99YuanrongTotalMilliseconds = (record: object) => {
+  const raw = record as Record<string, unknown>
+  const totalMs = getNullableFiniteNumber(raw, 'p99_total_latency')
+  if (totalMs !== null) return totalMs
+  const totalUs = getNullableFiniteNumber(raw, 'p99_total_latency_us')
+  return totalUs === null ? null : totalUs / 1000
+}
 
 const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
   const yuanrongSegments = buildLatencyBreakdownSegments(
-    getAveragedYuanrongMetric(twEvent, 'total_latency_us'),
-    (key) => getAveragedYuanrongMetric(twEvent, key),
+    getP99YuanrongTotalMilliseconds(twEvent),
+    (key) => getP99YuanrongMetric(twEvent, key),
   )
   if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
   return buildLatencyBreakdownSegments(
@@ -7860,8 +8296,8 @@ const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
 
 const getTimeWindowIpPairBreakdownSegments = (ipPair: TimeWindowAggregatedIpPair) => {
   const yuanrongSegments = buildLatencyBreakdownSegments(
-    getAveragedYuanrongMetric(ipPair, 'total_latency_us'),
-    (key) => getAveragedYuanrongMetric(ipPair, key),
+    getP99YuanrongTotalMilliseconds(ipPair),
+    (key) => getP99YuanrongMetric(ipPair, key),
   )
   if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
   return buildLatencyBreakdownSegments(
@@ -7883,7 +8319,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
-    clusterName: getRecordString(record, ['cluster_name'], 'null'),
+    clusterName: getDisplayCluster(record),
     host: getDisplayHost(record),
     totalLatency: getRecordNullableNumber(record, ['total_latency']),
     queryMetaLatency: getRecordNullableNumber(record, ['worker_query_meta_latency']),
@@ -8749,10 +9185,7 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return (
-    message.startsWith('Trace context logs stored:') ||
-    message.startsWith('任务失败：')
-  )
+  return message.startsWith('Trace context logs stored:') || message.startsWith('任务失败：')
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>
@@ -8884,7 +9317,7 @@ const getLogFileProgressClass = (file: LogFileModel) => {
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
 
-const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'brpc'
+const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'UBSocket'
 
 const pickDefaultKvcacheLogFile = (files: LogFileModel[]): LogFileModel | null => {
   if (files.length === 0) return null
@@ -8901,7 +9334,7 @@ const isSuccessfulLogFile = (file: LogFileModel) =>
 
 const getLogFileTaskType = (file: LogFileModel) => getDetailedLogFileTask(file)?.task_type ?? ''
 
-const isBrpcLogFile = (file: LogFileModel) => file.log_type === 'brpc'
+const isBrpcLogFile = (file: LogFileModel) => file.log_type === 'UBSocket'
 
 const isBrpcProfilingLogFile = (file: LogFileModel) =>
   getLogFileTaskType(file) === 'brpc_log_parse_worker'
@@ -8967,14 +9400,14 @@ const loadLogFiles = async (
     logFiles.value = nextLogFiles
     logFilesTotal.value = nextTotal
     logFilesPage.value = pageNum
-    // 默认选中最新的 kv-cache 日志文件作为“当前 log”，
+    // 默认选中最新的 KVCache 日志文件作为“当前 log”，
     // 供时延指标桶模式直读分位统计表（log_id）使用；列表为空则清空。
     // 必须避开 brpc 日志文件，否则 kvcache 时延 API 按 brpc log_id 过滤会返回空结果。
     if (nextLogFiles.length > 0) {
       const currentId = selectedLogFileId.value
       const currentFile = nextLogFiles.find((f) => getLogFileId(f) === currentId)
       if (currentFile && isKvcacheLogFile(currentFile)) {
-        // 当前选中的是 kv-cache 日志，保持不变
+        // 当前选中的是 KVCache 日志，保持不变
       } else {
         const defaultFile = pickDefaultKvcacheLogFile(nextLogFiles)
         selectedLogFileId.value = defaultFile ? getLogFileId(defaultFile) : null
@@ -9075,7 +9508,7 @@ const deleteLogFile = async (logFileId: string) => {
       logFiles.value.splice(index, 1)
       logFilesTotal.value = Math.max(0, logFilesTotal.value - 1)
     }
-    // 若删除的是当前选中 log，回退到最新的 kv-cache 日志（或清空）
+    // 若删除的是当前选中 log，回退到最新的 KVCache 日志（或清空）
     if (selectedLogFileId.value === logFileId) {
       const fallback = pickDefaultKvcacheLogFile(logFiles.value)
       selectedLogFileId.value = fallback ? getLogFileId(fallback) : null
@@ -9176,17 +9609,18 @@ const loadFaultPage = async () => {
 }
 
 // ============================================================
-// BRPC 接口监控
+// UBSocket 接口监控
 // ============================================================
 const brpcDataLoading = ref(false)
 const brpcInterfaceNames = ref<string[]>([])
-const brpcAllRows = ref<Record<string, any>[]>([])
-const brpcAllFileRows = ref<Record<string, any>[]>([])
+const brpcAllRows = ref<BrpcProfilingRow[]>([])
+const brpcAllFileRows = ref<BrpcProfilingRow[]>([])
 const brpcProfilingFiles = ref<BrpcProfilingFileOption[]>([])
 const brpcSelectedFileName = ref('')
 // 文件下拉框与空态共用同一信号；不要用 rows/interface 数量判断，
 // profiling 文件存在但暂时没有可展示数据时不应显示“无接口日志文件，请检查是否存在profiling文件”。
 const hasBrpcProfilingLogFile = computed(() => brpcProfilingFiles.value.length > 0)
+const hasBrpcProfilingData = computed(() => brpcAllRows.value.length > 0)
 
 // 图表1：接口成功率总览
 const brpcSuccessMetric = ref('successRate')
@@ -9224,7 +9658,7 @@ const brpcLatencySelectedIfaces = ref<string[]>([])
 const brpcLatencyChartRef = ref<HTMLDivElement | null>(null)
 let brpcLatencyChartInstance: echarts.ECharts | null = null
 
-// BRPC 通断故障监控：接口故障数时序分布
+// UBSocket 通断故障监控：接口故障数时序分布
 const selectedBrpcFaultScale = ref<number>(60)
 const brpcFaultChartCenterTime = ref<number | null>(null)
 const brpcFaultTimelineRef = ref<HTMLDivElement | null>(null)
@@ -9238,7 +9672,7 @@ let brpcFaultTimelineChartInstance: echarts.ECharts | null = null
 let brpcFaultTimelineRequestSequence = 0
 let brpcFaultTimelineRequestController: AbortController | null = null
 
-// BRPC 聚合事件列表
+// UBSocket 聚合事件列表
 const activeBrpcFaultTab = ref<'event' | 'thread'>('event')
 const brpcEventAggregation = ref<'pod' | 'thread'>('pod')
 const selectedBrpcEventInterval = ref<'1h' | '1m' | '1s'>('1m')
@@ -9388,7 +9822,7 @@ const resetAssetScopedMonitorData = () => {
   faultDetailChartError.value = ''
   selectedLogFileId.value = null
 
-  // BRPC profiling and diagnosis use different endpoints, but both selections
+  // UBSocket profiling and diagnosis use different endpoints, but both selections
   // and all derived data are scoped to the currently selected knowledge base.
   brpcProfilingRequestSequence += 1
   brpcFaultTimelineRequestSequence += 1
@@ -9517,7 +9951,7 @@ const brpcEventDetailComponentCounts = computed(() => {
   })
   return [
     { key: 'all', label: '故障总数', count: detail?.hit_total ?? 0 },
-    { key: 'ubsocket', label: 'UBSOCKET故障数', count: componentCounts.ubsocket },
+    { key: 'ubsocket', label: 'UBSocket故障数', count: componentCounts.ubsocket },
     { key: 'umq', label: 'UMQ故障数', count: componentCounts.umq },
     { key: 'urma', label: 'URMA故障数', count: componentCounts.urma },
   ]
@@ -9556,8 +9990,10 @@ const brpcAbnormalThreadInterfaceGridStyle = computed(() => {
   const width = columnCount * BRPC_INTERFACE_COLUMN_WIDTH
   return {
     gridTemplateColumns:
-      columnCount > 0 ? `repeat(${columnCount}, ${BRPC_INTERFACE_COLUMN_WIDTH}px)` : 'none',
-    width: `${width}px`,
+      columnCount > 0
+        ? `repeat(${columnCount}, minmax(${BRPC_INTERFACE_COLUMN_WIDTH}px, 1fr))`
+        : 'none',
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -10294,8 +10730,8 @@ const brpcEventInterfaceGridStyle = computed(() => {
   const columnCount = Math.max(1, brpcEventInterfaceColumns.value.length)
   const width = columnCount * BRPC_INTERFACE_COLUMN_WIDTH
   return {
-    gridTemplateColumns: `repeat(${columnCount}, ${BRPC_INTERFACE_COLUMN_WIDTH}px)`,
-    width: `${width}px`,
+    gridTemplateColumns: `repeat(${columnCount}, minmax(${BRPC_INTERFACE_COLUMN_WIDTH}px, 1fr))`,
+    width: '100%',
     minWidth: `${width}px`,
   }
 })
@@ -10307,7 +10743,7 @@ const getBrpcProfilingFileLabel = (file: BrpcProfilingFileOption) =>
   `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
 
 const isBrpcProfilingRowWithinTimeRange = (
-  row: Record<string, any>,
+  row: BrpcProfilingRow,
   filters: GlobalFilterState,
 ): boolean => {
   const raw = row?.timestamp
@@ -10343,8 +10779,13 @@ const applyBrpcFileFilter = () => {
   brpcSuccessSelectedIfaces.value = [...brpcInterfaceNames.value]
   brpcLatencySelectedIfaces.value = [...brpcInterfaceNames.value]
   const firstInterface = brpcInterfaceNames.value.at(0)
-  if (firstInterface) {
-    brpcSingleIface.value = firstInterface
+  brpcSingleIface.value = firstInterface ?? ''
+  if (rows.length === 0) {
+    // ECharts keeps its previous option when rendering is skipped. Clear all
+    // instances so an empty time range cannot leave stale, apparently unfiltered data visible.
+    brpcSuccessChartInstance?.clear()
+    brpcSingleChartInstance?.clear()
+    brpcLatencyChartInstance?.clear()
   }
   nextTick(() => {
     renderBrpcSuccessChart()
@@ -10374,7 +10815,7 @@ const loadBrpcMonitorData = async () => {
     const queryString = query.size > 0 ? `?${query.toString()}` : ''
     const result = await request<{
       files: BrpcProfilingFileOption[]
-      rows: Record<string, any>[]
+      rows: BrpcProfilingRow[]
     }>(`/brpc_profiling/knowledge/${encodeURIComponent(assetId)}${queryString}`)
 
     if (requestSequence !== brpcProfilingRequestSequence || selectedAssetId.value !== assetId) {
@@ -10412,7 +10853,7 @@ const loadBrpcMonitorData = async () => {
 
 // 按接口名和时间戳聚合数据，返回 Map<interface_name, Map<timestamp, row>>
 const buildBrpcDataMap = () => {
-  const map = new Map<string, Map<string, Record<string, any>>>()
+  const map = new Map<string, Map<string, BrpcProfilingRow>>()
   for (const row of brpcAllRows.value) {
     const iface = row.interface_name
     const ts = row.timestamp
@@ -10443,7 +10884,7 @@ const calcFailureRate = (success: number, failure: number): number => {
 }
 
 const getBrpcMetricValue = (
-  row: Record<string, any> | undefined,
+  row: BrpcProfilingRow | undefined,
   metric: string,
 ): number | null => {
   if (!row) return null
@@ -10504,7 +10945,7 @@ const formatBrpcTimestamp = (ts: string): string => {
   return ts
 }
 
-// brpc 图表公共图例样式（与 kv-cache 时延监控统一）
+// brpc 图表公共图例样式（与 KVCache 时延监控统一）
 const brpcLegendStyle = {
   top: 6,
   left: 'center',
@@ -10524,7 +10965,7 @@ const brpcLegendStyle = {
   inactiveColor: '#cbd5e1',
 }
 
-// brpc 图表公共横轴样式（与 kv-cache 时延监控统一）
+// brpc 图表公共横轴样式（与 KVCache 时延监控统一）
 const brpcXAxisStyle = {
   type: 'category' as const,
   boundaryGap: true,
@@ -10912,7 +11353,7 @@ const getBrpcFaultQueryRange = (scope: BrpcKnowledgeScope) => {
   const startDate = chartRange ? new Date(chartRange.startTime) : (filterStart ?? batchStart)
   let endDate = chartRange ? new Date(chartRange.endTime) : (filterEnd ?? batchEnd)
 
-  if (!startDate || !endDate) throw new Error('BRPC 诊断批次时间范围无效')
+  if (!startDate || !endDate) throw new Error('UBSocket 诊断批次时间范围无效')
   if (endDate.getTime() <= startDate.getTime()) {
     endDate = new Date(startDate.getTime() + selectedBrpcFaultScale.value * secondMs)
   }
@@ -10971,7 +11412,7 @@ const loadBrpcFaultTimeline = async () => {
     if (error instanceof DOMException && error.name === 'AbortError') return
     brpcFaultTimelineSeries.value = []
     brpcFaultTimelineError.value =
-      error instanceof Error ? error.message : '加载 BRPC 接口故障数时序分布失败'
+      error instanceof Error ? error.message : '加载 UBSocket 接口故障数时序分布失败'
   } finally {
     if (requestSequence === brpcFaultTimelineRequestSequence) {
       brpcFaultTimelineRequestController = null
@@ -11112,7 +11553,7 @@ const loadBrpcAggregatedEvents = async (pageNum = brpcAggregatedEventPage.value)
     brpcAggregatedEventTotal.value = 0
     brpcAggregatedEventPage.value = 1
     brpcAggregatedEventsError.value =
-      error instanceof Error ? error.message : '加载 BRPC 聚合事件列表失败'
+      error instanceof Error ? error.message : '加载 UBSocket 聚合事件列表失败'
   } finally {
     if (requestSequence === brpcAggregatedEventsRequestSequence) {
       isBrpcAggregatedEventsLoading.value = false
@@ -11360,7 +11801,7 @@ const openBrpcEventDetail = async (event: BrpcAggregatedEvent) => {
   } catch (error) {
     if (requestSequence !== brpcEventDetailRequestSequence) return
     brpcEventDetailError.value =
-      error instanceof Error ? error.message : '加载 BRPC 聚合事件详情失败'
+      error instanceof Error ? error.message : '加载 UBSocket 聚合事件详情失败'
   } finally {
     if (requestSequence === brpcEventDetailRequestSequence) {
       isBrpcEventDetailLoading.value = false
@@ -11725,6 +12166,13 @@ const loadAbnormalMonitorPage = async () => {
   await loadLatencyPage()
 }
 
+const scrollMonitorPageToTop = () => {
+  assetDetailRef.value?.scrollTo({
+    top: 0,
+    behavior: 'smooth',
+  })
+}
+
 const openMonitorPage = async (section: MonitorSection = 'latency') => {
   if (!selectedAssetId.value) return
   const previousProduct = activeMonitorProduct.value
@@ -11733,7 +12181,7 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   const isEnteringMonitor = activePage.value !== 'abnormal'
   activePage.value = 'abnormal'
 
-  if (targetProduct === 'brpc') {
+  if (targetProduct === 'UBSocket') {
     await nextTick()
     await loadBrpcMonitorData()
     const loadActiveBrpcFaultList =
@@ -11741,8 +12189,12 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
         ? loadBrpcAbnormalThreads(1)
         : loadBrpcAggregatedEvents(1)
     await Promise.all([loadBrpcFaultTimeline(), loadActiveBrpcFaultList])
+    if (section === 'brpc') {
+      scrollMonitorPageToTop()
+      return
+    }
     document
-      .getElementById(section === 'brpc' ? 'brpc-monitor' : 'brpc-fault-monitor')
+      .getElementById('brpc-fault-monitor')
       ?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
@@ -11762,6 +12214,10 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
   }
 
   await nextTick()
+  if (targetSection === 'latency') {
+    scrollMonitorPageToTop()
+    return
+  }
   document.getElementById(targetSection === 'fault' ? 'kv-fault' : 'kv-latency')?.scrollIntoView({
     behavior: 'smooth',
     block: 'start',
@@ -11996,6 +12452,8 @@ onMounted(() => {
     assetDetailResizeObserver.observe(assetDetailRef.value)
   }
   document.addEventListener('click', handleStatusCodePopoverOutsideClick)
+  document.addEventListener('click', handleTopSlowTooltipClick)
+  document.addEventListener('click', handleTopSlowTooltipOutsideClick)
 })
 
 onUpdated(() => {
@@ -12006,6 +12464,7 @@ onUpdated(() => {
 
 onBeforeUnmount(() => {
   stopLogFilesPolling()
+  stopAgentPanelResize()
   closeAgentEventStream()
   brpcFaultTimelineRequestController?.abort()
   brpcFaultTimelineRequestController = null
@@ -12014,6 +12473,8 @@ onBeforeUnmount(() => {
   assetDetailResizeObserver?.disconnect()
   assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
+  document.removeEventListener('click', handleTopSlowTooltipClick)
+  document.removeEventListener('click', handleTopSlowTooltipOutsideClick)
   latencyChartInstance?.dispose()
   topSlowChartInstance?.dispose()
   detailLatencyChartInstance?.dispose()
@@ -12453,38 +12914,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="trace-board-panel" aria-label="Trace看板">
-        <div class="filter-header">
-          <span>Trace看板</span>
-          <button
-            class="reset-category-btn reset-all-filter-btn"
-            type="button"
-            @click="resetFilterCategory('traceBoard')"
-          >
-            重置
-          </button>
-        </div>
-        <div class="trace-board-body">
-          <div class="selected-tags">
-            <span
-              v-for="traceId in globalFilters.traceBoards"
-              :key="traceId"
-              class="filter-tag trace-filter-tag"
-            >
-              {{ traceId }}
-              <button type="button" class="remove-tag" @click="removeTraceBoardValue(traceId)">
-                ×
-              </button>
-            </span>
-            <span v-if="globalFilters.traceBoards.length === 0" class="empty-hint"
-              >未添加Trace</span
-            >
-          </div>
-        </div>
-        <div class="trace-board-footer">
-          <button class="show-trace-view-btn" type="button">展示视图</button>
-        </div>
-      </section>
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
@@ -12496,14 +12925,19 @@ onBeforeUnmount(() => {
         <div class="service-unavailable-icon" aria-hidden="true">!</div>
         <h1>数据服务暂时不可用</h1>
         <p>当前无法加载资产库和任务状态，请稍后重试或联系管理员。</p>
-        <p class="service-unavailable-hint">服务恢复后可继续使用，任务状态以重新连接后的结果为准。</p>
+        <p class="service-unavailable-hint">
+          服务恢复后可继续使用，任务状态以重新连接后的结果为准。
+        </p>
         <button type="button" :disabled="isListLoading" @click="retryInitialDataLoad">
           {{ isListLoading ? '正在重试...' : '重新加载' }}
         </button>
       </section>
 
       <div v-else-if="activePage === 'abnormal'" class="monitor-page">
-        <section v-if="activeMonitorProduct === 'kvcache'" id="kv-latency" class="monitor-section">
+        <div class="monitor-asset-label">
+          当前资产库：{{ selectedAsset?.name || selectedAssetId || '未选择' }}
+        </div>
+        <section v-if="activeMonitorProduct === 'KVCache'" id="kv-latency" class="monitor-section">
           <header class="monitor-header">
             <div class="monitor-header-top">
               <h1>时延故障监控</h1>
@@ -12638,7 +13072,7 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="top-slow-chart-description">
-                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace ID。
               </p>
               <div class="top-slow-chart-panel">
                 <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
@@ -13622,7 +14056,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section
-          v-if="isFaultCodeFeatureEnabled && activeMonitorProduct === 'kvcache'"
+          v-if="isFaultCodeFeatureEnabled && activeMonitorProduct === 'KVCache'"
           id="kv-fault"
           class="monitor-section"
         >
@@ -14051,6 +14485,7 @@ onBeforeUnmount(() => {
                           class="aggregate-latency-scrollbar-spacer fault-code-scrollbar-spacer"
                           :style="{
                             width: faultAggregatedEventCodeGridStyle.width,
+                            minWidth: faultAggregatedEventCodeGridStyle.minWidth,
                           }"
                         ></div>
                       </div>
@@ -14742,7 +15177,11 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-if="activeMonitorProduct === 'brpc'" id="brpc-monitor" class="monitor-section">
+        <section
+          v-if="activeMonitorProduct === 'UBSocket'"
+          id="brpc-monitor"
+          class="monitor-section"
+        >
           <header class="monitor-header">
             <h1>接口监控</h1>
             <p class="monitor-sub">
@@ -14836,6 +15275,13 @@ onBeforeUnmount(() => {
               >
                 无接口日志文件，请检查是否存在profiling文件
               </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
+              </div>
               <div v-else ref="brpcSuccessChartRef" class="chart-box"></div>
             </article>
 
@@ -14902,6 +15348,13 @@ onBeforeUnmount(() => {
                 role="status"
               >
                 无接口日志文件，请检查是否存在profiling文件
+              </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
               </div>
               <div v-else ref="brpcSingleChartRef" class="chart-box"></div>
             </article>
@@ -14970,19 +15423,26 @@ onBeforeUnmount(() => {
               >
                 无接口日志文件，请检查是否存在profiling文件
               </div>
+              <div
+                v-else-if="!brpcDataLoading && !hasBrpcProfilingData"
+                class="chart-box brpc-chart-empty"
+                role="status"
+              >
+                当前筛选时间范围内无数据
+              </div>
               <div v-else ref="brpcLatencyChartRef" class="chart-box"></div>
             </article>
           </div>
         </section>
 
         <section
-          v-if="activeMonitorProduct === 'brpc'"
+          v-if="activeMonitorProduct === 'UBSocket'"
           id="brpc-fault-monitor"
           class="monitor-section"
         >
           <header class="monitor-header">
             <h1>通断故障监控</h1>
-            <p class="monitor-sub">UBSOCKET -> UMQ -> URMA 公共API通断故障</p>
+            <p class="monitor-sub">UBSocket -> UMQ -> URMA 公共API通断故障</p>
           </header>
 
           <div class="monitor-grid">
@@ -15000,7 +15460,7 @@ onBeforeUnmount(() => {
                   </button>
                   <span class="scale-label">时间聚合尺度：</span>
                   <label class="latency-percentile-select">
-                    <select v-model="selectedBrpcFaultScale" aria-label="BRPC 故障时间聚合尺度">
+                    <select v-model="selectedBrpcFaultScale" aria-label="UBSocket 故障时间聚合尺度">
                       <option
                         v-for="option in latencyScaleOptions"
                         :key="option.value"
@@ -15060,9 +15520,11 @@ onBeforeUnmount(() => {
                 <div v-else-if="brpcFaultTimelineError" class="chart-state chart-error">
                   {{ brpcFaultTimelineError }}
                 </div>
-                <div v-else-if="!brpcFaultScope" class="chart-state">暂无 BRPC 接口故障数据</div>
+                <div v-else-if="!brpcFaultScope" class="chart-state">
+                  暂无 UBSocket 接口故障数据
+                </div>
                 <div v-else-if="!hasBrpcFaultTimelineData" class="chart-state">
-                  暂无 BRPC 接口故障数时序数据
+                  暂无 UBSocket 接口故障数时序数据
                 </div>
                 <div
                   v-else
@@ -15358,7 +15820,10 @@ onBeforeUnmount(() => {
                     >
                       <div
                         class="brpc-event-interface-scrollbar-spacer"
-                        :style="{ width: brpcEventInterfaceGridStyle.width }"
+                        :style="{
+                          width: brpcEventInterfaceGridStyle.width,
+                          minWidth: brpcEventInterfaceGridStyle.minWidth,
+                        }"
                       ></div>
                     </div>
                     <div
@@ -15472,7 +15937,7 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div v-if="isBrpcAggregatedEventsLoading" class="brpc-event-table-state">
-                    正在加载 BRPC 聚合事件列表...
+                    正在加载 UBSocket 聚合事件列表...
                   </div>
                   <div
                     v-else-if="brpcAggregatedEventsError"
@@ -15494,7 +15959,7 @@ onBeforeUnmount(() => {
                   >
                     上一页
                   </button>
-                  <span class="pagination-pages" aria-label="BRPC 聚合事件页码">
+                  <span class="pagination-pages" aria-label="UBSocket 聚合事件页码">
                     <button
                       v-for="pageNum in brpcAggregatedEventPageWindow"
                       :key="`brpc-event-page-${pageNum}`"
@@ -15672,7 +16137,10 @@ onBeforeUnmount(() => {
                     >
                       <div
                         class="brpc-event-interface-scrollbar-spacer"
-                        :style="{ width: brpcAbnormalThreadInterfaceGridStyle.width }"
+                        :style="{
+                          width: brpcAbnormalThreadInterfaceGridStyle.width,
+                          minWidth: brpcAbnormalThreadInterfaceGridStyle.minWidth,
+                        }"
                       ></div>
                     </div>
                     <div
@@ -15790,8 +16258,8 @@ onBeforeUnmount(() => {
             <h1>{{ selectedAsset.name }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
-              <span>创建时间：{{ displayLocalTime(selectedAsset.created_at) }}</span>
-              <span>更新时间：{{ displayLocalTime(selectedAsset.updated_at) }}</span>
+              <span>创建时间：{{ displayServerTime(selectedAsset.created_at) }}</span>
+              <span>更新时间：{{ displayServerTime(selectedAsset.updated_at) }}</span>
             </div>
           </div>
           <div class="detail-actions">
@@ -15856,11 +16324,11 @@ onBeforeUnmount(() => {
             <div class="log-type-selector">
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="kv-cache" :disabled="isUploadingLog" />
+                <input type="radio" v-model="logType" value="KVCache" :disabled="isUploadingLog" />
                 <span>KVCache</span>
               </label>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="brpc" :disabled="isUploadingLog" />
+                <input type="radio" v-model="logType" value="UBSocket" :disabled="isUploadingLog" />
                 <span>UBSocket</span>
               </label>
             </div>
@@ -15909,7 +16377,7 @@ onBeforeUnmount(() => {
                   <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
                   <span class="log-file-meta">
                     <span class="log-file-time"
-                      >创建时间：{{ displayLocalTime(file.created_at) }}</span
+                      >创建时间：{{ displayServerTime(file.created_at) }}</span
                     >
                     <span
                       class="status-badge"
@@ -16558,21 +17026,10 @@ onBeforeUnmount(() => {
           <div class="filter-bar-list">
             <div class="filter-bar">
               <div class="filter-bar-info">
-                <span class="filter-bar-label">Trace ID</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.traceId }}</span>
-              </div>
-              <div class="filter-bar-options">
-                <label class="trace-filter-option">
-                  <input v-model="traceFilterDialog.addTraceBoard" type="checkbox" />
-                  <span>添加到Trace看板</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="filter-bar">
-              <div class="filter-bar-info">
                 <span class="filter-bar-label">Pod IP</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.podIp || 'null' }}</span>
+                <span class="filter-bar-value">
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.podIp) }}
+                </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
@@ -16606,7 +17063,7 @@ onBeforeUnmount(() => {
               <div class="filter-bar-info">
                 <span class="filter-bar-label">集群</span>
                 <span class="filter-bar-value">
-                  {{ traceFilterDialog.trace?.clusterName || 'null' }}
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.clusterName) }}
                 </span>
               </div>
               <div class="filter-bar-options">
@@ -16624,7 +17081,9 @@ onBeforeUnmount(() => {
             <div class="filter-bar">
               <div class="filter-bar-info">
                 <span class="filter-bar-label">主机</span>
-                <span class="filter-bar-value">{{ traceFilterDialog.trace?.host || 'null' }}</span>
+                <span class="filter-bar-value">
+                  {{ getTraceFilterDisplayValue(traceFilterDialog.trace?.host) }}
+                </span>
               </div>
               <div class="filter-bar-options">
                 <label class="trace-filter-option">
@@ -17169,7 +17628,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="aggregate-cell latency-breakdown-header">
                         <span>各阶段时延分解（P99）</span>
-                        <small>颜色按已解析阶段值归一化；时延单位 µs，悬停查看完整明细</small>
+                        <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
                       </div>
                     </div>
                   </div>
@@ -17830,74 +18289,72 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="trace-fault-detail-item trace-fault-detail-wide">
                       <span class="trace-fault-detail-label">相关故障</span>
-                      <span
-                        v-if="selectedTraceRelatedFailureModeIds.length === 0"
-                        class="trace-fault-detail-value"
-                      >
-                        -
-                      </span>
-                      <div v-else class="trace-sub-fault-block">
-                        <div class="trace-sub-fault-list trace-sub-fault-list-limited">
-                          <button
-                            v-for="childId in getVisibleRelatedFailureModeIds(
-                              selectedTraceRelatedFailureModeIds,
-                            )"
-                            :key="childId"
-                            type="button"
-                            class="trace-sub-fault"
-                            :class="{ active: selectedChildFailureModeId === childId }"
-                            @click="selectChildFailureMode(childId)"
+                      <div class="trace-related-fault-columns">
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">相关子故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace命中的子故障</span>
+                          <span
+                            v-if="getFailureModeChildren(selectedTraceFailureMode).length === 0"
+                            class="trace-fault-detail-value"
+                            >当前故障为根因节点，无子故障</span
                           >
-                            {{
-                              getRelatedFailureModeLabel(
-                                childId,
-                                selectedTraceAccessFailureModeIds.has(childId),
-                              )
-                            }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="selectedTraceRelatedFailureModeIds.length > traceSubFaultBatchSize"
-                          class="trace-sub-fault-toolbar"
-                        >
-                          <span>
-                            已展示
-                            {{
-                              getVisibleRelatedFailureModeCount(selectedTraceRelatedFailureModeIds)
-                            }}
-                            / {{ selectedTraceRelatedFailureModeIds.length }}
-                          </span>
-                          <div class="trace-sub-fault-toolbar-actions">
+                          <span
+                            v-else-if="selectedTraceRelatedChildFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >当前Trace未命中子故障</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
                             <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedTraceRelatedFailureModeIds,
-                                ) < selectedTraceRelatedFailureModeIds.length
-                              "
+                              v-for="childId in selectedTraceRelatedChildFailureModeIds"
+                              :key="childId"
                               type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                loadMoreRelatedFailureModes(selectedTraceRelatedFailureModeIds)
-                              "
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === childId }"
+                              @click="selectChildFailureMode(childId)"
                             >
-                              加载更多
-                            </button>
-                            <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedTraceRelatedFailureModeIds,
-                                ) > traceSubFaultBatchSize
-                              "
-                              type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                collapseRelatedFailureModes(selectedTraceRelatedFailureModeIds)
-                              "
-                            >
-                              收起
+                              {{
+                                getRelatedFailureModeLabel(
+                                  childId,
+                                  selectedTraceAccessFailureModeIds.has(childId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">同错误码故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace中错误码相同的故障</span>
+                          <span
+                            v-if="selectedTraceSameErrorCodeFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >{{
+                              selectedTraceFailureModeDisplayErrorCode
+                                ? '该故障的错误码为' +
+                                  selectedTraceFailureModeDisplayErrorCode +
+                                  '，当前Trace不存在同错误码故障'
+                                : '该故障不具有错误码'
+                            }}</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
+                            <button
+                              v-for="relatedId in selectedTraceSameErrorCodeFailureModeIds"
+                              :key="relatedId"
+                              type="button"
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === relatedId }"
+                              @click="selectChildFailureMode(relatedId)"
+                            >
+                              {{
+                                getRelatedFailureModeLabel(
+                                  relatedId,
+                                  selectedTraceAccessFailureModeIds.has(relatedId),
+                                )
+                              }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="trace-sub-fault-block">
                         <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
                           <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
                             <div class="trace-fault-detail-item">
@@ -17948,7 +18405,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section>
-            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-section-title trace-section-title-with-hint">
+              <span>⏱️ 时延明细</span>
+              <span class="trace-section-hint">
+                总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
+              </span>
+            </div>
             <div class="trace-delay-table-wrapper">
               <table class="trace-delay-table">
                 <thead>
@@ -18119,78 +18581,74 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="trace-fault-detail-item trace-fault-detail-wide">
                       <span class="trace-fault-detail-label">相关故障</span>
-                      <span
-                        v-if="selectedFaultTraceRelatedFailureModeIds.length === 0"
-                        class="trace-fault-detail-value"
-                      >
-                        -
-                      </span>
-                      <div v-else class="trace-sub-fault-block">
-                        <div class="trace-sub-fault-list trace-sub-fault-list-limited">
-                          <button
-                            v-for="childId in getVisibleRelatedFailureModeIds(
-                              selectedFaultTraceRelatedFailureModeIds,
-                            )"
-                            :key="childId"
-                            type="button"
-                            class="trace-sub-fault"
-                            :class="{ active: selectedChildFailureModeId === childId }"
-                            @click="selectChildFailureMode(childId)"
+                      <div class="trace-related-fault-columns">
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">相关子故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace命中的子故障</span>
+                          <span
+                            v-if="
+                              getFailureModeChildren(selectedFaultTraceFailureMode).length === 0
+                            "
+                            class="trace-fault-detail-value"
+                            >当前故障为根因节点，无子故障</span
                           >
-                            {{
-                              getRelatedFailureModeLabel(
-                                childId,
-                                selectedFaultTraceAccessFailureModeIds.has(childId),
-                              )
-                            }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="
-                            selectedFaultTraceRelatedFailureModeIds.length > traceSubFaultBatchSize
-                          "
-                          class="trace-sub-fault-toolbar"
-                        >
-                          <span>
-                            已展示
-                            {{
-                              getVisibleRelatedFailureModeCount(
-                                selectedFaultTraceRelatedFailureModeIds,
-                              )
-                            }}
-                            / {{ selectedFaultTraceRelatedFailureModeIds.length }}
-                          </span>
-                          <div class="trace-sub-fault-toolbar-actions">
+                          <span
+                            v-else-if="selectedFaultTraceRelatedChildFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >当前Trace未命中子故障</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
                             <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedFaultTraceRelatedFailureModeIds,
-                                ) < selectedFaultTraceRelatedFailureModeIds.length
-                              "
+                              v-for="childId in selectedFaultTraceRelatedChildFailureModeIds"
+                              :key="childId"
                               type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                loadMoreRelatedFailureModes(selectedFaultTraceRelatedFailureModeIds)
-                              "
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === childId }"
+                              @click="selectChildFailureMode(childId)"
                             >
-                              加载更多
-                            </button>
-                            <button
-                              v-if="
-                                getVisibleRelatedFailureModeCount(
-                                  selectedFaultTraceRelatedFailureModeIds,
-                                ) > traceSubFaultBatchSize
-                              "
-                              type="button"
-                              class="trace-sub-fault-action"
-                              @click="
-                                collapseRelatedFailureModes(selectedFaultTraceRelatedFailureModeIds)
-                              "
-                            >
-                              收起
+                              {{
+                                getRelatedFailureModeLabel(
+                                  childId,
+                                  selectedFaultTraceAccessFailureModeIds.has(childId),
+                                )
+                              }}
                             </button>
                           </div>
                         </div>
+                        <div class="trace-related-fault-column">
+                          <strong class="trace-related-fault-title">同错误码故障</strong>
+                          <span class="trace-related-fault-hint">当前Trace中错误码相同的故障</span>
+                          <span
+                            v-if="selectedFaultTraceSameErrorCodeFailureModeIds.length === 0"
+                            class="trace-fault-detail-value"
+                            >{{
+                              selectedFaultTraceFailureModeDisplayErrorCode
+                                ? '该故障的错误码为' +
+                                  selectedFaultTraceFailureModeDisplayErrorCode +
+                                  '，当前Trace不存在同错误码故障'
+                                : '该故障不具有错误码'
+                            }}</span
+                          >
+                          <div v-else class="trace-sub-fault-list trace-sub-fault-list-limited">
+                            <button
+                              v-for="relatedId in selectedFaultTraceSameErrorCodeFailureModeIds"
+                              :key="relatedId"
+                              type="button"
+                              class="trace-sub-fault"
+                              :class="{ active: selectedChildFailureModeId === relatedId }"
+                              @click="selectChildFailureMode(relatedId)"
+                            >
+                              {{
+                                getRelatedFailureModeLabel(
+                                  relatedId,
+                                  selectedFaultTraceAccessFailureModeIds.has(relatedId),
+                                )
+                              }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="trace-sub-fault-block">
                         <div v-if="selectedChildFailureModeId" class="trace-sub-fault-detail">
                           <div v-if="selectedChildFailureMode" class="trace-fault-detail-list">
                             <div class="trace-fault-detail-item">
@@ -18241,7 +18699,12 @@ onBeforeUnmount(() => {
           </section>
 
           <section>
-            <h3 class="trace-section-title">⏱️ 时延明细</h3>
+            <div class="trace-section-title trace-section-title-with-hint">
+              <span>⏱️ 时延明细</span>
+              <span class="trace-section-hint">
+                总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
+              </span>
+            </div>
             <div class="trace-delay-table-wrapper">
               <table class="trace-delay-table">
                 <thead>
@@ -18302,8 +18765,8 @@ onBeforeUnmount(() => {
                 <h3>{{ asset.name }}</h3>
                 <p>{{ asset.description }}</p>
                 <div class="result-times">
-                  <span>创建时间：{{ displayLocalTime(asset.created_at) }}</span>
-                  <span>更新时间：{{ displayLocalTime(asset.updated_at) }}</span>
+                  <span>创建时间：{{ displayServerTime(asset.created_at) }}</span>
+                  <span>更新时间：{{ displayServerTime(asset.updated_at) }}</span>
                 </div>
               </div>
 
@@ -18342,7 +18805,7 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="side-drawer-body parse-config-drawer-body">
-          <div v-if="logType === 'brpc'" class="parse-config-unsupported" role="status">
+          <div v-if="logType === 'UBSocket'" class="parse-config-unsupported" role="status">
             UBSocket日志解析暂不支持配置
           </div>
           <template v-else>
@@ -18481,7 +18944,7 @@ onBeforeUnmount(() => {
               </div>
 
               <h4 class="analyzer-group-title">时延阈值</h4>
-              <p class="analyzer-parameter-hint">输入大于0的数字</p>
+              <p class="analyzer-parameter-hint">输入大于0且不超过1000的数字</p>
               <div class="analyzer-threshold-grid">
                 <label
                   v-for="option in analyzerThresholdOptions"
@@ -18510,7 +18973,9 @@ onBeforeUnmount(() => {
                 <div>
                   <h4 class="analyzer-group-title">滑动窗口</h4>
                   <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
-                  <p class="analyzer-parameter-hint">输入大于0的整数</p>
+                  <p class="analyzer-parameter-hint">
+                    窗口大小输入1–10000的整数，窗口步长输入1–1000的整数
+                  </p>
                 </div>
                 <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
                   + 添加窗口
@@ -18596,7 +19061,7 @@ onBeforeUnmount(() => {
           </template>
         </div>
 
-        <footer v-if="logType !== 'brpc'" class="parse-config-drawer-footer">
+        <footer v-if="logType !== 'UBSocket'" class="parse-config-drawer-footer">
           <button
             class="parse-config-reset-btn"
             type="button"
@@ -18636,10 +19101,27 @@ onBeforeUnmount(() => {
 
     <aside
       v-if="isAbnormalMonitorPage && isAgentChatOpen"
+      ref="agentChatPanelRef"
       class="agent-chat-panel"
+      :style="agentPanelStyle"
       role="dialog"
       aria-label="AI 故障诊断助手"
     >
+      <div
+        class="agent-panel-resize-handle agent-panel-resize-top"
+        aria-hidden="true"
+        @pointerdown="startAgentPanelResize('top', $event)"
+      ></div>
+      <div
+        class="agent-panel-resize-handle agent-panel-resize-left"
+        aria-hidden="true"
+        @pointerdown="startAgentPanelResize('left', $event)"
+      ></div>
+      <div
+        class="agent-panel-resize-handle agent-panel-resize-corner"
+        aria-hidden="true"
+        @pointerdown="startAgentPanelResize('corner', $event)"
+      ></div>
       <header class="agent-chat-header">
         <button
           v-if="agentView !== 'login' && agentView !== 'chat'"
@@ -18832,8 +19314,22 @@ onBeforeUnmount(() => {
             <div>
               <strong>会话</strong>
             </div>
-            <button type="button" @click="newAgentConversation">＋ 新建</button>
+            <button
+              type="button"
+              :disabled="isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting"
+              @click="newAgentConversation"
+            >
+              {{ isAgentSessionCreating ? '创建中…' : '＋ 新建' }}
+            </button>
           </div>
+          <button
+            class="agent-session-refresh"
+            type="button"
+            :disabled="isAgentSessionsLoading || isAgentSessionCreating || isAgentSessionSaving"
+            @click="loadAgentSessions"
+          >
+            刷新会话列表
+          </button>
           <input
             v-model.trim="agentSessionSearch"
             class="agent-search"
@@ -18850,15 +19346,42 @@ onBeforeUnmount(() => {
               :class="{ active: session.id === agentSessionId }"
               :title="session.title || '无标题会话'"
             >
-              <button class="agent-session-open" type="button" @click="openAgentSession(session)">
+              <button
+                class="agent-session-open"
+                type="button"
+                :disabled="isAgentSessionCreating || isAgentSessionSaving || isAgentSubmitting"
+                :aria-current="session.id === agentSessionId ? 'true' : undefined"
+                @click="openAgentSession(session)"
+              >
                 <strong>{{ session.title || '无标题会话' }}</strong>
                 <span>{{ getAgentSessionAssetName(session.id) }}</span>
+                <span>{{
+                  agentSessionStatuses[session.id]?.type === 'busy'
+                    ? '正在回答'
+                    : agentSessionStatuses[session.id]?.type === 'retry'
+                      ? '正在重试连接'
+                      : session.time?.updated
+                        ? new Date(session.time.updated).toLocaleString()
+                        : '刚刚创建'
+                }}</span>
               </button>
               <div class="agent-session-item-actions">
-                <button type="button" title="修改标题" @click="renameAgentSession(session)">
+                <button
+                  type="button"
+                  title="修改标题"
+                  :aria-label="`重命名会话 ${session.title || '无标题会话'}`"
+                  :disabled="isAgentSessionSaving || isAgentSubmitting"
+                  @click="showAgentSessionDialog('rename', session)"
+                >
                   ✎
                 </button>
-                <button type="button" title="删除会话" @click="deleteAgentSession(session)">
+                <button
+                  type="button"
+                  title="删除会话"
+                  :aria-label="`删除会话 ${session.title || '无标题会话'}`"
+                  :disabled="isAgentSessionSaving || isAgentSubmitting"
+                  @click="showAgentSessionDialog('delete', session)"
+                >
                   ×
                 </button>
               </div>
@@ -18873,8 +19396,61 @@ onBeforeUnmount(() => {
         </aside>
 
         <section class="agent-conversation-main">
+          <div class="agent-conversation-context">
+            <strong>{{ activeAgentSessionTitle }}</strong>
+            <span>{{
+              agentSessionId
+                ? getAgentSessionAssetName(agentSessionId)
+                : selectedAsset?.name || '请先选择资产库'
+            }}</span>
+          </div>
+          <form
+            v-if="agentSessionDialog"
+            class="agent-session-dialog"
+            role="dialog"
+            aria-modal="false"
+            :aria-label="agentSessionDialog.kind === 'rename' ? '重命名会话' : '删除会话'"
+            @submit.prevent="submitAgentSessionDialog"
+            @keydown.esc="!isAgentSessionSaving && (agentSessionDialog = null)"
+          >
+            <strong>{{ agentSessionDialog.kind === 'rename' ? '重命名会话' : '删除会话' }}</strong>
+            <label v-if="agentSessionDialog.kind === 'rename'"
+              >会话标题
+              <input
+                v-model="agentSessionTitleInput"
+                aria-label="会话标题"
+                maxlength="200"
+                :disabled="isAgentSessionSaving"
+              />
+            </label>
+            <p v-else>
+              确认删除「{{
+                agentSessionDialog.session.title || '无标题会话'
+              }}」及其历史消息？正在运行的回答会停止，此操作无法撤销。
+            </p>
+            <p v-if="agentSessionDialogError" role="alert">{{ agentSessionDialogError }}</p>
+            <div>
+              <button
+                type="button"
+                :disabled="isAgentSessionSaving"
+                @click="agentSessionDialog = null"
+              >
+                取消
+              </button>
+              <button type="submit" :disabled="isAgentSessionSaving">
+                {{
+                  isAgentSessionSaving
+                    ? '保存中…'
+                    : agentSessionDialog.kind === 'rename'
+                      ? '保存标题'
+                      : '确认删除'
+                }}
+              </button>
+            </div>
+          </form>
           <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
-            <div v-if="agentChatMessages.length === 0" class="agent-chat-welcome">
+            <p v-if="isAgentHistoryLoading" class="agent-empty-options">正在加载历史消息…</p>
+            <div v-else-if="agentChatMessages.length === 0" class="agent-chat-welcome">
               <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
               <strong>你好，我是故障诊断助手</strong>
               <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
@@ -18932,6 +19508,13 @@ onBeforeUnmount(() => {
 
           <div v-if="agentConnectionError" class="agent-chat-error" role="alert">
             {{ agentConnectionError }}
+            <button
+              v-if="agentSessionId"
+              type="button"
+              @click="openAgentSession({ id: agentSessionId })"
+            >
+              重新加载会话
+            </button>
           </div>
 
           <form class="agent-chat-composer" @submit.prevent="sendAgentMessage">
@@ -18940,7 +19523,14 @@ onBeforeUnmount(() => {
               rows="1"
               aria-label="输入诊断问题"
               placeholder="输入你想诊断的问题…"
-              :disabled="isAgentSending || isAgentAborting"
+              :disabled="
+                isAgentSending ||
+                isAgentAborting ||
+                isAgentHistoryLoading ||
+                isAgentHistoryFailed ||
+                isAgentSessionCreating ||
+                isAgentSessionSaving
+              "
               @keydown.enter.exact.prevent="sendAgentMessage"
             ></textarea>
             <button
@@ -18949,7 +19539,12 @@ onBeforeUnmount(() => {
               :aria-label="isAgentSending ? '停止本次会话' : '发送消息'"
               :title="isAgentSending ? '停止本次会话' : '发送消息'"
               :disabled="
-                isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting
+                isAgentHistoryLoading ||
+                isAgentHistoryFailed ||
+                isAgentSessionCreating ||
+                isAgentSessionSaving ||
+                isAgentSubmitting ||
+                (isAgentSending ? isAgentAborting : !agentChatInput.trim() || isAgentAborting)
               "
             >
               <svg v-if="isAgentSending" viewBox="0 0 24 24" aria-hidden="true">

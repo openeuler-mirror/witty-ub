@@ -42,15 +42,37 @@ class LogKnowledgeService:
 
     @staticmethod
     async def delete_log_kb_by_kb_id(kb_id: str) -> DeleteLogKnowledgeMsg:
-        rowcount = await LogKnowledgePGManager.update_log_kb(kb_id, {"existed_status": False})
-        if rowcount == 0:
+        log_kb = await LogKnowledgePGManager.get_log_kb_by_kb_id(kb_id)
+        if not log_kb:
             raise NotFoundBizException(resource="知识库")
-        
+
+        # Stop every active task tree before making the asset invisible.  A
+        # failed stop is recorded for operations, but does not prevent the
+        # user-requested asset deletion from completing.
         tasks = await TaskPGManager.list_tasks_by_kb_id(
             kb_id, [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]
         )
+        failed_task_ids = []
         for task in tasks:
-            await BaseWorker.stop(task.id)
+            try:
+                if not await BaseWorker.stop(task.id):
+                    failed_task_ids.append(task.id)
+            except Exception:
+                failed_task_ids.append(task.id)
+                logger.exception("停止资产库任务进程树失败: task_id=%s", task.id)
+        if failed_task_ids:
+            logger.error(
+                "资产库 %s 删除前有 %d 个任务进程树未能确认停止，继续删除: %s",
+                kb_id,
+                len(failed_task_ids),
+                failed_task_ids,
+            )
+
+        rowcount = await LogKnowledgePGManager.update_log_kb(
+            kb_id, {"existed_status": False}
+        )
+        if rowcount == 0:
+            raise NotFoundBizException(resource="知识库")
         
         log_file_ids = await LogFilePGManager.list_log_file_ids(kb_id=kb_id)
         for log_file_id in log_file_ids:

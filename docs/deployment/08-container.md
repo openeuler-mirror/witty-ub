@@ -4,7 +4,7 @@
 
 容器化部署提供环境一致性、快速部署、易于扩展等优势。**分离部署使用按角色构建的镜像**：`witty-ub:backend` 承载数据卷与 FastAPI，无出网要求；`witty-ub:frontend` 承载 Nginx 与 OpenCode，LLM key 与经验库随前端节点。两者可以运行在不同机器上；单机部署使用全量镜像 `witty-ub:latest`。
 
-> 推荐使用脚本部署 → [宿主机脚本部署](02-script-host.md) | [容器脚本部署](03-script-container.md)。本文档介绍手动 `docker run` 和 `docker compose` 方式。
+> 推荐使用脚本部署 → [宿主机脚本部署](02-script-host.md) | [容器脚本部署](03-script-container.md)（`manage.sh` 菜单 `[14]`/`[15]` 或 `deploy_witty.sh --role backend/frontend` 支持分离部署）。本文档介绍手动 `docker run` 和 `docker compose` 方式。
 
 ---
 
@@ -26,6 +26,10 @@ docker tag hub-harbor.oepkgs.net/neocopilot/witty-ub:latest witty-ub:latest
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:backend    # 后端机器
 docker pull hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend   # 前端机器
 
+# 下面 docker run 示例使用本地 tag，角色镜像同样需要打 tag（All-in-One 已演示）
+docker tag hub-harbor.oepkgs.net/neocopilot/witty-ub:backend  witty-ub:backend
+docker tag hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend witty-ub:frontend
+
 # 离线导入
 docker load -i witty-ub.tar
 ```
@@ -38,7 +42,18 @@ docker load -i witty-ub.tar
 
 ### 方式一：docker compose（仓库自带示例）
 
-仓库 `docker-compose.yml` 内置 `split` profile，`postgres` + `witty-ub-backend` + `witty-ub-frontend` 三个服务：
+仓库 `docker-compose.yml` 用 profile 区分两种形态（两种 profile **互斥**，不要同时启动）：
+
+| 形态 | 命令 | 启动的服务 |
+| ------ | ------ | ------ |
+| 前后端分离 | `docker compose --profile split up -d` | `postgres` + `witty-ub-backend` + `witty-ub-frontend` |
+| 单机 All-in-One | `docker compose --profile allinone up -d` | `postgres` + `witty-ub` |
+
+> 直接 `docker compose up -d`（不带 profile）只会拉起 `postgres`。`postgres` 服务不带 profile，两种形态共用数据库。
+>
+> **镜像来源**：compose 中每个服务同时声明了 `build`（源码构建）与 `image`（`witty-ub:<role>`）。
+> 本地已有对应 tag 时 compose 直接使用；否则会转入源码构建（需要先构建 base 镜像，见[镜像构建](../package/01-docker-build.md)）。
+> 使用现成镜像时，请先按上面的"获取镜像"完成 `docker pull` + `docker tag`，再执行 `up`。
 
 ```bash
 docker compose --profile split up -d
@@ -51,6 +66,8 @@ docker compose --profile split up -d
 | `postgres` | 数据库 | 容器内 5432（宿主机映射 15432），仅 backend 使用 |
 
 前端容器健康检查经反代探测远端后端 `/health_check`；`depends_on: condition: service_healthy` 保证后端就绪后才启动前端。
+
+> **与脚本部署互斥**：compose 与 `deploy/docker/manage.sh` 使用相同的容器名/卷名/网络名，同一台机器上二选一；脚本部署请见[容器脚本部署](03-script-container.md)。
 
 **跨机部署**：把两个服务拆到各自机器的 compose 文件中，前端服务的 `WITTY_BACKEND_URL` 改为后端机器地址：
 
@@ -101,7 +118,9 @@ secrets:
 
 ```bash
 docker network create witty-ub-network
-docker volume create witty-ub-data witty-ub-uploads witty-ub-results
+docker volume create witty-ub-data
+docker volume create witty-ub-uploads
+docker volume create witty-ub-results
 
 docker run -d \
   --name witty-ub-backend \
@@ -161,8 +180,6 @@ firewall-cmd --reload
 ### docker compose
 
 ```yaml
-version: '3.8'
-
 services:
   witty-ub:
     image: witty-ub:latest
@@ -219,7 +236,10 @@ docker compose down    # 停止并删除
 ```bash
 # 创建网络和数据卷
 docker network create witty-ub-network
-docker volume create witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results
+docker volume create witty-ub-data
+docker volume create witty-ub-logs
+docker volume create witty-ub-uploads
+docker volume create witty-ub-results
 
 # 启动容器（默认 WITTY_ROLE=all）
 docker run -d \
@@ -326,7 +346,7 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `PG_PORT` | `5432` | PG 端口 |
 | `PG_DATABASE` | `witty-ub` | PG 数据库名 |
 | `PG_USER` | `witty-ub` | PG 用户名 |
-| `PG_PASSWORD` | （见密钥文件） | PG 密码；脚本部署时从 `/etc/witty-ub/pg.passwd` 读取注入，手动部署替换为唯一强口令 |
+| `PG_PASSWORD` | （见密钥文件） | 一般无需设置：容器入口从 `/run/secrets/pg_password`（挂载自 `/etc/witty-ub/pg.passwd`，0440 root:root）读取并注入后端进程；仅在 PG 已另行配置口令且不使用密钥文件时才需要显式传入 |
 | `LOG_LEVEL` | `info` | 日志级别 |
 
 ---

@@ -1,7 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""BRPC profiling 日志解析器。
+"""UBSocket profiling 日志解析器。
 
-解析 ubsocket_profiling_xxx.txt 格式的 BRPC profiling 日志文件。
+解析 ubsocket_profiling_xxx.txt 格式的 UBSocket profiling 日志文件。
 每个 timestamp 间隔内包含 21 个接口函数的统计信息：
   SUCCESS, FAILURE, TOTAL(ns), AVG(ns), MAX(ns), MIN(ns),
   P50(ns), P90(ns), P95(ns), P99(ns), P999(ns)
@@ -38,7 +38,7 @@ _ZERO_ROW_RE = re.compile(r"^\[([^\]]+)\]\s+0\s+0\s+0\s+0\s+0\s+0\s+0\s+0\s+0\s+
 
 @dataclass
 class BrpcProfilingRecord:
-    """BRPC profiling 单条记录"""
+    """UBSocket profiling 单条记录"""
     timestamp: datetime
     interface_name: str
     source_file: str = ""
@@ -56,7 +56,7 @@ class BrpcProfilingRecord:
 
 
 class BrpcProfilingParser:
-    """BRPC profiling 日志解析器"""
+    """UBSocket profiling 日志解析器"""
 
     # 必填列数（不含 P50 及之后的列）
     _MANDATORY_COLUMN_COUNT = 8  # interface_name, SUCCESS, FAILURE, TOTAL, AVG, MAX, MIN, P50
@@ -65,7 +65,7 @@ class BrpcProfilingParser:
         self._records: list[BrpcProfilingRecord] = []
 
     def parse_file(self, file_path: str) -> list[BrpcProfilingRecord]:
-        """解析 BRPC profiling 日志文件。
+        """解析 UBSocket profiling 日志文件。
 
         Args:
             file_path: 日志文件路径
@@ -81,7 +81,7 @@ class BrpcProfilingParser:
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
         except (IOError, OSError) as e:
-            logger.error(f"读取 BRPC profiling 日志文件失败: {file_path}, 错误: {e}")
+            logger.error(f"读取 UBSocket profiling 日志文件失败: {file_path}, 错误: {e}")
             return []
 
         for line in lines:
@@ -115,7 +115,7 @@ class BrpcProfilingParser:
                     record.source_file = source_file
                     self._records.append(record)
 
-        logger.info(f"BRPC profiling 解析完成: {len(self._records)} 条记录, "
+        logger.info(f"UBSocket profiling 解析完成: {len(self._records)} 条记录, "
                      f"时间点: {len(set(r.timestamp for r in self._records))} 个")
         return self._records
 

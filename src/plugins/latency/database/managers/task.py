@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from latency.common.local_time import local_now
 from typing import Any
 
 from sqlalchemy import desc, func, insert, select, text
@@ -88,12 +89,16 @@ class TaskPGManager:
         return True
 
     @staticmethod
-    async def mark_failed_with_report(task_id: str, message: str) -> bool:
-        """Persist the terminal state and its user-facing reason atomically."""
+    async def mark_failed_with_report(
+        task_id: str,
+        message: str,
+        status: TaskStatusEnum = TaskStatusEnum.FAILED,
+    ) -> bool:
+        """Persist the failure state and its user-facing reason atomically."""
         async with PGManager.session() as session:
             result = await session.execute(
                 text("UPDATE task SET status = :status WHERE id = :id"),
-                {"id": task_id, "status": TaskStatusEnum.FAILED.value},
+                {"id": task_id, "status": status.value},
             )
             await session.execute(
                 insert(TaskReport),
@@ -103,9 +108,34 @@ class TaskPGManager:
                         "progress": 100.0,
                         "message": message,
                         "existed_status": True,
-                        "created_at": datetime.now(),
+                        "created_at": local_now(),
                     }
                 ],
+            )
+        return bool(result.rowcount)
+
+    @staticmethod
+    async def transition_task_status(
+        task_id: str,
+        from_status: TaskStatusEnum,
+        to_status: TaskStatusEnum,
+    ) -> bool:
+        """Atomically move a task between two statuses.
+
+        Returns False when the task no longer holds from_status (stopped or
+        deleted concurrently), so the caller must not proceed with it.
+        """
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE task SET status = :to_status "
+                    "WHERE id = :id AND status = :from_status"
+                ),
+                {
+                    "id": task_id,
+                    "from_status": from_status.value,
+                    "to_status": to_status.value,
+                },
             )
         return bool(result.rowcount)
 

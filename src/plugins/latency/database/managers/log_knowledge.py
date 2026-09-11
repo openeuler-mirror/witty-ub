@@ -8,9 +8,10 @@ from typing import Any
 from sqlalchemy import desc, func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from latency.common.local_time import parse_asset_timestamp, utc_now
 from latency.database.engine import PGManager
 from latency.database.models import LogKnowledge
-from latency.database.utils import escape_like, format_timestamp, parse_timestamp
+from latency.database.utils import escape_like, format_timestamp
 from latency.schemas.log import LogKnowledgeModel
 from latency.schemas.request import ListLogKnowledgeRequest
 
@@ -44,8 +45,8 @@ class LogKnowledgePGManager:
             "anomalous_count": log_kb.anomaly_cnt,
             "failure_count": 0,
             "existed_status": log_kb.existed_status,
-            "created_at": parse_timestamp(log_kb.created_at),
-            "updated_at": parse_timestamp(log_kb.updated_at),
+            "created_at": parse_asset_timestamp(log_kb.created_at),
+            "updated_at": parse_asset_timestamp(log_kb.updated_at),
         }
 
     @staticmethod
@@ -110,11 +111,15 @@ class LogKnowledgePGManager:
             logger.warning("log_knowledge update dropped unknown keys: %s", list(dropped.keys()))
         if not allowed:
             return 0
-        set_clauses = ", ".join(f"{k} = :{k}" for k in allowed)
-        params = {"id": log_kb_id, **allowed}
+        for key in ("created_at", "updated_at"):
+            if key in allowed:
+                allowed[key] = parse_asset_timestamp(allowed[key])
+        allowed.pop("updated_at", None)  # The update time is generated below.
+        set_clauses = ", ".join([*(f"{k} = :{k}" for k in allowed), "updated_at = :server_updated_at"])
+        params = {"id": log_kb_id, **allowed, "server_updated_at": utc_now()}
         async with PGManager.session() as session:
             result = await session.execute(
-                text(f"UPDATE log_knowledge SET {set_clauses}, updated_at = NOW() WHERE id = :id"),
+                text(f"UPDATE log_knowledge SET {set_clauses} WHERE id = :id"),
                 params,
             )
         return result.rowcount or 0
@@ -124,8 +129,8 @@ class LogKnowledgePGManager:
         """Refresh the asset's update time after a task changes its contents."""
         async with PGManager.session() as session:
             result = await session.execute(
-                text("UPDATE log_knowledge SET updated_at = NOW() WHERE id = :id"),
-                {"id": log_kb_id},
+                text("UPDATE log_knowledge SET updated_at = :server_updated_at WHERE id = :id"),
+                {"id": log_kb_id, "server_updated_at": utc_now()},
             )
         return result.rowcount or 0
 
@@ -145,7 +150,7 @@ class LogKnowledgePGManager:
                 anomalous_count = agg.anomalous_cnt,
                 failure_count = agg.failure_cnt,
                 trace_failure_event_cnt = agg.trace_failure_cnt,
-                updated_at = NOW()
+                updated_at = :server_updated_at
             FROM (
                 SELECT COUNT(*) AS log_cnt,
                        COALESCE(SUM(COALESCE(anomalous_count, 0)), 0) AS anomalous_cnt,
@@ -158,10 +163,10 @@ class LogKnowledgePGManager:
             """
         )
         if session is not None:
-            result = await session.execute(sql, {"kb_id": kb_id})
+            result = await session.execute(sql, {"kb_id": kb_id, "server_updated_at": utc_now()})
             return result.rowcount or 0
         async with PGManager.session() as own_session:
-            result = await own_session.execute(sql, {"kb_id": kb_id})
+            result = await own_session.execute(sql, {"kb_id": kb_id, "server_updated_at": utc_now()})
         return result.rowcount or 0
 
     @staticmethod
@@ -177,11 +182,11 @@ class LogKnowledgePGManager:
             )
         if req.created_at_start:
             stmt = stmt.where(
-                LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
+                LogKnowledge.created_at >= parse_asset_timestamp(req.created_at_start)
             )
         if req.created_at_end:
             stmt = stmt.where(
-                LogKnowledge.created_at <= parse_timestamp(req.created_at_end)
+                LogKnowledge.created_at <= parse_asset_timestamp(req.created_at_end)
             )
         async with PGManager.session() as session:
             return (await session.execute(stmt)).scalar() or 0
@@ -208,11 +213,11 @@ class LogKnowledgePGManager:
             )
         if req.created_at_start:
             stmt = stmt.where(
-                LogKnowledge.created_at >= parse_timestamp(req.created_at_start)
+                LogKnowledge.created_at >= parse_asset_timestamp(req.created_at_start)
             )
         if req.created_at_end:
             stmt = stmt.where(
-                LogKnowledge.created_at <= parse_timestamp(req.created_at_end)
+                LogKnowledge.created_at <= parse_asset_timestamp(req.created_at_end)
             )
 
         if req.created_sorted_desc:

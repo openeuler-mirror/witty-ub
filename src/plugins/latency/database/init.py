@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
+from latency.common.local_time import legacy_asset_timezone
 from latency.database.engine import PGManager
 from latency.database.models import Base
 
@@ -71,7 +72,7 @@ async def _backfill_brpc_batch_hit_count() -> None:
 async def _backfill_brpc_batch_time_range() -> None:
     """Replace scan bounds with the actual imported-hit interval.
 
-    BRPC query timestamps have second precision.  Keep the stored lower bound
+    UBSocket query timestamps have second precision.  Keep the stored lower bound
     exact and round the exclusive upper bound to the next second so formatting
     cannot exclude the final hit.
     """
@@ -194,8 +195,43 @@ async def _create_time_window_partition(conn, part_start: datetime) -> None:
     )
 
 
+# Only administrative asset timestamps represent instants. Log timestamps retain
+# the original wall-clock values used by parsing, aggregation and time filters.
+ASSET_TIMESTAMP_COLUMNS = {
+    (table, column)
+    for table in ("log_knowledge", "log_file")
+    for column in ("created_at", "updated_at")
+}
+
+
+async def migrate_asset_timestamps() -> None:
+    """Convert legacy asset metadata once; existing aware values stay untouched."""
+    async with PGManager.engine().begin() as conn:
+        rows = await conn.execute(text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND data_type = 'timestamp without time zone' "
+            "AND table_name IN ('log_knowledge', 'log_file') "
+            "AND column_name IN ('created_at', 'updated_at')"
+        ))
+        rows = rows.all()
+        if not rows:
+            return
+        zone = legacy_asset_timezone()
+        # DDL utility statements cannot use asyncpg bind parameters. Let
+        # PostgreSQL quote the configured timezone as a SQL literal.
+        zone_literal = await conn.scalar(text("SELECT quote_literal(:zone)"), {"zone": zone})
+        for table_name, column_name in rows:
+            if (table_name, column_name) not in ASSET_TIMESTAMP_COLUMNS:
+                continue
+            await conn.execute(text(
+                f'ALTER TABLE public."{table_name}" ALTER COLUMN "{column_name}" '
+                f'TYPE timestamp with time zone USING "{column_name}" AT TIME ZONE {zone_literal}'
+            ))
+
+
 async def migrate_timestamptz_to_timestamp() -> None:
-    """Convert all TIMESTAMPTZ columns to TIMESTAMP (no timezone).
+    """Convert log TIMESTAMPTZ columns to TIMESTAMP; preserve asset instants.
 
     This keeps timestamp values exactly as they were written, without any
     timezone conversion.  Safe to run multiple times (idempotent).
@@ -208,6 +244,8 @@ async def migrate_timestamptz_to_timestamp() -> None:
             "AND data_type = 'timestamp with time zone'"
         ))
         for table_name, column_name in rows:
+            if (table_name, column_name) in ASSET_TIMESTAMP_COLUMNS:
+                continue
             await conn.execute(text(
                 f"ALTER TABLE {table_name} "
                 f"ALTER COLUMN {column_name} "
@@ -365,11 +403,28 @@ async def ensure_time_window_partitions(
 
 
 async def migrate_brpc_log_type_column() -> None:
-    """为已有数据库幂等补齐 log_file 表的 log_type 列。"""
+    """补齐日志类型列，并将历史类型值迁移为统一的对外名称。"""
     async with PGManager.engine().begin() as conn:
         await conn.execute(text(
-            "ALTER TABLE log_file ADD COLUMN IF NOT EXISTS log_type VARCHAR DEFAULT 'kv-cache'"
+            "ALTER TABLE log_file ADD COLUMN IF NOT EXISTS log_type VARCHAR DEFAULT 'KVCache'"
         ))
+        await conn.execute(text(
+            "ALTER TABLE log_file ALTER COLUMN log_type SET DEFAULT 'KVCache'"
+        ))
+        # 旧别名仅用于迁移历史数据；API 不接受这些值。
+        await conn.execute(text("""
+            UPDATE log_file
+            SET log_type = CASE
+                WHEN log_type IS NULL OR btrim(log_type) = ''
+                    OR lower(replace(replace(btrim(log_type), '-', ''), '_', '')) = 'kvcache'
+                    THEN 'KVCache'
+                ELSE 'UBSocket'
+            END
+            WHERE log_type IS NULL OR btrim(log_type) = ''
+                OR (log_type NOT IN ('KVCache', 'UBSocket') AND
+                    lower(replace(replace(btrim(log_type), '-', ''), '_', ''))
+                    IN ('kvcache', 'ubsocket', 'brpc'))
+        """))
 
 
 async def drop_legacy_log_file_parse_status() -> None:
@@ -502,6 +557,7 @@ async def init_postgresql_database() -> None:
     await _backfill_brpc_batch_time_range()
     await _backfill_brpc_unique_interfaces()
     await _backfill_brpc_interface_buckets()
+    await migrate_asset_timestamps()
     await migrate_timestamptz_to_timestamp()
     await migrate_yuanrong_metric_columns()
     await migrate_brpc_log_type_column()
