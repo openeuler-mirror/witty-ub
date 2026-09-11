@@ -875,6 +875,9 @@ function createOverviewStateInner() {
   const brpcAbnormalThreads = ref<any[]>([])
   const brpcAbnormalThreadTotal = ref(0)
   const brpcAbnormalThreadPage = ref(1)
+  // 翻页/搜索只刷新表格：与首屏 brpcFaultLoading 分开，避免整页被加载态替换
+  const brpcThreadListLoading = ref(false)
+  const brpcEventListLoading = ref(false)
   // P2.4 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名）
   const brpcThreadSearchInput = ref('')
   const brpcThreadSearchQuery = ref('')
@@ -901,6 +904,8 @@ function createOverviewStateInner() {
   const brpcThreadDetailError = ref('')
   const brpcSelectedGraphNodeId = ref('')
   let brpcThreadLogsRequestSeq = 0
+  let brpcThreadListSeq = 0
+  let brpcEventListSeq = 0
   const brpcFaultPageSize = 10
 
   const brpcFaultLogOptions = computed(() =>
@@ -1359,8 +1364,7 @@ function createOverviewStateInner() {
   }
 
   const changeBrpcEventWindowSize = async () => {
-    brpcAggregatedEventPage.value = 1
-    await loadBrpcFaultData()
+    await loadBrpcAggregatedEvents()
   }
 
   const goBrpcFaultEventsPage = async (pageNum: number) => {
@@ -1369,16 +1373,73 @@ function createOverviewStateInner() {
     brpcExpandedEventWindow.value = ''
   }
 
+  /** 只重拉异常 Thread 列表（翻页/搜索/清空搜索），不动时序图与聚合事件 */
+  const loadBrpcAbnormalThreads = async () => {
+    const batchId = brpcFaultBatchId.value
+    const batch = brpcFaultBatch.value
+    if (!batchId || !batch) return
+    const seq = ++brpcThreadListSeq
+    brpcThreadListLoading.value = true
+    try {
+      const { startDate, endDate } = brpcFaultQueryRange(batch)
+      const result = await fetchBrpcAbnormalThreads(
+        batchId,
+        startDate,
+        endDate,
+        brpcAbnormalThreadPage.value,
+        brpcFaultPageSize,
+        { search: brpcThreadSearchQuery.value || undefined },
+      )
+      if (seq !== brpcThreadListSeq) return
+      brpcAbnormalThreads.value = result.threads ?? []
+      brpcAbnormalThreadTotal.value = result.total ?? 0
+    } catch (error) {
+      if (seq === brpcThreadListSeq) brpcFaultError.value = errorText(error)
+    } finally {
+      if (seq === brpcThreadListSeq) brpcThreadListLoading.value = false
+    }
+  }
+
+  /** 只重拉聚合事件（时间间隔切换），不动时序图与 Thread 列表 */
+  const loadBrpcAggregatedEvents = async () => {
+    const batchId = brpcFaultBatchId.value
+    const batch = brpcFaultBatch.value
+    if (!batchId || !batch) return
+    const seq = ++brpcEventListSeq
+    brpcEventListLoading.value = true
+    try {
+      const { startDate, endDate } = brpcFaultQueryRange(batch)
+      const result = await fetchBrpcPodEvents(
+        batchId,
+        startDate,
+        endDate,
+        1,
+        BRPC_EVENT_FETCH_PAGE_CNT,
+        brpcEventWindowSize.value,
+      )
+      if (seq !== brpcEventListSeq) return
+      brpcAggregatedEvents.value = result.events ?? []
+      brpcAggregatedEventTotal.value = result.total ?? 0
+      brpcAggregatedEventsTruncated.value = (result.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
+      brpcAggregatedEventPage.value = 1
+      brpcExpandedEventWindow.value = ''
+    } catch (error) {
+      if (seq === brpcEventListSeq) brpcFaultError.value = errorText(error)
+    } finally {
+      if (seq === brpcEventListSeq) brpcEventListLoading.value = false
+    }
+  }
+
   const goBrpcFaultThreadsPage = async (pageNum: number) => {
-    brpcAbnormalThreadPage.value = pageNum
-    await loadBrpcFaultData()
+    brpcAbnormalThreadPage.value = Math.max(1, pageNum)
+    await loadBrpcAbnormalThreads()
   }
 
   // P2.4 异常 Thread 搜索：提交/清空均重置页码并重拉
   const submitBrpcThreadSearch = async () => {
     brpcThreadSearchQuery.value = brpcThreadSearchInput.value.trim()
     brpcAbnormalThreadPage.value = 1
-    await loadBrpcFaultData()
+    await loadBrpcAbnormalThreads()
   }
 
   const clearBrpcThreadSearch = async () => {
@@ -1386,7 +1447,7 @@ function createOverviewStateInner() {
     brpcThreadSearchInput.value = ''
     brpcThreadSearchQuery.value = ''
     brpcAbnormalThreadPage.value = 1
-    await loadBrpcFaultData()
+    await loadBrpcAbnormalThreads()
   }
 
   const brpcFaultEventPages = computed(() =>
@@ -5104,6 +5165,8 @@ function createOverviewStateInner() {
     brpcAbnormalThreadPage,
     brpcAbnormalThreadTotal,
     brpcAbnormalThreads,
+    brpcThreadListLoading,
+    brpcEventListLoading,
     brpcAggregatedEventPage,
     brpcAggregatedEventTotal,
     brpcAggregatedEvents,

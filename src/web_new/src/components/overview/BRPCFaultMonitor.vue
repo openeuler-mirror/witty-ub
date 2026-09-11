@@ -33,6 +33,8 @@ const {
   brpcFaultZoomed,
   brpcThreadSearchInput,
   brpcThreadSearchQuery,
+  brpcThreadListLoading,
+  brpcEventListLoading,
   changeBrpcFaultLog,
   changeBrpcEventWindowSize,
   clearBrpcFaultSeries,
@@ -63,9 +65,11 @@ onMounted(() => {
           {{ option.name }}
         </option>
       </select>
+      <span v-if="brpcFaultLoading" class="hint">加载中…</span>
     </div>
   </div>
-  <div v-if="brpcFaultLoading" class="empty" style="padding: 28px 0">
+  <!-- 首屏才用整块加载态；切换日志/翻页时页面保持可见，仅就地提示 -->
+  <div v-if="brpcFaultLoading && !brpcFaultBatch" class="empty" style="padding: 28px 0">
     <div class="icon">⏳</div>
     <div>正在加载 UBSocket 故障监控数据...</div>
   </div>
@@ -279,6 +283,7 @@ onMounted(() => {
         <div class="table-foot">
           <span class="hint">
             共 {{ brpcEventWindows.length }} 个时间窗 / {{ brpcAggregatedEventTotal }} 条 Pod 记录
+            <template v-if="brpcEventListLoading"> · 刷新中…</template>
           </span>
           <PageNav
             v-if="brpcEventWindowPages > 1"
@@ -328,10 +333,9 @@ onMounted(() => {
         <table>
           <thead>
             <tr>
-              <th class="col-nowrap">线程Key</th>
+              <th class="col-nowrap">线程ID</th>
               <th class="col-nowrap">Pod IP</th>
               <th class="col-nowrap">Pod 名称</th>
-              <th class="col-num">线程ID</th>
               <th class="col-num">命中数</th>
               <th>接口概要</th>
               <th class="col-nowrap">操作</th>
@@ -340,11 +344,12 @@ onMounted(() => {
           <tbody>
             <tr v-for="thread in brpcAbnormalThreads" :key="thread.thread_key">
               <td class="col-nowrap">
-                <span class="mono-ellipsis" :title="thread.thread_key">{{ thread.thread_key }}</span>
+                <span class="thread-id-pill" :title="thread.thread_key">
+                  {{ thread.thread_id }}
+                </span>
               </td>
               <td class="col-nowrap" style="font-family: monospace">{{ thread.pod_ip }}</td>
               <td class="col-nowrap">{{ thread.pod_name || '-' }}</td>
-              <td class="col-num">{{ thread.thread_id }}</td>
               <td class="col-num">{{ thread.total_interface_hit_count }}</td>
               <td>
                 <div class="chip-row">
@@ -360,7 +365,7 @@ onMounted(() => {
               </td>
               <td class="col-nowrap">
                 <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
-                  查看 Thread 日志
+                  详情
                 </button>
               </td>
             </tr>
@@ -368,12 +373,15 @@ onMounted(() => {
         </table>
       </div>
       <div class="table-foot">
-        <span class="hint">共 {{ brpcAbnormalThreadTotal }} 条</span>
+        <span class="hint">
+          共 {{ brpcAbnormalThreadTotal }} 条
+          <template v-if="brpcThreadListLoading"> · 刷新中…</template>
+        </span>
         <PageNav
           v-if="brpcFaultThreadPages > 1"
           :page="brpcAbnormalThreadPage"
           :pages="brpcFaultThreadPages"
-          :disabled="brpcFaultLoading"
+          :disabled="brpcThreadListLoading"
           @update:page="goBrpcFaultThreadsPage"
         />
       </div>

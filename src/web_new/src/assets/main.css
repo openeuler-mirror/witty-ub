@@ -2024,6 +2024,19 @@ table .col-num {
   font-size: 12px;
 }
 
+/* 线程 ID 药丸（对齐旧版 brpc-detail-thread-id） */
+.thread-id-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 12px;
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;

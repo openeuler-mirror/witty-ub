@@ -337,7 +337,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="logFilesLoading" class="empty">
+        <!-- 已有数据时不清空列表：只在首次加载展示占位，后续刷新就地提示 -->
+        <div v-if="logFilesLoading && logFiles.length === 0" class="empty">
           <div class="icon">⏳</div>
           <div>正在加载任务...</div>
         </div>
@@ -457,6 +458,7 @@ onBeforeUnmount(() => {
         >
           <span style="font-size: 13px; color: var(--text2)">
             共 {{ filteredTasks.length }} 个任务，每页 {{ taskPageSize }} 个
+            <template v-if="logFilesLoading"> · 刷新中…</template>
           </span>
           <div class="pagination" style="margin-top: 0" v-if="taskPages > 1">
             <button :disabled="taskPage === 1" @click="taskPage = Math.max(1, taskPage - 1)">

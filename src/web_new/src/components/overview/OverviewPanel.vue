@@ -523,8 +523,9 @@ onBeforeUnmount(() => {
               <table>
                 <thead>
                   <tr>
-                    <th>线程Key</th>
                     <th>线程ID</th>
+                    <th>Pod IP</th>
+                    <th>Pod 名称</th>
                     <th>命中数</th>
                     <th>接口概要</th>
                     <th>操作</th>
@@ -532,8 +533,13 @@ onBeforeUnmount(() => {
                 </thead>
                 <tbody>
                   <tr v-for="thread in brpcEventDetailThreads" :key="thread.thread_key">
-                    <td style="font-family: monospace; font-size: 12px">{{ thread.thread_key }}</td>
-                    <td>{{ thread.thread_id }}</td>
+                    <td>
+                      <span class="thread-id-pill" :title="thread.thread_key">
+                        {{ thread.thread_id }}
+                      </span>
+                    </td>
+                    <td style="font-family: monospace; font-size: 12px">{{ thread.pod_ip }}</td>
+                    <td>{{ thread.pod_name || '-' }}</td>
                     <td>{{ thread.total_interface_hit_count }}</td>
                     <td>
                       <div class="chip-row">
@@ -552,7 +558,7 @@ onBeforeUnmount(() => {
                         class="btn btn-sm btn-primary"
                         @click="openBrpcFaultDetail(thread, true)"
                       >
-                        查看 Thread 日志
+                        详情
                       </button>
                     </td>
                   </tr>
