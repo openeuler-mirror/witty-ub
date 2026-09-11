@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import BlockTable from '../common/BlockTable.vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import type { LogFileModel, LogKnowledge } from '../../types'
 import {
@@ -522,68 +523,61 @@ onBeforeUnmount(() => {
               当前窗内无异常 Thread
             </div>
             <div v-else class="table-wrap" style="margin-bottom: 16px">
-              <table class="fixed-table matrix-table">
-                <colgroup>
-                  <col style="width: 110px" />
-                  <col style="width: 130px" />
-                  <col style="width: 150px" />
-                  <col style="width: 96px" />
-                  <col v-for="column in brpcEventDetailThreadInterfaceColumns" :key="column.id" style="width: 132px" />
-                  <col style="width: 96px" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th class="col-nowrap">线程ID</th>
-                    <th class="col-nowrap">Pod IP</th>
-                    <th class="col-nowrap">Pod 名称</th>
-                    <th class="col-num">命中数</th>
-                    <th
-                      v-for="column in brpcEventDetailThreadInterfaceColumns"
-                      :key="column.id"
-                      class="col-num matrix-head-cell"
-                      :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
-                    >
-                      <small class="matrix-head-component">{{ column.component }}</small>
-                      <span class="matrix-head-name">{{ column.interfaceName }}</span>
-                      <code class="matrix-head-function">{{ column.functionName }}</code>
-                    </th>
-                    <th class="col-nowrap">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="thread in brpcEventDetailThreads" :key="thread.thread_key">
-                    <td class="col-nowrap">
-                      <span class="thread-id-pill" :title="thread.thread_key">
-                        {{ thread.thread_id }}
-                      </span>
-                    </td>
-                    <td class="col-nowrap" style="font-family: monospace">{{ thread.pod_ip }}</td>
-                    <td class="col-nowrap">{{ thread.pod_name || '-' }}</td>
-                    <td class="col-num">{{ thread.total_interface_hit_count }}</td>
-                    <td
-                      v-for="column in brpcEventDetailThreadInterfaceColumns"
-                      :key="column.id"
-                      class="col-num"
-                    >
-                      <span
-                        :class="{
-                          'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id),
-                        }"
-                      >
-                        {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
-                      </span>
-                    </td>
-                    <td class="col-nowrap">
-                      <button
-                        class="btn btn-sm btn-primary"
-                        @click="openBrpcFaultDetail(thread, true)"
-                      >
-                        详情
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <BlockTable
+                :rows="brpcEventDetailThreads"
+                :row-key="(row: any) => row.thread_key"
+                :left-cols="['110px', '130px', '150px', '96px']"
+                :mid-width="brpcEventDetailThreadInterfaceColumns.length * 132 + 'px'"
+              >
+                <template #left-head>
+                  <span class="col-nowrap">线程ID</span>
+                  <span class="col-nowrap">Pod IP</span>
+                  <span class="col-nowrap">Pod 名称</span>
+                  <span class="col-num">命中数</span>
+                </template>
+                <template #left="{ row: thread }">
+                  <span class="col-nowrap">
+                    <span class="thread-id-pill" :title="thread.thread_key">{{
+                      thread.thread_id
+                    }}</span>
+                  </span>
+                  <span class="col-nowrap agg-mono">{{ thread.pod_ip }}</span>
+                  <span class="col-nowrap">{{ thread.pod_name || '-' }}</span>
+                  <span class="col-num">{{ thread.total_interface_hit_count }}</span>
+                </template>
+                <template #mid-head>
+                  <div
+                    v-for="column in brpcEventDetailThreadInterfaceColumns"
+                    :key="column.id"
+                    class="col-num matrix-head-cell"
+                    :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
+                  >
+                    <small class="matrix-head-component">{{ column.component }}</small>
+                    <span class="matrix-head-name">{{ column.interfaceName }}</span>
+                    <code class="matrix-head-function">{{ column.functionName }}</code>
+                  </div>
+                </template>
+                <template #mid="{ row: thread }">
+                  <div
+                    v-for="column in brpcEventDetailThreadInterfaceColumns"
+                    :key="column.id"
+                    class="col-num"
+                  >
+                    <span :class="{ 'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id) }">
+                      {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
+                    </span>
+                  </div>
+                </template>
+                <template #right-head>操作</template>
+                <template #right="{ row: thread }">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    @click="openBrpcFaultDetail(thread, true)"
+                  >
+                    详情
+                  </button>
+                </template>
+              </BlockTable>
             </div>
           </template>
         </template>
