@@ -152,7 +152,7 @@ const selectedSingleMetricLabel = computed(
           <!-- 卡片 1：接口成功率总览（指标切换 + 接口曲线勾选，颜色与勾选点一致） -->
           <article class="monitor-card monitor-card-wide">
             <div class="monitor-card-title">
-              <span>📈 接口成功率总览</span>
+              <span>接口成功率总览</span>
               <span class="monitor-card-actions">
                 <label class="hint" for="brpc-success-metric">指标</label>
                 <select id="brpc-success-metric" class="select" v-model="brpcSuccessMetric">
@@ -199,7 +199,7 @@ const selectedSingleMetricLabel = computed(
           <!-- 卡片 2：单接口成功率监控（接口 + 指标多选，数量/比率双轴，通栏避免轴标签挤压） -->
           <article class="monitor-card monitor-card-wide">
             <div class="monitor-card-title">
-              <span>📉 单接口成功率监控</span>
+              <span>单接口成功率监控</span>
               <span class="monitor-card-actions">
                 <label class="hint" for="brpc-single-iface">接口</label>
                 <select id="brpc-single-iface" class="select" v-model="brpcSingleIface">
@@ -238,7 +238,7 @@ const selectedSingleMetricLabel = computed(
           <!-- 卡片 4：单接口时延（ms，所选接口 avg/P99/max） -->
           <article class="monitor-card monitor-card-wide">
             <div class="monitor-card-title">
-              <span>⏱️ 单接口时延（ms）</span>
+              <span>单接口时延（ms）</span>
               <span class="monitor-card-actions hint">{{ brpcSingleIface || '-' }}</span>
             </div>
             <div class="monitor-card-hint">跟随「单接口成功率监控」所选接口</div>
@@ -248,7 +248,7 @@ const selectedSingleMetricLabel = computed(
           <!-- 卡片 3：时延监控（µs，指标下拉 + 接口曲线勾选） -->
           <article class="monitor-card monitor-card-wide">
             <div class="monitor-card-title">
-              <span>⏱️ 时延监控 (µs)</span>
+              <span>时延监控 (µs)</span>
               <span class="monitor-card-actions">
                 <label class="hint" for="brpc-latency-metric">指标</label>
                 <select id="brpc-latency-metric" class="select" v-model="brpcLatencyMetric">

@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
           </div>
           <template v-else>
             <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
-              🧩 组件计数（共 {{ brpcEventDetail?.hit_total ?? 0 }} 次命中）
+              组件计数（共 {{ brpcEventDetail?.hit_total ?? 0 }} 次命中）
             </div>
             <div
               v-if="!brpcEventDetail?.failure_modes?.length"
@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
-              📈 当前窗故障时序
+              当前窗故障时序
             </div>
             <div v-if="brpcEventDetailTimelineEmpty" class="empty" style="padding: 12px 0">
               当前窗内无故障时序数据
@@ -514,7 +514,7 @@ onBeforeUnmount(() => {
             ></div>
 
             <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
-              🧵 关联异常 Thread（{{ brpcEventDetailThreads.length }}）
+              关联异常 Thread（{{ brpcEventDetailThreads.length }}）
             </div>
             <div v-if="brpcEventDetailThreads.length === 0" class="empty" style="padding: 12px 0">
               当前窗内无异常 Thread
@@ -611,7 +611,7 @@ onBeforeUnmount(() => {
         <template v-if="brpcFaultDetail.thread_key">
           <!-- P2.3：故障模式视图（failure_graph） -->
           <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
-            🕸️ 故障模式视图
+            故障模式视图
             <span class="graph-legend" aria-label="故障模式视图图例">
               <span><i class="graph-legend-interface"></i>接口节点</span>
               <span><i class="graph-legend-mode"></i>故障模式节点</span>
@@ -781,7 +781,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- P2.3：接口命中时序 -->
-          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px">📈 接口命中时序</div>
+          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px">接口命中时序</div>
           <div v-if="brpcThreadTimelineEmpty" class="empty" style="padding: 12px 0">
             暂无接口命中时序数据
           </div>
@@ -793,7 +793,7 @@ onBeforeUnmount(() => {
 
           <!-- P2.3：完整运行日志列，故障行高亮 -->
           <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
-            📋 运行日志（{{ brpcThreadLogs.length }} 条）
+            运行日志（{{ brpcThreadLogs.length }} 条）
           </div>
           <div v-if="brpcThreadLogsLoading" class="empty" style="padding: 16px 0">
             正在加载运行日志...
@@ -843,7 +843,7 @@ onBeforeUnmount(() => {
                       :title="'定位故障模式节点：' + log.failure_mode_id"
                       @click="selectBrpcGraphNode(log.failure_mode_id)"
                     >
-                      🔴 {{ brpcThreadFailureModeLabel(log.failure_mode_id) }}
+                      {{ brpcThreadFailureModeLabel(log.failure_mode_id) }}
                     </button>
                   </td>
                 </tr>
@@ -960,7 +960,7 @@ onBeforeUnmount(() => {
     :inert="!detailDrawerOpen"
   >
     <div class="agent-header">
-      {{ detailDrawerRow ? '📜 Trace：' + detailDrawerRow.trace_id : '日志详情' }}
+      {{ detailDrawerRow ? 'Trace：' + detailDrawerRow.trace_id : '日志详情' }}
       <button class="close" @click="detailDrawerOpen = false">✕</button>
     </div>
     <div style="padding: 16px; overflow-y: auto; flex: 1">
@@ -1004,7 +1004,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">
-          📋 运行日志（{{ traceDrawerLogs.length }} 条）
+          运行日志（{{ traceDrawerLogs.length }} 条）
         </div>
         <div class="table-wrap" style="margin-bottom: 16px">
           <table style="min-width: 960px">
@@ -1040,7 +1040,7 @@ onBeforeUnmount(() => {
           </table>
         </div>
 
-        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">🗃️ 故障模式详情</div>
+        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">故障模式详情</div>
         <div
           v-if="primaryFailureMode"
           style="
@@ -1090,7 +1090,7 @@ onBeforeUnmount(() => {
             gap: 8px;
           "
         >
-          🔗 相关故障（{{ relatedFaultIds.length }}）
+          相关故障（{{ relatedFaultIds.length }}）
           <button
             v-if="relatedFaultIds.length > 0"
             class="btn btn-text btn-sm"
@@ -1131,7 +1131,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
 
-        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">⏱️ 时延明细</div>
+        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">时延明细</div>
         <div class="table-wrap" style="margin-bottom: 8px">
           <table>
             <thead>

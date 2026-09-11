@@ -102,7 +102,7 @@ onMounted(() => {
 
     <div class="section-card">
       <div class="section-card-title">
-        📈 UBSocket 公共API故障时序分布
+        UBSocket 公共API故障时序分布
         <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px">
           <button
             v-if="brpcFaultZoomed"
@@ -204,15 +204,22 @@ onMounted(() => {
             <colgroup>
               <col style="width: 330px" />
               <col style="width: 96px" />
-              <col v-for="name in brpcEventInterfaceColumns" :key="name" style="width: 104px" />
+              <col v-for="column in brpcEventInterfaceColumns" :key="column.id" style="width: 132px" />
               <col style="width: 96px" />
             </colgroup>
             <thead>
               <tr>
                 <th class="col-nowrap col-sticky-left-0">时间窗</th>
                 <th class="col-num col-sticky-left-330">故障总数</th>
-                <th v-for="name in brpcEventInterfaceColumns" :key="name" class="col-num">
-                  <span class="matrix-head" :title="name">{{ name }}</span>
+                <th
+                  v-for="column in brpcEventInterfaceColumns"
+                  :key="column.id"
+                  class="col-num matrix-head-cell"
+                  :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
+                >
+                  <small class="matrix-head-component">{{ column.component }}</small>
+                  <span class="matrix-head-name">{{ column.interfaceName }}</span>
+                  <code class="matrix-head-function">{{ column.functionName }}</code>
                 </th>
                 <th class="col-nowrap col-sticky-right-0">操作</th>
               </tr>
@@ -227,9 +234,9 @@ onMounted(() => {
                     {{ window.start }} ~ {{ window.end }}
                   </td>
                   <td class="col-num col-sticky-left-330"><b>{{ window.total }}</b></td>
-                  <td v-for="name in brpcEventInterfaceColumns" :key="name" class="col-num">
-                    <span :class="{ 'matrix-zero': !window.byInterface[name] }">
-                      {{ window.byInterface[name] ?? '-' }}
+                  <td v-for="column in brpcEventInterfaceColumns" :key="column.id" class="col-num">
+                    <span :class="{ 'matrix-zero': !window.byInterface[column.id] }">
+                      {{ window.byInterface[column.id] ?? '-' }}
                     </span>
                   </td>
                   <td class="col-nowrap col-sticky-right-0">
@@ -386,6 +393,7 @@ onMounted(() => {
                       v-for="hit in thread.interface_hits || []"
                       :key="hit.interface_id"
                       class="trace-chip"
+                      :title="`${hit.component || ''} / ${hit.interface_name || ''} / ${hit.function_name || ''}`"
                     >
                       {{ hit.interface_name }}:{{ hit.interface_hit_count }}
                     </span>

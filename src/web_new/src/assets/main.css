@@ -160,6 +160,7 @@ a:focus-visible,
   box-shadow: var(--shadow);
   padding: 16px;
   margin-bottom: 16px;
+  overflow: hidden;
 }
 
 .section-card-title {
@@ -453,6 +454,7 @@ tr:hover td {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .form-group {
@@ -611,7 +613,7 @@ tr:hover td {
 /* Grid */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 320px);
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -1370,7 +1372,7 @@ tr:hover td {
 
 .pie-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -1784,7 +1786,7 @@ tr:hover td {
 
 .monitor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
   gap: 16px;
   align-items: start;
 }
@@ -1803,6 +1805,7 @@ tr:hover td {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .monitor-card-wide {
@@ -1984,13 +1987,43 @@ table .col-num {
   white-space: nowrap;
 }
 
-.matrix-head {
-  display: inline-block;
-  max-width: 104px;
-  white-space: normal;
-  word-break: break-word;
-  line-height: 1.25;
-  vertical-align: bottom;
+/* 矩阵表头三行信息（组件 / 接口名 / 函数名），对齐旧版 */
+.matrix-head-cell {
+  text-align: left;
+  vertical-align: top;
+}
+
+.matrix-head-component,
+.matrix-head-name,
+.matrix-head-function {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matrix-head-component {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  text-transform: uppercase;
+}
+
+.matrix-head-name {
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.matrix-head-function {
+  color: #1e3a5f;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .matrix-zero {

@@ -845,20 +845,35 @@ function createOverviewStateInner() {
       const hitTotal = brpcEventHitTotalOf(row)
       entry.total += hitTotal
       for (const hit of row.interface_hits ?? []) {
-        const name = String(hit?.interface_name ?? '-')
-        entry.byInterface[name] = (entry.byInterface[name] ?? 0) + (hit?.interface_hit_count ?? 0)
+        const key = String(hit?.interface_id ?? hit?.interface_name ?? '-')
+        entry.byInterface[key] = (entry.byInterface[key] ?? 0) + (hit?.interface_hit_count ?? 0)
       }
       entry.pods.push({ ...row, hitTotal })
     }
     return [...grouped.values()].sort((left, right) => left.start.localeCompare(right.start))
   })
 
+  /** 接口列：带 组件 / 接口名 / 函数名（表头三行信息，对齐旧版），并按接口 id 作为聚合键 */
   const brpcEventInterfaceColumns = computed(() => {
-    const names = new Set<string>()
-    for (const window of brpcEventWindows.value) {
-      Object.keys(window.byInterface).forEach((name) => names.add(name))
+    const columns = new Map<
+      string,
+      { id: string; component: string; interfaceName: string; functionName: string }
+    >()
+    for (const row of brpcAggregatedEvents.value) {
+      for (const hit of row.interface_hits ?? []) {
+        const id = String(hit?.interface_id ?? hit?.interface_name ?? '-')
+        if (columns.has(id)) continue
+        columns.set(id, {
+          id,
+          component: String(hit?.component ?? ''),
+          interfaceName: String(hit?.interface_name ?? '-'),
+          functionName: String(hit?.function_name ?? '-'),
+        })
+      }
     }
-    return [...names].sort()
+    return [...columns.values()].sort((first, second) =>
+      first.interfaceName.localeCompare(second.interfaceName),
+    )
   })
 
   const brpcEventWindowPages = computed(() =>
@@ -3338,10 +3353,50 @@ function createOverviewStateInner() {
   const brpcEventTimelineRef = ref<HTMLElement | null>(null)
   const brpcThreadTimelineRef = ref<HTMLElement | null>(null)
 
-  const getChart = (element: HTMLElement) => getInstanceByDom(element) || init(element)
+  // 图表容器尺寸变化（窗口缩放 / 侧栏收放 / 弹窗尺寸变化）时自动 resize，
+  // 否则 ECharts 会保留初始化时的画布尺寸，内容画到窗口外面。
+  const chartEntries = new Map<HTMLElement, ECharts>()
+  const pendingChartResize = new Set<HTMLElement>()
+  let chartResizeFrame = 0
+  let chartResizeObserver: ResizeObserver | null = null
+  const flushChartResize = () => {
+    chartResizeFrame = 0
+    const targets = [...pendingChartResize]
+    pendingChartResize.clear()
+    targets.forEach((element) => {
+      const chart = chartEntries.get(element)
+      if (!chart) return
+      if (!element.isConnected || element.clientWidth === 0) {
+        chartResizeObserver?.unobserve(element)
+        chartEntries.delete(element)
+        return
+      }
+      if (!chart.isDisposed()) chart.resize()
+    })
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    chartResizeObserver = new ResizeObserver((entries) => {
+      entries.forEach((entry) => pendingChartResize.add(entry.target as HTMLElement))
+      if (chartResizeFrame) return
+      chartResizeFrame = requestAnimationFrame(flushChartResize)
+    })
+  }
 
+  const getChart = (element: HTMLElement) => {
+    const chart = getInstanceByDom(element) || init(element)
+    if (chartEntries.get(element) !== chart) {
+      chartEntries.set(element, chart)
+      chartResizeObserver?.observe(element)
+    }
+    return chart
+  }
+
+  // 统一关闭动画：统计图直接出结果，不做过渡动画
   const setChartOption = (chart: ECharts, option: any) => {
-    chart.setOption(option, { replaceMerge: ['series', 'legend'] })
+    chart.setOption(
+      { ...option, animation: false },
+      { replaceMerge: ['series', 'legend'] },
+    )
   }
 
   const highlightRow = (ip: string) => {

@@ -156,7 +156,7 @@ onBeforeUnmount(() => {
           class="hint"
           style="color: var(--warning)"
           title="时间窗总数超出单次加载上限，当前仅加载部分异常桶，不得据此下结论全局最高值"
-          >⏳ 数据已截断，仅部分时段入图</span
+          >数据已截断，仅部分时段入图</span
         >
         <span class="hint" style="margin-left: auto">缩放时间范围 / 点击柱体选中该时段</span>
       </div>
