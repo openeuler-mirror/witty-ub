@@ -115,20 +115,10 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
          & (pl.col("__qm") == 0)).alias("__swap"),
     )
 
-    # ── Phase 3: list aggregates for client RPC + worker ────────────────
-    yr = yr.with_columns([
-        pl.col("__we").list.sum().alias("__wsum"),
-        pl.col("__we").list.max().alias("__wmax"),
-        pl.col("__ce").list.sum().alias("__ce2esum"),
-    ])
-
-    # ── Phase 4: derived 26 output columns ──────────────────────────────
-    _ce0 = pl.col("__ce").list.first()
-    _ce1 = pl.col("__ce").list.tail(1).list.first()
-    _cs0 = pl.col("__cs").list.first()
-    _cs1 = pl.col("__cs").list.tail(1).list.first()
-    _cnw0 = pl.col("__cnw").list.first()
-    _cnw1 = pl.col("__cnw").list.tail(1).list.first()
+    # Only scalar summaries are retained for all traces.
+    _ce0, _ce1 = pl.col("__ce0"), pl.col("__ce1")
+    _cs0, _cs1 = pl.col("__cs0"), pl.col("__cs1")
+    _cnw0, _cnw1 = pl.col("__cnw0"), pl.col("__cnw1")
     _ct_0 = (_ce0 - _cs0).clip(0)
     _ct_1 = (_ce1 - _cs1).clip(0)
     _cf_0 = (_ct_0 - _cnw0).clip(0)
@@ -167,7 +157,7 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
         ).then(
             (pl.col("__se") - pl.col("__ce2esum")).clip(0)
         ).when(
-            pl.col("__we").list.len() > 0
+            pl.col("__wn") > 0
         ).then(
             (pl.col("__se") - pl.col("__wsum")).clip(0)
         ).otherwise(
@@ -182,11 +172,11 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
         pl.col("__wmax").alias("worker_access_latency_us"),
 
         pl.when(pl.col("__isset"))
-          .then((_remote_proc - pl.col("__ue").list.max()).clip(0))
+          .then((_remote_proc - pl.col("__umax")).clip(0))
           .otherwise(_remote_proc)
           .alias("remote_worker_internal_us"),
 
-        pl.when(~pl.col("__isd") & (pl.col("__we").list.len() > 0))
+        pl.when(~pl.col("__isd") & (pl.col("__wn") > 0))
           .then((pl.col("__wsum") - _m_e2e.fill_null(0) - _r_e2e.fill_null(0)).clip(0))
           .alias("local_worker_internal_us"),
 
@@ -212,12 +202,12 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
 
         pl.when(pl.col("__isset"))
           .then(pl.lit(None, dtype=pl.Float64))
-          .otherwise(pl.col("__ue").list.max())
+          .otherwise(pl.col("__umax"))
           .alias("urma_processing_us"),
 
         pl.when(pl.col("__isset"))
           .then(pl.lit(None, dtype=pl.Float64))
-          .otherwise(pl.col("__ui").list.max())
+          .otherwise(pl.col("__uimax"))
           .alias("urma_inflight_max"),
 
         _remote_proc.alias("remote_worker_processing_us"),
@@ -252,9 +242,12 @@ def build_trace_frame(worker_columnar: dict[str, list]):
     """
     import polars as pl
 
-    frame = pl.DataFrame({name: worker_columnar[name] for name in ALL_COLUMNS})
-
-    do_yuanrong = _has_yuanrong_cols(worker_columnar)
+    is_frame = isinstance(worker_columnar, pl.DataFrame)
+    available = worker_columnar.columns if is_frame else worker_columnar
+    frame = worker_columnar if is_frame else pl.DataFrame(
+        {name: worker_columnar[name] for name in ALL_COLUMNS}
+    )
+    do_yuanrong = _has_yuanrong_cols(available)
 
     # ── 构建 agg_exprs：TRACE_COLUMNS 归并 + 若需要则 yuanrong 原材料 ──
     agg_exprs: dict[str, pl.Expr] = {}
@@ -279,23 +272,30 @@ def build_trace_frame(worker_columnar: dict[str, list]):
             agg_exprs[col] = pl.col(col).drop_nulls().first()
 
     if do_yuanrong:
-        yr_data = {k: worker_columnar[k] for k in _YUANRONG_EXTRA_COLS}
-        frame = frame.with_columns(
-            **{k: pl.Series(name=k, values=v, dtype=pl.Float64)
-               if k.endswith("_us") or k == "inflight_count"
-               else pl.Series(name=k, values=v)
-               for k, v in yr_data.items()}
-        )
+        if not is_frame:
+            yr_data = {k: worker_columnar[k] for k in _YUANRONG_EXTRA_COLS}
+            frame = frame.with_columns(
+                **{k: pl.Series(name=k, values=v, dtype=pl.Float64)
+                   if k.endswith("_us") or k == "inflight_count"
+                   else pl.Series(name=k, values=v)
+                   for k, v in yr_data.items()}
+            )
         agg_exprs.update({
             "__se": pl.col("_elapsed_us").filter(pl.col("_label") == SDK_LABEL).first(),
             "__sop": pl.col("op").filter(pl.col("_label") == SDK_LABEL).first(),
-            "__we": pl.col("_elapsed_us").filter(pl.col("_label") == WORKER_ACCESS_LABEL).implode(),
-            "__ue": pl.col("_elapsed_us").filter(pl.col("_label") == URMA_LABEL).implode(),
-            "__ui": pl.col("inflight_count").filter(pl.col("_label") == URMA_LABEL).implode(),
+            "__wsum": pl.col("_elapsed_us").filter(pl.col("_label") == WORKER_ACCESS_LABEL).sum(),
+            "__wmax": pl.col("_elapsed_us").filter(pl.col("_label") == WORKER_ACCESS_LABEL).max(),
+            "__wn": pl.col("_label").filter(pl.col("_label") == WORKER_ACCESS_LABEL).len(),
+            "__umax": pl.col("_elapsed_us").filter(pl.col("_label") == URMA_LABEL).max(),
+            "__uimax": pl.col("inflight_count").filter(pl.col("_label") == URMA_LABEL).max(),
             "__cn": pl.col("_label").filter(pl.col("_label") == CLIENT_RPC_LABEL).count(),
-            "__ce": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode(),
-            "__cs": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode(),
-            "__cnw": pl.col("_rpc_network_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode(),
+            "__ce0": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
+            "__ce1": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
+            "__ce2esum": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).sum(),
+            "__cs0": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
+            "__cs1": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
+            "__cnw0": pl.col("_rpc_network_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
+            "__cnw1": pl.col("_rpc_network_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
             "__me": pl.col("_rpc_e2e_us").filter(pl.col("_label") == MASTER_RPC_LABEL).first(),
             "__ms": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == MASTER_RPC_LABEL).first(),
             "__mn": pl.col("_rpc_network_us").filter(pl.col("_label") == MASTER_RPC_LABEL).first(),

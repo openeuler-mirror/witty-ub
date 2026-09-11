@@ -310,5 +310,5 @@ def test_multiprocessing_160_small_files_no_deadlock(tmp_path):
     results = asyncio.run(_run())
     assert len(results) == 160, f"expected 160 group results, got {len(results)}"
     # 每个 group 都解析出 SDK 条目 (验证 worker 真的跑了, 不只是空结果)
-    sdk_counts = [len(r.get("SDK access parse", [])) for r in results]
+    sdk_counts = [r["columns"]["_label"].count("SDK access parse") for r in results]
     assert all(c == 3 for c in sdk_counts), "worker parse output drift"

@@ -163,7 +163,8 @@ class LogFailureEventPGManager:
     @staticmethod
     def _log_failure_event_dict_to_tuple(event: dict) -> tuple[Any, ...]:
         param = dict(event)
-        param.setdefault("id", str(uuid.uuid4()))
+        if "id" not in param:
+            param["id"] = str(uuid.uuid4())
         failure_mode = param.get("failure_mode", [])
         if isinstance(failure_mode, list):
             param["failure_mode"] = ",".join(failure_mode)
@@ -258,22 +259,20 @@ class LogFailureEventPGManager:
     @staticmethod
     async def _copy_log_failure_events(results: list[dict]) -> list[str]:
         t_start = time.perf_counter()
-        records = [
-            LogFailureEventPGManager._log_failure_event_dict_to_tuple(r)
-            for r in results
-        ]
-        ids_added = [r[0] for r in records]
+        ids_added = []
+
+        def records():
+            for result in results:
+                record = LogFailureEventPGManager._log_failure_event_dict_to_tuple(result)
+                ids_added.append(record[0])
+                yield record
         async with PGManager.connection() as conn:
             raw_conn = await conn.get_raw_connection()
             asyncpg_conn = raw_conn.driver_connection
             columns = LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS
-            for i in range(0, len(records), LogFailureEventPGManager._COPY_BATCH_SIZE):
-                batch = records[i : i + LogFailureEventPGManager._COPY_BATCH_SIZE]
-                await asyncpg_conn.copy_records_to_table(
-                    "log_failure_event",
-                    records=batch,
-                    columns=columns,
-                )
+            await asyncpg_conn.copy_records_to_table(
+                "log_failure_event", records=records(), columns=columns,
+            )
         logger.info(
             "[Store][PG] COPY %s log_failure_event rows done in %.3fs",
             len(results),

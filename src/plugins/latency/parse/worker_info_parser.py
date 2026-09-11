@@ -18,7 +18,7 @@ from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS, CLIENT_INFO
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.log import LogFileModel
-from latency.schemas.request import ParseConfig
+from latency.schemas.parse_config import ParseConfig
 from latency.parse.base_parser import LogParser, RUN_LOG_MIN_PARTS
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ class WorkerInfoParser(LogParser):
         else:
             self._target_pod_ips = set(pod_ips or ())
 
-    def scan_file(self, path: str) -> dict[str, list[LogEntry]]:
+    def scan_file(self, path: str, entry_sink=None, line_filter=None) -> dict[str, list[LogEntry]]:
         """扫描单个 Run-format 日志文件，返回按原始 label 分组的 entries"""
         results: dict[str, list[LogEntry]] = {
             URMA_LABEL: [],
@@ -144,6 +144,8 @@ class WorkerInfoParser(LogParser):
             MASTER_RPC_LABEL: [],
             CLIENT_RPC_LABEL: [],
         }
+        if entry_sink is not None:
+            entry_sink.register(results)
         try:
             pod_ip = self.extract_pod_ip(path)
         except Exception as e:
@@ -162,7 +164,8 @@ class WorkerInfoParser(LogParser):
 
         try:
             with open_log(path) as f:
-                for line in f:
+                lines = line_filter(f) if line_filter is not None else f
+                for line in lines:
                     line_count += 1
                     if not line or line[0] != "2":
                         continue
@@ -185,12 +188,19 @@ class WorkerInfoParser(LogParser):
 
                     label, entry = matched
                     entry.log_id = log_file.id
-                    results[label].append(entry)
+                    if entry_sink is None:
+                        results[label].append(entry)
+                    else:
+                        entry_sink.append(label, entry)
                     match_count += 1
 
         except EOFError:
             logger.warning(f"Skipping corrupted file {path}")
         except Exception as e:
+            if entry_sink is not None:
+                from .parallel_scanner.spill import SpillError
+                if isinstance(e, SpillError):
+                    raise
             logger.warning(f"Error reading {path}: {e}")
 
         logger.info(

@@ -5,16 +5,19 @@
 
 import asyncio
 import logging
+import multiprocessing
 import os
 import time
+import tempfile
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
-from latency.schemas.request import ParseConfig
+from latency.schemas.parse_config import ParseConfig
 from latency.ENUM.task import TaskSplitStrategy
 from latency.common.disk import io_concurrency_for
+from .resources import scan_worker_limit, scan_process_environment
 
 from .file_parser_map_builder import FileParserMapBuilder
 from .preprocessor import LogPreprocessor
@@ -73,21 +76,49 @@ class ParallelFileScanner:
         split_strategy: TaskSplitStrategy = TaskSplitStrategy.BY_FILE_SIZE,
         use_multiprocessing: bool = True,
         decompress: bool = False,
+        spill_to_disk: bool = False,
+        spill_directory: Optional[str] = None,
     ):
         """
         参数:
-            max_processes: 最大进程数（默认 CPU 核数）
+            max_processes: 内部调用方并发上限；扫描开始时按 CPU 核数限制，默认上限 16
             split_strategy: 任务分组策略
             use_multiprocessing: 是否使用多进程（False 则用 asyncio）
             decompress: 是否预解压 .gz 文件（False 则在 worker 中直接流式解压）
         """
-        self.max_processes = max_processes or (os.cpu_count() or 4)
+        self._requested_processes = max_processes
+        self.max_processes = scan_worker_limit(max_processes)
         self.split_strategy = split_strategy
         self.use_multiprocessing = use_multiprocessing
         self.decompress = decompress
         self.metrics = ScanMetrics()
+        self.spill_to_disk = spill_to_disk
+        self.spill_directory = spill_directory or os.path.join(
+            os.getenv("WITTY_DIR", "/var/witty-ub"), "scan-tmp"
+        )
+        self._spill_dir = None
 
-    async def scan_all(
+    async def scan_all(self, *args, **kwargs):
+        self.max_processes = scan_worker_limit(self._requested_processes)
+        if not self.spill_to_disk:
+            return await self._scan_all(*args, **kwargs)
+        # Owned by this invocation; all workers exit before files are removed.
+        os.makedirs(self.spill_directory, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="latency-scan-", dir=self.spill_directory) as directory:
+            self._spill_dir = directory
+            try:
+                result = await self._scan_all(*args, **kwargs)
+            finally:
+                self._spill_dir = None
+        # Best-effort cleanup of the parent spill directory: only succeeds when
+        # empty, so concurrent scans still holding their own subdirs are safe.
+        try:
+            os.rmdir(self.spill_directory)
+        except OSError:
+            pass
+        return result
+
+    async def _scan_all(
         self,
         log_dir: str,
         parsers: list,
@@ -165,8 +196,7 @@ class ParallelFileScanner:
             )
 
         # Step 3: 执行扫描
-        # multiprocessing 主路径不做 IO 并发限制（池=窗口=全量）;
-        # asyncio 降级路径保留 io_concurrency gate（T7 契约, fallback 限 IO）。
+        # 两条扫描路径均受扫描并发上限约束；线程降级额外受磁盘 IO 限额约束。
         io_concurrency = io_concurrency_for(log_dir)
         logger.info(
             f"asyncio fallback IO gate: disk io_concurrency={io_concurrency}"
@@ -211,8 +241,12 @@ class ParallelFileScanner:
         self.metrics.scan_time_ms = (time.perf_counter() - scan_start) * 1000
 
         # Step 4: 汇总结果
-        merged = self._merge_results(results)
-        self.metrics.total_entries = sum(
+        if self._spill_dir is not None:
+            from .spill import build_spilled_traces
+            merged = await self._thread_until_done(build_spilled_traces, results)
+        else:
+            merged = self._merge_results(results)
+        self.metrics.total_entries = sum(merged.get("entry_counts", {}).values()) if self._spill_dir is not None else sum(
             len(entries)
             for label, entries in merged.items()
             if label != COLUMNS_KEY
@@ -238,8 +272,7 @@ class ParallelFileScanner:
         """
         使用多进程执行扫描
 
-        T7: 进程池 max_workers 与有界提交窗口均按 IO 并发 cap 限制, 避免
-        HDD 下全量提交导致 IO 风暴。
+        进程池和提交窗口使用相同的扫描并发上限。
 
         返回:
             [{parser_label: [serialized_entries]}, ...]
@@ -261,12 +294,12 @@ class ParallelFileScanner:
         # 序列化 parse_config
         parse_config_dict = parse_config.dict() if parse_config else None
 
-        # 进程池大小决定解析并行度（吃满 CPU）; 有界提交窗口 = 池大小,
-        # 即全量提交由进程池自然调度, 不做额外 IO 并发限制。
-        parse_workers = max(1, self.max_processes or (os.cpu_count() or 1))
+        parse_workers = max(1, min(self.max_processes, len(file_groups)))
         logger.info(f"Parallel scanning: pool={parse_workers} workers")
 
-        executor = ProcessPoolExecutor(max_workers=parse_workers)
+        executor = ProcessPoolExecutor(
+            max_workers=parse_workers, mp_context=multiprocessing.get_context("spawn")
+        )
         try:
             results = await self._submit_bounded_multiprocessing(
                 executor,
@@ -277,12 +310,14 @@ class ParallelFileScanner:
                 parse_workers,
                 progress_cb=progress_cb,
             )
-        except Exception:
-            # 卡死场景下 shutdown(wait=True) 会同步等 worker 结束而挂起 → 立即释放
-            executor.shutdown(wait=False, cancel_futures=True)
+        except BaseException:
+            # cancel_futures 不能停止正在运行的扫描。必须等它们退出后才能
+            # 向上抛错并降级；在线程中等待，避免阻塞服务事件循环。
+            logger.warning("Waiting for scan processes to exit before fallback or cancellation")
+            await self._thread_until_done(executor.shutdown, wait=True, cancel_futures=True)
             raise
         else:
-            executor.shutdown(wait=True)
+            await self._thread_until_done(executor.shutdown, wait=True)
 
         return results
 
@@ -313,16 +348,18 @@ class ParallelFileScanner:
         completed_groups = 0
 
         def _submit(group: FileGroup) -> asyncio.Future:
-            return asyncio.wrap_future(
-                executor.submit(
-                    process_worker_func,
-                    group.files,
-                    group.group_id,
-                    parsers_info,
-                    parse_config_dict,
-                    scan_scope,
+            with scan_process_environment():
+                return asyncio.wrap_future(
+                    executor.submit(
+                        process_worker_func,
+                        group.files,
+                        group.group_id,
+                        parsers_info,
+                        parse_config_dict,
+                        scan_scope,
+                        **({"output_dir": self._spill_dir} if self._spill_dir else {}),
+                    )
                 )
-            )
 
         # 初始窗口: 一次提交 max_concurrent 个
         for _ in range(max_concurrent):
@@ -396,6 +433,7 @@ class ParallelFileScanner:
 
         if io_concurrency is None:
             io_concurrency = io_concurrency_for(log_dir) if log_dir else 3
+        io_concurrency = max(1, min(io_concurrency, self.max_processes))
         io_semaphore = asyncio.Semaphore(max(1, io_concurrency))
         logger.info(
             f"IO-aware asyncio gate: max_concurrent={io_concurrency} "
@@ -419,6 +457,16 @@ class ParallelFileScanner:
                 group, parsers, scan_scope, io_semaphore
             )
 
+        if self._spill_dir is not None:
+            from .process_worker import _scan_group_spilled
+
+            async def _collect(index, group):
+                result = await self._bounded_to_thread(
+                    io_semaphore, _scan_group_spilled,
+                    group.files, parsers, group.group_id, self._spill_dir, scan_scope,
+                )
+                return index, result
+
         # as_completed 逐个收集, 每个 group 完成后触发 progress_cb（若提供）。
         tasks = [
             asyncio.create_task(_collect(index, group))
@@ -427,12 +475,16 @@ class ParallelFileScanner:
         total_groups = len(tasks) or 1
         completed_groups = 0
         results = [None] * len(tasks)
-        for done_task in asyncio.as_completed(tasks):
-            index, result = await done_task
-            results[index] = result
-            completed_groups += 1
-            if progress_cb is not None:
-                await progress_cb(completed_groups / total_groups)
+        try:
+            for done_task in asyncio.as_completed(tasks):
+                index, result = await done_task
+                results[index] = result
+                completed_groups += 1
+                if progress_cb is not None:
+                    await progress_cb(completed_groups / total_groups)
+        finally:
+            # A failed group must not leave threads writing into a removed spool.
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         timing_data = _TIMING_COLLECTOR.snapshot_and_reset()
         if timing_data and results:
@@ -449,11 +501,13 @@ class ParallelFileScanner:
         """异步扫描单个文件组（单进程模式）"""
         from .process_worker import _apply_scan_scope, _scan_file_multi
 
+        from copy import deepcopy
+        parsers = deepcopy(parsers)
         _apply_scan_scope(parsers, scan_scope)
 
         tasks = []
         for path, parser_indices in file_group.files:
-            group_parsers = [parsers[idx] for idx in parser_indices]
+            group_parsers = deepcopy([parsers[idx] for idx in parser_indices])
             if io_semaphore is None:
                 task = asyncio.to_thread(_scan_file_multi, group_parsers, path)
             else:
@@ -473,6 +527,21 @@ class ParallelFileScanner:
         from .columnar import entries_to_columns
 
         return {COLUMNS_KEY: entries_to_columns(dict(merged))}
+
+    @staticmethod
+    async def _thread_until_done(func, *args, **kwargs):
+        task = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+        try:
+            return await asyncio.shield(task)
+        except BaseException:
+            # Cancellation must not remove spool files while a thread uses them.
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+            task.result()
+            raise
 
     @staticmethod
     async def _bounded_to_thread(semaphore: asyncio.Semaphore, func, *args):

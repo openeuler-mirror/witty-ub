@@ -140,6 +140,27 @@ _SRC_RANK: dict[str, int] = {
 }
 
 
+# 预计算 TupleField → LogEntry 属性名（避免每次 _get 都做 field.name.lower()）。
+# TupleField 是 IntEnum，可直接作为 list 索引（__index__ → int）。
+_ATTR_NAMES: tuple[str, ...] = tuple(f.name.lower() for f in TupleField)
+
+# 预计算每个 label 填充的 TRACE_COLUMNS 子集与互补集（None 列），避免每条 entry
+# 分配 dict.fromkeys(TRACE_COLUMNS) 再逐列拷贝。none_cols 是 tuple，迭代最快。
+_TID_COL = "tid"
+_LABEL_FILL_COLS: dict[str, frozenset[str]] = {
+    label: frozenset(cols) for label, cols in LABEL_TO_COLUMNS.items()
+}
+_LABEL_NONE_COLS: dict[str, tuple[str, ...]] = {}
+for _lbl, _fill in _LABEL_FILL_COLS.items():
+    _LABEL_NONE_COLS[_lbl] = tuple(
+        c for c in TRACE_COLUMNS if c not in _fill and c != _TID_COL
+    )
+# INFO_BUCKET_LABEL 自身无列填充（路由到子 label），其 none_cols = 全部非 tid 列
+_LABEL_NONE_COLS[INFO_BUCKET_LABEL] = tuple(
+    c for c in TRACE_COLUMNS if c != _TID_COL
+)
+
+
 def _float(value) -> float | None:
     """统一数值列类型，避免 polars 从混合 int/float list 推断错误。"""
     if value is None:
@@ -152,8 +173,12 @@ def _parse_rpc_resp(resp_msg: str | None) -> tuple[float | None, float | None, f
 
     输入形如 "e2e_us=123,server_exec_us=100,network_residual_us=23"。
     返回 (e2e_us, server_exec_us, network_us)，不存在时对应值为 None。
+
+    性能：绝大多数日志行（SDK/Worker access 的 resp_msg 通常是 "resp" 或空）
+    不含 e2e_us，用 ``"e2e_us" not in resp_msg`` 单次子串扫描短路，跳过
+    split/partition 循环（profile 实测该函数占 entries_to_columns 60%+ 耗时）。
     """
-    if not resp_msg:
+    if not resp_msg or "e2e_us" not in resp_msg:
         return (None, None, None)
     d: dict[str, int | None] = {}
     for part in resp_msg.split(","):
@@ -164,15 +189,16 @@ def _parse_rpc_resp(resp_msg: str | None) -> tuple[float | None, float | None, f
             _float(d.get("network_residual_us")))
 
 
-def _get(entry, field: TupleField):
+def _get(entry, field):
     """从 tuple（_serialize_entry 产物）或 dataclass（LogEntry）读取字段值。
 
-    TupleField 名的大写下划线形式 == LogEntry 属性名（TIMESTAMP→timestamp、
-    SRC_ADDR→src_addr …），因此用 ``field.name.lower()`` 做 dataclass 属性索引。
+    使用预计算的 ``_ATTR_NAMES`` 避免每次调用 ``field.name.lower()``（profile
+    实测该路径在 18 万 entry 上被调用 150 万次，.name.lower() 占 0.33s）。
+    ``field`` 是 TupleField (IntEnum)，tuple/dataclass 路径均可直接用作索引。
     """
     if isinstance(entry, tuple):
         return entry[field]
-    return getattr(entry, field.name.lower())
+    return getattr(entry, _ATTR_NAMES[field])
 
 
 def _entry_type_value(entry) -> str | None:
@@ -215,140 +241,132 @@ def _effective_label(label: str, entry) -> str:
     return _ENTRY_TYPE_TO_LABEL.get(_entry_type_value(entry), INFO_BUCKET_LABEL)
 
 
-def _project(label: str, entry, row: dict[str, object]) -> None:
-    """把一条 entry 投影进行 dict（只填该 label 声明的列，其余保持 None）。"""
+def _get_tuple(entry, field):
+    """tuple 路径字段读取（模块级，避免每 entry 创建闭包）。"""
+    return entry[field]
+
+
+def _get_dc(entry, field):
+    """dataclass 路径字段读取（用预计算 _ATTR_NAMES，避免 .name.lower()）。"""
+    return getattr(entry, _ATTR_NAMES[field])
+
+
+def _project(label: str, entry, columns: dict[str, list], getter) -> None:
+    """把一条 entry 投影直接 append 到 columns（只填该 label 声明的列）。
+
+    ``getter`` 是 ``_get_tuple`` 或 ``_get_dc``，由调用方每条 entries 列表
+    只绑定一次（避免每 entry 创建闭包，profile 实测节省 ~0.15s/18 万 entry）。
+    """
+    g = getter
     if label == SDK_LABEL:
-        elapsed_us = _get(entry, TupleField.ELAPSED_US)
+        elapsed_us = g(entry, TupleField.ELAPSED_US)
         total_ms = elapsed_us / 1000.0 if elapsed_us is not None else None
-        row["total_ms"] = total_ms
-        row["total_latency"] = total_ms
-        op_raw = _get(entry, TupleField.OPERATION)
+        columns["total_ms"].append(total_ms)
+        columns["total_latency"].append(total_ms)
+        op_raw = g(entry, TupleField.OPERATION)
         op = str(op_raw or "").strip().upper()
-        row["op"] = op
-        row["operation"] = op or None
-        # 明确识别 GET 和 SET 操作类型
+        columns["op"].append(op)
+        columns["operation"].append(op or None)
         if "GET" in op:
-            row["op_key"] = "GET"
-        elif any(kw in op for kw in ("SET", "CREATE", "PUBLISH")):
-            row["op_key"] = "SET"
+            columns["op_key"].append("GET")
+        elif "SET" in op or "CREATE" in op or "PUBLISH" in op:
+            columns["op_key"].append("SET")
         else:
-            row["op_key"] = None
-        ts_raw = _get(entry, TupleField.TIMESTAMP)
-        row["bucket_epoch"] = _bucket_epoch_10s(ts_raw)
-        row["log_id"] = _get(entry, TupleField.LOG_ID) or ""
-        row["status_code"] = _get(entry, TupleField.STATUS_CODE)
-        row["timestamp"] = str(ts_raw) if ts_raw else None
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
-        data_size = _get(entry, TupleField.DATA_SIZE)
-        row["data_size"] = str(data_size) if data_size else None
-        row["inflight_count"] = _float(_get(entry, TupleField.INFLIGHT_COUNT))
+            columns["op_key"].append(None)
+        ts_raw = g(entry, TupleField.TIMESTAMP)
+        columns["bucket_epoch"].append(_bucket_epoch_10s(ts_raw))
+        _log_id = g(entry, TupleField.LOG_ID)
+        columns["log_id"].append(_log_id or "")
+        columns["status_code"].append(g(entry, TupleField.STATUS_CODE))
+        columns["timestamp"].append(str(ts_raw) if ts_raw else None)
+        pod_ip = g(entry, TupleField.POD_IP)
+        columns["pod_ip"].append(str(pod_ip) if pod_ip else None)
+        cluster_name = g(entry, TupleField.CLUSTER_NAME)
+        columns["cluster_name"].append(str(cluster_name) if cluster_name else None)
+        data_size = g(entry, TupleField.DATA_SIZE)
+        columns["data_size"].append(str(data_size) if data_size else None)
+        columns["inflight_count"].append(_float(g(entry, TupleField.INFLIGHT_COUNT)))
     elif label == WORKER_ACCESS_LABEL:
-        row["worker_total_latency"] = _latency_ms(entry)
-        ts_raw = _get(entry, TupleField.TIMESTAMP)
-        row["bucket_epoch"] = _bucket_epoch_10s(ts_raw)
-        row["timestamp"] = str(ts_raw) if ts_raw else None
-        row["log_id"] = _get(entry, TupleField.LOG_ID) or ""
-        op_raw = _get(entry, TupleField.OPERATION)
+        columns["worker_total_latency"].append(_latency_ms_get(entry, g))
+        ts_raw = g(entry, TupleField.TIMESTAMP)
+        columns["bucket_epoch"].append(_bucket_epoch_10s(ts_raw))
+        columns["timestamp"].append(str(ts_raw) if ts_raw else None)
+        columns["log_id"].append(g(entry, TupleField.LOG_ID) or "")
+        op_raw = g(entry, TupleField.OPERATION)
         op = str(op_raw or "").strip().upper()
-        row["op"] = op
-        row["operation"] = op or None
-        # 明确识别 GET 和 SET 操作类型
+        columns["op"].append(op)
+        columns["operation"].append(op or None)
         if "GET" in op:
-            row["op_key"] = "GET"
-        elif any(kw in op for kw in ("SET", "CREATE", "PUBLISH")):
-            row["op_key"] = "SET"
+            columns["op_key"].append("GET")
+        elif "SET" in op or "CREATE" in op or "PUBLISH" in op:
+            columns["op_key"].append("SET")
         else:
-            row["op_key"] = None
-        row["status_code"] = _get(entry, TupleField.STATUS_CODE)
-        # 添加 pod_ip 字段，确保 Worker access log 的 pod_ip 也被收集
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        # 添加 cluster_name 字段
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+            columns["op_key"].append(None)
+        columns["status_code"].append(g(entry, TupleField.STATUS_CODE))
+        pod_ip = g(entry, TupleField.POD_IP)
+        columns["pod_ip"].append(str(pod_ip) if pod_ip else None)
+        cluster_name = g(entry, TupleField.CLUSTER_NAME)
+        columns["cluster_name"].append(str(cluster_name) if cluster_name else None)
     elif label == URMA_LABEL:
-        row["urma_total_latency"] = _latency_ms(entry)
-        row["src"] = _clean_addr(_get(entry, TupleField.SRC_ADDR))
-        row["dst"] = _clean_addr(_get(entry, TupleField.DST_ADDR))
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["urma_total_latency"].append(_latency_ms_get(entry, g))
+        columns["src"].append(_clean_addr(g(entry, TupleField.SRC_ADDR)))
+        columns["dst"].append(_clean_addr(g(entry, TupleField.DST_ADDR)))
+        _append_pod_cluster(entry, g, columns)
     elif label == REMOTE_PULL_LABEL:
-        row["src"] = _clean_addr(_get(entry, TupleField.SRC_ADDR))
-        row["dst"] = _clean_addr(_get(entry, TupleField.DST_ADDR))
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["src"].append(_clean_addr(g(entry, TupleField.SRC_ADDR)))
+        columns["dst"].append(_clean_addr(g(entry, TupleField.DST_ADDR)))
+        _append_pod_cluster(entry, g, columns)
     elif label == LINK_LABEL:
-        row["urma_link_latency"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["urma_link_latency"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == QUERY_META_LABEL:
-        row["worker_query_meta_latency"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["worker_query_meta_latency"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == SDK_PROCESS_LABEL:
-        row["sdk_process"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["sdk_process"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == SDK_RPC_LABEL:
-        row["sdk_rpc"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["sdk_rpc"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == LOCAL_WORKER_COST_LABEL:
-        row["local_worker_cost"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["local_worker_cost"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == LOCAL_WORKER_LOCK_LABEL:
-        row["local_worker_lock"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["local_worker_lock"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == REMOTE_WORKER_COST_LABEL:
-        row["remote_worker_cost"] = _latency_ms(entry)
-        row["src"] = _clean_addr(_get(entry, TupleField.SRC_ADDR))
-        row["dst"] = _clean_addr(_get(entry, TupleField.DST_ADDR))
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["remote_worker_cost"].append(_latency_ms_get(entry, g))
+        columns["src"].append(_clean_addr(g(entry, TupleField.SRC_ADDR)))
+        columns["dst"].append(_clean_addr(g(entry, TupleField.DST_ADDR)))
+        _append_pod_cluster(entry, g, columns)
     elif label == REMOTE_WORKER_RPC_LABEL:
-        row["remote_worker_rpc"] = _latency_ms(entry)
-        row["src"] = _clean_addr(_get(entry, TupleField.SRC_ADDR))
-        row["dst"] = _clean_addr(_get(entry, TupleField.DST_ADDR))
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["remote_worker_rpc"].append(_latency_ms_get(entry, g))
+        columns["src"].append(_clean_addr(g(entry, TupleField.SRC_ADDR)))
+        columns["dst"].append(_clean_addr(g(entry, TupleField.DST_ADDR)))
+        _append_pod_cluster(entry, g, columns)
     elif label == MASTER_PROCESS_LABEL:
-        row["master_process"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
+        columns["master_process"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
     elif label == MASTER_RPC_LABEL:
-        row["master_rpc_total"] = _latency_ms(entry)
-        pod_ip = _get(entry, TupleField.POD_IP)
-        row["pod_ip"] = str(pod_ip) if pod_ip else None
-        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
-        row["cluster_name"] = str(cluster_name) if cluster_name else None
-    # 其他 label（未知 bucket entry_type）→ 无列填充
+        columns["master_rpc_total"].append(_latency_ms_get(entry, g))
+        _append_pod_cluster(entry, g, columns)
+    # 其他 label（未知 bucket entry_type）→ 无列填充（none_cols 已处理 None）
+
+
+def _append_pod_cluster(entry, g, columns: dict[str, list]) -> None:
+    """公共：pod_ip + cluster_name 两列投影（11 个 timed/master 子 label 共用）。"""
+    pod_ip = g(entry, TupleField.POD_IP)
+    columns["pod_ip"].append(str(pod_ip) if pod_ip else None)
+    cluster_name = g(entry, TupleField.CLUSTER_NAME)
+    columns["cluster_name"].append(str(cluster_name) if cluster_name else None)
+
+
+def _latency_ms_get(entry, g) -> float | None:
+    """``_latency_ms`` 的 getter 友好版本（避免重复 _get isinstance）。"""
+    elapsed_us = g(entry, TupleField.ELAPSED_US)
+    if elapsed_us is None:
+        return None
+    return elapsed_us / 1000.0
 
 
 def entries_to_columns(merged: dict[str, list]) -> dict[str, list]:
@@ -362,6 +380,13 @@ def entries_to_columns(merged: dict[str, list]) -> dict[str, list]:
     额外输出 5 个内部列（不进 ALL_COLUMNS，build_trace_frame 消费）：
     ``_elapsed_us`` / ``_resp_msg`` / ``_rpc_e2e_us`` / ``_rpc_server_exec_us`` /
     ``_rpc_network_us``，供 yuanrong 分段时延分解使用。
+
+    性能优化（不变更输出契约）：
+    - 预计算每 label 的 none_cols（TRACE_COLUMNS 中不被该 label 填充的列），
+      直接批量 append None，避免每条 entry 分配 dict.fromkeys(TRACE_COLUMNS)
+      再逐列拷贝（原实现占 entries_to_columns ~25% 耗时）。
+    - ``_get`` 使用预计算 _ATTR_NAMES，避免 .name.lower() 每次调用。
+    - ``_parse_rpc_resp`` 用 ``"e2e_us" not in resp_msg`` 短路（占原 60% 耗时）。
     """
     columns: dict[str, list] = {name: [] for name in ALL_COLUMNS}
     columns["_elapsed_us"] = []
@@ -369,23 +394,69 @@ def entries_to_columns(merged: dict[str, list]) -> dict[str, list]:
     columns["_rpc_e2e_us"] = []
     columns["_rpc_server_exec_us"] = []
     columns["_rpc_network_us"] = []
+    # 预绑定内部列 list 对象到局部变量（热路径，每条 entry 都写）
+    c_tid = columns["tid"]
+    c_label = columns["_label"]
+    c_src_rank = columns["_src_rank"]
+    c_elapsed_us = columns["_elapsed_us"]
+    c_resp_msg = columns["_resp_msg"]
+    c_rpc_e2e = columns["_rpc_e2e_us"]
+    c_rpc_se = columns["_rpc_server_exec_us"]
+    c_rpc_nw = columns["_rpc_network_us"]
+    # 预计算每 label 的 none_lists（list 对象列表，直接 append 无 dict 查找）
+    # 原 6M dict.__getitem__ 调用（每 entry × 28 none_cols）替换为直接 list.append。
+    none_cols_get = _LABEL_NONE_COLS.get
+    _default_none = _LABEL_NONE_COLS[INFO_BUCKET_LABEL]
+    none_lists_cache: dict[str, list] = {}
+    src_rank_get = _SRC_RANK.get
+    entry_type_map = _ENTRY_TYPE_TO_LABEL
     for label, entries in merged.items():
+        if not entries:
+            continue
+        is_bucket = label is INFO_BUCKET_LABEL
+        is_tuple = isinstance(entries[0], tuple)
+        # 每条 entries 列表只绑定一次 getter（避免每 entry 创建闭包）
+        getter = _get_tuple if is_tuple else _get_dc
+        # 非 bucket label 的 none_lists 与 eff_label 在整个 entries 列表内恒定
+        if not is_bucket:
+            eff_label_fixed = label
+            src_rank_fixed = src_rank_get(label, 0)
+            none_col_names = none_cols_get(label, _default_none)
+            none_lists = none_lists_cache.get(label)
+            if none_lists is None:
+                none_lists = [columns[c] for c in none_col_names]
+                none_lists_cache[label] = none_lists
         for entry in entries:
-            eff_label = _effective_label(label, entry)
-            row = dict.fromkeys(TRACE_COLUMNS)  # 全部 None
-            row["tid"] = _get(entry, TupleField.TRACE_ID)  # 每行带 tid
-            _project(eff_label, entry, row)
-            for name in TRACE_COLUMNS:
-                columns[name].append(row[name])
-            columns["_label"].append(eff_label)
-            columns["_src_rank"].append(_SRC_RANK.get(eff_label, 0))
-            columns["_elapsed_us"].append(_float(_get(entry, TupleField.ELAPSED_US)))
-            resp_msg = _get(entry, TupleField.RESP_MSG)
-            columns["_resp_msg"].append(resp_msg)
-            e2e, se, nw = _parse_rpc_resp(resp_msg)
-            columns["_rpc_e2e_us"].append(e2e)
-            columns["_rpc_server_exec_us"].append(se)
-            columns["_rpc_network_us"].append(nw)
+            if is_bucket:
+                _et = entry[TupleField.ENTRY_TYPE] if is_tuple else _entry_type_value(entry)
+                _et_val = _et.value if isinstance(_et, EntryType) else _et
+                eff_label = entry_type_map.get(_et_val, label)
+                none_lists = none_lists_cache.get(eff_label)
+                if none_lists is None:
+                    none_col_names = none_cols_get(eff_label, _default_none)
+                    none_lists = [columns[c] for c in none_col_names]
+                    none_lists_cache[eff_label] = none_lists
+                src_rank_fixed = src_rank_get(eff_label, 0)
+            else:
+                eff_label = eff_label_fixed
+            # tid（每行都填）
+            c_tid.append(getter(entry, TupleField.TRACE_ID))
+            # None 填充该 label 不声明的列（预绑定 list 对象，无 dict 查找）
+            for lst in none_lists:
+                lst.append(None)
+            # 投影该 label 声明的列（直接 append，不经过中间 dict）
+            _project(eff_label, entry, columns, getter)
+            # 内部列
+            c_label.append(eff_label)
+            c_src_rank.append(src_rank_fixed)
+            _elapsed = getter(entry, TupleField.ELAPSED_US)
+            c_elapsed_us.append(_float(_elapsed))
+            _resp = getter(entry, TupleField.RESP_MSG)
+            c_resp_msg.append(_resp)
+            e2e, se, nw = _parse_rpc_resp(_resp)
+            c_rpc_e2e.append(e2e)
+            c_rpc_se.append(se)
+            c_rpc_nw.append(nw)
     return columns
 
 

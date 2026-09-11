@@ -22,13 +22,14 @@ import queue
 import threading
 import time
 from collections import defaultdict
+from .spill import SpillError
 from dataclasses import dataclass
 from typing import Optional
 
 from latency.schemas.log import LogFileModel
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType, TupleField
-from latency.schemas.request import ParseConfig
+from latency.schemas.parse_config import ParseConfig
 from latency.common.ds_log_io import open_log
 from latency.parse.base_parser import (
     ACCESS_LOG_MIN_PARTS,
@@ -110,6 +111,7 @@ def process_worker_func(
     parsers_info: list[dict],
     parse_config_dict: Optional[dict] = None,
     scan_scope: Optional[dict] = None,
+    output_dir: Optional[str] = None,
 ) -> dict[str, list[dict]]:
     profile_dir = os.environ.get(_CPROFILE_DIR_ENV)
     if not profile_dir:
@@ -119,15 +121,16 @@ def process_worker_func(
             parsers_info,
             parse_config_dict,
             scan_scope,
+            output_dir,
         )
 
     import cProfile
     from pathlib import Path
     import time
 
-    output_dir = Path(profile_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    profile_path = output_dir / (
+    profile_output_dir = Path(profile_dir)
+    profile_output_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = profile_output_dir / (
         f"worker-{os.getpid()}-group-{group_id}-{time.time_ns()}.prof"
     )
     profiler = cProfile.Profile()
@@ -139,6 +142,7 @@ def process_worker_func(
             parsers_info,
             parse_config_dict,
             scan_scope,
+            output_dir,
         )
     finally:
         profiler.dump_stats(str(profile_path))
@@ -150,6 +154,7 @@ def _process_worker_func(
     parsers_info: list[dict],
     parse_config_dict: Optional[dict] = None,
     scan_scope: Optional[dict] = None,
+    output_dir: Optional[str] = None,
 ) -> dict[str, list[dict]]:
 
     import logging
@@ -169,6 +174,9 @@ def _process_worker_func(
 
     parsers = _rebuild_parsers(parsers_info, parse_config_dict)
     _apply_scan_scope(parsers, scan_scope)
+
+    if output_dir is not None:
+        return _scan_group_spilled(file_group_files, parsers, group_id, output_dir)
 
     if file_group_files and all(_should_decouple(path) for path, _ in file_group_files):
         merged = _scan_group_decoupled(file_group_files, parsers, group_id)
@@ -193,6 +201,82 @@ def _process_worker_func(
         result[_PERF_MARKER] = timing_data
 
     return result
+
+
+def _scan_group_spilled(files, parsers, group_id, output_dir, scan_scope=None):
+    from .spill import EntrySpool
+    from latency.parse.worker_info_parser import WorkerInfoParser
+
+    # Fallback groups run in threads; parser._pre_parsed is mutable per scan.
+    from copy import deepcopy
+    parsers = deepcopy(parsers)
+    _apply_scan_scope(parsers, scan_scope)
+    with EntrySpool(output_dir, group_id) as spool:
+        group_uses_line_parser = bool(files) and all(_should_decouple(path) for path, _ in files)
+        for path, indices in files:
+            selected = [parsers[i] for i in indices]
+            start = time.perf_counter()
+            if not group_uses_line_parser and len(selected) == 1 and isinstance(selected[0], WorkerInfoParser):
+                selected[0].scan_file(
+                    path, entry_sink=spool, line_filter=lambda source: _prefilter_lines(selected, source)
+                )
+            else:
+                with open_log(path) as lines:
+                    _parse_lines(selected, path, _prefilter_lines(selected, lines), entry_sink=spool)
+            _record_file_timing(path, 0.0, (time.perf_counter() - start) * 1000)
+        result = spool.finish()
+    result[_PERF_MARKER] = _TIMING_COLLECTOR.snapshot_and_reset()
+    return result
+
+
+_PREFILTER_BYTES = 1024 * 1024
+
+
+def _prefilter_lines(parsers, source):
+    """Bounded Rust keyword filtering; dense files switch back to direct iteration."""
+    import re
+    import polars as pl
+    from latency.parse.worker_info_parser import WorkerInfoParser, ClientInfoParser, ALL_KEYWORDS
+
+    keywords = set()
+    has_addresses = False
+    for parser in parsers:
+        matcher = getattr(parser, "_line_may_match", None)
+        if matcher is not None:
+            if type(parser) not in (WorkerInfoParser, ClientInfoParser):
+                yield from source  # Unknown custom predicates must not lose lines.
+                return
+            keywords.update(ALL_KEYWORDS)
+            has_addresses = True
+        keywords.update(getattr(parser, "_keywords", ()) or ())
+    if not keywords:
+        yield from source
+        return
+    line = pl.col("line")
+    matches = line.str.contains("|".join(re.escape(k) for k in sorted(keywords)))
+    if has_addresses:
+        matches = matches | (line.str.contains("src", literal=True) & line.str.contains("dst", literal=True))
+    matches = line.str.starts_with("2") & matches
+    first = True
+    while batch := source.readlines(_PREFILTER_BYTES):
+        if len(batch) < 256:
+            yield from batch
+            continue
+        try:
+            filtered = pl.DataFrame({"line": batch}).filter(matches)["line"].to_list()
+        except Exception:
+            logger.warning("Batch prefilter failed; continuing direct scan", exc_info=True)
+            yield from batch
+            yield from source
+            return
+        dense = first and len(filtered) > len(batch) // 2
+        first = False
+        del batch
+        yield from filtered
+        del filtered
+        if dense:
+            yield from source
+            return
 
 
 def _rebuild_parsers(
@@ -571,6 +655,7 @@ def _parse_lines(
     parsers: list,
     path: str,
     line_iter,
+    entry_sink=None,
 ) -> dict[str, list]:
     """对行迭代器执行 T5 all-matching 解析（IO 已就绪）。
 
@@ -593,6 +678,8 @@ def _parse_lines(
     file_name = os.path.basename(path)
 
     results: dict[str, list] = {p.label: [] for p in parsers}
+    if entry_sink is not None:
+        entry_sink.register(results)
     line_count = 0
     match_counts = {p.label: 0 for p in parsers}
 
@@ -657,12 +744,20 @@ def _parse_lines(
                         if isinstance(entries, list):
                             for entry in entries:
                                 entry.log_id = log_file.id
-                                results[parser.label].append(entry)
+                                if entry_sink is None:
+                                    results[parser.label].append(entry)
+                                else:
+                                    entry_sink.append(parser.label, entry)
                                 match_counts[parser.label] += 1
                         else:
                             entries.log_id = log_file.id
-                            results[parser.label].append(entries)
+                            if entry_sink is None:
+                                results[parser.label].append(entries)
+                            else:
+                                entry_sink.append(parser.label, entries)
                             match_counts[parser.label] += 1
+                except SpillError:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"[{parser.label}] error on {file_name}:{line_no}: {e}"
@@ -670,6 +765,8 @@ def _parse_lines(
                 finally:
                     parser._pre_parsed = None
 
+    except SpillError:
+        raise
     except EOFError:
         logger.warning(f"Skipping corrupted file {path}")
     except Exception as e:
