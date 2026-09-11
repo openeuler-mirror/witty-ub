@@ -199,31 +199,40 @@ onMounted(() => {
         <p class="monitor-card-hint">
           聚合口径：时间窗 × 接口命中数（同一窗口内所有 Pod 求和）；点「明细」展开该窗的 Pod 逐行结果
         </p>
-        <div class="table-wrap">
-          <table>
+        <div class="table-wrap matrix-scroll">
+          <table class="fixed-table matrix-table">
+            <colgroup>
+              <col style="width: 330px" />
+              <col style="width: 96px" />
+              <col v-for="name in brpcEventInterfaceColumns" :key="name" style="width: 104px" />
+              <col style="width: 96px" />
+            </colgroup>
             <thead>
               <tr>
-                <th class="col-nowrap">时间窗</th>
-                <th class="col-num">故障总数</th>
+                <th class="col-nowrap col-sticky-left-0">时间窗</th>
+                <th class="col-num col-sticky-left-330">故障总数</th>
                 <th v-for="name in brpcEventInterfaceColumns" :key="name" class="col-num">
                   <span class="matrix-head" :title="name">{{ name }}</span>
                 </th>
-                <th class="col-nowrap">操作</th>
+                <th class="col-nowrap col-sticky-right-0">操作</th>
               </tr>
             </thead>
             <tbody>
               <template v-for="window in brpcEventWindowPageRows" :key="window.key">
                 <tr>
-                  <td class="col-nowrap" style="font-family: monospace; font-size: 12px">
+                  <td
+                    class="col-nowrap col-sticky-left-0"
+                    style="font-family: monospace; font-size: 12px"
+                  >
                     {{ window.start }} ~ {{ window.end }}
                   </td>
-                  <td class="col-num"><b>{{ window.total }}</b></td>
+                  <td class="col-num col-sticky-left-330"><b>{{ window.total }}</b></td>
                   <td v-for="name in brpcEventInterfaceColumns" :key="name" class="col-num">
                     <span :class="{ 'matrix-zero': !window.byInterface[name] }">
                       {{ window.byInterface[name] ?? '-' }}
                     </span>
                   </td>
-                  <td class="col-nowrap">
+                  <td class="col-nowrap col-sticky-right-0">
                     <button
                       class="btn btn-sm btn-default"
                       type="button"
@@ -237,33 +246,44 @@ onMounted(() => {
                 <tr v-if="brpcExpandedEventWindow === window.key">
                   <td :colspan="brpcEventInterfaceColumns.length + 3" class="matrix-detail-cell">
                     <table class="matrix-detail-table">
+                      <colgroup>
+                        <col style="width: 130px" />
+                        <col style="width: 150px" />
+                        <col style="width: 90px" />
+                        <col />
+                        <col style="width: 120px" />
+                      </colgroup>
                       <thead>
                         <tr>
-                          <th>Pod IP</th>
-                          <th>Pod 名称</th>
-                          <th>命中数</th>
+                          <th class="col-nowrap">Pod IP</th>
+                          <th class="col-nowrap">Pod 名称</th>
+                          <th class="col-num">命中数</th>
                           <th>主要接口</th>
-                          <th>操作</th>
+                          <th class="col-nowrap">操作</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr v-for="pod in window.pods" :key="pod.event_id">
-                          <td style="font-family: monospace">{{ pod.pod_ip }}</td>
-                          <td>{{ pod.pod_name || '-' }}</td>
-                          <td>{{ pod.hitTotal }}</td>
+                          <td class="col-nowrap" style="font-family: monospace">
+                            {{ pod.pod_ip }}
+                          </td>
+                          <td class="col-nowrap">{{ pod.pod_name || '-' }}</td>
+                          <td class="col-num">{{ pod.hitTotal }}</td>
                           <td>
-                            <div class="chip-row">
-                              <span
-                                v-for="hit in pod.interface_hits || []"
-                                :key="hit.interface_id"
-                                class="trace-chip"
-                              >
-                                {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                              </span>
-                              <span v-if="!(pod.interface_hits || []).length" class="hint">-</span>
+                            <div class="cell-scroll">
+                              <div class="chip-row chip-row-nowrap">
+                                <span
+                                  v-for="hit in pod.interface_hits || []"
+                                  :key="hit.interface_id"
+                                  class="trace-chip"
+                                >
+                                  {{ hit.interface_name }}:{{ hit.interface_hit_count }}
+                                </span>
+                                <span v-if="!(pod.interface_hits || []).length" class="hint">-</span>
+                              </div>
                             </div>
                           </td>
-                          <td>
+                          <td class="col-nowrap">
                             <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(pod)">
                               查看接口命中
                             </button>
@@ -330,7 +350,15 @@ onMounted(() => {
         <div>{{ brpcThreadSearchQuery ? '未搜索到匹配的异常 Thread' : '暂无异常 Thread' }}</div>
       </div>
       <div v-else class="table-wrap">
-        <table>
+        <table class="fixed-table">
+          <colgroup>
+            <col style="width: 110px" />
+            <col style="width: 130px" />
+            <col style="width: 150px" />
+            <col style="width: 90px" />
+            <col />
+            <col style="width: 96px" />
+          </colgroup>
           <thead>
             <tr>
               <th class="col-nowrap">线程ID</th>
@@ -352,15 +380,17 @@ onMounted(() => {
               <td class="col-nowrap">{{ thread.pod_name || '-' }}</td>
               <td class="col-num">{{ thread.total_interface_hit_count }}</td>
               <td>
-                <div class="chip-row">
-                  <span
-                    v-for="hit in thread.interface_hits || []"
-                    :key="hit.interface_id"
-                    class="trace-chip"
-                  >
-                    {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                  </span>
-                  <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
+                <div class="cell-scroll">
+                  <div class="chip-row chip-row-nowrap">
+                    <span
+                      v-for="hit in thread.interface_hits || []"
+                      :key="hit.interface_id"
+                      class="trace-chip"
+                    >
+                      {{ hit.interface_name }}:{{ hit.interface_hit_count }}
+                    </span>
+                    <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
+                  </div>
                 </div>
               </td>
               <td class="col-nowrap">

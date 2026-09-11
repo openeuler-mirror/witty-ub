@@ -520,7 +520,15 @@ onBeforeUnmount(() => {
               当前窗内无异常 Thread
             </div>
             <div v-else class="table-wrap" style="margin-bottom: 16px">
-              <table>
+              <table class="fixed-table">
+                <colgroup>
+                  <col style="width: 110px" />
+                  <col style="width: 130px" />
+                  <col style="width: 150px" />
+                  <col style="width: 90px" />
+                  <col />
+                  <col style="width: 96px" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>线程ID</th>
@@ -542,15 +550,17 @@ onBeforeUnmount(() => {
                     <td>{{ thread.pod_name || '-' }}</td>
                     <td>{{ thread.total_interface_hit_count }}</td>
                     <td>
-                      <div class="chip-row">
-                        <span
-                          v-for="hit in thread.interface_hits || []"
-                          :key="hit.interface_id"
-                          class="trace-chip"
-                        >
-                          {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                        </span>
-                        <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
+                      <div class="cell-scroll">
+                        <div class="chip-row chip-row-nowrap">
+                          <span
+                            v-for="hit in thread.interface_hits || []"
+                            :key="hit.interface_id"
+                            class="trace-chip"
+                          >
+                            {{ hit.interface_name }}:{{ hit.interface_hit_count }}
+                          </span>
+                          <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
+                        </div>
                       </div>
                     </td>
                     <td>

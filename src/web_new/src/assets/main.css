@@ -2037,6 +2037,81 @@ table .col-num {
   font-size: 12px;
 }
 
+/* ---------- 固定列 / 中间可滚动表格（避免翻页时列宽跳变） ---------- */
+
+.fixed-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.fixed-table th,
+.fixed-table td {
+  overflow: hidden;
+}
+
+.fixed-table th.col-nowrap,
+.fixed-table td.col-nowrap {
+  text-overflow: ellipsis;
+}
+
+/* 中间列：随容器宽度伸缩；内容超出时该单元格内部左右滑动，左右列保持不动 */
+.cell-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.chip-row-nowrap {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* 聚合矩阵：左两列与右操作列吸附，中间接口列整体横向滚动 */
+.matrix-scroll {
+  overflow-x: auto;
+}
+
+.matrix-table {
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+}
+
+.matrix-table th,
+.matrix-table td {
+  overflow: hidden;
+}
+
+.col-sticky-left-0,
+.col-sticky-left-330,
+.col-sticky-right-0 {
+  position: sticky;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.col-sticky-left-0 {
+  left: 0;
+}
+
+.col-sticky-left-330 {
+  left: 330px;
+}
+
+.col-sticky-right-0 {
+  right: 0;
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+}
+
+.matrix-table thead .col-sticky-left-0,
+.matrix-table thead .col-sticky-left-330,
+.matrix-table thead .col-sticky-right-0 {
+  z-index: 3;
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;
