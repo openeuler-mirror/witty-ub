@@ -214,19 +214,40 @@ onMounted(() => {
         <p class="monitor-card-hint">
           聚合口径：时间窗 × 接口命中数（同一窗口内所有 Pod 求和）；点「明细」展开该窗的 Pod 逐行结果
         </p>
-        <div class="table-wrap matrix-scroll">
-          <table class="fixed-table matrix-table">
-            <colgroup>
-              <col style="width: 330px" />
-              <col style="width: 96px" />
-              <col v-for="column in brpcEventInterfaceColumns" :key="column.id" style="width: 132px" />
-              <col style="width: 96px" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th class="col-nowrap col-sticky-left-0">时间窗</th>
-                <th class="col-num col-sticky-left-330">故障总数</th>
-                <th
+        <div class="agg-table">
+          <!-- 左固定：时间窗 + 故障总数；展开后为 Pod/线程 明细 -->
+          <div class="agg-block agg-left">
+            <div class="agg-row agg-head agg-left-main">
+              <span class="col-nowrap">时间窗</span>
+              <span class="col-num">故障总数</span>
+            </div>
+            <template v-for="window in brpcEventWindowPageRows" :key="`l-${window.key}`">
+              <div class="agg-row agg-left-main">
+                <span class="col-nowrap agg-mono">{{ window.start }} ~ {{ window.end }}</span>
+                <span class="col-num"><b>{{ window.total }}</b></span>
+              </div>
+              <template v-if="brpcExpandedEventWindow === window.key">
+                <div class="agg-row agg-subhead agg-left-sub">
+                  <span>Pod IP</span><span>Pod 名称</span><span class="col-num">命中数</span>
+                </div>
+                <div
+                  v-for="pod in window.pods"
+                  :key="`lp-${pod.event_id}`"
+                  class="agg-row agg-subrow agg-left-sub"
+                >
+                  <span class="col-nowrap agg-mono">{{ pod.pod_ip }}</span>
+                  <span class="col-nowrap">{{ pod.pod_name || '-' }}</span>
+                  <span class="col-num">{{ pod.hitTotal }}</span>
+                </div>
+              </template>
+            </template>
+          </div>
+
+          <!-- 中间：接口列矩阵，超出宽度时本块横向滚动 -->
+          <div class="agg-block agg-mid">
+            <div class="agg-mid-inner" :style="{ width: brpcEventInterfaceColumns.length * 132 + 'px' }">
+              <div class="agg-row agg-head agg-mid-grid">
+                <div
                   v-for="column in brpcEventInterfaceColumns"
                   :key="column.id"
                   class="col-num matrix-head-cell"
@@ -235,110 +256,77 @@ onMounted(() => {
                   <small class="matrix-head-component">{{ column.component }}</small>
                   <span class="matrix-head-name">{{ column.interfaceName }}</span>
                   <code class="matrix-head-function">{{ column.functionName }}</code>
-                </th>
-                <th class="col-nowrap col-sticky-right-0">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="window in brpcEventWindowPageRows" :key="window.key">
-                <tr>
-                  <td
-                    class="col-nowrap col-sticky-left-0"
-                    style="font-family: monospace; font-size: 12px"
+                </div>
+              </div>
+              <template v-for="window in brpcEventWindowPageRows" :key="`m-${window.key}`">
+                <div class="agg-row agg-mid-grid">
+                  <div
+                    v-for="column in brpcEventInterfaceColumns"
+                    :key="column.id"
+                    class="col-num"
                   >
-                    {{ window.start }} ~ {{ window.end }}
-                  </td>
-                  <td class="col-num col-sticky-left-330"><b>{{ window.total }}</b></td>
-                  <td v-for="column in brpcEventInterfaceColumns" :key="column.id" class="col-num">
                     <span :class="{ 'matrix-zero': !window.byInterface[column.id] }">
                       {{ window.byInterface[column.id] ?? '-' }}
                     </span>
-                  </td>
-                  <td class="col-nowrap col-sticky-right-0">
-                    <button
-                      class="btn btn-sm btn-default"
-                      type="button"
-                      @click="toggleBrpcEventWindow(window.key)"
+                  </div>
+                </div>
+                <template v-if="brpcExpandedEventWindow === window.key">
+                  <div class="agg-row agg-subhead agg-mid-grid">
+                    <div
+                      v-for="column in brpcEventInterfaceColumns"
+                      :key="column.id"
+                      class="agg-mono"
                     >
-                      {{ brpcExpandedEventWindow === window.key ? '收起' : '明细' }}
-                      （{{ window.pods.length }}）
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="brpcExpandedEventWindow === window.key">
-                  <td :colspan="brpcEventInterfaceColumns.length + 3" class="matrix-detail-cell">
-                    <table class="matrix-detail-table">
-                      <colgroup>
-                        <template v-if="brpcEventAggregation === 'thread'">
-                          <col style="width: 96px" />
-                          <col style="width: 130px" />
-                          <col style="width: 104px" />
-                        </template>
-                        <template v-else>
-                          <col style="width: 150px" />
-                          <col style="width: 180px" />
-                        </template>
-                        <col style="width: 96px" />
-                        <col v-for="column in brpcEventInterfaceColumns" :key="column.id" style="width: 132px" />
-                        <col style="width: 110px" />
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          <th v-if="brpcEventAggregation === 'thread'" class="col-nowrap">线程 ID</th>
-                          <th class="col-nowrap">Pod IP</th>
-                          <th class="col-nowrap">Pod 名称</th>
-                          <th class="col-num">故障总数</th>
-                          <th
-                            v-for="column in brpcEventInterfaceColumns"
-                            :key="column.id"
-                            class="col-num matrix-head-cell"
-                            :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
-                          >
-                            <code class="matrix-head-function">{{ column.functionName }}</code>
-                          </th>
-                          <th class="col-nowrap">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="pod in window.pods" :key="pod.event_id">
-                          <td
-                            v-if="brpcEventAggregation === 'thread'"
-                            class="col-nowrap"
-                            style="font-family: monospace"
-                          >
-                            {{ pod.thread_id ?? '-' }}
-                          </td>
-                          <td class="col-nowrap" style="font-family: monospace">
-                            {{ pod.pod_ip }}
-                          </td>
-                          <td class="col-nowrap">{{ pod.pod_name || '-' }}</td>
-                          <td class="col-num">{{ pod.hitTotal }}</td>
-                          <td
-                            v-for="column in brpcEventInterfaceColumns"
-                            :key="column.id"
-                            class="col-num"
-                          >
-                            <span
-                              :class="{
-                                'matrix-zero': !brpcRowInterfaceCountOf(pod, column.id),
-                              }"
-                            >
-                              {{ brpcRowInterfaceCountOf(pod, column.id) || '-' }}
-                            </span>
-                          </td>
-                          <td class="col-nowrap">
-                            <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(pod)">
-                              查看接口命中
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
+                      {{ column.functionName }}
+                    </div>
+                  </div>
+                  <div
+                    v-for="pod in window.pods"
+                    :key="`mp-${pod.event_id}`"
+                    class="agg-row agg-subrow agg-mid-grid"
+                  >
+                    <div
+                      v-for="column in brpcEventInterfaceColumns"
+                      :key="column.id"
+                      class="col-num"
+                    >
+                      <span :class="{ 'matrix-zero': !brpcRowInterfaceCountOf(pod, column.id) }">
+                        {{ brpcRowInterfaceCountOf(pod, column.id) || '-' }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
               </template>
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          <!-- 右固定：操作 -->
+          <div class="agg-block agg-right">
+            <div class="agg-row agg-head agg-right-main">操作</div>
+            <template v-for="window in brpcEventWindowPageRows" :key="`r-${window.key}`">
+              <div class="agg-row agg-right-main">
+                <button
+                  class="btn btn-sm btn-default"
+                  type="button"
+                  @click="toggleBrpcEventWindow(window.key)"
+                >
+                  {{ brpcExpandedEventWindow === window.key ? '收起' : '明细' }}
+                </button>
+              </div>
+              <template v-if="brpcExpandedEventWindow === window.key">
+                <div class="agg-row agg-subhead agg-right-sub">操作</div>
+                <div
+                  v-for="pod in window.pods"
+                  :key="`rp-${pod.event_id}`"
+                  class="agg-row agg-subrow agg-right-sub"
+                >
+                  <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(pod)">
+                    查看接口命中
+                  </button>
+                </div>
+              </template>
+            </template>
+          </div>
         </div>
         <div v-if="brpcAggregatedEventsTruncated" class="error-banner" style="margin-top: 10px">
           聚合事件共 {{ brpcAggregatedEventTotal }} 条，已加载前 500 条用于聚合，结果可能不完整

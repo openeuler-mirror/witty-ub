@@ -2180,6 +2180,143 @@ table .col-num {
   left: 390px;
 }
 
+/* 通用吸附列（供嵌套明细子表使用，偏移量按列宽累计） */
+.col-pin {
+  position: sticky;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.col-pin-0 {
+  left: 0;
+}
+
+.col-pin-96 {
+  left: 96px;
+}
+
+.col-pin-150 {
+  left: 150px;
+}
+
+.col-pin-226 {
+  left: 226px;
+}
+
+.col-pin-330 {
+  left: 330px;
+}
+
+/* ---------- 三段式聚合表：左固定 / 中间滚动 / 右固定（行高一致即对齐） ---------- */
+
+.agg-table {
+  display: flex;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.agg-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.agg-left,
+.agg-right {
+  flex: none;
+  background: var(--surface);
+}
+
+.agg-right {
+  border-left: 1px solid var(--border);
+}
+
+.agg-mid {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.agg-mid-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+.agg-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--bg);
+  box-sizing: border-box;
+  /* 三块的行高必须完全一致，否则逐行累计错位 */
+  height: 44px;
+}
+
+.agg-head {
+  height: 56px;
+  background: var(--bg);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text2);
+  align-items: center;
+}
+
+.agg-row.agg-subhead {
+  height: 32px;
+  background: var(--bg);
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.agg-row.agg-subrow {
+  height: 44px;
+}
+
+.agg-row.agg-subrow {
+  background: #fbfcfe;
+}
+
+.agg-left-main {
+  grid-template-columns: 330px 96px;
+}
+
+.agg-left-sub {
+  grid-template-columns: 150px 180px 96px;
+}
+
+.agg-right-main,
+.agg-right-sub {
+  grid-template-columns: 110px;
+  justify-items: start;
+}
+
+.agg-mid-grid {
+  grid-auto-flow: column;
+  grid-auto-columns: 132px;
+  gap: 0;
+  padding: 0;
+}
+
+.agg-mid-grid > * {
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.agg-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+}
+
 .col-sticky-right-0 {
   right: 0;
   box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
