@@ -14,7 +14,7 @@ from latency.task.log_preprocessor import (
     needs_preprocess,
     preprocess_log_dir,
 )
-from latency.schemas.request import ParseConfig
+from latency.schemas.parse_config import ParseConfig
 
 logger = logging.getLogger(__name__)
 

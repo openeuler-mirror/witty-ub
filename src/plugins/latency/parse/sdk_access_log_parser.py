@@ -7,7 +7,7 @@ from latency.common.ds_log_io import parse_timestamp
 from latency.regex.kvcache_log_file import SDK_ACCESS_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
-from latency.schemas.request import ParseConfig
+from latency.schemas.parse_config import ParseConfig
 from latency.parse.base_parser import AccessLogParser, SDK_GET_OPS, SDK_SET_OPS, logger
 
 

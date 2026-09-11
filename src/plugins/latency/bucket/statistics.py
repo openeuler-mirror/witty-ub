@@ -113,7 +113,8 @@ BUCKET_COLUMNS: tuple[str, ...] = (
 # df_trace 中 yuanrong 内部原材料列（``_yuanrong_from_grouped`` 的输入），
 # 用于判断 df_trace 是否携带可计算的 yuanrong 分段时延。
 _YUANRONG_INTERNAL_COLS: tuple[str, ...] = (
-    "__se", "__sop", "__we", "__ue", "__ui", "__cn", "__ce", "__cs", "__cnw",
+    "__se", "__sop", "__wsum", "__wmax", "__wn", "__umax", "__uimax", "__cn",
+    "__ce2esum", "__ce0", "__ce1", "__cs0", "__cs1", "__cnw0", "__cnw1",
     "__me", "__ms", "__mn", "__re", "__rs", "__rn", "__qm",
 )
 
@@ -345,7 +346,9 @@ def compute_bucket_stats_from_frame(
     import polars as pl
     from latency.parse.parallel_scanner.trace_frame import _yuanrong_from_grouped
 
-    df = df_trace.filter(
+    # Rank only a narrow index frame. Filtering/ranking the complete trace
+    # frame repeatedly copies strings and metric columns for millions of rows.
+    df = df_trace.select("bucket_epoch", "total_ms", "total_latency", "operation").with_row_index("_row").filter(
         pl.col("bucket_epoch").is_not_null()
         & pl.col("total_ms").is_not_null()
     )
@@ -380,7 +383,11 @@ def compute_bucket_stats_from_frame(
                 .cast(pl.Int64)
                 .clip(lower_bound=1, upper_bound=pl.col("_cnt"))
             )
-            for row in dg.filter(pl.col("_rank") == kth_rank).iter_rows(named=True):
+            selected = dg.filter(pl.col("_rank") == kth_rank)
+            representatives = df_trace[selected["_row"]].with_columns(
+                selected["_bucket_id"], selected["_op_code"], selected["_row"],
+            )
+            for row in representatives.iter_rows(named=True):
                 # 桶起点 = 桶号 * 粒度（epoch 秒，与 compute_bucket_ids 同源）。
                 bucket_start_dt = np.datetime64(
                     int(row["_bucket_id"]) * g, "s"
@@ -395,13 +402,14 @@ def compute_bucket_stats_from_frame(
                     "mode": mode_name,
                     "r": r,
                     "tid": row.get("tid"),
+                    "row_index": row["_row"],
                 })
 
     # ── Phase 2: yuanrong enrichment (dedup across all granularities) ─
     rep_tids: set[Any] = {p["tid"] for p in pending if p["tid"]}
     yr_lookup: dict[Any, dict[str, Any]] = {}
-    if rep_tids and all(c in df.columns for c in _YUANRONG_INTERNAL_COLS):
-        rep_df = df.filter(pl.col("tid").is_in(rep_tids))
+    if rep_tids and all(c in df_trace.columns for c in _YUANRONG_INTERNAL_COLS):
+        rep_df = df_trace[sorted({p["row_index"] for p in pending if p["tid"]})]
         if rep_df.height > 0:
             yr = _yuanrong_from_grouped(rep_df)
             yr_lookup = {

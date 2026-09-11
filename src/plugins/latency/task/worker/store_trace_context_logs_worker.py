@@ -36,6 +36,10 @@ FAILED_STATUSES = {
 MONITOR_INTERVAL_SECONDS = 1
 
 
+class ContextStoreError(RuntimeError):
+    """A failed write must fail the task, rather than skip a raw log line."""
+
+
 def cleanup_temp_dirs(output_log_path: str, log_file_id: str) -> None:
     """清理临时文件夹，包括诊断输出和预处理的日志"""
     if output_log_path and os.path.exists(output_log_path):
@@ -134,29 +138,32 @@ class StoreTraceContextLogsWorker(BaseWorker):
             log_failure_events = []
             trace_failure_events_map: dict[str, dict] = {}
             total_inserted = 0
-            batch_size = 100000
-            total_log_failure_events = KVCacheLogEventDiagnosisWorker._count_log_failure_events(
-                log_files,
-                trace_id_set,
-                worker_access_patterns,
-                client_access_patterns,
-            )
-            
-            logger.info(f"开始日志落库，共{len(trace_id_set)}条故障trace，{total_log_failure_events}条日志事件")
+            batch_size = 8192
+            # Single pass: progress uses input bytes, not a second full parse.
+            total_bytes = sum(os.path.getsize(path) for _, path in log_files)
+            completed_bytes = 0
+            last_report = 0.0
+            logger.info("开始日志落库，trace=%d files=%d bytes=%d",
+                        len(trace_id_set), len(log_files), total_bytes)
             t_store_start = time.perf_counter()
 
-            def _report_progress(inserted: int) -> None:
-                if not task_id or total_log_failure_events <= 0:
+            async def _write_batch(batch):
+                try:
+                    await LogFailureEventPGManager.add_log_failure_event_raw(batch)
+                except Exception as exc:
+                    raise ContextStoreError("Failed to store trace context batch") from exc
+
+            async def _report_progress(read_bytes: int) -> None:
+                nonlocal last_report
+                now = time.perf_counter()
+                if not task_id or now - last_report < 2:
                     return
-                progress = progress_base + (progress_end - progress_base) * (
-                    inserted / total_log_failure_events
-                )
-                asyncio.create_task(
-                    BaseWorker.report(
-                        task_id,
-                        f"Trace context logs stored {inserted}/{total_log_failure_events}",
-                        min(progress, progress_end),
-                    )
+                last_report = now
+                fraction = min(read_bytes / max(total_bytes, 1), 0.99)
+                await BaseWorker.report(
+                    task_id,
+                    f"Trace context logs stored {total_inserted} rows; scanned {read_bytes}/{total_bytes} bytes",
+                    progress_base + (progress_end - progress_base) * fraction,
                 )
 
             for log_file_name, log_file_path in log_files:
@@ -178,7 +185,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                 if not raw_line:
                                     continue
                                 
-                                parts = raw_line.split('|')
+                                parts = raw_line.split('|', 8)
                                 
                                 if len(parts) < 7:
                                     continue
@@ -246,31 +253,31 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                 log_failure_events.append(log_failure_event)
                                 
                                 if len(log_failure_events) >= batch_size:
-                                    await LogFailureEventPGManager.add_log_failure_event_raw(log_failure_events)
+                                    await _write_batch(log_failure_events)
                                     total_inserted += len(log_failure_events)
-                                    progress_msg = (
-                                        f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
-                                    )
-                                    logger.info(progress_msg)
-                                    _report_progress(total_inserted)
+                                    logger.info("[perf][context.store] rows=%d elapsed_s=%.3f",
+                                                total_inserted, time.perf_counter() - t_store_start)
+                                    await _report_progress(completed_bytes + f.buffer.tell())
                                     log_failure_events = []
                             
+                            except ContextStoreError:
+                                raise
                             except Exception as e:
                                 logger.warning(f"读取日志文件 {log_file_path} 行失败: {line}, 错误: {e}")
                                 continue
                 
+                except ContextStoreError:
+                    raise
                 except Exception as e:
                     logger.warning(f"读取日志文件 {log_file_path} 失败: {e}")
                     continue
-            
+                completed_bytes += os.path.getsize(log_file_path)
+                await _report_progress(completed_bytes)
+
             if log_failure_events:
-                await LogFailureEventPGManager.add_log_failure_event_raw(log_failure_events)
+                await _write_batch(log_failure_events)
                 total_inserted += len(log_failure_events)
-                progress_msg = (
-                    f"日志事件落盘进度：{total_inserted}/{total_log_failure_events}"
-                )
-                logger.info(progress_msg)
-                _report_progress(total_inserted)
+                log_failure_events.clear()
 
             trace_failure_events = list(trace_failure_events_map.values())
             for trace_failure_event in trace_failure_events:
@@ -310,7 +317,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
             if task_id:
                 await BaseWorker.report(
                     task_id,
-                    f"Trace context logs stored {total_inserted}/{total_log_failure_events}",
+                    f"Trace context logs stored {total_inserted} rows",
                     progress_end,
                 )
 
@@ -318,6 +325,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
     
         except Exception as e:
             logger.error(f"parse_log_failure_events 执行失败: {e}")
+            raise
         
         return
 
@@ -476,6 +484,8 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 progress_base=20.0,
                 progress_end=45.0,
             )
+            # Raw diagnostic lines are no longer needed while waiting for parse.
+            del trace_failure_id
             await LogFilePGManager.update_log_file(
                 task.op_id, {
                     "failure_count": len(trace_id_set),
@@ -509,10 +519,15 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
 
+            t_ids = time.perf_counter()
             latency_anomalous_trace_id_set = await LogParseResultPGManager.list_anomalous_trace_ids_by_log_id(
                 log_id
             )
-            trace_id_set = latency_anomalous_trace_id_set - trace_id_set
+            anomalous_trace_count = len(latency_anomalous_trace_id_set)
+            latency_anomalous_trace_id_set.difference_update(trace_id_set)
+            trace_id_set = latency_anomalous_trace_id_set
+            logger.info("[perf][context.ids] new_traces=%d elapsed_s=%.3f",
+                        len(trace_id_set), time.perf_counter() - t_ids)
             logger.info(
                 "新增 %s 个时延异常 trace_id",
                 len(trace_id_set),
@@ -528,7 +543,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
             )
             await BaseWorker.report(
                 task.id,
-                f"Trace context logs stored after parse: {len(latency_anomalous_trace_id_set)}",
+                f"Trace context logs stored after parse: {anomalous_trace_count}",
                 90.0,
             )
 

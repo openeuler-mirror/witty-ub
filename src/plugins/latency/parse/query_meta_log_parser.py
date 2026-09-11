@@ -6,7 +6,7 @@ from latency.regex.kvcache_log import QUERY_META_RE
 from latency.regex.kvcache_log_file import QUERY_META_LOG_PATTERNS
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
-from latency.schemas.request import ParseConfig
+from latency.schemas.parse_config import ParseConfig
 from latency.parse.base_parser import LogParser
 
 

@@ -6,7 +6,9 @@ from latency.common.local_time import refresh_local_timezone
 
 import ipaddress
 import uuid
+import re
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 from latency.schemas.log import YUANRONG_METRIC_FIELDS
@@ -34,6 +36,9 @@ def get_db_timezone() -> None:
     return None
 
 
+_CANONICAL_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?\Z")
+
+
 def parse_timestamp(value: str | datetime | None) -> datetime | None:
     """Convert timestamp string or datetime to a naive datetime (no timezone).
 
@@ -49,6 +54,13 @@ def parse_timestamp(value: str | datetime | None) -> datetime | None:
         if value.tzinfo is not None:
             return value.replace(tzinfo=None)
         return value
+    # The normal log format can be parsed in C without repeated strptime
+    # format probing. Keep the old fallback for non-padded legacy timestamps.
+    if _CANONICAL_TIMESTAMP.fullmatch(value):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
     formats = [
         "%Y-%m-%d %H:%M:%S.%f",
         "%Y-%m-%d %H:%M:%S",
@@ -63,6 +75,7 @@ def parse_timestamp(value: str | datetime | None) -> datetime | None:
     return None
 
 
+@lru_cache(maxsize=4096)
 def parse_ip(value: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Convert IP string to Python ipaddress object for PostgreSQL INET."""
     if not value:
@@ -84,6 +97,13 @@ def parse_ip(value: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address
         except ValueError:
             pass
     return None
+
+
+@lru_cache(maxsize=64)
+def _parse_created_at(value):
+    # All records in a detail stream share a creation timestamp. Never cache
+    # the millions of distinct request timestamps.
+    return parse_timestamp(value)
 
 
 def parse_pod_ips(value: str | list[str] | None) -> list[str] | None:
@@ -167,7 +187,7 @@ def result_to_pg_tuple(result: Any) -> tuple[Any, ...]:
         result.anomaly_score,
         result.remark,
         result.existed_status,
-        parse_timestamp(result.created_at),
+        _parse_created_at(result.created_at),
         result.sdk_process,
         result.sdk_rpc,
         result.local_worker_cost,
