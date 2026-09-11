@@ -1931,3 +1931,82 @@ tr:hover td {
   border-color: var(--primary);
   background: var(--primary-bg);
 }
+
+/* ---------- UBSocket 通断：矩阵表 / 线程表排版 ---------- */
+
+.table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.table-foot .hint {
+  font-size: 13px;
+  color: var(--text2);
+}
+
+table .col-nowrap {
+  white-space: nowrap;
+}
+
+table .col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.matrix-head {
+  display: inline-block;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.matrix-zero {
+  color: var(--text3);
+}
+
+.matrix-detail-cell {
+  background: var(--bg);
+  padding: 12px 16px !important;
+}
+
+.matrix-detail-table {
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+}
+
+.matrix-detail-table th,
+.matrix-detail-table td {
+  font-size: 12px;
+}
+
+.mono-ellipsis {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.trace-chip-more {
+  background: var(--bg);
+  color: var(--text2);
+  border-color: var(--border);
+}

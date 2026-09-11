@@ -592,30 +592,6 @@ function createOverviewStateInner() {
       .sort((a, b) => b.requestCount - a.requestCount)
   })
 
-  const brpcTrend = computed(() => {
-    const timeMap = new Map<string, { req: number; ok: number; p99: number }>()
-    for (const row of brpcFileRows.value) {
-      const ts = row.timestamp
-      if (!ts) continue
-      const key = String(ts).slice(0, 19)
-      if (!timeMap.has(key)) timeMap.set(key, { req: 0, ok: 0, p99: 0 })
-      const bucket = timeMap.get(key)!
-      const req = (row.success_count ?? 0) + (row.failure_count ?? 0)
-      bucket.req += req
-      bucket.ok += row.success_count ?? 0
-      bucket.p99 = Math.max(bucket.p99, (row.p99_ns ?? 0) / 1e6)
-    }
-    const times = [...timeMap.keys()].sort()
-    return {
-      times: times.map((time) => formatChartTs(time)),
-      success: times.map((time) => {
-        const bucket = timeMap.get(time)!
-        return bucket.req ? +((bucket.ok / bucket.req) * 100).toFixed(2) : 0
-      }),
-      p99: times.map((time) => timeMap.get(time)!.p99),
-    }
-  })
-
   // 单接口曲线选择状态（P2.1）
   type BrpcSuccessMetric =
     | 'successRate'
@@ -694,6 +670,9 @@ function createOverviewStateInner() {
   ]
   const brpcLatencyMetric = ref('avg_ns')
   const brpcLatencySelectedIfaces = ref<string[]>([])
+
+  // U1：横轴标签按点数抽稀（密集时序下旋转标签会互相重叠）
+  const brpcAxisLabelStep = (count: number) => Math.max(0, Math.ceil(count / 12) - 1)
 
   // 文件存在但该文件没有任何 profiling 行 → 「当前筛选时间范围内无数据」（对齐上游 0e663a22）
   const brpcHasRows = computed(() => brpcFileRows.value.length > 0)
@@ -810,6 +789,78 @@ function createOverviewStateInner() {
   const brpcAggregatedEvents = ref<any[]>([])
   const brpcAggregatedEventTotal = ref(0)
   const brpcAggregatedEventPage = ref(1)
+  // 聚合事件按「时间窗 × 接口」重组成矩阵（对齐旧版聚合分析：窗口行 + 故障维度列 + 展开明细）
+  const brpcAggregatedEventsTruncated = ref(false)
+  const brpcExpandedEventWindow = ref('')
+  const BRPC_EVENT_WINDOW_PAGE_SIZE = 10
+  // 聚合矩阵需要窗口内的全部 Pod 行；一次取满并在 UI 标注截断（后端 page_cnt 上限 1000）
+  const BRPC_EVENT_FETCH_PAGE_CNT = 500
+
+  const brpcEventWindowKey = (row: any) =>
+    `${String(row?.window_start_time ?? '')}~${String(row?.window_end_time ?? '')}`
+
+  const brpcEventHitTotalOf = (row: any) =>
+    (row?.interface_hits ?? []).reduce(
+      (sum: number, hit: any) => sum + (hit?.interface_hit_count ?? 0),
+      0,
+    )
+
+  const brpcEventWindows = computed(() => {
+    const grouped = new Map<
+      string,
+      {
+        key: string
+        start: string
+        end: string
+        total: number
+        byInterface: Record<string, number>
+        pods: any[]
+      }
+    >()
+    for (const row of brpcAggregatedEvents.value) {
+      const key = brpcEventWindowKey(row)
+      let entry = grouped.get(key)
+      if (!entry) {
+        entry = {
+          key,
+          start: String(row.window_start_time ?? ''),
+          end: String(row.window_end_time ?? ''),
+          total: 0,
+          byInterface: {},
+          pods: [],
+        }
+        grouped.set(key, entry)
+      }
+      const hitTotal = brpcEventHitTotalOf(row)
+      entry.total += hitTotal
+      for (const hit of row.interface_hits ?? []) {
+        const name = String(hit?.interface_name ?? '-')
+        entry.byInterface[name] = (entry.byInterface[name] ?? 0) + (hit?.interface_hit_count ?? 0)
+      }
+      entry.pods.push({ ...row, hitTotal })
+    }
+    return [...grouped.values()].sort((left, right) => left.start.localeCompare(right.start))
+  })
+
+  const brpcEventInterfaceColumns = computed(() => {
+    const names = new Set<string>()
+    for (const window of brpcEventWindows.value) {
+      Object.keys(window.byInterface).forEach((name) => names.add(name))
+    }
+    return [...names].sort()
+  })
+
+  const brpcEventWindowPages = computed(() =>
+    Math.max(1, Math.ceil(brpcEventWindows.value.length / BRPC_EVENT_WINDOW_PAGE_SIZE)),
+  )
+  const brpcEventWindowPageRows = computed(() => {
+    const page = Math.min(Math.max(1, brpcAggregatedEventPage.value), brpcEventWindowPages.value)
+    const start = (page - 1) * BRPC_EVENT_WINDOW_PAGE_SIZE
+    return brpcEventWindows.value.slice(start, start + BRPC_EVENT_WINDOW_PAGE_SIZE)
+  })
+  const toggleBrpcEventWindow = (key: string) => {
+    brpcExpandedEventWindow.value = brpcExpandedEventWindow.value === key ? '' : key
+  }
   const brpcAbnormalThreads = ref<any[]>([])
   const brpcAbnormalThreadTotal = ref(0)
   const brpcAbnormalThreadPage = ref(1)
@@ -938,7 +989,7 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(String(time))),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length) },
         },
         yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
         series: seriesList.map((series) => {
@@ -1002,6 +1053,7 @@ function createOverviewStateInner() {
       const el = brpcThreadGraphRef.value
       if (!el) return
       const chart = getChart(el)
+      chart.resize()
       const graph = brpcThreadDetail.value?.failure_graph
       if (!graph || !graph.nodes?.length) {
         chart.clear()
@@ -1076,6 +1128,7 @@ function createOverviewStateInner() {
       const el = brpcThreadTimelineRef.value
       if (!el) return
       const chart = getChart(el)
+      chart.resize()
       const seriesList = brpcThreadDetail.value?.interface_timeline ?? []
       const times = [
         ...new Set(
@@ -1091,7 +1144,7 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(String(time))),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length) },
         },
         yAxis: { type: 'value', name: '命中数', minInterval: 1, axisLabel: { fontSize: 10 } },
         series: seriesList.map((series: any) => ({
@@ -1114,6 +1167,7 @@ function createOverviewStateInner() {
       const el = brpcEventTimelineRef.value
       if (!el) return
       const chart = getChart(el)
+      chart.resize()
       const seriesList = brpcEventDetailTimeline.value
       const times = [
         ...new Set(
@@ -1129,7 +1183,7 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(String(time))),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length) },
         },
         yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
         series: seriesList.map((series) => ({
@@ -1172,8 +1226,8 @@ function createOverviewStateInner() {
           batchId,
           startDate,
           endDate,
-          brpcAggregatedEventPage.value,
-          brpcFaultPageSize,
+          1,
+          BRPC_EVENT_FETCH_PAGE_CNT,
           brpcEventWindowSize.value,
         ),
         fetchBrpcAbnormalThreads(
@@ -1188,6 +1242,9 @@ function createOverviewStateInner() {
       brpcFaultTimelineSeries.value = timelineResult.series ?? []
       brpcAggregatedEvents.value = eventsResult.events ?? []
       brpcAggregatedEventTotal.value = eventsResult.total ?? 0
+      brpcAggregatedEventsTruncated.value =
+        (eventsResult.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
+      brpcExpandedEventWindow.value = ''
       brpcAbnormalThreads.value = threadsResult.threads ?? []
       brpcAbnormalThreadTotal.value = threadsResult.total ?? 0
       renderBrpcFaultTimeline()
@@ -1210,8 +1267,9 @@ function createOverviewStateInner() {
   }
 
   const goBrpcFaultEventsPage = async (pageNum: number) => {
-    brpcAggregatedEventPage.value = pageNum
-    await loadBrpcFaultData()
+    // 窗口矩阵为客户端分页（数据一次取满），翻页不重查
+    brpcAggregatedEventPage.value = Math.min(Math.max(1, pageNum), brpcEventWindowPages.value)
+    brpcExpandedEventWindow.value = ''
   }
 
   const goBrpcFaultThreadsPage = async (pageNum: number) => {
@@ -3098,7 +3156,6 @@ function createOverviewStateInner() {
   const slowRef = ref<HTMLElement | null>(null)
   const faultChartRef = ref<HTMLElement | null>(null)
   const faultTopoRef = ref<HTMLElement | null>(null)
-  const brpcSuccessRef = ref<HTMLElement | null>(null)
   const brpcSuccessOverviewRef = ref<HTMLElement | null>(null)
   const brpcSingleRef = ref<HTMLElement | null>(null)
   const brpcLatencyMonitorRef = ref<HTMLElement | null>(null)
@@ -4319,64 +4376,6 @@ function createOverviewStateInner() {
     })
   }
 
-  const renderBrpcCharts = () => {
-    afterDomUpdate(() => {
-      const trend = brpcTrend.value
-      const el = brpcSuccessRef.value
-      if (!el) return
-      const chart = getChart(el)
-      // 全接口聚合趋势：左轴成功率(%)、右轴 P99(ms)，避免两个单线图各自难以对照
-      setChartOption(chart, {
-        tooltip: { trigger: 'axis' },
-        // 双轴图例居中，避免与右轴名（P99 (ms)）在右上角重叠
-        legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
-        grid: { left: 56, right: 56, top: 46, bottom: 42 },
-        xAxis: {
-          type: 'category',
-          data: trend.times,
-          axisLabel: { fontSize: 10, rotate: 30 },
-        },
-        yAxis: [
-          {
-            type: 'value',
-            name: '成功率 %',
-            min: 0,
-            max: 100,
-            axisLabel: { fontSize: 10 },
-          },
-          {
-            type: 'value',
-            name: 'P99 (ms)',
-            axisLabel: { fontSize: 10 },
-            splitLine: { show: false },
-          },
-        ],
-        series: [
-          {
-            name: '平均成功率',
-            type: 'line',
-            smooth: true,
-            symbol: 'none',
-            lineStyle: { width: 2, color: '#00B365' },
-            itemStyle: { color: '#00B365' },
-            yAxisIndex: 0,
-            data: trend.success,
-          },
-          {
-            name: '最高 P99',
-            type: 'line',
-            smooth: true,
-            symbol: 'none',
-            lineStyle: { width: 2, color: '#EF4444' },
-            itemStyle: { color: '#EF4444' },
-            yAxisIndex: 1,
-            data: trend.p99,
-          },
-        ],
-      })
-    })
-  }
-
   // P2.1 成功率总览：按勾选接口逐条曲线，指标可切换（成功率/失败率/请求数/成功量/失败量）
   const renderBrpcSuccessOverviewChart = () => {
     afterDomUpdate(() => {
@@ -4416,11 +4415,11 @@ function createOverviewStateInner() {
             typeof value === 'number' ? `${value}${isRate ? '%' : ''}` : '-',
         },
         legend: { show: false },
-        grid: { left: 56, right: 20, top: 24, bottom: 42 },
+        grid: { left: 64, right: 32, top: 24, bottom: 76 },
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
         },
         yAxis: {
           type: 'value',
@@ -4453,11 +4452,11 @@ function createOverviewStateInner() {
         tooltip: { trigger: 'axis', order: 'valueDesc' },
         // 图例居中放，避免与右轴名（比率 %）在右上角重叠
         legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
-        grid: { left: 56, right: 56, top: 46, bottom: 42 },
+        grid: { left: 64, right: 64, top: 48, bottom: 76 },
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
         },
         yAxis: [
           {
@@ -4513,15 +4512,20 @@ function createOverviewStateInner() {
         { name: 'max', key: 'max_ns', color: '#F59E0B' },
       ]
       setChartOption(chart, {
-        tooltip: { trigger: 'axis' },
-        legend: { right: 0, top: 0, textStyle: { fontSize: 11 } },
-        grid: { left: 56, right: 20, top: 32, bottom: 42 },
+        tooltip: {
+          trigger: 'axis',
+          order: 'valueDesc',
+          valueFormatter: (value: unknown) =>
+            typeof value === 'number' ? `${value} ms` : String(value ?? '-'),
+        },
+        legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 64, right: 40, top: 48, bottom: 76 },
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
         },
-        yAxis: { type: 'value', name: 'ms', axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'value', name: '时延 (ms)', axisLabel: { fontSize: 10 } },
         series: metricDefs.map((def) => ({
           name: def.name,
           type: 'line',
@@ -4578,11 +4582,11 @@ function createOverviewStateInner() {
             typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
         },
         legend: { show: false },
-        grid: { left: 62, right: 20, top: 24, bottom: 42 },
+        grid: { left: 68, right: 32, top: 24, bottom: 76 },
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30 },
+          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
         },
         yAxis: { type: 'value', name: `${metricLabel} (µs)`, axisLabel: { fontSize: 10 } },
         series,
@@ -4594,7 +4598,7 @@ function createOverviewStateInner() {
     nextTick(() => {
       if (!isAssetMode.value) return
       if (isBrpcTask.value) {
-        renderBrpcCharts()
+
         renderBrpcSuccessOverviewChart()
         renderBrpcSingleChart()
         renderBrpcLatencyMonitorChart()
@@ -4777,7 +4781,7 @@ function createOverviewStateInner() {
     })
 
     watch(
-      [scopeData, brpcInterfaces, brpcTrend],
+      [scopeData, brpcInterfaces],
       () => {
         if (!isAssetMode.value) return
         // 概览页拓扑/时间图由下方专用 watcher 驱动，避免补数据(如进 Pod 详情)时整图重绘
@@ -4886,7 +4890,7 @@ function createOverviewStateInner() {
       ],
       () => {
         if (!isAssetMode.value || !isBrpcTask.value) return
-        renderBrpcCharts()
+
         renderBrpcSuccessOverviewChart()
         renderBrpcSingleChart()
         renderBrpcLatencyMonitorChart()
@@ -5007,6 +5011,14 @@ function createOverviewStateInner() {
     brpcAggregatedEventPage,
     brpcAggregatedEventTotal,
     brpcAggregatedEvents,
+    brpcAggregatedEventsTruncated,
+    brpcEventHitTotalOf,
+    brpcEventInterfaceColumns,
+    brpcEventWindowPageRows,
+    brpcEventWindowPages,
+    brpcEventWindows,
+    brpcExpandedEventWindow,
+    toggleBrpcEventWindow,
     brpcEventHitTotal,
     brpcFaultBatch,
     brpcFaultDetail,
@@ -5113,9 +5125,7 @@ function createOverviewStateInner() {
     brpcSuccessMetric,
     brpcSuccessMetricOptions,
     brpcSuccessOverviewRef,
-    brpcSuccessRef,
     brpcSuccessSelectedIfaces,
-    brpcTrend,
     changeBrpcFaultLog,
     clearBrpcThreadSearch,
     clearFaultRange,
@@ -5229,7 +5239,6 @@ function createOverviewStateInner() {
     podPages,
     realOp,
     renderAnalysisModules,
-    renderBrpcCharts,
     renderBrpcEventTimeline,
     renderBrpcLatencyChart,
     renderBrpcLatencyMonitorChart,
