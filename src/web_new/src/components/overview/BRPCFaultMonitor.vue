@@ -248,19 +248,16 @@ onMounted(() => {
                           <td>{{ pod.pod_name || '-' }}</td>
                           <td>{{ pod.hitTotal }}</td>
                           <td>
-                            <span
-                              v-for="hit in (pod.interface_hits || []).slice(0, 3)"
-                              :key="hit.interface_id"
-                              class="trace-chip"
-                            >
-                              {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                            </span>
-                            <span
-                              v-if="(pod.interface_hits || []).length > 3"
-                              class="trace-chip trace-chip-more"
-                            >
-                              +{{ pod.interface_hits.length - 3 }}
-                            </span>
+                            <div class="chip-row">
+                              <span
+                                v-for="hit in pod.interface_hits || []"
+                                :key="hit.interface_id"
+                                class="trace-chip"
+                              >
+                                {{ hit.interface_name }}:{{ hit.interface_hit_count }}
+                              </span>
+                              <span v-if="!(pod.interface_hits || []).length" class="hint">-</span>
+                            </div>
                           </td>
                           <td>
                             <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(pod)">
@@ -352,17 +349,11 @@ onMounted(() => {
               <td>
                 <div class="chip-row">
                   <span
-                    v-for="hit in (thread.interface_hits || []).slice(0, 3)"
+                    v-for="hit in thread.interface_hits || []"
                     :key="hit.interface_id"
                     class="trace-chip"
                   >
                     {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                  </span>
-                  <span
-                    v-if="(thread.interface_hits || []).length > 3"
-                    class="trace-chip trace-chip-more"
-                  >
-                    +{{ thread.interface_hits.length - 3 }}
                   </span>
                   <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
                 </div>

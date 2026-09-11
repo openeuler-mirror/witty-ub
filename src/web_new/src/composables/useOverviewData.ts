@@ -880,7 +880,17 @@ function createOverviewStateInner() {
   const brpcThreadSearchQuery = ref('')
   const brpcFaultLoading = ref(false)
   const brpcFaultError = ref('')
-  const brpcFaultDetail = ref<any>(null)
+  /**
+   * 详情弹窗栈：聚合事件详情 → 「查看 Thread 日志」压栈；关闭/返回只出栈一层，
+   * 保证「查看接口命中 → Thread 日志」能返回上层弹窗而不是一次关完。
+   */
+  const brpcDetailStack = ref<any[]>([])
+  const brpcFaultDetail = computed<any>(() => brpcDetailStack.value.at(-1) ?? null)
+  const brpcDetailHasParent = computed(() => brpcDetailStack.value.length > 1)
+  const closeBrpcFaultDetail = () => {
+    brpcDetailStack.value = brpcDetailStack.value.slice(0, -1)
+    if (brpcDetailStack.value.length === 0) brpcThreadLogsRequestSeq += 1
+  }
   const brpcFaultBatchId = ref('')
   const brpcThreadLogs = ref<any[]>([])
   const brpcThreadLogsLoading = ref(false)
@@ -1059,6 +1069,67 @@ function createOverviewStateInner() {
     )
   })
 
+  // P2.3 故障模式视图：确定性分层布局（对齐旧版），节点不会漂到可视区外，容器按图尺寸滚动
+  const BRPC_GRAPH_NODE_W = 168
+  const BRPC_GRAPH_NODE_H = 52
+  const BRPC_GRAPH_H_GAP = 96
+  const BRPC_GRAPH_V_GAP = 28
+  const BRPC_GRAPH_MARGIN = 40
+
+  const brpcThreadGraphLayout = computed(() => {
+    const graph = brpcThreadDetail.value?.failure_graph
+    const nodes: any[] = graph?.nodes ?? []
+    if (!nodes.length) return null
+    const ids = new Set(nodes.map((node) => node.node_id))
+    const edges = (graph?.edges ?? []).filter(
+      (edge: any) => ids.has(edge.source_node_id) && ids.has(edge.target_node_id),
+    )
+    // 最长路径分层：固定轮次收敛，避免环上死循环
+    const depth = new Map<string, number>()
+    nodes.forEach((node) => depth.set(node.node_id, 0))
+    for (let round = 0; round < nodes.length; round += 1) {
+      let changed = false
+      edges.forEach((edge: any) => {
+        const next = (depth.get(edge.source_node_id) ?? 0) + 1
+        if (next > (depth.get(edge.target_node_id) ?? 0)) {
+          depth.set(edge.target_node_id, next)
+          changed = true
+        }
+      })
+      if (!changed) break
+    }
+    const layers = new Map<number, any[]>()
+    nodes.forEach((node) => {
+      const level = depth.get(node.node_id) ?? 0
+      const bucket = layers.get(level) ?? []
+      bucket.push(node)
+      layers.set(level, bucket)
+    })
+    const levels = [...layers.keys()].sort((first, second) => first - second)
+    const maxPerLayer = Math.max(...[...layers.values()].map((bucket) => bucket.length), 1)
+    const laneHeight = maxPerLayer * BRPC_GRAPH_NODE_H + (maxPerLayer - 1) * BRPC_GRAPH_V_GAP
+    const positions = new Map<string, { x: number; y: number }>()
+    levels.forEach((level, levelIndex) => {
+      const bucket = layers.get(level) ?? []
+      const usedHeight = bucket.length * BRPC_GRAPH_NODE_H + (bucket.length - 1) * BRPC_GRAPH_V_GAP
+      let y = BRPC_GRAPH_MARGIN + (laneHeight - usedHeight) / 2
+      bucket.forEach((node) => {
+        positions.set(node.node_id, {
+          x: BRPC_GRAPH_MARGIN + levelIndex * (BRPC_GRAPH_NODE_W + BRPC_GRAPH_H_GAP),
+          y,
+        })
+        y += BRPC_GRAPH_NODE_H + BRPC_GRAPH_V_GAP
+      })
+    })
+    const levelCount = levels.length || 1
+    return {
+      width: BRPC_GRAPH_MARGIN * 2 + levelCount * BRPC_GRAPH_NODE_W + (levelCount - 1) * BRPC_GRAPH_H_GAP,
+      height: BRPC_GRAPH_MARGIN * 2 + laneHeight,
+      positions,
+      edges,
+    }
+  })
+
   const renderBrpcThreadGraph = () => {
     afterDomUpdate(() => {
       const el = brpcThreadGraphRef.value
@@ -1066,11 +1137,11 @@ function createOverviewStateInner() {
       const chart = getChart(el)
       chart.resize()
       const graph = brpcThreadDetail.value?.failure_graph
-      if (!graph || !graph.nodes?.length) {
+      const layout = brpcThreadGraphLayout.value
+      if (!graph || !graph.nodes?.length || !layout) {
         chart.clear()
         return
       }
-      const maxHits = Math.max(...graph.nodes.map((node: any) => node.hit_count ?? 0), 1)
       setChartOption(chart, {
         tooltip: {
           trigger: 'item',
@@ -1085,46 +1156,63 @@ function createOverviewStateInner() {
         series: [
           {
             type: 'graph',
-            layout: 'force',
+            layout: 'none',
             roam: true,
             draggable: true,
-            // 预留边距 + 标签避让：避免节点/标签贴边被裁或互相压叠
-            top: 52,
-            bottom: 28,
-            left: 32,
-            right: 32,
+            // 不要给 top/left/right/bottom：否则 ECharts 会把节点包围盒缩放铺满画布，
+            // 与「容器按图尺寸、视口滚动」的旧版表现不一致
+            zoom: 1,
             edgeSymbol: ['none', 'arrow'],
             edgeSymbolSize: 7,
-            force: { repulsion: 620, edgeLength: [120, 260], gravity: 0.08 },
-            data: graph.nodes.map((node: any) => ({
-              name: node.node_id,
-              nodeId: node.node_id,
-              nodeType: node.node_type,
-              nodeName: node.name || node.node_id,
-              functionName: node.function_name,
-              hitCount: node.hit_count,
-              symbolSize:
-                node.node_type === 'interface' ? 28 : 22 + ((node.hit_count ?? 0) / maxHits) * 30,
-              itemStyle: {
-                color: node.node_type === 'interface' ? '#1E6FFF' : '#EF4444',
-                borderColor: node.directly_hit ? '#7f1d1d' : undefined,
-                borderWidth: node.directly_hit ? 3 : 1,
-              },
-              label: {
-                show: true,
-                fontSize: 10,
-                position: 'bottom',
-                formatter: (param: any) => String(param.data.nodeName ?? '').slice(0, 18),
-              },
-            })),
-            labelLayout: { hideOverlap: true },
-            links: (graph.edges || []).map((edge: any) => ({
+            data: graph.nodes.map((node: any) => {
+              const position = layout.positions.get(node.node_id) ?? { x: 0, y: 0 }
+              const accent = node.node_type === 'interface' ? '#2563eb' : '#dc2626'
+              const lines = [
+                `{code|${String(node.node_id ?? '').slice(0, 20)}}`,
+                `{name|${String(node.name || node.node_id || '').slice(0, 16)}}`,
+                node.node_type === 'interface'
+                  ? `{fn|${String(node.function_name || '-').slice(0, 20)}}`
+                  : `{count|命中 ${node.hit_count ?? 0}}`,
+              ]
+              return {
+                name: node.node_id,
+                nodeId: node.node_id,
+                nodeType: node.node_type,
+                nodeName: node.name || node.node_id,
+                functionName: node.function_name,
+                hitCount: node.hit_count,
+                x: position.x + BRPC_GRAPH_NODE_W / 2,
+                y: position.y + BRPC_GRAPH_NODE_H / 2,
+                symbol: 'roundRect',
+                symbolKeepAspect: false,
+                symbolSize: [BRPC_GRAPH_NODE_W, BRPC_GRAPH_NODE_H],
+                itemStyle: {
+                  color: 'rgba(255,255,255,0.97)',
+                  borderColor: accent,
+                  borderWidth: node.directly_hit ? 2.4 : 1.4,
+                  shadowBlur: 6,
+                  shadowColor: 'rgba(15,23,42,0.12)',
+                },
+                label: {
+                  show: true,
+                  formatter: lines.join('\n'),
+                  rich: {
+                    code: { color: accent, fontSize: 10, fontWeight: 700, lineHeight: 14 },
+                    name: { color: '#172033', fontSize: 12, fontWeight: 600, lineHeight: 15 },
+                    fn: { color: '#475467', fontSize: 10, lineHeight: 14 },
+                    count: { color: '#667085', fontSize: 11, lineHeight: 15 },
+                  },
+                },
+              }
+            }),
+            links: layout.edges.map((edge: any) => ({
               source: edge.source_node_id,
               target: edge.target_node_id,
               lineStyle: {
-                curveness: 0.15,
-                opacity: 0.85,
+                curveness: 0.12,
+                opacity: 0.9,
                 width: edge.edge_type === 'cross_component' ? 2.4 : 1.4,
+                color: edge.edge_type === 'cross_component' ? '#f59e0b' : '#94a3b8',
               },
             })),
             emphasis: { focus: 'adjacency' },
@@ -1372,8 +1460,9 @@ function createOverviewStateInner() {
     }
   }
 
-  const openBrpcFaultDetail = (row: any) => {
-    brpcFaultDetail.value = row
+  const openBrpcFaultDetail = (row: any, asChild = false) => {
+    // 从聚合事件弹窗里打开 Thread 明细时压栈（asChild），从列表打开时重置栈
+    brpcDetailStack.value = asChild ? [...brpcDetailStack.value, row] : [row]
     brpcThreadLogs.value = []
     brpcThreadLogsError.value = ''
     brpcEventDetail.value = null
@@ -4755,7 +4844,7 @@ function createOverviewStateInner() {
       brpcThreadSearchQuery.value = ''
       brpcFaultLoading.value = false
       brpcFaultError.value = ''
-      brpcFaultDetail.value = null
+      brpcDetailStack.value = []
       brpcThreadLogs.value = []
       brpcThreadDetail.value = null
       brpcSelectedGraphNodeId.value = ''
@@ -5039,7 +5128,10 @@ function createOverviewStateInner() {
     toggleBrpcEventWindow,
     brpcEventHitTotal,
     brpcFaultBatch,
+    brpcDetailHasParent,
     brpcFaultDetail,
+    brpcThreadGraphLayout,
+    closeBrpcFaultDetail,
     brpcThreadLogs,
     brpcThreadLogsLoading,
     brpcThreadLogsError,

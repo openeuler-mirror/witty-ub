@@ -36,11 +36,14 @@ const {
   brpcEventDetailThreads,
   brpcEventDetailTimeline,
   brpcEventTimelineRef,
+  brpcDetailHasParent,
   brpcFaultDetail,
+  closeBrpcFaultDetail,
   brpcSelectedGraphNode,
   brpcSelectedGraphNodeId,
   brpcThreadDetail,
   brpcThreadDetailError,
+  brpcThreadGraphLayout,
   brpcThreadDetailLoading,
   brpcThreadGraphRef,
   brpcThreadLogs,
@@ -128,7 +131,7 @@ const onKeydown = (event: KeyboardEvent) => {
   if (event.key !== 'Escape') return
   closeObjectDetail()
   detailDrawerOpen.value = false
-  brpcFaultDetail.value = null
+  closeBrpcFaultDetail()
 }
 
 // 抽屉故障码：access 口径数组 + 故障模式知识库显示码（含 FATAL 回退），去重
@@ -426,11 +429,23 @@ onBeforeUnmount(() => {
   </template>
 
   <!-- ============ UBSocket 事件 / Thread 详情弹窗 ============ -->
-  <div class="modal-overlay" v-if="brpcFaultDetail" @click.self="brpcFaultDetail = null">
+  <div class="modal-overlay" v-if="brpcFaultDetail" @click.self="closeBrpcFaultDetail()">
     <div class="modal modal-xl">
       <div class="modal-header">
-        {{ brpcFaultDetail.thread_key ? 'Thread 接口命中明细' : '聚合事件详情' }}
-        <button class="modal-close" @click="brpcFaultDetail = null">✕</button>
+        <span class="modal-header-main">
+          <button
+            v-if="brpcDetailHasParent"
+            class="modal-back"
+            type="button"
+            aria-label="返回上层详情"
+            @click="closeBrpcFaultDetail()"
+          >
+            ‹ 返回
+          </button>
+          <span>{{ brpcFaultDetail.thread_key ? 'Thread 接口命中明细' : '聚合事件详情' }}</span>
+          <span v-if="brpcDetailHasParent" class="modal-header-crumb">来自 聚合事件详情</span>
+        </span>
+        <button class="modal-close" @click="closeBrpcFaultDetail()">✕</button>
       </div>
       <div class="modal-body modal-scroll">
         <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
@@ -522,16 +537,22 @@ onBeforeUnmount(() => {
                     <td>{{ thread.thread_id }}</td>
                     <td>{{ thread.total_interface_hit_count }}</td>
                     <td>
-                      <span
-                        v-for="hit in (thread.interface_hits || []).slice(0, 3)"
-                        :key="hit.interface_id"
-                        class="trace-chip"
-                      >
-                        {{ hit.interface_name }}:{{ hit.interface_hit_count }}
-                      </span>
+                      <div class="chip-row">
+                        <span
+                          v-for="hit in thread.interface_hits || []"
+                          :key="hit.interface_id"
+                          class="trace-chip"
+                        >
+                          {{ hit.interface_name }}:{{ hit.interface_hit_count }}
+                        </span>
+                        <span v-if="!(thread.interface_hits || []).length" class="hint">-</span>
+                      </div>
                     </td>
                     <td>
-                      <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread)">
+                      <button
+                        class="btn btn-sm btn-primary"
+                        @click="openBrpcFaultDetail(thread, true)"
+                      >
                         查看 Thread 日志
                       </button>
                     </td>
@@ -576,8 +597,12 @@ onBeforeUnmount(() => {
           <!-- P2.3：故障模式视图（failure_graph） -->
           <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
             🕸️ 故障模式视图
-            <span class="hint" style="font-weight: 400">
-              蓝点=接口节点，红点=故障模式节点（大小=命中数，粗边框=直接命中）；可拖拽缩放，点击节点查看详情
+            <span class="graph-legend" aria-label="故障模式视图图例">
+              <span><i class="graph-legend-interface"></i>接口节点</span>
+              <span><i class="graph-legend-mode"></i>故障模式节点</span>
+              <span><i class="graph-legend-edge"></i>组件内关系</span>
+              <span><i class="graph-legend-edge cross"></i>跨组件关系</span>
+              <span class="hint" style="font-weight: 400">粗边框=直接命中；可拖拽/缩放，点击节点查看详情</span>
             </span>
           </div>
           <div v-if="brpcThreadDetailLoading" class="empty" style="padding: 16px 0">
@@ -593,7 +618,15 @@ onBeforeUnmount(() => {
           >
             当前 Thread 暂无命中的故障模式子图
           </div>
-          <div v-else ref="brpcThreadGraphRef" style="height: 420px; margin-bottom: 8px"></div>
+          <div v-else class="graph-viewport">
+            <div
+              ref="brpcThreadGraphRef"
+              :style="{
+                width: Math.max(720, brpcThreadGraphLayout?.width ?? 720) + 'px',
+                height: Math.max(320, brpcThreadGraphLayout?.height ?? 320) + 'px',
+              }"
+            ></div>
+          </div>
 
           <!-- P2.3：选中节点详情 -->
           <div
