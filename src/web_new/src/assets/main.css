@@ -1986,10 +1986,10 @@ table .col-num {
 
 .matrix-head {
   display: inline-block;
-  max-width: 92px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 104px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
   vertical-align: bottom;
 }
 

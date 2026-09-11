@@ -202,7 +202,7 @@ onMounted(() => {
                 <th class="col-nowrap">时间窗</th>
                 <th class="col-num">故障总数</th>
                 <th v-for="name in brpcEventInterfaceColumns" :key="name" class="col-num">
-                  <span class="matrix-head">{{ name }}</span>
+                  <span class="matrix-head" :title="name">{{ name }}</span>
                 </th>
                 <th class="col-nowrap">操作</th>
               </tr>
