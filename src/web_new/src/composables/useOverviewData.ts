@@ -1077,9 +1077,14 @@ function createOverviewStateInner() {
             layout: 'force',
             roam: true,
             draggable: true,
+            // 预留边距 + 标签避让：避免节点/标签贴边被裁或互相压叠
+            top: 52,
+            bottom: 28,
+            left: 32,
+            right: 32,
             edgeSymbol: ['none', 'arrow'],
             edgeSymbolSize: 7,
-            force: { repulsion: 420, edgeLength: [90, 210], gravity: 0.12 },
+            force: { repulsion: 620, edgeLength: [120, 260], gravity: 0.08 },
             data: graph.nodes.map((node: any) => ({
               name: node.node_id,
               nodeId: node.node_id,
@@ -1097,9 +1102,11 @@ function createOverviewStateInner() {
               label: {
                 show: true,
                 fontSize: 10,
+                position: 'bottom',
                 formatter: (param: any) => String(param.data.nodeName ?? '').slice(0, 18),
               },
             })),
+            labelLayout: { hideOverlap: true },
             links: (graph.edges || []).map((edge: any) => ({
               source: edge.source_node_id,
               target: edge.target_node_id,

@@ -494,7 +494,7 @@ onBeforeUnmount(() => {
               当前窗内无故障时序数据
             </div>
             <div
-              v-show="!brpcEventDetailTimelineEmpty"
+              v-if="!brpcEventDetailTimelineEmpty"
               ref="brpcEventTimelineRef"
               style="height: 280px; margin-bottom: 16px"
             ></div>
@@ -645,7 +645,7 @@ onBeforeUnmount(() => {
             暂无接口命中时序数据
           </div>
           <div
-            v-show="!brpcThreadTimelineEmpty"
+            v-if="!brpcThreadTimelineEmpty"
             ref="brpcThreadTimelineRef"
             style="height: 280px; margin-bottom: 8px"
           ></div>
