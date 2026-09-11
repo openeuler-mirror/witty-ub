@@ -2540,9 +2540,14 @@ table .col-num {
 
 /* ---------- 故障实例表（内容型表格）：行高按内容，禁止溢出压行 ---------- */
 .fault-instance-block .agg-row {
+  /* 行高按最长内容（故障文本 2 行）给足，三块同高保证对齐 */
+  height: auto;
+  min-height: 76px;
+  align-items: center;
+}
+.fault-instance-block .agg-head {
   height: 56px;
   min-height: 56px;
-  align-items: center;
 }
 /* 单元格不裁切内容（滚动交给单元格内部） */
 .fault-instance-block .agg-mid-grid > *,
@@ -2599,10 +2604,15 @@ table .col-num {
 }
 .fault-instance-block .fault-scroll {
   display: block;
-  overflow-x: auto;
-  overflow-y: hidden;
+  white-space: normal;
+  overflow: visible;
+}
+/* Pod 上下文 / Trace ID 的 chip 显示完整，不裁切 */
+.fault-instance-block .trace-chip {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
-  scrollbar-width: thin;
 }
 .fault-instance-block .fault-scroll .fault-name,
 .fault-instance-block .fault-scroll .fault-domain {

@@ -362,8 +362,8 @@ const failureDomainsOf = (row: any) => {
         :row-key="(row: any) => row.trace_id"
         :left-cols="['150px', '100px', '110px']"
         :right-cols="['160px']"
-        :mid-cols="['520px', '300px', '240px', '200px']"
-        mid-width="1260px"
+        :mid-cols="['520px', '300px', '240px', '150px']"
+        mid-width="1210px"
         class="fault-instance-block"
       >
         <template #left-head>
@@ -394,7 +394,7 @@ const failureDomainsOf = (row: any) => {
         <template #mid="{ row }">
           <span
             class="fault-scroll"
-            style="display: block; overflow-x: auto; overflow-y: hidden; white-space: nowrap"
+            style="display: block; white-space: normal; overflow: visible; text-overflow: clip"
           >
             <span class="fault-name">{{ failureModeNamesOf(row) }}</span>
             <span class="fault-domain">{{ failureDomainsOf(row) }}</span>
