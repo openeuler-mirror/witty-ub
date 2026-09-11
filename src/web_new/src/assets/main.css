@@ -2544,6 +2544,12 @@ table .col-num {
   min-height: 56px;
   align-items: center;
 }
+/* 单元格不裁切内容（滚动交给单元格内部） */
+.fault-instance-block .agg-mid-grid > *,
+.fault-instance-block .agg-left-main > * {
+  overflow: visible;
+  text-overflow: clip;
+}
 .fault-instance-block .agg-head {
   height: 56px;
   min-height: 56px;
@@ -2581,4 +2587,30 @@ table .col-num {
 .fault-instance-block .agg-mid-grid > span:has(.trace-chip) {
   overflow: visible !important;
   text-overflow: clip !important;
+}
+
+/* 故障实例表：中区一律左对齐（只有数字列右对齐），具体故障列单元格内横向滚动 */
+.fault-instance-block .agg-mid-grid > * {
+  text-align: left;
+  justify-content: center;
+}
+.fault-instance-block .agg-mid-grid > .col-num {
+  text-align: right;
+}
+.fault-instance-block .fault-scroll {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+.fault-instance-block .fault-scroll .fault-name,
+.fault-instance-block .fault-scroll .fault-domain {
+  display: inline;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+.fault-instance-block .fault-scroll .fault-domain::before {
+  content: ' ';
 }

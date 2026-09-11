@@ -360,14 +360,14 @@ const failureDomainsOf = (row: any) => {
       <BlockTable
         :rows="pagedFaultTraces"
         :row-key="(row: any) => row.trace_id"
-        :left-cols="['150px', '100px', '110px', '620px']"
-        :right-cols="['170px']"
-        :mid-cols="['330px', '270px', '210px']"
-        mid-width="810px"
+        :left-cols="['150px', '100px', '110px']"
+        :right-cols="['160px']"
+        :mid-cols="['520px', '300px', '240px', '200px']"
+        mid-width="1260px"
         class="fault-instance-block"
       >
         <template #left-head>
-          <span>发生时间</span><span>故障类型</span><span>故障码</span><span>具体故障 / 故障域</span>
+          <span>发生时间</span><span>故障类型</span><span>故障码</span>
         </template>
         <template #left="{ row }">
           <span class="agg-mono col-nowrap">{{ (row.timestamp || '').slice(0, 19) }}</span>
@@ -386,25 +386,38 @@ const failureDomainsOf = (row: any) => {
             >
             <span v-if="traceTags(row.trace_id, 'fault').length === 0" class="hint">-</span>
           </span>
-          <span class="agg-cell-wrap">
+        </template>
+        <template #mid-head>
+          <span>具体故障 / 故障域</span><span>影响链路</span><span>Pod 上下文</span
+          ><span>Trace ID</span>
+        </template>
+        <template #mid="{ row }">
+          <span
+            class="fault-scroll"
+            style="display: block; overflow-x: auto; overflow-y: hidden; white-space: nowrap"
+          >
             <span class="fault-name">{{ failureModeNamesOf(row) }}</span>
             <span class="fault-domain">{{ failureDomainsOf(row) }}</span>
           </span>
-        </template>
-        <template #mid-head>
-          <span>影响链路</span><span>Pod 上下文</span><span>Trace ID</span>
-        </template>
-        <template #mid="{ row }">
-          <span class="route-cell col-nowrap">
-            <span>{{ row.src_ip || '-' }}</span><i>→</i><span>{{ row.dst_ip || '-' }}</span>
+          <span
+            class="route-cell"
+            style="display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; white-space: nowrap; overflow: visible; gap: 4px"
+          >
+            <span style="white-space: nowrap">{{ row.src_ip || '-' }}</span>
+            <i style="flex: none">→</i>
+            <span style="white-space: nowrap">{{ row.dst_ip || '-' }}</span>
           </span>
-          <span class="trace-pods agg-cell-wrap" :title="faultPodIps(row).join('\n')">
+          <span
+            class="trace-pods"
+            style="display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 4px; overflow-x: auto; overflow-y: hidden; white-space: nowrap"
+            :title="faultPodIps(row).join('\n')"
+          >
             <span v-for="ip in visibleFaultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
             <span v-if="faultPodIpCount(row) > visibleFaultPodIps(row).length" class="trace-chip"
               >+{{ faultPodIpCount(row) - visibleFaultPodIps(row).length }}</span
             >
           </span>
-          <span class="col-nowrap">
+          <span style="overflow: visible; white-space: nowrap; text-overflow: clip">
             <span class="trace-chip" :title="row.trace_id">{{ shortTraceId(row.trace_id) }}</span>
           </span>
         </template>
