@@ -360,10 +360,11 @@ const failureDomainsOf = (row: any) => {
       <BlockTable
         :rows="pagedFaultTraces"
         :row-key="(row: any) => row.trace_id"
-        :left-cols="['150px', '110px', '120px', '380px']"
+        :left-cols="['150px', '100px', '110px', '620px']"
         :right-cols="['170px']"
-        :mid-cols="['330px', '240px', '240px']"
+        :mid-cols="['330px', '270px', '210px']"
         mid-width="810px"
+        class="fault-instance-block"
       >
         <template #left-head>
           <span>发生时间</span><span>故障类型</span><span>故障码</span><span>具体故障 / 故障域</span>

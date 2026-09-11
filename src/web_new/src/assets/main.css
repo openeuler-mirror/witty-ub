@@ -2537,3 +2537,48 @@ table .col-num {
   overflow: visible;
   text-overflow: clip;
 }
+
+/* ---------- 故障实例表（内容型表格）：行高按内容，禁止溢出压行 ---------- */
+.fault-instance-block .agg-row {
+  height: 56px;
+  min-height: 56px;
+  align-items: center;
+}
+.fault-instance-block .agg-head {
+  height: 56px;
+  min-height: 56px;
+}
+.fault-instance-block .agg-left-main {
+  grid-template-columns: 150px 110px 120px minmax(0, 380px);
+}
+/* 具体故障/故障域：允许换行，行内多行不省略 */
+.fault-instance-block .agg-cell-wrap,
+.fault-instance-block .agg-cell-wrap .fault-name,
+.fault-instance-block .agg-cell-wrap .fault-domain {
+  /* 单行显示：列宽已按最长文本给足（620px），不再换行/省略 */
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+/* 影响链路：强制单行 */
+.fault-instance-block .route-cell,
+.fault-instance-block .route-cell > * {
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+/* Pod 上下文：chip 允许换行，不省略 */
+.fault-instance-block .trace-pods {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  flex-wrap: wrap !important;
+  gap: 4px;
+}
+/* Trace ID / 证据等单行单元格：不省略，允许完整显示 */
+.fault-instance-block .agg-mid-grid > .col-nowrap,
+.fault-instance-block .agg-mid-grid > span:has(.trace-chip) {
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
