@@ -427,12 +427,12 @@ onBeforeUnmount(() => {
 
   <!-- ============ UBSocket 事件 / Thread 详情弹窗 ============ -->
   <div class="modal-overlay" v-if="brpcFaultDetail" @click.self="brpcFaultDetail = null">
-    <div class="modal" style="width: 860px; max-width: 92vw">
+    <div class="modal modal-xl">
       <div class="modal-header">
         {{ brpcFaultDetail.thread_key ? 'Thread 接口命中明细' : '聚合事件详情' }}
         <button class="modal-close" @click="brpcFaultDetail = null">✕</button>
       </div>
-      <div class="modal-body" style="max-height: 78vh; overflow-y: auto">
+      <div class="modal-body modal-scroll">
         <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
           <template v-if="brpcFaultDetail.thread_key">
             线程: <b style="color: var(--text)">{{ brpcFaultDetail.thread_key }}</b> · Pod:
@@ -496,7 +496,7 @@ onBeforeUnmount(() => {
             <div
               v-show="!brpcEventDetailTimelineEmpty"
               ref="brpcEventTimelineRef"
-              style="height: 220px; margin-bottom: 16px"
+              style="height: 280px; margin-bottom: 16px"
             ></div>
 
             <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
@@ -593,7 +593,7 @@ onBeforeUnmount(() => {
           >
             当前 Thread 暂无命中的故障模式子图
           </div>
-          <div v-else ref="brpcThreadGraphRef" style="height: 320px; margin-bottom: 8px"></div>
+          <div v-else ref="brpcThreadGraphRef" style="height: 420px; margin-bottom: 8px"></div>
 
           <!-- P2.3：选中节点详情 -->
           <div
@@ -647,7 +647,7 @@ onBeforeUnmount(() => {
           <div
             v-show="!brpcThreadTimelineEmpty"
             ref="brpcThreadTimelineRef"
-            style="height: 200px; margin-bottom: 8px"
+            style="height: 280px; margin-bottom: 8px"
           ></div>
 
           <!-- P2.3：完整运行日志列，故障行高亮 -->
@@ -1029,13 +1029,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.detail-drawer {
-  width: 75vw;
-}
-
 @media (max-width: 768px) {
   .detail-drawer {
     width: 100vw;
+    height: 100vh;
+    border-radius: 0;
   }
 }
 </style>

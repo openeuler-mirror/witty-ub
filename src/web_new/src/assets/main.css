@@ -439,6 +439,22 @@ tr:hover td {
   border: none;
 }
 
+/* 详情类弹窗统一大尺寸：内容区独立滚动，避免图表被压缩/文字重叠 */
+.modal-xl {
+  width: min(1400px, 96vw);
+  height: min(92vh, 1040px);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .form-group {
   margin-bottom: 12px;
 }
@@ -1563,23 +1579,33 @@ tr:hover td {
   background: var(--primary-bg) !important;
 }
 
+/* 详情统一为居中弹窗（原为右侧滑出），与 UBSocket 事件/Thread 详情交互一致 */
 .detail-drawer {
   position: fixed;
-  top: 0;
-  right: 0;
-  width: min(760px, 92vw);
-  height: 100vh;
+  top: 50%;
+  left: 50%;
+  width: min(1200px, 94vw);
+  height: min(88vh, 920px);
   background: #fff;
+  border-radius: var(--radius-lg);
   z-index: 300;
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.3s ease-out;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -46%);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s ease;
 }
 
 .detail-drawer.open {
-  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%);
 }
 
 .detail-drawer-mask {
