@@ -399,9 +399,8 @@ export function createAgentChatState() {
     }
   }
 
-  // 用户主动中止后，OpenCode 仍会回一条 abort 错误（session.error / message.updated.info.error）。
-  // 旧版用 shouldIgnoreNextAgentAbortError 吞掉它；这里统一判断，避免弹出英文「Aborted」错误条。
-  const consumeIgnoredAbortError = (errorSession: string) => {
+  // 用户主动中止后 OpenCode 仍会回 abort 错误，按中止忽略（旧版同此语义）
+  const isIgnoredAbortError = (errorSession: string) => {
     const ignored = ignoredAbortError
     return !!ignored && ignored.sessionId === errorSession && ignored.sequence === requestSequence
   }
@@ -443,8 +442,8 @@ export function createAgentChatState() {
     }
 
     if (event.type === 'message.updated' && props.info?.role === 'assistant' && props.info.id) {
-      // 中止后的 message.updated 会带 Aborted 错误：直接跳过，别新建气泡、别弹错误条
-      if (props.info.error && consumeIgnoredAbortError(eventSession || sessionId.value)) return
+      // 中止后的 message.updated 带 Aborted 错误：不新建气泡、不弹错误条
+      if (props.info.error && isIgnoredAbortError(eventSession || sessionId.value)) return
       assistantMessageIds.add(props.info.id)
       let pending = messages.value.find((message) => message.status === 'thinking')
       if (pending?.messageId && pending.messageId !== props.info.id) {
@@ -507,9 +506,8 @@ export function createAgentChatState() {
 
     if (event.type === 'session.error') {
       const errorSession = eventSession || sessionId.value
-      if (consumeIgnoredAbortError(errorSession)) {
-        // 中止后的错误不是故障：保留本地「用户终止响应」气泡，也不要重载历史
-        // （服务端历史里这条消息带 Aborted 错误，重载会把英文错误盖回来）
+      if (isIgnoredAbortError(errorSession)) {
+        // 保留本地「用户终止响应」气泡；重载历史会被服务端的 Aborted 覆盖
         isSending.value = false
         if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
         return
@@ -625,7 +623,7 @@ export function createAgentChatState() {
           id: `${part.type}:${part.id ?? index}`,
           type: part.type as 'reasoning' | 'text',
           text: part.text ?? '',
-          // 对齐旧版：历史消息里的「思考过程」默认收起，正文默认展开
+          // 历史思考过程默认收起（对齐旧版）
           collapsed: part.type === 'reasoning',
         }))
       const message: AgentChatMessage = {
@@ -918,8 +916,7 @@ export function createAgentChatState() {
   })
 
   const displayPartsOf = (message: AgentChatMessage): AgentChatPart[] => {
-    // 用户消息没有 parts（本地发送时 parts 为空，历史消息只回填 content），
-    // 必须回退到 content，否则用户气泡里没有任何文字（旧版为 <p>{{ message.content }}</p>）。
+    // 用户消息只有 content（无 parts），必须回退，否则气泡为空
     if (message.role === 'user') {
       return message.content
         ? [{ id: `${message.id}:user-text`, type: 'text', text: message.content }]

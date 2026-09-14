@@ -188,7 +188,7 @@ const statusLabelOf = () =>
       ? '连接中'
       : '未连接'
 
-// 对齐旧版：展示 Provider 的显示名（OpenCode Zen）而不是 providerID（opencode）
+// 旧版显示 Provider 名（OpenCode Zen）而非 providerID（opencode）
 const providerNameOf = (providerID: string) => providerNames.value[providerID] || providerID
 
 const currentModelLabel = () => {
@@ -605,7 +605,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
                 AI
               </div>
               <div class="agent-chat-bubble">
-                <!-- 用户消息与旧版一致：纯文本段落，直接继承气泡的白色文字 -->
+                <!-- 用户消息为纯文本，继承气泡白字（对齐旧版） -->
                 <template v-if="message.role === 'user'">
                   <p v-for="part in displayPartsOf(message)" :key="part.id">{{ part.text }}</p>
                 </template>
@@ -709,11 +709,9 @@ const onInputKeydown = (event: KeyboardEvent) => {
 </template>
 
 <style scoped>
-/* 与旧版 src/web/src/assets/main.css 的 .agent-* 面板样式对齐（P1.3 迁移补齐）：
-   入口 FAB、面板外壳、四视图（登录/模型/Provider/会话）、消息气泡、Markdown、输入区。 */
-/* 新版主样式表没有旧版的 button/input 基础重置，缺了它会出现 UA 默认边框与背景
-   （会话卡按钮、刷新会话列表等控件都被画出黑框）。
-   用 :where() 把权重降到 0，避免压过下面按类名写的按钮配色。 */
+/* 面板样式对齐旧版 src/web/src/assets/main.css 的 .agent-* 段 */
+/* 主样式表缺 button/input 基础重置会露出 UA 黑框；
+   :where() 降到 0 权重，避免压过下面的按钮配色 */
 :where(.agent-chat-panel) :where(button, input, textarea),
 .agent-fab {
   font: inherit;
@@ -1361,7 +1359,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-/* 用户气泡是深色渐变底：内部元素必须继承白字，不能被正文/代码色覆盖 */
+/* 用户气泡是深色渐变底，内部统一继承白字 */
 .agent-chat-message.user .agent-chat-bubble p,
 .agent-chat-message.user .agent-chat-bubble :deep(*) {
   color: inherit;

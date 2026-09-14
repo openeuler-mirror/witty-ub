@@ -944,8 +944,7 @@ main_deploy() {
         install_python_deps
     fi
     if [ "$WITTY_ROLE" != "backend" ]; then
-        # Agent(OpenCode) 跑在前端节点：AI 助手技能依赖 uv + experience-skill + 经验库。
-        # 缺 uv 时 Agent 会一直卡在 "uv: command not found"。
+        # Agent 跑在前端节点，技能依赖 uv + 经验库（缺则卡在 uv not found）
         install_agent_deps || _warn "Agent 运行时依赖未就绪，AI 助手技能会报 uv not found"
     fi
     if [ "$WITTY_ROLE" != "backend" ]; then

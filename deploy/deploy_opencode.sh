@@ -93,9 +93,7 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
-# ── Agent 技能的 Python 工具链检查 ──
-# witty_ub_diagnostician/skills/experience-skill 通过 `uv run experience-skill ...`
-# 检索本地经验库；缺 uv 时 Agent 会一直卡在 "uv: command not found"。
+# ── Agent 技能工具链检查（缺 uv 时每条技能命令都报 uv: command not found）──
 SKILL_SCRIPTS="${WITTY_ROOT}/witty_ub_diagnostician/skills/experience-skill/scripts"
 if [[ -d "${SKILL_SCRIPTS}" ]]; then
     if ! command -v uv >/dev/null 2>&1; then
