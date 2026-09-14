@@ -107,7 +107,8 @@ COPY --from=builder-cpp /build/witty_ub_diagnostician/skills/experience-skill/sc
 RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
     ln -sf simple-src/output/bin/libsimple.so libsimple && \
     cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts && \
-    /root/.local/bin/uv sync
+    /root/.local/bin/uv sync && \
+    /root/.local/bin/uv run experience-skill sync
 
 # Copy web frontend (pre-built locally)
 COPY src/web/dist /var/witty-ub/web/
@@ -197,7 +198,8 @@ COPY src/plugins/latency/__init__.py /var/witty-ub/latency/
 RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
     ln -sf simple-src/output/bin/libsimple.so libsimple && \
     cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts && \
-    /root/.local/bin/uv sync
+    /root/.local/bin/uv sync && \
+    /root/.local/bin/uv run experience-skill sync
 
 # Set permissions
 RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \

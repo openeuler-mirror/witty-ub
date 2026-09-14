@@ -106,15 +106,134 @@ install_python_deps() {
     _log "Python 依赖安装完成"
 }
 
+# ──────────────────── Agent (OpenCode) 运行时依赖 ────────────────────
+#
+# Agent 的所有技能（witty_ub_diagnostician/skills）都通过
+# `uv run experience-skill ...` 访问本地经验库，缺任何一环都会让 Agent 报错卡住：
+#   - 缺 uv             → "uv: command not found"
+#   - 缺 libsimple 扩展 → CLI 直接 RuntimeError（simple 分词器未编译）
+#   - 缺 uv sync        → experience-skill 依赖缺失
+#   - 未执行 sync       → 经验库 0 条，检索恒为空
+# 容器镜像 (Dockerfile.base) 装过 uv，宿主机/VM 部署此前没有，故在此补齐。
+
+install_uv_if_missing() {
+    local pip_index="${WITTY_PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
+
+    if _has_cmd uv; then
+        _log "uv 已就绪: $(command -v uv) ($(uv --version 2>/dev/null | head -n1))"
+        return 0
+    fi
+
+    _info "安装 uv（Agent 技能依赖）..."
+    if _is_root || _has_cmd sudo; then
+        local SUDO_CMD=()
+        _is_root || SUDO_CMD=(sudo)
+        # openEuler 24.03 的 pip 默认拒绝写系统环境（PEP 668）；
+        # 老版本 pip 不认 --break-system-packages → 失败后回退裸安装。
+        "${SUDO_CMD[@]}" python3 -m pip install -U -i "$pip_index" uv --break-system-packages \
+            >/dev/null 2>&1 \
+            || "${SUDO_CMD[@]}" python3 -m pip install -U -i "$pip_index" uv \
+            || true
+
+        # astral 安装脚本默认装到 ~/.local/bin，systemd user 服务的
+        # PATH(/usr/local/bin:/usr/bin:...) 看不到 → 补软链。
+        if ! _has_cmd uv && [ -x "$HOME/.local/bin/uv" ]; then
+            "${SUDO_CMD[@]}" ln -sf "$HOME/.local/bin/uv" /usr/local/bin/uv || true
+        fi
+        if ! _has_cmd uv && _has_cmd curl; then
+            _info "pip 安装失败，回退 astral 安装脚本..."
+            curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1 || true
+            [ -x "$HOME/.local/bin/uv" ] \
+                && "${SUDO_CMD[@]}" ln -sf "$HOME/.local/bin/uv" /usr/local/bin/uv || true
+        fi
+    fi
+
+    if ! _has_cmd uv; then
+        _err "uv 安装失败。Agent 技能会全部报 'uv: command not found'，请手动安装:"
+        echo "  sudo python3 -m pip install -i $pip_index uv --break-system-packages"
+        return 1
+    fi
+    _log "uv 安装完成: $(command -v uv)"
+}
+
+# 在指定目录执行 skill 工具链命令；以 root 运行时切到仓库属主身份，
+# 避免 .venv / data/experience.db / 分词器产物被写成 root 所有——
+# Agent(OpenCode) 以普通用户运行，root 属主的文件会让它读写失败。
+_run_skill_cmd() {
+    local workdir="$1" snippet="$2"
+    local owner owner_home
+    owner="$(stat -c '%U' "$PROJECT_DIR" 2>/dev/null || true)"
+    owner_home="$(getent passwd "$owner" 2>/dev/null | cut -d: -f6 || true)"
+
+    if _is_root && [ -n "$owner" ] && [ "$owner" != "root" ] \
+        && [ -n "$owner_home" ] && _has_cmd runuser; then
+        runuser -u "$owner" -- env HOME="$owner_home" PATH="$PATH" \
+            bash -c "cd '$workdir' && $snippet"
+    else
+        (cd "$workdir" && eval "$snippet")
+    fi
+}
+
+install_experience_skill_deps() {
+    local SKILL_DIR="$PROJECT_DIR/witty_ub_diagnostician/skills/experience-skill"
+    local SCRIPTS_DIR="$SKILL_DIR/scripts"
+    local TOKENIZER_DIR="$SCRIPTS_DIR/src/experience_skill_cli/tokenizer"
+
+    if [ ! -d "$SCRIPTS_DIR" ]; then
+        _warn "未找到 experience-skill（$SCRIPTS_DIR），跳过 Agent 技能依赖"
+        return 0
+    fi
+
+    mkdir -p "$LOG_DIR"
+
+    # 1) simple 分词器扩展（SQLite FTS5 中文/拼音分词；缺失时 CLI 直接报错）
+    if [ ! -e "$TOKENIZER_DIR/libsimple" ] && [ ! -e "$TOKENIZER_DIR/libsimple.so" ]; then
+        _info "编译 simple 分词器扩展 (libsimple)..."
+        if ! _run_skill_cmd "$TOKENIZER_DIR" \
+            "bash build.sh >'$LOG_DIR/tokenizer-build.log' 2>&1"; then
+            _err "分词器编译失败，最近日志:"
+            tail -20 "$LOG_DIR/tokenizer-build.log" 2>/dev/null || true
+            return 1
+        fi
+    fi
+
+    # 2) uv sync：创建 scripts/.venv 并装齐依赖
+    if [ ! -d "$SCRIPTS_DIR/.venv" ]; then
+        _info "初始化 experience-skill 虚拟环境 (uv sync)..."
+        if ! _run_skill_cmd "$SCRIPTS_DIR" \
+            "uv sync 2>&1 | tee '$LOG_DIR/uv-sync.log' | tail -5"; then
+            _err "uv sync 失败，完整日志: $LOG_DIR/uv-sync.log"
+            return 1
+        fi
+    fi
+
+    # 3) 同步经验库（幂等）：把 data/skill_hub、data/wiki_hub 灌进 data/experience.db，
+    #    否则 Agent 检索恒为 0 条。
+    _info "同步本地经验库 (experience-skill sync)..."
+    if ! _run_skill_cmd "$SCRIPTS_DIR" "uv run experience-skill sync 2>&1 | tail -3"; then
+        _err "经验库同步失败，Agent 检索会返回空结果"
+        return 1
+    fi
+    return 0
+}
+
+install_agent_deps() {
+    _step_header "安装 Agent (OpenCode) 运行时依赖"
+    install_uv_if_missing || return 1
+    install_experience_skill_deps || return 1
+    _log "Agent 运行时依赖就绪 (uv + experience-skill + 经验库)"
+}
+
 # ──────────────────── 组合入口 ────────────────────
 
-# 系统依赖 + Python 依赖。deploy.sh 交互菜单选项 2 (仅安装依赖) 调用的就是这个
-# 函数名；此前它只存在于 deploy/rpm/libexec/install_deps.sh，宿主机菜单按下 2
-# 会直接 "install_deps: command not found" 并让 deploy.sh 以 127 退出。
+# 系统依赖 + Python 依赖 + Agent 运行时依赖。deploy.sh 交互菜单选项 2 (仅安装依赖)
+# 调用的就是这个函数名；此前它只存在于 deploy/rpm/libexec/install_deps.sh，宿主机
+# 菜单按下 2 会直接 "install_deps: command not found" 并让 deploy.sh 以 127 退出。
 install_deps() {
     detect_os
     install_system_deps
     install_python_deps
+    install_agent_deps
 }
 
 # 独立执行入口

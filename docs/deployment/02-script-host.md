@@ -32,6 +32,11 @@ npm i -g opencode-ai
 vi ~/.config/opencode/opencode.jsonc   # 参考 配置参考手册 · OpenCode 配置
 ```
 
+Agent 的技能（`witty_ub_diagnostician/skills/`）通过 `uv run experience-skill ...`
+检索本地经验库，因此前端节点还需要 Python 包管理器 `uv` 与已同步的经验库——
+`deploy/host/install_deps.sh` 会自动装好（`uv` 装到 `/usr/local/bin`，systemd user
+服务的 PATH 不含 `~/.local/bin`），无需手工准备。
+
 ---
 
 ## 分离部署（默认：两台机器）
@@ -96,6 +101,7 @@ bash deploy/host/deploy.sh --deploy
 | ② 系统依赖 | 安装 cmake, gcc-c++, PostgreSQL, Python3, Node.js, nginx 等 |
 | ③ PostgreSQL | 调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 5432 端口 |
 | ④ Python 环境 | 创建 `.venv` 虚拟环境，安装 FastAPI/SQLAlchemy/asyncpg/polars 等依赖 |
+| ④' Agent 运行时 | 前端节点额外准备 Agent 技能工具链：安装 `uv`、编译 simple 分词器、`uv sync`、同步经验库（`experience-skill sync`） |
 | ⑤ 前端编译 | `npm run build-only` 构建 `dist/`（失败回退 dev server，不阻塞部署） |
 | ⑥ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过） |
 | ⑦ 数据文件 | 将故障模式、配置文件复制到 `/var/witty-ub/` |
@@ -235,6 +241,8 @@ PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh --start
 
 ## 已知问题
 
+- **AI 助手一直卡在 `uv: command not found`**：前端节点缺 `uv`（Agent 技能全部经由 `uv run experience-skill ...` 检索经验库）。执行 `bash deploy/host/install_deps.sh` 补装；验证：`command -v uv && cd witty_ub_diagnostician/skills/experience-skill/scripts && uv run experience-skill list-experiences | head -3`
+- **AI 助手检索结果恒为 0 条**：经验库未同步。`cd witty_ub_diagnostician/skills/experience-skill/scripts && uv run experience-skill sync`（应为 28 个 Skill + 32 篇 Wiki）
 - **系统包安装失败（yum/dnf 源不可达）**：检查 `/etc/yum.repos.d/` 是否已配置内网镜像源，`yum repolist` 验证可达性
 - **Python 依赖安装失败（pypi 源不可达）**：检查 `~/.pip/pip.conf` 的 `index-url` 是否指向内网镜像，或手动 `pip install -r src/plugins/latency/deploy/requirements.txt` 验证
 - **前端编译失败（npm registry 不可达）**：检查 `.npmrc` 的 `registry` 配置；编译失败不阻塞部署，可 `cd src/web && npm run dev` 用开发模式

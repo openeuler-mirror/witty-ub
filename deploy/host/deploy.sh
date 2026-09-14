@@ -944,6 +944,11 @@ main_deploy() {
         install_python_deps
     fi
     if [ "$WITTY_ROLE" != "backend" ]; then
+        # Agent(OpenCode) 跑在前端节点：AI 助手技能依赖 uv + experience-skill + 经验库。
+        # 缺 uv 时 Agent 会一直卡在 "uv: command not found"。
+        install_agent_deps || _warn "Agent 运行时依赖未就绪，AI 助手技能会报 uv not found"
+    fi
+    if [ "$WITTY_ROLE" != "backend" ]; then
         build_frontend
     fi
     if [ "$WITTY_ROLE" != "frontend" ]; then
@@ -1114,7 +1119,7 @@ case "${1:-menu}" in
     echo "  示例(前端机): WITTY_BACKEND_URL=http://be:9772 bash deploy/host/deploy.sh --deploy --role frontend"
     echo ""
     echo "相关脚本:"
-    echo "  deploy/host/install_deps.sh  仅安装系统依赖 + Python 依赖"
+    echo "  deploy/host/install_deps.sh  仅安装系统依赖 + Python 依赖 + Agent 运行时依赖(uv/经验库)"
     echo "  deploy/deploy_pg.sh          PostgreSQL 独立部署 (Docker/RPM/APT)"
     echo "  deploy/docker/deploy_witty.sh 容器一键部署"
     echo "  deploy/docker/manage.sh       容器运维管理"

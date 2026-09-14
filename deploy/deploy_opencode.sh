@@ -93,6 +93,32 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
+# ── Agent 技能的 Python 工具链检查 ──
+# witty_ub_diagnostician/skills/experience-skill 通过 `uv run experience-skill ...`
+# 检索本地经验库；缺 uv 时 Agent 会一直卡在 "uv: command not found"。
+SKILL_SCRIPTS="${WITTY_ROOT}/witty_ub_diagnostician/skills/experience-skill/scripts"
+if [[ -d "${SKILL_SCRIPTS}" ]]; then
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "[ERROR] 'uv' is required by the diagnosis agent skills, but it is not installed." >&2
+        echo "        Symptom: every diagnosis run stalls at 'uv: command not found'." >&2
+        echo "        Fix    : bash ${WITTY_ROOT}/deploy/host/install_deps.sh" >&2
+        echo "                 (or: sudo python3 -m pip install uv --break-system-packages)" >&2
+        exit 1
+    fi
+    if [[ ! -d "${SKILL_SCRIPTS}/.venv" ]]; then
+        echo "[INFO] Preparing experience-skill environment (uv sync)..."
+        if ! (cd "${SKILL_SCRIPTS}" && uv sync); then
+            echo "[ERROR] 'uv sync' failed in ${SKILL_SCRIPTS}." >&2
+            exit 1
+        fi
+    fi
+    if [[ ! -e "${SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer/libsimple" \
+        && ! -e "${SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer/libsimple.so" ]]; then
+        echo "[WARN] simple tokenizer extension (libsimple) is not built." >&2
+        echo "       Build it with: bash ${SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer/build.sh" >&2
+    fi
+fi
+
 # Respect a user-provided OpenCode configuration; fall back to the bundled
 # one only when nothing is set. OPENCODE_CONFIG_DIR exposes the bundle's
 # standard .opencode layout (agents/skills/commands) so its skills stay
