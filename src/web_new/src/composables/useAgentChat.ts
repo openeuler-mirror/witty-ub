@@ -70,6 +70,7 @@ export function createAgentChatState() {
 
   // 模型 / Provider
   const connectedModels = ref<{ providerID: string; id: string; name: string }[]>([])
+  const providerNames = ref<Record<string, string>>({})
   const providerDefaults = ref<Record<string, string>>({})
   const availableProviders = ref<{ id: string; name: string }[]>([])
   const selectedModel = ref<{ providerID: string; modelID: string } | null>(null)
@@ -240,6 +241,9 @@ export function createAgentChatState() {
     if (instance !== api.value) return false
     const all = list.all ?? []
     const connected = new Set(list.connected ?? [])
+    providerNames.value = Object.fromEntries(
+      all.map((provider) => [provider.id, provider.name || provider.id]),
+    )
     connectedModels.value = all
       .filter((provider) => connected.has(provider.id))
       .flatMap((provider) =>
@@ -614,6 +618,8 @@ export function createAgentChatState() {
           id: `${part.type}:${part.id ?? index}`,
           type: part.type as 'reasoning' | 'text',
           text: part.text ?? '',
+          // 对齐旧版：历史消息里的「思考过程」默认收起，正文默认展开
+          collapsed: part.type === 'reasoning',
         }))
       const message: AgentChatMessage = {
         id: item.info?.id || `history-${result.length}`,
@@ -905,7 +911,13 @@ export function createAgentChatState() {
   })
 
   const displayPartsOf = (message: AgentChatMessage): AgentChatPart[] => {
-    if (message.role !== 'assistant') return []
+    // 用户消息没有 parts（本地发送时 parts 为空，历史消息只回填 content），
+    // 必须回退到 content，否则用户气泡里没有任何文字（旧版为 <p>{{ message.content }}</p>）。
+    if (message.role === 'user') {
+      return message.content
+        ? [{ id: `${message.id}:user-text`, type: 'text', text: message.content }]
+        : []
+    }
     const parts = message.parts.filter(
       (part) => part.text || (part.type === 'reasoning' && message.status === 'thinking'),
     )
@@ -946,6 +958,7 @@ export function createAgentChatState() {
     remotePassword,
     remoteAddress,
     connectedModels,
+    providerNames,
     availableProviders,
     selectedModel,
     providerApiKey,
