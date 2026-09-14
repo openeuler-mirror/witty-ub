@@ -116,9 +116,14 @@ const failureDomainsOf = (row: any) => {
 // 加上单元格左右内边距即得精确列宽（Pod IP 一列一行，与旧版一致）
 const podIpMeasureRef = ref<HTMLElement | null>(null)
 const traceIdMeasureRef = ref<HTMLElement | null>(null)
+const actionMeasureRef = ref<HTMLElement | null>(null)
 const podIpChipWidth = ref(0)
 const traceIdChipWidth = ref(0)
+const actionButtonWidth = ref(0)
+const actionHeadTextWidth = ref(0)
 const CELL_PADDING_X2 = 20
+// 左右固定列自带 .agg-row 的 12px 行内边距，列宽只需容下内容本身
+const COL_SLACK = 2
 const longestOf = (values: unknown[], fallback: string) =>
   values
     .map((value) => String(value ?? ''))
@@ -147,12 +152,29 @@ const faultMidCols = computed(() => [
 const faultMidWidth = computed(
   () => `${faultMidCols.value.reduce((total, width) => total + parseFloat(width), 0)}px`,
 )
+// 操作列只有一个静态按钮 + 表头文字：取两者实测宽度的较大值
+const faultRightCols = computed(() => {
+  const content = Math.max(actionButtonWidth.value, actionHeadTextWidth.value)
+  return [`${content ? Math.ceil(content) + COL_SLACK : 110}px`]
+})
 const measureFixedColumns = () => {
   const podIp = podIpMeasureRef.value ?? document.querySelector<HTMLElement>('.pod-ip-measure')
   if (podIp) podIpChipWidth.value = podIp.getBoundingClientRect().width
   const traceId =
     traceIdMeasureRef.value ?? document.querySelector<HTMLElement>('.trace-id-measure')
   if (traceId) traceIdChipWidth.value = traceId.getBoundingClientRect().width
+  const action = actionMeasureRef.value ?? document.querySelector<HTMLElement>('.action-measure')
+  if (action) actionButtonWidth.value = action.getBoundingClientRect().width
+  // 表头文字宽度按文本本身量（单元格已被列宽约束，不能直接用它）
+  const actionHead = document.querySelector<HTMLElement>(
+    '.fault-instance-block .agg-right .agg-head',
+  )
+  if (actionHead) {
+    const range = document.createRange()
+    range.selectNodeContents(actionHead)
+    const width = range.getBoundingClientRect().width
+    if (width) actionHeadTextWidth.value = width
+  }
 }
 watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
 </script>
@@ -181,6 +203,15 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
   <span ref="traceIdMeasureRef" class="trace-chip agg-mono col-width-measure" aria-hidden="true">{{
     traceIdSample
   }}</span>
+  <button
+    ref="actionMeasureRef"
+    type="button"
+    tabindex="-1"
+    aria-hidden="true"
+    class="btn btn-sm btn-primary col-width-measure action-measure"
+  >
+    查看链路
+  </button>
 
   <div v-if="faultTracesTruncated" class="fault-warning" role="alert">
     当前仅加载 {{ faultTraceLoadedCount }} / {{ faultTraceTotal }} 条故障
@@ -417,7 +448,7 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
         :rows="pagedFaultTraces"
         :row-key="(row: any) => row.trace_id"
         :left-cols="['150px', '90px', '100px']"
-        :right-cols="['160px']"
+        :right-cols="faultRightCols"
         :mid-cols="faultMidCols"
         :mid-width="faultMidWidth"
         class="fault-instance-block"

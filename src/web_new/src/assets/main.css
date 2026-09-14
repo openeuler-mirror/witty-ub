@@ -2656,6 +2656,10 @@ table .col-num {
 .fault-instance-block .chip-row-nowrap {
   flex-wrap: wrap;
 }
+/* 操作列表头不折行，否则收窄后「Trace 分析」会被拆成两行 */
+.fault-instance-block .agg-right .agg-head {
+  white-space: nowrap;
+}
 /* Pod IP：chip 可换行、左对齐 */
 .fault-instance-block .agg-mid-grid > .trace-pods {
   flex-direction: row;
