@@ -109,16 +109,21 @@ const domainTasksLoaded = computed(
     !props.logFilesLoading &&
     !props.logFilesError,
 )
-const domainEmpty = computed(() => domainTasksLoaded.value && scopeTaskCount.value === 0)
-// 已判定过任务列表的资产库：进入新库后为「未判定」，刷新同一个库的任务列表不会退回占位
+// 空态判定要「锁存」：重新进入同一个库时任务列表 id 已经匹配，首帧先判出空态；紧接着
+// loadLogFiles 会把 loading 置位（domainTasksLoaded 变 false）。若继续直接依赖 domainTasksLoaded，
+// 判定会被撤销、落回分析分支画 1~2 帧空图表（用户报障的闪烁）。
 const settledAssetId = ref('')
+const settledEmpty = ref(false)
 watch(
-  domainTasksLoaded,
-  (loaded) => {
-    if (loaded) settledAssetId.value = props.asset?.id ?? ''
+  [domainTasksLoaded, scopeTaskCount],
+  () => {
+    if (!domainTasksLoaded.value) return
+    settledAssetId.value = props.asset?.id ?? ''
+    settledEmpty.value = scopeTaskCount.value === 0
   },
   { immediate: true },
 )
+const domainEmpty = computed(() => settledAssetId.value === props.asset?.id && settledEmpty.value)
 // 任务列表还没到：先占位。否则会先按空 scope 画一屏空图表，再把整块换成空态（用户报障）
 const domainPending = computed(
   () => Boolean(props.asset) && !props.logFilesError && settledAssetId.value !== props.asset?.id,
