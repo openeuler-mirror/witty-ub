@@ -71,6 +71,10 @@ function createAssetsState() {
     assetTab.value = 'overview'
     assetError.value = ''
     assetLoading.value = true
+    // P22：任务列表与资产详情并行拉取。否则分析页会先按「上一个库/空列表」画一屏空图表，
+    // 等任务列表返回后再切成空态或真实数据。
+    const { useTasks } = await import('./useTasks')
+    const tasksPromise = useTasks().loadLogFiles(asset.id)
     try {
       const result = await getLogKb(asset.id)
       if (result.kb) selectedAsset.value = result.kb
@@ -79,8 +83,7 @@ function createAssetsState() {
     } finally {
       assetLoading.value = false
     }
-    const { useTasks } = await import('./useTasks')
-    await Promise.all([useTasks().loadLogFiles(asset.id), loadAssets()])
+    await Promise.all([tasksPromise, loadAssets()])
   }
 
   const goAssetList = () => {

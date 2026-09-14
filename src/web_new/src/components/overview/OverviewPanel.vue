@@ -110,6 +110,19 @@ const domainTasksLoaded = computed(
     !props.logFilesError,
 )
 const domainEmpty = computed(() => domainTasksLoaded.value && scopeTaskCount.value === 0)
+// 已判定过任务列表的资产库：进入新库后为「未判定」，刷新同一个库的任务列表不会退回占位
+const settledAssetId = ref('')
+watch(
+  domainTasksLoaded,
+  (loaded) => {
+    if (loaded) settledAssetId.value = props.asset?.id ?? ''
+  },
+  { immediate: true },
+)
+// 任务列表还没到：先占位。否则会先按空 scope 画一屏空图表，再把整块换成空态（用户报障）
+const domainPending = computed(
+  () => Boolean(props.asset) && !props.logFilesError && settledAssetId.value !== props.asset?.id,
+)
 const domainEmptyTitle = computed(() =>
   domainTasks.value.length > 0
     ? `暂无可分析的 ${domainLabel.value} 任务`
@@ -276,8 +289,20 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
+    <!-- 任务列表未到：先占位，避免「先画一屏空图表、再切空态」的闪烁 -->
+    <section
+      v-if="domainPending"
+      class="domain-empty domain-empty-loading"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <div class="domain-empty-icon" aria-hidden="true">⏳</div>
+      <h2>正在加载任务列表…</h2>
+      <p>确认该资料库有没有 {{ domainLabel }} 任务后，这里会显示分析结果或跳转入口。</p>
+    </section>
+
     <!-- 空态：该数据域没有可分析的任务，直接给出跳转入口，不渲染大块空图表 -->
-    <section v-if="domainEmpty" class="domain-empty" aria-live="polite">
+    <section v-else-if="domainEmpty" class="domain-empty" aria-live="polite">
       <div class="domain-empty-icon" aria-hidden="true">📭</div>
       <h2>{{ domainEmptyTitle }}</h2>
       <p>{{ domainEmptyHint }}</p>

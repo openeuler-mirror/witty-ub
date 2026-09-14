@@ -854,6 +854,10 @@ tr:hover td {
   place-items: center;
 }
 
+.domain-empty-loading .domain-empty-icon {
+  animation: analysis-loading-pulse 1.2s ease-in-out infinite;
+}
+
 .domain-empty h2 {
   margin: 0;
   color: var(--text);
