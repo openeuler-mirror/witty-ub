@@ -344,7 +344,6 @@ tr:hover td {
 .badge-failed {
   background: #fef2f2;
   color: var(--danger);
-  cursor: help;
 }
 
 .badge-cancelled {
