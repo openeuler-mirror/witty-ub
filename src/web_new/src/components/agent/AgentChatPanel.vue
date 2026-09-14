@@ -605,32 +605,38 @@ const onInputKeydown = (event: KeyboardEvent) => {
                 AI
               </div>
               <div class="agent-chat-bubble">
-                <template v-for="part in displayPartsOf(message)" :key="part.id">
-                  <section v-if="part.type === 'reasoning'" class="agent-reasoning">
-                    <button
-                      type="button"
-                      class="agent-response-label agent-reasoning-toggle"
-                      :aria-expanded="!part.collapsed"
-                      @click="part.collapsed = !part.collapsed"
-                    >
-                      <span>思考过程</span>
-                      <span
-                        v-if="message.status === 'thinking'"
-                        class="agent-thinking-dots"
-                        aria-label="思考中"
+                <!-- 用户消息与旧版一致：纯文本段落，直接继承气泡的白色文字 -->
+                <template v-if="message.role === 'user'">
+                  <p v-for="part in displayPartsOf(message)" :key="part.id">{{ part.text }}</p>
+                </template>
+                <template v-else>
+                  <template v-for="part in displayPartsOf(message)" :key="part.id">
+                    <section v-if="part.type === 'reasoning'" class="agent-reasoning">
+                      <button
+                        type="button"
+                        class="agent-response-label agent-reasoning-toggle"
+                        :aria-expanded="!part.collapsed"
+                        @click="part.collapsed = !part.collapsed"
                       >
-                        <i></i><i></i><i></i>
-                      </span>
-                      <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-                    </button>
-                    <div v-show="!part.collapsed">
-                      <p v-if="part.text">{{ part.text }}</p>
-                      <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-                    </div>
-                  </section>
-                  <section v-else class="agent-final-answer">
-                    <div class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
-                  </section>
+                        <span>思考过程</span>
+                        <span
+                          v-if="message.status === 'thinking'"
+                          class="agent-thinking-dots"
+                          aria-label="思考中"
+                        >
+                          <i></i><i></i><i></i>
+                        </span>
+                        <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
+                      </button>
+                      <div v-show="!part.collapsed">
+                        <p v-if="part.text">{{ part.text }}</p>
+                        <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
+                      </div>
+                    </section>
+                    <section v-else class="agent-final-answer">
+                      <div class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
+                    </section>
+                  </template>
                 </template>
                 <p v-if="message.status === 'error'" class="agent-message-error">响应失败</p>
               </div>
@@ -1263,6 +1269,8 @@ const onInputKeydown = (event: KeyboardEvent) => {
   padding: 8px;
   border: 1px solid #91aff0;
   border-radius: 6px;
+  background: #fff;
+  color: #1e293b;
 }
 .agent-session-dialog > div {
   display: flex;
@@ -1352,6 +1360,11 @@ const onInputKeydown = (event: KeyboardEvent) => {
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+/* 用户气泡是深色渐变底：内部元素必须继承白字，不能被正文/代码色覆盖 */
+.agent-chat-message.user .agent-chat-bubble p,
+.agent-chat-message.user .agent-chat-bubble :deep(*) {
+  color: inherit;
 }
 .agent-reasoning {
   color: #64748b;
