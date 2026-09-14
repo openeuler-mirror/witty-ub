@@ -399,6 +399,13 @@ export function createAgentChatState() {
     }
   }
 
+  // 用户主动中止后，OpenCode 仍会回一条 abort 错误（session.error / message.updated.info.error）。
+  // 旧版用 shouldIgnoreNextAgentAbortError 吞掉它；这里统一判断，避免弹出英文「Aborted」错误条。
+  const consumeIgnoredAbortError = (errorSession: string) => {
+    const ignored = ignoredAbortError
+    return !!ignored && ignored.sessionId === errorSession && ignored.sequence === requestSequence
+  }
+
   const markResponseFailed = (errorText: string) => {
     const pending = messages.value.find((message) => message.status === 'thinking')
     if (pending) {
@@ -436,6 +443,8 @@ export function createAgentChatState() {
     }
 
     if (event.type === 'message.updated' && props.info?.role === 'assistant' && props.info.id) {
+      // 中止后的 message.updated 会带 Aborted 错误：直接跳过，别新建气泡、别弹错误条
+      if (props.info.error && consumeIgnoredAbortError(eventSession || sessionId.value)) return
       assistantMessageIds.add(props.info.id)
       let pending = messages.value.find((message) => message.status === 'thinking')
       if (pending?.messageId && pending.messageId !== props.info.id) {
@@ -498,15 +507,13 @@ export function createAgentChatState() {
 
     if (event.type === 'session.error') {
       const errorSession = eventSession || sessionId.value
-      if (
-        ignoredAbortError?.sessionId === errorSession &&
-        ignoredAbortError.sequence === requestSequence
-      ) {
-        ignoredAbortError = null
-        finishPending('')
+      if (consumeIgnoredAbortError(errorSession)) {
+        // 中止后的错误不是故障：保留本地「用户终止响应」气泡，也不要重载历史
+        // （服务端历史里这条消息带 Aborted 错误，重载会把英文错误盖回来）
+        isSending.value = false
+        if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
         return
       }
-      ignoredAbortError = null
       markResponseFailed(extractAgentError(props.error) || 'Agent 处理出错，请稍后重试')
     }
   }
