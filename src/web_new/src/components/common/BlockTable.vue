@@ -141,7 +141,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="agg-block agg-mid">
-      <div class="agg-mid-inner" :style="midWidth ? { width: midWidth } : {}">
+      <div class="agg-mid-inner" :style="midWidth ? { '--agg-mid-width': midWidth } : {}">
         <div class="agg-row agg-head agg-mid-grid" :style="midGridStyle()">
           <slot name="mid-head" />
         </div>

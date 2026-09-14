@@ -2299,6 +2299,10 @@ table .col-num {
 .agg-mid-inner {
   display: flex;
   flex-direction: column;
+  /* 列数少于可视宽度时，行背景 / 底部分隔线要铺满剩余区域（否则右侧留一块没有任何分隔的纯白）；
+     列数超出时按内容宽度撑开，交给 .agg-mid 横向滚动 */
+  width: max-content;
+  min-width: max(100%, var(--agg-mid-width, 0px));
 }
 
 .agg-row {
