@@ -66,8 +66,11 @@ a:focus-visible,
   display: flex;
   align-items: center;
   padding: 0 24px;
-  position: sticky;
+  /* 用 fixed：sticky 属于滚动内容层，会被弹性回弹带走 */
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
   justify-content: space-between;
 }
@@ -138,7 +141,8 @@ a:focus-visible,
 .main {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 24px;
+  /* 顶栏 fixed 后不再占位，补回其高度 */
+  padding: 80px 24px 24px;
   min-height: calc(100vh - 56px);
 }
 
@@ -1345,7 +1349,7 @@ html.is-modal-open {
 
 @media (max-width: 900px) {
   .main {
-    padding: 16px;
+    padding: 72px 16px 16px;
   }
 
   .analysis-shell-header,
