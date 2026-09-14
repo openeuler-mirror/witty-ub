@@ -2598,7 +2598,7 @@ table .col-num {
 
 /* ---------- 故障实例表（内容型表格）：行高按内容，禁止溢出压行 ---------- */
 .fault-instance-block .agg-row {
-  /* 行高按最长内容（故障文本 2 行）给足，三块同高保证对齐 */
+  /* 行高按内容撑开；三块逐行对齐由 BlockTable 的行高同步保证 */
   height: auto;
   min-height: 76px;
   align-items: center;
@@ -2607,52 +2607,67 @@ table .col-num {
   height: 56px;
   min-height: 56px;
 }
-/* 单元格不裁切内容（滚动交给单元格内部） */
+/* 单元格不裁切内容 */
 .fault-instance-block .agg-mid-grid > *,
 .fault-instance-block .agg-left-main > * {
   overflow: visible;
   text-overflow: clip;
 }
-.fault-instance-block .agg-head {
-  height: 56px;
-  min-height: 56px;
+/* 具体故障 / 故障域：完整显示，允许换行（旧版即为此行为，不允许裁切/省略） */
+.fault-instance-block .fault-scroll {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
-.fault-instance-block .agg-left-main {
-  grid-template-columns: 150px 110px 120px minmax(0, 380px);
+.fault-instance-block .fault-scroll .fault-name,
+.fault-instance-block .fault-scroll .fault-domain {
+  display: block;
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
-/* 具体故障/故障域：允许换行，行内多行不省略 */
-.fault-instance-block .agg-cell-wrap,
-.fault-instance-block .agg-cell-wrap .fault-name,
-.fault-instance-block .agg-cell-wrap .fault-domain {
-  /* 单行显示：列宽已按最长文本给足（620px），不再换行/省略 */
-  white-space: nowrap !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
+.fault-instance-block .fault-scroll .fault-domain {
+  margin-top: 4px;
 }
-/* 影响链路：强制单行 */
+/* 影响链路：单行（src → dst），左对齐 */
 .fault-instance-block .route-cell,
 .fault-instance-block .route-cell > * {
+  justify-content: flex-start !important;
   white-space: nowrap !important;
   flex-wrap: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
 }
-/* Pod 上下文：chip 允许换行，不省略 */
-.fault-instance-block .trace-pods {
-  white-space: normal !important;
+/* Pod IP：chip 可换行、左对齐 */
+.fault-instance-block .agg-mid-grid > .trace-pods {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: center;
+  justify-content: flex-start !important;
+  text-align: left;
+  gap: 4px;
   overflow: visible !important;
   text-overflow: clip !important;
-  flex-wrap: wrap !important;
-  gap: 4px;
 }
-/* Trace ID / 证据等单行单元格：不省略，允许完整显示 */
-.fault-instance-block .agg-mid-grid > .col-nowrap,
-.fault-instance-block .agg-mid-grid > span:has(.trace-chip) {
+/* Trace ID：等宽定长文本单行，列宽由 DOM 实测（见 DisconnectMonitor.vue） */
+.fault-instance-block .agg-mid-grid > .trace-id-cell {
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+.fault-instance-block .agg-mid-grid > .col-nowrap {
   overflow: visible !important;
   text-overflow: clip !important;
 }
 
-/* 故障实例表：中区一律左对齐（只有数字列右对齐），具体故障列单元格内横向滚动 */
+/* 故障实例表：中区一律左对齐（只有数字列右对齐） */
 .fault-instance-block .agg-mid-grid > * {
   text-align: left;
   justify-content: center;
@@ -2660,27 +2675,19 @@ table .col-num {
 .fault-instance-block .agg-mid-grid > .col-num {
   text-align: right;
 }
-.fault-instance-block .fault-scroll {
-  display: block;
-  white-space: normal;
-  overflow: visible;
-}
-/* Pod 上下文 / Trace ID 的 chip 显示完整，不裁切 */
+/* Pod IP / Trace ID 的 chip 显示完整，不裁切 */
 .fault-instance-block .trace-chip {
   max-width: none !important;
   overflow: visible !important;
   text-overflow: clip !important;
   white-space: nowrap !important;
 }
-.fault-instance-block .fault-scroll .fault-name,
-.fault-instance-block .fault-scroll .fault-domain {
-  display: inline;
-  /* 完整显示（可换行），不再 nowrap/省略 */
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  overflow-wrap: anywhere;
-}
-.fault-instance-block .fault-scroll .fault-domain::before {
-  content: ' ';
+
+/* Trace ID 列宽的实测样本：不可见、不占位 */
+.trace-id-measure {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
 }

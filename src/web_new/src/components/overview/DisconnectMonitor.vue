@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import { normalizeFaultCodes, normalizeTraceOperation } from '../../utils/format'
 import BlockTable from '../common/BlockTable.vue'
@@ -75,9 +75,42 @@ watch(faultCodeSummaries, (summaries) => {
   }
 })
 
+// Trace ID 是等宽定长文本（UUID），列宽直接交给 DOM 量：量一次 chip 的真实渲染宽度，
+// 加上单元格左右内边距即得精确列宽，不再靠拍脑袋的固定值留一半空白
+const traceIdMeasureRef = ref<HTMLElement | null>(null)
+const traceIdChipWidth = ref(0)
+const TRACE_ID_CELL_PADDING = 20
+const traceIdSample = computed(() => {
+  const ids = filteredFaultTraces.value
+    .map((row: any) => String(row.trace_id || ''))
+    .filter(Boolean)
+  return ids.reduce(
+    (longest, id) => (id.length > longest.length ? id : longest),
+    '00000000-0000-0000-0000-000000000000',
+  )
+})
+const faultMidCols = computed(() => [
+  '480px',
+  '280px',
+  '240px',
+  traceIdChipWidth.value
+    ? `${Math.ceil(traceIdChipWidth.value) + TRACE_ID_CELL_PADDING}px`
+    : '300px',
+])
+const faultMidWidth = computed(
+  () => `${faultMidCols.value.reduce((total, width) => total + parseFloat(width), 0)}px`,
+)
+const measureTraceIdChip = () => {
+  const el = traceIdMeasureRef.value ?? document.querySelector<HTMLElement>('.trace-id-measure')
+  if (el) traceIdChipWidth.value = el.getBoundingClientRect().width
+}
+watch(traceIdSample, () => void nextTick(measureTraceIdChip))
+
 onMounted(() => {
   renderFaultChart()
   renderFaultTopology()
+  measureTraceIdChip()
+  void document.fonts?.ready.then(() => measureTraceIdChip())
 })
 
 const faultPodIps = (row: any) =>
@@ -125,6 +158,10 @@ const failureDomainsOf = (row: any) => {
       恢复全部时段
     </button>
   </div>
+  <!-- Trace ID 列宽的实测样本：常驻 DOM，随字体加载/数据变化重测 -->
+  <span ref="traceIdMeasureRef" class="trace-chip agg-mono trace-id-measure" aria-hidden="true">{{
+    traceIdSample
+  }}</span>
 
   <div v-if="faultTracesTruncated" class="fault-warning" role="alert">
     当前仅加载 {{ faultTraceLoadedCount }} / {{ faultTraceTotal }} 条故障
@@ -362,8 +399,8 @@ const failureDomainsOf = (row: any) => {
         :row-key="(row: any) => row.trace_id"
         :left-cols="['150px', '100px', '110px']"
         :right-cols="['160px']"
-        :mid-cols="['520px', '300px', '200px', '280px']"
-        mid-width="1300px"
+        :mid-cols="faultMidCols"
+        :mid-width="faultMidWidth"
         class="fault-instance-block"
       >
         <template #left-head>
@@ -392,40 +429,28 @@ const failureDomainsOf = (row: any) => {
           ><span>Trace ID</span>
         </template>
         <template #mid="{ row }">
-          <span
-            class="fault-scroll"
-            style="display: block; white-space: normal; overflow: visible; text-overflow: clip"
-          >
+          <span class="fault-scroll">
             <span class="fault-name">{{ failureModeNamesOf(row) }}</span>
             <span class="fault-domain">{{ failureDomainsOf(row) }}</span>
           </span>
-          <span
-            class="route-cell"
-            style="display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; white-space: nowrap; overflow: visible; gap: 4px"
-          >
-            <span style="white-space: nowrap">{{ row.src_ip || '-' }}</span>
-            <i style="flex: none">→</i>
-            <span style="white-space: nowrap">{{ row.dst_ip || '-' }}</span>
+          <span class="route-cell">
+            <span>{{ row.src_ip || '-' }}</span>
+            <i>→</i>
+            <span>{{ row.dst_ip || '-' }}</span>
           </span>
-          <span
-            class="trace-pods"
-            style="display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 4px; overflow-x: auto; overflow-y: hidden; white-space: nowrap"
-            :title="faultPodIps(row).join('\n')"
-          >
+          <span class="trace-pods" :title="faultPodIps(row).join('\n')">
             <span v-for="ip in faultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
           </span>
-          <span
-            style="overflow: visible; white-space: nowrap; text-overflow: clip"
-          >
-            <span class="trace-chip agg-mono" style="max-width: none" :title="row.trace_id">{{
-              row.trace_id || '-'
-            }}</span>
+          <span class="trace-id-cell">
+            <span class="trace-chip agg-mono" :title="row.trace_id">{{ row.trace_id || '-' }}</span>
           </span>
         </template>
         <template #right-head>证据</template>
         <template #right="{ row }">
           <span class="evidence-actions">
-            <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">Trace / 日志</button>
+            <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
+              Trace / 日志
+            </button>
           </span>
         </template>
       </BlockTable>
@@ -447,6 +472,12 @@ const failureDomainsOf = (row: any) => {
 
 <style scoped>
 /* 影响链路必须单行显示（src → dst），不换行 */
+.agg-mid-grid .route-cell {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .agg-mid-grid .route-cell,
 .agg-mid-grid .route-cell > * {
   white-space: nowrap;
@@ -454,21 +485,9 @@ const failureDomainsOf = (row: any) => {
 }
 .agg-mid-grid .route-cell i {
   flex: none;
-}
-/* BlockTable 内：具体故障/故障域允许换行显示全量，不再 nowrap+省略号 */
-.agg-cell-wrap :deep(.fault-name),
-.agg-cell-wrap :deep(.fault-domain),
-.agg-cell-wrap .fault-name,
-.agg-cell-wrap .fault-domain {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-}
-.agg-cell-wrap {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  flex-wrap: wrap;
+  margin: 0 4px;
+  color: var(--primary);
+  font-style: normal;
 }
 
 .fault-detail-header h2 {
@@ -796,26 +815,9 @@ const failureDomainsOf = (row: any) => {
 .trace-search .input {
   width: 270px;
 }
-.fault-instance-table {
-  min-width: 1080px;
-}
-.fault-instance-table th,
-.fault-instance-table td {
-  padding: 8px 10px;
-  font-size: 11px;
-  vertical-align: middle;
-}
 .mono {
   white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.fault-name,
-.fault-domain {
-  display: block;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .fault-name {
   font-size: 11px;
@@ -824,33 +826,12 @@ const failureDomainsOf = (row: any) => {
   margin-top: 3px;
   color: var(--text3);
 }
-.route-cell {
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.route-cell i {
-  margin: 0 5px;
-  color: var(--primary);
-  font-style: normal;
-}
 .trace-pods,
 .evidence-actions {
   display: flex;
   gap: 4px;
   align-items: center;
   flex-wrap: wrap;
-}
-.fault-instance-table th:last-child,
-.fault-instance-table td:last-child {
-  position: sticky;
-  right: 0;
-  z-index: 1;
-  background: var(--surface);
-  box-shadow: -8px 0 12px -12px rgba(31, 42, 58, 0.45);
-}
-.fault-instance-table th:last-child {
-  z-index: 2;
-  background: var(--bg);
 }
 .fault-table-footer {
   display: flex;
