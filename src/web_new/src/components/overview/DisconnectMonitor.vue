@@ -75,42 +75,11 @@ watch(faultCodeSummaries, (summaries) => {
   }
 })
 
-// Trace ID 是等宽定长文本（UUID），列宽直接交给 DOM 量：量一次 chip 的真实渲染宽度，
-// 加上单元格左右内边距即得精确列宽，不再靠拍脑袋的固定值留一半空白
-const traceIdMeasureRef = ref<HTMLElement | null>(null)
-const traceIdChipWidth = ref(0)
-const TRACE_ID_CELL_PADDING = 20
-const traceIdSample = computed(() => {
-  const ids = filteredFaultTraces.value
-    .map((row: any) => String(row.trace_id || ''))
-    .filter(Boolean)
-  return ids.reduce(
-    (longest, id) => (id.length > longest.length ? id : longest),
-    '00000000-0000-0000-0000-000000000000',
-  )
-})
-const faultMidCols = computed(() => [
-  '480px',
-  '280px',
-  '240px',
-  traceIdChipWidth.value
-    ? `${Math.ceil(traceIdChipWidth.value) + TRACE_ID_CELL_PADDING}px`
-    : '300px',
-])
-const faultMidWidth = computed(
-  () => `${faultMidCols.value.reduce((total, width) => total + parseFloat(width), 0)}px`,
-)
-const measureTraceIdChip = () => {
-  const el = traceIdMeasureRef.value ?? document.querySelector<HTMLElement>('.trace-id-measure')
-  if (el) traceIdChipWidth.value = el.getBoundingClientRect().width
-}
-watch(traceIdSample, () => void nextTick(measureTraceIdChip))
-
 onMounted(() => {
   renderFaultChart()
   renderFaultTopology()
-  measureTraceIdChip()
-  void document.fonts?.ready.then(() => measureTraceIdChip())
+  measureFixedColumns()
+  void document.fonts?.ready.then(() => measureFixedColumns())
 })
 
 const faultPodIps = (row: any) =>
@@ -142,6 +111,50 @@ const failureDomainsOf = (row: any) => {
   ]
   return domains.length ? domains.join(' / ') : '-'
 }
+
+// Pod IP / Trace ID 都是等宽定长文本，列宽交给 DOM 量：量一次样本 chip 的真实渲染宽度，
+// 加上单元格左右内边距即得精确列宽（Pod IP 一列一行，与旧版一致）
+const podIpMeasureRef = ref<HTMLElement | null>(null)
+const traceIdMeasureRef = ref<HTMLElement | null>(null)
+const podIpChipWidth = ref(0)
+const traceIdChipWidth = ref(0)
+const CELL_PADDING_X2 = 20
+const longestOf = (values: unknown[], fallback: string) =>
+  values
+    .map((value) => String(value ?? ''))
+    .filter(Boolean)
+    .reduce((longest, value) => (value.length > longest.length ? value : longest), fallback)
+const podIpSample = computed(() =>
+  longestOf(
+    filteredFaultTraces.value.flatMap((row: any) => faultPodIps(row)),
+    '255.255.255.255',
+  ),
+)
+const traceIdSample = computed(() =>
+  longestOf(
+    filteredFaultTraces.value.map((row: any) => row.trace_id),
+    '00000000-0000-0000-0000-000000000000',
+  ),
+)
+const chipColWidth = (width: number, fallback: number) =>
+  `${width ? Math.ceil(width) + CELL_PADDING_X2 : fallback}px`
+const faultMidCols = computed(() => [
+  '480px',
+  '280px',
+  chipColWidth(podIpChipWidth.value, 150),
+  chipColWidth(traceIdChipWidth.value, 300),
+])
+const faultMidWidth = computed(
+  () => `${faultMidCols.value.reduce((total, width) => total + parseFloat(width), 0)}px`,
+)
+const measureFixedColumns = () => {
+  const podIp = podIpMeasureRef.value ?? document.querySelector<HTMLElement>('.pod-ip-measure')
+  if (podIp) podIpChipWidth.value = podIp.getBoundingClientRect().width
+  const traceId =
+    traceIdMeasureRef.value ?? document.querySelector<HTMLElement>('.trace-id-measure')
+  if (traceId) traceIdChipWidth.value = traceId.getBoundingClientRect().width
+}
+watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
 </script>
 
 <template>
@@ -158,8 +171,14 @@ const failureDomainsOf = (row: any) => {
       恢复全部时段
     </button>
   </div>
-  <!-- Trace ID 列宽的实测样本：常驻 DOM，随字体加载/数据变化重测 -->
-  <span ref="traceIdMeasureRef" class="trace-chip agg-mono trace-id-measure" aria-hidden="true">{{
+  <!-- 定长等宽列的实测样本（Pod IP / Trace ID）：常驻 DOM，随字体加载/数据变化重测 -->
+  <span
+    ref="podIpMeasureRef"
+    class="trace-chip col-width-measure pod-ip-measure"
+    aria-hidden="true"
+    >{{ podIpSample }}</span
+  >
+  <span ref="traceIdMeasureRef" class="trace-chip agg-mono col-width-measure" aria-hidden="true">{{
     traceIdSample
   }}</span>
 
@@ -397,14 +416,14 @@ const failureDomainsOf = (row: any) => {
       <BlockTable
         :rows="pagedFaultTraces"
         :row-key="(row: any) => row.trace_id"
-        :left-cols="['150px', '100px', '110px']"
+        :left-cols="['150px', '90px', '100px']"
         :right-cols="['160px']"
         :mid-cols="faultMidCols"
         :mid-width="faultMidWidth"
         class="fault-instance-block"
       >
         <template #left-head>
-          <span>发生时间</span><span>故障类型</span><span>故障码</span>
+          <span>发生时间</span><span>故障码</span><span>故障类型</span>
         </template>
         <template #left="{ row }">
           <span class="agg-mono col-nowrap">{{ (row.timestamp || '').slice(0, 19) }}</span>
@@ -425,7 +444,7 @@ const failureDomainsOf = (row: any) => {
           </span>
         </template>
         <template #mid-head>
-          <span>具体故障 / 故障域</span><span>影响链路</span><span>Pod IP</span
+          <span>具体故障 / 故障域</span><span class="col-center">影响链路</span><span>Pod IP</span
           ><span>Trace ID</span>
         </template>
         <template #mid="{ row }">

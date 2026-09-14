@@ -2633,14 +2633,29 @@ table .col-num {
 .fault-instance-block .fault-scroll .fault-domain {
   margin-top: 4px;
 }
-/* 影响链路：单行（src → dst），左对齐 */
+/* 影响链路：单行（src → dst），居中（本表只有这一列居中，其余左对齐） */
 .fault-instance-block .route-cell,
 .fault-instance-block .route-cell > * {
-  justify-content: flex-start !important;
+  justify-content: center !important;
   white-space: nowrap !important;
   flex-wrap: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
+}
+.fault-instance-block .agg-mid-grid > .col-center {
+  text-align: center;
+  justify-content: center;
+}
+/* 故障类型标签（通断 / 时延）之间要有间距，不再贴在一起 */
+.fault-instance-block .fault-type-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* 故障码列按「最多 2 个」收窄：极端组合（两个四位码）换行而不是溢出到下一列 */
+.fault-instance-block .chip-row-nowrap {
+  flex-wrap: wrap;
 }
 /* Pod IP：chip 可换行、左对齐 */
 .fault-instance-block .agg-mid-grid > .trace-pods {
@@ -2683,8 +2698,8 @@ table .col-num {
   white-space: nowrap !important;
 }
 
-/* Trace ID 列宽的实测样本：不可见、不占位 */
-.trace-id-measure {
+/* Pod IP / Trace ID 列宽的实测样本：不可见、不占位 */
+.col-width-measure {
   position: absolute;
   left: -9999px;
   top: 0;
