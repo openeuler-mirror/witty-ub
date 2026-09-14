@@ -156,7 +156,7 @@ async def collect_trace_context_logs(
                 logger.warning("Error collecting trace context from %s: %s", path, e)
 
     if batch:
-        await LogFailureEventPGManager.add_log_failure_event(batch)
+        await LogFailureEventPGManager.add_log_failure_event_if_not_exist(batch)
         total += len(batch)
 
     logger.info("Stored %s raw trace context log rows", total)

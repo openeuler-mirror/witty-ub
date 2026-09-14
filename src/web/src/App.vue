@@ -5850,6 +5850,12 @@ const getTraceRowHeight = (podIpHtml: string) => {
 const getMultiLineCellTitle = (html: string) =>
   html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '')
 
+const formatPodIps = (value: unknown) => {
+  if (!Array.isArray(value)) return typeof value === 'string' && value.trim() ? value.trim() : '-'
+  const podIps = [...new Set(value.map((item) => String(item ?? '').trim()).filter(Boolean))]
+  return podIps.length > 0 ? podIps.join('<br>') : '-'
+}
+
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value.map((result) => {
     const record = result as Record<string, unknown>
@@ -5862,7 +5868,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       podIp: (() => {
         const podIps = record['pod_ips']
         if (Array.isArray(podIps)) {
-          return podIps.join('<br>')
+          return formatPodIps(podIps)
         }
         return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_id', 'pod_name', 'podId', 'pod'])
       })(),
@@ -6108,7 +6114,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     podIp: (() => {
       const podIps = record['pod_ips']
       if (Array.isArray(podIps)) {
-        return podIps.join('<br>')
+        return formatPodIps(podIps)
       }
       return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_name', 'pod_id', 'podId', 'pod'])
     })(),
@@ -8315,7 +8321,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     statusReason: getLogDisplayReason(record),
     time: displayLocalTime(result.timestamp ?? result.created_at),
     traceId: result.trace_id ?? '-',
-    podIp: Array.isArray(result.pod_ips) ? result.pod_ips.join('<br>') : (result.pod_ips ?? '-'),
+    podIp: formatPodIps(result.pod_ips),
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),

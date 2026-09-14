@@ -701,9 +701,17 @@ class KVCacheLogParseWorker(BaseWorker):
             log_id=log_file_id or flat.get("log_id", ""),
             # pod_ip 现在是一个列表（implode_unique 策略），需要处理列表类型
             pod_ips=(
-                [str(ip) for ip in flat["pod_ip"]]
+                list(dict.fromkeys(
+                    str(ip).strip()
+                    for ip in flat["pod_ip"]
+                    if ip is not None and str(ip).strip()
+                )) or None
                 if isinstance(flat.get("pod_ip"), list)
-                else ([str(flat["pod_ip"])] if flat.get("pod_ip") else None)
+                else (
+                    [str(flat["pod_ip"]).strip()]
+                    if flat.get("pod_ip") and str(flat["pod_ip"]).strip()
+                    else None
+                )
             ),
             # cluster_name 现在也是一个列表（implode_unique 策略），需要处理列表类型
             cluster_name=(
