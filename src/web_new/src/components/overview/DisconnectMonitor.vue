@@ -464,12 +464,10 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
             <span class="trace-chip agg-mono" :title="row.trace_id">{{ row.trace_id || '-' }}</span>
           </span>
         </template>
-        <template #right-head>证据</template>
+        <template #right-head>Trace 分析</template>
         <template #right="{ row }">
           <span class="evidence-actions">
-            <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-              Trace / 日志
-            </button>
+            <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">查看链路</button>
           </span>
         </template>
       </BlockTable>
