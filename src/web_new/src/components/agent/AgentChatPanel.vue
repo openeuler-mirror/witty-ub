@@ -937,6 +937,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   flex: 1;
   padding: 28px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .agent-auth-intro {
   margin: 8px 0 24px;
@@ -1086,6 +1087,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   display: grid;
   gap: 9px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .agent-model-option,
 .agent-provider-option {
@@ -1186,6 +1188,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   align-content: start;
   gap: 9px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .agent-session-item {
   display: flex;
@@ -1296,6 +1299,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   gap: 16px;
   padding: 20px 17px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scroll-behavior: smooth;
 }
 .agent-chat-welcome {

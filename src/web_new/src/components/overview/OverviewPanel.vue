@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import BlockTable from '../common/BlockTable.vue'
+import BaseModal from '../common/BaseModal.vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import { useAssets } from '../../composables/useAssets'
 import { useTasks } from '../../composables/useTasks'
@@ -209,13 +210,6 @@ const selectBrpcGraphNode = (id: string) => {
   brpcSelectedGraphNodeId.value = brpcSelectedGraphNodeId.value === id ? '' : id
 }
 
-const onKeydown = (event: KeyboardEvent) => {
-  if (event.key !== 'Escape') return
-  closeObjectDetail()
-  detailDrawerOpen.value = false
-  closeBrpcFaultDetail()
-}
-
 // 抽屉故障码：access 口径数组 + 故障模式知识库显示码（含 FATAL 回退），去重
 const drawerFaultCodes = (row: any) => {
   const codes = normalizeFaultCodes(row?.status_code)
@@ -249,12 +243,7 @@ const relatedFaultCodes = (id: string) => {
 }
 
 onMounted(() => {
-  window.addEventListener('keydown', onKeydown)
   renderAnalysisModules()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -542,8 +531,13 @@ onBeforeUnmount(() => {
   </template>
 
   <!-- ============ UBSocket 事件 / Thread 详情弹窗 ============ -->
-  <div class="modal-overlay" v-if="brpcFaultDetail" @click.self="closeBrpcFaultDetail()">
-    <div class="modal modal-xl">
+  <BaseModal
+    :open="!!brpcFaultDetail"
+    size="xl"
+    :label="brpcFaultDetail?.thread_key ? 'Thread 接口命中明细' : '聚合事件详情'"
+    @close="closeBrpcFaultDetail()"
+  >
+    <template v-if="brpcFaultDetail" #header>
       <div class="modal-header">
         <span class="modal-header-main">
           <button
@@ -558,737 +552,692 @@ onBeforeUnmount(() => {
           <span>{{ brpcFaultDetail.thread_key ? 'Thread 接口命中明细' : '聚合事件详情' }}</span>
           <span v-if="brpcDetailHasParent" class="modal-header-crumb">来自 聚合事件详情</span>
         </span>
-        <button class="modal-close" @click="closeBrpcFaultDetail()">✕</button>
+        <button class="modal-close" aria-label="关闭" @click="closeBrpcFaultDetail()">✕</button>
       </div>
-      <div class="modal-body modal-scroll">
-        <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
-          <template v-if="brpcFaultDetail.thread_key">
-            线程: <b style="color: var(--text)">{{ brpcFaultDetail.thread_key }}</b> · Pod:
-            <b style="color: var(--text)">{{ brpcFaultDetail.pod_ip }}</b>
-          </template>
-          <template v-else>
-            窗口:
-            <b style="color: var(--text)"
-              >{{ brpcFaultDetail.window_start_time }} ~ {{ brpcFaultDetail.window_end_time }}</b
-            >
-            · Pod: <b style="color: var(--text)">{{ brpcFaultDetail.pod_ip }}</b>
-          </template>
-        </div>
-
-        <!-- P2.2 聚合事件详情：组件计数 / 当前窗时序 / 关联线程 -->
-        <template v-if="!brpcFaultDetail.thread_key">
-          <div v-if="brpcEventDetailError" class="error-banner">{{ brpcEventDetailError }}</div>
-          <div v-if="brpcEventDetailLoading" class="empty" style="padding: 20px 0">
-            <div class="icon">⏳</div>
-            <div>正在加载事件详情...</div>
-          </div>
-          <template v-else>
-            <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
-              组件计数（共 {{ brpcEventDetail?.hit_total ?? 0 }} 次命中）
-            </div>
-            <div
-              v-if="!brpcEventDetail?.failure_modes?.length"
-              class="empty"
-              style="padding: 12px 0"
-            >
-              暂无组件计数
-            </div>
-            <div v-else class="table-wrap" style="margin-bottom: 16px">
-              <table>
-                <thead>
-                  <tr>
-                    <th>组件</th>
-                    <th>故障模式</th>
-                    <th>命中数</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="mode in brpcEventDetail.failure_modes"
-                    :key="mode.failure_mode_id + ':' + mode.component"
-                  >
-                    <td>{{ mode.component || '-' }}</td>
-                    <td style="font-size: 12px">{{ mode.failure_mode_name || '-' }}</td>
-                    <td>{{ mode.hit_count }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">当前窗故障时序</div>
-            <div v-if="brpcEventDetailTimelineEmpty" class="empty" style="padding: 12px 0">
-              当前窗内无故障时序数据
-            </div>
-            <div
-              v-if="!brpcEventDetailTimelineEmpty"
-              ref="brpcEventTimelineRef"
-              style="height: 280px; margin-bottom: 16px"
-            ></div>
-
-            <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
-              关联异常 Thread（{{ brpcEventDetailThreads.length }}）
-            </div>
-            <div v-if="brpcEventDetailThreads.length === 0" class="empty" style="padding: 12px 0">
-              当前窗内无异常 Thread
-            </div>
-            <div v-else class="table-wrap" style="margin-bottom: 16px">
-              <BlockTable
-                :rows="brpcEventDetailThreads"
-                :row-key="(row: any) => row.thread_key"
-                :left-cols="['110px', '130px', '150px', '96px']"
-                :mid-width="brpcEventDetailThreadInterfaceColumns.length * 132 + 'px'"
-              >
-                <template #left-head>
-                  <span class="col-nowrap">线程ID</span>
-                  <span class="col-nowrap">Pod IP</span>
-                  <span class="col-nowrap">Pod 名称</span>
-                  <span class="col-num">命中数</span>
-                </template>
-                <template #left="{ row: thread }">
-                  <span class="col-nowrap">
-                    <span class="thread-id-pill" :title="thread.thread_key">{{
-                      thread.thread_id
-                    }}</span>
-                  </span>
-                  <span class="col-nowrap agg-mono">{{ thread.pod_ip }}</span>
-                  <span class="col-nowrap">{{ thread.pod_name || '-' }}</span>
-                  <span class="col-num">{{ thread.total_interface_hit_count }}</span>
-                </template>
-                <template #mid-head>
-                  <div
-                    v-for="column in brpcEventDetailThreadInterfaceColumns"
-                    :key="column.id"
-                    class="col-num matrix-head-cell"
-                    :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
-                  >
-                    <small class="matrix-head-component">{{ column.component }}</small>
-                    <span class="matrix-head-name">{{ column.interfaceName }}</span>
-                    <code class="matrix-head-function">{{ column.functionName }}</code>
-                  </div>
-                </template>
-                <template #mid="{ row: thread }">
-                  <div
-                    v-for="column in brpcEventDetailThreadInterfaceColumns"
-                    :key="column.id"
-                    class="col-num"
-                  >
-                    <span :class="{ 'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id) }">
-                      {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
-                    </span>
-                  </div>
-                </template>
-                <template #right-head>操作</template>
-                <template #right="{ row: thread }">
-                  <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread, true)">
-                    详情
-                  </button>
-                </template>
-              </BlockTable>
-            </div>
-          </template>
-        </template>
-
-        <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">接口命中</div>
-        <div
-          v-if="!brpcFaultDetail.interface_hits || brpcFaultDetail.interface_hits.length === 0"
-          class="empty"
-          style="padding: 24px 0"
+    </template>
+    <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px">
+      <template v-if="brpcFaultDetail.thread_key">
+        线程: <b style="color: var(--text)">{{ brpcFaultDetail.thread_key }}</b> · Pod:
+        <b style="color: var(--text)">{{ brpcFaultDetail.pod_ip }}</b>
+      </template>
+      <template v-else>
+        窗口:
+        <b style="color: var(--text)"
+          >{{ brpcFaultDetail.window_start_time }} ~ {{ brpcFaultDetail.window_end_time }}</b
         >
-          暂无接口命中
+        · Pod: <b style="color: var(--text)">{{ brpcFaultDetail.pod_ip }}</b>
+      </template>
+    </div>
+
+    <!-- P2.2 聚合事件详情：组件计数 / 当前窗时序 / 关联线程 -->
+    <template v-if="!brpcFaultDetail.thread_key">
+      <div v-if="brpcEventDetailError" class="error-banner">{{ brpcEventDetailError }}</div>
+      <div v-if="brpcEventDetailLoading" class="empty" style="padding: 20px 0">
+        <div class="icon">⏳</div>
+        <div>正在加载事件详情...</div>
+      </div>
+      <template v-else>
+        <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
+          组件计数（共 {{ brpcEventDetail?.hit_total ?? 0 }} 次命中）
         </div>
-        <div v-else class="table-wrap">
+        <div v-if="!brpcEventDetail?.failure_modes?.length" class="empty" style="padding: 12px 0">
+          暂无组件计数
+        </div>
+        <div v-else class="table-wrap" style="margin-bottom: 16px">
           <table>
             <thead>
               <tr>
-                <th>接口</th>
                 <th>组件</th>
-                <th>函数</th>
+                <th>故障模式</th>
                 <th>命中数</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="hit in brpcFaultDetail.interface_hits" :key="hit.interface_id">
-                <td style="font-family: monospace; font-size: 12px">{{ hit.interface_name }}</td>
-                <td>{{ hit.component || '-' }}</td>
-                <td style="font-family: monospace; font-size: 12px">
-                  {{ hit.function_name || '-' }}
-                </td>
-                <td>{{ hit.interface_hit_count }}</td>
+              <tr
+                v-for="mode in brpcEventDetail.failure_modes"
+                :key="mode.failure_mode_id + ':' + mode.component"
+              >
+                <td>{{ mode.component || '-' }}</td>
+                <td style="font-size: 12px">{{ mode.failure_mode_name || '-' }}</td>
+                <td>{{ mode.hit_count }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <template v-if="brpcFaultDetail.thread_key">
-          <!-- P2.3：故障模式视图（failure_graph） -->
-          <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
-            故障模式视图
-            <span class="graph-legend" aria-label="故障模式视图图例">
-              <span><i class="graph-legend-interface"></i>接口节点</span>
-              <span><i class="graph-legend-mode"></i>故障模式节点</span>
-              <span><i class="graph-legend-edge"></i>组件内关系</span>
-              <span><i class="graph-legend-edge cross"></i>跨组件关系</span>
-              <span class="hint" style="font-weight: 400"
-                >粗边框=直接命中；可拖拽/缩放，点击节点查看详情</span
+
+        <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">当前窗故障时序</div>
+        <div v-if="brpcEventDetailTimelineEmpty" class="empty" style="padding: 12px 0">
+          当前窗内无故障时序数据
+        </div>
+        <div
+          v-if="!brpcEventDetailTimelineEmpty"
+          ref="brpcEventTimelineRef"
+          style="height: 280px; margin-bottom: 16px"
+        ></div>
+
+        <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">
+          关联异常 Thread（{{ brpcEventDetailThreads.length }}）
+        </div>
+        <div v-if="brpcEventDetailThreads.length === 0" class="empty" style="padding: 12px 0">
+          当前窗内无异常 Thread
+        </div>
+        <div v-else class="table-wrap" style="margin-bottom: 16px">
+          <BlockTable
+            :rows="brpcEventDetailThreads"
+            :row-key="(row: any) => row.thread_key"
+            :left-cols="['110px', '130px', '150px', '96px']"
+            :mid-width="brpcEventDetailThreadInterfaceColumns.length * 132 + 'px'"
+          >
+            <template #left-head>
+              <span class="col-nowrap">线程ID</span>
+              <span class="col-nowrap">Pod IP</span>
+              <span class="col-nowrap">Pod 名称</span>
+              <span class="col-num">命中数</span>
+            </template>
+            <template #left="{ row: thread }">
+              <span class="col-nowrap">
+                <span class="thread-id-pill" :title="thread.thread_key">{{
+                  thread.thread_id
+                }}</span>
+              </span>
+              <span class="col-nowrap agg-mono">{{ thread.pod_ip }}</span>
+              <span class="col-nowrap">{{ thread.pod_name || '-' }}</span>
+              <span class="col-num">{{ thread.total_interface_hit_count }}</span>
+            </template>
+            <template #mid-head>
+              <div
+                v-for="column in brpcEventDetailThreadInterfaceColumns"
+                :key="column.id"
+                class="col-num matrix-head-cell"
+                :title="`${column.component} / ${column.interfaceName} / ${column.functionName}`"
+              >
+                <small class="matrix-head-component">{{ column.component }}</small>
+                <span class="matrix-head-name">{{ column.interfaceName }}</span>
+                <code class="matrix-head-function">{{ column.functionName }}</code>
+              </div>
+            </template>
+            <template #mid="{ row: thread }">
+              <div
+                v-for="column in brpcEventDetailThreadInterfaceColumns"
+                :key="column.id"
+                class="col-num"
+              >
+                <span :class="{ 'matrix-zero': !brpcRowInterfaceCountOf(thread, column.id) }">
+                  {{ brpcRowInterfaceCountOf(thread, column.id) || '-' }}
+                </span>
+              </div>
+            </template>
+            <template #right-head>操作</template>
+            <template #right="{ row: thread }">
+              <button class="btn btn-sm btn-primary" @click="openBrpcFaultDetail(thread, true)">
+                详情
+              </button>
+            </template>
+          </BlockTable>
+        </div>
+      </template>
+    </template>
+
+    <div style="font-weight: 600; font-size: 13px; margin: 4px 0 8px">接口命中</div>
+    <div
+      v-if="!brpcFaultDetail.interface_hits || brpcFaultDetail.interface_hits.length === 0"
+      class="empty"
+      style="padding: 24px 0"
+    >
+      暂无接口命中
+    </div>
+    <div v-else class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>接口</th>
+            <th>组件</th>
+            <th>函数</th>
+            <th>命中数</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="hit in brpcFaultDetail.interface_hits" :key="hit.interface_id">
+            <td style="font-family: monospace; font-size: 12px">{{ hit.interface_name }}</td>
+            <td>{{ hit.component || '-' }}</td>
+            <td style="font-family: monospace; font-size: 12px">
+              {{ hit.function_name || '-' }}
+            </td>
+            <td>{{ hit.interface_hit_count }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <template v-if="brpcFaultDetail.thread_key">
+      <!-- P2.3：故障模式视图（failure_graph） -->
+      <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
+        故障模式视图
+        <span class="graph-legend" aria-label="故障模式视图图例">
+          <span><i class="graph-legend-interface"></i>接口节点</span>
+          <span><i class="graph-legend-mode"></i>故障模式节点</span>
+          <span><i class="graph-legend-edge"></i>组件内关系</span>
+          <span><i class="graph-legend-edge cross"></i>跨组件关系</span>
+          <span class="hint" style="font-weight: 400"
+            >粗边框=直接命中；可拖拽/缩放，点击节点查看详情</span
+          >
+        </span>
+      </div>
+      <div v-if="brpcThreadDetailLoading" class="empty" style="padding: 16px 0">
+        正在加载故障模式视图...
+      </div>
+      <div v-else-if="brpcThreadDetailError" class="error-banner">
+        {{ brpcThreadDetailError }}
+      </div>
+      <div
+        v-else-if="!brpcThreadDetail?.failure_graph?.nodes?.length"
+        class="empty"
+        style="padding: 16px 0"
+      >
+        当前 Thread 暂无命中的故障模式子图
+      </div>
+      <div v-else class="graph-viewport">
+        <div
+          class="graph-canvas"
+          :style="{
+            width: (brpcThreadGraphLayout?.width ?? 720) + 'px',
+            height: (brpcThreadGraphLayout?.height ?? 320) + 'px',
+          }"
+        >
+          <svg
+            class="graph-edges"
+            :width="brpcThreadGraphLayout?.width ?? 720"
+            :height="brpcThreadGraphLayout?.height ?? 320"
+          >
+            <defs>
+              <marker
+                id="brpc-graph-arrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+              </marker>
+              <marker
+                id="brpc-graph-arrow-cross"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
+              </marker>
+            </defs>
+            <path
+              v-for="link in brpcThreadGraphLayout?.links ?? []"
+              :key="link.id"
+              :d="link.d"
+              :class="['graph-edge', { 'graph-edge-cross': link.cross }]"
+              :marker-end="link.cross ? 'url(#brpc-graph-arrow-cross)' : 'url(#brpc-graph-arrow)'"
+            />
+          </svg>
+          <button
+            v-for="node in brpcThreadGraphLayout?.nodes ?? []"
+            :key="node.id"
+            type="button"
+            :class="[
+              'graph-node',
+              node.nodeType === 'interface' ? 'graph-node-interface' : 'graph-node-mode',
+              { active: brpcSelectedGraphNodeId === node.id, hit: node.directlyHit },
+            ]"
+            :style="{
+              left: node.x + 'px',
+              top: node.y + 'px',
+              width: node.width + 'px',
+              height: node.height + 'px',
+            }"
+            :title="
+              node.nodeType === 'interface'
+                ? `${node.name}${node.functionName ? ' / ' + node.functionName : ''}`
+                : `${node.name}（命中 ${node.hitCount} 次）`
+            "
+            @click="brpcSelectedGraphNodeId = brpcSelectedGraphNodeId === node.id ? '' : node.id"
+          >
+            <span class="graph-node-id">
+              <span
+                v-for="(line, index) in node.idLines"
+                :key="`id-${index}`"
+                class="graph-node-line"
+                >{{ line }}</span
               >
             </span>
-          </div>
-          <div v-if="brpcThreadDetailLoading" class="empty" style="padding: 16px 0">
-            正在加载故障模式视图...
-          </div>
-          <div v-else-if="brpcThreadDetailError" class="error-banner">
-            {{ brpcThreadDetailError }}
-          </div>
-          <div
-            v-else-if="!brpcThreadDetail?.failure_graph?.nodes?.length"
-            class="empty"
-            style="padding: 16px 0"
-          >
-            当前 Thread 暂无命中的故障模式子图
-          </div>
-          <div v-else class="graph-viewport">
-            <div
-              class="graph-canvas"
-              :style="{
-                width: (brpcThreadGraphLayout?.width ?? 720) + 'px',
-                height: (brpcThreadGraphLayout?.height ?? 320) + 'px',
-              }"
+            <span class="graph-node-name">
+              <span
+                v-for="(line, index) in node.nameLines"
+                :key="`name-${index}`"
+                class="graph-node-line"
+                >{{ line }}</span
+              >
+            </span>
+            <span
+              :class="[
+                'graph-node-tail',
+                node.nodeType === 'interface' ? 'graph-node-fn' : 'graph-node-count',
+              ]"
             >
-              <svg
-                class="graph-edges"
-                :width="brpcThreadGraphLayout?.width ?? 720"
-                :height="brpcThreadGraphLayout?.height ?? 320"
-              >
-                <defs>
-                  <marker
-                    id="brpc-graph-arrow"
-                    viewBox="0 0 10 10"
-                    refX="9"
-                    refY="5"
-                    markerWidth="7"
-                    markerHeight="7"
-                    orient="auto-start-reverse"
-                  >
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
-                  </marker>
-                  <marker
-                    id="brpc-graph-arrow-cross"
-                    viewBox="0 0 10 10"
-                    refX="9"
-                    refY="5"
-                    markerWidth="7"
-                    markerHeight="7"
-                    orient="auto-start-reverse"
-                  >
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
-                  </marker>
-                </defs>
-                <path
-                  v-for="link in brpcThreadGraphLayout?.links ?? []"
-                  :key="link.id"
-                  :d="link.d"
-                  :class="['graph-edge', { 'graph-edge-cross': link.cross }]"
-                  :marker-end="
-                    link.cross ? 'url(#brpc-graph-arrow-cross)' : 'url(#brpc-graph-arrow)'
-                  "
-                />
-              </svg>
-              <button
-                v-for="node in brpcThreadGraphLayout?.nodes ?? []"
-                :key="node.id"
-                type="button"
-                :class="[
-                  'graph-node',
-                  node.nodeType === 'interface' ? 'graph-node-interface' : 'graph-node-mode',
-                  { active: brpcSelectedGraphNodeId === node.id, hit: node.directlyHit },
-                ]"
-                :style="{
-                  left: node.x + 'px',
-                  top: node.y + 'px',
-                  width: node.width + 'px',
-                  height: node.height + 'px',
-                }"
-                :title="
-                  node.nodeType === 'interface'
-                    ? `${node.name}${node.functionName ? ' / ' + node.functionName : ''}`
-                    : `${node.name}（命中 ${node.hitCount} 次）`
-                "
-                @click="
-                  brpcSelectedGraphNodeId = brpcSelectedGraphNodeId === node.id ? '' : node.id
-                "
-              >
-                <span class="graph-node-id">
-                  <span
-                    v-for="(line, index) in node.idLines"
-                    :key="`id-${index}`"
-                    class="graph-node-line"
-                    >{{ line }}</span
-                  >
-                </span>
-                <span class="graph-node-name">
-                  <span
-                    v-for="(line, index) in node.nameLines"
-                    :key="`name-${index}`"
-                    class="graph-node-line"
-                    >{{ line }}</span
-                  >
-                </span>
-                <span
-                  :class="[
-                    'graph-node-tail',
-                    node.nodeType === 'interface' ? 'graph-node-fn' : 'graph-node-count',
-                  ]"
-                >
-                  <span
-                    v-for="(line, index) in node.nodeType === 'interface'
-                      ? node.tailLines
-                      : [`命中 ${node.hitCount}`]"
-                    :key="`tail-${index}`"
-                    class="graph-node-line"
-                    >{{ line }}</span
-                  >
-                </span>
-              </button>
-            </div>
-          </div>
-
-          <!-- P2.3：选中节点详情 -->
-          <div
-            v-if="brpcSelectedGraphNode"
-            style="
-              border: 1px solid #fecaca;
-              background: #fef2f2;
-              border-radius: 4px;
-              padding: 10px 12px;
-              margin-bottom: 12px;
-            "
-          >
-            <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
-              {{ brpcSelectedGraphNode.name || brpcSelectedGraphNode.node_id }}
               <span
-                v-if="brpcSelectedGraphNode.node_type === 'failure_mode'"
-                class="fault-code-chip"
+                v-for="(line, index) in node.nodeType === 'interface'
+                  ? node.tailLines
+                  : [`命中 ${node.hitCount}`]"
+                :key="`tail-${index}`"
+                class="graph-node-line"
+                >{{ line }}</span
               >
-                命中 {{ brpcSelectedGraphNode.hit_count ?? 0 }}
-              </span>
-              <span
-                v-if="
-                  brpcSelectedGraphNode.error_code != null &&
-                  brpcSelectedGraphNode.error_code !== ''
-                "
-                class="fault-code-chip"
-              >
-                故障码 {{ brpcSelectedGraphNode.error_code }}
-              </span>
-            </div>
-            <div style="font-size: 12px; color: var(--text2); line-height: 1.7">
-              <template v-if="brpcSelectedGraphNode.node_type === 'failure_mode'">
-                症状：{{ brpcSelectedGraphNode.phenomenon || '-' }}<br />
-                根因：{{ brpcSelectedGraphNode.cause || '-' }}<br />
-                解决：{{ brpcSelectedGraphNode.solution || '-' }}
-              </template>
-              <template v-else>
-                组件：{{ brpcSelectedGraphNode.component || '-' }} · 函数：{{
-                  brpcSelectedGraphNode.function_name || '-'
-                }}
-                · 文件：{{ brpcSelectedGraphNode.filename || '-' }}
-              </template>
-            </div>
-          </div>
-
-          <!-- P2.3：接口命中时序 -->
-          <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px">接口命中时序</div>
-          <div v-if="brpcThreadTimelineEmpty" class="empty" style="padding: 12px 0">
-            暂无接口命中时序数据
-          </div>
-          <div
-            v-if="!brpcThreadTimelineEmpty"
-            ref="brpcThreadTimelineRef"
-            style="height: 280px; margin-bottom: 8px"
-          ></div>
-
-          <!-- P2.3：完整运行日志列，故障行高亮 -->
-          <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
-            运行日志（{{ brpcThreadLogs.length }} 条）
-          </div>
-          <div v-if="brpcThreadLogsLoading" class="empty" style="padding: 16px 0">
-            正在加载运行日志...
-          </div>
-          <div v-else-if="brpcThreadLogsError" class="error-banner">{{ brpcThreadLogsError }}</div>
-          <div v-else-if="brpcThreadLogs.length === 0" class="empty" style="padding: 16px 0">
-            暂无运行日志
-          </div>
-          <div v-else class="table-wrap" style="max-height: 360px; overflow-y: auto">
-            <table style="min-width: 1080px">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>Pod IP</th>
-                  <th>Pod 名称</th>
-                  <th>组件</th>
-                  <th>文件</th>
-                  <th>函数</th>
-                  <th>行号</th>
-                  <th>日志正文</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(log, index) in sortedBrpcThreadLogs"
-                  :key="log.hit_id || index"
-                  :style="log.failure_mode_id ? 'background: #fef2f2' : ''"
-                >
-                  <td style="font-size: 11px; font-family: monospace; white-space: nowrap">
-                    {{ (log.time || '').slice(0, 23) }}
-                  </td>
-                  <td style="font-size: 11px; font-family: monospace">{{ log.pod_ip || '-' }}</td>
-                  <td style="font-size: 11px">{{ log.pod_name || '-' }}</td>
-                  <td style="font-size: 11px">{{ log.component || '-' }}</td>
-                  <td style="font-size: 11px; font-family: monospace">{{ log.filename || '-' }}</td>
-                  <td style="font-size: 11px; font-family: monospace">
-                    {{ log.function_name || '-' }}
-                  </td>
-                  <td style="font-size: 11px">{{ log.line_number ?? '-' }}</td>
-                  <td style="white-space: normal; font-size: 12px">
-                    {{ log.message || '-' }}
-                    <button
-                      v-if="log.failure_mode_id"
-                      type="button"
-                      class="fault-code-chip"
-                      style="cursor: pointer; margin-left: 4px"
-                      :title="'定位故障模式节点：' + log.failure_mode_id"
-                      @click="selectBrpcGraphNode(log.failure_mode_id)"
-                    >
-                      {{ brpcThreadFailureModeLabel(log.failure_mode_id) }}
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============ 对象详情弹窗（窗 × 端点/链路，服务端分页） ============ -->
-  <div class="modal-overlay" v-if="objectDetail.open" @click.self="closeObjectDetail">
-    <div class="modal modal-xl">
-      <div class="modal-header">
-        {{ objectDetail.title }} · {{ objectDetail.windowLabel }}
-        <button class="modal-close" @click="closeObjectDetail">✕</button>
-      </div>
-      <div class="modal-body" style="overflow-y: auto; flex: 1; min-height: 0">
-        <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap">
-          <span class="stat-pill"
-            >异常 Trace <b>{{ objectDetail.total }}</b></span
-          >
-          <span class="stat-pill">{{
-            objectDetail.domain === 'latency' ? '时延异常口径' : '通断故障口径'
-          }}</span>
-        </div>
-        <div v-if="objectDetail.error" class="error-banner">{{ objectDetail.error }}</div>
-        <div v-else-if="objectDetail.loading" class="empty" style="padding: 28px 0">
-          <div class="icon">⏳</div>
-          <div>正在加载 Trace...</div>
-        </div>
-        <div v-else-if="objectDetail.rows.length === 0" class="empty" style="padding: 28px 0">
-          <div class="icon">📭</div>
-          <div>当前时段 × 对象没有异常 Trace</div>
-        </div>
-        <div v-else class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>Trace ID</th>
-                <th>源 IP</th>
-                <th>目标 IP</th>
-                <th>类型</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in objectDetail.rows" :key="row.trace_id || row.id">
-                <td style="font-size: 12px; font-family: monospace">
-                  {{ (row.timestamp || '').slice(0, 19) }}
-                </td>
-                <td>
-                  <span class="trace-chip">{{ row.trace_id }}</span>
-                </td>
-                <td style="font-family: monospace">{{ row.src_ip || '-' }}</td>
-                <td style="font-family: monospace">{{ row.dst_ip || '-' }}</td>
-                <td>
-                  <div class="task-actions">
-                    <span
-                      v-for="tag in podRowTags(row)"
-                      :key="tag.type"
-                      :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
-                      >{{ tag.label }}</span
-                    >
-                  </div>
-                </td>
-                <td>
-                  <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
-                    查看 Trace 详情
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 12px;
-          "
-          v-if="objectDetailPages > 1"
-        >
-          <span style="font-size: 13px; color: var(--text2)"
-            >共 {{ objectDetail.total }} 条 · 第 {{ objectDetail.page }} /
-            {{ objectDetailPages }} 页</span
-          >
-          <PageNav
-            :page="objectDetail.page"
-            :pages="objectDetailPages"
-            @update:page="objectDetailGoPage($event)"
-          />
+            </span>
+          </button>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- ============ Trace 链路抽屉 ============ -->
-  <div
-    class="detail-drawer-mask"
-    :class="{ show: detailDrawerOpen }"
-    @click="detailDrawerOpen = false"
-  ></div>
-  <div
-    class="detail-drawer"
-    :class="{ open: detailDrawerOpen }"
-    :aria-hidden="!detailDrawerOpen"
-    :inert="!detailDrawerOpen"
-  >
-    <div class="modal-header">
-      <span class="modal-header-main">
-        {{ detailDrawerRow ? 'Trace：' + detailDrawerRow.trace_id : '日志详情' }}
-      </span>
-      <button class="modal-close" @click="detailDrawerOpen = false">✕</button>
-    </div>
-    <div class="modal-scroll" style="padding: 20px 24px">
-      <div v-if="detailDrawerRow">
-        <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px; line-height: 1.9">
-          时间:
-          <b style="color: var(--text)">{{ (detailDrawerRow.timestamp || '').slice(0, 19) }}</b
-          ><br />
-          操作:
-          <span
-            :class="
-              String(detailDrawerRow.operation || '')
-                .toUpperCase()
-                .includes('SET')
-                ? 'badge action-badge-set'
-                : 'badge action-badge-get'
-            "
-          >
-            {{ normalizeTraceOperation(detailDrawerRow.operation) }}
+      <!-- P2.3：选中节点详情 -->
+      <div
+        v-if="brpcSelectedGraphNode"
+        style="
+          border: 1px solid #fecaca;
+          background: #fef2f2;
+          border-radius: 4px;
+          padding: 10px 12px;
+          margin-bottom: 12px;
+        "
+      >
+        <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
+          {{ brpcSelectedGraphNode.name || brpcSelectedGraphNode.node_id }}
+          <span v-if="brpcSelectedGraphNode.node_type === 'failure_mode'" class="fault-code-chip">
+            命中 {{ brpcSelectedGraphNode.hit_count ?? 0 }}
           </span>
-          &nbsp;·&nbsp; 总时延:
-          <b style="color: var(--danger)"
-            >{{
-              (
-                Number(detailDrawerRow.total_latency) ||
-                Number(detailDrawerRow.total_latency_us) / 1000 ||
-                0
-              ).toFixed(3)
-            }}
-            ms</b
-          >
           <span
             v-if="
-              detailDrawerRow.is_anomalous ||
-              normalizeFaultCodes(detailDrawerRow.status_code).length > 0
+              brpcSelectedGraphNode.error_code != null && brpcSelectedGraphNode.error_code !== ''
             "
-            class="badge badge-anomaly"
-            style="margin-left: 8px"
-            >异常</span
+            class="fault-code-chip"
           >
+            故障码 {{ brpcSelectedGraphNode.error_code }}
+          </span>
         </div>
+        <div style="font-size: 12px; color: var(--text2); line-height: 1.7">
+          <template v-if="brpcSelectedGraphNode.node_type === 'failure_mode'">
+            症状：{{ brpcSelectedGraphNode.phenomenon || '-' }}<br />
+            根因：{{ brpcSelectedGraphNode.cause || '-' }}<br />
+            解决：{{ brpcSelectedGraphNode.solution || '-' }}
+          </template>
+          <template v-else>
+            组件：{{ brpcSelectedGraphNode.component || '-' }} · 函数：{{
+              brpcSelectedGraphNode.function_name || '-'
+            }}
+            · 文件：{{ brpcSelectedGraphNode.filename || '-' }}
+          </template>
+        </div>
+      </div>
 
-        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">
-          运行日志（{{ traceDrawerLogs.length }} 条）
-        </div>
-        <div class="table-wrap" style="margin-bottom: 16px">
-          <table class="log-table" style="min-width: 1100px">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>level</th>
-                <th>filename</th>
-                <th>pod_name</th>
-                <th>pid:tid</th>
-                <th>cluster_name</th>
-                <th>message</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(log, index) in traceDrawerLogs" :key="index">
-                <td style="font-size: 11px; font-family: monospace">
-                  {{ (log.timestamp || '').slice(0, 23) }}
-                </td>
-                <td>{{ log.level }}</td>
-                <td style="font-size: 11px; font-family: monospace">{{ log.filename || '-' }}</td>
-                <td style="font-family: monospace">{{ log.pod_name || '-' }}</td>
-                <td>{{ log.pid && log.tid ? log.pid + ':' + log.tid : '-' }}</td>
-                <td>{{ log.cluster_name || '-' }}</td>
-                <td style="white-space: normal; font-size: 12px">{{ log.message || '-' }}</td>
-              </tr>
-              <tr v-if="traceDrawerLogs.length === 0">
-                <td colspan="7" style="text-align: center; color: var(--text3)">
-                  该 Trace 暂无运行日志
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <!-- P2.3：接口命中时序 -->
+      <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px">接口命中时序</div>
+      <div v-if="brpcThreadTimelineEmpty" class="empty" style="padding: 12px 0">
+        暂无接口命中时序数据
+      </div>
+      <div
+        v-if="!brpcThreadTimelineEmpty"
+        ref="brpcThreadTimelineRef"
+        style="height: 280px; margin-bottom: 8px"
+      ></div>
 
-        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">故障模式详情</div>
-        <div
-          v-if="primaryFailureMode"
-          style="
-            border: 1px solid #fecaca;
-            background: #fef2f2;
-            border-radius: 4px;
-            padding: 10px 12px;
-            margin-bottom: 16px;
+      <!-- P2.3：完整运行日志列，故障行高亮 -->
+      <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
+        运行日志（{{ brpcThreadLogs.length }} 条）
+      </div>
+      <div v-if="brpcThreadLogsLoading" class="empty" style="padding: 16px 0">
+        正在加载运行日志...
+      </div>
+      <div v-else-if="brpcThreadLogsError" class="error-banner">{{ brpcThreadLogsError }}</div>
+      <div v-else-if="brpcThreadLogs.length === 0" class="empty" style="padding: 16px 0">
+        暂无运行日志
+      </div>
+      <div v-else class="table-wrap" style="max-height: 360px; overflow-y: auto">
+        <table style="min-width: 1080px">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>Pod IP</th>
+              <th>Pod 名称</th>
+              <th>组件</th>
+              <th>文件</th>
+              <th>函数</th>
+              <th>行号</th>
+              <th>日志正文</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(log, index) in sortedBrpcThreadLogs"
+              :key="log.hit_id || index"
+              :style="log.failure_mode_id ? 'background: #fef2f2' : ''"
+            >
+              <td style="font-size: 11px; font-family: monospace; white-space: nowrap">
+                {{ (log.time || '').slice(0, 23) }}
+              </td>
+              <td style="font-size: 11px; font-family: monospace">{{ log.pod_ip || '-' }}</td>
+              <td style="font-size: 11px">{{ log.pod_name || '-' }}</td>
+              <td style="font-size: 11px">{{ log.component || '-' }}</td>
+              <td style="font-size: 11px; font-family: monospace">{{ log.filename || '-' }}</td>
+              <td style="font-size: 11px; font-family: monospace">
+                {{ log.function_name || '-' }}
+              </td>
+              <td style="font-size: 11px">{{ log.line_number ?? '-' }}</td>
+              <td style="white-space: normal; font-size: 12px">
+                {{ log.message || '-' }}
+                <button
+                  v-if="log.failure_mode_id"
+                  type="button"
+                  class="fault-code-chip"
+                  style="cursor: pointer; margin-left: 4px"
+                  :title="'定位故障模式节点：' + log.failure_mode_id"
+                  @click="selectBrpcGraphNode(log.failure_mode_id)"
+                >
+                  {{ brpcThreadFailureModeLabel(log.failure_mode_id) }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+  </BaseModal>
+
+  <!-- ============ 对象详情弹窗（窗 × 端点/链路，服务端分页） ============ -->
+  <BaseModal
+    :open="objectDetail.open"
+    size="xl"
+    :title="`${objectDetail.title} · ${objectDetail.windowLabel}`"
+    @close="closeObjectDetail"
+  >
+    <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+      <span class="stat-pill"
+        >异常 Trace <b>{{ objectDetail.total }}</b></span
+      >
+      <span class="stat-pill">{{
+        objectDetail.domain === 'latency' ? '时延异常口径' : '通断故障口径'
+      }}</span>
+    </div>
+    <div v-if="objectDetail.error" class="error-banner">{{ objectDetail.error }}</div>
+    <div v-else-if="objectDetail.loading" class="empty" style="padding: 28px 0">
+      <div class="icon">⏳</div>
+      <div>正在加载 Trace...</div>
+    </div>
+    <div v-else-if="objectDetail.rows.length === 0" class="empty" style="padding: 28px 0">
+      <div class="icon">📭</div>
+      <div>当前时段 × 对象没有异常 Trace</div>
+    </div>
+    <div v-else class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>Trace ID</th>
+            <th>源 IP</th>
+            <th>目标 IP</th>
+            <th>类型</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in objectDetail.rows" :key="row.trace_id || row.id">
+            <td style="font-size: 12px; font-family: monospace">
+              {{ (row.timestamp || '').slice(0, 19) }}
+            </td>
+            <td>
+              <span class="trace-chip">{{ row.trace_id }}</span>
+            </td>
+            <td style="font-family: monospace">{{ row.src_ip || '-' }}</td>
+            <td style="font-family: monospace">{{ row.dst_ip || '-' }}</td>
+            <td>
+              <div class="task-actions">
+                <span
+                  v-for="tag in podRowTags(row)"
+                  :key="tag.type"
+                  :class="['badge', tag.type === 'fault' ? 'badge-failed' : 'badge-warning']"
+                  >{{ tag.label }}</span
+                >
+              </div>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-primary" @click="openTraceDrawer(row)">
+                查看 Trace 详情
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div
+      style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px"
+      v-if="objectDetailPages > 1"
+    >
+      <span style="font-size: 13px; color: var(--text2)"
+        >共 {{ objectDetail.total }} 条 · 第 {{ objectDetail.page }} /
+        {{ objectDetailPages }} 页</span
+      >
+      <PageNav
+        :page="objectDetail.page"
+        :pages="objectDetailPages"
+        @update:page="objectDetailGoPage($event)"
+      />
+    </div>
+  </BaseModal>
+
+  <!-- ============ Trace 链路抽屉 ============ -->
+  <BaseModal
+    :open="detailDrawerOpen"
+    size="xl"
+    :title="detailDrawerRow ? 'Trace：' + detailDrawerRow.trace_id : '日志详情'"
+    @close="detailDrawerOpen = false"
+  >
+    <div v-if="detailDrawerRow">
+      <div style="font-size: 13px; color: var(--text2); margin-bottom: 12px; line-height: 1.9">
+        时间:
+        <b style="color: var(--text)">{{ (detailDrawerRow.timestamp || '').slice(0, 19) }}</b
+        ><br />
+        操作:
+        <span
+          :class="
+            String(detailDrawerRow.operation || '')
+              .toUpperCase()
+              .includes('SET')
+              ? 'badge action-badge-set'
+              : 'badge action-badge-get'
           "
         >
-          <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
-            {{ primaryFailureMode.name }}
-            <span
-              v-for="code in drawerFaultCodes(detailDrawerRow)"
-              :key="code"
-              class="fault-code-chip"
-              >故障码 {{ code }}</span
-            >
-          </div>
-          <div style="font-size: 12px; color: var(--text2); line-height: 1.7">
-            症状：{{ primaryFailureMode.symptom }}<br />
-            根因：{{ primaryFailureMode.root_cause }}<br />
-            解决：{{ primaryFailureMode.solution }}
-          </div>
+          {{ normalizeTraceOperation(detailDrawerRow.operation) }}
+        </span>
+        &nbsp;·&nbsp; 总时延:
+        <b style="color: var(--danger)"
+          >{{
+            (
+              Number(detailDrawerRow.total_latency) ||
+              Number(detailDrawerRow.total_latency_us) / 1000 ||
+              0
+            ).toFixed(3)
+          }}
+          ms</b
+        >
+        <span
+          v-if="
+            detailDrawerRow.is_anomalous ||
+            normalizeFaultCodes(detailDrawerRow.status_code).length > 0
+          "
+          class="badge badge-anomaly"
+          style="margin-left: 8px"
+          >异常</span
+        >
+      </div>
+
+      <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">
+        运行日志（{{ traceDrawerLogs.length }} 条）
+      </div>
+      <div class="table-wrap" style="margin-bottom: 16px">
+        <table class="log-table" style="min-width: 1100px">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>level</th>
+              <th>filename</th>
+              <th>pod_name</th>
+              <th>pid:tid</th>
+              <th>cluster_name</th>
+              <th>message</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(log, index) in traceDrawerLogs" :key="index">
+              <td style="font-size: 11px; font-family: monospace">
+                {{ (log.timestamp || '').slice(0, 23) }}
+              </td>
+              <td>{{ log.level }}</td>
+              <td style="font-size: 11px; font-family: monospace">{{ log.filename || '-' }}</td>
+              <td style="font-family: monospace">{{ log.pod_name || '-' }}</td>
+              <td>{{ log.pid && log.tid ? log.pid + ':' + log.tid : '-' }}</td>
+              <td>{{ log.cluster_name || '-' }}</td>
+              <td style="white-space: normal; font-size: 12px">{{ log.message || '-' }}</td>
+            </tr>
+            <tr v-if="traceDrawerLogs.length === 0">
+              <td colspan="7" style="text-align: center; color: var(--text3)">
+                该 Trace 暂无运行日志
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">故障模式详情</div>
+      <div
+        v-if="primaryFailureMode"
+        style="
+          border: 1px solid #fecaca;
+          background: #fef2f2;
+          border-radius: 4px;
+          padding: 10px 12px;
+          margin-bottom: 16px;
+        "
+      >
+        <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
+          {{ primaryFailureMode.name }}
+          <span
+            v-for="code in drawerFaultCodes(detailDrawerRow)"
+            :key="code"
+            class="fault-code-chip"
+            >故障码 {{ code }}</span
+          >
         </div>
+        <div style="font-size: 12px; color: var(--text2); line-height: 1.7">
+          症状：{{ primaryFailureMode.symptom }}<br />
+          根因：{{ primaryFailureMode.root_cause }}<br />
+          解决：{{ primaryFailureMode.solution }}
+        </div>
+      </div>
+      <div
+        v-else
+        style="
+          border: 1px solid var(--border);
+          border-radius: 4px;
+          padding: 10px 12px;
+          margin-bottom: 16px;
+          color: var(--text3);
+          font-size: 13px;
+        "
+      >
+        暂无故障模式
+      </div>
+
+      <div
+        style="
+          font-weight: 600;
+          font-size: 13px;
+          margin-bottom: 8px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        "
+      >
+        相关故障（{{ relatedFaultIds.length }}）
+        <button
+          v-if="relatedFaultIds.length > 0"
+          class="btn btn-text btn-sm"
+          @click="relatedFaultsOpen = !relatedFaultsOpen"
+        >
+          {{ relatedFaultsOpen ? '收起' : '展开' }}
+        </button>
+      </div>
+      <div
+        v-if="relatedFaultIds.length === 0"
+        style="color: var(--text3); font-size: 13px; margin-bottom: 16px"
+      >
+        暂无相关故障
+      </div>
+      <template v-else-if="relatedFaultsOpen">
         <div
-          v-else
+          v-for="id in relatedFaultIds"
+          :key="id"
           style="
             border: 1px solid var(--border);
             border-radius: 4px;
             padding: 10px 12px;
-            margin-bottom: 16px;
-            color: var(--text3);
-            font-size: 13px;
-          "
-        >
-          暂无故障模式
-        </div>
-
-        <div
-          style="
-            font-weight: 600;
-            font-size: 13px;
             margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-size: 12px;
           "
         >
-          相关故障（{{ relatedFaultIds.length }}）
-          <button
-            v-if="relatedFaultIds.length > 0"
-            class="btn btn-text btn-sm"
-            @click="relatedFaultsOpen = !relatedFaultsOpen"
-          >
-            {{ relatedFaultsOpen ? '收起' : '展开' }}
-          </button>
-        </div>
-        <div
-          v-if="relatedFaultIds.length === 0"
-          style="color: var(--text3); font-size: 13px; margin-bottom: 16px"
-        >
-          暂无相关故障
-        </div>
-        <template v-else-if="relatedFaultsOpen">
-          <div
-            v-for="id in relatedFaultIds"
-            :key="id"
-            style="
-              border: 1px solid var(--border);
-              border-radius: 4px;
-              padding: 10px 12px;
-              margin-bottom: 8px;
-              font-size: 12px;
-            "
-          >
-            <div style="font-weight: 600; margin-bottom: 4px">
-              {{ failureModeOf(id)?.name || id }}
-              <span v-for="code in relatedFaultCodes(id)" :key="code" class="fault-code-chip"
-                >故障码 {{ code }}</span
-              >
-            </div>
-            <div style="color: var(--text2); line-height: 1.7">
-              症状：{{ failureModeOf(id)?.symptom || '-' }}<br />
-              根因：{{ failureModeOf(id)?.root_cause || '-' }}<br />
-              解决：{{ failureModeOf(id)?.solution || '-' }}
-            </div>
+          <div style="font-weight: 600; margin-bottom: 4px">
+            {{ failureModeOf(id)?.name || id }}
+            <span v-for="code in relatedFaultCodes(id)" :key="code" class="fault-code-chip"
+              >故障码 {{ code }}</span
+            >
           </div>
-        </template>
-
-        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">时延明细</div>
-        <div class="table-wrap" style="margin-bottom: 8px">
-          <table>
-            <thead>
-              <tr>
-                <th>阶段</th>
-                <th>时延</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="stage in traceStageRows(detailDrawerRow)" :key="stage.name">
-                <td>{{ stage.name }}</td>
-                <td>
-                  {{ stage.value == null ? '未解析' : Number(stage.value).toFixed(3) + ' ms' }}
-                </td>
-                <td>
-                  <span
-                    :class="
-                      stage.status === '异常'
-                        ? 'badge badge-anomaly'
-                        : stage.status === '正常'
-                          ? 'badge badge-normal'
-                          : 'badge badge-pending'
-                    "
-                  >
-                    {{ stage.status }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div style="color: var(--text2); line-height: 1.7">
+            症状：{{ failureModeOf(id)?.symptom || '-' }}<br />
+            根因：{{ failureModeOf(id)?.root_cause || '-' }}<br />
+            解决：{{ failureModeOf(id)?.solution || '-' }}
+          </div>
         </div>
+      </template>
+
+      <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">时延明细</div>
+      <div class="table-wrap" style="margin-bottom: 8px">
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>时延</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="stage in traceStageRows(detailDrawerRow)" :key="stage.name">
+              <td>{{ stage.name }}</td>
+              <td>
+                {{ stage.value == null ? '未解析' : Number(stage.value).toFixed(3) + ' ms' }}
+              </td>
+              <td>
+                <span
+                  :class="
+                    stage.status === '异常'
+                      ? 'badge badge-anomaly'
+                      : stage.status === '正常'
+                        ? 'badge badge-normal'
+                        : 'badge badge-pending'
+                  "
+                >
+                  {{ stage.status }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
-
-<style scoped>
-@media (max-width: 768px) {
-  .detail-drawer {
-    width: 100vw;
-    height: 100vh;
-    border-radius: 0;
-  }
-}
-</style>

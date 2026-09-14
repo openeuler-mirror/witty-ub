@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
+import BaseModal from './BaseModal.vue'
 import type { LogKnowledge } from '../../types'
 import {
   PATTERN_TYPES,
@@ -190,189 +191,170 @@ const save = async () => {
 </script>
 
 <template>
-  <div class="modal-overlay" v-if="open" @click.self="close">
-    <div class="parse-config-drawer">
+  <BaseModal
+    :open="open"
+    size="drawer"
+    :label="`日志解析配置 · ${asset?.name || '-'}`"
+    @close="close"
+  >
+    <template #header>
       <div class="agent-header">
         日志解析配置 · {{ asset?.name || '-' }}
-        <button class="close" @click="close">✕</button>
+        <button class="close" aria-label="关闭" @click="close">✕</button>
       </div>
-      <div class="parse-config-body">
-        <div v-if="assetType === 'brpc'" class="empty" style="padding: 48px 0">
-          <div class="icon">🔒</div>
-          <div>UBSocket 日志解析暂不支持配置</div>
-        </div>
-        <template v-else>
-          <div v-if="error" class="error-banner">{{ error }}</div>
-          <div v-if="validationError" class="error-banner">{{ validationError }}</div>
-          <div v-if="loading" class="empty" style="padding: 48px 0">
-            <div class="icon">⏳</div>
-            <div>正在加载配置...</div>
-          </div>
-          <template v-else>
-            <p class="parse-summary">{{ parseConfigSummary }}</p>
-
-            <section class="parse-section">
-              <h3>从其他资产库导入</h3>
-              <div class="import-row">
-                <select class="select" v-model="importAssetId" style="flex: 1">
-                  <option value="">选择资产库...</option>
-                  <option v-for="item in importAssets" :key="item.id" :value="item.id">
-                    {{ item.name }}
-                  </option>
-                </select>
-                <button
-                  class="btn btn-default btn-sm"
-                  :disabled="!importAssetId || importing"
-                  @click="importFromAsset"
-                >
-                  {{ importing ? '导入中...' : '导入' }}
-                </button>
-              </div>
-              <div v-if="importMessage" class="import-message">{{ importMessage }}</div>
-            </section>
-
-            <section class="parse-section">
-              <h3>日志文件名 Pattern</h3>
-              <div v-for="type in PATTERN_TYPES" :key="type.key" class="pattern-block">
-                <div class="pattern-label">{{ type.label }}</div>
-                <div class="pattern-chips">
-                  <span
-                    v-for="(pattern, index) in draft.logFilenamePattern[type.key]"
-                    :key="pattern"
-                    class="pattern-chip"
-                  >
-                    {{ pattern }}
-                    <button class="chip-remove" @click="removePattern(type.key, index)">✕</button>
-                  </span>
-                  <span
-                    v-if="draft.logFilenamePattern[type.key].length === 0"
-                    class="pattern-empty"
-                  >
-                    暂无 Pattern
-                  </span>
-                </div>
-                <div class="pattern-add">
-                  <input
-                    class="input"
-                    :placeholder="`添加 ${type.label} Pattern，如 *client*.log`"
-                    v-model="patternInputs[type.key]"
-                    @keydown.enter.prevent="addPattern(type.key)"
-                  />
-                  <button class="btn btn-default btn-sm" @click="addPattern(type.key)">添加</button>
-                </div>
-              </div>
-            </section>
-
-            <section class="parse-section">
-              <h3>时延异常阈值（ms）</h3>
-              <div class="threshold-grid">
-                <label v-for="option in THRESHOLD_OPTIONS" :key="option.key" class="threshold-item">
-                  <span class="threshold-label">
-                    {{ option.label }}
-                    <span
-                      v-if="!CONSUMED_THRESHOLD_KEYS.has(option.key)"
-                      class="config-ineffective-chip"
-                      title="后端判定暂未消费该配置项，保存仅持久化"
-                      >暂未生效</span
-                    >
-                  </span>
-                  <input
-                    class="input"
-                    :class="{ invalid: invalidFields.has(option.key) }"
-                    type="text"
-                    v-model="draft.logAnalyzerParams[option.key as DiagnosisThresholdKey]"
-                  />
-                  <span class="threshold-desc">{{ option.description }}</span>
-                </label>
-              </div>
-            </section>
-
-            <section class="parse-section">
-              <h3>
-                滑动窗口对（size / step）
-                <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
-                  >暂未生效</span
-                >
-              </h3>
-              <div
-                v-for="(pair, index) in draft.logAnalyzerParams.slidingWindowPairs"
-                :key="index"
-                class="sliding-row"
-              >
-                <input
-                  class="input"
-                  :class="{ invalid: invalidFields.has(slidingFieldId(index, 'size')) }"
-                  type="text"
-                  v-model="pair.size"
-                  placeholder="窗口大小"
-                />
-                <input
-                  class="input"
-                  :class="{ invalid: invalidFields.has(slidingFieldId(index, 'step')) }"
-                  type="text"
-                  v-model="pair.step"
-                  placeholder="滑动步长"
-                />
-                <button class="btn btn-default btn-sm" @click="removeSlidingWindowPair(index)">
-                  删除
-                </button>
-              </div>
-              <button class="btn btn-text btn-sm" @click="addSlidingWindowPair">
-                ＋ 添加窗口对
-              </button>
-            </section>
-
-            <section class="parse-section">
-              <h3>
-                区间异常密度阈值
-                <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
-                  >暂未生效</span
-                >
-              </h3>
-              <div class="sliding-row">
-                <input
-                  class="input"
-                  :class="{ invalid: invalidFields.has('zone_anomaly_density_threshold') }"
-                  type="text"
-                  v-model="draft.logAnalyzerParams.zone_anomaly_density_threshold"
-                />
-                <span class="threshold-desc">取值 (0, 1]</span>
-              </div>
-            </section>
-          </template>
-        </template>
-      </div>
-      <div class="parse-config-footer" v-if="assetType !== 'brpc'">
-        <button class="btn btn-default" :disabled="loading || saving" @click="resetDraft">
-          恢复默认
-        </button>
-        <button class="btn btn-primary" :disabled="loading || saving" @click="save">
-          {{ saving ? '保存中...' : '保存' }}
-        </button>
-      </div>
+    </template>
+    <div v-if="assetType === 'brpc'" class="empty" style="padding: 48px 0">
+      <div class="icon">🔒</div>
+      <div>UBSocket 日志解析暂不支持配置</div>
     </div>
-  </div>
+    <template v-else>
+      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div v-if="validationError" class="error-banner">{{ validationError }}</div>
+      <div v-if="loading" class="empty" style="padding: 48px 0">
+        <div class="icon">⏳</div>
+        <div>正在加载配置...</div>
+      </div>
+      <template v-else>
+        <p class="parse-summary">{{ parseConfigSummary }}</p>
+
+        <section class="parse-section">
+          <h3>从其他资产库导入</h3>
+          <div class="import-row">
+            <select class="select" v-model="importAssetId" style="flex: 1">
+              <option value="">选择资产库...</option>
+              <option v-for="item in importAssets" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+            <button
+              class="btn btn-default btn-sm"
+              :disabled="!importAssetId || importing"
+              @click="importFromAsset"
+            >
+              {{ importing ? '导入中...' : '导入' }}
+            </button>
+          </div>
+          <div v-if="importMessage" class="import-message">{{ importMessage }}</div>
+        </section>
+
+        <section class="parse-section">
+          <h3>日志文件名 Pattern</h3>
+          <div v-for="type in PATTERN_TYPES" :key="type.key" class="pattern-block">
+            <div class="pattern-label">{{ type.label }}</div>
+            <div class="pattern-chips">
+              <span
+                v-for="(pattern, index) in draft.logFilenamePattern[type.key]"
+                :key="pattern"
+                class="pattern-chip"
+              >
+                {{ pattern }}
+                <button class="chip-remove" @click="removePattern(type.key, index)">✕</button>
+              </span>
+              <span v-if="draft.logFilenamePattern[type.key].length === 0" class="pattern-empty">
+                暂无 Pattern
+              </span>
+            </div>
+            <div class="pattern-add">
+              <input
+                class="input"
+                :placeholder="`添加 ${type.label} Pattern，如 *client*.log`"
+                v-model="patternInputs[type.key]"
+                @keydown.enter.prevent="addPattern(type.key)"
+              />
+              <button class="btn btn-default btn-sm" @click="addPattern(type.key)">添加</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="parse-section">
+          <h3>时延异常阈值（ms）</h3>
+          <div class="threshold-grid">
+            <label v-for="option in THRESHOLD_OPTIONS" :key="option.key" class="threshold-item">
+              <span class="threshold-label">
+                {{ option.label }}
+                <span
+                  v-if="!CONSUMED_THRESHOLD_KEYS.has(option.key)"
+                  class="config-ineffective-chip"
+                  title="后端判定暂未消费该配置项，保存仅持久化"
+                  >暂未生效</span
+                >
+              </span>
+              <input
+                class="input"
+                :class="{ invalid: invalidFields.has(option.key) }"
+                type="text"
+                v-model="draft.logAnalyzerParams[option.key as DiagnosisThresholdKey]"
+              />
+              <span class="threshold-desc">{{ option.description }}</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="parse-section">
+          <h3>
+            滑动窗口对（size / step）
+            <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
+              >暂未生效</span
+            >
+          </h3>
+          <div
+            v-for="(pair, index) in draft.logAnalyzerParams.slidingWindowPairs"
+            :key="index"
+            class="sliding-row"
+          >
+            <input
+              class="input"
+              :class="{ invalid: invalidFields.has(slidingFieldId(index, 'size')) }"
+              type="text"
+              v-model="pair.size"
+              placeholder="窗口大小"
+            />
+            <input
+              class="input"
+              :class="{ invalid: invalidFields.has(slidingFieldId(index, 'step')) }"
+              type="text"
+              v-model="pair.step"
+              placeholder="滑动步长"
+            />
+            <button class="btn btn-default btn-sm" @click="removeSlidingWindowPair(index)">
+              删除
+            </button>
+          </div>
+          <button class="btn btn-text btn-sm" @click="addSlidingWindowPair">＋ 添加窗口对</button>
+        </section>
+
+        <section class="parse-section">
+          <h3>
+            区间异常密度阈值
+            <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
+              >暂未生效</span
+            >
+          </h3>
+          <div class="sliding-row">
+            <input
+              class="input"
+              :class="{ invalid: invalidFields.has('zone_anomaly_density_threshold') }"
+              type="text"
+              v-model="draft.logAnalyzerParams.zone_anomaly_density_threshold"
+            />
+            <span class="threshold-desc">取值 (0, 1]</span>
+          </div>
+        </section>
+      </template>
+    </template>
+
+    <template v-if="assetType !== 'brpc'" #footer>
+      <button class="btn btn-default" :disabled="loading || saving" @click="resetDraft">
+        恢复默认
+      </button>
+      <button class="btn btn-primary" :disabled="loading || saving" @click="save">
+        {{ saving ? '保存中...' : '保存' }}
+      </button>
+    </template>
+  </BaseModal>
 </template>
 
 <style scoped>
-.parse-config-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: 560px;
-  max-width: 92vw;
-  background: var(--bg, #fff);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
-  display: flex;
-  flex-direction: column;
-  z-index: 60;
-}
-.parse-config-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
 .parse-summary {
   font-size: 12px;
   color: var(--text2);
@@ -477,13 +459,6 @@ const save = async () => {
 }
 .sliding-row .input {
   flex: 1;
-}
-.parse-config-footer {
-  border-top: 1px solid var(--border);
-  padding: 12px 16px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 .input.invalid {
   border-color: var(--danger, #dc2626);
