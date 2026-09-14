@@ -157,6 +157,11 @@ install_backend() {
 
     sync_pg_credentials
 
+    _info "配置 SELinux 后端标签（若已启用）..."
+    configure_backend_selinux || {
+        _warn "SELinux 标签配置失败；若 enforcing 下后端启动失败，请查看 audit 日志"
+    }
+
     _info "启动 witty-ub-latency 服务..."
     systemctl daemon-reload 2>/dev/null || true
     systemctl enable --now witty-ub-latency 2>/dev/null || {
@@ -178,7 +183,7 @@ install_backend() {
     else
         _err "后端 60 秒内未通过健康检查"
         _info "查看日志: sudo witty-ub manager logs"
-        _info "常见原因: PG 凭据不匹配 / 防火墙 / 端口被占用"
+        _info "常见原因: PG 凭据不匹配 / 防火墙 / 端口被占用 / SELinux 安全策略"
         return 1
     fi
 }
@@ -535,6 +540,10 @@ do_start() {
             _err "PostgreSQL 未就绪，请先执行完整部署: sudo witty-ub manager deploy"
             return 1
         fi
+        # systemd 启动 init_t 对 var_t:file 无 execute_no_trans，需要后端标签
+        configure_backend_selinux || {
+            _warn "SELinux 标签配置失败；若 enforcing 下启动失败请查看 audit 日志"
+        }
     fi
     if [ "$WITTY_ROLE" != "backend" ]; then
         render_frontend_configs || return 1
