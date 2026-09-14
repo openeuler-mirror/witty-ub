@@ -297,6 +297,7 @@ onBeforeUnmount(() => {
           :log-files="logFiles"
           :log-files-asset-id="logFilesAssetId"
           :log-files-loading="logFilesLoading"
+          :log-files-error="logFilesError"
         />
       </section>
 
