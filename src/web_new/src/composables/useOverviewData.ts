@@ -708,6 +708,113 @@ function createOverviewStateInner() {
   // 关掉 symbol 就只能看到连线，判断单点取值很吃力
   const brpcLineSymbol = { showSymbol: true, symbol: 'circle' as const, symbolSize: 4 }
 
+  // UBSocket 接口监控 tooltip：
+  // 1) 旧版把 tooltip 画在图表容器里，容器 `.monitor-card{overflow:hidden}` 会把长列表裁掉，
+  //    这里统一 appendToBody（与「最慢请求图」同一套做法），并限制最大高度、允许滚动查看；
+  // 2) 悬停在时间轴上列出该时刻的全部曲线；悬停在具体数据点上（光标距点 ≤ 10px）
+  //    只显示最近的那一个点，便于读单点取值。
+  const BRPC_TOOLTIP_POINT_RADIUS = 10
+  const brpcPointerByChart = new WeakMap<ECharts, { x: number; y: number }>()
+
+  const trackBrpcPointer = (chart: ECharts) => {
+    if (brpcPointerByChart.has(chart)) return
+    const pointer = { x: Number.NaN, y: Number.NaN }
+    brpcPointerByChart.set(chart, pointer)
+    chart.getZr().on('mousemove', (event: any) => {
+      pointer.x = event?.offsetX ?? Number.NaN
+      pointer.y = event?.offsetY ?? Number.NaN
+    })
+    chart.getZr().on('globalout', () => {
+      pointer.x = Number.NaN
+      pointer.y = Number.NaN
+    })
+  }
+
+  const brpcAxisTooltip = (chart: ECharts, formatValue: (param: any) => string) => {
+    trackBrpcPointer(chart)
+    return {
+      trigger: 'axis' as const,
+      appendToBody: true,
+      // 长列表（20+ 条曲线）可把光标移进 tooltip 内滚动查看
+      enterable: true,
+      hideDelay: 300,
+      transitionDuration: 0,
+      extraCssText: 'max-height:62vh;overflow-y:auto;',
+      // ECharts 默认按「图表画布」当视口来摆 tooltip：21 条曲线的列表比画布高，
+      // 会被顶到视口外。这里按浏览器窗口重新夹取，保证整块 tooltip 始终可见。
+      position: (
+        point: number[],
+        _params: any,
+        _dom: any,
+        _rect: any,
+        size: { contentSize: number[] },
+      ) => {
+        const gap = 12
+        const width = size.contentSize[0] ?? 0
+        const height = size.contentSize[1] ?? 0
+        const box = chart.getDom().getBoundingClientRect()
+        const [px, py] = point as [number, number]
+        // 坐标是「图表局部」坐标，所以先把窗口边界换算到同一坐标系
+        const minX = gap - box.left
+        const maxX = window.innerWidth - box.left - gap - width
+        const minY = gap - box.top
+        const maxY = window.innerHeight - box.top - gap - height
+        const clamp = (value: number, min: number, max: number) =>
+          Math.min(Math.max(value, min), Math.max(min, max))
+        // 右侧放不下就翻到左侧，下方放不下就翻到上方，最后统一夹进窗口
+        const fitsRight = px + gap + width <= window.innerWidth - box.left - gap
+        const fitsBelow = py + gap + height <= window.innerHeight - box.top - gap
+        return [
+          clamp(fitsRight ? px + gap : px - gap - width, minX, maxX),
+          clamp(fitsBelow ? py + gap : py - gap - height, minY, maxY),
+        ]
+      },
+      formatter: (params: any) => {
+        const list: any[] = Array.isArray(params) ? params : params ? [params] : []
+        if (!list.length) return ''
+        const pointer = brpcPointerByChart.get(chart)
+        let rows = list
+        if (pointer && Number.isFinite(pointer.x) && Number.isFinite(pointer.y)) {
+          let nearest: any = null
+          let nearestDistance = BRPC_TOOLTIP_POINT_RADIUS
+          list.forEach((param) => {
+            if (typeof param.value !== 'number' || !Number.isFinite(param.value)) return
+            const pixel = chart.convertToPixel({ seriesIndex: param.seriesIndex }, [
+              param.dataIndex,
+              param.value,
+            ]) as number[] | undefined
+            if (!pixel) return
+            const px = pixel[0] ?? Number.NaN
+            const py = pixel[1] ?? Number.NaN
+            if (!Number.isFinite(px) || !Number.isFinite(py)) return
+            const distance = Math.hypot(px - pointer.x, py - pointer.y)
+            if (distance <= nearestDistance) {
+              nearest = param
+              nearestDistance = distance
+            }
+          })
+          // 命中具体数据点 → 只看这一个点；否则视为只悬停时间轴 → 列出全部曲线
+          if (nearest) rows = [nearest]
+        }
+        const sorted = [...rows].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+        const head = `<div class="brpc-tooltip-head">${escapeChartHtml(
+          sorted[0]?.axisValueLabel ?? sorted[0]?.axisValue ?? '',
+        )}</div>`
+        const body = sorted
+          .map(
+            (param) =>
+              `<div class="brpc-tooltip-row"><span class="brpc-tooltip-dot" style="background:${
+                param.color
+              }"></span><span class="brpc-tooltip-name">${escapeChartHtml(
+                param.seriesName,
+              )}</span><span class="brpc-tooltip-value">${formatValue(param)}</span></div>`,
+          )
+          .join('')
+        return `<div class="brpc-tooltip">${head}${body}</div>`
+      },
+    }
+  }
+
   // 文件存在但该文件没有任何 profiling 行 → 「当前筛选时间范围内无数据」（对齐上游 0e663a22）
   const brpcHasRows = computed(() => brpcFileRows.value.length > 0)
 
@@ -4728,12 +4835,9 @@ function createOverviewStateInner() {
         }
       })
       setChartOption(chart, {
-        tooltip: {
-          trigger: 'axis',
-          order: 'valueDesc',
-          valueFormatter: (value: unknown) =>
-            typeof value === 'number' ? `${value}${isRate ? '%' : ''}` : '-',
-        },
+        tooltip: brpcAxisTooltip(chart, (param: any) =>
+          typeof param.value === 'number' ? `${param.value}${isRate ? '%' : ''}` : '-',
+        ),
         legend: { show: false },
         grid: { left: 64, right: 32, top: 24, bottom: 76 },
         xAxis: {
@@ -4774,7 +4878,12 @@ function createOverviewStateInner() {
         brpcSingleMetrics.some((option) => option.value === metric),
       )
       setChartOption(chart, {
-        tooltip: { trigger: 'axis', order: 'valueDesc' },
+        // 数量与比率混在同一张图里，逐条曲线按自己的口径带上单位
+        tooltip: brpcAxisTooltip(chart, (param: any) => {
+          if (typeof param.value !== 'number') return '-'
+          const metric = brpcSingleMetrics.find((option) => option.label === param.seriesName)?.value
+          return metric && isBrpcRateMetric(metric) ? `${param.value}%` : String(param.value)
+        }),
         // 图例居中放，避免与右轴名（比率 %）在右上角重叠
         legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
         grid: { left: 64, right: 64, top: 48, bottom: 76 },
@@ -4844,12 +4953,9 @@ function createOverviewStateInner() {
         selected.includes(option.value),
       )
       setChartOption(chart, {
-        tooltip: {
-          trigger: 'axis',
-          order: 'valueDesc',
-          valueFormatter: (value: unknown) =>
-            typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
-        },
+        tooltip: brpcAxisTooltip(chart, (param: any) =>
+          typeof param.value === 'number' ? `${param.value} µs` : '-',
+        ),
         legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
         grid: { left: 64, right: 40, top: 48, bottom: 76 },
         xAxis: {
@@ -4917,12 +5023,9 @@ function createOverviewStateInner() {
         }
       })
       setChartOption(chart, {
-        tooltip: {
-          trigger: 'axis',
-          order: 'valueDesc',
-          valueFormatter: (value: unknown) =>
-            typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
-        },
+        tooltip: brpcAxisTooltip(chart, (param: any) =>
+          typeof param.value === 'number' ? `${param.value} µs` : '-',
+        ),
         legend: { show: false },
         grid: { left: 68, right: 32, top: 24, bottom: 76 },
         xAxis: {

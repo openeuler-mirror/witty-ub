@@ -2218,6 +2218,46 @@ html.is-modal-open {
   background: var(--surface);
 }
 
+/* UBSocket 接口监控 tooltip（挂到 body，必须是全局样式） */
+.brpc-tooltip {
+  min-width: 180px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.brpc-tooltip-head {
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+}
+
+.brpc-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 18px;
+}
+
+.brpc-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.brpc-tooltip-name {
+  flex: 1;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.brpc-tooltip-value {
+  margin-left: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* X1：最慢请求图 tooltip（ECharts tooltip 挂到 body，必须是全局样式） */
 
 .slow-tooltip-trace {
