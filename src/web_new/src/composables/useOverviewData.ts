@@ -704,6 +704,10 @@ function createOverviewStateInner() {
   // U1：横轴标签按点数抽稀（密集时序下旋转标签会互相重叠）
   const brpcAxisLabelStep = (count: number) => Math.max(0, Math.ceil(count / 12) - 1)
 
+  // 与旧版一致：每条曲线的数据点画小圆圈（旧版没设 symbol，走 ECharts 默认 circle / size 4），
+  // 关掉 symbol 就只能看到连线，判断单点取值很吃力
+  const brpcLineSymbol = { showSymbol: true, symbol: 'circle' as const, symbolSize: 4 }
+
   // 文件存在但该文件没有任何 profiling 行 → 「当前筛选时间范围内无数据」（对齐上游 0e663a22）
   const brpcHasRows = computed(() => brpcFileRows.value.length > 0)
 
@@ -4713,8 +4717,8 @@ function createOverviewStateInner() {
         return {
           name: iface,
           type: 'line',
+          ...brpcLineSymbol,
           smooth: true,
-          symbol: 'none',
           lineStyle: { width: 2, color },
           itemStyle: { color },
           data: times.map((time) => {
@@ -4804,8 +4808,8 @@ function createOverviewStateInner() {
           return {
             name: brpcSingleMetrics.find((option) => option.value === metric)?.label ?? metric,
             type: 'line',
+            ...brpcLineSymbol,
             smooth: true,
-            symbol: 'none',
             lineStyle: { width: 2, color },
             itemStyle: { color },
             yAxisIndex: isBrpcRateMetric(metric) ? 1 : 0,
@@ -4862,8 +4866,8 @@ function createOverviewStateInner() {
         series: metricDefs.map((def) => ({
           name: def.label,
           type: 'line',
+          ...brpcLineSymbol,
           smooth: true,
-          symbol: 'none',
           lineStyle: { width: 2, color: brpcSingleLatencyColor(def.value) },
           itemStyle: { color: brpcSingleLatencyColor(def.value) },
           data: times.map((time) => {
@@ -4899,8 +4903,8 @@ function createOverviewStateInner() {
         return {
           name: iface,
           type: 'line',
+          ...brpcLineSymbol,
           smooth: true,
-          symbol: 'none',
           lineStyle: { width: 2, color },
           itemStyle: { color },
           data: times.map((time) => {
