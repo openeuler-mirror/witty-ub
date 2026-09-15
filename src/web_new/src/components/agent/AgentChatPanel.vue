@@ -65,6 +65,25 @@ const {
 const open = ref(false)
 const fabRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
+const tintRef = ref<HTMLElement | null>(null)
+
+/* ===== FAB ↔ 面板变形（用户诉求：点击后按钮变成 Agent 窗口）=====
+   面板与 FAB 都是 right/bottom 定位、右下角共点，CSS 里 transform-origin 也是 right bottom，
+   所以「折叠态」只要按两个方向的尺寸比 scale、再 translate 补齐右下角偏差，
+   就能精确落在按钮矩形上（位置/尺寸/圆角都对得上），动画结束后撤销覆盖样式，
+   面板回到常规尺寸（包含用户拖拽缩放后的尺寸）。 */
+const PANEL_RADIUS = 22
+const MORPH_OPEN_MS = 420
+const MORPH_CLOSE_MS = 300
+const MORPH_TINT_OPEN_MS = 210
+const MORPH_EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)'
+const MORPH_EASE_IN = 'cubic-bezier(0.4, 0, 0.2, 1)'
+
+// 变形期间 FAB 让位（面板从按钮处长出并盖住它），关闭动画结束时再显示
+const fabHidden = ref(false)
+let morphAnimation: Animation | undefined
+let tintAnimation: Animation | undefined
+let morphing = false
 
 // A1（对齐旧版 eed74f7e）：面板可拖拽缩放（上/左/左上角手柄）
 const panelSize = reactive<{ width: number | null; height: number | null }>({
@@ -87,10 +106,11 @@ let panelResize:
 
 const resizePanel = (event: PointerEvent) => {
   if (!panelResize) return
-  const maxWidth = Math.max(320, window.innerWidth - 32)
-  const maxHeight = Math.max(320, window.innerHeight - 106)
-  const minWidth = Math.min(640, maxWidth)
-  const minHeight = Math.min(420, maxHeight)
+  // 面板右下角固定在 FAB 处（right 28 / bottom 26），左/上各留 16px 让拖拽有边界
+  const maxWidth = Math.max(320, window.innerWidth - 44)
+  const maxHeight = Math.max(320, window.innerHeight - 42)
+  const minWidth = Math.min(760, maxWidth)
+  const minHeight = Math.min(520, maxHeight)
   if (panelResize.direction !== 'top') {
     panelSize.width = Math.min(
       maxWidth,
@@ -119,6 +139,74 @@ const stopPanelResize = () => {
   window.removeEventListener('pointercancel', stopPanelResize)
 }
 
+const prefersReducedMotion = () =>
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+
+// 半径是椭圆写法（水平 垂直）：折叠时按两个方向的缩放比分别换算，
+// 观感上圆角与按钮一致（单值半径在非等比缩放下会变成扁圆）
+const cornerRadiusFrame = (radiusX: number, radiusY: number) => ({
+  borderTopLeftRadius: `${radiusX}px ${radiusY}px`,
+  borderTopRightRadius: `${radiusX}px ${radiusY}px`,
+  borderBottomRightRadius: `${radiusX}px ${radiusY}px`,
+  borderBottomLeftRadius: `${radiusX}px ${radiusY}px`,
+})
+
+// 折叠帧：面板缩成 FAB 的矩形（位置/尺寸/圆角都对得上按钮）
+const collapseFrame = (): Keyframe | null => {
+  const panel = panelRef.value
+  const fab = fabRef.value
+  if (!panel || !fab) return null
+  const panelRect = panel.getBoundingClientRect()
+  const fabRect = fab.getBoundingClientRect()
+  if (panelRect.width < 1 || panelRect.height < 1 || fabRect.width < 1) return null
+  const scaleX = fabRect.width / panelRect.width
+  const scaleY = fabRect.height / panelRect.height
+  return {
+    transform: `translate(${fabRect.right - panelRect.right}px, ${
+      fabRect.bottom - panelRect.bottom
+    }px) scale(${scaleX}, ${scaleY})`,
+    ...cornerRadiusFrame(
+      Math.min(9999, PANEL_RADIUS / scaleX),
+      Math.min(9999, PANEL_RADIUS / scaleY),
+    ),
+  }
+}
+
+const panelFrame = (): Keyframe => ({
+  transform: 'translate(0px, 0px) scale(1, 1)',
+  ...cornerRadiusFrame(PANEL_RADIUS, PANEL_RADIUS),
+})
+
+// 面板补间（尺寸/圆角）+ 按钮色罩补间（渐变→白/白→渐变）同时起跑
+const runMorph = (
+  frames: Keyframe[],
+  duration: number,
+  easing: string,
+  tint: { from: number; to: number; duration: number; easing: string },
+) => {
+  const panel = panelRef.value
+  if (!panel || typeof panel.animate !== 'function') return null
+  morphAnimation?.cancel()
+  tintAnimation?.cancel()
+  morphAnimation = panel.animate(frames, { duration, easing, fill: 'backwards' })
+  const tintEl = tintRef.value
+  if (tintEl) {
+    tintAnimation = tintEl.animate([{ opacity: tint.from }, { opacity: tint.to }], {
+      duration: tint.duration,
+      easing: tint.easing,
+      fill: 'backwards',
+    })
+  }
+  return morphAnimation
+}
+
+const cancelMorph = () => {
+  morphAnimation?.cancel()
+  tintAnimation?.cancel()
+  morphAnimation = undefined
+  tintAnimation = undefined
+}
+
 const startPanelResize = (direction: 'top' | 'left' | 'corner', event: PointerEvent) => {
   const panel = panelRef.value
   if (!panel) return
@@ -142,19 +230,64 @@ const startPanelResize = (direction: 'top' | 'left' | 'corner', event: PointerEv
 const syncAsset = () =>
   setAsset(props.asset ? { id: props.asset.id, name: props.asset.name } : null)
 
-const toggle = () => {
-  open.value = !open.value
-  if (open.value) {
-    syncAsset()
-    restoreOnce()
-    void scrollToBottom()
-    void nextTick(() => panelRef.value?.focus())
-  }
+// 点按钮：面板从按钮矩形长出（折叠帧 → 常规帧），按钮在变形期间让位，屏幕不再同时摆按钮和窗口
+const openPanel = () => {
+  if (open.value || morphing) return
+  morphing = true
+  syncAsset()
+  restoreOnce()
+  open.value = true
+  fabHidden.value = true
+  void scrollToBottom()
+  void nextTick(() => {
+    panelRef.value?.focus()
+    const collapsed = prefersReducedMotion() ? null : collapseFrame()
+    const animation = collapsed
+      ? runMorph([collapsed, panelFrame()], MORPH_OPEN_MS, MORPH_EASE_OUT, {
+          from: 1,
+          to: 0,
+          duration: MORPH_TINT_OPEN_MS,
+          easing: 'linear',
+        })
+      : null
+    if (!animation) {
+      morphing = false
+      return
+    }
+    void animation.finished
+      .then(() => cancelMorph())
+      .catch(() => {})
+      .finally(() => {
+        morphing = false
+      })
+  })
 }
 
+// 关闭：面板收回按钮矩形，落位后再把 FAB 显示出来（两者同形，交接无跳变）
 const closePanel = () => {
-  open.value = false
-  void nextTick(() => fabRef.value?.focus())
+  if (!open.value || morphing) return
+  morphing = true
+  const collapsed = prefersReducedMotion() ? null : collapseFrame()
+  const animation = collapsed
+    ? runMorph([panelFrame(), collapsed], MORPH_CLOSE_MS, MORPH_EASE_IN, {
+        from: 0,
+        to: 1,
+        duration: MORPH_CLOSE_MS,
+        easing: 'ease-in',
+      })
+    : null
+  const finish = () => {
+    cancelMorph()
+    open.value = false
+    fabHidden.value = false
+    morphing = false
+    void nextTick(() => fabRef.value?.focus())
+  }
+  if (!animation) {
+    finish()
+    return
+  }
+  void animation.finished.then(finish).catch(() => {})
 }
 
 let restored = false
@@ -178,6 +311,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   stopPanelResize()
+  cancelMorph()
   suspend()
 })
 
@@ -209,16 +343,16 @@ const onInputKeydown = (event: KeyboardEvent) => {
 </script>
 
 <template>
-  <!-- FAB：仅分析页挂载（App.vue 控制挂载时机） -->
+  <!-- FAB：仅分析页挂载（App.vue 控制挂载时机）；打开时它变成面板，所以变形期间隐藏自己 -->
   <button
     ref="fabRef"
-    :class="['agent-fab', { active: open }]"
+    :class="['agent-fab', { 'agent-fab-hidden': fabHidden }]"
     type="button"
     title="AI 故障诊断助手"
     :aria-label="open ? '关闭 AI 故障诊断助手' : '打开 AI 故障诊断助手'"
     :aria-expanded="open"
     aria-controls="agent-chat-panel"
-    @click="toggle"
+    @click="openPanel"
   >
     <svg viewBox="0 0 64 64" aria-hidden="true">
       <path d="M32 8v7" />
@@ -229,7 +363,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
       <path d="M23 41c5 4 13 4 18 0M12 29H7v11h5M52 29h5v11h-5M24 50v6M40 50v6" />
     </svg>
     <span
-      v-if="!open"
+      v-if="!fabHidden"
       class="agent-fab-pulse"
       :class="{ disconnected: connectionState !== 'connected' }"
       aria-hidden="true"
@@ -705,6 +839,9 @@ const onInputKeydown = (event: KeyboardEvent) => {
         </form>
       </div>
     </div>
+
+    <!-- 按钮色罩：变形首帧完全覆盖面板（渐变与按钮一致），随生长淡出把窗口化开 -->
+    <span ref="tintRef" class="agent-panel-morph-tint" aria-hidden="true"></span>
   </aside>
 </template>
 
@@ -729,7 +866,8 @@ const onInputKeydown = (event: KeyboardEvent) => {
   position: fixed;
   right: 28px;
   bottom: 26px;
-  z-index: 120;
+  /* 低于面板（119）：面板从按钮处展开时正好盖住它，读起来就是「按钮变成了窗口」 */
+  z-index: 118;
   display: grid;
   width: 62px;
   height: 62px;
@@ -745,7 +883,8 @@ const onInputKeydown = (event: KeyboardEvent) => {
   transition:
     transform 0.2s ease,
     border-radius 0.2s ease,
-    box-shadow 0.2s ease;
+    box-shadow 0.2s ease,
+    opacity 0.16s ease;
 }
 .agent-fab:hover {
   transform: translateY(-3px);
@@ -753,9 +892,13 @@ const onInputKeydown = (event: KeyboardEvent) => {
     0 20px 42px rgba(37, 99, 235, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
-.agent-fab.active {
-  border-radius: 50%;
-  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.3);
+/* 变形期间直接让位（transition: none，避免和面板的变形动画抢视觉），
+   收拢结束摘掉类名时用上面的 opacity 过渡淡入 */
+.agent-fab-hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
 }
 .agent-fab svg {
   width: 38px;
@@ -786,16 +929,18 @@ const onInputKeydown = (event: KeyboardEvent) => {
 }
 .agent-chat-panel {
   position: fixed;
+  /* 右下角与 FAB 共点（right/bottom 同值）：面板直接占用按钮位置，不再为按钮预留下方空间 */
   right: 28px;
-  bottom: 102px;
+  bottom: 26px;
   z-index: 119;
   display: flex;
   overflow: hidden;
-  width: min(980px, calc(100vw - 32px));
-  height: min(800px, calc(100vh - 106px));
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 106px);
-  min-height: 420px;
+  width: min(1240px, calc(100vw - 44px));
+  height: min(880px, calc(100vh - 42px));
+  max-width: calc(100vw - 44px);
+  max-height: calc(100vh - 42px);
+  min-width: min(760px, calc(100vw - 44px));
+  min-height: min(520px, calc(100vh - 42px));
   flex-direction: column;
   border: 1px solid rgba(203, 213, 225, 0.86);
   border-radius: 22px;
@@ -803,8 +948,18 @@ const onInputKeydown = (event: KeyboardEvent) => {
   box-shadow:
     0 28px 70px rgba(15, 23, 42, 0.2),
     0 8px 24px rgba(59, 130, 246, 0.1);
-  animation: agent-panel-in 0.22s ease-out;
+  /* 变形原点：面板从右下角（按钮处）长出/收回，JS 的 transform 依赖这个原点 */
   transform-origin: right bottom;
+}
+/* 与 FAB 同款渐变，静态不透明度为 0（只在变形期间由 JS 补间），
+   因此面板平时不会多出一层色罩 */
+.agent-panel-morph-tint {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  background: linear-gradient(145deg, #4f8cff, #4f46e5);
+  opacity: 0;
+  pointer-events: none;
 }
 .agent-panel-resize-handle {
   position: absolute;
@@ -1646,25 +1801,19 @@ const onInputKeydown = (event: KeyboardEvent) => {
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
   }
 }
-@keyframes agent-panel-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 @media (max-width: 900px) {
   .agent-chat-panel {
-    top: 64px;
+    top: 12px;
     right: 8px;
-    bottom: 88px;
-    width: calc(100vw - 16px);
+    bottom: 8px;
+    left: 8px;
+    width: auto;
     height: auto;
-    max-height: none;
+    min-width: 0;
+    min-height: 0;
+    /* 仍然保留上限：拖拽缩放留下的行内尺寸不能撑破窄屏 */
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 20px);
   }
   .agent-conversation-layout {
     flex-direction: column;
