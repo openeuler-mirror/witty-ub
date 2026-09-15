@@ -452,12 +452,14 @@ export const fetchBrpcBatch = (taskId: string) =>
 export const fetchBrpcBatchMeta = (batchId: string) =>
   request<{ batch: any }>(`/brpc-diagnosis/batch/${encodeURIComponent(batchId)}`)
 
+export type BrpcTimelineWindowSize = '10s' | '1m' | '10m' | '1h'
+
 export const fetchBrpcInterfaceTimeline = (
   batchId: string,
   start: Date,
   end: Date,
-  windowSize = '1m',
-  extra?: { podIp?: string; podName?: string },
+  windowSize: BrpcTimelineWindowSize = '1m',
+  extra?: { podIp?: string; podName?: string; signal?: AbortSignal },
 ) =>
   request<{ series: any[] }>(
     `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/interface-timeline?${toQueryString({
@@ -467,6 +469,7 @@ export const fetchBrpcInterfaceTimeline = (
       pod_ip: extra?.podIp,
       pod_name: extra?.podName,
     })}`,
+    { signal: extra?.signal },
   )
 
 export const fetchBrpcPodEvents = (

@@ -34,6 +34,8 @@ const {
   brpcFaultTab,
   brpcFaultThreadPages,
   brpcFaultTimelineRef,
+  brpcFaultTimelineError,
+  brpcFaultTimelineLoading,
   brpcFaultVisibleSeriesIds,
   brpcFaultZoomed,
   brpcThreadSearchInput,
@@ -124,11 +126,13 @@ onMounted(() => {
               {{ option.label }}
             </option>
           </select>
+          <span v-if="brpcFaultTimelineLoading" class="hint">加载中…</span>
         </span>
       </div>
       <p class="monitor-card-hint">
-        横坐标会根据时间范围缩放，图中数据为缩放后的抽稀结果；拖动下方滑块可框选时间范围
+        横坐标会根据时间范围缩放；聚合尺度按后端预聚合桶查询，拖动下方滑块可框选时间范围
       </p>
+      <div v-if="brpcFaultTimelineError" class="error-banner">{{ brpcFaultTimelineError }}</div>
       <div v-if="brpcFaultSeriesOptions.length > 0" class="series-toggle">
         <span class="series-toggle-label">曲线选择：</span>
         <span class="series-toggle-count">

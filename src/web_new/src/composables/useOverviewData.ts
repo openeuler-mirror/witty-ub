@@ -84,6 +84,7 @@ import {
   fetchTraceLatency,
   fetchTraceLogs,
   searchFaultTracesByTraceId,
+  type BrpcTimelineWindowSize,
 } from '../api/analysis'
 import { createAnalysisFilter, type AnalysisFocus } from './useAnalysisFilter'
 
@@ -1140,7 +1141,9 @@ function createOverviewStateInner() {
     return { startDate, endDate }
   }
 
-  // U5：UBSocket 公共 API 故障时序的时间聚合尺度（客户端再分桶，不改查询口径）
+  // U5：UBSocket 公共 API 故障时序的时间聚合尺度。
+  // 聚合尺度必须回查后端预聚合桶：10 秒粒度只能由 window_size=10s 产生，
+  // 客户端对 1 分钟点再分桶永远得不到 10 秒细节（旧版即按尺度回查）。
   const brpcFaultScaleOptions = [
     { value: 10, label: '10 秒' },
     { value: 60, label: '1 分钟' },
@@ -1148,6 +1151,15 @@ function createOverviewStateInner() {
     { value: 3600, label: '1 小时' },
   ] as const
   const brpcFaultScale = ref<number>(60)
+  const brpcFaultWindowSizeByScale: Record<number, BrpcTimelineWindowSize> = {
+    10: '10s',
+    60: '1m',
+    600: '10m',
+    3600: '1h',
+  }
+  const brpcFaultTimelineWindowSize = computed<BrpcTimelineWindowSize>(
+    () => brpcFaultWindowSizeByScale[brpcFaultScale.value] ?? '1m',
+  )
 
   const brpcFaultSeriesLabel = (series: any) =>
     String(series.interface_name ?? '') +
@@ -1170,27 +1182,24 @@ function createOverviewStateInner() {
     }
   })
 
-  // 按当前尺度把每个接口的秒/分钟点再聚合求和，用于横轴缩放下仍可读
-  const brpcFaultTimelineView = computed(() => {
-    const scaleMs = Math.max(1, brpcFaultScale.value) * 1000
-    return brpcFaultTimelineSeries.value.map((series: any, index: number) => {
-      const buckets = new Map<number, number>()
-      ;(series.points || []).forEach((point: any) => {
-        const ms = tsToEpochMs(String(point.window_start_time ?? ''))
-        if (!Number.isFinite(ms)) return
-        const bucketStart = Math.floor(ms / scaleMs) * scaleMs
-        buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + (point.interface_hit_count ?? 0))
-      })
-      return {
-        id: String(series.interface_id ?? brpcFaultSeriesLabel(series)),
-        label: brpcFaultSeriesLabel(series),
-        color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8',
-        points: [...buckets.entries()]
-          .sort((a, b) => a[0] - b[0])
-          .map(([bucketStart, count]) => ({ time: epochMsToTs(bucketStart), count })),
-      }
-    })
-  })
+  // 直接展示后端按 window_size 预聚合的点，前端不再二次分桶：
+  // 二次分桶只能把粗粒度点合并得更粗，且会掩盖「查询粒度与尺度不一致」的问题
+  const brpcFaultTimelineView = computed(() =>
+    brpcFaultTimelineSeries.value.map((series: any, index: number) => ({
+      id: String(series.interface_id ?? brpcFaultSeriesLabel(series)),
+      label: brpcFaultSeriesLabel(series),
+      color: BRPC_INTERFACE_COLORS[index % BRPC_INTERFACE_COLORS.length] ?? '#94a3b8',
+      points: (series.points || [])
+        .map((point: any) => ({
+          time: String(point.window_start_time ?? ''),
+          count: point.interface_hit_count ?? 0,
+        }))
+        .filter((point: { time: string }) => Number.isFinite(tsToEpochMs(point.time)))
+        .sort(
+          (a: { time: string }, b: { time: string }) => tsToEpochMs(a.time) - tsToEpochMs(b.time),
+        ),
+    })),
+  )
 
   const brpcFaultZoomed = ref(false)
   let brpcFaultZoomBound = false
@@ -1204,7 +1213,11 @@ function createOverviewStateInner() {
         brpcFaultVisibleSeriesIds.value.includes(series.id),
       )
       const times = [
-        ...new Set(seriesList.flatMap((series) => series.points.map((point) => point.time))),
+        ...new Set(
+          seriesList.flatMap((series) =>
+            series.points.map((point: { time: string }) => point.time),
+          ),
+        ),
       ].sort()
       setChartOption(chart, {
         tooltip: { trigger: 'axis', order: 'valueDesc' },
@@ -1222,7 +1235,11 @@ function createOverviewStateInner() {
         },
         yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
         series: seriesList.map((series) => {
-          const byTime = new Map(series.points.map((point) => [point.time, point.count] as const))
+          const byTime = new Map(
+            series.points.map(
+              (point: { time: string; count: number }) => [point.time, point.count] as const,
+            ),
+          )
           return {
             name: series.label,
             type: 'line',
@@ -1502,9 +1519,56 @@ function createOverviewStateInner() {
     })
   }
 
+  // 尺度切换只重查时序图：请求按序发放，过期响应丢弃，避免慢请求覆盖新尺度
+  const brpcFaultTimelineLoading = ref(false)
+  const brpcFaultTimelineError = ref('')
+  let brpcFaultTimelineSeq = 0
+  let brpcFaultTimelineAbort: AbortController | null = null
+
+  const loadBrpcFaultTimeline = async () => {
+    const batch = brpcFaultBatch.value
+    const batchId = brpcFaultBatchId.value
+    if (!batch || !batchId) return
+    const { startDate, endDate } = brpcFaultQueryRange(batch)
+    const windowSize = brpcFaultTimelineWindowSize.value
+    const seq = ++brpcFaultTimelineSeq
+    brpcFaultTimelineAbort?.abort()
+    const controller = new AbortController()
+    brpcFaultTimelineAbort = controller
+    brpcFaultTimelineLoading.value = true
+    brpcFaultTimelineError.value = ''
+    try {
+      const result = await fetchBrpcInterfaceTimeline(batchId, startDate, endDate, windowSize, {
+        signal: controller.signal,
+      })
+      if (seq !== brpcFaultTimelineSeq) return
+      brpcFaultTimelineSeries.value = result.series ?? []
+      // 重绘会回到全量横轴，缩放标记同步复位，避免「重置缩放」按钮残留
+      brpcFaultZoomed.value = false
+      renderBrpcFaultTimeline()
+    } catch (error) {
+      if (seq !== brpcFaultTimelineSeq) return
+      if ((error as { name?: string } | null)?.name === 'AbortError') return
+      brpcFaultTimelineSeries.value = []
+      brpcFaultTimelineError.value = errorText(error)
+      brpcFaultZoomed.value = false
+      renderBrpcFaultTimeline()
+    } finally {
+      if (seq === brpcFaultTimelineSeq) {
+        brpcFaultTimelineLoading.value = false
+        brpcFaultTimelineAbort = null
+      }
+    }
+  }
+
   const loadBrpcFaultData = async () => {
     const logId = brpcFaultSelectedLogId.value || brpcFaultLogOptions.value[0]?.id
     if (!logId) {
+      brpcFaultTimelineSeq += 1
+      brpcFaultTimelineAbort?.abort()
+      brpcFaultTimelineAbort = null
+      brpcFaultTimelineLoading.value = false
+      brpcFaultTimelineError.value = ''
       brpcFaultBatch.value = null
       brpcFaultBatchId.value = ''
       brpcFaultTimelineSeries.value = []
@@ -1522,8 +1586,9 @@ function createOverviewStateInner() {
       brpcFaultBatch.value = batch
       brpcFaultBatchId.value = batchId
       const { startDate, endDate } = brpcFaultQueryRange(batch)
-      const [timelineResult, eventsResult, threadsResult] = await Promise.all([
-        fetchBrpcInterfaceTimeline(batchId, startDate, endDate),
+      // 时序图按当前聚合尺度回查后端预聚合桶；失败在卡片内提示，不拖垮事件/线程列表
+      const timelineRequest = loadBrpcFaultTimeline()
+      const [eventsResult, threadsResult] = await Promise.all([
         (async (): Promise<{ total?: number; events?: any[]; threads?: any[] }> =>
           (brpcEventAggregation.value === 'thread' ? fetchBrpcThreadEvents : fetchBrpcPodEvents)(
             batchId,
@@ -1542,7 +1607,7 @@ function createOverviewStateInner() {
           { search: brpcThreadSearchQuery.value || undefined },
         ),
       ])
-      brpcFaultTimelineSeries.value = timelineResult.series ?? []
+      await timelineRequest
       brpcAggregatedEvents.value = eventsResult.events ?? eventsResult.threads ?? []
       brpcAggregatedEventTotal.value = eventsResult.total ?? 0
       brpcAggregatedEventsTruncated.value = (eventsResult.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
@@ -5323,8 +5388,14 @@ function createOverviewStateInner() {
       renderFaultChart()
     })
 
-    // U5：UBSocket 故障时序的展示尺度/曲线勾选变化只重绘，不重查
-    watch([brpcFaultScale, brpcFaultVisibleSeriesIds], () => {
+    // U5：UBSocket 故障时序的聚合尺度变化 → 按新 window_size 回查预聚合桶后重绘
+    watch(brpcFaultScale, () => {
+      if (!isAssetMode.value || !isBrpcTask.value) return
+      void loadBrpcFaultTimeline()
+    })
+
+    // 曲线勾选只影响展示，不重查
+    watch(brpcFaultVisibleSeriesIds, () => {
       if (!isAssetMode.value || !isBrpcTask.value) return
       renderBrpcFaultTimeline()
     })
@@ -5504,6 +5575,8 @@ function createOverviewStateInner() {
     brpcFaultTab,
     brpcFaultThreadPages,
     brpcFaultTimelineRef,
+    brpcFaultTimelineError,
+    brpcFaultTimelineLoading,
     brpcFaultVisibleSeriesIds,
     brpcFaultZoomed,
     clearBrpcFaultSeries,
