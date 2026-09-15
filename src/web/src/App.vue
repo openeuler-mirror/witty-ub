@@ -2257,9 +2257,18 @@ const isSaving = ref(false)
 const isQuerying = ref(false)
 const errorMessage = ref('')
 const isAssetServiceUnavailable = ref(false)
+const isWriteRestricted = ref(false)
+const writeRestrictedMessage = ref('服务器磁盘空间不足，当前仅开放查询和删除操作')
+let serviceHealthTimer: number | null = null
 const isInitialDataUnavailable = computed(
   () => isAssetServiceUnavailable.value && assets.value.length === 0 && !selectedAsset.value,
 )
+
+type ServiceHealth = {
+  status?: string
+  writable?: boolean
+  message?: string | null
+}
 
 const logSourceInput = ref('')
 type LogType = 'KVCache' | 'UBSocket'
@@ -2640,7 +2649,7 @@ const validateDiagnosisAnalyzerParams = () => {
 }
 
 const saveParseConfig = async () => {
-  if (!selectedAssetId.value || isDiagnosisConfigSaving.value) return
+  if (!selectedAssetId.value || isDiagnosisConfigSaving.value || isWriteRestricted.value) return
   diagnosisConfigError.value = ''
   const analyzerParamsValid = validateDiagnosisAnalyzerParams()
   const emptyPatternType = patternTypeOptions.find(
@@ -4360,7 +4369,10 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) => {
+const formatTraceDelayColumnValue = (
+  value: number | null | undefined,
+  column: TraceDelayColumn,
+) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
   if (value < 0) return '无效值'
   return `${formatMetricValue(value)} ${column.unit}`
@@ -6341,10 +6353,7 @@ const selectedTraceRelatedChildFailureModeIds = computed(() =>
 )
 
 const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
-  getSameErrorCodeFailureModeIds(
-    selectedTraceFailureMode.value,
-    selectedTraceFailureModeIds.value,
-  ),
+  getSameErrorCodeFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
 )
 
 const selectedFaultTraceRelatedChildFailureModeIds = computed(() =>
@@ -7210,6 +7219,10 @@ const request = async <T,>(path: string, init: RequestInit = {}) => {
   })
 
   const data = (await response.json().catch(() => null)) as ApiResponse<T> | null
+
+  if (data && (data as ApiResponse<T> & { writable?: boolean }).writable === false) {
+    isWriteRestricted.value = true
+  }
 
   if (!response.ok || !data) {
     throw new Error(data?.message || `请求失败：${response.status}`)
@@ -8869,6 +8882,16 @@ const loadAssets = async () => {
   }
 }
 
+const loadServiceHealth = async () => {
+  try {
+    const health = await request<ServiceHealth>('/health_check')
+    isWriteRestricted.value = health.writable === false
+    if (health.message) writeRestrictedMessage.value = health.message
+  } catch {
+    // Asset queries remain the source of truth for overall service availability.
+  }
+}
+
 const retryInitialDataLoad = () => {
   void loadAssets()
 }
@@ -8995,6 +9018,7 @@ const viewQueryResult = async (assetId: string) => {
 }
 
 const openCreateDialog = () => {
+  if (isWriteRestricted.value) return
   dialog.mode = 'create'
   dialog.name = ''
   dialog.description = ''
@@ -9003,7 +9027,7 @@ const openCreateDialog = () => {
 }
 
 const openEditDialog = () => {
-  if (!selectedAsset.value) return
+  if (!selectedAsset.value || isWriteRestricted.value) return
 
   dialog.mode = 'edit'
   dialog.name = selectedAsset.value.name
@@ -9018,6 +9042,7 @@ const closeDialog = () => {
 }
 
 const saveDialog = async () => {
+  if (isWriteRestricted.value) return
   const name = dialog.name.trim()
   const description = dialog.description.trim()
 
@@ -9530,6 +9555,7 @@ const deleteLogFile = async (logFileId: string) => {
 }
 
 const submitLogSource = async () => {
+  if (isWriteRestricted.value) return
   const input = logSourceInput.value.trim()
   if (!input) return
   if (!selectedAssetId.value) return
@@ -9575,6 +9601,7 @@ const submitLogSource = async () => {
 }
 
 const triggerFileUpload = () => {
+  if (isWriteRestricted.value) return
   fileInputRef.value?.click()
 }
 
@@ -10891,10 +10918,7 @@ const calcFailureRate = (success: number, failure: number): number => {
   return total > 0 ? (failure / total) * 100 : 0
 }
 
-const getBrpcMetricValue = (
-  row: BrpcProfilingRow | undefined,
-  metric: string,
-): number | null => {
+const getBrpcMetricValue = (row: BrpcProfilingRow | undefined, metric: string): number | null => {
   if (!row) return null
   switch (metric) {
     case 'successRate':
@@ -12201,12 +12225,10 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
       scrollMonitorPageToTop()
       return
     }
-    document
-      .getElementById('brpc-fault-monitor')
-      ?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      })
+    document.getElementById('brpc-fault-monitor')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
     return
   }
 
@@ -12236,6 +12258,10 @@ const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
+  if (isWriteRestricted.value) {
+    target.value = ''
+    return
+  }
   if (!selectedAssetId.value) return
 
   isUploadingLog.value = true
@@ -12453,6 +12479,8 @@ onMounted(() => {
   loadAgentDefaultModel()
   restoreAgentConnection()
   void loadAssets()
+  void loadServiceHealth()
+  serviceHealthTimer = window.setInterval(() => void loadServiceHealth(), 30_000)
   window.addEventListener('resize', resizeLatencyCharts)
   window.addEventListener('resize', updateDetailLatencyLeftOverflow)
   if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
@@ -12471,6 +12499,7 @@ onUpdated(() => {
 })
 
 onBeforeUnmount(() => {
+  if (serviceHealthTimer !== null) window.clearInterval(serviceHealthTimer)
   stopLogFilesPolling()
   stopAgentPanelResize()
   closeAgentEventStream()
@@ -12597,8 +12626,9 @@ onBeforeUnmount(() => {
             <button
               class="icon-btn primary add-btn"
               type="button"
-              title="添加资产库"
+              :title="isWriteRestricted ? writeRestrictedMessage : '添加资产库'"
               aria-label="添加资产库"
+              :disabled="isWriteRestricted"
               @click="openCreateDialog"
             ></button>
             <button
@@ -12921,10 +12951,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </section>
-
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
+      <div v-if="isWriteRestricted" class="error-banner" role="status">
+        {{ writeRestrictedMessage }}；资产查询、详情查看和删除操作仍可使用。
+      </div>
       <div v-if="errorMessage && !isInitialDataUnavailable" class="error-banner">
         {{ errorMessage }}
       </div>
@@ -13080,7 +13112,8 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="top-slow-chart-description">
-                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace ID。
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace
+                ID。
               </p>
               <div class="top-slow-chart-panel">
                 <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
@@ -16276,7 +16309,8 @@ onBeforeUnmount(() => {
                 class="edit-btn icon-btn detail-icon-btn"
                 type="button"
                 aria-label="编辑"
-                title="编辑"
+                :title="isWriteRestricted ? writeRestrictedMessage : '编辑'"
+                :disabled="isWriteRestricted"
                 @click="openEditDialog"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -16323,7 +16357,13 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="parse-config-action">
-              <button type="button" class="parse-config-edit-btn" @click="openParseConfigDrawer">
+              <button
+                type="button"
+                class="parse-config-edit-btn"
+                :disabled="isWriteRestricted"
+                :title="isWriteRestricted ? writeRestrictedMessage : '修改配置'"
+                @click="openParseConfigDrawer"
+              >
                 修改配置
               </button>
             </div>
@@ -16332,11 +16372,21 @@ onBeforeUnmount(() => {
             <div class="log-type-selector">
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="KVCache" :disabled="isUploadingLog" />
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="KVCache"
+                  :disabled="isUploadingLog || isWriteRestricted"
+                />
                 <span>KVCache</span>
               </label>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="UBSocket" :disabled="isUploadingLog" />
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="UBSocket"
+                  :disabled="isUploadingLog || isWriteRestricted"
+                />
                 <span>UBSocket</span>
               </label>
             </div>
@@ -16345,13 +16395,13 @@ onBeforeUnmount(() => {
               type="text"
               class="log-source-input"
               placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
-              :disabled="isUploadingLog"
+              :disabled="isUploadingLog || isWriteRestricted"
               @keydown.enter="submitLogSource"
             />
             <button
               class="log-add-btn"
               type="button"
-              :disabled="isUploadingLog || !logSourceInput.trim()"
+              :disabled="isUploadingLog || isWriteRestricted || !logSourceInput.trim()"
               @click="submitLogSource"
             >
               {{ isUploadingLog ? '提交中...' : '添加' }}
@@ -16359,7 +16409,7 @@ onBeforeUnmount(() => {
             <button
               class="log-upload-btn"
               type="button"
-              :disabled="isUploadingLog"
+              :disabled="isUploadingLog || isWriteRestricted"
               @click="triggerFileUpload"
             >
               上传 ZIP 文件
@@ -19097,7 +19147,7 @@ onBeforeUnmount(() => {
             <button
               class="save-btn"
               type="button"
-              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving"
+              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving || isWriteRestricted"
               @click="saveParseConfig"
             >
               {{ isDiagnosisConfigSaving ? '保存中...' : '保存配置' }}
