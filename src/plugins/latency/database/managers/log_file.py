@@ -274,9 +274,13 @@ class LogFilePGManager:
 
     @staticmethod
     async def list_log_file_ids(
-        kb_id: str | None = None, log_id: str | None = None
+        kb_id: str | None = None,
+        log_id: str | None = None,
+        include_inactive: bool = False,
     ) -> list[str]:
-        stmt = select(LogFile.id).where(LogFile.existed_status.is_(True))
+        stmt = select(LogFile.id)
+        if not include_inactive:
+            stmt = stmt.where(LogFile.existed_status.is_(True))
         if kb_id:
             stmt = stmt.where(LogFile.kb_id == kb_id)
         if log_id:

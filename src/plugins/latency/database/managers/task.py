@@ -75,6 +75,37 @@ class TaskPGManager:
         return True
 
     @staticmethod
+    async def hard_delete_tasks_by_kb_id(kb_id: str) -> None:
+        """Delete every task aggregate that remains for an asset library."""
+        params = {"kb_id": kb_id}
+        async with PGManager.session() as session:
+            await session.execute(
+                text(
+                    "DELETE FROM brpc_diag_hit WHERE batch_id IN ("
+                    "SELECT batch_id FROM brpc_diag_batch WHERE task_id IN ("
+                    "SELECT id FROM task WHERE kb_id = :kb_id))"
+                ),
+                params,
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM brpc_diag_batch WHERE task_id IN ("
+                    "SELECT id FROM task WHERE kb_id = :kb_id)"
+                ),
+                params,
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM task_report WHERE task_id IN ("
+                    "SELECT id FROM task WHERE kb_id = :kb_id)"
+                ),
+                params,
+            )
+            await session.execute(
+                text("DELETE FROM task WHERE kb_id = :kb_id"), params
+            )
+
+    @staticmethod
     async def update_task(task_id: str, task_info_dict: dict) -> bool:
         allowed = {k: v for k, v in task_info_dict.items() if hasattr(Task, k)}
         if not allowed:

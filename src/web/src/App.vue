@@ -9067,7 +9067,9 @@ const saveDialog = async () => {
 }
 
 const deleteAsset = async (asset: LogKnowledge) => {
-  const shouldDelete = window.confirm(`确认删除资产库「${asset.name}」？`)
+  const shouldDelete = window.confirm(
+    `确认删除资产库「${asset.name}」？该资产库下的所有日志解析任务及解析、诊断数据将被永久删除。`,
+  )
   if (!shouldDelete) return
 
   errorMessage.value = ''
