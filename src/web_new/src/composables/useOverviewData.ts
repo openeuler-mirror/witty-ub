@@ -738,7 +738,8 @@ function createOverviewStateInner() {
       // 长列表（20+ 条曲线）可把光标移进 tooltip 内滚动查看
       enterable: true,
       hideDelay: 300,
-      transitionDuration: 0,
+      // tooltip 保留 ECharts 默认的位移/淡入过渡（transitionDuration 0.4 + displayTransition），
+      // 「关闭动画」只针对图表本身，hover 框跟手动画要留着
       extraCssText: 'max-height:62vh;overflow-y:auto;',
       // ECharts 默认按「图表画布」当视口来摆 tooltip：21 条曲线的列表比画布高，
       // 会被顶到视口外。这里按浏览器窗口重新夹取，保证整块 tooltip 始终可见。

@@ -51,6 +51,11 @@ test('UBSocket 接口监控 tooltip 挂 body、按视口夹取且支持点级过
   assert.match(helper, /window\.innerHeight/, 'position 必须按浏览器窗口夹取（图表画布比 21 行列表矮）')
   assert.match(helper, /BRPC_TOOLTIP_POINT_RADIUS/, '必须有数据点命中半径')
   assert.match(helper, /convertToPixel/, '点级过滤要用数据点像素位置判断光标是否落在点上')
+  assert.doesNotMatch(
+    helper,
+    /transitionDuration: 0/,
+    '不得关掉 tooltip 的位移/淡入过渡（关闭动画只针对图表本身）',
+  )
 
   for (const name of rendererNames) {
     assert.match(
