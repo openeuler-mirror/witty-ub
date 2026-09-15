@@ -237,7 +237,7 @@ export const fetchFaultTracePage = async (kbId: string, query: FaultTracePageQue
   }
 }
 
-// P1.6 通断异常 Trace 的服务端 Trace ID 查询：独立于主视图已加载数据，不受分页加载上限影响
+// 通断异常 Trace 的服务端 Trace ID 查询：独立于主视图已加载数据，不受分页加载上限影响
 export const searchFaultTracesByTraceId = async (
   kbId: string,
   traceId: string,
@@ -314,7 +314,7 @@ export const fetchFaultTraces = async (kbId: string, op: 'get' | 'set') => {
   return { total: first.total, rows, truncated: rows.length < first.total }
 }
 
-// P1.7 通断聚合事件表（时间桶矩阵）：服务端 date_trunc 分桶，响应 total 分页，无 log_id 参数
+// 通断聚合事件表（时间桶矩阵）：服务端 date_trunc 分桶，响应 total 分页，无 log_id 参数
 export interface TimeAggFailureQuery {
   op?: 'get' | 'set'
   interval: 'second' | 'minute' | 'hour'
@@ -351,7 +351,7 @@ export const fetchTimeAggregatedFailureEvents = async (
   return { total: result.total ?? 0, errCodes: result.err_codes ?? [], rows: result.events ?? [] }
 }
 
-// P1.7 桶内 src/dst IP 对子表：按码计数、服务端排序分页
+// 桶内 src/dst IP 对子表：按码计数、服务端排序分页
 export const fetchSrcDstAggregatedFailureEvents = async (
   kbId: string,
   query: Omit<TimeAggFailureQuery, 'interval'>,
@@ -440,7 +440,7 @@ export const fetchFaultTracesByTraceIds = async (
 export const fetchFailureMode = async (failureModeId: string) =>
   request<any>(`/failure_mode/${encodeURIComponent(failureModeId)}`)
 
-// P2.1 资产级 profiling 全量（files + rows），文件选择由前端客户端过滤
+// 资产级 profiling 全量（files + rows），文件选择由前端客户端过滤
 export const fetchBrpcProfilingKnowledge = (kbId: string) =>
   request<{ files?: any[]; rows?: any[] }>(`/brpc_profiling/knowledge/${encodeURIComponent(kbId)}`)
 
@@ -506,7 +506,7 @@ export const fetchBrpcThreadEvents = (
     })}`,
   )
 
-// P2.2 聚合事件详情：组件计数（failure_modes）+ hit_total
+// 聚合事件详情：组件计数（failure_modes）+ hit_total
 export const fetchBrpcEventDetail = (
   batchId: string,
   eventId: string,
@@ -542,7 +542,7 @@ export const fetchBrpcAbnormalThreads = (
     })}`,
   )
 
-// P2.3 异常 Thread 详情：failure_graph + interface_timeline + failure_modes + hits
+// 异常 Thread 详情：failure_graph + interface_timeline + failure_modes + hits
 export const fetchBrpcThreadDetail = (
   batchId: string,
   threadKey: string,

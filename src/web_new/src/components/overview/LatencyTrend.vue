@@ -4,7 +4,7 @@ import { useOverviewData } from '../../composables/useOverviewData'
 import { normalizeTraceOperation } from '../../utils/format'
 import PageNav from '../common/PageNav.vue'
 
-// P0.1：只注入趋势/最慢/Trace 列表所需状态
+// 只注入趋势/最慢/Trace 列表所需状态
 const {
   currentOp,
   latencyFilter,

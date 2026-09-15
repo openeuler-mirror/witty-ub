@@ -14,7 +14,7 @@ import {
 import { useToast } from './useToast'
 
 /**
- * P1.3 AI 故障诊断助手状态：
+ * AI 故障诊断助手状态：
  * - 本机 /agent-api 反代免认证；远程直连 + Basic Authorization
  * - Basic 凭据只保存在当前页面内存，且仅通过 HTTPS 发送
  * - 会话按资产在前端索引（localStorage：sessionId -> assetId），切资产自动重置会话

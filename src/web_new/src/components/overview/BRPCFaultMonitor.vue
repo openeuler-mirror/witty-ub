@@ -4,7 +4,7 @@ import BlockTable from '../common/BlockTable.vue'
 import PageNav from '../common/PageNav.vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 
-// P0.1：只注入 UBSocket 通断故障监控所需状态
+// 只注入 UBSocket 通断故障监控所需状态
 const {
   brpcAbnormalThreadPage,
   brpcAbnormalThreadTotal,
@@ -348,7 +348,7 @@ onMounted(() => {
     </template>
 
     <template v-else>
-      <!-- P2.4 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名） -->
+      <!-- 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名） -->
       <div class="filter-bar" style="margin-bottom: 10px">
         <form
           style="display: flex; gap: 6px; align-items: center"

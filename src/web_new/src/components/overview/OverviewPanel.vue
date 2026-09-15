@@ -94,7 +94,7 @@ const {
 
 bindOverviewWatchers()
 
-// P22 数据域空态：该域没有可分析的任务时，用「去任务页面」入口替换整块空图表
+// 数据域空态：该域没有可分析的任务时，用「去任务页面」入口替换整块空图表
 const { assetTab: appAssetTab } = useAssets()
 const { statusOf: taskStatusOf, statusLabel: taskStatusLabel, openCreateTask, newTask } = useTasks()
 
@@ -176,13 +176,13 @@ const openBrpcFaultTab = () => {
   void loadBrpcFaultData()
 }
 
-// P2.2：事件窗时序无任何数据点时展示空态（避免渲染空图）
+// 事件窗时序无任何数据点时展示空态（避免渲染空图）
 const brpcEventDetailTimelineEmpty = computed(
   () =>
     !(brpcEventDetailTimeline.value ?? []).some((series: any) => (series?.points || []).length > 0),
 )
 
-// P2.3：线程运行日志按时间正序；故障模式标签优先取图节点名，再取 detail failure_modes
+// 线程运行日志按时间正序；故障模式标签优先取图节点名，再取 detail failure_modes
 const sortedBrpcThreadLogs = computed(() =>
   [...brpcThreadLogs.value].sort((a, b) =>
     String(a.time ?? '').localeCompare(String(b.time ?? '')),
@@ -218,7 +218,7 @@ const drawerFaultCodes = (row: any) => {
   return codes
 }
 
-// P1.2：主模式优先取 trace 行 failure_mode，KVCache 行无该字段时回退命中集合第一个
+// 主模式优先取 trace 行 failure_mode，KVCache 行无该字段时回退命中集合第一个
 const primaryFailureMode = computed(() => {
   const row = detailDrawerRow.value
   const primaryId =
@@ -228,7 +228,7 @@ const primaryFailureMode = computed(() => {
   return primaryId ? failureModeOf(primaryId) : null
 })
 
-// P1.2：相关故障折叠列表（默认收起，切换 trace 时重置）
+// 相关故障折叠列表（默认收起，切换 trace 时重置）
 const relatedFaultsOpen = ref(false)
 const relatedFaultIds = computed(() => relatedFailureModeIdsOf(detailDrawerRow.value))
 watch(
@@ -569,7 +569,7 @@ onMounted(() => {
       </template>
     </div>
 
-    <!-- P2.2 聚合事件详情：组件计数 / 当前窗时序 / 关联线程 -->
+    <!-- 聚合事件详情：组件计数 / 当前窗时序 / 关联线程 -->
     <template v-if="!brpcFaultDetail.thread_key">
       <div v-if="brpcEventDetailError" class="error-banner">{{ brpcEventDetailError }}</div>
       <div v-if="brpcEventDetailLoading" class="empty" style="padding: 20px 0">
@@ -709,7 +709,7 @@ onMounted(() => {
       </table>
     </div>
     <template v-if="brpcFaultDetail.thread_key">
-      <!-- P2.3：故障模式视图（failure_graph） -->
+      <!-- 故障模式视图（failure_graph） -->
       <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
         故障模式视图
         <span class="graph-legend" aria-label="故障模式视图图例">
@@ -837,7 +837,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- P2.3：选中节点详情 -->
+      <!-- 选中节点详情 -->
       <div
         v-if="brpcSelectedGraphNode"
         style="
@@ -877,7 +877,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- P2.3：接口命中时序 -->
+      <!-- 接口命中时序 -->
       <div style="font-weight: 600; font-size: 13px; margin: 12px 0 8px">接口命中时序</div>
       <div v-if="brpcThreadTimelineEmpty" class="empty" style="padding: 12px 0">
         暂无接口命中时序数据
@@ -888,7 +888,7 @@ onMounted(() => {
         style="height: 280px; margin-bottom: 8px"
       ></div>
 
-      <!-- P2.3：完整运行日志列，故障行高亮 -->
+      <!-- 完整运行日志列，故障行高亮 -->
       <div style="font-weight: 600; font-size: 13px; margin: 16px 0 8px">
         运行日志（{{ brpcThreadLogs.length }} 条）
       </div>

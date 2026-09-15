@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 
-// P0.1/U1：只注入 UBSocket 接口监控所需状态
+// 只注入 UBSocket 接口监控所需状态
 const {
   brpcFileKey,
   brpcFileLabel,
@@ -288,7 +288,7 @@ const selectedSingleMetricLabel = computed(
 
         </div>
 
-        <!-- 接口明细表（P2.1 保留） -->
+        <!-- 接口明细表（保留） -->
         <article class="monitor-card" style="margin-top: 16px">
           <div class="monitor-card-title">
             <span>接口明细</span>

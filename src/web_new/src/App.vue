@@ -91,7 +91,7 @@ const {
   createTask,
 } = useTasks()
 
-// P1.1 资产级日志解析配置抽屉
+// 资产级日志解析配置抽屉
 const { assetTypeFilter } = useOverviewData()
 const parseConfigOpen = ref(false)
 const openParseConfig = () => {
@@ -99,7 +99,7 @@ const openParseConfig = () => {
   parseConfigOpen.value = true
 }
 
-// P2.5 任务行「更新」：纯前端重拉日志列表刷新该文件状态/结果，不是重新解析
+// 任务行「更新」：纯前端重拉日志列表刷新该文件状态/结果，不是重新解析
 const refreshingFileIds = ref(new Set<string>())
 const refreshOneLogFile = async (file: { id?: string }) => {
   const id = file.id ?? ''
@@ -493,7 +493,7 @@ onBeforeUnmount(() => {
     :asset-type="assetTypeFilter"
     v-model:open="parseConfigOpen"
   />
-  <!-- P1.3 AI 故障诊断助手：仅分析页（总览）显示 FAB -->
+  <!-- AI 故障诊断助手：仅分析页（总览）显示 FAB -->
   <AgentChatPanel v-if="view === 'home' && assetTab === 'overview'" :asset="selectedAsset" />
 
   <div class="toast">

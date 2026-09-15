@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 import PageNav from '../common/PageNav.vue'
 
-// P0.1：只注入时延/拓扑/Pod 所需状态
+// 只注入时延/拓扑/Pod 所需状态
 const {
   analysisModule,
   analysisWindowLoading,
@@ -135,7 +135,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- 时段异常强度：时间控制器（P0.3） -->
+    <!-- 时段异常强度：时间控制器 -->
     <p class="chart-scale-hint">
       缩放时间范围（滚轮/滑块）或点击柱体选中该时段，下方拓扑与端点列表随所选时段联动；点击「全时段」恢复全域
     </p>
