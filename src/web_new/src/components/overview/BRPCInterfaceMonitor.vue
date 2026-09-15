@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
 
 // 只注入 UBSocket 接口监控所需状态
@@ -15,13 +15,17 @@ const {
   brpcLatencyMetrics,
   brpcLatencyMonitorRef,
   brpcLatencyRef,
-  brpcLatencySelectedIfaces,
   brpcLoading,
   brpcMonitorTab,
+  brpcOverviewSelectedIfaces,
   brpcProfilingFiles,
   brpcScopeTasks,
   brpcSelectedFileKey,
   brpcSingleIface,
+  brpcSingleLatencyColor,
+  brpcSingleLatencyMetrics,
+  brpcSingleLatencySelectedMetrics,
+  brpcSingleLatencyUnit,
   brpcSingleMetricColor,
   brpcSingleMetrics,
   brpcSingleRef,
@@ -29,12 +33,14 @@ const {
   brpcSuccessMetric,
   brpcSuccessMetricOptions,
   brpcSuccessOverviewRef,
-  brpcSuccessSelectedIfaces,
   renderBrpcLatencyChart,
   renderBrpcLatencyMonitorChart,
   renderBrpcSingleChart,
   renderBrpcSuccessOverviewChart,
 } = useOverviewData()
+
+// 单接口分析卡片：接口明细表点接口名时滚动到这里
+const singleIfaceCardRef = ref<HTMLElement | null>(null)
 
 const renderAllBrpcCharts = () => {
   renderBrpcSuccessOverviewChart()
@@ -45,25 +51,53 @@ const renderAllBrpcCharts = () => {
 
 onMounted(renderAllBrpcCharts)
 
-const selectAllIfaces = () => {
-  brpcSuccessSelectedIfaces.value = [...brpcIfaceNames.value]
+// 全接口总览：成功率与时延两张图共用一套接口勾选
+const toggleOverviewIface = (iface: string) => {
+  const selected = brpcOverviewSelectedIfaces.value
+  brpcOverviewSelectedIfaces.value = selected.includes(iface)
+    ? selected.filter((item) => item !== iface)
+    : [...selected, iface]
 }
-const clearIfaces = () => {
-  brpcSuccessSelectedIfaces.value = []
+const selectAllOverviewIfaces = () => {
+  brpcOverviewSelectedIfaces.value = [...brpcIfaceNames.value]
 }
-const selectAllLatencyIfaces = () => {
-  brpcLatencySelectedIfaces.value = [...brpcIfaceNames.value]
+const clearOverviewIfaces = () => {
+  brpcOverviewSelectedIfaces.value = []
 }
-const clearLatencyIfaces = () => {
-  brpcLatencySelectedIfaces.value = []
-}
+
 const toggleBrpcSingleMetric = (metric: string) => {
   const selected = brpcSingleSelectedMetrics.value
   brpcSingleSelectedMetrics.value = selected.includes(metric)
     ? selected.filter((item) => item !== metric)
     : [...selected, metric]
 }
-const selectedSingleMetricLabel = computed(
+const selectAllSingleMetrics = () => {
+  brpcSingleSelectedMetrics.value = brpcSingleMetrics.map((metric) => metric.value)
+}
+const clearSingleMetrics = () => {
+  brpcSingleSelectedMetrics.value = []
+}
+
+const toggleSingleLatencyMetric = (metric: string) => {
+  const selected = brpcSingleLatencySelectedMetrics.value
+  brpcSingleLatencySelectedMetrics.value = selected.includes(metric)
+    ? selected.filter((item) => item !== metric)
+    : [...selected, metric]
+}
+const selectAllSingleLatencyMetrics = () => {
+  brpcSingleLatencySelectedMetrics.value = brpcSingleLatencyMetrics.map((metric) => metric.value)
+}
+const clearSingleLatencyMetrics = () => {
+  brpcSingleLatencySelectedMetrics.value = []
+}
+
+// 接口明细 → 单接口分析：选中该接口并滚动到卡片，联动的两张图立即切换
+const openSingleIface = (iface: string) => {
+  brpcSingleIface.value = iface
+  singleIfaceCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+const singleSuccessMetricLabel = computed(
   () =>
     brpcSingleMetrics
       .filter((metric) => brpcSingleSelectedMetrics.value.includes(metric.value))
@@ -149,143 +183,204 @@ const selectedSingleMetricLabel = computed(
       </div>
       <template v-else>
         <div class="monitor-grid">
-          <!-- 卡片 1：接口成功率总览（指标切换 + 接口曲线勾选，颜色与勾选点一致） -->
+          <!-- 卡片 1：全接口总览（成功率 + 时延共用一套接口勾选，左右并排对照） -->
           <article class="monitor-card monitor-card-wide">
             <div class="monitor-card-title">
-              <span>接口成功率总览</span>
-              <span class="monitor-card-actions">
-                <label class="hint" for="brpc-success-metric">指标</label>
-                <select id="brpc-success-metric" class="select" v-model="brpcSuccessMetric">
-                  <option
-                    v-for="opt in brpcSuccessMetricOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >
-                    {{ opt.label }}
-                  </option>
-                </select>
-              </span>
+              <span>全接口总览</span>
+              <span class="monitor-card-actions hint"
+                >按接口叠加对比 · 两张图共用下方勾选的接口</span
+              >
             </div>
             <div class="series-toggle">
               <span class="series-toggle-label">曲线选择：</span>
               <span class="series-toggle-count">
-                已选 {{ brpcSuccessSelectedIfaces.length }}/{{ brpcIfaceNames.length }}
+                已选 {{ brpcOverviewSelectedIfaces.length }}/{{ brpcIfaceNames.length }}
               </span>
-              <button class="btn btn-sm btn-text" type="button" @click="selectAllIfaces">
+              <button class="btn btn-sm btn-text" type="button" @click="selectAllOverviewIfaces">
                 全选
               </button>
-              <button class="btn btn-sm btn-text" type="button" @click="clearIfaces">清空</button>
-              <label
-                v-for="iface in brpcIfaceNames"
-                :key="iface"
-                class="series-toggle-option"
-              >
+              <button class="btn btn-sm btn-text" type="button" @click="clearOverviewIfaces">
+                清空
+              </button>
+              <label v-for="iface in brpcIfaceNames" :key="iface" class="series-toggle-option">
                 <input
                   type="checkbox"
-                  :checked="brpcSuccessSelectedIfaces.includes(iface)"
-                  @change="
-                    brpcSuccessSelectedIfaces = brpcSuccessSelectedIfaces.includes(iface)
-                      ? brpcSuccessSelectedIfaces.filter((item) => item !== iface)
-                      : [...brpcSuccessSelectedIfaces, iface]
-                  "
+                  :checked="brpcOverviewSelectedIfaces.includes(iface)"
+                  @change="toggleOverviewIface(iface)"
                 />
                 <span class="series-dot" :style="{ backgroundColor: brpcIfaceColor(iface) }"></span>
                 {{ iface }}
               </label>
             </div>
-            <div ref="brpcSuccessOverviewRef" style="height: 280px"></div>
+            <div class="monitor-pane-grid">
+              <section class="monitor-pane">
+                <header class="monitor-pane-head">
+                  <span class="monitor-pane-title">成功率 / 请求量</span>
+                  <span class="monitor-pane-actions">
+                    <label class="hint" for="brpc-success-metric">指标</label>
+                    <select id="brpc-success-metric" class="select" v-model="brpcSuccessMetric">
+                      <option
+                        v-for="opt in brpcSuccessMetricOptions"
+                        :key="opt.value"
+                        :value="opt.value"
+                      >
+                        {{ opt.label }}
+                      </option>
+                    </select>
+                  </span>
+                </header>
+                <div ref="brpcSuccessOverviewRef" style="height: 300px"></div>
+              </section>
+              <section class="monitor-pane">
+                <header class="monitor-pane-head">
+                  <span class="monitor-pane-title">时延 (µs)</span>
+                  <span class="monitor-pane-actions">
+                    <label class="hint" for="brpc-latency-metric">指标</label>
+                    <select id="brpc-latency-metric" class="select" v-model="brpcLatencyMetric">
+                      <option v-for="m in brpcLatencyMetrics" :key="m.value" :value="m.value">
+                        {{ m.label }}
+                      </option>
+                    </select>
+                  </span>
+                </header>
+                <div ref="brpcLatencyMonitorRef" style="height: 300px"></div>
+              </section>
+            </div>
           </article>
 
-          <!-- 卡片 2：单接口成功率监控（接口 + 指标多选，数量/比率双轴，通栏避免轴标签挤压） -->
-          <article class="monitor-card monitor-card-wide">
+          <!-- 卡片 2：单接口分析（同一个接口选择驱动成功率与时延两张图） -->
+          <article
+            ref="singleIfaceCardRef"
+            class="monitor-card monitor-card-wide monitor-card-anchor"
+          >
             <div class="monitor-card-title">
-              <span>单接口成功率监控</span>
-              <span class="monitor-card-actions">
+              <span>单接口分析</span>
+              <span class="monitor-pane-actions">
                 <label class="hint" for="brpc-single-iface">接口</label>
-                <select id="brpc-single-iface" class="select" v-model="brpcSingleIface">
+                <select
+                  id="brpc-single-iface"
+                  class="select select-iface"
+                  v-model="brpcSingleIface"
+                >
                   <option v-for="iface in brpcIfaceNames" :key="iface" :value="iface">
                     {{ iface }}
                   </option>
                 </select>
               </span>
             </div>
-            <div class="series-toggle">
-              <span class="series-toggle-label">指标选择：</span>
-              <span class="series-toggle-count">
-                已选 {{ brpcSingleSelectedMetrics.length }}/{{ brpcSingleMetrics.length }}
-              </span>
-              <label
-                v-for="metric in brpcSingleMetrics"
-                :key="metric.value"
-                class="series-toggle-option"
-              >
-                <input
-                  type="checkbox"
-                  :checked="brpcSingleSelectedMetrics.includes(metric.value)"
-                  @change="toggleBrpcSingleMetric(metric.value)"
-                />
-                <span
-                  class="series-dot"
-                  :style="{ backgroundColor: brpcSingleMetricColor(metric.value) }"
-                ></span>
-                {{ metric.label }}
-              </label>
+            <div class="monitor-card-hint">
+              下方两张图联动同一接口{{
+                brpcSingleIface ? `（当前：${brpcSingleIface}）` : ''
+              }}，切换接口即同时刷新成功率与时延
             </div>
-            <div class="monitor-card-hint">当前：{{ selectedSingleMetricLabel }}</div>
-            <div ref="brpcSingleRef" style="height: 320px"></div>
+            <div class="monitor-pane-grid">
+              <section class="monitor-pane">
+                <header class="monitor-pane-head">
+                  <span class="monitor-pane-title">成功率 / 请求量</span>
+                  <span class="monitor-pane-actions">
+                    <span class="series-toggle-count">
+                      已选 {{ brpcSingleSelectedMetrics.length }}/{{ brpcSingleMetrics.length }}
+                    </span>
+                    <button
+                      class="btn btn-sm btn-text"
+                      type="button"
+                      @click="selectAllSingleMetrics"
+                    >
+                      全选
+                    </button>
+                    <button class="btn btn-sm btn-text" type="button" @click="clearSingleMetrics">
+                      清空
+                    </button>
+                  </span>
+                </header>
+                <div class="series-toggle series-toggle-compact">
+                  <label
+                    v-for="metric in brpcSingleMetrics"
+                    :key="metric.value"
+                    class="series-toggle-option"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="brpcSingleSelectedMetrics.includes(metric.value)"
+                      @change="toggleBrpcSingleMetric(metric.value)"
+                    />
+                    <span
+                      class="series-dot"
+                      :style="{ backgroundColor: brpcSingleMetricColor(metric.value) }"
+                    ></span>
+                    {{ metric.label }}
+                  </label>
+                  <span class="series-toggle-count series-toggle-current">
+                    当前：{{ singleSuccessMetricLabel }}
+                  </span>
+                </div>
+                <div ref="brpcSingleRef" style="height: 300px"></div>
+              </section>
+              <section class="monitor-pane">
+                <header class="monitor-pane-head">
+                  <span class="monitor-pane-title">时延</span>
+                  <span class="monitor-pane-actions">
+                    <span class="series-toggle-count">
+                      已选 {{ brpcSingleLatencySelectedMetrics.length }}/{{
+                        brpcSingleLatencyMetrics.length
+                      }}
+                    </span>
+                    <button
+                      class="btn btn-sm btn-text"
+                      type="button"
+                      @click="selectAllSingleLatencyMetrics"
+                    >
+                      全选
+                    </button>
+                    <button
+                      class="btn btn-sm btn-text"
+                      type="button"
+                      @click="clearSingleLatencyMetrics"
+                    >
+                      清空
+                    </button>
+                    <span class="view-tabs unit-tabs" role="group" aria-label="时延单位">
+                      <button
+                        class="view-tab"
+                        :class="{ active: brpcSingleLatencyUnit === 'ms' }"
+                        type="button"
+                        @click="brpcSingleLatencyUnit = 'ms'"
+                      >
+                        ms
+                      </button>
+                      <button
+                        class="view-tab"
+                        :class="{ active: brpcSingleLatencyUnit === 'µs' }"
+                        type="button"
+                        @click="brpcSingleLatencyUnit = 'µs'"
+                      >
+                        µs
+                      </button>
+                    </span>
+                  </span>
+                </header>
+                <div class="series-toggle series-toggle-compact">
+                  <label
+                    v-for="metric in brpcSingleLatencyMetrics"
+                    :key="metric.value"
+                    class="series-toggle-option"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="brpcSingleLatencySelectedMetrics.includes(metric.value)"
+                      @change="toggleSingleLatencyMetric(metric.value)"
+                    />
+                    <span
+                      class="series-dot"
+                      :style="{ backgroundColor: brpcSingleLatencyColor(metric.value) }"
+                    ></span>
+                    {{ metric.label }}
+                  </label>
+                </div>
+                <div ref="brpcLatencyRef" style="height: 300px"></div>
+              </section>
+            </div>
           </article>
-
-          <!-- 卡片 4：单接口时延（ms，所选接口 avg/P99/max） -->
-          <article class="monitor-card monitor-card-wide">
-            <div class="monitor-card-title">
-              <span>单接口时延（ms）</span>
-              <span class="monitor-card-actions hint">{{ brpcSingleIface || '-' }}</span>
-            </div>
-            <div class="monitor-card-hint">跟随「单接口成功率监控」所选接口</div>
-            <div ref="brpcLatencyRef" style="height: 320px"></div>
-          </article>
-
-          <!-- 卡片 3：时延监控（µs，指标下拉 + 接口曲线勾选） -->
-          <article class="monitor-card monitor-card-wide">
-            <div class="monitor-card-title">
-              <span>时延监控 (µs)</span>
-              <span class="monitor-card-actions">
-                <label class="hint" for="brpc-latency-metric">指标</label>
-                <select id="brpc-latency-metric" class="select" v-model="brpcLatencyMetric">
-                  <option v-for="m in brpcLatencyMetrics" :key="m.value" :value="m.value">
-                    {{ m.label }}
-                  </option>
-                </select>
-              </span>
-            </div>
-            <div class="series-toggle">
-              <span class="series-toggle-label">曲线选择：</span>
-              <span class="series-toggle-count">
-                已选 {{ brpcLatencySelectedIfaces.length }}/{{ brpcIfaceNames.length }}
-              </span>
-              <button class="btn btn-sm btn-text" type="button" @click="selectAllLatencyIfaces">
-                全选
-              </button>
-              <button class="btn btn-sm btn-text" type="button" @click="clearLatencyIfaces">
-                清空
-              </button>
-              <label v-for="iface in brpcIfaceNames" :key="iface" class="series-toggle-option">
-                <input
-                  type="checkbox"
-                  :checked="brpcLatencySelectedIfaces.includes(iface)"
-                  @change="
-                    brpcLatencySelectedIfaces = brpcLatencySelectedIfaces.includes(iface)
-                      ? brpcLatencySelectedIfaces.filter((item) => item !== iface)
-                      : [...brpcLatencySelectedIfaces, iface]
-                  "
-                />
-                <span class="series-dot" :style="{ backgroundColor: brpcIfaceColor(iface) }"></span>
-                {{ iface }}
-              </label>
-            </div>
-            <div ref="brpcLatencyMonitorRef" style="height: 280px"></div>
-          </article>
-
         </div>
 
         <!-- 接口明细表（保留） -->
@@ -293,7 +388,8 @@ const selectedSingleMetricLabel = computed(
           <div class="monitor-card-title">
             <span>接口明细</span>
             <span class="monitor-card-actions hint">
-              按请求数排序 · avg/P99/max 单位 ms · P99 &gt; 2ms 记为偏高
+              按请求数排序 · avg/P99/max 单位 ms · P99 &gt; 2ms 记为偏高 ·
+              点击接口名可下钻到单接口分析
             </span>
           </div>
           <div class="table-wrap">
@@ -314,7 +410,16 @@ const selectedSingleMetricLabel = computed(
               </thead>
               <tbody>
                 <tr v-for="item in brpcInterfaces" :key="item.name">
-                  <td style="font-family: monospace; font-size: 12px">{{ item.name }}</td>
+                  <td>
+                    <button
+                      class="iface-link"
+                      type="button"
+                      title="在单接口分析中查看该接口"
+                      @click="openSingleIface(item.name)"
+                    >
+                      {{ item.name }}
+                    </button>
+                  </td>
                   <td>{{ item.requestCount.toLocaleString() }}</td>
                   <td>{{ item.successCount.toLocaleString() }}</td>
                   <td>{{ item.failureCount.toLocaleString() }}</td>

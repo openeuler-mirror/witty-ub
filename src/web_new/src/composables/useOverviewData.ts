@@ -622,7 +622,9 @@ function createOverviewStateInner() {
   const brpcIfaceNames = computed(() =>
     [...new Set(brpcFileRows.value.map((row) => row.interface_name).filter(Boolean))].sort(),
   )
-  const brpcSuccessSelectedIfaces = ref<string[]>([])
+  // U6：两张总览图（成功率 / 时延）共用一套接口勾选——同一批曲线在两个视角下对照，
+  // 不再各自渲染一份 21 项清单
+  const brpcOverviewSelectedIfaces = ref<string[]>([])
   const brpcSingleIface = ref('')
 
   // U1：接口配色与勾选色点一致（对齐旧版 BRPC_INTERFACE_COLORS，21 色覆盖全部接口）
@@ -680,7 +682,24 @@ function createOverviewStateInner() {
     { value: 'p999_ns', label: 'P999' },
   ]
   const brpcLatencyMetric = ref('avg_ns')
-  const brpcLatencySelectedIfaces = ref<string[]>([])
+
+  // U6：单接口时延与总览时延同口径——同样的 9 项指标可选（旧版只固定 avg/P99/max），
+  // 单位在 ms / µs 间切换，避免与「时延监控 (µs)」重复两张图却各说各话
+  const BRPC_LATENCY_METRIC_COLORS: Record<string, string> = {
+    total_ns: '#6366f1',
+    avg_ns: '#1E6FFF',
+    max_ns: '#F59E0B',
+    min_ns: '#94a3b8',
+    p50_ns: '#10b981',
+    p90_ns: '#06b6d4',
+    p95_ns: '#8b5cf6',
+    p99_ns: '#EF4444',
+    p999_ns: '#db2777',
+  }
+  const brpcSingleLatencyMetrics = brpcLatencyMetrics
+  const brpcSingleLatencySelectedMetrics = ref<string[]>(['avg_ns', 'p99_ns', 'max_ns'])
+  const brpcSingleLatencyUnit = ref<'ms' | 'µs'>('ms')
+  const brpcSingleLatencyColor = (metric: string) => BRPC_LATENCY_METRIC_COLORS[metric] ?? '#94a3b8'
 
   // U1：横轴标签按点数抽稀（密集时序下旋转标签会互相重叠）
   const brpcAxisLabelStep = (count: number) => Math.max(0, Math.ceil(count / 12) - 1)
@@ -759,14 +778,10 @@ function createOverviewStateInner() {
 
   // 文件变化：曲线勾选与单接口选择重置为当前文件接口全集/首个
   watch(brpcIfaceNames, (names) => {
-    brpcSuccessSelectedIfaces.value = brpcSuccessSelectedIfaces.value.filter((name) =>
+    brpcOverviewSelectedIfaces.value = brpcOverviewSelectedIfaces.value.filter((name) =>
       names.includes(name),
     )
-    if (brpcSuccessSelectedIfaces.value.length === 0) brpcSuccessSelectedIfaces.value = [...names]
-    brpcLatencySelectedIfaces.value = brpcLatencySelectedIfaces.value.filter((name) =>
-      names.includes(name),
-    )
-    if (brpcLatencySelectedIfaces.value.length === 0) brpcLatencySelectedIfaces.value = [...names]
+    if (brpcOverviewSelectedIfaces.value.length === 0) brpcOverviewSelectedIfaces.value = [...names]
     if (!names.includes(brpcSingleIface.value)) brpcSingleIface.value = names[0] ?? ''
   })
 
@@ -4686,7 +4701,7 @@ function createOverviewStateInner() {
       const metricLabel =
         brpcSuccessMetricOptions.find((option) => option.value === metric)?.label ?? metric
       const isRate = metric === 'successRate' || metric === 'failureRate'
-      const series = brpcSuccessSelectedIfaces.value.map((iface) => {
+      const series = brpcOverviewSelectedIfaces.value.map((iface) => {
         const rowByTs = new Map<string, any>()
         brpcFileRows.value.forEach((row) => {
           if (row.interface_name !== iface || !row.timestamp) return
@@ -4802,7 +4817,8 @@ function createOverviewStateInner() {
     })
   }
 
-  // 单接口时延：avg / P99 / max（ms）
+  // U6 单接口时延：与「全接口总览 · 时延」同一批指标（total/avg/min/P50...P999），
+  // 单位 ms / µs 可切换；默认 avg+P99+max、ms，保持原有观感
   const renderBrpcLatencyChart = () => {
     afterDomUpdate(() => {
       const el = brpcLatencyRef.value
@@ -4815,17 +4831,22 @@ function createOverviewStateInner() {
         if (row.interface_name !== iface || !row.timestamp) return
         rowByTs.set(String(row.timestamp).slice(0, 19), row)
       })
-      const metricDefs = [
-        { name: 'avg', key: 'avg_ns', color: '#1E6FFF' },
-        { name: 'P99', key: 'p99_ns', color: '#EF4444' },
-        { name: 'max', key: 'max_ns', color: '#F59E0B' },
-      ]
+      const unit = brpcSingleLatencyUnit.value
+      // profiling 行内时延字段单位为 ns，展示时才换算到 ms / µs
+      const divisor = unit === 'ms' ? 1e6 : 1e3
+      const decimals = unit === 'ms' ? 3 : 1
+      const selected = brpcSingleLatencySelectedMetrics.value.filter((metric) =>
+        brpcSingleLatencyMetrics.some((option) => option.value === metric),
+      )
+      const metricDefs = brpcSingleLatencyMetrics.filter((option) =>
+        selected.includes(option.value),
+      )
       setChartOption(chart, {
         tooltip: {
           trigger: 'axis',
           order: 'valueDesc',
           valueFormatter: (value: unknown) =>
-            typeof value === 'number' ? `${value} ms` : String(value ?? '-'),
+            typeof value === 'number' ? `${value} ${unit}` : String(value ?? '-'),
         },
         legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
         grid: { left: 64, right: 40, top: 48, bottom: 76 },
@@ -4839,17 +4860,20 @@ function createOverviewStateInner() {
             hideOverlap: true,
           },
         },
-        yAxis: { type: 'value', name: '时延 (ms)', axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'value', name: `时延 (${unit})`, axisLabel: { fontSize: 10 } },
         series: metricDefs.map((def) => ({
-          name: def.name,
+          name: def.label,
           type: 'line',
           smooth: true,
           symbol: 'none',
-          lineStyle: { width: 2, color: def.color },
-          itemStyle: { color: def.color },
+          lineStyle: { width: 2, color: brpcSingleLatencyColor(def.value) },
+          itemStyle: { color: brpcSingleLatencyColor(def.value) },
           data: times.map((time) => {
             const row = rowByTs.get(time)
-            return row ? +(((row[def.key] ?? 0) as number) / 1e6).toFixed(3) : null
+            const value = row?.[def.value]
+            return typeof value === 'number' && Number.isFinite(value)
+              ? +(value / divisor).toFixed(decimals)
+              : null
           }),
         })),
       })
@@ -4866,7 +4890,7 @@ function createOverviewStateInner() {
       const metricKey = brpcLatencyMetric.value
       const metricLabel =
         brpcLatencyMetrics.find((item) => item.value === metricKey)?.label ?? metricKey
-      const series = brpcLatencySelectedIfaces.value.map((iface) => {
+      const series = brpcOverviewSelectedIfaces.value.map((iface) => {
         const rowByTs = new Map<string, any>()
         brpcFileRows.value.forEach((row) => {
           if (row.interface_name !== iface || !row.timestamp) return
@@ -5037,10 +5061,11 @@ function createOverviewStateInner() {
       brpcProfilingFiles.value = []
       brpcAllProfilingRows.value = []
       brpcSelectedFileKey.value = ''
-      brpcSuccessSelectedIfaces.value = []
-      brpcLatencySelectedIfaces.value = []
+      brpcOverviewSelectedIfaces.value = []
       brpcSingleIface.value = ''
       brpcSingleSelectedMetrics.value = ['requestCount', 'successRate', 'failureRate']
+      brpcSingleLatencySelectedMetrics.value = ['avg_ns', 'p99_ns', 'max_ns']
+      brpcSingleLatencyUnit.value = 'ms'
       brpcLatencyMetric.value = 'avg_ns'
       brpcFaultSelectedLogId.value = ''
       brpcFaultBatch.value = null
@@ -5201,11 +5226,12 @@ function createOverviewStateInner() {
       [
         brpcFileRows,
         brpcSuccessMetric,
-        brpcSuccessSelectedIfaces,
+        brpcOverviewSelectedIfaces,
         brpcSingleIface,
         brpcSingleSelectedMetrics,
         brpcLatencyMetric,
-        brpcLatencySelectedIfaces,
+        brpcSingleLatencySelectedMetrics,
+        brpcSingleLatencyUnit,
       ],
       () => {
         if (!isAssetMode.value || !isBrpcTask.value) return
@@ -5440,14 +5466,18 @@ function createOverviewStateInner() {
     brpcLatencyMetrics,
     brpcLatencyMonitorRef,
     brpcLatencyRef,
-    brpcLatencySelectedIfaces,
     brpcLoading,
     brpcMonitorError,
     brpcMonitorTab,
+    brpcOverviewSelectedIfaces,
     brpcProfilingFiles,
     brpcScopeTasks,
     brpcSelectedFileKey,
     brpcSingleIface,
+    brpcSingleLatencyColor,
+    brpcSingleLatencyMetrics,
+    brpcSingleLatencySelectedMetrics,
+    brpcSingleLatencyUnit,
     brpcSingleMetricColor,
     brpcSingleMetrics,
     brpcSingleRef,
@@ -5455,7 +5485,6 @@ function createOverviewStateInner() {
     brpcSuccessMetric,
     brpcSuccessMetricOptions,
     brpcSuccessOverviewRef,
-    brpcSuccessSelectedIfaces,
     changeBrpcFaultLog,
     clearBrpcThreadSearch,
     clearFaultRange,
