@@ -714,10 +714,11 @@ onMounted(() => {
         <span class="graph-legend" aria-label="故障模式视图图例">
           <span><i class="graph-legend-interface"></i>接口节点</span>
           <span><i class="graph-legend-mode"></i>故障模式节点</span>
+          <span><i class="graph-legend-selected"></i>选中节点</span>
           <span><i class="graph-legend-edge"></i>组件内关系</span>
           <span><i class="graph-legend-edge cross"></i>跨组件关系</span>
           <span class="hint" style="font-weight: 400"
-            >粗边框=直接命中；可拖拽/缩放，点击节点查看详情</span
+            >粗边框=直接命中；墨色外环=已选中；可拖拽/缩放，点击节点查看详情</span
           >
         </span>
       </div>
@@ -799,6 +800,7 @@ onMounted(() => {
                 ? `${node.name}${node.functionName ? ' / ' + node.functionName : ''}`
                 : `${node.name}（命中 ${node.hitCount} 次）`
             "
+            :aria-pressed="brpcSelectedGraphNodeId === node.id"
             @click="brpcSelectedGraphNodeId = brpcSelectedGraphNodeId === node.id ? '' : node.id"
           >
             <span class="graph-node-id">
@@ -839,15 +841,25 @@ onMounted(() => {
       <!-- 选中节点详情 -->
       <div
         v-if="brpcSelectedGraphNode"
-        style="
-          border: 1px solid #fecaca;
-          background: #fef2f2;
-          border-radius: 4px;
-          padding: 10px 12px;
-          margin-bottom: 12px;
+        class="graph-node-detail"
+        :class="
+          brpcSelectedGraphNode.node_type === 'interface'
+            ? 'graph-node-detail-interface'
+            : 'graph-node-detail-mode'
         "
       >
-        <div style="font-weight: 600; color: var(--danger); margin-bottom: 4px">
+        <div class="graph-node-detail-title">
+          <span
+            class="graph-node-type-chip"
+            :class="
+              brpcSelectedGraphNode.node_type === 'interface'
+                ? 'graph-node-type-chip-interface'
+                : 'graph-node-type-chip-mode'
+            "
+          >
+            {{ brpcSelectedGraphNode.node_type === 'interface' ? '接口节点' : '故障模式节点' }}
+          </span>
+          <span class="graph-node-detail-id">{{ brpcSelectedGraphNode.node_id }}</span>
           {{ brpcSelectedGraphNode.name || brpcSelectedGraphNode.node_id }}
           <span v-if="brpcSelectedGraphNode.node_type === 'failure_mode'" class="fault-code-chip">
             命中 {{ brpcSelectedGraphNode.hit_count ?? 0 }}
