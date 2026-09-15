@@ -1936,11 +1936,11 @@ html.is-modal-open {
   margin-bottom: 8px;
 }
 
-/* U6：一张卡片内并排两个视角（全接口总览的成功率/时延、单接口分析的成功率/时延），
-   窄屏自动回落为上下排列 */
+/* U6：一张卡片内的两个视角（全接口总览的成功率/时延、单接口分析的成功率/时延）纵向排列——
+   并排时每张图只有半个卡片宽，横轴标签与曲线都太挤；分区（子区边框与标题）保持不变 */
 .monitor-pane-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
