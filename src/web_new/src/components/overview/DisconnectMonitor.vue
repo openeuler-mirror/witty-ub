@@ -36,6 +36,7 @@ const {
   faultTraceQueryLoading,
   faultTraceTotal,
   faultTracesTruncated,
+  faultUnpairedTraceCount,
   filteredFaultTraces,
   openTraceDrawer,
   pagedFaultTraces,
@@ -110,6 +111,20 @@ const failureDomainsOf = (row: any) => {
     ),
   ]
   return domains.length ? domains.join(' / ') : '-'
+}
+
+// 与拓扑/链路排行同口径：源、目的都要有且不同
+const hasFaultLink = (row: any) => {
+  const src = String(row.src_ip || '')
+  const dst = String(row.dst_ip || '')
+  return !!src && !!dst && src !== dst
+}
+const faultLinkHint = (row: any) => {
+  const src = String(row.src_ip || '')
+  const dst = String(row.dst_ip || '')
+  if (!src || !dst) return '日志里只有单端 IP，没有对端地址；该 Trace 只计入端点统计'
+  if (src === dst) return `日志只有自转发地址（${src}），不计为影响链路`
+  return ''
 }
 
 // Pod IP / Trace ID 都是等宽定长文本，列宽交给 DOM 量：量一次样本 chip 的真实渲染宽度，
@@ -339,6 +354,12 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
         <div class="fault-topology-meta">
           <span>{{ faultActivePairs.length }} 条链路</span>
           <span>{{ faultPodStats.length }} 个端点</span>
+          <span
+            v-if="faultUnpairedTraceCount"
+            class="topo-unpaired-note"
+            title="这些 Trace 的日志里没有对端 IP（或只有自转发地址），只计入端点统计，不参与链路与拓扑连线"
+            >{{ faultUnpairedTraceCount }} 条 Trace 无有效链路</span
+          >
           <span>线宽 / 节点大小 = 故障 Trace 数</span>
           <span
             v-for="code in legendCodes"
@@ -483,10 +504,13 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
             <span class="fault-name">{{ failureModeNamesOf(row) }}</span>
             <span class="fault-domain">{{ failureDomainsOf(row) }}</span>
           </span>
-          <span class="route-cell">
-            <span>{{ row.src_ip || '-' }}</span>
-            <i>→</i>
-            <span>{{ row.dst_ip || '-' }}</span>
+          <span class="route-cell" :title="faultLinkHint(row)">
+            <template v-if="hasFaultLink(row)">
+              <span>{{ row.src_ip }}</span>
+              <i>→</i>
+              <span>{{ row.dst_ip }}</span>
+            </template>
+            <span v-else class="route-empty">-</span>
           </span>
           <span class="trace-pods" :title="faultPodIps(row).join('\n')">
             <span v-for="ip in faultPodIps(row)" :key="ip" class="trace-chip">{{ ip }}</span>
@@ -769,6 +793,13 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
   background: var(--bg);
   color: var(--text2);
   font-size: 10px;
+}
+.fault-topology-meta .topo-unpaired-note {
+  color: #b45309;
+  cursor: help;
+}
+.agg-mid-grid .route-cell .route-empty {
+  color: var(--text3);
 }
 .topo-code-legend {
   display: inline-flex;

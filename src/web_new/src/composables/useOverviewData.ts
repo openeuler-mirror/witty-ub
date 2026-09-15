@@ -97,7 +97,7 @@ export type UseOverviewDataOptions = {
 }
 
 // dataOptions 用 shallowRef 承载：computed 依赖它，避免 state 先于 options 创建时
-// 把「options 缺失」的空结果固化进缓存（P1.1 总览外调用 useOverviewData 触发）
+// 把「options 缺失」的空结果固化进缓存（总览外调用 useOverviewData 触发）
 const dataOptionsRef = shallowRef<UseOverviewDataOptions | null>(null)
 const dataOptions = computed(() => dataOptionsRef.value)
 let overviewState: ReturnType<typeof createOverviewStateInner> | null = null
@@ -325,7 +325,7 @@ function createOverviewStateInner() {
     const asset = selectedAsset.value
     if (!asset) return
 
-    // P1.5：KVCache 时延域按日志文件收窄，logId 参与 key 与请求
+    // KVCache 时延域按日志文件收窄，logId 参与 key 与请求
     const logId = latencyFilter.logId.value
     // 缓存 key 必须带资产库 id：切库后同一个 op/尺度不能复用上一个库的聚合结果
     const scaleKey = `${asset.id}:${op}:${overviewScale.value}:${logId ?? ''}`
@@ -407,7 +407,7 @@ function createOverviewStateInner() {
     const asset = selectedAsset.value
     if (!asset) return
 
-    // P1.5：与总览共用 latencyFilter.logId，参与 key 与请求。
+    // 与总览共用 latencyFilter.logId，参与 key 与请求。
     // 趋势分位曲线单日志取数（未选时 trendLogId 兜底首个已完成任务）；
     // 最慢请求与异常 Trace 列表不受影响，仍按用户选择支持跨任务汇总
     const logId = latencyFilter.logId.value
@@ -527,7 +527,7 @@ function createOverviewStateInner() {
     }
   }
 
-  // ---------- BRPC 接口监控（/brpc_profiling/knowledge 全量 + 文件客户端过滤，P2.1） ----------
+  // ---------- BRPC 接口监控（/brpc_profiling/knowledge 全量 + 文件客户端过滤） ----------
 
   const brpcScopeTasks = computed(() =>
     assetScoped.value
@@ -604,7 +604,7 @@ function createOverviewStateInner() {
       .sort((a, b) => b.requestCount - a.requestCount)
   })
 
-  // 单接口曲线选择状态（P2.1）
+  // 单接口曲线选择状态
   type BrpcSuccessMetric =
     | 'successRate'
     | 'failureRate'
@@ -665,8 +665,7 @@ function createOverviewStateInner() {
   const brpcSingleMetrics = brpcSuccessMetricOptions
   const brpcSingleSelectedMetrics = ref<string[]>(['requestCount', 'successRate', 'failureRate'])
   const brpcSingleMetricColor = (metric: string) => BRPC_SINGLE_METRIC_COLORS[metric] ?? '#94a3b8'
-  const isBrpcRateMetric = (metric: string) =>
-    metric === 'successRate' || metric === 'failureRate'
+  const isBrpcRateMetric = (metric: string) => metric === 'successRate' || metric === 'failureRate'
 
   // U1c：时延监控（µs）指标与多接口勾选（对齐旧版 brpcLatencyMetrics）
   const brpcLatencyMetrics = [
@@ -939,7 +938,7 @@ function createOverviewStateInner() {
   // 翻页/搜索只刷新表格：与首屏 brpcFaultLoading 分开，避免整页被加载态替换
   const brpcThreadListLoading = ref(false)
   const brpcEventListLoading = ref(false)
-  // P2.4 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名）
+  // 异常 Thread 服务端搜索（线程 ID / Pod IP / Pod 名）
   const brpcThreadSearchInput = ref('')
   const brpcThreadSearchQuery = ref('')
   const brpcFaultLoading = ref(false)
@@ -973,7 +972,7 @@ function createOverviewStateInner() {
   const brpcThreadLogs = ref<any[]>([])
   const brpcThreadLogsLoading = ref(false)
   const brpcThreadLogsError = ref('')
-  // P2.3 线程详情（failure_graph / interface_timeline / failure_modes）
+  // 线程详情（failure_graph / interface_timeline / failure_modes）
   const brpcThreadDetail = ref<any>(null)
   const brpcThreadDetailLoading = ref(false)
   const brpcThreadDetailError = ref('')
@@ -1074,9 +1073,7 @@ function createOverviewStateInner() {
         brpcFaultVisibleSeriesIds.value.includes(series.id),
       )
       const times = [
-        ...new Set(
-          seriesList.flatMap((series) => series.points.map((point) => point.time)),
-        ),
+        ...new Set(seriesList.flatMap((series) => series.points.map((point) => point.time))),
       ].sort()
       setChartOption(chart, {
         tooltip: { trigger: 'axis', order: 'valueDesc' },
@@ -1094,9 +1091,7 @@ function createOverviewStateInner() {
         },
         yAxis: { type: 'value', name: '故障数', minInterval: 1, axisLabel: { fontSize: 10 } },
         series: seriesList.map((series) => {
-          const byTime = new Map(
-            series.points.map((point) => [point.time, point.count] as const),
-          )
+          const byTime = new Map(series.points.map((point) => [point.time, point.count] as const))
           return {
             name: series.label,
             type: 'line',
@@ -1140,7 +1135,7 @@ function createOverviewStateInner() {
       : [...brpcFaultVisibleSeriesIds.value, id]
   }
 
-  // P2.3 线程详情：failure_graph 节点/边图（点击节点查看故障模式）
+  // 线程详情：failure_graph 节点/边图（点击节点查看故障模式）
   const brpcSelectedGraphNode = computed(() => {
     const id = brpcSelectedGraphNodeId.value
     if (!id) return null
@@ -1149,7 +1144,7 @@ function createOverviewStateInner() {
     )
   })
 
-  // P2.3 故障模式视图：自绘 DAG（HTML + SVG）
+  // 故障模式视图：自绘 DAG（HTML + SVG）
   // 不用 ECharts graph：其 view 坐标系会对节点做补偿缩放（符号缩小、文字不缩），导致边框变形与文字溢出
   const BRPC_GRAPH_NODE_W = 200
   const BRPC_GRAPH_TEXT_MAX_W = 168
@@ -1214,8 +1209,7 @@ function createOverviewStateInner() {
           ? brpcGraphWrapText(node.function_name || '-', 11, BRPC_GRAPH_TEXT_MAX_W)
           : [`命中 ${node.hit_count ?? 0}`]
       // 上下内边距 8px + 边框 2px，避免最后一行贴边被裁
-      const height =
-        16 + (idLines.length + nameLines.length + tailLines.length) * BRPC_GRAPH_LINE_H
+      const height = 16 + (idLines.length + nameLines.length + tailLines.length) * BRPC_GRAPH_LINE_H
       return {
         id: node.node_id,
         nodeType: node.node_type,
@@ -1299,7 +1293,7 @@ function createOverviewStateInner() {
     }
   })
 
-  // P2.3 线程详情：接口命中时序（1m 粒度）
+  // 线程详情：接口命中时序（1m 粒度）
   const renderBrpcThreadTimeline = () => {
     afterDomUpdate(() => {
       const el = brpcThreadTimelineRef.value
@@ -1338,7 +1332,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // P2.2 事件详情：当前窗内接口故障时序（10s 粒度）
+  // 事件详情：当前窗内接口故障时序（10s 粒度）
   const renderBrpcEventTimeline = () => {
     afterDomUpdate(() => {
       const el = brpcEventTimelineRef.value
@@ -1400,9 +1394,7 @@ function createOverviewStateInner() {
       const [timelineResult, eventsResult, threadsResult] = await Promise.all([
         fetchBrpcInterfaceTimeline(batchId, startDate, endDate),
         (async (): Promise<{ total?: number; events?: any[]; threads?: any[] }> =>
-          (brpcEventAggregation.value === 'thread'
-            ? fetchBrpcThreadEvents
-            : fetchBrpcPodEvents)(
+          (brpcEventAggregation.value === 'thread' ? fetchBrpcThreadEvents : fetchBrpcPodEvents)(
             batchId,
             startDate,
             endDate,
@@ -1422,8 +1414,7 @@ function createOverviewStateInner() {
       brpcFaultTimelineSeries.value = timelineResult.series ?? []
       brpcAggregatedEvents.value = eventsResult.events ?? eventsResult.threads ?? []
       brpcAggregatedEventTotal.value = eventsResult.total ?? 0
-      brpcAggregatedEventsTruncated.value =
-        (eventsResult.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
+      brpcAggregatedEventsTruncated.value = (eventsResult.total ?? 0) > BRPC_EVENT_FETCH_PAGE_CNT
       brpcExpandedEventWindow.value = ''
       brpcAbnormalThreads.value = threadsResult.threads ?? []
       brpcAbnormalThreadTotal.value = threadsResult.total ?? 0
@@ -1521,7 +1512,7 @@ function createOverviewStateInner() {
     await loadBrpcAbnormalThreads()
   }
 
-  // P2.4 异常 Thread 搜索：提交/清空均重置页码并重拉
+  // 异常 Thread 搜索：提交/清空均重置页码并重拉
   const submitBrpcThreadSearch = async () => {
     brpcThreadSearchQuery.value = brpcThreadSearchInput.value.trim()
     brpcAbnormalThreadPage.value = 1
@@ -1543,7 +1534,7 @@ function createOverviewStateInner() {
     Math.max(1, Math.ceil(brpcAbnormalThreadTotal.value / brpcFaultPageSize)),
   )
 
-  // ---------- P2.2 聚合事件详情（组件计数 / 当前窗时序 / 关联线程） ----------
+  // ---------- 聚合事件详情（组件计数 / 当前窗时序 / 关联线程） ----------
 
   const brpcEventDetail = ref<any>(null)
   const brpcEventDetailTimeline = ref<any[]>([])
@@ -1617,7 +1608,7 @@ function createOverviewStateInner() {
     brpcThreadDetail.value = null
     brpcThreadDetailError.value = ''
     brpcSelectedGraphNodeId.value = ''
-    // 仅异常 Thread 行（带 thread_key）并行加载运行日志与 P2.3 线程详情
+    // 仅异常 Thread 行（带 thread_key）并行加载运行日志与线程详情
     if (!row?.thread_key || row?.thread_id == null || !row?.pod_ip) return
     const batch = brpcFaultBatch.value
     const batchId = brpcFaultBatchId.value
@@ -1766,7 +1757,7 @@ function createOverviewStateInner() {
   })
 
   /**
-   * 两层时间数据（P0.3）：
+   * 两层时间数据：
    * - timelineData（timeBuckets）：全域导航数据，不随 time 选择自我收窄
    * - analysisWindowBuckets：按 time 重新请求的数据，驱动拓扑/排名/Pod 表/inspector
    * time.mode = 'all' 时复用 timelineData。
@@ -1969,7 +1960,7 @@ function createOverviewStateInner() {
         order === 'desc' ? (b[field] || 0) - (a[field] || 0) : (a[field] || 0) - (b[field] || 0),
       )
     } else {
-      // 默认按异常数排序（P0.6）：「结果数」不表达故障严重度
+      // 默认按异常数排序：「结果数」不表达故障严重度
       list = [...list].sort((a, b) => b.anomaly - a.anomaly || b.total - a.total)
     }
     if (overview.topK > 0 && overview.topK < list.length) {
@@ -2013,7 +2004,11 @@ function createOverviewStateInner() {
     >()
     activeFaultTraces.value.forEach((trace) => {
       const endpoints = [trace.src_ip, trace.dst_ip, ...(trace.pod_names || [])].filter(Boolean)
-      const pair = trace.src_ip && trace.dst_ip ? `${trace.src_ip} → ${trace.dst_ip}` : ''
+      // 与 faultActivePairs 同口径：单端 / 自转发不计链路
+      const pair =
+        trace.src_ip && trace.dst_ip && trace.src_ip !== trace.dst_ip
+          ? `${trace.src_ip} → ${trace.dst_ip}`
+          : ''
       const modeIds = String(trace.failure_mode || '')
         .split(',')
         .map((id) => id.trim())
@@ -2090,7 +2085,7 @@ function createOverviewStateInner() {
         anomalyRate: '—' as string | number,
         linkCount: new Set(
           activeFaultTraces.value
-            .filter((trace) => trace.src_ip && trace.dst_ip)
+            .filter((trace) => trace.src_ip && trace.dst_ip && trace.src_ip !== trace.dst_ip)
             .map((trace) => `${trace.src_ip}→${trace.dst_ip}`),
         ).size,
         endpointCount: endpoints.size,
@@ -2099,7 +2094,7 @@ function createOverviewStateInner() {
       }
     }
     const rate = kpi.traceTotal ? ((kpi.anomalyTotal / kpi.traceTotal) * 100).toFixed(1) : '0.0'
-    // 「当前范围端点数 / 最差端点」：跟随 time/dimensions，不随 focus（P0.6 口径）
+    // 「当前范围端点数 / 最差端点」：跟随 time/dimensions，不随 focus（口径）
     const endpointSet = new Set<string>()
     const endpointAnomaly = new Map<string, number>()
     activePairs.value.forEach((pair) => {
@@ -2836,7 +2831,7 @@ function createOverviewStateInner() {
     if (chart) chart.dispatchAction({ type: 'brush', areas: [] })
   }
 
-  // ---------- P1.6 通断 Trace ID 服务端查询（独立于已加载数据与截断上限） ----------
+  // ---------- 通断 Trace ID 服务端查询（独立于已加载数据与截断上限） ----------
 
   const faultTraceIdInput = ref('')
   const faultTraceQuery = ref<{ id: string; rows: any[]; total: number } | null>(null)
@@ -2896,7 +2891,7 @@ function createOverviewStateInner() {
     if (faultTraceQuery.value) clearFaultTraceQuery()
   })
 
-  // ---------- P1.6 故障码时序时间聚合尺度（客户端对秒级点再分桶，设计 1.8） ----------
+  // ---------- 故障码时序时间聚合尺度（客户端对秒级点再分桶） ----------
 
   // 与 api fetchFaultChart 的 max_points 对齐：单码秒级点达上限说明后端已峰保抽稀
   const FAULT_CHART_MAX_POINTS = 1000
@@ -2933,7 +2928,7 @@ function createOverviewStateInner() {
     ),
   )
 
-  // ---------- P1.7 通断聚合事件表（服务端 date_trunc 分桶 × src/dst 子表） ----------
+  // ---------- 通断聚合事件表（服务端 date_trunc 分桶 × src/dst 子表） ----------
   // 两接口无 log_id：不随日志文件选择收窄；时间为闭区间 <=，与主视图半开区间口径不同（UI 注明）。
   // 组件卸载后自动重查（再次挂载；不同步 interval/排序/分页），时间/op 变化重置并惰性重查。
 
@@ -3092,7 +3087,7 @@ function createOverviewStateInner() {
     void loadFaultAggPairs(1)
   }
 
-  // ---------- 对象详情（窗 × 端点/链路，服务端分页，P0.5） ----------
+  // ---------- 对象详情（窗 × 端点/链路，服务端分页） ----------
 
   type ObjectDetailDomain = 'latency' | 'disconnect'
 
@@ -3160,7 +3155,7 @@ function createOverviewStateInner() {
     }
   }
 
-  // P1.7：桶点 IP 对时传入一次性时间窗覆盖，仅影响该次详情请求与标题，不回写 filter
+  // 桶点 IP 对时传入一次性时间窗覆盖，仅影响该次详情请求与标题，不回写 filter
   type ObjectDetailOverride = { start: number; end: number; label: string }
 
   const openObjectDetail = (
@@ -3226,7 +3221,7 @@ function createOverviewStateInner() {
     openObjectDetail('latency', { kind: 'link', src, dst })
   }
 
-  // 通断域入口（P0.7）：按通断接口真实字段发送 endpoint_ip / src+dst
+  // 通断域入口：按通断接口真实字段发送 endpoint_ip / src+dst
   const enterFaultDetail = (ip: string) => {
     openObjectDetail(
       'disconnect',
@@ -3243,7 +3238,7 @@ function createOverviewStateInner() {
       selectedFaultCode.value ? [selectedFaultCode.value] : [],
     )
   }
-  // P1.7：桶点 IP 对，以桶窗为时间上下文打开链路故障 Trace（不回写 disconnectFilter.time）
+  // 桶点 IP 对，以桶窗为时间上下文打开链路故障 Trace（不回写 disconnectFilter.time）
   const enterFaultAggPairDetail = (src: string, dst: string, bucket: FaultAggBucket) => {
     const start = tsToEpochMs(bucket.start_time)
     const end = tsToEpochMs(bucket.end_time)
@@ -3334,7 +3329,7 @@ function createOverviewStateInner() {
     return failureModeCache[id] ?? null
   }
 
-  // ---------- P1.2 Trace 抽屉相关故障语义 ----------
+  // ---------- Trace 抽屉相关故障语义 ----------
   // 该 trace 已命中的故障模式 id：trace 行 failure_mode + 运行日志事件 failure_mode_id
   const splitFailureModeIds = (value: unknown): string[] =>
     String(value ?? '')
@@ -3450,10 +3445,7 @@ function createOverviewStateInner() {
 
   // 统一关闭动画：统计图直接出结果，不做过渡动画
   const setChartOption = (chart: ECharts, option: any) => {
-    chart.setOption(
-      { ...option, animation: false },
-      { replaceMerge: ['series', 'legend'] },
-    )
+    chart.setOption({ ...option, animation: false }, { replaceMerge: ['series', 'legend'] })
   }
 
   const highlightRow = (ip: string) => {
@@ -3558,7 +3550,7 @@ function createOverviewStateInner() {
   })
 
   const visibleTopologyLinks = computed(() => {
-    // nodeWhitelist 只控制本地可视化，不冒充服务端过滤（P0.2）
+    // nodeWhitelist 只控制本地可视化，不冒充服务端过滤
     if (!latencyFilter.nodeWhitelist.value.length) return topologyLinks.value
     const allowed = new Set(latencyFilter.nodeWhitelist.value)
     return topologyLinks.value.filter(
@@ -3577,7 +3569,7 @@ function createOverviewStateInner() {
     }
   })
 
-  // focus 是当前分析对象的唯一事实源（P0.4）：点节点/边/空白都在写它
+  // focus 是当前分析对象的唯一事实源：点节点/边/空白都在写它
   const selectedTopologyLink = computed(() => {
     const focus = latencyFilter.focus.value
     if (focus.kind !== 'link') return null
@@ -3605,7 +3597,7 @@ function createOverviewStateInner() {
     }
   }
   const clearTopologyFocus = () => {
-    // 点空白：清对象，保留 time（P0.4）
+    // 点空白：清对象，保留 time
     latencyFilter.clearFocus()
   }
   const showLinkEndsOnly = (link: TopologyLink) => {
@@ -3795,7 +3787,7 @@ function createOverviewStateInner() {
         ],
       })
 
-      // 点击即分析（P0.4）：点节点/边写 focus，点空白清 focus（保留 time）
+      // 点击即分析：点节点/边写 focus，点空白清 focus（保留 time）
       chart.off('click')
       chart.on('click', (params: any) => {
         if (params.dataType === 'edge') {
@@ -3855,7 +3847,7 @@ function createOverviewStateInner() {
         max: '最大',
       }
       const statLabel = statLabelMap[overview.statType] || '均值'
-      // 粗粒度 P95/P99 是 10 秒桶分位值的再聚合近似（P0.3 文案口径）
+      // 粗粒度 P95/P99 是 10 秒桶分位值的再聚合近似（文案口径）
       const approximate = overviewScale.value >= 60 && ['p95', 'p99'].includes(overview.statType)
       const statSuffix = approximate ? '，粗粒度近似' : ''
 
@@ -4298,7 +4290,8 @@ function createOverviewStateInner() {
     faultScopedTraces.value.forEach((trace) => {
       const src = trace.src_ip
       const dst = trace.dst_ip
-      if (!src || !dst) return
+      // 缺对端或自转发（内部重定向）不构成链路，避免图里出现自环
+      if (!src || !dst || src === dst) return
       const key = `${src}|${dst}`
       if (!map.has(key)) map.set(key, { src, dst, faults: 0, codes: [], codeCounts: new Map() })
       const pair = map.get(key)!
@@ -4318,6 +4311,16 @@ function createOverviewStateInner() {
       }))
       .sort((a, b) => b.faults - a.faults)
   })
+
+  // 无法构成链路的 Trace：端点照常统计，链路视图单独提示
+  const faultUnpairedTraceCount = computed(
+    () =>
+      faultScopedTraces.value.filter((trace) => {
+        const src = String(trace.src_ip || '')
+        const dst = String(trace.dst_ip || '')
+        return !src || !dst || src === dst
+      }).length,
+  )
 
   const faultPodStats = computed(() => {
     const map = new Map<
@@ -4369,19 +4372,14 @@ function createOverviewStateInner() {
         string,
         { ip: string; faults: number; src: number; dst: number; codes: Set<string> }
       >()
-      faultActivePairs.value.forEach((pair) => {
-        ;(
-          [
-            ['src', pair.src],
-            ['dst', pair.dst],
-          ] as const
-        ).forEach(([role, ip]) => {
-          if (!nodeMap.has(ip)) nodeMap.set(ip, { ip, faults: 0, src: 0, dst: 0, codes: new Set() })
-          const node = nodeMap.get(ip)!
-          node.faults += pair.faults
-          pair.codes.forEach((code) => node.codes.add(code))
-          if (role === 'src') node.src += pair.faults
-          else node.dst += pair.faults
+      // 节点 = 受影响端点（src/dst/pod_names 去重），不用链路反推
+      faultPodStats.value.forEach((endpoint) => {
+        nodeMap.set(endpoint.ip, {
+          ip: endpoint.ip,
+          faults: endpoint.faults,
+          src: endpoint.src,
+          dst: endpoint.dst,
+          codes: new Set(endpoint.codes),
         })
       })
       if (nodeMap.size === 0) {
@@ -4400,13 +4398,17 @@ function createOverviewStateInner() {
       })
 
       const pairCounts = faultActivePairs.value.map((pair) => pair.faults)
-      const minCount = Math.min(...pairCounts)
-      const maxCount = Math.max(...pairCounts)
-      const maxNodeFaults = Math.max(...ordered.map((node) => node.faults))
+      const minCount = pairCounts.length ? Math.min(...pairCounts) : 0
+      const maxCount = pairCounts.length ? Math.max(...pairCounts) : 0
+      const maxNodeFaults = Math.max(1, ...ordered.map((node) => node.faults))
 
       const nodes = ordered.map((node) => {
         const pos = positions.get(node.ip)
-        const color = faultCodeColor([...node.codes][0] ?? '')
+        const color = faultCodeColor(
+          faultCodeColorOrder.value.find((code) => node.codes.has(code)) ??
+            [...node.codes][0] ??
+            '',
+        )
         return {
           name: node.ip,
           faults: node.faults,
@@ -4449,7 +4451,10 @@ function createOverviewStateInner() {
       })
 
       const links = faultActivePairs.value.map((pair) => {
-        const normalized = Math.log1p(pair.faults - minCount) / Math.log1p(maxCount - minCount || 1)
+        const normalized =
+          maxCount > minCount
+            ? Math.log1p(pair.faults - minCount) / Math.log1p(maxCount - minCount)
+            : 1
         const width = 2 + normalized * 4.5
         return {
           source: pair.src,
@@ -4467,9 +4472,14 @@ function createOverviewStateInner() {
         }
       })
 
-      const graphSize = Math.max(200, Math.min(el.clientWidth - 40, el.clientHeight - 30))
-      const graphLeft = Math.max(30, (el.clientWidth - graphSize) / 2)
-      const graphTop = Math.max(20, (el.clientHeight - graphSize) / 2)
+      // 上下留出标签高度（半径 30 + 间距 7 + 标签约 20），避免 IP 标签被裁掉
+      const labelSpace = 57
+      const graphSize = Math.max(
+        200,
+        Math.min(el.clientWidth - 80, el.clientHeight - labelSpace * 2),
+      )
+      const graphLeft = Math.max(40, (el.clientWidth - graphSize) / 2)
+      const graphTop = Math.max(labelSpace, (el.clientHeight - graphSize) / 2)
 
       setChartOption(chart, {
         animation: false,
@@ -4478,7 +4488,11 @@ function createOverviewStateInner() {
           formatter: (params: any) => {
             if (params.dataType === 'node') {
               const data = params.data
-              return `<b>${data.name}</b><br/>故障次数: ${data.faults}<br/>出方向(源): ${data.src} &nbsp; 入方向(目标): ${data.dst}<br/>关联故障码: ${data.codes.join(', ') || '-'}`
+              const roleText =
+                data.src + data.dst > 0
+                  ? `出方向(源): ${data.src} &nbsp; 入方向(目标): ${data.dst}`
+                  : '仅出现在端点信息（Pod IP）里，日志没有给出对端地址'
+              return `<b>${data.name}</b><br/>故障次数: ${data.faults}<br/>${roleText}<br/>关联故障码: ${data.codes.join(', ') || '-'}`
             }
             if (params.dataType === 'edge') {
               const data = params.data
@@ -4512,7 +4526,7 @@ function createOverviewStateInner() {
         ],
       })
 
-      // P0.7：点节点/边进入「窗 + 端点/链路」的故障 Trace（按通断接口字段发送）
+      // 点节点/边进入「窗 + 端点/链路」的故障 Trace（按通断接口字段发送）
       chart.off('click')
       chart.on('click', (params: any) => {
         if (params.dataType === 'edge') {
@@ -4567,7 +4581,7 @@ function createOverviewStateInner() {
       const el = faultChartRef.value
       if (!el) return
       const chart = getChart(el)
-      // P1.6：按所选尺度再分桶后的展示数据；原始秒级数据仅用于空态与抽稀判断
+      // 按所选尺度再分桶后的展示数据；原始秒级数据仅用于空态与抽稀判断
       const displayData = faultChartDisplayData.value
       const codes = selectedFaultCode.value
         ? Object.prototype.hasOwnProperty.call(displayData, selectedFaultCode.value)
@@ -4661,7 +4675,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // P2.1 成功率总览：按勾选接口逐条曲线，指标可切换（成功率/失败率/请求数/成功量/失败量）
+  // 成功率总览：按勾选接口逐条曲线，指标可切换（成功率/失败率/请求数/成功量/失败量）
   const renderBrpcSuccessOverviewChart = () => {
     afterDomUpdate(() => {
       const el = brpcSuccessOverviewRef.value
@@ -4704,7 +4718,12 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
+          axisLabel: {
+            fontSize: 10,
+            rotate: 30,
+            interval: brpcAxisLabelStep(times.length),
+            hideOverlap: true,
+          },
         },
         yAxis: {
           type: 'value',
@@ -4741,7 +4760,12 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
+          axisLabel: {
+            fontSize: 10,
+            rotate: 30,
+            interval: brpcAxisLabelStep(times.length),
+            hideOverlap: true,
+          },
         },
         yAxis: [
           {
@@ -4778,7 +4802,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // P2.1 单接口时延：avg / P99 / max（ms）
+  // 单接口时延：avg / P99 / max（ms）
   const renderBrpcLatencyChart = () => {
     afterDomUpdate(() => {
       const el = brpcLatencyRef.value
@@ -4808,7 +4832,12 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
+          axisLabel: {
+            fontSize: 10,
+            rotate: 30,
+            interval: brpcAxisLabelStep(times.length),
+            hideOverlap: true,
+          },
         },
         yAxis: { type: 'value', name: '时延 (ms)', axisLabel: { fontSize: 10 } },
         series: metricDefs.map((def) => ({
@@ -4835,7 +4864,8 @@ function createOverviewStateInner() {
       const chart = getChart(el)
       const times = brpcIfaceTimestamps.value
       const metricKey = brpcLatencyMetric.value
-      const metricLabel = brpcLatencyMetrics.find((item) => item.value === metricKey)?.label ?? metricKey
+      const metricLabel =
+        brpcLatencyMetrics.find((item) => item.value === metricKey)?.label ?? metricKey
       const series = brpcLatencySelectedIfaces.value.map((iface) => {
         const rowByTs = new Map<string, any>()
         brpcFileRows.value.forEach((row) => {
@@ -4871,7 +4901,12 @@ function createOverviewStateInner() {
         xAxis: {
           type: 'category',
           data: times.map((time) => formatChartTs(time)),
-          axisLabel: { fontSize: 10, rotate: 30, interval: brpcAxisLabelStep(times.length), hideOverlap: true },
+          axisLabel: {
+            fontSize: 10,
+            rotate: 30,
+            interval: brpcAxisLabelStep(times.length),
+            hideOverlap: true,
+          },
         },
         yAxis: { type: 'value', name: `${metricLabel} (µs)`, axisLabel: { fontSize: 10 } },
         series,
@@ -4883,7 +4918,6 @@ function createOverviewStateInner() {
     nextTick(() => {
       if (!isAssetMode.value) return
       if (isBrpcTask.value) {
-
         renderBrpcSuccessOverviewChart()
         renderBrpcSingleChart()
         renderBrpcLatencyMonitorChart()
@@ -5150,7 +5184,7 @@ function createOverviewStateInner() {
       { deep: true },
     )
 
-    // P1.6：故障码时序尺度变化只改展示分桶，不回写 disconnectFilter.time
+    // 故障码时序尺度变化只改展示分桶，不回写 disconnectFilter.time
     watch(faultChartScale, () => {
       if (!isAssetMode.value || isBrpcTask.value || analysisTab.value !== 'disconnect') return
       renderFaultChart()
@@ -5233,7 +5267,7 @@ function createOverviewStateInner() {
         const key =
           `${filesAssetId}|` +
           (files ?? []).map((file) => `${file.id}:${file.overall_status}`).join('|')
-        // P1.5：默认跨任务汇总；仅在已选日志失效时回到“全部任务”
+        // 默认跨任务汇总；仅在已选日志失效时回到“全部任务”
         const tasks = scopeTasks.value
         const current = latencyFilter.logId.value
         if (current && !tasks.some((file) => file.id === current)) {
@@ -5251,7 +5285,7 @@ function createOverviewStateInner() {
       { immediate: true },
     )
 
-    // P1.5：用户切换日志文件 → 清缓存并按当前页签重载
+    // 用户切换日志文件 → 清缓存并按当前页签重载
     watch(latencyFilter.logId, (logId, oldLogId) => {
       if (logId === oldLogId) return
       if (!isAssetMode.value || isBrpcTask.value) return
@@ -5349,6 +5383,7 @@ function createOverviewStateInner() {
     faultCodeColor,
     faultCodeColorOrder,
     faultPodStats,
+    faultUnpairedTraceCount,
     faultTopoRef,
     renderFaultTopology,
     latencyFilter,
