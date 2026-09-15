@@ -27,6 +27,7 @@ const createAgentChatState = new Function(
   'reactive',
   'nextTick',
   'useToast',
+  'useAssets',
   'AgentApi',
   'buildBasicAuthHeader',
   'defaultAgentApiBase',
@@ -45,6 +46,16 @@ const createAgentChatState = new Function(
   (value) => value,
   async (callback) => callback?.(),
   () => ({ toast() {} }),
+  // 全量资产列表：sessionAssetName 按它解析资产名（旧版 getAgentSessionAssetName 语义）
+  () => ({
+    assets: {
+      value: [
+        { id: 'kb-a', name: '资产 A' },
+        { id: 'kb-b', name: '资产 B' },
+        { id: 'kb-new', name: '测试资产' },
+      ],
+    },
+  }),
   apiExports.AgentApi,
   apiExports.buildBasicAuthHeader,
   () => '/agent-api',
@@ -247,7 +258,7 @@ test('switching preserves background generation, drafts, and asset context', asy
     await state.loginLocalAgent()
     await state.openConversation('a')
     assert.equal(state.isSending.value, true)
-    assert.equal(state.sessionAssetName('a'), 'kb-a')
+    assert.equal(state.sessionAssetName('a'), '资产 A')
     state.input.value = 'A 的草稿'
     await state.openConversation('b')
     assert.equal(state.isSending.value, false)
@@ -255,6 +266,34 @@ test('switching preserves background generation, drafts, and asset context', asy
     await state.openConversation('a')
     assert.equal(state.input.value, 'A 的草稿')
     assert.ok(!requests.some((request) => request.path.endsWith('/abort')))
+  } finally {
+    await cleanup()
+  }
+})
+
+// 用户报障：在「JINGPAI LOGS」问过问题后切到「BRPC Library」再打开 Agent 面板，
+// 问答记录里的资产库名称变成 ID，只有当前资产库的名称能正常显示。
+// 根因是 sessionAssetName 只比对 currentAsset；旧版是按全量资产列表查名字。
+test('非当前资产库的会话也显示资产名，并可按资产名检索', async () => {
+  const { state, storage, cleanup } = setup()
+  try {
+    // 用户此前在资产 A 提问过，映射已落在 localStorage；当前打开的是资产 B
+    storage.set('witty-ub.agent-session-assets:/agent-api', JSON.stringify({ a: 'kb-a' }))
+    await state.loginLocalAgent()
+    state.setAsset({ id: 'kb-b', name: '资产 B' })
+    await flush()
+
+    assert.equal(state.sessionAssetName('a'), '资产 A')
+    assert.notEqual(state.sessionAssetName('a'), 'kb-a')
+    // 没登记资产、以及资产已被删除的会话仍交给界面显示占位文案
+    assert.equal(state.sessionAssetName('b'), '')
+    assert.equal(state.sessionAssetName('child'), '')
+
+    state.sessionSearch.value = '资产 A'
+    assert.deepEqual(
+      state.filteredSessions.value.map((item) => item.id),
+      ['a'],
+    )
   } finally {
     await cleanup()
   }

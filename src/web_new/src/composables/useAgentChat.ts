@@ -11,6 +11,7 @@ import {
   type OpenCodeSession,
   type OpenCodeSessionStatus,
 } from '../api/agent'
+import { useAssets } from './useAssets'
 import { useToast } from './useToast'
 
 /**
@@ -56,6 +57,9 @@ export function useAgentChat() {
 
 export function createAgentChatState() {
   const { toast } = useToast()
+  // 资产名要按全量列表解析（对齐旧版 App.vue 的 getAgentSessionAssetName）：
+  // 只拿 currentAsset 比对，非当前资产库的会话只能退回显示 UUID（用户报障）
+  const { assets } = useAssets()
 
   const view = ref<AgentView>('login')
   const api = shallowRef<AgentApi | null>(null)
@@ -876,9 +880,12 @@ export function createAgentChatState() {
 
   // ---------- 视图辅助 ----------
 
+  // 旧版语义：按全量资产列表把 sessionId 映射成资产名，查不到才退回 ID。
+  // 未登记资产的会话返回空串，由界面各自显示「未知资产库 / 未关联资产」
   const sessionAssetName = (sid: string) => {
     const assetId = sessionAssetIndex.value[sid] ?? ''
-    return assetId && assetId === currentAsset.id ? currentAsset.name : assetId
+    if (!assetId) return ''
+    return assets.value.find((asset) => asset.id === assetId)?.name || assetId
   }
 
   const filteredSessions = computed(() => {
