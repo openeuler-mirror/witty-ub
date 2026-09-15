@@ -653,7 +653,8 @@ function createOverviewStateInner() {
   ]
   const brpcIfaceColor = (iface: string) => {
     const index = brpcIfaceNames.value.indexOf(iface)
-    return BRPC_INTERFACE_COLORS[index >= 0 ? index % BRPC_INTERFACE_COLORS.length : 20]
+    const paletteIndex = index >= 0 ? index % BRPC_INTERFACE_COLORS.length : 20
+    return BRPC_INTERFACE_COLORS[paletteIndex] ?? '#6e7074'
   }
 
   // U1b：单接口监控的指标多选（对齐旧版 brpcSingleMetrics）
@@ -684,7 +685,7 @@ function createOverviewStateInner() {
   const brpcLatencyMetric = ref('avg_ns')
 
   // U6：单接口时延与总览时延同口径——同样的 9 项指标可选（旧版只固定 avg/P99/max），
-  // 单位在 ms / µs 间切换，避免与「时延监控 (µs)」重复两张图却各说各话
+  // 单位统一 µs（改版前单接口固定 ms，与总览的 µs 不一致）
   const BRPC_LATENCY_METRIC_COLORS: Record<string, string> = {
     total_ns: '#6366f1',
     avg_ns: '#1E6FFF',
@@ -698,7 +699,6 @@ function createOverviewStateInner() {
   }
   const brpcSingleLatencyMetrics = brpcLatencyMetrics
   const brpcSingleLatencySelectedMetrics = ref<string[]>(['avg_ns', 'p99_ns', 'max_ns'])
-  const brpcSingleLatencyUnit = ref<'ms' | 'µs'>('ms')
   const brpcSingleLatencyColor = (metric: string) => BRPC_LATENCY_METRIC_COLORS[metric] ?? '#94a3b8'
 
   // U1：横轴标签按点数抽稀（密集时序下旋转标签会互相重叠）
@@ -713,7 +713,9 @@ function createOverviewStateInner() {
     const req = ok + fail
     switch (metric) {
       case 'successRate':
-        return req ? +((ok / req) * 100).toFixed(2) : 0
+        // 与旧版 calcRate 一致：该桶没有请求（低流量接口）时记 100%，
+        // 记 0% 会在曲线上画出并不存在的深谷（旧版没有这些归零点）
+        return req ? +((ok / req) * 100).toFixed(2) : 100
       case 'failureRate':
         return req ? +((fail / req) * 100).toFixed(2) : 0
       case 'requestCount':
@@ -4817,8 +4819,8 @@ function createOverviewStateInner() {
     })
   }
 
-  // U6 单接口时延：与「全接口总览 · 时延」同一批指标（total/avg/min/P50...P999），
-  // 单位 ms / µs 可切换；默认 avg+P99+max、ms，保持原有观感
+  // U6 单接口时延：与「全接口总览 · 时延」同一批指标（total/avg/min/P50...P999），单位统一 µs；
+  // 默认 avg+P99+max，保持原有观感
   const renderBrpcLatencyChart = () => {
     afterDomUpdate(() => {
       const el = brpcLatencyRef.value
@@ -4831,10 +4833,6 @@ function createOverviewStateInner() {
         if (row.interface_name !== iface || !row.timestamp) return
         rowByTs.set(String(row.timestamp).slice(0, 19), row)
       })
-      const unit = brpcSingleLatencyUnit.value
-      // profiling 行内时延字段单位为 ns，展示时才换算到 ms / µs
-      const divisor = unit === 'ms' ? 1e6 : 1e3
-      const decimals = unit === 'ms' ? 3 : 1
       const selected = brpcSingleLatencySelectedMetrics.value.filter((metric) =>
         brpcSingleLatencyMetrics.some((option) => option.value === metric),
       )
@@ -4846,7 +4844,7 @@ function createOverviewStateInner() {
           trigger: 'axis',
           order: 'valueDesc',
           valueFormatter: (value: unknown) =>
-            typeof value === 'number' ? `${value} ${unit}` : String(value ?? '-'),
+            typeof value === 'number' ? `${value} µs` : String(value ?? '-'),
         },
         legend: { left: 'center', top: 0, textStyle: { fontSize: 11 } },
         grid: { left: 64, right: 40, top: 48, bottom: 76 },
@@ -4860,7 +4858,7 @@ function createOverviewStateInner() {
             hideOverlap: true,
           },
         },
-        yAxis: { type: 'value', name: `时延 (${unit})`, axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'value', name: '时延 (µs)', axisLabel: { fontSize: 10 } },
         series: metricDefs.map((def) => ({
           name: def.label,
           type: 'line',
@@ -4871,8 +4869,9 @@ function createOverviewStateInner() {
           data: times.map((time) => {
             const row = rowByTs.get(time)
             const value = row?.[def.value]
+            // profiling 行内时延字段单位为 ns，展示时换算到 µs
             return typeof value === 'number' && Number.isFinite(value)
-              ? +(value / divisor).toFixed(decimals)
+              ? +(value / 1000).toFixed(1)
               : null
           }),
         })),
@@ -5065,7 +5064,6 @@ function createOverviewStateInner() {
       brpcSingleIface.value = ''
       brpcSingleSelectedMetrics.value = ['requestCount', 'successRate', 'failureRate']
       brpcSingleLatencySelectedMetrics.value = ['avg_ns', 'p99_ns', 'max_ns']
-      brpcSingleLatencyUnit.value = 'ms'
       brpcLatencyMetric.value = 'avg_ns'
       brpcFaultSelectedLogId.value = ''
       brpcFaultBatch.value = null
@@ -5231,7 +5229,6 @@ function createOverviewStateInner() {
         brpcSingleSelectedMetrics,
         brpcLatencyMetric,
         brpcSingleLatencySelectedMetrics,
-        brpcSingleLatencyUnit,
       ],
       () => {
         if (!isAssetMode.value || !isBrpcTask.value) return
@@ -5477,7 +5474,6 @@ function createOverviewStateInner() {
     brpcSingleLatencyColor,
     brpcSingleLatencyMetrics,
     brpcSingleLatencySelectedMetrics,
-    brpcSingleLatencyUnit,
     brpcSingleMetricColor,
     brpcSingleMetrics,
     brpcSingleRef,

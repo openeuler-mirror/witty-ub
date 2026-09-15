@@ -830,7 +830,6 @@ html.is-modal-open {
   font-size: 20px;
 }
 
-.analysis-heading p,
 .analysis-eyebrow {
   color: var(--text2);
   font-size: 12px;
@@ -1977,8 +1976,14 @@ html.is-modal-open {
   color: var(--text2);
 }
 
-.monitor-pane-head .unit-tabs {
-  margin-bottom: 0;
+/* 单接口分析卡头的作用域提示（可选指标说明只留短标签，不再写整句） */
+.monitor-pane-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .series-toggle {
@@ -1998,10 +2003,6 @@ html.is-modal-open {
   gap: 6px;
 }
 
-.series-toggle-current {
-  margin-left: auto;
-}
-
 .series-toggle-label,
 .series-toggle-count {
   font-size: 12px;
@@ -2009,8 +2010,125 @@ html.is-modal-open {
   white-space: nowrap;
 }
 
-.select-iface {
-  min-width: 180px;
+/* 接口选择器（单接口分析）：颜色圆点 + 接口名 + 请求量，可搜索 */
+.iface-picker {
+  position: relative;
+}
+
+.iface-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.iface-picker-trigger:hover {
+  border-color: var(--primary);
+}
+
+.iface-picker-trigger[aria-expanded='true'] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-bg);
+}
+
+.iface-picker-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.iface-picker-trigger-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.iface-picker-caret {
+  font-size: 10px;
+  color: var(--text3);
+}
+
+.iface-picker-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: 330px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(31, 42, 58, 0.14);
+}
+
+.iface-picker-filter {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.iface-picker-list {
+  max-height: 260px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.iface-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.iface-picker-option.active {
+  background: var(--bg);
+}
+
+.iface-picker-option.current {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.iface-picker-option-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.iface-picker-option-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.iface-picker-empty {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: var(--text2);
+  text-align: center;
 }
 
 .iface-link {

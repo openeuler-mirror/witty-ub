@@ -256,7 +256,6 @@ onMounted(() => {
       <div class="analysis-heading">
         <span class="analysis-eyebrow">当前资产</span>
         <h1>{{ selectedAsset?.name }}</h1>
-        <p>选择数据域后，按日志与操作类型查看诊断结果。</p>
       </div>
       <div class="domain-switch">
         <span>数据域</span>

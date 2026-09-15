@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
+import IfacePicker from './IfacePicker.vue'
 
 // 只注入 UBSocket 接口监控所需状态
 const {
@@ -25,7 +26,6 @@ const {
   brpcSingleLatencyColor,
   brpcSingleLatencyMetrics,
   brpcSingleLatencySelectedMetrics,
-  brpcSingleLatencyUnit,
   brpcSingleMetricColor,
   brpcSingleMetrics,
   brpcSingleRef,
@@ -91,19 +91,25 @@ const clearSingleLatencyMetrics = () => {
   brpcSingleLatencySelectedMetrics.value = []
 }
 
+// 接口选择器的候选项：带上该接口的颜色、请求量与成功率，便于快速辨认
+const ifaceOptions = computed(() =>
+  brpcIfaceNames.value.map((name) => {
+    const item = brpcInterfaces.value.find((row) => row.name === name)
+    return {
+      name,
+      color: brpcIfaceColor(name),
+      requestCount: item?.requestCount,
+      successRate: item?.successRate,
+      status: item?.status,
+    }
+  }),
+)
+
 // 接口明细 → 单接口分析：选中该接口并滚动到卡片，联动的两张图立即切换
 const openSingleIface = (iface: string) => {
   brpcSingleIface.value = iface
   singleIfaceCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
-
-const singleSuccessMetricLabel = computed(
-  () =>
-    brpcSingleMetrics
-      .filter((metric) => brpcSingleSelectedMetrics.value.includes(metric.value))
-      .map((metric) => metric.label)
-      .join(' / ') || '未选择指标',
-)
 </script>
 
 <template>
@@ -138,9 +144,9 @@ const singleSuccessMetricLabel = computed(
           class="kpi-num"
           :style="{ color: brpcKpi.p99Max == null ? 'var(--text3)' : 'var(--danger)' }"
         >
-          {{ brpcKpi.p99Max == null ? '—' : brpcKpi.p99Max.toFixed(2) }}
+          {{ brpcKpi.p99Max == null ? '—' : Math.round(brpcKpi.p99Max * 1000).toLocaleString() }}
         </div>
-        <div class="kpi-label">最高 P99 (ms)</div>
+        <div class="kpi-label">最高 P99 (µs)</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-num">{{ brpcKpi.failIface }}</div>
@@ -173,9 +179,7 @@ const singleSuccessMetricLabel = computed(
             {{ brpcFileLabel(file) }}
           </option>
         </select>
-        <span class="monitor-toolbar-hint">
-          {{ brpcIfaceNames.length }} 个接口 · 数据来自选中的 profiling 文件
-        </span>
+        <span class="monitor-toolbar-hint">{{ brpcIfaceNames.length }} 个接口</span>
       </div>
 
       <div v-if="!brpcHasRows" class="brpc-chart-empty" role="status">
@@ -187,12 +191,9 @@ const singleSuccessMetricLabel = computed(
           <article class="monitor-card monitor-card-wide">
             <div class="monitor-card-title">
               <span>全接口总览</span>
-              <span class="monitor-card-actions hint"
-                >按接口叠加对比 · 两张图共用下方勾选的接口</span
-              >
             </div>
             <div class="series-toggle">
-              <span class="series-toggle-label">曲线选择：</span>
+              <span class="series-toggle-label">接口曲线（两张图共用）：</span>
               <span class="series-toggle-count">
                 已选 {{ brpcOverviewSelectedIfaces.length }}/{{ brpcIfaceNames.length }}
               </span>
@@ -255,23 +256,10 @@ const singleSuccessMetricLabel = computed(
           >
             <div class="monitor-card-title">
               <span>单接口分析</span>
-              <span class="monitor-pane-actions">
-                <label class="hint" for="brpc-single-iface">接口</label>
-                <select
-                  id="brpc-single-iface"
-                  class="select select-iface"
-                  v-model="brpcSingleIface"
-                >
-                  <option v-for="iface in brpcIfaceNames" :key="iface" :value="iface">
-                    {{ iface }}
-                  </option>
-                </select>
+              <span class="monitor-card-actions">
+                <span class="monitor-pane-tag">两张图联动</span>
+                <IfacePicker v-model="brpcSingleIface" :options="ifaceOptions" />
               </span>
-            </div>
-            <div class="monitor-card-hint">
-              下方两张图联动同一接口{{
-                brpcSingleIface ? `（当前：${brpcSingleIface}）` : ''
-              }}，切换接口即同时刷新成功率与时延
             </div>
             <div class="monitor-pane-grid">
               <section class="monitor-pane">
@@ -310,9 +298,6 @@ const singleSuccessMetricLabel = computed(
                     ></span>
                     {{ metric.label }}
                   </label>
-                  <span class="series-toggle-count series-toggle-current">
-                    当前：{{ singleSuccessMetricLabel }}
-                  </span>
                 </div>
                 <div ref="brpcSingleRef" style="height: 300px"></div>
               </section>
@@ -339,24 +324,6 @@ const singleSuccessMetricLabel = computed(
                     >
                       清空
                     </button>
-                    <span class="view-tabs unit-tabs" role="group" aria-label="时延单位">
-                      <button
-                        class="view-tab"
-                        :class="{ active: brpcSingleLatencyUnit === 'ms' }"
-                        type="button"
-                        @click="brpcSingleLatencyUnit = 'ms'"
-                      >
-                        ms
-                      </button>
-                      <button
-                        class="view-tab"
-                        :class="{ active: brpcSingleLatencyUnit === 'µs' }"
-                        type="button"
-                        @click="brpcSingleLatencyUnit = 'µs'"
-                      >
-                        µs
-                      </button>
-                    </span>
                   </span>
                 </header>
                 <div class="series-toggle series-toggle-compact">
@@ -388,8 +355,7 @@ const singleSuccessMetricLabel = computed(
           <div class="monitor-card-title">
             <span>接口明细</span>
             <span class="monitor-card-actions hint">
-              按请求数排序 · avg/P99/max 单位 ms · P99 &gt; 2ms 记为偏高 ·
-              点击接口名可下钻到单接口分析
+              按请求数排序 · P99 &gt; 2000 µs 记为偏高
             </span>
           </div>
           <div class="table-wrap">
@@ -402,9 +368,9 @@ const singleSuccessMetricLabel = computed(
                   <th>失败数</th>
                   <th>成功率</th>
                   <th>失败率</th>
-                  <th>avg(ms)</th>
-                  <th>P99(ms)</th>
-                  <th>max(ms)</th>
+                  <th>avg(µs)</th>
+                  <th>P99(µs)</th>
+                  <th>max(µs)</th>
                   <th>状态</th>
                 </tr>
               </thead>
@@ -425,11 +391,11 @@ const singleSuccessMetricLabel = computed(
                   <td>{{ item.failureCount.toLocaleString() }}</td>
                   <td>{{ item.successRate }}%</td>
                   <td>{{ item.failureRate }}%</td>
-                  <td>{{ (item.avg_ns / 1e6).toFixed(2) }}</td>
+                  <td>{{ Math.round(item.avg_ns / 1e3).toLocaleString() }}</td>
                   <td :style="{ color: item.p99_ns / 1e6 > 2 ? 'var(--danger)' : '' }">
-                    {{ (item.p99_ns / 1e6).toFixed(2) }}
+                    {{ Math.round(item.p99_ns / 1e3).toLocaleString() }}
                   </td>
-                  <td>{{ (item.max_ns / 1e6).toFixed(2) }}</td>
+                  <td>{{ Math.round(item.max_ns / 1e3).toLocaleString() }}</td>
                   <td>
                     <span
                       :class="item.status === '正常' ? 'badge badge-normal' : 'badge badge-warning'"
