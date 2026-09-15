@@ -737,7 +737,9 @@ function createOverviewStateInner() {
       appendToBody: true,
       // 长列表（20+ 条曲线）可把光标移进 tooltip 内滚动查看
       enterable: true,
-      hideDelay: 300,
+      // 光标离开图表立即隐藏（不留驻留时间）；淡出动画仍由 transitionDuration 提供。
+      // 需要滚长列表时把光标移进 tooltip 内即可钉住，移出后同样是立即隐藏。
+      hideDelay: 0,
       // tooltip 保留 ECharts 默认的位移/淡入过渡（transitionDuration 0.4 + displayTransition），
       // 「关闭动画」只针对图表本身，hover 框跟手动画要留着
       extraCssText: 'max-height:62vh;overflow-y:auto;',

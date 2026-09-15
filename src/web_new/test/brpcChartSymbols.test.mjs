@@ -56,6 +56,7 @@ test('UBSocket 接口监控 tooltip 挂 body、按视口夹取且支持点级过
     /transitionDuration: 0/,
     '不得关掉 tooltip 的位移/淡入过渡（关闭动画只针对图表本身）',
   )
+  assert.match(helper, /hideDelay: 0/, '光标离开后必须立即隐藏，不留驻留时间')
 
   for (const name of rendererNames) {
     assert.match(
