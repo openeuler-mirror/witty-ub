@@ -9,16 +9,27 @@ from latency.database.managers.task import TaskPGManager
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.request import ParseConfig
 from latency.task.task_handler import TaskHandler
+from latency.task.process_handle import ProcessHandler
 from latency.task.worker.base import BaseWorker
+from latency.common.disk_space import DiskCapacity
 
 
 @pytest.fixture(autouse=True)
-def _reset_dispatch_state():
+def _reset_dispatch_state(monkeypatch):
+    monkeypatch.setattr(
+        "latency.task.task_handler.disk_capacity",
+        lambda: DiskCapacity("normal", 1000, 2000, 100, 50, 150),
+    )
+    monkeypatch.setattr(ProcessHandler, "collect_finished_tasks", lambda: {})
+    monkeypatch.setattr(ProcessHandler, "has_capacity", lambda: True)
+    monkeypatch.setattr(TaskHandler, "_collect_finished_processes", AsyncMock(return_value={}))
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._disk_stopped_task_ids.clear()
     yield
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._disk_stopped_task_ids.clear()
 
 
 async def _drain_pending_dispatch():
@@ -69,6 +80,50 @@ async def test_init_task_queue_routes_interrupted_tasks_through_retry(monkeypatc
     await TaskHandler.init_task_queue()
 
     recover.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_warning_disk_mode_pauses_dispatch_and_retry(monkeypatch):
+    monkeypatch.setattr(
+        "latency.task.task_handler.disk_capacity",
+        lambda: DiskCapacity("warning", 90, 2000, 100, 50, 150),
+    )
+    success = AsyncMock()
+    failed = AsyncMock()
+    pending = AsyncMock()
+    monkeypatch.setattr(TaskHandler, "handle_successed_tasks", success)
+    monkeypatch.setattr(TaskHandler, "handle_failed_tasks", failed)
+    monkeypatch.setattr(TaskHandler, "handle_pending_tasks", pending)
+
+    await TaskHandler.handle_tasks()
+
+    success.assert_awaited_once()
+    failed.assert_not_awaited()
+    pending.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_critical_disk_mode_stops_running_tasks_for_retry(monkeypatch):
+    task = _make_task(status=TaskStatusEnum.RUNNING)
+    monkeypatch.setattr(
+        "latency.task.task_handler.disk_capacity",
+        lambda: DiskCapacity("critical", 40, 2000, 100, 50, 150),
+    )
+    monkeypatch.setattr(TaskHandler, "handle_successed_tasks", AsyncMock())
+    monkeypatch.setattr(
+        TaskPGManager, "list_tasks_by_status", AsyncMock(return_value=[task])
+    )
+    monkeypatch.setattr(TaskHandler, "_stop_process", AsyncMock(return_value=True))
+    mark_failed = AsyncMock(return_value=True)
+    monkeypatch.setattr(TaskPGManager, "mark_failed_with_report", mark_failed)
+
+    await TaskHandler.handle_tasks()
+
+    mark_failed.assert_awaited_once_with(
+        "task-id",
+        "任务异常停止：服务器磁盘空间达到紧急阈值；释放空间后将自动重试",
+        status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+    )
 
 
 @pytest.mark.asyncio

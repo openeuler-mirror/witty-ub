@@ -6549,6 +6549,21 @@ body.agent-panel-resizing-corner {
   max-width: 760px;
 }
 
+.task-status-reason {
+  margin-top: 8px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: var(--danger);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  padding: 7px 9px;
+}
+
+.task-status-reason-previous {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .log-file-progress-info {
   display: flex;
   align-items: center;

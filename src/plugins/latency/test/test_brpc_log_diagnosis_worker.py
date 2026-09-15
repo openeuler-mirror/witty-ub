@@ -136,8 +136,19 @@ def _configure_run_dependencies(monkeypatch, log_path):
         reports.append((message, progress))
         return True
 
+    async def mark_failed_with_report(_task_id, message, status):
+        status_updates.append({"status": status.value})
+        task.status = status
+        reports.append((message, 100.0))
+        return True
+
     monkeypatch.setattr(worker_module.TaskPGManager, "get_task_by_task_id", get_task)
     monkeypatch.setattr(worker_module.TaskPGManager, "update_task", update_task)
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "mark_failed_with_report",
+        mark_failed_with_report,
+    )
     monkeypatch.setattr(
         worker_module.LogFilePGManager,
         "get_log_file_by_log_file_id",

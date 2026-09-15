@@ -79,6 +79,7 @@ class ProcessHandler:
     @staticmethod
     def _cleanup_dead_processes():
         """清理已结束的进程"""
+        exits = {}
         dead_tasks = [
             tid for tid, proc in ProcessHandler.tasks.items() 
             if not proc.is_alive()
@@ -86,8 +87,20 @@ class ProcessHandler:
         for tid in dead_tasks:
             process = ProcessHandler.tasks.pop(tid)
             process.join()
+            exits[tid] = process.exitcode
             process.close()
             logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
+        return exits
+
+    @staticmethod
+    def collect_finished_tasks():
+        """Collect child exit codes so the scheduler can persist abnormal exits."""
+        if not ProcessHandler.lock.acquire(timeout=ProcessHandler.time_out):
+            return {}
+        try:
+            return ProcessHandler._cleanup_dead_processes()
+        finally:
+            ProcessHandler.lock.release()
 
     @staticmethod
     def has_capacity():

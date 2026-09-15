@@ -358,8 +358,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             if result.returncode != 0:
                 logger.error(f"定界工具运行失败，返回码: {result.returncode}")
                 logger.error(f"错误输出: {result.stderr}")
-                await TaskPGManager.update_task(
-                    task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                stderr = (result.stderr or "").strip()
+                await TaskPGManager.mark_failed_with_report(
+                    task.id,
+                    f"任务失败：定界工具返回码 {result.returncode}" + (f"，{stderr}" if stderr else ""),
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 return False
 
@@ -373,8 +376,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 logger.error(f"定界工具输出包含错误标记，任务失败: {len(error_lines)} 条错误")
                 for line in error_lines[:50]:
                     logger.error("定界工具错误输出: %s", line)
-                await TaskPGManager.update_task(
-                    task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                summary = "；".join(error_lines[:3])
+                await TaskPGManager.mark_failed_with_report(
+                    task.id,
+                    f"任务失败：定界工具输出包含错误标记" + (f"，{summary}" if summary else ""),
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 return False
 
@@ -383,14 +389,18 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             
         except subprocess.TimeoutExpired:
             logger.error("定界工具运行超时")
-            await TaskPGManager.update_task(
-                task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task.id,
+                "任务失败：定界工具运行超时",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
         except Exception as e:
             logger.error(f"运行定界工具时发生错误: {e}")
-            await TaskPGManager.update_task(
-                task.id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task.id,
+                f"任务失败：定界工具异常，{type(e).__name__}: {e}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
         return True
@@ -504,8 +514,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             if not log_file:
                 logger.error(f"LogFile {task.op_id} 不存在")
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    f"任务失败：日志文件不存在（{task.op_id}）",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 return False
 
@@ -525,8 +537,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
             if not os.path.isdir(output_log_path) or not os.listdir(output_log_path):
                 logger.error(f"定界工具输出目录不存在或为空: {output_log_path}")
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    f"任务失败：定界工具输出目录不存在或为空（{output_log_path}）",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 return False
 
@@ -554,8 +568,10 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception(f"任务 {task_id} 执行失败: {e}")
-            await TaskPGManager.update_task(
-                task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task_id,
+                f"任务失败：故障定界任务异常，{type(e).__name__}: {e}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
 

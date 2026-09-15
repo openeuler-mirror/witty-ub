@@ -15,6 +15,7 @@ from latency.task.log_preprocessor import (
     preprocess_log_dir,
 )
 from latency.schemas.parse_config import ParseConfig
+from latency.common.disk_space import disk_capacity
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,15 @@ class TaskHandler:
     _dispatch_tasks: set["asyncio.Task"] = set()
     # 同一日志文件的多个任务共享同一次预处理，避免并发重复解压。
     _preprocess_inflight: dict[str, "asyncio.Future"] = {}
+    _disk_stopped_task_ids: set[str] = set()
+
+    @staticmethod
+    async def _collect_finished_processes() -> dict[str, int | None]:
+        return await asyncio.to_thread(ProcessHandler.collect_finished_tasks)
+
+    @staticmethod
+    async def _stop_process(task_id: str) -> bool:
+        return await asyncio.to_thread(ProcessHandler.remove_task, task_id)
 
     @staticmethod
     async def init_task_queue():
@@ -278,6 +288,8 @@ class TaskHandler:
 
     @staticmethod
     async def handle_pending_tasks():
+        if disk_capacity().mode != "normal":
+            return
         handle_pending_task_limit = 128
         single_batch_limit = 10
         pending_tasks = await TaskPGManager.get_oldest_tasks_by_status(
@@ -305,6 +317,36 @@ class TaskHandler:
 
     @staticmethod
     async def handle_tasks():
+        finished = await TaskHandler._collect_finished_processes()
+        for task_id, exit_code in finished.items():
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if task and task.status == TaskStatusEnum.RUNNING:
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    f"任务异常停止：工作进程意外退出（exit code {exit_code}），系统将自动重试",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+                )
+        # Successful cleanup can release preprocessing files and is safe in all modes.
         await TaskHandler.handle_successed_tasks()
+        capacity = disk_capacity()
+        if capacity.mode == "critical":
+            running_tasks = await TaskPGManager.list_tasks_by_status([TaskStatusEnum.RUNNING])
+            for task in running_tasks:
+                if task.id in TaskHandler._disk_stopped_task_ids:
+                    continue
+                stopped = await TaskHandler._stop_process(task.id)
+                if not stopped:
+                    logger.error("磁盘紧急保护未能停止任务: task_id=%s", task.id)
+                    continue
+                await TaskPGManager.mark_failed_with_report(
+                    task.id,
+                    "任务异常停止：服务器磁盘空间达到紧急阈值；释放空间后将自动重试",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+                )
+                TaskHandler._disk_stopped_task_ids.add(task.id)
+            return
+        if capacity.mode == "warning":
+            return
+        TaskHandler._disk_stopped_task_ids.clear()
         await TaskHandler.handle_failed_tasks()
         await TaskHandler.handle_pending_tasks()

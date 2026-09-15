@@ -195,8 +195,10 @@ class BrpcLogParseWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception(f"UBSocket task {task_id} failed: {e}")
-            await TaskPGManager.update_task(
-                task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task_id,
+                f"任务失败：UBSocket 日志解析异常，{type(e).__name__}: {e}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
 

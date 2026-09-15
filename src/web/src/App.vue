@@ -9218,7 +9218,10 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return message.startsWith('Trace context logs stored:') || message.startsWith('任务失败：')
+  return (
+    message.startsWith('Trace context logs stored:') ||
+    /(?:失败|异常停止|error|failed|exception)/i.test(message)
+  )
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>
@@ -9334,6 +9337,24 @@ const getLogFileProgressMessage = (file: LogFileModel) => {
   const milestoneMessage = latestMilestone?.message?.trim()
   if (milestoneMessage) return humanizeLogFileProgressMessage(milestoneMessage)
   return statusLabel(getLogFileDisplayStatus(file))
+}
+
+const getLogFileFailureReason = (file: LogFileModel) => {
+  const displayStatus = getLogFileDisplayStatus(file)
+  if (!['failed', 'failed_pending_remove', 'retrying', 'cancelled'].includes(displayStatus)) {
+    return ''
+  }
+  const report = [...getLogFileTaskReports(file)]
+    .sort((first, second) => getTaskReportTime(second) - getTaskReportTime(first))
+    .find(({ message }) => /(?:失败|异常停止|error|failed|exception)/i.test(message?.trim() ?? ''))
+  return report?.message ? humanizeLogFileProgressMessage(report.message) : '任务未提供失败原因'
+}
+
+const getLogFileFailureReasonLabel = (file: LogFileModel) => {
+  const taskStatus = getDetailedLogFileTask(file)?.status
+  return getLogFileDisplayStatus(file) === 'retrying' && taskStatus !== 'failed_pending_remove'
+    ? '上次失败原因'
+    : '状态原因'
 }
 
 const shouldShowLogFileProgress = (file: LogFileModel) =>
@@ -16482,6 +16503,16 @@ onBeforeUnmount(() => {
                       class="log-file-progress-bar"
                       :style="{ width: `${getLogFileProgress(file)}%` }"
                     ></div>
+                  </div>
+                  <div
+                    v-if="getLogFileFailureReason(file)"
+                    class="task-status-reason"
+                    :class="{
+                      'task-status-reason-previous':
+                        getLogFileFailureReasonLabel(file) === '上次失败原因',
+                    }"
+                  >
+                    {{ getLogFileFailureReasonLabel(file) }}：{{ getLogFileFailureReason(file) }}
                   </div>
                 </div>
               </div>

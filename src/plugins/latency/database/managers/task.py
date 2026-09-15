@@ -178,6 +178,10 @@ class TaskPGManager:
         hook and could mix a partial previous attempt with the new one.
         """
         async with PGManager.session() as session:
+            result = await session.execute(
+                select(Task.id).where(Task.status == TaskStatusEnum.RUNNING.value)
+            )
+            interrupted_ids = list(result.scalars().all())
             await session.execute(
                 text(
                     "UPDATE task SET status = :retry_status "
@@ -188,6 +192,21 @@ class TaskPGManager:
                     "running_status": TaskStatusEnum.RUNNING.value,
                 },
             )
+            if interrupted_ids:
+                now = local_now()
+                await session.execute(
+                    insert(TaskReport),
+                    [
+                        {
+                            "task_id": task_id,
+                            "progress": 100.0,
+                            "message": "任务异常停止：服务进程重启；系统将自动重试",
+                            "existed_status": True,
+                            "created_at": now,
+                        }
+                        for task_id in interrupted_ids
+                    ],
+                )
         return True
 
     @staticmethod

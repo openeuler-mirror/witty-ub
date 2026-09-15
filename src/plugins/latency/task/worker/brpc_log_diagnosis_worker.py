@@ -357,16 +357,13 @@ class BrpcLogDiagnosisWorker(BaseWorker):
     @staticmethod
     async def _mark_failed(task_id: str, message: str) -> None:
         try:
-            await BaseWorker.report(task_id, f"UBSocket 诊断失败: {message}", 100.0)
-        except Exception:
-            logger.exception("failed to report UBSocket diagnosis failure")
-        try:
-            await TaskPGManager.update_task(
+            await TaskPGManager.mark_failed_with_report(
                 task_id,
-                {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value},
+                f"任务失败：UBSocket 诊断失败，{message}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
         except Exception:
-            logger.exception("failed to update UBSocket diagnosis task status")
+            logger.exception("failed to persist UBSocket diagnosis failure")
 
     @staticmethod
     async def run(

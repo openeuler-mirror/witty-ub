@@ -17,7 +17,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import uvicorn
 import fastapi
 import os
-import shutil
 import logging
 from latency.ENUM.general import FilePath
 from latency.config.config import Config
@@ -41,6 +40,7 @@ from latency.routers import (
 )
 
 from latency.database.engine import PGManager
+from latency.common.disk_space import disk_capacity
 from latency.database.init import (
     backfill_trace_failure_event_status_codes,
     init_postgresql_database,
@@ -51,22 +51,6 @@ from pydantic import ValidationError
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)
 
 DATABASE_UNAVAILABLE_MESSAGE = "数据服务暂时不可用，请稍后重试或联系管理员"
-DEFAULT_MIN_FREE_DISK_BYTES = 1024 * 1024 * 1024
-
-
-def disk_write_status() -> tuple[bool, int, int]:
-    """Return whether the local data volume has enough room for new work."""
-    latency_dir = os.path.dirname(os.path.dirname(__file__))
-    usage = shutil.disk_usage(latency_dir)
-    configured = os.getenv("WITTY_MIN_FREE_DISK_BYTES", str(DEFAULT_MIN_FREE_DISK_BYTES))
-    try:
-        minimum_free = max(0, int(configured))
-    except ValueError:
-        logger.warning("Invalid WITTY_MIN_FREE_DISK_BYTES=%r; using default", configured)
-        minimum_free = DEFAULT_MIN_FREE_DISK_BYTES
-    return usage.free >= minimum_free, usage.free, minimum_free
-
-
 @app.exception_handler(SQLAlchemyError)
 async def database_exception_handler(request: fastapi.Request, exc: SQLAlchemyError):
     """Keep database outages from leaking driver errors to API clients."""
@@ -207,15 +191,18 @@ async def health_check():
                 "retryable": True,
             },
         )
-    writable, free_bytes, minimum_free_bytes = disk_write_status()
+    capacity = disk_capacity()
     return {
         # Read health stays OK in restricted mode so load balancers keep serving
         # query and delete requests.
         "status": "ok",
-        "writable": writable,
-        "free_disk_bytes": free_bytes,
-        "minimum_free_disk_bytes": minimum_free_bytes,
-        "message": None if writable else "服务器磁盘空间不足，当前仅开放查询和删除操作",
+        "writable": capacity.writable,
+        "disk_mode": capacity.mode,
+        "free_disk_bytes": capacity.free_bytes,
+        "minimum_free_disk_bytes": capacity.warning_bytes,
+        "critical_free_disk_bytes": capacity.critical_bytes,
+        "recovery_free_disk_bytes": capacity.recovery_bytes,
+        "message": None if capacity.writable else "服务器磁盘空间不足，当前仅开放查询和删除操作",
     }
 
 

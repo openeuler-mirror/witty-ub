@@ -8,9 +8,9 @@ from starlette.requests import Request
 from latency.access.fastapi_server import (
     DATABASE_UNAVAILABLE_MESSAGE,
     database_exception_handler,
-    disk_write_status,
     health_check,
 )
+from latency.common.disk_space import DiskCapacity, disk_capacity
 from latency.database.engine import PGManager
 
 
@@ -46,8 +46,8 @@ async def test_health_check_reports_read_only_mode_when_disk_is_low(monkeypatch)
 
     monkeypatch.setattr(PGManager, "connection", available_connection)
     monkeypatch.setattr(
-        "latency.access.fastapi_server.disk_write_status",
-        lambda: (False, 128, 1024),
+        "latency.access.fastapi_server.disk_capacity",
+        lambda: DiskCapacity("warning", 128, 4096, 1024, 256, 2048),
     )
 
     response = await health_check()
@@ -55,20 +55,27 @@ async def test_health_check_reports_read_only_mode_when_disk_is_low(monkeypatch)
     assert response == {
         "status": "ok",
         "writable": False,
+        "disk_mode": "warning",
         "free_disk_bytes": 128,
         "minimum_free_disk_bytes": 1024,
+        "critical_free_disk_bytes": 256,
+        "recovery_free_disk_bytes": 2048,
         "message": "服务器磁盘空间不足，当前仅开放查询和删除操作",
     }
 
 
-def test_disk_write_status_uses_configured_minimum(monkeypatch):
+def test_disk_capacity_uses_configured_thresholds(monkeypatch):
     monkeypatch.setenv("WITTY_MIN_FREE_DISK_BYTES", "100")
+    monkeypatch.setenv("WITTY_CRITICAL_FREE_DISK_BYTES", "50")
+    monkeypatch.setenv("WITTY_RECOVERY_FREE_DISK_BYTES", "150")
     monkeypatch.setattr(
-        "latency.access.fastapi_server.shutil.disk_usage",
-        lambda _path: type("Usage", (), {"free": 99})(),
+        "latency.common.disk_space.shutil.disk_usage",
+        lambda _path: type("Usage", (), {"free": 49, "total": 1000})(),
     )
 
-    assert disk_write_status() == (False, 99, 100)
+    capacity = disk_capacity()
+    assert capacity.mode == "critical"
+    assert (capacity.warning_bytes, capacity.critical_bytes, capacity.recovery_bytes) == (100, 50, 150)
 
 
 @pytest.mark.asyncio

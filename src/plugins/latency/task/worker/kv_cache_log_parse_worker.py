@@ -1301,9 +1301,10 @@ class KVCacheLogParseWorker(BaseWorker):
             t_parse = time.perf_counter() - t_run_start
 
             if trace_index is None or _trace_row_count(trace_index) == 0:
-                await BaseWorker.report(task.id, "解析失败：未在路径中识别到日志信息", 100.0)
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    "任务失败：未在路径中识别到日志信息",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 return False
 
@@ -1432,10 +1433,11 @@ class KVCacheLogParseWorker(BaseWorker):
             
             if not stored:
                 logger.error(f"Task {task_id} store failed, marking task as failed")
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    "任务失败：解析结果写入数据库未成功",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
-                await BaseWorker.report(task.id, "Task failed: store to DB unsuccessful", 100.0)
                 return False
 
             await LogFilePGManager.update_log_file(
@@ -1473,8 +1475,10 @@ class KVCacheLogParseWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception(f"Task {task_id} failed: {e}")
-            await TaskPGManager.update_task(
-                task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task_id,
+                f"任务失败：日志解析异常，{type(e).__name__}: {e}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
 
