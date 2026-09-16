@@ -1,0 +1,148 @@
+#!/bin/bash
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+#
+# witty-ub-web-exp-ctl - 试验性前端（exp）RPM 子包控制脚本
+#
+# 该脚本随 witty-ub-web-exp 一起安装（/usr/bin/witty-ub-web-exp-ctl），
+# 不依赖也不修改 witty-ub manager：exp 前端与既有前端、后端完全解耦。
+#
+# 用法:
+#   witty-ub-web-exp-ctl enable                        # 渲染配置并启动（开机自启）
+#   witty-ub-web-exp-ctl enable --backend http://<后端IP>:9772
+#   witty-ub-web-exp-ctl config --backend http://... --port 8081 --agent http://127.0.0.1:4096
+#   witty-ub-web-exp-ctl disable|restart|status|logs
+
+set -euo pipefail
+
+ENV_FILE=/etc/witty-ub/web-exp/env
+CONF_DIR=/etc/witty-ub/web-exp
+CONF_FILE="$CONF_DIR/nginx.conf"
+TEMPLATE=/usr/share/witty-ub/nginx/witty-ub-web-exp.conf.template
+SERVICE=witty-ub-web-exp.service
+WEB_ROOT=/var/witty-ub/web-exp
+
+log() { echo "[web-exp] $*"; }
+die() {
+    echo "[web-exp][ERROR] $*" >&2
+    exit 1
+}
+
+env_get() {
+    local key="$1" default="${2:-}"
+    local val=""
+    [ -f "$ENV_FILE" ] && val="$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)"
+    printf '%s' "${val:-$default}"
+}
+
+env_set() {
+    local key="$1" val="$2"
+    mkdir -p "$CONF_DIR"
+    touch "$ENV_FILE"
+    if grep -qE "^${key}=" "$ENV_FILE"; then
+        sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+    else
+        printf '%s=%s\n' "$key" "$val" >>"$ENV_FILE"
+    fi
+}
+
+render_conf() {
+    [ -f "$TEMPLATE" ] || die "模板缺失: $TEMPLATE（witty-ub-web-exp 未安装完整？）"
+    local backend agent port
+    backend="$(env_get WITTY_BACKEND_URL http://127.0.0.1:9772)"
+    agent="$(env_get WITTY_AGENT_URL http://127.0.0.1:4096)"
+    port="$(env_get WITTY_WEB_EXP_PORT 8081)"
+    mkdir -p "$CONF_DIR" /run/witty-ub-web-exp /var/log/witty-ub-web-exp
+    if command -v envsubst >/dev/null 2>&1; then
+        WITTY_BACKEND_URL="$backend" WITTY_AGENT_URL="$agent" \
+            envsubst '${WITTY_BACKEND_URL} ${WITTY_AGENT_URL}' <"$TEMPLATE"
+    else
+        sed -e "s|\${WITTY_BACKEND_URL}|$backend|g" -e "s|\${WITTY_AGENT_URL}|$agent|g" "$TEMPLATE"
+    fi | sed -e "s|listen 8081;|listen ${port};|" >"$CONF_FILE"
+    chmod 0644 "$CONF_FILE"
+    log "已渲染 $CONF_FILE（backend=$backend agent=$agent port=$port）"
+}
+
+fix_selinux() {
+    command -v semanage >/dev/null 2>&1 || return 0
+    local port
+    port="$(env_get WITTY_WEB_EXP_PORT 8081)"
+    semanage port -a -t http_port_t -p tcp "$port" 2>/dev/null ||
+        semanage port -m -t http_port_t -p tcp "$port" 2>/dev/null || true
+    semanage fcontext -a -t httpd_sys_content_t "${WEB_ROOT}(/.*)?" 2>/dev/null || true
+    restorecon -R "$WEB_ROOT" >/dev/null 2>&1 || true
+    setsebool -P httpd_can_network_connect on >/dev/null 2>&1 || true
+    log "SELinux 标签已更新（port $port / $WEB_ROOT）"
+}
+
+do_config() {
+    local backend="" agent="" port=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --backend)
+            backend="$2"
+            shift 2
+            ;;
+        --agent)
+            agent="$2"
+            shift 2
+            ;;
+        --port)
+            port="$2"
+            shift 2
+            ;;
+        *) die "未知参数: $1" ;;
+        esac
+    done
+    backend="${backend:-$(env_get WITTY_BACKEND_URL http://127.0.0.1:9772)}"
+    env_set WITTY_BACKEND_URL "$backend"
+    env_set WITTY_API_BASE "$backend"
+    [ -n "$agent" ] && env_set WITTY_AGENT_URL "$agent"
+    [ -n "$port" ] && env_set WITTY_WEB_EXP_PORT "$port"
+    render_conf
+}
+
+do_enable() {
+    do_config "$@"
+    fix_selinux
+    systemctl daemon-reload
+    systemctl enable --now "$SERVICE"
+    sleep 1
+    if curl --noproxy 127.0.0.1 -sf -o /dev/null "http://127.0.0.1:$(env_get WITTY_WEB_EXP_PORT 8081)/"; then
+        log "exp 前端就绪: http://127.0.0.1:$(env_get WITTY_WEB_EXP_PORT 8081)/"
+    else
+        log "服务已启动但首页未响应，请查看: journalctl -u $SERVICE -n 50 --no-pager"
+    fi
+}
+
+case "${1:-help}" in
+config)
+    shift
+    do_config "$@"
+    ;;
+enable | start)
+    shift
+    do_enable "$@"
+    ;;
+disable | stop)
+    systemctl disable --now "$SERVICE"
+    ;;
+restart)
+    render_conf
+    systemctl restart "$SERVICE"
+    ;;
+status)
+    systemctl status "$SERVICE" --no-pager || true
+    curl --noproxy 127.0.0.1 -s -o /dev/null -w 'http=%{http_code}\n' \
+        "http://127.0.0.1:$(env_get WITTY_WEB_EXP_PORT 8081)/" || true
+    ;;
+logs)
+    journalctl -u "$SERVICE" -n 100 --no-pager
+    ;;
+help | -h | --help)
+    sed -n '2,20p' "$0"
+    ;;
+*)
+    die "未知子命令: $1（支持 enable|disable|restart|status|config|logs）"
+    ;;
+esac
