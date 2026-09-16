@@ -934,6 +934,9 @@ const onInputKeydown = (event: KeyboardEvent) => {
   z-index: 119;
   display: flex;
   overflow: hidden;
+  /* 阻断滚动链：面板头部/会话区顶栏/输入区都不是滚动容器，
+     没有这一条时滚轮会沿祖先链交给文档，把面板背后的页面滚走 */
+  overscroll-behavior: contain;
   width: min(1240px, calc(100vw - 44px));
   height: min(880px, calc(100vh - 42px));
   max-width: calc(100vw - 44px);
