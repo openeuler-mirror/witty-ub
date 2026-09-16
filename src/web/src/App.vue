@@ -3912,27 +3912,36 @@ const deselectAllLatencySeries = () => {
   visibleLatencyKeys.value = new Set<LatencyMetricKey>(firstSeries ? [firstSeries.key] : [])
 }
 
+const totalLatencyAbnormalThresholdMs = 5
+
 const latencyPercentileOptions = computed(() => [
   {
     value: 'p99' as const,
     label: 'P99',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'p9999' as const,
     label: 'P9999',
     abnormalThreshold:
-      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ?? 5.0,
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'pmax' as const,
     label: 'Pmax',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'ave' as const,
     label: '均值',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
 ])
 
@@ -3964,11 +3973,10 @@ const latencyAnomalyHint = computed(
     `红色背景区间 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
 )
 
-const detailLatencyAbnormalThreshold = 2
-
 const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
   const totalLatency = values.total_latency
-  const threshold = selectedLatencyPercentileConfig.value.abnormalThreshold ?? 5.0
+  const threshold =
+    selectedLatencyPercentileConfig.value.abnormalThreshold ?? totalLatencyAbnormalThresholdMs
   const abnormal =
     typeof totalLatency === 'number' && Number.isFinite(totalLatency) && totalLatency > threshold
   if (abnormal) {
@@ -3982,10 +3990,12 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
 }
 
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
+  typeof value === 'number' &&
+  Number.isFinite(value) &&
+  value > totalLatencyAbnormalThresholdMs
 
 const aggregatedLatencyColumns = [
-  { key: 'total_latency', label: '总时延 (ms)', threshold: 150 },
+  { key: 'total_latency', label: '总时延 (ms)', threshold: totalLatencyAbnormalThresholdMs },
   { key: 'query_meta_latency', label: '查询元数据时延 (ms)', threshold: 150 },
   { key: 'urma_total_latency', label: 'URMA总时延 (ms)', threshold: 150 },
   { key: 'urma_link_latency', label: 'URMA建链时延 (ms)', threshold: 150 },
@@ -4223,7 +4233,13 @@ type TraceDelayKey =
   | 'masterRpcTotal'
 
 const traceDelayColumns = [
-  { key: 'sdkMs', label: '总时延 (ms)', metric: 'total_latency', threshold: 150, unit: 'ms' },
+  {
+    key: 'sdkMs',
+    label: '总时延 (ms)',
+    metric: 'total_latency',
+    threshold: totalLatencyAbnormalThresholdMs,
+    unit: 'ms',
+  },
   {
     key: 'reqDelay',
     label: '查询元数据时延 (ms)',
@@ -4373,7 +4389,7 @@ const formatTraceDelayColumnValue = (
   value: number | null | undefined,
   column: TraceDelayColumn,
 ) => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
   return `${formatMetricValue(value)} ${column.unit}`
 }
@@ -4467,7 +4483,7 @@ const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | 
 }
 
 const anomalyListLatencyThresholds = {
-  total_latency: 2,
+  total_latency: totalLatencyAbnormalThresholdMs,
   query_meta_latency: 1,
   urma_total_latency: 1,
   urma_link_latency: 1,
@@ -4503,14 +4519,6 @@ const isTraceDelayAbnormal = (
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
 
   if ('metric' in column && column.metric) {
-    if (
-      column.metric === 'total_latency' &&
-      trace &&
-      'faultCodes' in trace &&
-      trace.faultCodes.length > 0
-    ) {
-      return true
-    }
     const threshold = anomalyListLatencyThresholds[column.metric] ?? column.threshold ?? 150
     return value > threshold
   }
@@ -4522,8 +4530,8 @@ const getTraceDelayStatusLabel = (
   column: TraceDelayColumn,
 ) => {
   const value = getTraceDelayValue(trace, column)
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
-  if (value < 0) return '无效值'
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '日志不存在该时延项目'
+  if (value < 0) return '由总时延被截断引起，该时延值已失真'
   return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
 }
 
