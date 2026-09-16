@@ -16,6 +16,7 @@ from latency.schemas.brpc_diagnosis import (
     GetBrpcBatchResponse,
     GetBrpcInterfaceTimelineResponse,
     GetBrpcPodEventDetailResponse,
+    GetBrpcSummaryResponse,
     GetBrpcTaskBatchResponse,
     GetBrpcThreadEventDetailResponse,
     ListBrpcAbnormalThreadsResponse,
@@ -676,3 +677,76 @@ async def get_abnormal_thread_detail(
         pod_name=pod_name,
     )
     return GetBrpcAbnormalThreadDetailResponse(result=result)
+
+
+# --- Summary one-pager (funnel level 1, docs/design/trace-light-api.md §11.2) ---
+# 联动纪律：top_pods → pod-events(pod_ip=...)；top_failure_modes →
+# pod-events 下钻 failure graph；peak_window 时间窗 → interface-timeline。
+
+_SUMMARY_DESCRIPTION = (
+    "One-page UBSocket diagnosis summary: hit_count, component split, "
+    "top pods, top failure modes and the peak hit window. The optional "
+    "UTC+8 time range is [start_time, end_time) and defaults to the full "
+    "batch/kb scope; component focuses every block on one component. "
+    "peak_window is a single window, not a series — use interface-timeline "
+    "for the full shape."
+)
+
+
+@router.get(
+    "/knowledge/{kb_id}/summary",
+    response_model=GetBrpcSummaryResponse,
+    operation_id="get_brpc_knowledge_summary",
+    description=_SUMMARY_DESCRIPTION,
+)
+async def get_knowledge_summary(
+    kb_id: ResourceIdPath,
+    start_time: Annotated[
+        BrpcQueryTimestamp | None,
+        Query(description=_QUERY_TIME_DESCRIPTION),
+    ] = None,
+    end_time: Annotated[
+        BrpcQueryTimestamp | None,
+        Query(description=_QUERY_TIME_DESCRIPTION),
+    ] = None,
+    component: Annotated[BrpcComponent | None, Query()] = None,
+    top_n: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> GetBrpcSummaryResponse:
+    await ResourceIdService.require("kb", kb_id)
+    result = await BrpcDiagnosisService.get_knowledge_summary(
+        kb_id=kb_id,
+        start_timestamp=start_time,
+        end_timestamp=end_time,
+        component=component,
+        top_n=top_n,
+    )
+    return GetBrpcSummaryResponse(result=result)
+
+
+@router.get(
+    "/batch/{batch_id}/summary",
+    response_model=GetBrpcSummaryResponse,
+    operation_id="get_brpc_batch_summary",
+    description=_SUMMARY_DESCRIPTION,
+)
+async def get_batch_summary(
+    batch_id: ResourceIdPath,
+    start_time: Annotated[
+        BrpcQueryTimestamp | None,
+        Query(description=_QUERY_TIME_DESCRIPTION),
+    ] = None,
+    end_time: Annotated[
+        BrpcQueryTimestamp | None,
+        Query(description=_QUERY_TIME_DESCRIPTION),
+    ] = None,
+    component: Annotated[BrpcComponent | None, Query()] = None,
+    top_n: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> GetBrpcSummaryResponse:
+    result = await BrpcDiagnosisService.get_summary(
+        batch_id=batch_id,
+        start_timestamp=start_time,
+        end_timestamp=end_time,
+        component=component,
+        top_n=top_n,
+    )
+    return GetBrpcSummaryResponse(result=result)
