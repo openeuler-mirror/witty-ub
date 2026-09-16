@@ -1,0 +1,20 @@
+[Unit]
+Description=Witty-UB OpenCode server
+After=network.target witty-ub-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=__PROJECT_DIR__
+Environment=OPENCODE_CONFIG=__PROJECT_DIR__/witty_ub_diagnostician/opencode.json
+Environment=OPENCODE_CONFIG_DIR=__PROJECT_DIR__/witty_ub_diagnostician
+Environment=WITTY_DIR=__PROJECT_DIR__
+Environment=WITTY_API_BASE=__WITTY_API_BASE__
+Environment=WITTY_NO_PROXY=__WITTY_NO_PROXY__
+ExecStart=__OPENCODE_BIN__ serve --hostname 127.0.0.1 --port 4096
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -155,6 +155,33 @@ XXX=value bash deploy/deploy_opencode.sh
 
 上述环境变量会由 OpenCode 及其子进程继承。若服务已经运行，需要先停止旧进程再使用新环境变量启动。
 
+#### 可选：把 OpenCode 注册为 systemd user 服务
+
+`deploy.sh` 默认把 OpenCode 作为**裸进程 + pidfile** 托管（`deploy/deploy_opencode.sh`），
+进程退出或机器重启后不会自动拉起，需要人工重新启动。若希望 Agent 常驻并开机自启
+（例如前端节点长期在线、VM/开发机），可改用 systemd user 单元托管：
+
+```bash
+# 安装 + 启用 + 启动（默认后端 http://127.0.0.1:9772）
+bash deploy/host/install_opencode_service.sh install
+
+# 分离部署时指定远端后端（Agent 的 curl 需绕过代理）
+WITTY_API_BASE=http://<后端IP>:9772 WITTY_NO_PROXY='*' \
+  bash deploy/host/install_opencode_service.sh install
+
+bash deploy/host/install_opencode_service.sh status
+bash deploy/host/install_opencode_service.sh uninstall   # 改回裸进程托管
+```
+
+- 单元模板：`deploy/host/systemd/witty-ub-opencode.service`（渲染 `__PROJECT_DIR__`、
+  `__OPENCODE_BIN__`、`__WITTY_API_BASE__`、`__WITTY_NO_PROXY__` 后写入
+  `~/.config/systemd/user/`）。
+- 两种托管方式都监听 4096，**互斥**：切换到单元托管前先停止裸进程
+  （`deploy.sh` 菜单里的"停止 Agent 服务"），反之亦然。
+- 需要 `systemctl --user` 可用（openEuler：`sudo dnf install -y systemd-pam` +
+  `loginctl enable-linger <user>`）；RPM 部署请使用 `witty-ub manager` 的 Agent 菜单，
+  不要使用该 user 单元。
+
 ### 仅启动服务（已部署过）
 
 ```bash
