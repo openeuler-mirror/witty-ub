@@ -47,7 +47,12 @@ class LogFailureEventResultService:
     @staticmethod
     async def list_log_failure_event_result(req: ListLogFailureEventResultRequest) -> ListLogFailureEventResultMsg:
         total, results = await LogFailureEventPGManager.list_log_failure_events(req)
-        if total == 0:
+        # Diagnosis rows may already exist for a trace while its raw Run-format
+        # context has not been collected.  Treat an unclassified context row as
+        # the backfill marker; checking only ``total`` caused access failures to
+        # suppress the runtime-log backfill entirely.
+        has_trace_context = any(not result.failure_mode for result in results)
+        if not has_trace_context:
             backfilled = await LogFailureEventResultService._backfill_trace_context_logs(req)
             if backfilled:
                 total, results = await LogFailureEventPGManager.list_log_failure_events(req)

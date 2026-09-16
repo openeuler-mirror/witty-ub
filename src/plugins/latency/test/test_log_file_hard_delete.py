@@ -7,6 +7,7 @@ import pytest
 from latency.database.engine import PGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
+from latency.database.managers.task import TaskPGManager
 
 
 def _normalize(statement) -> str:
@@ -118,6 +119,21 @@ async def test_hard_delete_log_file_removes_all_related_rows(recorder):
     assert refresh_params["kb_id"] == "kb-1"
     assert isinstance(refresh_params["server_updated_at"], datetime)
     assert isinstance(recorder.statements[strip_index][1]["server_updated_at"], datetime)
+
+
+async def test_hard_delete_tasks_by_kb_removes_reports_and_brpc_rows(recorder):
+    await TaskPGManager.hard_delete_tasks_by_kb_id("kb-to-delete")
+
+    sql_statements = [sql for sql, _ in recorder.statements]
+    assert len(sql_statements) == 4
+    assert sql_statements[0].startswith("DELETE FROM brpc_diag_hit")
+    assert sql_statements[1].startswith("DELETE FROM brpc_diag_batch")
+    assert sql_statements[2].startswith("DELETE FROM task_report")
+    assert sql_statements[3] == "DELETE FROM task WHERE kb_id = :kb_id"
+    assert all(
+        params == {"kb_id": "kb-to-delete"}
+        for _, params in recorder.statements
+    )
 
 
 async def test_hard_delete_reports_missing_log_file(recorder):

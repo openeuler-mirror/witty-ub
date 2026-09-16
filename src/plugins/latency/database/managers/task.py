@@ -75,6 +75,37 @@ class TaskPGManager:
         return True
 
     @staticmethod
+    async def hard_delete_tasks_by_kb_id(kb_id: str) -> None:
+        """Delete every task aggregate that remains for an asset library."""
+        params = {"kb_id": kb_id}
+        async with PGManager.session() as session:
+            await session.execute(
+                text(
+                    "DELETE FROM brpc_diag_hit WHERE batch_id IN ("
+                    "SELECT batch_id FROM brpc_diag_batch WHERE task_id IN ("
+                    "SELECT id FROM task WHERE kb_id = :kb_id))"
+                ),
+                params,
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM brpc_diag_batch WHERE task_id IN ("
+                    "SELECT id FROM task WHERE kb_id = :kb_id)"
+                ),
+                params,
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM task_report WHERE task_id IN ("
+                    "SELECT id FROM task WHERE kb_id = :kb_id)"
+                ),
+                params,
+            )
+            await session.execute(
+                text("DELETE FROM task WHERE kb_id = :kb_id"), params
+            )
+
+    @staticmethod
     async def update_task(task_id: str, task_info_dict: dict) -> bool:
         allowed = {k: v for k, v in task_info_dict.items() if hasattr(Task, k)}
         if not allowed:
@@ -147,6 +178,10 @@ class TaskPGManager:
         hook and could mix a partial previous attempt with the new one.
         """
         async with PGManager.session() as session:
+            result = await session.execute(
+                select(Task.id).where(Task.status == TaskStatusEnum.RUNNING.value)
+            )
+            interrupted_ids = list(result.scalars().all())
             await session.execute(
                 text(
                     "UPDATE task SET status = :retry_status "
@@ -157,6 +192,21 @@ class TaskPGManager:
                     "running_status": TaskStatusEnum.RUNNING.value,
                 },
             )
+            if interrupted_ids:
+                now = local_now()
+                await session.execute(
+                    insert(TaskReport),
+                    [
+                        {
+                            "task_id": task_id,
+                            "progress": 100.0,
+                            "message": "任务异常停止：服务进程重启；系统将自动重试",
+                            "existed_status": True,
+                            "created_at": now,
+                        }
+                        for task_id in interrupted_ids
+                    ],
+                )
         return True
 
     @staticmethod

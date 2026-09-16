@@ -2257,9 +2257,18 @@ const isSaving = ref(false)
 const isQuerying = ref(false)
 const errorMessage = ref('')
 const isAssetServiceUnavailable = ref(false)
+const isWriteRestricted = ref(false)
+const writeRestrictedMessage = ref('服务器磁盘空间不足，当前仅开放查询和删除操作')
+let serviceHealthTimer: number | null = null
 const isInitialDataUnavailable = computed(
   () => isAssetServiceUnavailable.value && assets.value.length === 0 && !selectedAsset.value,
 )
+
+type ServiceHealth = {
+  status?: string
+  writable?: boolean
+  message?: string | null
+}
 
 const logSourceInput = ref('')
 type LogType = 'KVCache' | 'UBSocket'
@@ -2640,7 +2649,7 @@ const validateDiagnosisAnalyzerParams = () => {
 }
 
 const saveParseConfig = async () => {
-  if (!selectedAssetId.value || isDiagnosisConfigSaving.value) return
+  if (!selectedAssetId.value || isDiagnosisConfigSaving.value || isWriteRestricted.value) return
   diagnosisConfigError.value = ''
   const analyzerParamsValid = validateDiagnosisAnalyzerParams()
   const emptyPatternType = patternTypeOptions.find(
@@ -3903,27 +3912,36 @@ const deselectAllLatencySeries = () => {
   visibleLatencyKeys.value = new Set<LatencyMetricKey>(firstSeries ? [firstSeries.key] : [])
 }
 
+const totalLatencyAbnormalThresholdMs = 5
+
 const latencyPercentileOptions = computed(() => [
   {
     value: 'p99' as const,
     label: 'P99',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'p9999' as const,
     label: 'P9999',
     abnormalThreshold:
-      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ?? 5.0,
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'pmax' as const,
     label: 'Pmax',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'ave' as const,
     label: '均值',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
 ])
 
@@ -3955,11 +3973,10 @@ const latencyAnomalyHint = computed(
     `红色背景区间 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
 )
 
-const detailLatencyAbnormalThreshold = 2
-
 const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
   const totalLatency = values.total_latency
-  const threshold = selectedLatencyPercentileConfig.value.abnormalThreshold ?? 5.0
+  const threshold =
+    selectedLatencyPercentileConfig.value.abnormalThreshold ?? totalLatencyAbnormalThresholdMs
   const abnormal =
     typeof totalLatency === 'number' && Number.isFinite(totalLatency) && totalLatency > threshold
   if (abnormal) {
@@ -3973,10 +3990,12 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
 }
 
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
+  typeof value === 'number' &&
+  Number.isFinite(value) &&
+  value > totalLatencyAbnormalThresholdMs
 
 const aggregatedLatencyColumns = [
-  { key: 'total_latency', label: '总时延 (ms)', threshold: 150 },
+  { key: 'total_latency', label: '总时延 (ms)', threshold: totalLatencyAbnormalThresholdMs },
   { key: 'query_meta_latency', label: '查询元数据时延 (ms)', threshold: 150 },
   { key: 'urma_total_latency', label: 'URMA总时延 (ms)', threshold: 150 },
   { key: 'urma_link_latency', label: 'URMA建链时延 (ms)', threshold: 150 },
@@ -4214,7 +4233,13 @@ type TraceDelayKey =
   | 'masterRpcTotal'
 
 const traceDelayColumns = [
-  { key: 'sdkMs', label: '总时延 (ms)', metric: 'total_latency', threshold: 150, unit: 'ms' },
+  {
+    key: 'sdkMs',
+    label: '总时延 (ms)',
+    metric: 'total_latency',
+    threshold: totalLatencyAbnormalThresholdMs,
+    unit: 'ms',
+  },
   {
     key: 'reqDelay',
     label: '查询元数据时延 (ms)',
@@ -4360,8 +4385,11 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+const formatTraceDelayColumnValue = (
+  value: number | null | undefined,
+  column: TraceDelayColumn,
+) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
   return `${formatMetricValue(value)} ${column.unit}`
 }
@@ -4455,7 +4483,7 @@ const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | 
 }
 
 const anomalyListLatencyThresholds = {
-  total_latency: 2,
+  total_latency: totalLatencyAbnormalThresholdMs,
   query_meta_latency: 1,
   urma_total_latency: 1,
   urma_link_latency: 1,
@@ -4491,14 +4519,6 @@ const isTraceDelayAbnormal = (
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
 
   if ('metric' in column && column.metric) {
-    if (
-      column.metric === 'total_latency' &&
-      trace &&
-      'faultCodes' in trace &&
-      trace.faultCodes.length > 0
-    ) {
-      return true
-    }
     const threshold = anomalyListLatencyThresholds[column.metric] ?? column.threshold ?? 150
     return value > threshold
   }
@@ -4510,8 +4530,8 @@ const getTraceDelayStatusLabel = (
   column: TraceDelayColumn,
 ) => {
   const value = getTraceDelayValue(trace, column)
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
-  if (value < 0) return '无效值'
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '日志不存在该时延项目'
+  if (value < 0) return '由总时延被截断引起，该时延值已失真'
   return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
 }
 
@@ -5850,6 +5870,12 @@ const getTraceRowHeight = (podIpHtml: string) => {
 const getMultiLineCellTitle = (html: string) =>
   html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '')
 
+const formatPodIps = (value: unknown) => {
+  if (!Array.isArray(value)) return typeof value === 'string' && value.trim() ? value.trim() : '-'
+  const podIps = [...new Set(value.map((item) => String(item ?? '').trim()).filter(Boolean))]
+  return podIps.length > 0 ? podIps.join('<br>') : '-'
+}
+
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value.map((result) => {
     const record = result as Record<string, unknown>
@@ -5862,7 +5888,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       podIp: (() => {
         const podIps = record['pod_ips']
         if (Array.isArray(podIps)) {
-          return podIps.join('<br>')
+          return formatPodIps(podIps)
         }
         return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_id', 'pod_name', 'podId', 'pod'])
       })(),
@@ -6108,7 +6134,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     podIp: (() => {
       const podIps = record['pod_ips']
       if (Array.isArray(podIps)) {
-        return podIps.join('<br>')
+        return formatPodIps(podIps)
       }
       return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_name', 'pod_id', 'podId', 'pod'])
     })(),
@@ -6335,10 +6361,7 @@ const selectedTraceRelatedChildFailureModeIds = computed(() =>
 )
 
 const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
-  getSameErrorCodeFailureModeIds(
-    selectedTraceFailureMode.value,
-    selectedTraceFailureModeIds.value,
-  ),
+  getSameErrorCodeFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
 )
 
 const selectedFaultTraceRelatedChildFailureModeIds = computed(() =>
@@ -7204,6 +7227,10 @@ const request = async <T,>(path: string, init: RequestInit = {}) => {
   })
 
   const data = (await response.json().catch(() => null)) as ApiResponse<T> | null
+
+  if (data && (data as ApiResponse<T> & { writable?: boolean }).writable === false) {
+    isWriteRestricted.value = true
+  }
 
   if (!response.ok || !data) {
     throw new Error(data?.message || `请求失败：${response.status}`)
@@ -8315,7 +8342,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     statusReason: getLogDisplayReason(record),
     time: displayLocalTime(result.timestamp ?? result.created_at),
     traceId: result.trace_id ?? '-',
-    podIp: Array.isArray(result.pod_ips) ? result.pod_ips.join('<br>') : (result.pod_ips ?? '-'),
+    podIp: formatPodIps(result.pod_ips),
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
@@ -8863,6 +8890,16 @@ const loadAssets = async () => {
   }
 }
 
+const loadServiceHealth = async () => {
+  try {
+    const health = await request<ServiceHealth>('/health_check')
+    isWriteRestricted.value = health.writable === false
+    if (health.message) writeRestrictedMessage.value = health.message
+  } catch {
+    // Asset queries remain the source of truth for overall service availability.
+  }
+}
+
 const retryInitialDataLoad = () => {
   void loadAssets()
 }
@@ -8989,6 +9026,7 @@ const viewQueryResult = async (assetId: string) => {
 }
 
 const openCreateDialog = () => {
+  if (isWriteRestricted.value) return
   dialog.mode = 'create'
   dialog.name = ''
   dialog.description = ''
@@ -8997,7 +9035,7 @@ const openCreateDialog = () => {
 }
 
 const openEditDialog = () => {
-  if (!selectedAsset.value) return
+  if (!selectedAsset.value || isWriteRestricted.value) return
 
   dialog.mode = 'edit'
   dialog.name = selectedAsset.value.name
@@ -9012,6 +9050,7 @@ const closeDialog = () => {
 }
 
 const saveDialog = async () => {
+  if (isWriteRestricted.value) return
   const name = dialog.name.trim()
   const description = dialog.description.trim()
 
@@ -9061,7 +9100,9 @@ const saveDialog = async () => {
 }
 
 const deleteAsset = async (asset: LogKnowledge) => {
-  const shouldDelete = window.confirm(`确认删除资产库「${asset.name}」？`)
+  const shouldDelete = window.confirm(
+    `确认删除资产库「${asset.name}」？该资产库下的所有日志解析任务及解析、诊断数据将被永久删除。`,
+  )
   if (!shouldDelete) return
 
   errorMessage.value = ''
@@ -9185,7 +9226,10 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return message.startsWith('Trace context logs stored:') || message.startsWith('任务失败：')
+  return (
+    message.startsWith('Trace context logs stored:') ||
+    /(?:失败|异常停止|error|failed|exception)/i.test(message)
+  )
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>
@@ -9301,6 +9345,24 @@ const getLogFileProgressMessage = (file: LogFileModel) => {
   const milestoneMessage = latestMilestone?.message?.trim()
   if (milestoneMessage) return humanizeLogFileProgressMessage(milestoneMessage)
   return statusLabel(getLogFileDisplayStatus(file))
+}
+
+const getLogFileFailureReason = (file: LogFileModel) => {
+  const displayStatus = getLogFileDisplayStatus(file)
+  if (!['failed', 'failed_pending_remove', 'retrying', 'cancelled'].includes(displayStatus)) {
+    return ''
+  }
+  const report = [...getLogFileTaskReports(file)]
+    .sort((first, second) => getTaskReportTime(second) - getTaskReportTime(first))
+    .find(({ message }) => /(?:失败|异常停止|error|failed|exception)/i.test(message?.trim() ?? ''))
+  return report?.message ? humanizeLogFileProgressMessage(report.message) : '任务未提供失败原因'
+}
+
+const getLogFileFailureReasonLabel = (file: LogFileModel) => {
+  const taskStatus = getDetailedLogFileTask(file)?.status
+  return getLogFileDisplayStatus(file) === 'retrying' && taskStatus !== 'failed_pending_remove'
+    ? '上次失败原因'
+    : '状态原因'
 }
 
 const shouldShowLogFileProgress = (file: LogFileModel) =>
@@ -9522,6 +9584,7 @@ const deleteLogFile = async (logFileId: string) => {
 }
 
 const submitLogSource = async () => {
+  if (isWriteRestricted.value) return
   const input = logSourceInput.value.trim()
   if (!input) return
   if (!selectedAssetId.value) return
@@ -9567,6 +9630,7 @@ const submitLogSource = async () => {
 }
 
 const triggerFileUpload = () => {
+  if (isWriteRestricted.value) return
   fileInputRef.value?.click()
 }
 
@@ -10883,10 +10947,7 @@ const calcFailureRate = (success: number, failure: number): number => {
   return total > 0 ? (failure / total) * 100 : 0
 }
 
-const getBrpcMetricValue = (
-  row: BrpcProfilingRow | undefined,
-  metric: string,
-): number | null => {
+const getBrpcMetricValue = (row: BrpcProfilingRow | undefined, metric: string): number | null => {
   if (!row) return null
   switch (metric) {
     case 'successRate':
@@ -12193,12 +12254,10 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
       scrollMonitorPageToTop()
       return
     }
-    document
-      .getElementById('brpc-fault-monitor')
-      ?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      })
+    document.getElementById('brpc-fault-monitor')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
     return
   }
 
@@ -12228,6 +12287,10 @@ const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
+  if (isWriteRestricted.value) {
+    target.value = ''
+    return
+  }
   if (!selectedAssetId.value) return
 
   isUploadingLog.value = true
@@ -12445,6 +12508,8 @@ onMounted(() => {
   loadAgentDefaultModel()
   restoreAgentConnection()
   void loadAssets()
+  void loadServiceHealth()
+  serviceHealthTimer = window.setInterval(() => void loadServiceHealth(), 30_000)
   window.addEventListener('resize', resizeLatencyCharts)
   window.addEventListener('resize', updateDetailLatencyLeftOverflow)
   if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
@@ -12463,6 +12528,7 @@ onUpdated(() => {
 })
 
 onBeforeUnmount(() => {
+  if (serviceHealthTimer !== null) window.clearInterval(serviceHealthTimer)
   stopLogFilesPolling()
   stopAgentPanelResize()
   closeAgentEventStream()
@@ -12589,8 +12655,9 @@ onBeforeUnmount(() => {
             <button
               class="icon-btn primary add-btn"
               type="button"
-              title="添加资产库"
+              :title="isWriteRestricted ? writeRestrictedMessage : '添加资产库'"
               aria-label="添加资产库"
+              :disabled="isWriteRestricted"
               @click="openCreateDialog"
             ></button>
             <button
@@ -12913,10 +12980,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </section>
-
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
+      <div v-if="isWriteRestricted" class="error-banner" role="status">
+        {{ writeRestrictedMessage }}；资产查询、详情查看和删除操作仍可使用。
+      </div>
       <div v-if="errorMessage && !isInitialDataUnavailable" class="error-banner">
         {{ errorMessage }}
       </div>
@@ -13072,7 +13141,8 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="top-slow-chart-description">
-                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace ID。
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace
+                ID。
               </p>
               <div class="top-slow-chart-panel">
                 <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
@@ -16268,7 +16338,8 @@ onBeforeUnmount(() => {
                 class="edit-btn icon-btn detail-icon-btn"
                 type="button"
                 aria-label="编辑"
-                title="编辑"
+                :title="isWriteRestricted ? writeRestrictedMessage : '编辑'"
+                :disabled="isWriteRestricted"
                 @click="openEditDialog"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -16315,7 +16386,13 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="parse-config-action">
-              <button type="button" class="parse-config-edit-btn" @click="openParseConfigDrawer">
+              <button
+                type="button"
+                class="parse-config-edit-btn"
+                :disabled="isWriteRestricted"
+                :title="isWriteRestricted ? writeRestrictedMessage : '修改配置'"
+                @click="openParseConfigDrawer"
+              >
                 修改配置
               </button>
             </div>
@@ -16324,11 +16401,21 @@ onBeforeUnmount(() => {
             <div class="log-type-selector">
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="KVCache" :disabled="isUploadingLog" />
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="KVCache"
+                  :disabled="isUploadingLog || isWriteRestricted"
+                />
                 <span>KVCache</span>
               </label>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="UBSocket" :disabled="isUploadingLog" />
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="UBSocket"
+                  :disabled="isUploadingLog || isWriteRestricted"
+                />
                 <span>UBSocket</span>
               </label>
             </div>
@@ -16337,13 +16424,13 @@ onBeforeUnmount(() => {
               type="text"
               class="log-source-input"
               placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
-              :disabled="isUploadingLog"
+              :disabled="isUploadingLog || isWriteRestricted"
               @keydown.enter="submitLogSource"
             />
             <button
               class="log-add-btn"
               type="button"
-              :disabled="isUploadingLog || !logSourceInput.trim()"
+              :disabled="isUploadingLog || isWriteRestricted || !logSourceInput.trim()"
               @click="submitLogSource"
             >
               {{ isUploadingLog ? '提交中...' : '添加' }}
@@ -16351,7 +16438,7 @@ onBeforeUnmount(() => {
             <button
               class="log-upload-btn"
               type="button"
-              :disabled="isUploadingLog"
+              :disabled="isUploadingLog || isWriteRestricted"
               @click="triggerFileUpload"
             >
               上传 ZIP 文件
@@ -16424,6 +16511,16 @@ onBeforeUnmount(() => {
                       class="log-file-progress-bar"
                       :style="{ width: `${getLogFileProgress(file)}%` }"
                     ></div>
+                  </div>
+                  <div
+                    v-if="getLogFileFailureReason(file)"
+                    class="task-status-reason"
+                    :class="{
+                      'task-status-reason-previous':
+                        getLogFileFailureReasonLabel(file) === '上次失败原因',
+                    }"
+                  >
+                    {{ getLogFileFailureReasonLabel(file) }}：{{ getLogFileFailureReason(file) }}
                   </div>
                 </div>
               </div>
@@ -19089,7 +19186,7 @@ onBeforeUnmount(() => {
             <button
               class="save-btn"
               type="button"
-              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving"
+              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving || isWriteRestricted"
               @click="saveParseConfig"
             >
               {{ isDiagnosisConfigSaving ? '保存中...' : '保存配置' }}

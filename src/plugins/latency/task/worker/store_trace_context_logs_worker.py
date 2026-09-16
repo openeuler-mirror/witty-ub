@@ -432,8 +432,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
             log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
             if not log_file:
                 logger.error("LogFile %s not found", task.op_id)
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    f"任务失败：日志文件不存在（{task.op_id}）",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 cleanup_temp_dirs(None, task.op_id)
                 return False
@@ -451,8 +453,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 20.0,
             )
             if not diagnosis_done:
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    "任务失败：依赖的故障诊断任务未成功完成",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
@@ -466,8 +470,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
 
             if not os.path.isdir(output_log_path) or not os.listdir(output_log_path):
                 logger.error(f"诊断输出目录不存在或为空: {output_log_path}")
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    f"任务失败：诊断输出目录不存在或为空（{output_log_path}）",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
@@ -506,8 +512,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 65.0,
             )
             if not parse_done:
-                await TaskPGManager.update_task(
-                    task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    "任务失败：依赖的日志解析任务未成功完成",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
                 cleanup_temp_dirs(output_log_path, log_file_id)
                 return False
@@ -559,8 +567,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception("Task %s failed: %s", task_id, e)
-            await TaskPGManager.update_task(
-                task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task_id,
+                f"任务失败：Trace 上下文落库异常，{type(e).__name__}: {e}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
 

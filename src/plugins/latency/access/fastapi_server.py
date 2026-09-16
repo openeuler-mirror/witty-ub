@@ -40,6 +40,7 @@ from latency.routers import (
 )
 
 from latency.database.engine import PGManager
+from latency.common.disk_space import disk_capacity
 from latency.database.init import (
     backfill_trace_failure_event_status_codes,
     init_postgresql_database,
@@ -50,8 +51,6 @@ from pydantic import ValidationError
 app = fastapi.FastAPI(docs_url=None, redoc_url=None)
 
 DATABASE_UNAVAILABLE_MESSAGE = "数据服务暂时不可用，请稍后重试或联系管理员"
-
-
 @app.exception_handler(SQLAlchemyError)
 async def database_exception_handler(request: fastapi.Request, exc: SQLAlchemyError):
     """Keep database outages from leaking driver errors to API clients."""
@@ -192,7 +191,19 @@ async def health_check():
                 "retryable": True,
             },
         )
-    return {"status": "ok"}
+    capacity = disk_capacity()
+    return {
+        # Read health stays OK in restricted mode so load balancers keep serving
+        # query and delete requests.
+        "status": "ok",
+        "writable": capacity.writable,
+        "disk_mode": capacity.mode,
+        "free_disk_bytes": capacity.free_bytes,
+        "minimum_free_disk_bytes": capacity.warning_bytes,
+        "critical_free_disk_bytes": capacity.critical_bytes,
+        "recovery_free_disk_bytes": capacity.recovery_bytes,
+        "message": None if capacity.writable else "服务器磁盘空间不足，当前仅开放查询和删除操作",
+    }
 
 
 async def mk_dirs():
