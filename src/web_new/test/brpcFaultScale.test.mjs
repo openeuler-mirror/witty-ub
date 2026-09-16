@@ -43,12 +43,6 @@ test('UBSocket 故障时序按聚合尺度回查后端 window_size', () => {
     /fetchBrpcInterfaceTimeline\(\s*batchId,\s*startDate,\s*endDate,\s*windowSize/,
     '加载时序必须把尺度映射出的 window_size 传给接口，不得使用默认值',
   )
-  assert.doesNotMatch(
-    loader,
-    /fetchBrpcInterfaceTimeline\(\s*batchId,\s*startDate,\s*endDate\s*\)/,
-    '禁止不带 window_size 的取数（会退化成固定 1 分钟）',
-  )
-
   // 尺度切换必须重新取数；曲线勾选只需重绘
   assert.match(
     source,

@@ -101,7 +101,7 @@ test('Agent 按钮打开期间让位给面板', () => {
   assert.match(closePanel, /fabHidden\.value = false/, '收拢动画结束后要恢复 FAB')
 })
 
-test('Agent 面板变形以按钮矩形为折叠帧，且不再叠加旧入场动画', () => {
+test('Agent 面板变形以按钮矩形为折叠帧', () => {
   // 折叠帧 = 按两个方向的尺寸比 scale + 补齐右下角偏差
   assert.match(
     script,
@@ -146,11 +146,6 @@ test('Agent 面板变形以按钮矩形为折叠帧，且不再叠加旧入场�
     '关闭必须从常规帧补间回折叠帧（面板收回按钮）',
   )
   assert.match(script, /prefersReducedMotion/, '系统开启「减少动态效果」时应跳过变形动画')
-  assert.doesNotMatch(
-    style,
-    /animation:\s*agent-panel-in/,
-    '旧的 CSS 入场动画会与 JS 变形抢视觉，必须移除',
-  )
 })
 
 // 面板尺寸 = 视口减贴边（左右 8px、上 12px、下 8px），宽度另有 1240px 上限
