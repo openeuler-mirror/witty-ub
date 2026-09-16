@@ -224,6 +224,14 @@ a:focus-visible,
   background: var(--primary-bg);
 }
 
+.btn-text-danger {
+  color: var(--danger);
+}
+
+.btn-text-danger:hover {
+  background: #fef2f2;
+}
+
 .btn-sm {
   padding: 2px 8px;
   font-size: 12px;
@@ -302,6 +310,13 @@ td {
   white-space: nowrap;
 }
 
+/* 计数列右对齐，位数不同也能纵向比较 */
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 tr:hover td {
   background: var(--primary-bg);
 }
@@ -367,12 +382,21 @@ tr:hover td {
 
 .task-progress-stack {
   display: flex;
+  /* 提示列宽上限：再宽会把「通断异常」顶到吸附的操作列下面 */
   max-width: 240px;
   flex-direction: column;
   gap: 4px;
 }
 
-.task-progress-message {
+.progress-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  min-width: 36px;
+}
+
+/* 任务行提示（进度消息 / 失败原因）：单行省略，完整内容走 title */
+.task-row-hint {
   overflow: hidden;
   color: var(--text2);
   font-size: 12px;
@@ -380,24 +404,8 @@ tr:hover td {
   white-space: nowrap;
 }
 
-.task-progress-message.failed {
+.task-row-hint-failed {
   color: var(--danger);
-}
-
-.task-status-reason {
-  margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  background: #fef2f2;
-  color: var(--danger);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-/* 重试中展示的是「上一次失败原因」，用橙色与当前失败态区分 */
-.task-status-reason-previous {
-  background: #fff7ed;
-  color: #9a3412;
 }
 
 /* Modal */
@@ -1134,12 +1142,22 @@ html.is-modal-open {
 .asset-card {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+}
+
+.asset-card-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
 }
 
 .asset-card-name {
+  min-width: 0;
+  flex: 1;
   font-size: 16px;
   font-weight: 600;
-  margin-bottom: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1148,18 +1166,26 @@ html.is-modal-open {
 .asset-card-desc {
   font-size: 13px;
   color: var(--text2);
-  margin-bottom: 12px;
+  line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 36px;
+  min-height: 42px;
+  word-break: break-word;
 }
 
-.asset-card-meta {
+.asset-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
   font-size: 12px;
   color: var(--text2);
-  line-height: 1.8;
+}
+
+.asset-card-stats b {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .asset-card-actions {
@@ -1170,6 +1196,12 @@ html.is-modal-open {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.asset-card-tools {
+  display: flex;
+  gap: 2px;
   flex-wrap: wrap;
 }
 
@@ -1539,10 +1571,6 @@ html.is-modal-open {
 
 .stat-pill b {
   font-size: 15px;
-}
-
-.highlight-row td {
-  background: var(--primary-bg) !important;
 }
 
 .agent-header {

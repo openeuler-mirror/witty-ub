@@ -4,6 +4,9 @@ import { errorText, paginate } from '../utils/format'
 import { useToast } from './useToast'
 import { useServiceHealth } from './useServiceHealth'
 import { createLogKb, deleteLogKb, getLogKb, listAllLogKbs, updateLogKb } from '../api/logKnowledge'
+import { listTasks } from '../api/task'
+
+type AssetLatestTask = { status: string; taskType: string; createdAt: string }
 
 let state: ReturnType<typeof createAssetsState> | null = null
 
@@ -51,9 +54,53 @@ function createAssetsState() {
   )
   const pagedAssets = computed(() => paginate(filteredAssets.value, assetPage.value, assetPageSize))
 
+  // 资产卡片摘要：每个资产只取最新一条任务（轻量、不含 task_reports）。
+  // 请求失败的资产保持 undefined，卡片不渲染状态，避免误报「暂无任务」。
+  const assetLatestTasks = ref<Record<string, AssetLatestTask | null>>({})
+
+  const loadAssetLatestTasks = async (list: LogKnowledge[]) => {
+    const pending = list
+      .map((asset) => asset.id)
+      .filter((id) => id && !(id in assetLatestTasks.value))
+    if (pending.length === 0) return
+
+    const results = await Promise.all(
+      pending.map(async (id) => {
+        try {
+          const { tasks } = await listTasks({
+            kb_id: id,
+            created_sorted_desc: true,
+            page_cnt: 1,
+            page_num: 1,
+          })
+          const task = tasks?.[0]
+          return [
+            id,
+            task
+              ? {
+                  status: task.status ?? '',
+                  taskType: task.task_type ?? '',
+                  createdAt: task.created_at ?? '',
+                }
+              : null,
+          ] as const
+        } catch {
+          return null
+        }
+      }),
+    )
+
+    const next = { ...assetLatestTasks.value }
+    for (const item of results) {
+      if (item) next[item[0]] = item[1]
+    }
+    assetLatestTasks.value = next
+  }
+
   const loadAssets = async () => {
     assetsLoading.value = true
     assetsError.value = ''
+    assetLatestTasks.value = {}
     try {
       assets.value = await listAllLogKbs()
     } catch (error) {
@@ -185,6 +232,8 @@ function createAssetsState() {
     filteredAssets,
     assetPages,
     pagedAssets,
+    assetLatestTasks,
+    loadAssetLatestTasks,
     loadAssets,
     selectedAsset,
     assetError,

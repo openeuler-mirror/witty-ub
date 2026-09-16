@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatTime } from './utils/format'
+import type { LogFileModel } from './types'
 import { useToast } from './composables/useToast'
 import { useAssets } from './composables/useAssets'
 import { useTasks } from './composables/useTasks'
@@ -30,6 +31,8 @@ const {
   pagedAssets,
   selectedAsset,
   assetError,
+  assetLatestTasks,
+  loadAssetLatestTasks,
   loadAssets,
   enterAsset,
   goAssetList,
@@ -85,20 +88,30 @@ const openParseConfig = () => {
   parseConfigOpen.value = true
 }
 
-// 任务行「更新」：纯前端重拉日志列表刷新该文件状态/结果，不是重新解析
-const refreshingFileIds = ref(new Set<string>())
-const refreshOneLogFile = async (file: { id?: string }) => {
-  const id = file.id ?? ''
-  if (!id || refreshingFileIds.value.has(id)) return
-  refreshingFileIds.value = new Set(refreshingFileIds.value).add(id)
-  try {
-    await refreshLogFiles(true)
-  } finally {
-    const next = new Set(refreshingFileIds.value)
-    next.delete(id)
-    refreshingFileIds.value = next
+// 资产卡片摘要：只为当前页的卡片拉取「最近一条任务」，不阻塞列表渲染
+watch(pagedAssets, (list) => void loadAssetLatestTasks(list), { immediate: true })
+
+// 卡片状态徽标：undefined = 未加载（不渲染），null = 该资产还没有任务
+const assetTaskBadge = (assetId: string) => {
+  const latest = assetLatestTasks.value[assetId]
+  if (latest === undefined) return null
+  if (latest === null) {
+    return { label: '暂无任务', cls: 'badge-cancelled', title: '该资产库下还没有任务' }
+  }
+  const label = statusLabel(latest.status)
+  return {
+    label,
+    cls: statusBadgeClass(latest.status),
+    title: `最近任务：${label} · ${formatTime(latest.createdAt)}`,
   }
 }
+
+// 任务行提示：失败/重试中给原因，其余给进度消息；单行省略，完整内容走 title
+const taskRowHint = (file: LogFileModel) => {
+  const reason = taskFailureReason(file)
+  return reason ? `${taskFailureReasonLabel(file)}：${reason}` : progressMessageOf(file)
+}
+const taskRowHintIsFailure = (file: LogFileModel) => Boolean(taskFailureReason(file))
 
 let pollTimer: number | null = null
 
@@ -218,19 +231,25 @@ onBeforeUnmount(() => {
         <div class="hint">点击上方按钮创建第一个资产库</div>
       </div>
       <div v-else class="card-grid">
-        <div
-          class="card asset-card"
-          v-for="asset in pagedAssets"
-          :key="asset.id"
-          style="padding: 20px"
-        >
-          <div class="asset-card-name">{{ asset.name }}</div>
-          <div class="asset-card-desc">{{ asset.description }}</div>
-          <div class="asset-card-meta">
-            异常: {{ asset.anomaly_cnt ?? '-' }} &nbsp; 创建: {{ formatTime(asset.created_at) }}
+        <div class="card asset-card" v-for="asset in pagedAssets" :key="asset.id">
+          <div class="asset-card-head">
+            <div class="asset-card-name" :title="asset.name">{{ asset.name }}</div>
+            <span
+              v-if="assetTaskBadge(asset.id)"
+              class="badge"
+              :class="assetTaskBadge(asset.id)?.cls"
+              :title="assetTaskBadge(asset.id)?.title"
+            >
+              {{ assetTaskBadge(asset.id)?.label }}
+            </span>
+          </div>
+          <div class="asset-card-desc" :title="asset.description">{{ asset.description || '—' }}</div>
+          <div class="asset-card-stats">
+            <span><b>{{ asset.task_cnt ?? 0 }}</b> 个任务</span>
+            <span>更新 {{ formatTime(asset.updated_at) }}</span>
           </div>
           <div class="asset-card-actions">
-            <div style="display: flex; gap: 2px; flex-wrap: wrap">
+            <div class="asset-card-tools">
               <button
                 class="btn btn-sm btn-text"
                 :disabled="writeRestricted"
@@ -239,11 +258,7 @@ onBeforeUnmount(() => {
               >
                 编辑
               </button>
-              <button
-                class="btn btn-sm btn-text"
-                style="color: var(--danger)"
-                @click="deleteAsset(asset)"
-              >
+              <button class="btn btn-sm btn-text btn-text-danger" @click="deleteAsset(asset)">
                 删除
               </button>
             </div>
@@ -372,16 +387,16 @@ onBeforeUnmount(() => {
                 <th>进度</th>
                 <th>状态</th>
                 <th>创建时间</th>
-                <th>时延异常</th>
-                <th>通断异常</th>
+                <th class="num">时延异常</th>
+                <th class="num">通断异常</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="file in pagedTasks" :key="file.id">
                 <td class="task-name-cell">
-                  <div class="task-name">{{ file.name }}</div>
-                  <div class="task-path">{{ file.file_path || '—' }}</div>
+                  <div class="task-name" :title="file.name">{{ file.name }}</div>
+                  <div class="task-path" :title="file.file_path">{{ file.file_path || '—' }}</div>
                 </td>
                 <td>
                   <span
@@ -399,25 +414,17 @@ onBeforeUnmount(() => {
                       <div class="progress-bar">
                         <div class="fill" :style="{ width: progressOf(file) + '%' }"></div>
                       </div>
-                      <span>{{ Math.round(progressOf(file)) }}%</span>
+                      <span class="progress-value">{{ Math.round(progressOf(file)) }}%</span>
                     </div>
                     <div
-                      v-if="progressMessageOf(file)"
-                      :class="['task-progress-message', { failed: isFailed(file) }]"
-                      :title="progressMessageOf(file)"
-                    >
-                      {{ progressMessageOf(file) }}
-                    </div>
-                    <!-- 失败原因单独成行：进度消息会被后续 [polars] 报告顶掉 -->
-                    <div
-                      v-if="taskFailureReason(file)"
+                      v-if="taskRowHint(file)"
                       :class="[
-                        'task-status-reason',
-                        { 'task-status-reason-previous': taskFailureReasonLabel(file) === '上次失败原因' },
+                        'task-row-hint',
+                        { 'task-row-hint-failed': taskRowHintIsFailure(file) },
                       ]"
-                      :title="`${taskFailureReasonLabel(file)}：${taskFailureReason(file)}`"
+                      :title="taskRowHint(file)"
                     >
-                      {{ taskFailureReasonLabel(file) }}：{{ taskFailureReason(file) }}
+                      {{ taskRowHint(file) }}
                     </div>
                   </div>
                 </td>
@@ -427,8 +434,8 @@ onBeforeUnmount(() => {
                   </span>
                 </td>
                 <td>{{ formatTime(file.created_at) }}</td>
-                <td>{{ file.anomaly_cnt ?? '-' }}</td>
-                <td>{{ file.trace_failure_event_cnt ?? '-' }}</td>
+                <td class="num">{{ file.anomaly_cnt ?? '-' }}</td>
+                <td class="num">{{ file.trace_failure_event_cnt ?? '-' }}</td>
                 <td>
                   <div class="task-actions">
                     <template v-if="isPending(file)">
@@ -456,14 +463,6 @@ onBeforeUnmount(() => {
                       class="badge badge-running"
                       >诊断中</span
                     >
-                    <button
-                      class="btn btn-sm btn-text"
-                      :disabled="refreshingFileIds.has(file.id)"
-                      title="重新拉取该文件的状态/结果，不是重新解析"
-                      @click="refreshOneLogFile(file)"
-                    >
-                      {{ refreshingFileIds.has(file.id) ? '更新中…' : '⟳ 更新' }}
-                    </button>
                     <button class="btn btn-sm btn-danger" @click="deleteLogFile(file)">
                       ✕ 删除
                     </button>
