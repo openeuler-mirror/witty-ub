@@ -57,8 +57,6 @@ export function useAgentChat() {
 
 export function createAgentChatState() {
   const { toast } = useToast()
-  // 资产名要按全量列表解析：只拿 currentAsset 比对时，
-  // 非当前资产库的会话只能退回显示 UUID
   const { assets } = useAssets()
 
   const view = ref<AgentView>('login')
@@ -879,8 +877,8 @@ export function createAgentChatState() {
 
   // ---------- 视图辅助 ----------
 
-  // 按全量资产列表把 sessionId 映射成资产名，查不到才退回 ID。
-  // 未登记资产的会话返回空串，由界面各自显示「未知资产库 / 未关联资产」
+  // 按全量资产列表把 sessionId 映射成资产名，查不到则退回 ID；
+  // 未登记资产的会话返回空串
   const sessionAssetName = (sid: string) => {
     const assetId = sessionAssetIndex.value[sid] ?? ''
     if (!assetId) return ''

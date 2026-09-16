@@ -22,16 +22,50 @@ const ruleBlock = (selector, hint) => {
   assert.fail(`找不到 ${selector} 规则${hint ? `（含 ${hint}）` : ''}`)
 }
 
-// 点击后直接从按钮过渡到弹窗。变形起点必须是按钮的矩形，
-// 因此面板与 FAB 的右下角必须共点（否则 scale 后落不到按钮上）。
-test('Agent 面板与 FAB 右下角共点，可从按钮处变形', () => {
+// 取一条 @media 块的完整内容（按花括号配对，避免只看第一行）
+const mediaBlock = (maxWidth) => {
+  const start = style.indexOf(`@media (max-width: ${maxWidth}px) {`)
+  assert.ok(start > 0, `找不到 @media (max-width: ${maxWidth}px)`)
+  let depth = 0
+  for (let index = style.indexOf('{', start); index < style.length; index += 1) {
+    if (style[index] === '{') depth += 1
+    if (style[index] === '}') {
+      depth -= 1
+      if (depth === 0) return style.slice(start, index)
+    }
+  }
+  assert.fail(`@media (max-width: ${maxWidth}px) 花括号不配对`)
+}
+
+// 贴边距离：按钮 距右/下 16px；面板 左/右/下 8px、上 12px
+test('Agent 按钮与面板的贴边距离', () => {
   const fab = ruleBlock('.agent-fab', 'position: fixed')
   const panel = ruleBlock('.agent-chat-panel', 'position: fixed')
 
-  assert.match(fab, /right:\s*28px/, 'FAB 的 right 是对齐基准')
-  assert.match(fab, /bottom:\s*26px/, 'FAB 的 bottom 是对齐基准')
-  assert.match(panel, /right:\s*28px/, '面板 right 必须与 FAB 相同，右下角才会共点')
-  assert.match(panel, /bottom:\s*26px/, '面板 bottom 必须与 FAB 相同，不再为按钮留出下方空间')
+  assert.match(fab, /right:\s*16px/, '按钮距右边界')
+  assert.match(fab, /bottom:\s*16px/, '按钮距下边界')
+  assert.match(panel, /right:\s*8px/, '面板距右边界')
+  assert.match(panel, /bottom:\s*8px/, '面板距下边界')
+  assert.match(panel, /width:\s*calc\(100vw - 16px\)/, '面板宽度：左右各 8px')
+  assert.match(panel, /height:\s*calc\(100vh - 20px\)/, '面板高度：上 12px、下 8px')
+
+  assert.doesNotMatch(
+    mediaBlock(900),
+    /\.agent-chat-panel\s*\{/,
+    '面板贴边距离只在基础规则里定义一次',
+  )
+  assert.doesNotMatch(mediaBlock(600), /(right|bottom):\s*\d+px/, '小屏断点只调整按钮尺寸')
+})
+
+// 变形起点是按钮矩形：折叠帧按矩形比例缩放，再用 translate 补齐两者右下角的偏差
+test('Agent 面板可从按钮处变形，偏差由折叠帧补齐', () => {
+  const fab = ruleBlock('.agent-fab', 'position: fixed')
+  const panel = ruleBlock('.agent-chat-panel', 'position: fixed')
+
+  assert.match(fab, /right:\s*16px/, '按钮矩形是折叠帧的基准')
+  assert.match(fab, /bottom:\s*16px/)
+  assert.match(panel, /right:\s*8px/, '面板矩形是折叠帧的另一基准')
+  assert.match(panel, /bottom:\s*8px/)
   assert.match(
     panel,
     /transform-origin:\s*right\s+bottom/,
@@ -44,7 +78,7 @@ test('Agent 面板与 FAB 右下角共点，可从按钮处变形', () => {
   )
 })
 
-// 节省屏幕空间：按钮变成窗口后不再与窗口同屏各占一块。
+// 打开期间按钮隐藏，面板覆盖按钮所在角落
 test('Agent 按钮打开期间让位给面板', () => {
   assert.match(panelSource, /'agent-fab-hidden':\s*fabHidden/, 'FAB 必须绑定隐藏态类名，打开时让位')
   assert.match(
@@ -119,14 +153,14 @@ test('Agent 面板变形以按钮矩形为折叠帧，且不再叠加旧入场�
   )
 })
 
-// Agent 弹窗要大一些：不低于 980×800 / min-height 420。
-test('Agent 面板默认尺寸已放大', () => {
+// 面板尺寸 = 视口减贴边（左右 8px、上 12px、下 8px），宽度另有 1240px 上限
+test('Agent 面板尺寸按视口减边距计算，宽度保留上限', () => {
   const panel = ruleBlock('.agent-chat-panel', 'position: fixed')
-  const width = Number(panel.match(/width:\s*min\((\d+)px/)?.[1])
-  const height = Number(panel.match(/height:\s*min\((\d+)px/)?.[1])
-  const minHeight = Number(panel.match(/min-height:\s*min\((\d+)px/)?.[1])
 
-  assert.ok(width >= 1200, `面板默认宽度应不小于 1200px，当前 ${width}`)
-  assert.ok(height >= 860, `面板默认高度应不小于 860px，当前 ${height}`)
-  assert.ok(minHeight >= 520, `面板最小高度应不小于 520px，当前 ${minHeight}`)
+  assert.match(panel, /width:\s*calc\(100vw - 16px\)/)
+  assert.match(panel, /height:\s*calc\(100vh - 20px\)/)
+  assert.match(panel, /max-width:\s*1240px/, '宽屏下保留面板宽度上限')
+  assert.match(panel, /max-height:\s*calc\(100vh - 20px\)/, '高度跟随贴边，不设固定上限')
+  assert.match(script, /const PANEL_MAX_WIDTH = 1240/, '拖拽缩放的宽度上限与 CSS 同源')
+  assert.match(script, /Math\.min\(PANEL_MAX_WIDTH, window\.innerWidth - 16\)/)
 })

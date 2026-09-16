@@ -19,21 +19,15 @@ const ruleBlock = (selector, hint) => {
   assert.fail(`找不到 ${selector} 规则${hint ? `（含 ${hint}）` : ''}`)
 }
 
-// 用户报障：鼠标停在面板头部、会话区顶栏、输入区滚动时，手势穿透到面板背后的页面。
-// 根因：面板外壳只是 overflow: hidden（内容不溢出、滚不动），也没有 overscroll-behavior，
-// 滚轮沿祖先链一路交给文档；对话区正常是因为它自己带了 contain。
+// 面板外壳不是滚动容器：自身阻断滚动链后，滚轮不会沿祖先链落到文档
 test('Agent 面板外壳阻断滚动链，滚轮不穿透到背后页面', () => {
   const panel = ruleBlock('.agent-chat-panel', 'position: fixed')
 
   assert.match(panel, /overflow:\s*hidden/, '面板需要 overflow: hidden 才能裁切变形过程')
-  assert.match(
-    panel,
-    /overscroll-behavior:\s*contain/,
-    '缺少 overscroll-behavior: contain 时，头部/会话区顶栏/输入区的滚轮会把页面滚走',
-  )
+  assert.match(panel, /overscroll-behavior:\s*contain/, '面板外壳需要阻断滚动链')
 })
 
-// 外壳阻断链的前提是「面板内该滚的地方仍然能滚」：这些区域必须继续各自 contain
+// 面板内的滚动区域各自阻断滚动链
 test('面板内的滚动区保留自身的 overscroll-behavior: contain', () => {
   const scrollers = [
     ['.agent-auth-page', 'overflow-y: auto'],
@@ -46,7 +40,20 @@ test('面板内的滚动区保留自身的 overscroll-behavior: contain', () => 
     assert.match(
       ruleBlock(selector, hint),
       /overscroll-behavior:\s*contain/,
-      `${selector} 需要自己阻断滚动链，否则滚到边界会带动页面`,
+      `${selector} 需要自己阻断滚动链`,
     )
   }
+})
+
+// 工具条在滚动区之外，卡片区独立滚动
+test('会话工具条固定，卡片区独立滚动', () => {
+  const manager = ruleBlock('.agent-session-manager', 'flex-direction: column')
+  const toolbar = ruleBlock('.agent-session-toolbar', 'align-items: center')
+  const list = ruleBlock('.agent-session-list', 'overflow-y: auto')
+
+  assert.doesNotMatch(manager, /overflow-y:\s*auto/, '工具条应位于滚动区之外')
+  assert.match(toolbar, /flex:\s*0 0 auto/, '工具条不参与伸缩')
+  assert.match(list, /overscroll-behavior:\s*contain/, '卡片区需要阻断滚动链')
+  assert.match(list, /flex:\s*1 1 auto/, '卡片区撑满工具条以下的面积')
+  assert.match(list, /min-height:\s*0/, '缺少 min-height: 0 时 flex 会压扁卡片而非滚动')
 })

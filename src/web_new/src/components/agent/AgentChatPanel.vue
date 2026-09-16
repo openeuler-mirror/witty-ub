@@ -67,12 +67,11 @@ const fabRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const tintRef = ref<HTMLElement | null>(null)
 
-/* ===== FAB ↔ 面板变形（点击按钮展开为 Agent 窗口）=====
-   面板与 FAB 都是 right/bottom 定位、右下角共点，CSS 里 transform-origin 也是 right bottom，
-   所以「折叠态」只要按两个方向的尺寸比 scale、再 translate 补齐右下角偏差，
-   就能精确落在按钮矩形上（位置/尺寸/圆角都对得上），动画结束后撤销覆盖样式，
-   面板回到常规尺寸（包含用户拖拽缩放后的尺寸）。 */
+/* ===== FAB ↔ 面板变形 =====
+   折叠帧按「按钮矩形 ÷ 面板矩形」在两个方向分别 scale，再用 translate 补齐两者右下角的偏差，
+   使首帧与按钮矩形重合（位置/尺寸/圆角一致）；动画结束后撤销覆盖样式，面板回到常规尺寸。 */
 const PANEL_RADIUS = 22
+const PANEL_MAX_WIDTH = 1240
 const MORPH_OPEN_MS = 420
 const MORPH_CLOSE_MS = 300
 const MORPH_TINT_OPEN_MS = 210
@@ -106,9 +105,9 @@ let panelResize:
 
 const resizePanel = (event: PointerEvent) => {
   if (!panelResize) return
-  // 面板右下角固定在 FAB 处（right 28 / bottom 26），左/上各留 16px 让拖拽有边界
-  const maxWidth = Math.max(320, window.innerWidth - 44)
-  const maxHeight = Math.max(320, window.innerHeight - 42)
+  // 宽度上限与 CSS 的 max-width 一致；高度上限 = 视口减面板贴边（上 12px、下 8px）
+  const maxWidth = Math.max(320, Math.min(PANEL_MAX_WIDTH, window.innerWidth - 16))
+  const maxHeight = Math.max(320, window.innerHeight - 20)
   const minWidth = Math.min(760, maxWidth)
   const minHeight = Math.min(520, maxHeight)
   if (panelResize.direction !== 'top') {
@@ -230,7 +229,7 @@ const startPanelResize = (direction: 'top' | 'left' | 'corner', event: PointerEv
 const syncAsset = () =>
   setAsset(props.asset ? { id: props.asset.id, name: props.asset.name } : null)
 
-// 点按钮：面板从按钮矩形长出（折叠帧 → 常规帧），按钮在变形期间让位，屏幕不再同时摆按钮和窗口
+// 点按钮：面板从按钮矩形长出（折叠帧 → 常规帧），按钮在变形期间让位
 const openPanel = () => {
   if (open.value || morphing) return
   morphing = true
@@ -590,32 +589,46 @@ const onInputKeydown = (event: KeyboardEvent) => {
     <!-- ===== 会话视图 ===== -->
     <div v-else class="agent-conversation-layout">
       <aside class="agent-session-manager" aria-label="会话列表">
-        <div class="agent-session-manager-title">
-          <div>
-            <strong>会话</strong>
-          </div>
+        <div class="agent-session-toolbar">
+          <input
+            v-model.trim="sessionSearch"
+            class="agent-search"
+            placeholder="搜索会话或资产库"
+            aria-label="搜索会话标题或资产库名称"
+          />
           <button
             type="button"
+            class="agent-session-tool"
+            :class="{ 'is-loading': isSessionsLoading }"
+            title="刷新会话列表"
+            aria-label="刷新会话列表"
+            :aria-busy="isSessionsLoading"
+            :disabled="isSessionsLoading || isSessionCreating || isSessionSaving"
+            @click="refreshSessions"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="agent-session-tool agent-session-tool-primary"
+            title="新建会话"
+            aria-label="新建会话"
+            :aria-busy="isSessionCreating"
             :disabled="isSessionCreating || isSessionSaving || isSubmitting"
             @click="newConversation"
           >
-            {{ isSessionCreating ? '创建中…' : '＋ 新建' }}
+            <svg v-if="!isSessionCreating" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <circle class="agent-session-tool-spinner" cx="12" cy="12" r="8" />
+            </svg>
           </button>
         </div>
-        <button
-          type="button"
-          class="agent-session-refresh"
-          :disabled="isSessionsLoading || isSessionCreating || isSessionSaving"
-          @click="refreshSessions"
-        >
-          刷新会话列表
-        </button>
-        <input
-          v-model.trim="sessionSearch"
-          class="agent-search"
-          placeholder="搜索会话标题或资产库名称"
-          aria-label="搜索会话标题或资产库名称"
-        />
         <div class="agent-session-list">
           <p v-if="isSessionsLoading" class="agent-empty-options">正在加载会话…</p>
           <template v-else>
@@ -863,9 +876,9 @@ const onInputKeydown = (event: KeyboardEvent) => {
 }
 .agent-fab {
   position: fixed;
-  right: 28px;
-  bottom: 26px;
-  /* 低于面板（119）：面板从按钮处展开时正好盖住它，读起来就是「按钮变成了窗口」 */
+  right: 16px;
+  bottom: 16px;
+  /* 低于面板（119），展开动画由面板覆盖按钮 */
   z-index: 118;
   display: grid;
   width: 62px;
@@ -891,8 +904,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
     0 20px 42px rgba(37, 99, 235, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
-/* 变形期间直接让位（transition: none，避免和面板的变形动画抢视觉），
-   收拢结束摘掉类名时用上面的 opacity 过渡淡入 */
+/* 变形期间直接让位（transition: none），摘掉类名时用上面的 opacity 过渡淡入 */
 .agent-fab-hidden {
   visibility: hidden;
   opacity: 0;
@@ -928,21 +940,17 @@ const onInputKeydown = (event: KeyboardEvent) => {
 }
 .agent-chat-panel {
   position: fixed;
-  /* 右下角与 FAB 共点（right/bottom 同值）：面板直接占用按钮位置，不再为按钮预留下方空间 */
-  right: 28px;
-  bottom: 26px;
+  right: 8px;
+  bottom: 8px;
   z-index: 119;
   display: flex;
   overflow: hidden;
-  /* 阻断滚动链：面板头部/会话区顶栏/输入区都不是滚动容器，
-     没有这一条时滚轮会沿祖先链交给文档，把面板背后的页面滚走 */
+  /* 面板内滚动手势不传给文档 */
   overscroll-behavior: contain;
-  width: min(1240px, calc(100vw - 44px));
-  height: min(880px, calc(100vh - 42px));
-  max-width: calc(100vw - 44px);
-  max-height: calc(100vh - 42px);
-  min-width: min(760px, calc(100vw - 44px));
-  min-height: min(520px, calc(100vh - 42px));
+  width: calc(100vw - 16px);
+  height: calc(100vh - 20px);
+  max-width: 1240px;
+  max-height: calc(100vh - 20px);
   flex-direction: column;
   border: 1px solid rgba(203, 213, 225, 0.86);
   border-radius: 22px;
@@ -953,8 +961,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
   /* 变形原点：面板从右下角（按钮处）长出/收回，JS 的 transform 依赖这个原点 */
   transform-origin: right bottom;
 }
-/* 与 FAB 同款渐变，静态不透明度为 0（只在变形期间由 JS 补间），
-   因此面板平时不会多出一层色罩 */
+/* 按钮色罩：与 FAB 同款渐变，平时 opacity: 0，变形期间由 JS 补间 */
 .agent-panel-morph-tint {
   position: absolute;
   z-index: 5;
@@ -1310,39 +1317,86 @@ const onInputKeydown = (event: KeyboardEvent) => {
   width: 270px;
   flex: 0 0 270px;
   flex-direction: column;
-  padding: 16px 14px;
   border-right: 1px solid #e1e8f2;
   background: #f8fafc;
 }
-.agent-session-manager-title {
+.agent-session-toolbar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 15px;
+  padding: 14px 14px 10px;
+  background: #f8fafc;
+  gap: 8px;
 }
-.agent-session-manager-title > div {
+.agent-session-toolbar .agent-search {
+  width: auto;
+  min-width: 0;
+  height: 36px;
+  flex: 1 1 0;
+  margin: 0;
+  padding: 0 11px;
+}
+.agent-session-tool {
   display: grid;
-  color: #172554;
-  gap: 3px;
-}
-.agent-session-manager-title > button {
-  padding: 8px 12px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   cursor: pointer;
-  border-radius: 9px;
-  background: #4f6fe8;
+  place-items: center;
+  border: 1px solid #d7e1f1;
+  border-radius: 11px;
+  background: #fff;
+  color: #475569;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
+}
+.agent-session-tool:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #9ab7f5;
+  background: #eaf1ff;
+  color: #315ecf;
+}
+.agent-session-tool:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.agent-session-tool svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+.agent-session-tool-primary {
+  border-color: transparent;
+  background: linear-gradient(145deg, #4f8cff, #4f46e5);
+  box-shadow: 0 7px 16px rgba(79, 70, 229, 0.24);
   color: #fff;
 }
-.agent-session-refresh {
-  margin-bottom: 12px;
-  padding: 6px;
-  background: transparent;
-  color: #315ecf;
-  cursor: pointer;
+.agent-session-tool-primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: linear-gradient(145deg, #4b86f7, #4636d9);
+  color: #fff;
+}
+.agent-session-tool.is-loading svg {
+  animation: agent-spin 0.9s linear infinite;
+}
+.agent-session-tool-spinner {
+  stroke-dasharray: 13 38;
+  animation: agent-spin 0.9s linear infinite;
 }
 .agent-session-list {
   display: grid;
+  /* 撑满工具条以下的面积并独立滚动 */
+  flex: 1 1 auto;
   min-height: 0;
   align-content: start;
+  padding: 0 14px 14px;
   gap: 9px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1787,6 +1841,11 @@ const onInputKeydown = (event: KeyboardEvent) => {
     transform: translateY(-4px);
   }
 }
+@keyframes agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @keyframes agent-pulse {
   70% {
     box-shadow: 0 0 0 8px rgba(52, 211, 153, 0);
@@ -1804,26 +1863,13 @@ const onInputKeydown = (event: KeyboardEvent) => {
   }
 }
 @media (max-width: 900px) {
-  .agent-chat-panel {
-    top: 12px;
-    right: 8px;
-    bottom: 8px;
-    left: 8px;
-    width: auto;
-    height: auto;
-    min-width: 0;
-    min-height: 0;
-    /* 仍然保留上限：拖拽缩放留下的行内尺寸不能撑破窄屏 */
-    max-width: calc(100vw - 16px);
-    max-height: calc(100vh - 20px);
-  }
   .agent-conversation-layout {
     flex-direction: column;
   }
   .agent-session-manager {
     width: 100%;
     flex: 0 0 auto;
-    max-height: 200px;
+    max-height: 46vh;
     border-right: 0;
     border-bottom: 1px solid #e1e8f2;
   }
@@ -1837,8 +1883,6 @@ const onInputKeydown = (event: KeyboardEvent) => {
 
 @media (max-width: 600px) {
   .agent-fab {
-    right: 16px;
-    bottom: 16px;
     width: 52px;
     height: 52px;
     border-radius: 18px;

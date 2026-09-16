@@ -271,12 +271,11 @@ test('switching preserves background generation, drafts, and asset context', asy
   }
 })
 
-// 回归：切到另一个资产库后打开 Agent 面板，历史问答记录里的资产库名称
-// 必须仍按全量资产列表解析，不能只认当前资产库（否则会显示成 ID）。
+// 会话资产名取自全量资产列表，而不是当前打开的资产
 test('非当前资产库的会话也显示资产名，并可按资产名检索', async () => {
   const { state, storage, cleanup } = setup()
   try {
-    // 用户此前在资产 A 提问过，映射已落在 localStorage；当前打开的是资产 B
+    // 映射已在 localStorage（会话属于资产 A），当前打开的是资产 B
     storage.set('witty-ub.agent-session-assets:/agent-api', JSON.stringify({ a: 'kb-a' }))
     await state.loginLocalAgent()
     state.setAsset({ id: 'kb-b', name: '资产 B' })
