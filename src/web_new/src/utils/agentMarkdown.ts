@@ -1,5 +1,5 @@
 // 诊断助手消息 Markdown 渲染：先整体 HTML 转义再逐行解析，
-// 支持代码块、表格、标题、列表、行内 code / bold / italic（与旧版前端同一策略）
+// 支持代码块、表格、标题、列表、行内 code / bold / italic
 
 const escapeHtml = (text: string) =>
   text

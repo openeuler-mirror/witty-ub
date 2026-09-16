@@ -89,7 +89,7 @@ export const failureModeDisplayCode = (
   return (mode.name ?? '').includes('FATAL') ? 'FATAL' : ''
 }
 
-// 图表横坐标显示完整日期（对齐旧前端 formatBrpcTimestamp）
+// 图表横坐标显示完整日期
 export const formatChartTs = (ts: string): string => {
   const match = String(ts).match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/)
   return match ? `${match[1]} ${match[2]}` : String(ts)

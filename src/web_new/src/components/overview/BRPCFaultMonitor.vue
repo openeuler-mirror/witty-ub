@@ -122,7 +122,11 @@ onMounted(() => {
           </button>
           <label class="hint" for="brpc-fault-scale">时间聚合尺度</label>
           <select id="brpc-fault-scale" class="select" v-model.number="brpcFaultScale">
-            <option v-for="option in brpcFaultScaleOptions" :key="option.value" :value="option.value">
+            <option
+              v-for="option in brpcFaultScaleOptions"
+              :key="option.value"
+              :value="option.value"
+            >
               {{ option.label }}
             </option>
           </select>
@@ -192,7 +196,11 @@ onMounted(() => {
           v-model="brpcEventAggregation"
           @change="changeBrpcEventAggregation"
         >
-          <option v-for="option in brpcEventAggregationOptions" :key="option.value" :value="option.value">
+          <option
+            v-for="option in brpcEventAggregationOptions"
+            :key="option.value"
+            :value="option.value"
+          >
             {{ option.label }}
           </option>
         </select>
@@ -203,7 +211,11 @@ onMounted(() => {
           v-model="brpcEventWindowSize"
           @change="changeBrpcEventWindowSize"
         >
-          <option v-for="option in brpcEventWindowOptions" :key="option.value" :value="option.value">
+          <option
+            v-for="option in brpcEventWindowOptions"
+            :key="option.value"
+            :value="option.value"
+          >
             {{ option.label }}
           </option>
         </select>
@@ -217,7 +229,8 @@ onMounted(() => {
       </div>
       <template v-else>
         <p class="monitor-card-hint">
-          聚合口径：时间窗 × 接口命中数（同一窗口内所有 Pod 求和）；点「明细」展开该窗的 Pod 逐行结果
+          聚合口径：时间窗 × 接口命中数（同一窗口内所有 Pod 求和）；点「明细」展开该窗的 Pod
+          逐行结果
         </p>
         <div class="agg-table">
           <!-- 左固定：时间窗 + 故障总数；展开后为 Pod/线程 明细 -->
@@ -229,7 +242,9 @@ onMounted(() => {
             <template v-for="window in brpcEventWindowPageRows" :key="`l-${window.key}`">
               <div class="agg-row agg-left-main">
                 <span class="col-nowrap agg-mono">{{ window.start }} ~ {{ window.end }}</span>
-                <span class="col-num"><b>{{ window.total }}</b></span>
+                <span class="col-num"
+                  ><b>{{ window.total }}</b></span
+                >
               </div>
               <template v-if="brpcExpandedEventWindow === window.key">
                 <div class="agg-row agg-subhead agg-left-sub">
@@ -250,7 +265,10 @@ onMounted(() => {
 
           <!-- 中间：接口列矩阵，超出宽度时本块横向滚动 -->
           <div class="agg-block agg-mid">
-            <div class="agg-mid-inner" :style="{ width: brpcEventInterfaceColumns.length * 132 + 'px' }">
+            <div
+              class="agg-mid-inner"
+              :style="{ width: brpcEventInterfaceColumns.length * 132 + 'px' }"
+            >
               <div class="agg-row agg-head agg-mid-grid">
                 <div
                   v-for="column in brpcEventInterfaceColumns"
@@ -265,11 +283,7 @@ onMounted(() => {
               </div>
               <template v-for="window in brpcEventWindowPageRows" :key="`m-${window.key}`">
                 <div class="agg-row agg-mid-grid">
-                  <div
-                    v-for="column in brpcEventInterfaceColumns"
-                    :key="column.id"
-                    class="col-num"
-                  >
+                  <div v-for="column in brpcEventInterfaceColumns" :key="column.id" class="col-num">
                     <span :class="{ 'matrix-zero': !window.byInterface[column.id] }">
                       {{ window.byInterface[column.id] ?? '-' }}
                     </span>

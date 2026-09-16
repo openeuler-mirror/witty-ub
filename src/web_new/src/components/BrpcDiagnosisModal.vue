@@ -2,8 +2,7 @@
 import BaseModal from './common/BaseModal.vue'
 import { useTasks } from '../composables/useTasks'
 
-const { brpcModalOpen, brpcTargetFile, brpcStartTime, brpcSaving, brpcError, runBrpcDiagnosis } =
-  useTasks()
+const { brpcModalOpen, brpcStartTime, brpcSaving, brpcError, runBrpcDiagnosis } = useTasks()
 </script>
 
 <template>

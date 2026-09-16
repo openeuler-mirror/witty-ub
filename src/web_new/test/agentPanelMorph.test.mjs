@@ -22,8 +22,8 @@ const ruleBlock = (selector, hint) => {
   assert.fail(`找不到 ${selector} 规则${hint ? `（含 ${hint}）` : ''}`)
 }
 
-// 用户诉求：点击后直接从按钮过渡到弹窗，由按钮变成 Agent 窗口。
-// 变形起点必须是按钮的矩形，因此面板与 FAB 的右下角必须共点（否则 scale 后落不到按钮上）。
+// 点击后直接从按钮过渡到弹窗。变形起点必须是按钮的矩形，
+// 因此面板与 FAB 的右下角必须共点（否则 scale 后落不到按钮上）。
 test('Agent 面板与 FAB 右下角共点，可从按钮处变形', () => {
   const fab = ruleBlock('.agent-fab', 'position: fixed')
   const panel = ruleBlock('.agent-chat-panel', 'position: fixed')
@@ -44,7 +44,7 @@ test('Agent 面板与 FAB 右下角共点，可从按钮处变形', () => {
   )
 })
 
-// 用户诉求：节省屏幕空间——按钮变成窗口后不再与窗口同屏各占一块。
+// 节省屏幕空间：按钮变成窗口后不再与窗口同屏各占一块。
 test('Agent 按钮打开期间让位给面板', () => {
   assert.match(panelSource, /'agent-fab-hidden':\s*fabHidden/, 'FAB 必须绑定隐藏态类名，打开时让位')
   assert.match(
@@ -119,7 +119,7 @@ test('Agent 面板变形以按钮矩形为折叠帧，且不再叠加旧入场�
   )
 })
 
-// 用户诉求：把 Agent 弹窗做大一点（旧值 980×800 / min-height 420）。
+// Agent 弹窗要大一些：不低于 980×800 / min-height 420。
 test('Agent 面板默认尺寸已放大', () => {
   const panel = ruleBlock('.agent-chat-panel', 'position: fixed')
   const width = Number(panel.match(/width:\s*min\((\d+)px/)?.[1])

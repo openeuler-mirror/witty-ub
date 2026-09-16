@@ -29,7 +29,9 @@ const selected = computed(
 )
 const filtered = computed(() => {
   const kw = keyword.value.trim().toUpperCase()
-  return kw ? props.options.filter((option) => option.name.toUpperCase().includes(kw)) : props.options
+  return kw
+    ? props.options.filter((option) => option.name.toUpperCase().includes(kw))
+    : props.options
 })
 
 const openPanel = async () => {

@@ -357,11 +357,9 @@ function createTasksState() {
 
   return {
     logFiles,
-    logFilesTotal,
     logFilesLoading,
     logFilesError,
     logFilesAssetId,
-    getLogFileId,
     statusOf,
     progressOf,
     progressMessageOf,
@@ -372,11 +370,9 @@ function createTasksState() {
     isRunning,
     isFailed,
     isSuccess,
-    brpcDiagStatusByFile,
     brpcDiagStatusOf,
     canRunBrpcDiagnosis,
     brpcModalOpen,
-    brpcTargetFile,
     brpcStartTime,
     brpcSaving,
     brpcError,

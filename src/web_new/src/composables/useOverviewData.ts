@@ -176,7 +176,7 @@ function createOverviewStateInner() {
     ave: diagnosisConfig.log_analyzer_params?.total_ave_threshold_ms ?? 5,
   }
 
-  // ============ 总览分析工作台（demo_new 设计 + 真实后端数据） ============
+  // ============ 总览分析工作台 ============
 
   const emptyScopeData = (): ScopeData => ({
     kpi: {
@@ -270,8 +270,7 @@ function createOverviewStateInner() {
 
   /**
    * 阶段（yuanrong 分解）字段口径：请求带 stat_type=p99 时，后端只把 p99_<metric> 挂到
-   * ip_pair 上（上游 fc88f485 起，`_attach_yuanrong_breakdown` 由 ave_ 改 p99_）；
-   * 历史/其他口径响应仍可能是 ave_<metric>，所以先 p99 再 ave 回退。
+   * ip_pair 上；历史口径响应仍可能是 ave_<metric>，所以先 p99 再 ave 回退。
    */
   const pairStageMetric = (pair: any, key: string): number | null => {
     for (const field of [`p99_${key}`, `ave_${key}`]) {
@@ -391,7 +390,7 @@ function createOverviewStateInner() {
   }
 
   // 趋势分位数据必须单日志（后端 metrics/latency 分位统计表按日志物化，无法跨任务合并）。
-  // 对齐旧版：未选日志时自动兜底第一个已完成任务，而不是要求用户手选
+  // 未选日志时自动兜底第一个已完成任务，不要求用户手选
   const trendLogId = computed(() => latencyFilter.logId.value ?? scopeTasks.value[0]?.id)
   const trendLogLabel = computed(() => {
     const id = trendLogId.value
@@ -553,7 +552,7 @@ function createOverviewStateInner() {
   const brpcFileLabel = (file: BrpcProfilingFileOption) =>
     `${file.log_name || file.log_id} / ${file.source_file || '未命名 profiling 文件'}`
 
-  // 与旧版一致：文件选择只客户端过滤已加载 rows，不按文件重拉
+  // 文件选择只客户端过滤已加载 rows，不按文件重拉
   const brpcFileRows = computed(() => {
     const selected = brpcProfilingFiles.value.find(
       (file) => brpcFileKey(file) === brpcSelectedFileKey.value,
@@ -623,12 +622,12 @@ function createOverviewStateInner() {
   const brpcIfaceNames = computed(() =>
     [...new Set(brpcFileRows.value.map((row) => row.interface_name).filter(Boolean))].sort(),
   )
-  // U6：两张总览图（成功率 / 时延）共用一套接口勾选——同一批曲线在两个视角下对照，
+  // 两张总览图（成功率 / 时延）共用一套接口勾选——同一批曲线在两个视角下对照，
   // 不再各自渲染一份 21 项清单
   const brpcOverviewSelectedIfaces = ref<string[]>([])
   const brpcSingleIface = ref('')
 
-  // U1：接口配色与勾选色点一致（对齐旧版 BRPC_INTERFACE_COLORS，21 色覆盖全部接口）
+  // 接口配色与勾选色点一致（21 色覆盖全部接口）
   const BRPC_INTERFACE_COLORS = [
     '#5470c6',
     '#91cc75',
@@ -658,7 +657,7 @@ function createOverviewStateInner() {
     return BRPC_INTERFACE_COLORS[paletteIndex] ?? '#6e7074'
   }
 
-  // U1b：单接口监控的指标多选（对齐旧版 brpcSingleMetrics）
+  // 单接口监控的指标多选
   const BRPC_SINGLE_METRIC_COLORS: Record<string, string> = {
     requestCount: '#5470c6',
     successRate: '#91cc75',
@@ -671,7 +670,7 @@ function createOverviewStateInner() {
   const brpcSingleMetricColor = (metric: string) => BRPC_SINGLE_METRIC_COLORS[metric] ?? '#94a3b8'
   const isBrpcRateMetric = (metric: string) => metric === 'successRate' || metric === 'failureRate'
 
-  // U1c：时延监控（µs）指标与多接口勾选（对齐旧版 brpcLatencyMetrics）
+  // 时延监控（µs）指标与多接口勾选
   const brpcLatencyMetrics = [
     { value: 'total_ns', label: 'total' },
     { value: 'avg_ns', label: 'avg' },
@@ -685,8 +684,7 @@ function createOverviewStateInner() {
   ]
   const brpcLatencyMetric = ref('avg_ns')
 
-  // U6：单接口时延与总览时延同口径——同样的 9 项指标可选（旧版只固定 avg/P99/max），
-  // 单位统一 µs（改版前单接口固定 ms，与总览的 µs 不一致）
+  // 单接口时延与总览时延同口径——同样的 9 项指标可选，单位统一 µs
   const BRPC_LATENCY_METRIC_COLORS: Record<string, string> = {
     total_ns: '#6366f1',
     avg_ns: '#1E6FFF',
@@ -702,16 +700,15 @@ function createOverviewStateInner() {
   const brpcSingleLatencySelectedMetrics = ref<string[]>(['avg_ns', 'p99_ns', 'max_ns'])
   const brpcSingleLatencyColor = (metric: string) => BRPC_LATENCY_METRIC_COLORS[metric] ?? '#94a3b8'
 
-  // U1：横轴标签按点数抽稀（密集时序下旋转标签会互相重叠）
+  // 横轴标签按点数抽稀（密集时序下旋转标签会互相重叠）
   const brpcAxisLabelStep = (count: number) => Math.max(0, Math.ceil(count / 12) - 1)
 
-  // 与旧版一致：每条曲线的数据点画小圆圈（旧版没设 symbol，走 ECharts 默认 circle / size 4），
-  // 关掉 symbol 就只能看到连线，判断单点取值很吃力
+  // 每条曲线的数据点画小圆圈：关掉 symbol 就只能看到连线，判断单点取值很吃力
   const brpcLineSymbol = { showSymbol: true, symbol: 'circle' as const, symbolSize: 4 }
 
   // UBSocket 接口监控 tooltip：
-  // 1) 旧版把 tooltip 画在图表容器里，容器 `.monitor-card{overflow:hidden}` 会把长列表裁掉，
-  //    这里统一 appendToBody（与「最慢请求图」同一套做法），并限制最大高度、允许滚动查看；
+  // 1) 统一 appendToBody（与「最慢请求图」同一套做法），避免被 `.monitor-card` 的 overflow
+  //    裁掉，并限制最大高度、允许滚动查看；
   // 2) 悬停在时间轴上列出该时刻的全部曲线；悬停在具体数据点上（光标距点 ≤ 10px）
   //    只显示最近的那一个点，便于读单点取值。
   const BRPC_TOOLTIP_POINT_RADIUS = 10
@@ -819,7 +816,7 @@ function createOverviewStateInner() {
     }
   }
 
-  // 文件存在但该文件没有任何 profiling 行 → 「当前筛选时间范围内无数据」（对齐上游 0e663a22）
+  // 文件存在但该文件没有任何 profiling 行 → 「当前筛选时间范围内无数据」
   const brpcHasRows = computed(() => brpcFileRows.value.length > 0)
 
   const brpcRowMetric = (row: any, metric: BrpcSuccessMetric): number => {
@@ -828,8 +825,7 @@ function createOverviewStateInner() {
     const req = ok + fail
     switch (metric) {
       case 'successRate':
-        // 与旧版 calcRate 一致：该桶没有请求（低流量接口）时记 100%，
-        // 记 0% 会在曲线上画出并不存在的深谷（旧版没有这些归零点）
+        // 该桶没有请求（低流量接口）时记 100%：记 0% 会在曲线上画出并不存在的深谷
         return req ? +((ok / req) * 100).toFixed(2) : 100
       case 'failureRate':
         return req ? +((fail / req) * 100).toFixed(2) : 0
@@ -915,14 +911,14 @@ function createOverviewStateInner() {
     }
   })
 
-  // ---------- BRPC 通断故障监控（对齐原版功能） ----------
+  // ---------- BRPC 通断故障监控 ----------
 
   const brpcMonitorTab = ref<'iface' | 'fault'>('iface')
   const brpcFaultTab = ref<'event' | 'thread'>('event')
   const brpcFaultSelectedLogId = ref('')
-  // U5：聚合事件表的时间间隔（服务端支持 1s / 1m / 1h），改变后重拉当前页
+  // 聚合事件表的时间间隔（服务端支持 1s / 1m / 1h），改变后重拉当前页
   const brpcEventWindowSize = ref<'1s' | '1m' | '1h'>('1m')
-  // 聚合指标：Pod IP / 线程 ID（对齐旧版 brpcEventAggregation）
+  // 聚合指标：Pod IP / 线程 ID
   const brpcEventAggregation = ref<'pod' | 'thread'>('pod')
   const brpcEventAggregationOptions = [
     { value: 'pod', label: 'Pod IP' },
@@ -938,7 +934,7 @@ function createOverviewStateInner() {
   const brpcAggregatedEvents = ref<any[]>([])
   const brpcAggregatedEventTotal = ref(0)
   const brpcAggregatedEventPage = ref(1)
-  // 聚合事件按「时间窗 × 接口」重组成矩阵（对齐旧版聚合分析：窗口行 + 故障维度列 + 展开明细）
+  // 聚合事件按「时间窗 × 接口」重组成矩阵：窗口行 + 故障维度列 + 展开明细
   const brpcAggregatedEventsTruncated = ref(false)
   const brpcExpandedEventWindow = ref('')
   const BRPC_EVENT_WINDOW_PAGE_SIZE = 10
@@ -991,7 +987,7 @@ function createOverviewStateInner() {
     return [...grouped.values()].sort((left, right) => left.start.localeCompare(right.start))
   })
 
-  /** 接口列：带 组件 / 接口名 / 函数名（表头三行信息，对齐旧版），并按接口 id 作为聚合键 */
+  /** 接口列：带 组件 / 接口名 / 函数名（表头三行信息），并按接口 id 作为聚合键 */
   const brpcEventInterfaceColumns = computed(() => {
     const columns = new Map<
       string,
@@ -1141,9 +1137,9 @@ function createOverviewStateInner() {
     return { startDate, endDate }
   }
 
-  // U5：UBSocket 公共 API 故障时序的时间聚合尺度。
+  // UBSocket 公共 API 故障时序的时间聚合尺度。
   // 聚合尺度必须回查后端预聚合桶：10 秒粒度只能由 window_size=10s 产生，
-  // 客户端对 1 分钟点再分桶永远得不到 10 秒细节（旧版即按尺度回查）。
+  // 客户端对 1 分钟点再分桶永远得不到 10 秒细节。
   const brpcFaultScaleOptions = [
     { value: 10, label: '10 秒' },
     { value: 60, label: '1 分钟' },
@@ -1723,9 +1719,6 @@ function createOverviewStateInner() {
     await loadBrpcAbnormalThreads()
   }
 
-  const brpcFaultEventPages = computed(() =>
-    Math.max(1, Math.ceil(brpcAggregatedEventTotal.value / brpcFaultPageSize)),
-  )
   const brpcFaultThreadPages = computed(() =>
     Math.max(1, Math.ceil(brpcAbnormalThreadTotal.value / brpcFaultPageSize)),
   )
@@ -1850,12 +1843,6 @@ function createOverviewStateInner() {
     })()
   }
 
-  const brpcEventHitTotal = (event: any) =>
-    (event.interface_hits || []).reduce(
-      (sum: number, hit: any) => sum + (hit.interface_hit_count || 0),
-      0,
-    )
-
   // ---------- 异常概览（拓扑 / Pod 分析） ----------
 
   const allMetrics = [
@@ -1890,15 +1877,6 @@ function createOverviewStateInner() {
     { key: 'client_remote_rpc_total_us', label: 'Client Remote RPC总时延', cat: 'Client Direct' },
   ]
 
-  const metricCats = computed(() => {
-    const cats: Record<string, Array<{ key: string; label: string; cat: string }>> = {}
-    allMetrics.forEach((metric) => {
-      cats[metric.cat] = cats[metric.cat] ?? []
-      cats[metric.cat]!.push(metric)
-    })
-    return Object.entries(cats).map(([name, metrics]) => ({ name, metrics }))
-  })
-
   const selectedMetrics = ref([
     'total_latency_us',
     'sdk_processing_us',
@@ -1908,28 +1886,6 @@ function createOverviewStateInner() {
     'urma_inflight_max',
     'remote_worker_processing_us',
   ])
-
-  const metricLabel = (key: string) => allMetrics.find((metric) => metric.key === key)?.label || key
-
-  const metricCategoryColor: Record<string, string> = {
-    SDK: '#5470c6',
-    'Master/Worker': '#00B365',
-    RPC远端: '#fc8452',
-    URMA: '#8B5CF6',
-    'Client Direct': '#bda29a',
-  }
-  const metricCategoryOf = (key: string) =>
-    allMetrics.find((metric) => metric.key === key)?.cat || ''
-  const metricCategoryColorOf = (key: string) =>
-    metricCategoryColor[metricCategoryOf(key)] || '#94a3b8'
-  const metricIsCount = (key: string) => key === 'urma_inflight_max'
-  const metricUnit = (key: string) => (metricIsCount(key) ? '个' : 'ms')
-  const metricValueText = (value: number | null | undefined, key: string) => {
-    if (value == null || !Number.isFinite(value) || value <= 0) return '-'
-    if (metricIsCount(key)) return value.toFixed(1)
-    // µs → ms
-    return (value / 1000).toFixed(2)
-  }
 
   const overview = reactive({ topK: 10, operation: '', sortBy: '', statType: 'p99' })
   const showPodIpCb = ref(false)
@@ -2013,16 +1969,6 @@ function createOverviewStateInner() {
 
   const timeRangeLabel = computed(() => latencyFilter.timeLabel.value)
 
-  /** 按当前窗过滤后的全域桶（用于时间轴高亮等本地场景） */
-  const filteredTimeBuckets = computed(() => {
-    const window = latencyFilter.timeWindow.value
-    if (!window) return timeBuckets.value
-    return timeBuckets.value.filter((bucket) => {
-      const t = epochOf(bucket.start_time)
-      return t >= window.start && t < window.end
-    })
-  })
-
   const activePairs = computed(() => toAggregatedPairs(analysisWindowData.value, realOp.value))
 
   /** 当前可用的指标：跨所有时段任一 ip_pair 出现过合法值（µs/计数） */
@@ -2036,16 +1982,6 @@ function createOverviewStateInner() {
       ),
     ),
   )
-  const availableMetricCats = computed(() => {
-    const present = new Set(availableMetrics.value.map((metric) => metric.key))
-    return metricCats.value
-      .map((cat) => ({
-        ...cat,
-        metrics: cat.metrics.filter((metric) => present.has(metric.key)),
-      }))
-      .filter((cat) => cat.metrics.length > 0)
-  })
-
   /** 时段异常强度（时间轴数据源 = 全域导航数据） */
   const statFieldMap: Record<string, string> = {
     ave: 'ave_total_latency',
@@ -2590,254 +2526,6 @@ function createOverviewStateInner() {
     )
   }
 
-  /** POD 级各阶段时延分解：复用趋势页的关键阶段 + 颜色，仅展示已勾选且有数据的阶段 */
-  const podBreakdownSegments = (stat: any) => {
-    const selected = new Set(selectedMetrics.value)
-    const all = traceBreakdownKeys
-      .filter((key) => selected.has(key.key))
-      .map((key) => ({
-        key: key.key,
-        label: key.label,
-        color: key.color,
-        value: Number(stat.metricValues?.[key.key]) || 0,
-      }))
-      .filter((item) => item.value > 0)
-      .sort((a, b) => b.value - a.value)
-    if (!all.length) return []
-    // 各阶段为相互包含的独立跨度（非可加分区），条长相对该 Pod 最大阶段，避免伪“占比”。
-    const maxVal = all[0]?.value || 1
-    const top = all.slice(0, 6)
-    const segments = top.map((item) => ({
-      ...item,
-      shortLabel: item.label.replace('+UDMA+交换机+OS', ''),
-      valueMs: item.value / 1000,
-      width: Math.max(2, (item.value / maxVal) * 100),
-    }))
-    return segments
-  }
-
-  const podBreakdownTotal = (stat: any) => {
-    const total = Number(stat.metricValues?.['total_latency_us']) || 0
-    return total > 0 ? (total / 1000).toFixed(2) : '-'
-  }
-
-  const podBreakdownTitle = (stat: any) => {
-    const segments = podBreakdownSegments(stat)
-    if (!segments.length) return '各阶段时延分解：暂无阶段数据'
-    return (
-      '各阶段时延（ms，P99；各阶段为相互包含的独立测量，非可加分区）\n' +
-      segments.map((s) => `${s.label} ${s.valueMs.toFixed(2)}ms`).join('\n')
-    )
-  }
-
-  /** 请求链路 + 嵌套包含 的阶段结构（用于单元格内的树形呈现） */
-  const podStageTree = (stat: any) => podStageTreeFromMetricValues(stat.metricValues)
-
-  const podStageTreeFromMetricValues = (metricValues: Record<string, number | null> | null) => {
-    const mv = (key: string) => {
-      const v = Number(metricValues?.[key])
-      return Number.isFinite(v) && v > 0 ? v : null
-    }
-    const workerInternal = Math.max(
-      mv('remote_worker_internal_us') ?? 0,
-      mv('local_worker_internal_us') ?? 0,
-    )
-    const colorOf = (key: string) =>
-      traceBreakdownKeys.find((k) => k.key === key)?.color ||
-      metricCategoryColorOf(key) ||
-      '#94a3b8'
-
-    const groups: Array<{
-      level: number
-      key: string
-      label: string
-      value: number | null
-      children?: Array<{ key: string; label: string; value: number | null }>
-    }> = []
-    const push = (
-      level: number,
-      key: string,
-      label: string,
-      value: number | null,
-      children?: Array<{ key: string; label: string; value: number | null }>,
-    ) => {
-      if (value == null) return
-      groups.push({ level, key, label, value, children })
-    }
-
-    push(0, 'sdk_processing_us', 'SDK处理', mv('sdk_processing_us'))
-    push(0, 'sdk_rpc_total_us', 'SDK RPC', mv('sdk_rpc_total_us'), [
-      { key: 'sdk_rpc_network_us', label: '网络', value: mv('sdk_rpc_network_us') },
-      { key: 'sdk_rpc_framework_us', label: '框架', value: mv('sdk_rpc_framework_us') },
-    ])
-    push(0, 'master_rpc_total_us', 'Master RPC', mv('master_rpc_total_us'), [
-      { key: 'master_rpc_network_us', label: '网络', value: mv('master_rpc_network_us') },
-      { key: 'master_rpc_framework_us', label: '框架', value: mv('master_rpc_framework_us') },
-    ])
-    push(0, 'worker_access_latency_us', 'Worker端总时延', mv('worker_access_latency_us'), [
-      {
-        key: '__worker_internal',
-        label: 'Worker 内部',
-        value: workerInternal > 0 ? workerInternal : null,
-      },
-      { key: 'urma_processing_us', label: 'URMA', value: mv('urma_processing_us') },
-    ])
-
-    // 展平为带缩进层级的行，并取最大值为条长基准
-    const rows: Array<{
-      level: number
-      key: string
-      label: string
-      valueMs: number
-      color: string
-      width: number
-    }> = []
-    const flatten = (
-      level: number,
-      key: string,
-      label: string,
-      value: number | null,
-      children?: Array<{ key: string; label: string; value: number | null }>,
-    ) => {
-      if (value == null) return
-      rows.push({ level, key, label, valueMs: value / 1000, color: colorOf(key), width: 0 })
-      children?.forEach((child) => {
-        if (child.value != null) flatten(level + 1, child.key, child.label, child.value)
-      })
-    }
-    groups.forEach((g) => flatten(g.level, g.key, g.label, g.value, g.children))
-    const maxVal = rows.reduce((max, r) => Math.max(max, r.valueMs), 0) || 1
-    return rows.map((r) => ({ ...r, width: Math.max(2, (r.valueMs / maxVal) * 100) }))
-  }
-
-  const podStageTreeTitle = (stat: any) => {
-    const rows = podStageTree(stat)
-    if (!rows.length) return '暂无阶段数据'
-    return (
-      '阶段时延（ms，缩进=包含关系；各阶段为独立测量，非可加）\n' +
-      rows.map((r) => `${'  '.repeat(r.level)}${r.label} ${r.valueMs.toFixed(2)}ms`).join('\n')
-    )
-  }
-
-  const _podStageTreeTitleFromMetricValues = (
-    metricValues: Record<string, number | null> | null,
-  ) => {
-    const rows = podStageTreeFromMetricValues(metricValues)
-    if (!rows.length) return '暂无阶段数据'
-    return (
-      '阶段时延（ms，缩进=包含关系；各阶段为独立测量，非可加）\n' +
-      rows.map((r) => `${'  '.repeat(r.level)}${r.label} ${r.valueMs.toFixed(2)}ms`).join('\n')
-    )
-  }
-
-  /** 流水线式阶段网格：主顺序阶段一行，子指标对齐到父阶段正下方 */
-  const podStageMain = [
-    { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
-    { key: 'sdk_rpc_total_us', label: 'SDK RPC', color: '#fc8452' },
-    { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-    { key: 'master_rpc_total_us', label: 'Master RPC', color: '#c23531' },
-    { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#8B5CF6' },
-  ]
-
-  const podStageLegend = podStageMain.map((s) => ({ label: s.label, color: s.color }))
-
-  const podStageGrid = (stat: any) => {
-    const mv = (key: string) => {
-      const v = Number(stat.metricValues?.[key])
-      return Number.isFinite(v) && v > 0 ? v : null
-    }
-    const workerInternal = Math.max(
-      mv('remote_worker_internal_us') ?? 0,
-      mv('local_worker_internal_us') ?? 0,
-    )
-    const subColor = (label: string) =>
-      label === '网络'
-        ? '#1E6FFF'
-        : label === '框架'
-          ? '#F59E0B'
-          : label === 'URMA'
-            ? '#EF4444'
-            : '#00B365'
-    const build = (
-      key: string,
-      label: string,
-      color: string,
-      childrenLabels?: string[],
-      childKeys?: string[][],
-    ) => {
-      const value = mv(key)
-      const children = childrenLabels
-        ? childrenLabels.map((cl, i) => {
-            const ck = childKeys?.[i] ?? []
-            let cv: number | null = null
-            for (const k of ck) {
-              const v = mv(k)
-              if (v != null) {
-                cv = v
-                break
-              }
-            }
-            return { label: cl, value: cv, color: subColor(cl) }
-          })
-        : []
-      return { key, label, color, value, children }
-    }
-    const stages = [
-      build('sdk_processing_us', 'SDK处理', '#5470c6'),
-      build(
-        'sdk_rpc_total_us',
-        'SDK RPC',
-        '#fc8452',
-        ['网络', '框架'],
-        [['sdk_rpc_network_us'], ['sdk_rpc_framework_us']],
-      ),
-      build('master_processing_us', 'Master处理', '#91cc75'),
-      build(
-        'master_rpc_total_us',
-        'Master RPC',
-        '#c23531',
-        ['网络', '框架'],
-        [['master_rpc_network_us'], ['master_rpc_framework_us']],
-      ),
-      build(
-        'worker_access_latency_us',
-        'Worker端总时延',
-        '#8B5CF6',
-        ['Worker内部', 'URMA'],
-        [[], ['urma_processing_us']],
-      ),
-    ]
-    // Worker内部 (合并 remote/local 内部) 单独填
-    const workerStage = stages[4]
-    if (workerStage && workerStage.children[0]) {
-      workerStage.children[0].value = workerInternal > 0 ? workerInternal : null
-    }
-    const maxVal = stages.reduce((m, s) => Math.max(m, s.value ?? 0), 0) || 1
-    const toMs = (v: number | null) => (v != null ? +(v / 1000).toFixed(2) : null)
-    return {
-      maxVal,
-      stages: stages.map((s) => ({
-        ...s,
-        valueMs: toMs(s.value),
-        width: s.value != null ? Math.max(2, (s.value / maxVal) * 100) : 0,
-        children: s.children.map((c) => ({
-          ...c,
-          valueMs: toMs(c.value),
-          width: c.value != null ? Math.max(2, (c.value / maxVal) * 100) : 0,
-        })),
-      })),
-    }
-  }
-
-  const podStageGridTitle = (stat: any) => {
-    const grid = podStageGrid(stat)
-    const lines = grid.stages.flatMap((s) => [
-      `${s.label} ${s.valueMs != null ? s.valueMs + 'ms' : '-'}`,
-      ...s.children.filter((c) => c.valueMs != null).map((c) => `  └ ${c.label} ${c.valueMs}ms`),
-    ])
-    return lines.join('\n')
-  }
-
   /** 完整图例：主阶段 + 子项 */
   const podStageFullLegend = [
     { label: 'SDK处理', color: '#5470c6' },
@@ -2853,29 +2541,6 @@ function createOverviewStateInner() {
     { label: 'URMA', color: '#6e7074' },
   ]
 
-  const _hexRgb = (hex: string) => {
-    const n = parseInt(hex.replace('#', ''), 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-  }
-  const _rgbHex = (r: number, g: number, b: number) =>
-    '#' +
-    [r, g, b]
-      .map((x) =>
-        Math.round(Math.max(0, Math.min(255, x)))
-          .toString(16)
-          .padStart(2, '0'),
-      )
-      .join('')
-  const _mix = (hex: string, amount: number, toward: number) => {
-    const rgb = _hexRgb(hex)
-    const r = rgb[0] ?? 0
-    const g = rgb[1] ?? 0
-    const b = rgb[2] ?? 0
-    return _rgbHex(r + (toward - r) * amount, g + (toward - g) * amount, b + (toward - b) * amount)
-  }
-  const _lighten = (hex: string, amount: number) => _mix(hex, amount, 255)
-  const _darken = (hex: string, amount: number) => _mix(hex, amount, 0)
-
   // 与「指标趋势与异常分析」一致的颜色（ECharts 默认色板）
   const _STAGE_BASE: Record<string, string> = {
     sdk_processing_us: '#5470c6',
@@ -2884,13 +2549,6 @@ function createOverviewStateInner() {
     master_rpc_total_us: '#c23531',
     worker_access_latency_us: '#fac858',
   }
-  const _STAGE_ORDER: Array<{ key: string; label: string }> = [
-    { key: 'sdk_processing_us', label: 'SDK处理' },
-    { key: 'sdk_rpc_total_us', label: 'SDK RPC' },
-    { key: 'master_processing_us', label: 'Master处理' },
-    { key: 'master_rpc_total_us', label: 'Master RPC' },
-    { key: 'worker_access_latency_us', label: 'Worker端总时延' },
-  ]
   const _TREND_COLOR: Record<string, string> = {
     sdk_rpc_network_us: '#fc8452',
     sdk_rpc_framework_us: '#9a60b4',
@@ -2990,15 +2648,6 @@ function createOverviewStateInner() {
         })),
       })),
     }
-  }
-
-  const _podStageFlowTitle = (stat: any) => {
-    const flow = podStageFlow(stat)
-    const lines = flow.stages.flatMap((s) => [
-      `${s.label} ${s.valueMs != null ? s.valueMs + 'ms' : '-'} (${s.pct.toFixed(0)}%)`,
-      ...s.children.filter((c) => c.valueMs != null).map((c) => `  └ ${c.label} ${c.valueMs}ms`),
-    ])
-    return lines.join('\n')
   }
 
   const tracePageSize = 10
@@ -3270,16 +2919,6 @@ function createOverviewStateInner() {
     faultAggExpandedKey.value = key
     faultAggPairsSortField.value = 'all'
     faultAggPairsSortDesc.value = true
-    void loadFaultAggPairs(1)
-  }
-
-  const faultAggPairsSortBy = (field: string) => {
-    if (faultAggPairsSortField.value === field) {
-      faultAggPairsSortDesc.value = !faultAggPairsSortDesc.value
-    } else {
-      faultAggPairsSortField.value = field
-      faultAggPairsSortDesc.value = true
-    }
     void loadFaultAggPairs(1)
   }
 
@@ -3642,32 +3281,6 @@ function createOverviewStateInner() {
   // 统一关闭动画：统计图直接出结果，不做过渡动画
   const setChartOption = (chart: ECharts, option: any) => {
     chart.setOption({ ...option, animation: false }, { replaceMerge: ['series', 'legend'] })
-  }
-
-  const highlightRow = (ip: string) => {
-    const el = ipRowRefs[ip]
-    if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    el.classList.add('highlight-row')
-    window.setTimeout(() => el.classList.remove('highlight-row'), 2000)
-  }
-
-  const jumpToPod = (ip: string) => {
-    if (!podIpStats.value.some((stat) => stat.ip === ip)) {
-      toast(`未找到端点 IP ${ip}`, 'info')
-      return
-    }
-    if (!filteredPodStats.value.some((stat) => stat.ip === ip)) {
-      latencyFilter.clearWhitelist()
-      podIpCbPage.value = 1
-      toast('目标端点不在当前筛选内，已显示全部端点', 'info')
-    }
-    nextTick(() => {
-      const index = filteredPodStats.value.findIndex((stat) => stat.ip === ip)
-      if (index < 0) return
-      podPage.value = Math.floor(index / podPageSize) + 1
-      nextTick(() => highlightRow(ip))
-    })
   }
 
   // 拓扑边异常率色阶：保证一般异常和高异常率在浅色画布上都有足够对比度。
@@ -4163,7 +3776,7 @@ function createOverviewStateInner() {
         return
       }
       const labels = buckets.map((bucket) => bucket.label)
-      // 曲线集合与当前桶数据对齐：无数据的指标不渲染（旧前端 2feac6a1 同款口径）
+      // 曲线集合与当前桶数据对齐：无数据的指标不渲染
       const visible = trendMetrics.filter(
         (metric) =>
           trendVisible.value.has(metric.key) &&
@@ -4280,7 +3893,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // X1（对齐上游 3f2c6a9e）：最慢请求图 tooltip 可点击固定，并支持一键复制 Trace ID
+  // 最慢请求图 tooltip 可点击固定，并支持一键复制 Trace ID
   const escapeChartHtml = (value: unknown) =>
     String(value ?? '')
       .replaceAll('&', '&amp;')
@@ -4405,7 +4018,7 @@ function createOverviewStateInner() {
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
           appendToBody: true,
-          // X1（对齐上游 3f2c6a9e）：tooltip 可交互，支持一键复制 Trace ID
+          // tooltip 可交互，支持一键复制 Trace ID
           enterable: true,
           hideDelay: 300,
           formatter: (params: any) => {
@@ -4929,7 +4542,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // U1b 单接口监控：指标多选（请求数/成功率/失败率/成功量/失败量），数量与比率分离双轴
+  // 单接口监控：指标多选（请求数/成功率/失败率/成功量/失败量），数量与比率分离双轴
   const renderBrpcSingleChart = () => {
     afterDomUpdate(() => {
       const el = brpcSingleRef.value
@@ -4949,7 +4562,9 @@ function createOverviewStateInner() {
         // 数量与比率混在同一张图里，逐条曲线按自己的口径带上单位
         tooltip: brpcAxisTooltip(chart, (param: any) => {
           if (typeof param.value !== 'number') return '-'
-          const metric = brpcSingleMetrics.find((option) => option.label === param.seriesName)?.value
+          const metric = brpcSingleMetrics.find(
+            (option) => option.label === param.seriesName,
+          )?.value
           return metric && isBrpcRateMetric(metric) ? `${param.value}%` : String(param.value)
         }),
         // 图例居中放，避免与右轴名（比率 %）在右上角重叠
@@ -5000,7 +4615,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // U6 单接口时延：与「全接口总览 · 时延」同一批指标（total/avg/min/P50...P999），单位统一 µs；
+  // 单接口时延：与「全接口总览 · 时延」同一批指标（total/avg/min/P50...P999），单位统一 µs；
   // 默认 avg+P99+max，保持原有观感
   const renderBrpcLatencyChart = () => {
     afterDomUpdate(() => {
@@ -5057,7 +4672,7 @@ function createOverviewStateInner() {
     })
   }
 
-  // U1c 时延监控（µs）：指标下拉（total/avg/max/min/P50/P90/P95/P99/P999）+ 多接口曲线勾选
+  // 时延监控（µs）：指标下拉（total/avg/max/min/P50/P90/P95/P99/P999）+ 多接口曲线勾选
   const renderBrpcLatencyMonitorChart = () => {
     afterDomUpdate(() => {
       const el = brpcLatencyMonitorRef.value
@@ -5083,7 +4698,7 @@ function createOverviewStateInner() {
           itemStyle: { color },
           data: times.map((time) => {
             const value = rowByTs.get(time)?.[metricKey]
-            // profiling 行内时延字段单位为 ns，图表标注 µs，需在 UI 边界换算（旧版同口径）
+            // profiling 行内时延字段单位为 ns，图表标注 µs，需在 UI 边界换算
             return typeof value === 'number' && Number.isFinite(value)
               ? +(value / 1000).toFixed(2)
               : null
@@ -5388,7 +5003,7 @@ function createOverviewStateInner() {
       renderFaultChart()
     })
 
-    // U5：UBSocket 故障时序的聚合尺度变化 → 按新 window_size 回查预聚合桶后重绘
+    // UBSocket 故障时序的聚合尺度变化 → 按新 window_size 回查预聚合桶后重绘
     watch(brpcFaultScale, () => {
       if (!isAssetMode.value || !isBrpcTask.value) return
       void loadBrpcFaultTimeline()
@@ -5400,7 +5015,7 @@ function createOverviewStateInner() {
       renderBrpcFaultTimeline()
     })
 
-    // U1：UBSocket 文件/指标/曲线勾选/单接口变化 → 重绘接口监控图
+    // UBSocket 文件/指标/曲线勾选/单接口变化 → 重绘接口监控图
     watch(
       [
         brpcFileRows,
@@ -5523,7 +5138,6 @@ function createOverviewStateInner() {
     view,
     assetTab,
     ipRowRefs,
-    activePairs,
     allMetrics,
     analysisModule,
     analysisTab,
@@ -5535,16 +5149,13 @@ function createOverviewStateInner() {
     brpcEventListLoading,
     brpcAggregatedEventPage,
     brpcAggregatedEventTotal,
-    brpcAggregatedEvents,
     brpcAggregatedEventsTruncated,
-    brpcEventHitTotalOf,
     brpcEventInterfaceColumns,
     brpcEventWindowPageRows,
     brpcEventWindowPages,
     brpcEventWindows,
     brpcExpandedEventWindow,
     toggleBrpcEventWindow,
-    brpcEventHitTotal,
     brpcFaultBatch,
     brpcDetailHasParent,
     brpcFaultDetail,
@@ -5554,7 +5165,6 @@ function createOverviewStateInner() {
     brpcThreadLogsLoading,
     brpcThreadLogsError,
     brpcFaultError,
-    brpcFaultEventPages,
     brpcFaultLoading,
     brpcEventAggregation,
     brpcEventAggregationOptions,
@@ -5566,8 +5176,6 @@ function createOverviewStateInner() {
     changeBrpcEventAggregation,
     changeBrpcEventWindowSize,
     brpcFaultLogOptions,
-    brpcFaultPageSize,
-    brpcFaultQueryRange,
     brpcFaultScale,
     brpcFaultScaleOptions,
     brpcFaultSelectedLogId,
@@ -5595,29 +5203,14 @@ function createOverviewStateInner() {
     latencyFilter,
     disconnectFilter,
     selectedFaultCode,
-    faultScopedTraces,
     clearAnalysisTime,
-    analysisWindowData,
     analysisWindowLoading,
     timelineTruncated,
     overviewScale,
     overviewScaleOptions,
     timeRangeLabel,
-    availableMetrics,
-    availableMetricCats,
-    anomalySeries,
-    filteredTimeBuckets,
     anomalyRef,
-    timeBuckets,
-    metricCategoryColor,
-    metricCategoryColorOf,
-    metricCategoryOf,
-    metricIsCount,
-    metricUnit,
-    metricValueText,
     renderAnomalyChart,
-    faultTraceIdsWithLatency,
-    latencyTraceIdsWithFault,
     traceTags,
     podRowTags,
     brpcEventDetail,
@@ -5634,7 +5227,6 @@ function createOverviewStateInner() {
     brpcThreadSearchInput,
     brpcThreadSearchQuery,
     brpcThreadTimelineRef,
-    brpcFaultTimelineSeries,
     brpcFileKey,
     brpcFileLabel,
     brpcHasRows,
@@ -5672,7 +5264,6 @@ function createOverviewStateInner() {
     currentOp,
     detailDrawerOpen,
     detailDrawerRow,
-    drawerKind,
     enterPodDetail,
     enterLinkDetail,
     enterFaultDetail,
@@ -5700,28 +5291,21 @@ function createOverviewStateInner() {
     faultAggPairsPage,
     faultAggPairsPages,
     faultAggPairsLoading,
-    faultAggPairsSortField,
-    faultAggPairsSortDesc,
-    faultAggPairsSortBy,
     loadFaultAggPairs,
     objectDetail,
     objectDetailPages,
     objectDetailGoPage,
     closeObjectDetail,
     focusPairs,
-    failureModeCache,
     failureModeOf,
     faultChartData,
-    faultChartDisplayData,
     faultChartRef,
     faultChartSampled,
     faultChartScale,
     faultChartScaleOptions,
-    faultOp,
     faultTimeRange,
     faultTraceIdInput,
     faultTracePage,
-    faultTracePageSize,
     faultTracePages,
     faultTraceQuery,
     faultTraceQueryError,
@@ -5732,22 +5316,11 @@ function createOverviewStateInner() {
     faultTraceLoadedCount,
     filteredFaultTraces,
     filteredPodStats,
-    formatFullTime,
-    getChart,
     goBrpcFaultEventsPage,
     goBrpcFaultThreadsPage,
-    highlightRow,
-    isAssetMode,
     isBrpcTask,
-    jumpToPod,
     kpiData,
-    latencyOp,
-    loadBrpcData,
     loadBrpcFaultData,
-    loadFailureMode,
-    loadOverviewForTab,
-    metricCats,
-    metricLabel,
     openBrpcFaultDetail,
     openTraceDrawer,
     overview,
@@ -5758,31 +5331,18 @@ function createOverviewStateInner() {
     pagedPodStats,
     pagedTraceRows,
     queryFaultTraceById,
-    podBreakdownSegments,
-    podBreakdownTotal,
-    podBreakdownTitle,
-    podStageTree,
-    podStageTreeTitle,
-    podStageGrid,
-    podStageLegend,
-    podStageGridTitle,
     podStageFlow,
     podStageFullLegend,
     podIpCbPage,
-    podIpCbPageSize,
     podIpCbPages,
-    podIpStats,
     podPage,
     podPageSize,
     podPages,
-    realOp,
     renderAnalysisModules,
-    renderBrpcEventTimeline,
     renderBrpcLatencyChart,
     renderBrpcLatencyMonitorChart,
     renderBrpcSingleChart,
     renderBrpcSuccessOverviewChart,
-    renderBrpcThreadTimeline,
     renderBrpcFaultTimeline,
     submitBrpcThreadSearch,
     renderFaultChart,
@@ -5792,42 +5352,32 @@ function createOverviewStateInner() {
     resetOverviewFilter,
     resetTopologyFilter,
     resetTrend,
-    resolveBrpcFaultBatch,
-    scopeData,
     scopeTaskCount,
     scopeTasks,
     selectAllTrend,
-    selectedMetrics,
     selectedTopologyLink,
     selectedTopologyNode,
     selectTopologyLink,
     selectTopologyNode,
     showLinkEndsOnly,
-    setChartOption,
     setCurrentOp,
     showPodIpCb,
-    slowChartRows,
     slowRef,
     slowRows,
     slowTotal,
-    toAggregatedPairs,
     toggleTrendSeries,
-    topSlowSegmentConfig,
     topoHiddenCount,
     topoNodeLimit,
     topoShowAll,
     topoTotalCount,
-    topologyLinks,
     visibleTopologyLinks,
     topologySummary,
     topoRef,
-    traceBreakdownKeys,
     traceBreakdownTitle,
     traceCluster,
     traceClusters,
     traceDrawerLogs,
     tracePage,
-    tracePageSize,
     tracePages,
     traceRows,
     traceSearch,
@@ -5836,10 +5386,7 @@ function createOverviewStateInner() {
     traceFailureModeIdsOf,
     traceStageRows,
     trendAnomalyHint,
-    trendBuckets,
-    trendCenter,
     trendChartData,
-    trendLogId,
     trendLogLabel,
     trendMetrics,
     trendPercentile,

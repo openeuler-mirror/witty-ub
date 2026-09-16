@@ -21,15 +21,14 @@ function tomlPlugin(): PluginOption {
   }
 }
 
-// https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const plugins: PluginOption[] = [vue(), tomlPlugin()]
-  
-  // Only include vueDevTools in development mode
+
+  // 开发模式才注入 Vue DevTools
   if (mode === 'development') {
     plugins.push(vueDevTools())
   }
-  
+
   return {
     plugins,
     resolve: {

@@ -7,5 +7,4 @@ export const listTasks = (body: Record<string, unknown>) =>
     body: JSON.stringify(body),
   })
 
-export const getTask = (taskId: string) =>
-  request<{ task: TaskModel | null }>(`/task/${taskId}`)
+export const getTask = (taskId: string) => request<{ task: TaskModel | null }>(`/task/${taskId}`)

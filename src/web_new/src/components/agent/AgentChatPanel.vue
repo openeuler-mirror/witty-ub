@@ -67,7 +67,7 @@ const fabRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const tintRef = ref<HTMLElement | null>(null)
 
-/* ===== FAB ↔ 面板变形（用户诉求：点击后按钮变成 Agent 窗口）=====
+/* ===== FAB ↔ 面板变形（点击按钮展开为 Agent 窗口）=====
    面板与 FAB 都是 right/bottom 定位、右下角共点，CSS 里 transform-origin 也是 right bottom，
    所以「折叠态」只要按两个方向的尺寸比 scale、再 translate 补齐右下角偏差，
    就能精确落在按钮矩形上（位置/尺寸/圆角都对得上），动画结束后撤销覆盖样式，
@@ -85,7 +85,7 @@ let morphAnimation: Animation | undefined
 let tintAnimation: Animation | undefined
 let morphing = false
 
-// A1（对齐旧版 eed74f7e）：面板可拖拽缩放（上/左/左上角手柄）
+// 面板可拖拽缩放（上/左/左上角手柄）
 const panelSize = reactive<{ width: number | null; height: number | null }>({
   width: null,
   height: null,
@@ -322,7 +322,7 @@ const statusLabelOf = () =>
       ? '连接中'
       : '未连接'
 
-// 旧版显示 Provider 名（OpenCode Zen）而非 providerID（opencode）
+// 显示 Provider 名（OpenCode Zen）而非 providerID（opencode）
 const providerNameOf = (providerID: string) => providerNames.value[providerID] || providerID
 
 const currentModelLabel = () => {
@@ -739,7 +739,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
                 AI
               </div>
               <div class="agent-chat-bubble">
-                <!-- 用户消息为纯文本，继承气泡白字（对齐旧版） -->
+                <!-- 用户消息为纯文本，继承气泡白字 -->
                 <template v-if="message.role === 'user'">
                   <p v-for="part in displayPartsOf(message)" :key="part.id">{{ part.text }}</p>
                 </template>
@@ -846,7 +846,6 @@ const onInputKeydown = (event: KeyboardEvent) => {
 </template>
 
 <style scoped>
-/* 面板样式对齐旧版 src/web/src/assets/main.css 的 .agent-* 段 */
 /* 主样式表缺 button/input 基础重置会露出 UA 黑框；
    :where() 降到 0 权重，避免压过下面的按钮配色 */
 :where(.agent-chat-panel) :where(button, input, textarea),

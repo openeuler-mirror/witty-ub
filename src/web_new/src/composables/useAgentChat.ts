@@ -57,8 +57,8 @@ export function useAgentChat() {
 
 export function createAgentChatState() {
   const { toast } = useToast()
-  // 资产名要按全量列表解析（对齐旧版 App.vue 的 getAgentSessionAssetName）：
-  // 只拿 currentAsset 比对，非当前资产库的会话只能退回显示 UUID（用户报障）
+  // 资产名要按全量列表解析：只拿 currentAsset 比对时，
+  // 非当前资产库的会话只能退回显示 UUID
   const { assets } = useAssets()
 
   const view = ref<AgentView>('login')
@@ -136,7 +136,7 @@ export function createAgentChatState() {
     try {
       localStorage.setItem(storageKey(SESSION_ASSET_KEY), JSON.stringify(sessionAssetIndex.value))
     } catch {
-      // Browser storage is optional.
+      // 浏览器可能禁用存储：忽略写入失败
     }
   }
 
@@ -151,7 +151,7 @@ export function createAgentChatState() {
       if (sessionId.value) localStorage.setItem(storageKey(ACTIVE_SESSION_KEY), sessionId.value)
       else localStorage.removeItem(storageKey(ACTIVE_SESSION_KEY))
     } catch {
-      // Browser storage is optional.
+      // 浏览器可能禁用存储：忽略写入失败
     }
   }
 
@@ -174,8 +174,7 @@ export function createAgentChatState() {
     try {
       const saved = JSON.parse(sessionStorage.getItem(CONNECTION_KEY) ?? 'null')
       if (!saved?.apiBase) return null
-      // Migrate old records that contained authHeader by overwriting them
-      // before any connection attempt.
+      // 旧记录可能残留 authHeader：统一重写为不含凭据的新格式
       sessionStorage.setItem(CONNECTION_KEY, JSON.stringify({ apiBase: saved.apiBase }))
       return new AgentApi(saved.apiBase)
     } catch {
@@ -291,7 +290,7 @@ export function createAgentChatState() {
       view.value = hasModel ? nextView : 'models'
       await resetConversation()
       await refreshSessions()
-      // A2（对齐旧版 e3dbde3c）：连接后进入空窗口「开始新对话」，不自动恢复上次会话
+      // 连接后进入空窗口「开始新对话」，不自动恢复上次会话
       saveActiveSession()
     } catch (error) {
       if (sequence !== connectionSequence || instance !== api.value) return
@@ -403,7 +402,7 @@ export function createAgentChatState() {
     }
   }
 
-  // 用户主动中止后 OpenCode 仍会回 abort 错误，按中止忽略（旧版同此语义）
+  // 用户主动中止后 OpenCode 仍会回 abort 错误，按中止忽略
   const isIgnoredAbortError = (errorSession: string) => {
     const ignored = ignoredAbortError
     return !!ignored && ignored.sessionId === errorSession && ignored.sequence === requestSequence
@@ -627,7 +626,7 @@ export function createAgentChatState() {
           id: `${part.type}:${part.id ?? index}`,
           type: part.type as 'reasoning' | 'text',
           text: part.text ?? '',
-          // 历史思考过程默认收起（对齐旧版）
+          // 历史思考过程默认收起
           collapsed: part.type === 'reasoning',
         }))
       const message: AgentChatMessage = {
@@ -723,7 +722,7 @@ export function createAgentChatState() {
   const newConversation = async () => {
     if (!api.value || isSessionSaving.value || isSubmitting.value) return
     if (sessionId.value) sessionDrafts.value[sessionId.value] = input.value
-    // A2（对齐旧版 e3dbde3c）：只清空窗口，「开始新对话」；会话在首次发送时惰性创建
+    // 只清空窗口，「开始新对话」；会话在首次发送时惰性创建
     await resetConversation()
     view.value = 'chat'
     saveActiveSession()
@@ -862,7 +861,7 @@ export function createAgentChatState() {
       const assetId = sessionAssetIndex.value[sid] || currentAsset.id
       if (!sessionAssetIndex.value[sid]) registerSessionAsset(sid, assetId)
       const knowledgePrefix = assetId ? `当前会话对应的知识库 ID 是 ${assetId}。\n\n` : ''
-      // A2（对齐旧版 e3dbde3c）：不再用首条问题改写标题，标题由 OpenCode 生成
+      // 不用首条问题改写标题，标题由 OpenCode 生成
       sessionStatuses.value[sid] = { type: 'busy' }
       await api.value.promptAsync(
         sid,
@@ -880,7 +879,7 @@ export function createAgentChatState() {
 
   // ---------- 视图辅助 ----------
 
-  // 旧版语义：按全量资产列表把 sessionId 映射成资产名，查不到才退回 ID。
+  // 按全量资产列表把 sessionId 映射成资产名，查不到才退回 ID。
   // 未登记资产的会话返回空串，由界面各自显示「未知资产库 / 未关联资产」
   const sessionAssetName = (sid: string) => {
     const assetId = sessionAssetIndex.value[sid] ?? ''
@@ -970,7 +969,6 @@ export function createAgentChatState() {
     remoteAddress,
     connectedModels,
     providerNames,
-    availableProviders,
     selectedModel,
     providerApiKey,
     isAuthorizing,

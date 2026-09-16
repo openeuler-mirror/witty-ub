@@ -182,9 +182,7 @@ const openSingleIface = (iface: string) => {
         <span class="monitor-toolbar-hint">{{ brpcIfaceNames.length }} 个接口</span>
       </div>
 
-      <div v-if="!brpcHasRows" class="brpc-chart-empty" role="status">
-        当前筛选时间范围内无数据
-      </div>
+      <div v-if="!brpcHasRows" class="brpc-chart-empty" role="status">当前筛选时间范围内无数据</div>
       <template v-else>
         <div class="monitor-grid">
           <!-- 卡片 1：全接口总览（成功率 + 时延共用一套接口勾选，左右并排对照） -->

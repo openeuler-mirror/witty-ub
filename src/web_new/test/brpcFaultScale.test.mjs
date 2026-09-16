@@ -15,9 +15,9 @@ const constBody = (source, name) => {
   return source.slice(start, next === -1 ? source.length : next)
 }
 
-// 用户报障：UBSocket 公共API故障时序分布图 10 秒与 1 分钟完全一致，而真实数据不同。
-// 根因是新版始终按 window_size=1m 取数再在客户端二次分桶：1 分钟点永远分不出 10 秒细节。
-// 这里守住「聚合尺度必须回查后端预聚合桶」，与旧版 windowSizeByScale 行为一致。
+// 回归：UBSocket 公共 API 故障时序分布图的 10 秒与 1 分钟视图必须取到各自粒度的数据。
+// 若始终按 window_size=1m 取数再在客户端二次分桶，1 分钟点永远分不出 10 秒细节。
+// 守住「聚合尺度必须回查后端预聚合桶」。
 test('UBSocket 故障时序按聚合尺度回查后端 window_size', () => {
   const source = read(join(srcDir, 'composables/useOverviewData.ts'))
 

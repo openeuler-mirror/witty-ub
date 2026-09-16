@@ -82,22 +82,6 @@ a:focus-visible,
   min-width: 0;
 }
 
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.env-tag {
-  padding: 3px 10px;
-  border-radius: 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text2);
-  font-size: 12px;
-}
-
 .logo {
   font-size: 18px;
   font-weight: 700;
@@ -635,42 +619,6 @@ html.is-modal-open {
   cursor: not-allowed;
 }
 
-.compact-pagination {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.compact-pagination button {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.compact-pagination button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.compact-pagination .pagination-info {
-  font-size: 12px;
-  color: var(--text2);
-  white-space: nowrap;
-}
-
-.compact-pagination .pagination-input {
-  width: 64px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 6px;
-  font-size: 13px;
-}
-
 /* Grid */
 .card-grid {
   display: grid;
@@ -740,35 +688,6 @@ html.is-modal-open {
 }
 
 .tab.disabled:hover {
-  color: var(--text3);
-}
-
-.sub-nav {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 20px;
-  background: var(--surface);
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  padding: 0 8px;
-}
-
-.sub-nav .tab {
-  padding: 14px 22px;
-  font-size: 15px;
-}
-
-.sub-nav .tab .count {
-  background: var(--primary-bg);
-  color: var(--primary);
-  border-radius: 10px;
-  padding: 0 8px;
-  font-size: 12px;
-  margin-left: 6px;
-}
-
-.sub-nav .tab.disabled .count {
-  background: var(--bg);
   color: var(--text3);
 }
 
@@ -1243,41 +1162,6 @@ html.is-modal-open {
   justify-content: center;
 }
 
-/* Asset hero */
-.asset-hero {
-  background: var(--surface);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  padding: 20px;
-  margin-bottom: 16px;
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-
-.asset-hero .main-info {
-  flex: 1;
-  min-width: 260px;
-}
-
-.asset-hero h2 {
-  font-size: 20px;
-  margin-bottom: 6px;
-}
-
-.asset-hero .desc {
-  color: var(--text2);
-  font-size: 13px;
-  margin-bottom: 10px;
-}
-
-.asset-hero .meta {
-  color: var(--text3);
-  font-size: 12px;
-  line-height: 1.9;
-}
-
 /* Task table extras */
 .task-name-cell {
   min-width: 220px;
@@ -1446,7 +1330,7 @@ html.is-modal-open {
   }
 }
 
-/* ============ 分析工作台（demo_new 样式） ============ */
+/* ============ 分析工作台 ============ */
 .chart-box {
   background: var(--surface);
   border-radius: var(--radius-md);
@@ -1478,16 +1362,6 @@ html.is-modal-open {
   line-height: 1.5;
 }
 
-.chart-box .chart-body {
-  height: 284px;
-}
-
-.pie-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
-  gap: 16px;
-}
-
 .topo-legend {
   display: flex;
   gap: 16px;
@@ -1500,35 +1374,6 @@ html.is-modal-open {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-}
-
-.line-get {
-  width: 22px;
-  height: 2px;
-  background: var(--primary);
-  display: inline-block;
-}
-
-.line-set {
-  width: 22px;
-  height: 0;
-  border-top: 2px dashed var(--warning);
-  display: inline-block;
-}
-
-.dot-node {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.lg-width {
-  width: 22px;
-  height: 5px;
-  border-radius: 3px;
-  background: #a9bad4;
-  display: inline-block;
 }
 
 .cb-group {
@@ -1551,15 +1396,6 @@ html.is-modal-open {
 
 .cb-group label:hover {
   background: var(--primary-bg);
-}
-
-.cb-cat {
-  font-weight: 600;
-  color: var(--text2);
-  margin: 8px 0 4px;
-  font-size: 13px;
-  cursor: pointer;
-  width: 100%;
 }
 
 .op-toggle {
@@ -1713,7 +1549,7 @@ html.is-modal-open {
   cursor: pointer;
 }
 
-/* Trace 运行日志：整表等宽字体（对齐旧版） */
+/* Trace 运行日志：整表等宽字体 */
 .log-table {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11.5px;
@@ -1731,16 +1567,6 @@ html.is-modal-open {
 .log-table td:last-child {
   font-size: 12px;
   white-space: normal;
-}
-
-.module-tabs {
-  margin-bottom: 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.module-tabs .tab {
-  padding: 8px 16px;
-  font-size: 13px;
 }
 
 .filter-bar {
@@ -1836,20 +1662,7 @@ html.is-modal-open {
   font-size: 11px;
 }
 
-.filter-chip-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.filter-chip-label {
-  font-size: 13px;
-  color: var(--text2);
-  white-space: nowrap;
-}
-
-/* ---------- U1：UBSocket 接口监控版式（对齐旧版 monitor-grid / 曲线选择） ---------- */
+/* ---------- UBSocket 接口监控版式（monitor-grid / 曲线选择） ---------- */
 
 .monitor-toolbar {
   display: flex;
@@ -1936,7 +1749,7 @@ html.is-modal-open {
   margin-bottom: 8px;
 }
 
-/* U6：一张卡片内的两个视角（全接口总览的成功率/时延、单接口分析的成功率/时延）纵向排列——
+/* 一张卡片内的两个视角（全接口总览的成功率/时延、单接口分析的成功率/时延）纵向排列——
    并排时每张图只有半个卡片宽，横轴标签与曲线都太挤；分区（子区边框与标题）保持不变 */
 .monitor-pane-grid {
   display: grid;
@@ -2188,7 +2001,7 @@ html.is-modal-open {
   background: var(--bg);
 }
 
-/* U5：通断故障监控结果区（页签 + 聚合指标/时间间隔） */
+/* 通断故障监控结果区（页签 + 聚合指标/时间间隔） */
 
 .fault-result-bar {
   display: flex;
@@ -2207,15 +2020,6 @@ html.is-modal-open {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.fault-result-controls .fault-result-static {
-  font-size: 13px;
-  color: var(--text);
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
 }
 
 /* UBSocket 接口监控 tooltip（挂到 body，必须是全局样式） */
@@ -2258,7 +2062,7 @@ html.is-modal-open {
   font-weight: 600;
 }
 
-/* X1：最慢请求图 tooltip（ECharts tooltip 挂到 body，必须是全局样式） */
+/* 最慢请求图 tooltip（ECharts tooltip 挂到 body，必须是全局样式） */
 
 .slow-tooltip-trace {
   display: flex;
@@ -2314,7 +2118,7 @@ table .col-num {
   white-space: nowrap;
 }
 
-/* 矩阵表头三行信息（组件 / 接口名 / 函数名），对齐旧版 */
+/* 矩阵表头三行信息（组件 / 接口名 / 函数名） */
 .matrix-head-cell {
   text-align: left;
   vertical-align: top;
@@ -2357,34 +2161,7 @@ table .col-num {
   color: var(--text3);
 }
 
-.matrix-detail-cell {
-  background: var(--bg);
-  padding: 12px 16px !important;
-}
-
-.matrix-detail-table {
-  width: 100%;
-  background: var(--surface);
-  border-radius: var(--radius-md);
-}
-
-.matrix-detail-table th,
-.matrix-detail-table td {
-  font-size: 12px;
-}
-
-.mono-ellipsis {
-  display: inline-block;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-  font-family: monospace;
-  font-size: 12px;
-}
-
-/* 线程 ID 药丸（对齐旧版 brpc-detail-thread-id） */
+/* 线程 ID 药丸 */
 .thread-id-pill {
   display: inline-flex;
   align-items: center;
@@ -2397,121 +2174,12 @@ table .col-num {
   font-size: 12px;
 }
 
-/* ---------- 固定列 / 中间可滚动表格（避免翻页时列宽跳变） ---------- */
-
-.fixed-table {
-  table-layout: fixed;
-  width: 100%;
-}
-
-.fixed-table th,
-.fixed-table td {
-  overflow: hidden;
-}
-
-.fixed-table th.col-nowrap,
-.fixed-table td.col-nowrap {
-  text-overflow: ellipsis;
-}
-
-/* 中间列：随容器宽度伸缩；内容超出时该单元格内部左右滑动，左右列保持不动 */
-.cell-scroll {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-}
-
 .chip-row-nowrap {
   display: inline-flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-}
-
-/* 聚合矩阵：左两列与右操作列吸附，中间接口列整体横向滚动 */
-.matrix-scroll {
-  overflow-x: auto;
-}
-
-.matrix-table {
-  table-layout: fixed;
-  width: max-content;
-  min-width: 100%;
-}
-
-.matrix-table th,
-.matrix-table td {
-  overflow: hidden;
-}
-
-.col-sticky-left-0,
-.col-sticky-left-330,
-.col-sticky-right-0 {
-  position: sticky;
-  z-index: 2;
-  background: var(--surface);
-}
-
-.col-sticky-left-0 {
-  left: 0;
-}
-
-.col-sticky-left-330 {
-  left: 330px;
-}
-
-/* 异常 Thread 表左固定列（累计偏移） */
-.col-thread-left-0,
-.col-thread-left-110,
-.col-thread-left-240,
-.col-thread-left-390 {
-  position: sticky;
-  z-index: 2;
-  background: var(--surface);
-}
-
-.col-thread-left-0 {
-  left: 0;
-}
-
-.col-thread-left-110 {
-  left: 110px;
-}
-
-.col-thread-left-240 {
-  left: 240px;
-}
-
-.col-thread-left-390 {
-  left: 390px;
-}
-
-/* 通用吸附列（供嵌套明细子表使用，偏移量按列宽累计） */
-.col-pin {
-  position: sticky;
-  z-index: 2;
-  background: var(--surface);
-}
-
-.col-pin-0 {
-  left: 0;
-}
-
-.col-pin-96 {
-  left: 96px;
-}
-
-.col-pin-150 {
-  left: 150px;
-}
-
-.col-pin-226 {
-  left: 226px;
-}
-
-.col-pin-330 {
-  left: 330px;
 }
 
 /* ---------- 三段式聚合表：左固定 / 中间滚动 / 右固定（行高一致即对齐） ---------- */
@@ -2628,17 +2296,6 @@ table .col-num {
   font-size: 11.5px;
 }
 
-.col-sticky-right-0 {
-  right: 0;
-  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
-}
-
-.matrix-table thead .col-sticky-left-0,
-.matrix-table thead .col-sticky-left-330,
-.matrix-table thead .col-sticky-right-0 {
-  z-index: 3;
-}
-
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -2646,13 +2303,7 @@ table .col-num {
   align-items: center;
 }
 
-.trace-chip-more {
-  background: var(--bg);
-  color: var(--text2);
-  border-color: var(--border);
-}
-
-/* ---------- 故障模式视图（对齐旧版：固定尺寸画布 + 滚动视口 + 图例） ---------- */
+/* ---------- 故障模式视图（固定尺寸画布 + 滚动视口 + 图例） ---------- */
 
 .graph-viewport {
   max-height: 520px;
@@ -2923,14 +2574,6 @@ table .col-num {
   color: var(--text3);
 }
 
-/* 允许换行的单元格（覆盖中区默认 nowrap+ellipsis） */
-.agg-mid-grid > .agg-cell-wrap,
-.agg-row > .agg-cell-wrap {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-}
-
 /* ---------- 故障实例表（内容型表格）：行高按内容，禁止溢出压行 ---------- */
 .fault-instance-block .agg-row {
   /* 行高按内容撑开；三块逐行对齐由 BlockTable 的行高同步保证 */
@@ -2948,7 +2591,7 @@ table .col-num {
   overflow: visible;
   text-overflow: clip;
 }
-/* 具体故障 / 故障域：完整显示，允许换行（旧版即为此行为，不允许裁切/省略） */
+/* 具体故障 / 故障域：完整显示，允许换行，不允许裁切/省略 */
 .fault-instance-block .fault-scroll {
   display: block;
   white-space: normal;

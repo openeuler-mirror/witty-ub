@@ -133,7 +133,7 @@ export class AgentApi {
     return this.request<OpenCodeSession[]>('/session')
   }
 
-  // A2（对齐旧版 e3dbde3c）：不预置标题，服务端生成；创建后再取一次会话详情
+  // 不预置标题，由服务端生成；创建后再取一次会话详情
   createSession(title?: string) {
     return this.request<OpenCodeSession>('/session', {
       method: 'POST',

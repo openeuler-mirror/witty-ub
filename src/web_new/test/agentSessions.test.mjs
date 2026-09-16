@@ -46,7 +46,7 @@ const createAgentChatState = new Function(
   (value) => value,
   async (callback) => callback?.(),
   () => ({ toast() {} }),
-  // 全量资产列表：sessionAssetName 按它解析资产名（旧版 getAgentSessionAssetName 语义）
+  // 全量资产列表：sessionAssetName 按它解析资产名
   () => ({
     assets: {
       value: [
@@ -221,7 +221,7 @@ test('new conversation clears the window and creates the session lazily on first
     await flush()
     await state.openConversation('a')
     await state.newConversation()
-    // A2：新建对话只清空窗口，不预建服务端会话
+    // 新建对话只清空窗口，不预建服务端会话
     assert.equal(state.sessionId.value, '')
     assert.deepEqual(state.messages.value, [])
     assert.equal(state.activeSessionTitle.value, '开始新对话')
@@ -235,7 +235,7 @@ test('new conversation clears the window and creates the session lazily on first
     assert.ok(id.startsWith('created-'))
     assert.equal(servers.local.sessions.length, sessionsBefore + 1)
     assert.equal(state.sessionAssetName(id), '测试资产')
-    // A2：不再用首条问题改写标题
+    // 不再用首条问题改写标题
     assert.equal(state.activeSessionTitle.value, '开始新对话')
     const session = state.sessions.value.find((item) => item.id === id)
     state.showSessionDialog('rename', session)
@@ -271,9 +271,8 @@ test('switching preserves background generation, drafts, and asset context', asy
   }
 })
 
-// 用户报障：在「JINGPAI LOGS」问过问题后切到「BRPC Library」再打开 Agent 面板，
-// 问答记录里的资产库名称变成 ID，只有当前资产库的名称能正常显示。
-// 根因是 sessionAssetName 只比对 currentAsset；旧版是按全量资产列表查名字。
+// 回归：切到另一个资产库后打开 Agent 面板，历史问答记录里的资产库名称
+// 必须仍按全量资产列表解析，不能只认当前资产库（否则会显示成 ID）。
 test('非当前资产库的会话也显示资产名，并可按资产名检索', async () => {
   const { state, storage, cleanup } = setup()
   try {
@@ -334,7 +333,7 @@ test('reconnect starts an empty window and history/model errors return on explic
     await state.openConversation('b')
     assert.equal(state.messages.value.at(-1).content, '连接失败')
     await state.loginLocalAgent()
-    // A2：连接后进入「开始新对话」空窗口，不自动恢复上次会话
+    // 连接后进入「开始新对话」空窗口，不自动恢复上次会话
     assert.equal(state.sessionId.value, '')
     assert.equal(state.messages.value.length, 0)
     assert.equal(storage.get('witty-ub.active-session:/agent-api'), undefined)
@@ -354,7 +353,7 @@ test('initial asset sync does not restore the stored conversation on connect', a
     storage.set('witty-ub.active-session:/agent-api', 'a')
     state.setAsset({ id: 'kb-a', name: '测试资产' })
     await state.loginLocalAgent()
-    // A2：连接后不自动恢复历史会话，活动会话标识被清除
+    // 连接后不自动恢复历史会话，活动会话标识被清除
     assert.equal(state.sessionId.value, '')
     assert.equal(state.messages.value.length, 0)
     assert.equal(storage.get('witty-ub.active-session:/agent-api'), undefined)

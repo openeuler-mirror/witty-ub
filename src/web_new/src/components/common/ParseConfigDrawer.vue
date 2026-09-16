@@ -26,7 +26,7 @@ const parseConfigSummary =
   '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
 
 // 后端运行链路当前仅消费 total_p99_threshold_ms 与文件名 Pattern；其余字段保存仅持久化。
-// 后端判定消费补齐后移除此标注（设计 parity-design.md 3.1）
+// 后端判定消费补齐后移除此标注
 const CONSUMED_THRESHOLD_KEYS = new Set<DiagnosisThresholdKey>(['total_p99_threshold_ms'])
 
 const draft = reactive<DiagnosisConfigForm>(defaultDiagnosisConfig())
@@ -111,7 +111,7 @@ const isPositiveInteger = (value: unknown) =>
 
 const validate = () => {
   const invalid = new Set<string>()
-  // X4（对齐上游 fc88f485）：上限与后端 schema 一致，避免保存后请求被 422 拒绝
+  // 上限与后端 schema 一致，避免保存后请求被 422 拒绝
   THRESHOLD_OPTIONS.forEach(({ key }) => {
     const value = draft.logAnalyzerParams[key]
     if (!isPositiveDecimal(value) || Number(value) > 1000) invalid.add(key)
@@ -143,7 +143,7 @@ const validate = () => {
 
 const resetDraft = () => {
   fillDraft(defaultDiagnosisConfig())
-  // 与旧版一致：草稿与默认值一致时保存走可信 reset 接口
+  // 草稿与默认值一致时保存走可信 reset 接口
   resetSnapshot.value = JSON.stringify(draft)
   validationError.value = ''
   invalidFields.value = new Set()

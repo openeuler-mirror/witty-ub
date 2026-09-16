@@ -20,8 +20,8 @@ const rendererBody = (source, name) => {
   return source.slice(start, source.indexOf('\n  const render', start + 1) + 1)
 }
 
-// 用户报障：旧版每个数据点上都有小圆圈，新版把 symbol 关成了 none，单点取值很难辨认。
-// 这里守住「UBSocket 接口监控四张线图必须走同一个带 symbol 的样式常量」。
+// 回归：单点取值依赖数据点圆圈，symbol 关成 none 后只能看到连线。
+// 守住「UBSocket 接口监控四张线图必须走同一个带 symbol 的样式常量」。
 test('UBSocket 接口监控曲线保留数据点圆圈', () => {
   const source = read(join(srcDir, 'composables/useOverviewData.ts'))
 
@@ -38,7 +38,7 @@ test('UBSocket 接口监控曲线保留数据点圆圈', () => {
   }
 })
 
-// 用户报障：tooltip 被「全接口总览」卡片边框裁切；且悬停具体数据点时应进一步过滤。
+// 回归：tooltip 不能被「全接口总览」卡片边框裁切；悬停具体数据点时应进一步过滤。
 // 守住「四张图共用 brpcAxisTooltip：挂 body + 按窗口夹取 + 点级命中」。
 test('UBSocket 接口监控 tooltip 挂 body、按视口夹取且支持点级过滤', () => {
   const source = read(join(srcDir, 'composables/useOverviewData.ts'))

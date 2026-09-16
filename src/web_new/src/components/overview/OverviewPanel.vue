@@ -8,7 +8,6 @@ import { useTasks } from '../../composables/useTasks'
 import type { LogFileModel, LogKnowledge, LogType } from '../../types'
 import {
   failureModeDisplayCode,
-  formatTime,
   normalizeFaultCodes,
   normalizeTraceOperation,
 } from '../../utils/format'
@@ -112,7 +111,7 @@ const domainTasksLoaded = computed(
 )
 // 空态判定要「锁存」：重新进入同一个库时任务列表 id 已经匹配，首帧先判出空态；紧接着
 // loadLogFiles 会把 loading 置位（domainTasksLoaded 变 false）。若继续直接依赖 domainTasksLoaded，
-// 判定会被撤销、落回分析分支画 1~2 帧空图表（用户报障的闪烁）。
+// 判定会被撤销、落回分析分支画 1~2 帧空图表（表现为闪烁）。
 const settledAssetId = ref('')
 const settledEmpty = ref(false)
 watch(
@@ -125,7 +124,7 @@ watch(
   { immediate: true },
 )
 const domainEmpty = computed(() => settledAssetId.value === props.asset?.id && settledEmpty.value)
-// 任务列表还没到：先占位。否则会先按空 scope 画一屏空图表，再把整块换成空态（用户报障）
+// 任务列表还没到：先占位。否则会先按空 scope 画一屏空图表，再把整块换成空态
 const domainPending = computed(
   () => Boolean(props.asset) && !props.logFilesError && settledAssetId.value !== props.asset?.id,
 )

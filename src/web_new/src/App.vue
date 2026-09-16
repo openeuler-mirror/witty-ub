@@ -13,11 +13,10 @@ import AgentChatPanel from './components/agent/AgentChatPanel.vue'
 
 const OverviewPanel = defineAsyncComponent(() => import('./components/overview/OverviewPanel.vue'))
 
-const { toasts, toast } = useToast()
+const { toasts } = useToast()
 const {
   view,
   assetTab,
-  assets,
   assetsLoading,
   assetsError,
   isInitialDataUnavailable,
@@ -28,25 +27,16 @@ const {
   assetPages,
   pagedAssets,
   selectedAsset,
-  assetLoading,
   assetError,
   loadAssets,
   enterAsset,
   goAssetList,
-  assetModalOpen,
-  assetModalMode,
-  savingAsset,
-  assetForm,
-  assetFormError,
   openAssetModal,
-  closeAssetModal,
-  saveAsset,
   deleteAsset,
 } = useAssets()
 
 const {
   logFiles,
-  logFilesTotal,
   logFilesLoading,
   logFilesError,
   logFilesAssetId,
@@ -61,13 +51,7 @@ const {
   isFailed,
   brpcDiagStatusOf,
   canRunBrpcDiagnosis,
-  brpcModalOpen,
-  brpcTargetFile,
-  brpcStartTime,
-  brpcSaving,
-  brpcError,
   openBrpcDiagnosis,
-  runBrpcDiagnosis,
   refreshLogFiles,
   runLogFile,
   stopLogFile,
@@ -80,15 +64,7 @@ const {
   filteredTasks,
   taskPages,
   pagedTasks,
-  showCreateTask,
-  savingTask,
-  taskError,
-  newTask,
   openCreateTask,
-  closeCreateTask,
-  onTaskFilesChange,
-  canSubmitTask,
-  createTask,
 } = useTasks()
 
 // 资产级日志解析配置抽屉

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
-import { normalizeFaultCodes, normalizeTraceOperation } from '../../utils/format'
+import { normalizeFaultCodes } from '../../utils/format'
 import BlockTable from '../common/BlockTable.vue'
 import PageNav from '../common/PageNav.vue'
 
@@ -24,7 +24,6 @@ const {
   faultCodeColorOrder,
   faultCodeSummaries,
   faultPodStats,
-  faultScopedTraces,
   faultTimeRange,
   faultTopoRef,
   faultTraceIdInput,
@@ -89,9 +88,6 @@ const faultPodIps = (row: any) =>
     : row.pod_ips?.length
       ? row.pod_ips
       : [row.src_ip, row.dst_ip].filter(Boolean)
-const visibleFaultPodIps = (row: any) => faultPodIps(row).slice(0, 2)
-const faultPodIpCount = (row: any) => faultPodIps(row).length
-const shortTraceId = (id: string) => (id?.length > 12 ? `${id.slice(0, 12)}…` : id || '-')
 const faultCodesOf = (row: any) => normalizeFaultCodes(row.status_code)
 const failureModeIdsOf = (row: any) =>
   String(row.failure_mode || '')
@@ -128,7 +124,7 @@ const faultLinkHint = (row: any) => {
 }
 
 // Pod IP / Trace ID 都是等宽定长文本，列宽交给 DOM 量：量一次样本 chip 的真实渲染宽度，
-// 加上单元格左右内边距即得精确列宽（Pod IP 一列一行，与旧版一致）
+// 加上单元格左右内边距即得精确列宽（Pod IP 一列一行）
 const podIpMeasureRef = ref<HTMLElement | null>(null)
 const traceIdMeasureRef = ref<HTMLElement | null>(null)
 const actionMeasureRef = ref<HTMLElement | null>(null)

@@ -15,8 +15,8 @@ const ruleBlock = (selector) => {
   return css.slice(start, css.indexOf('}', start))
 }
 
-// 用户报障：故障模式视图里点选节点后，选中节点与接口节点无法区分。
-// 根因是 .graph-node.active 把描边色改成主色蓝，故障模式节点（红）被刷成蓝框白底 = 接口节点同貌。
+// 回归：故障模式视图里点选节点后，选中节点必须与接口节点可区分。
+// 若 .graph-node.active 把描边色改成主色蓝，故障模式节点（红）会被刷成蓝框白底 = 接口节点同貌。
 test('节点选中态不得改写类型描边色，改用墨色外环', () => {
   const active = ruleBlock('.graph-node.active')
 

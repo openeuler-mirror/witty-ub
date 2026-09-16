@@ -20,8 +20,7 @@ export const listLogFiles = async (
 export const listAllLogFiles = async (kbId: string) => {
   const first = await listLogFiles(kbId, 1, 1)
   const total = first.total ?? 0
-  const all =
-    total > 1 ? await listLogFiles(kbId, total, 1) : first
+  const all = total > 1 ? await listLogFiles(kbId, total, 1) : first
   return (all.log_files ?? []).filter((file) => file.existed_status !== false)
 }
 

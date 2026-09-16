@@ -14,15 +14,11 @@ export const listLogKbs = async (pageCnt = 50, pageNum = 1) =>
 export const listAllLogKbs = async () => {
   const first = await listLogKbs(50, 1)
   const total = first.total ?? 0
-  const all =
-    total > (first.kbs?.length ?? 0)
-      ? await listLogKbs(total, 1)
-      : first
+  const all = total > (first.kbs?.length ?? 0) ? await listLogKbs(total, 1) : first
   return (all.kbs ?? []).filter((asset) => asset.existed_status !== false)
 }
 
-export const getLogKb = (kbId: string) =>
-  request<{ kb: LogKnowledge | null }>(`/log_kb/${kbId}`)
+export const getLogKb = (kbId: string) => request<{ kb: LogKnowledge | null }>(`/log_kb/${kbId}`)
 
 export const createLogKb = (name: string, description: string) =>
   request('/log_kb', {
