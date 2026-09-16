@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useOverviewData } from '../../composables/useOverviewData'
+import { UBSOCKET_P99_ABNORMAL_THRESHOLD_US } from '../../utils/latencyThresholds'
 import IfacePicker from './IfacePicker.vue'
 
 // 只注入 UBSocket 接口监控所需状态
@@ -353,7 +354,8 @@ const openSingleIface = (iface: string) => {
           <div class="monitor-card-title">
             <span>接口明细</span>
             <span class="monitor-card-actions hint">
-              按请求数排序 · P99 &gt; 2000 µs 记为偏高
+              按请求数排序 · P99 &gt; {{ UBSOCKET_P99_ABNORMAL_THRESHOLD_US.toLocaleString() }} µs
+              记为偏高
             </span>
           </div>
           <div class="table-wrap">
@@ -390,7 +392,15 @@ const openSingleIface = (iface: string) => {
                   <td>{{ item.successRate }}%</td>
                   <td>{{ item.failureRate }}%</td>
                   <td>{{ Math.round(item.avg_ns / 1e3).toLocaleString() }}</td>
-                  <td :style="{ color: item.p99_ns / 1e6 > 2 ? 'var(--danger)' : '' }">
+                  <td
+                    :style="{
+                      color:
+                        item.p99_ns / 1e3 > UBSOCKET_P99_ABNORMAL_THRESHOLD_US
+                          ? 'var(--danger)'
+                          : '',
+                    }"
+                    :title="`偏高阈值 > ${UBSOCKET_P99_ABNORMAL_THRESHOLD_US.toLocaleString()} µs`"
+                  >
                     {{ Math.round(item.p99_ns / 1e3).toLocaleString() }}
                   </td>
                   <td>{{ Math.round(item.max_ns / 1e3).toLocaleString() }}</td>

@@ -317,6 +317,12 @@ td.num {
   font-variant-numeric: tabular-nums;
 }
 
+/* 时延明细：超出该阶段阈值的取值与状态整体标红 */
+.delay-timeout {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 tr:hover td {
   background: var(--primary-bg);
 }

@@ -1228,7 +1228,10 @@ onMounted(() => {
           <tbody>
             <tr v-for="stage in traceStageRows(detailDrawerRow)" :key="stage.name">
               <td>{{ stage.name }}</td>
-              <td>
+              <td
+                :class="{ 'delay-timeout': stage.abnormal }"
+                :title="`判定阈值 > ${stage.thresholdMs} ms`"
+              >
                 {{
                   stage.value == null
                     ? '-'
@@ -1237,7 +1240,7 @@ onMounted(() => {
                       : Number(stage.value).toFixed(3) + ' ms'
                 }}
               </td>
-              <td>
+              <td class="trace-stage-status" :class="{ 'delay-timeout': stage.abnormal }">
                 <span
                   :class="
                     stage.status === '异常'

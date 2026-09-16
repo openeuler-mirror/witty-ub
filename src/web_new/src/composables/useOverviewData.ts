@@ -37,6 +37,11 @@ use([
 ])
 import rawDiagnosisConfig from '../../../../config/diagnosis_config.toml'
 import { useToast } from './useToast'
+import {
+  UBSOCKET_P99_ABNORMAL_THRESHOLD_US,
+  evaluateTraceStage,
+  traceStageDefinitions,
+} from '../utils/latencyThresholds'
 import type {
   AggregatedPair,
   LatencyPoint,
@@ -599,7 +604,7 @@ function createOverviewStateInner() {
         failureRate: item.requestCount
           ? +((item.failureCount / item.requestCount) * 100).toFixed(2)
           : 0,
-        status: item.p99_ns / 1e6 > 2 ? '偏高' : '正常',
+        status: item.p99_ns / 1e3 > UBSOCKET_P99_ABNORMAL_THRESHOLD_US ? '偏高' : '正常',
       }))
       .sort((a, b) => b.requestCount - a.requestCount)
   })
@@ -3200,35 +3205,10 @@ function createOverviewStateInner() {
   }
 
   const traceStageRows = (row: any) => {
-    const defs = [
-      { name: '总时延', key: 'total_latency' },
-      { name: '查询元数据时延', key: 'worker_query_meta_latency' },
-      { name: 'URMA总时延', key: 'urma_total_latency' },
-      { name: 'URMA建链时延', key: 'urma_link_latency' },
-      { name: 'C2W URMA时延', key: 'c2w_urma_latency' },
-      { name: 'W2W URMA时延', key: 'w2w_urma_latency' },
-      { name: 'SDK处理时延', key: 'sdk_process' },
-      { name: 'SDK RPC时延', key: 'sdk_rpc' },
-      { name: '本地Worker处理时延', key: 'local_worker_cost' },
-      { name: '本地Worker锁时延', key: 'local_worker_lock' },
-      { name: '远端Worker处理时延', key: 'remote_worker_cost' },
-      { name: '远端Worker RPC时延', key: 'remote_worker_rpc' },
-      { name: 'Master处理时延', key: 'master_process' },
-      { name: 'Master RPC总时延', key: 'master_rpc_total' },
-    ]
-    return defs.map((def) => {
-      const value = row ? row[def.key] : null
-      // 缺失 = 日志不存在该时延项目；负值 = 由总时延被截断引起
-      const status =
-        value == null
-          ? '日志不存在该时延项目'
-          : Number(value) < 0
-            ? '由总时延被截断引起，该时延值已失真'
-            : row.is_anomalous
-              ? '异常'
-              : '正常'
-      return { name: def.name, value, status }
-    })
+    // 逐项按阈值判异常（总时延用解析配置阈值），不再用整行 is_anomalous 一刀切
+    return traceStageDefinitions(latencyThresholds.p99).map((def) =>
+      evaluateTraceStage(def, row ? row[def.key] : null),
+    )
   }
 
   // ---------- 图表渲染 ----------
