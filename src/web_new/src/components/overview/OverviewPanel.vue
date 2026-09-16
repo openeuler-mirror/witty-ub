@@ -1229,7 +1229,13 @@ onMounted(() => {
             <tr v-for="stage in traceStageRows(detailDrawerRow)" :key="stage.name">
               <td>{{ stage.name }}</td>
               <td>
-                {{ stage.value == null ? '未解析' : Number(stage.value).toFixed(3) + ' ms' }}
+                {{
+                  stage.value == null
+                    ? '-'
+                    : Number(stage.value) < 0
+                      ? '无效值'
+                      : Number(stage.value).toFixed(3) + ' ms'
+                }}
               </td>
               <td>
                 <span

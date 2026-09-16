@@ -2,6 +2,7 @@
 import { reactive, ref, watch } from 'vue'
 import BaseModal from './BaseModal.vue'
 import type { LogKnowledge } from '../../types'
+import { useServiceHealth } from '../../composables/useServiceHealth'
 import {
   PATTERN_TYPES,
   THRESHOLD_OPTIONS,
@@ -21,6 +22,9 @@ const props = defineProps<{
   open: boolean
 }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
+
+// 磁盘降级（只读）时后端不再接受写入：配置仍可查看/导入对比，但不能保存
+const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 
 const parseConfigSummary =
   '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
@@ -171,6 +175,10 @@ const importFromAsset = async () => {
 
 const save = async () => {
   if (!props.asset || saving.value) return
+  if (writeRestricted.value) {
+    error.value = writeRestrictedMessage.value
+    return
+  }
   error.value = ''
   if (!validate()) return
   saving.value = true
@@ -210,6 +218,9 @@ const save = async () => {
     <template v-else>
       <div v-if="error" class="error-banner">{{ error }}</div>
       <div v-if="validationError" class="error-banner">{{ validationError }}</div>
+      <div v-if="writeRestricted" class="error-banner">
+        {{ writeRestrictedMessage }}；配置暂不可修改。
+      </div>
       <div v-if="loading" class="empty" style="padding: 48px 0">
         <div class="icon">⏳</div>
         <div>正在加载配置...</div>
@@ -347,7 +358,12 @@ const save = async () => {
       <button class="btn btn-default" :disabled="loading || saving" @click="resetDraft">
         恢复默认
       </button>
-      <button class="btn btn-primary" :disabled="loading || saving" @click="save">
+      <button
+        class="btn btn-primary"
+        :disabled="loading || saving || writeRestricted"
+        :title="writeRestricted ? writeRestrictedMessage : ''"
+        @click="save"
+      >
         {{ saving ? '保存中...' : '保存' }}
       </button>
     </template>

@@ -384,6 +384,22 @@ tr:hover td {
   color: var(--danger);
 }
 
+.task-status-reason {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: #fef2f2;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* 重试中展示的是「上一次失败原因」，用橙色与当前失败态区分 */
+.task-status-reason-previous {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

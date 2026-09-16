@@ -6,7 +6,7 @@ type TaskReportLike = {
 
 type TaskProgressSource = {
   overall_status?: string | null
-  task?: { task_reports?: TaskReportLike[] } | null
+  task?: { status?: string | null; task_reports?: TaskReportLike[] } | null
 }
 
 const ignoredReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
@@ -85,3 +85,30 @@ export const taskProgressMessage = (file: TaskProgressSource): string => {
 
   return latest ? humanizeTaskProgressMessage(latest) : ''
 }
+
+const failureReasonStatuses = new Set(['failed', 'failed_pending_remove', 'retrying', 'cancelled'])
+const taskFailureMessagePattern = /(?:失败|异常停止|error|failed|exception)/i
+
+// 失败原因不能只取「最新一条报告」：任务失败后仍会继续写入 [polars] 进度报告，
+// 会把原因顶掉（旧版同样问题）。这里取最新一条带失败语义的报告。
+export const taskFailureReason = (file: TaskProgressSource): string => {
+  if (!failureReasonStatuses.has(file.overall_status ?? '')) return ''
+
+  const report = (file.task?.task_reports ?? [])
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => taskFailureMessagePattern.test(item.message?.trim() ?? ''))
+    .sort(
+      (first, second) =>
+        String(second.item.created_at ?? '').localeCompare(String(first.item.created_at ?? '')) ||
+        first.index - second.index,
+    )[0]?.item
+
+  const message = report?.message?.trim()
+  return message ? humanizeTaskProgressMessage(message) : '任务未提供失败原因'
+}
+
+// 重试中展示的是上一次失败的原因；其余失败态展示当前状态原因。
+export const taskFailureReasonLabel = (file: TaskProgressSource): string =>
+  (file.overall_status ?? '') === 'retrying' && file.task?.status !== 'failed_pending_remove'
+    ? '上次失败原因'
+    : '状态原因'

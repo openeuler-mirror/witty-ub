@@ -3219,7 +3219,15 @@ function createOverviewStateInner() {
     ]
     return defs.map((def) => {
       const value = row ? row[def.key] : null
-      const status = value == null ? '未解析' : row.is_anomalous ? '异常' : '正常'
+      // 与上游口径一致：缺失 = 日志不存在该时延项目；负值 = 由总时延被截断引起
+      const status =
+        value == null
+          ? '日志不存在该时延项目'
+          : Number(value) < 0
+            ? '由总时延被截断引起，该时延值已失真'
+            : row.is_anomalous
+              ? '异常'
+              : '正常'
       return { name: def.name, value, status }
     })
   }
@@ -5385,6 +5393,7 @@ function createOverviewStateInner() {
     relatedFailureModeIdsOf,
     traceFailureModeIdsOf,
     traceStageRows,
+    latencyThresholds,
     trendAnomalyHint,
     trendChartData,
     trendLogLabel,

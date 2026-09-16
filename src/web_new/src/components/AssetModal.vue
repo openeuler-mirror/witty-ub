@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import BaseModal from './common/BaseModal.vue'
 import { useAssets } from '../composables/useAssets'
+import { useServiceHealth } from '../composables/useServiceHealth'
 
 const {
   assetModalOpen,
@@ -11,6 +12,9 @@ const {
   closeAssetModal,
   saveAsset,
 } = useAssets()
+
+// 磁盘降级（只读）时后端不再接受写入，界面同步禁用保存
+const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 </script>
 
 <template>
@@ -35,10 +39,16 @@ const {
       ></textarea>
     </div>
     <div v-if="assetFormError" class="form-error">{{ assetFormError }}</div>
+    <div v-if="writeRestricted" class="error-banner">{{ writeRestrictedMessage }}</div>
 
     <template #footer>
       <button class="btn btn-default" @click="closeAssetModal">取消</button>
-      <button class="btn btn-primary" :disabled="savingAsset" @click="saveAsset">
+      <button
+        class="btn btn-primary"
+        :disabled="savingAsset || writeRestricted"
+        :title="writeRestricted ? writeRestrictedMessage : ''"
+        @click="saveAsset"
+      >
         {{ savingAsset ? '保存中...' : '保存' }}
       </button>
     </template>

@@ -2,6 +2,7 @@ import { computed, reactive, ref } from 'vue'
 import type { AssetModalMode, LogKnowledge } from '../types'
 import { errorText, paginate } from '../utils/format'
 import { useToast } from './useToast'
+import { useServiceHealth } from './useServiceHealth'
 import { createLogKb, deleteLogKb, getLogKb, listAllLogKbs, updateLogKb } from '../api/logKnowledge'
 
 let state: ReturnType<typeof createAssetsState> | null = null
@@ -13,6 +14,7 @@ export function useAssets() {
 
 function createAssetsState() {
   const { toast } = useToast()
+  const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 
   const view = ref<'assets' | 'home'>('assets')
   const assetTab = ref<'overview' | 'tasks'>('overview')
@@ -112,6 +114,10 @@ function createAssetsState() {
   }
 
   const saveAsset = async () => {
+    if (writeRestricted.value) {
+      assetFormError.value = writeRestrictedMessage.value
+      return
+    }
     const name = assetForm.name.trim()
     const description = assetForm.description.trim()
     if (!name || !description) {
@@ -148,7 +154,12 @@ function createAssetsState() {
   }
 
   const deleteAsset = async (asset: LogKnowledge) => {
-    if (!window.confirm(`确认删除资产库「${asset.name}」？关联的任务与日志文件将一并删除。`)) {
+    // 后端为硬删除级联：进程树停不下来会直接取消删除，数据不可恢复，必须说清。
+    if (
+      !window.confirm(
+        `确认删除资产库「${asset.name}」？该资产库下的所有日志解析任务及解析、诊断数据将被永久删除。`,
+      )
+    ) {
       return
     }
     try {

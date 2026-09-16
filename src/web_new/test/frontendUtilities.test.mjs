@@ -4,6 +4,8 @@ import { formatTime } from '../src/utils/format.ts'
 import {
   humanizeTaskProgressMessage,
   latestTaskReport,
+  taskFailureReason,
+  taskFailureReasonLabel,
   taskProgressMessage,
 } from '../src/utils/taskProgress.ts'
 
@@ -81,4 +83,55 @@ test('latest task report keeps backend order when timestamps are missing or equa
     },
   }
   assert.equal(taskProgressMessage(equalTimestamps), 'newest at tie')
+})
+
+test('failure reason survives later progress reports', () => {
+  // 失败后仍会继续写入 [polars] 进度报告，原因不能被顶掉
+  const file = {
+    overall_status: 'failed',
+    task: {
+      status: 'failed',
+      task_reports: [
+        {
+          message: '任务失败：服务器磁盘空间不足，请清理空间后重新提交',
+          created_at: '2026-09-09 10:01:00',
+        },
+        { message: '[polars][detail] progress=90%', created_at: '2026-09-09 10:02:00' },
+      ],
+    },
+  }
+
+  assert.equal(taskFailureReason(file), '任务失败：服务器磁盘空间不足，请清理空间后重新提交')
+})
+
+test('failure reason falls back and stays empty for healthy tasks', () => {
+  assert.equal(
+    taskFailureReason({
+      overall_status: 'failed_pending_remove',
+      task: { status: 'failed_pending_remove', task_reports: [] },
+    }),
+    '任务未提供失败原因',
+  )
+  assert.equal(
+    taskFailureReason({
+      overall_status: 'successful',
+      task: { status: 'successful', task_reports: [{ message: '任务失败：历史原因' }] },
+    }),
+    '',
+  )
+})
+
+test('retrying tasks show the previous failure reason label', () => {
+  assert.equal(
+    taskFailureReasonLabel({ overall_status: 'retrying', task: { status: 'failed' } }),
+    '上次失败原因',
+  )
+  assert.equal(
+    taskFailureReasonLabel({
+      overall_status: 'retrying',
+      task: { status: 'failed_pending_remove' },
+    }),
+    '状态原因',
+  )
+  assert.equal(taskFailureReasonLabel({ overall_status: 'failed', task: null }), '状态原因')
 })

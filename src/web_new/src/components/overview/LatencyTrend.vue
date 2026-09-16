@@ -8,6 +8,7 @@ import PageNav from '../common/PageNav.vue'
 const {
   currentOp,
   latencyFilter,
+  latencyThresholds,
   openTraceDrawer,
   pagedTraceRows,
   renderSlowChart,
@@ -209,7 +210,15 @@ const podIpCount = (row: any) => podIpsOf(row).length
             <td>{{ normalizeTraceOperation(row.operation) }}</td>
             <td>{{ row.cluster_name || '-' }}</td>
             <td>{{ row.host || '-' }}</td>
-            <td :style="{ color: Number(row.total_latency_us) / 1000 > 50 ? 'var(--danger)' : '' }">
+            <td
+              :style="{
+                color:
+                  Number(row.total_latency_us) / 1000 > latencyThresholds.p99
+                    ? 'var(--danger)'
+                    : '',
+              }"
+              :title="`红色 = 总时延 > ${latencyThresholds.p99}ms（P99 阈值，可用解析配置调整）`"
+            >
               {{ (Number(row.total_latency_us) / 1000).toFixed(2) }}
             </td>
             <td>

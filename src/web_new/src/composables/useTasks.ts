@@ -4,6 +4,7 @@ import { clampProgress, errorText, paginate, toDatetimeString } from '../utils/f
 import { latestTaskReport, taskProgressMessage } from '../utils/taskProgress'
 import { useToast } from './useToast'
 import { useAssets } from './useAssets'
+import { useServiceHealth } from './useServiceHealth'
 import {
   deleteLogFile as deleteLogFileApi,
   listAllLogFiles,
@@ -24,6 +25,7 @@ export function useTasks() {
 function createTasksState() {
   const { toast } = useToast()
   const assets = useAssets()
+  const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 
   const logFiles = ref<LogFileModel[]>([])
   const logFilesTotal = ref(0)
@@ -308,6 +310,10 @@ function createTasksState() {
   const createTask = async () => {
     const asset = assets.selectedAsset.value
     if (!asset || !canSubmitTask.value) return
+    if (writeRestricted.value) {
+      taskError.value = writeRestrictedMessage.value
+      return
+    }
 
     const parseConfig: Record<string, unknown> = {}
     const startTime = toDatetimeString(newTask.timeStart)

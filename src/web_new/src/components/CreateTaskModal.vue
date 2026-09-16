@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import BaseModal from './common/BaseModal.vue'
 import { useTasks } from '../composables/useTasks'
+import { useServiceHealth } from '../composables/useServiceHealth'
 
 const {
   showCreateTask,
@@ -12,11 +13,17 @@ const {
   canSubmitTask,
   createTask,
 } = useTasks()
+
+// 磁盘降级（只读）时后端不再接受新增任务 / 上传
+const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 </script>
 
 <template>
   <!-- ============ 创建任务弹窗 ============ -->
   <BaseModal :open="showCreateTask" size="lg" title="创建任务" @close="closeCreateTask">
+    <div v-if="writeRestricted" class="error-banner">
+      {{ writeRestrictedMessage }}；磁盘空间恢复后才能创建任务。
+    </div>
     <div class="form-group">
       <label class="form-label">任务名称</label>
       <input class="input" v-model="newTask.name" placeholder="留空则使用日志文件名" />
@@ -77,7 +84,12 @@ const {
 
     <template #footer>
       <button class="btn btn-default" @click="closeCreateTask">取消</button>
-      <button class="btn btn-primary" :disabled="savingTask || !canSubmitTask" @click="createTask">
+      <button
+        class="btn btn-primary"
+        :disabled="savingTask || !canSubmitTask || writeRestricted"
+        :title="writeRestricted ? writeRestrictedMessage : ''"
+        @click="createTask"
+      >
         {{ savingTask ? '提交中...' : '确认创建' }}
       </button>
     </template>

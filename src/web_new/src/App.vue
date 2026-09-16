@@ -5,6 +5,8 @@ import { useToast } from './composables/useToast'
 import { useAssets } from './composables/useAssets'
 import { useTasks } from './composables/useTasks'
 import { useOverviewData } from './composables/useOverviewData'
+import { useServiceHealth } from './composables/useServiceHealth'
+import { taskFailureReason, taskFailureReasonLabel } from './utils/taskProgress'
 import AssetModal from './components/AssetModal.vue'
 import CreateTaskModal from './components/CreateTaskModal.vue'
 import BrpcDiagnosisModal from './components/BrpcDiagnosisModal.vue'
@@ -67,6 +69,14 @@ const {
   openCreateTask,
 } = useTasks()
 
+// 磁盘降级（只读）状态：轮询 /health_check，受限时禁用全部写操作入口
+const {
+  writeRestricted,
+  writeRestrictedMessage,
+  startServiceHealthPolling,
+  stopServiceHealthPolling,
+} = useServiceHealth()
+
 // 资产级日志解析配置抽屉
 const { assetTypeFilter } = useOverviewData()
 const parseConfigOpen = ref(false)
@@ -121,10 +131,12 @@ const stopPolling = () => {
 onMounted(() => {
   void loadAssets()
   startPolling()
+  startServiceHealthPolling()
 })
 
 onBeforeUnmount(() => {
   stopPolling()
+  stopServiceHealthPolling()
 })
 </script>
 <template>
@@ -158,10 +170,22 @@ onBeforeUnmount(() => {
   </div>
 
   <main class="main">
+    <!-- 磁盘降级：后端只开放查询/删除，写操作入口同步禁用 -->
+    <div v-if="writeRestricted" class="error-banner" role="status">
+      {{ writeRestrictedMessage }}；资产查询、详情查看和删除操作仍可使用。
+    </div>
+
     <!-- ============ 资产列表 ============ -->
     <template v-if="view === 'assets'">
       <div v-if="!isInitialDataUnavailable" class="operate-bar">
-        <button class="btn btn-primary" @click="openAssetModal()">+ 创建资产</button>
+        <button
+          class="btn btn-primary"
+          :disabled="writeRestricted"
+          :title="writeRestricted ? writeRestrictedMessage : ''"
+          @click="openAssetModal()"
+        >
+          + 创建资产
+        </button>
         <div class="operate-right">
           <select class="select" v-model="searchMode">
             <option value="all">全部</option>
@@ -207,7 +231,14 @@ onBeforeUnmount(() => {
           </div>
           <div class="asset-card-actions">
             <div style="display: flex; gap: 2px; flex-wrap: wrap">
-              <button class="btn btn-sm btn-text" @click="openAssetModal(asset)">编辑</button>
+              <button
+                class="btn btn-sm btn-text"
+                :disabled="writeRestricted"
+                :title="writeRestricted ? writeRestrictedMessage : ''"
+                @click="openAssetModal(asset)"
+              >
+                编辑
+              </button>
               <button
                 class="btn btn-sm btn-text"
                 style="color: var(--danger)"
@@ -281,7 +312,14 @@ onBeforeUnmount(() => {
       <section v-else id="asset-tasks-panel" aria-labelledby="asset-tasks-tab">
         <div class="operate-bar task-toolbar">
           <div class="toolbar-primary">
-            <button class="btn btn-primary" @click="openCreateTask">+ 创建任务</button>
+            <button
+              class="btn btn-primary"
+              :disabled="writeRestricted"
+              :title="writeRestricted ? writeRestrictedMessage : ''"
+              @click="openCreateTask"
+            >
+              + 创建任务
+            </button>
             <button
               v-if="taskTypeFilter !== 'UBSocket'"
               class="btn btn-default"
@@ -369,6 +407,17 @@ onBeforeUnmount(() => {
                       :title="progressMessageOf(file)"
                     >
                       {{ progressMessageOf(file) }}
+                    </div>
+                    <!-- 失败原因单独成行：进度消息会被后续 [polars] 报告顶掉 -->
+                    <div
+                      v-if="taskFailureReason(file)"
+                      :class="[
+                        'task-status-reason',
+                        { 'task-status-reason-previous': taskFailureReasonLabel(file) === '上次失败原因' },
+                      ]"
+                      :title="`${taskFailureReasonLabel(file)}：${taskFailureReason(file)}`"
+                    >
+                      {{ taskFailureReasonLabel(file) }}：{{ taskFailureReason(file) }}
                     </div>
                   </div>
                 </td>
