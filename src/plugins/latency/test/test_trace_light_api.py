@@ -688,6 +688,75 @@ class TestStageStatsService:
         assert all(i.action for i in msg.items)
         assert "样本集" in msg.note
 
+    async def test_unknown_coarse_split_client_worker(self):
+        """request_mode=unknown 粗分定界：worker 窗口≥50% 总时延→data_worker，
+        否则 cross_window（客户端等待主导）；note 动态标注粗分口径与深挖指引。"""
+        anomalous_rows = [
+            # worker 窗口占 60% → data_worker（证据=worker 侧窗口）
+            make_parse_result(
+                "t-dw-1", is_anomalous=True, total_latency=10.0,
+                total_latency_us=10000.0, request_mode="unknown",
+                worker_access_latency_us=6000.0,
+            ),
+            # worker 窗口 30%（有窗口但干净）→ cross_window
+            make_parse_result(
+                "t-cw-r-1", is_anomalous=True, total_latency=10.0,
+                total_latency_us=10000.0, request_mode="unknown",
+                worker_access_latency_us=3000.0,
+            ),
+            # 无 worker 窗口（未触达数据面）→ cross_window
+            make_parse_result(
+                "t-cw-u-1", is_anomalous=True, total_latency=10.0,
+                total_latency_us=10000.0, request_mode="unknown",
+            ),
+        ]
+        with self._patch_stats_manager(anomalous_rows, []):
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID))
+
+        assert msg.sample_cnt == 3
+        # 互斥：Σ trace_cnt == sample_cnt
+        assert sum(i.trace_cnt for i in msg.items) == msg.sample_cnt
+        by_key = {i.key: i for i in msg.items}
+
+        dw = by_key["data_worker"]
+        assert dw.trace_cnt == 1
+        assert dw.fail_cnt == 1
+        assert dw.max_ms == 6.0  # 证据=worker 侧窗口 6000us
+        assert dw.top_traces[0].trace_id == "t-dw-1"
+        assert "含粗分 1 条" in dw.note
+
+        cw = by_key["cross_window"]
+        assert cw.trace_cnt == 2
+        assert cw.max_ms == 10.0  # 客户端等待主导，证据取总时延
+        # note 动态覆盖：粗分口径 + worker 干净占比 + 未触达计数 + 深挖指引
+        assert "粗分" in cw.note
+        assert "客户端等待主导" in cw.note
+        assert "1/2 条 worker 有窗口但干净" in cw.note
+        assert "30.0%" in cw.note
+        assert "1/2 条未触达数据面" in cw.note
+        assert "brpc_stage_drill.py" in cw.note
+
+        # 顶部 note 含粗分口径总说明
+        assert "粗分定界" in msg.note
+
+    async def test_unknown_coarse_split_boundary_exactly_half(self):
+        """边界：worker 窗口恰=50% 总时延 → 判 data_worker（≥ 含等号）。"""
+        anomalous_rows = [
+            make_parse_result(
+                "t-dw-edge", is_anomalous=True, total_latency=10.0,
+                total_latency_us=10000.0, request_mode="unknown",
+                local_worker_internal_us=5000.0,
+            ),
+        ]
+        with self._patch_stats_manager(anomalous_rows, []):
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID))
+
+        by_key = {i.key: i for i in msg.items}
+        assert by_key["data_worker"].trace_cnt == 1
+        assert by_key["cross_window"].trace_cnt == 0
+
     async def test_empty_attribution_subset_returns_zero_buckets_with_note(self):
         """归因子集为空（老格式缺 us 列）→ 8 桶全 0 + note，不是错误。"""
         anomalous_rows = [

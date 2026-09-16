@@ -128,12 +128,18 @@ def _component_dim_us(row: Any) -> dict[str, float]:
     }
 
 
+def _num(value: Any) -> float:
+    """行字段安全转 float（None/文本 → 0.0）。"""
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
 def _classify_dominant(row: Any, dims: dict[str, float]) -> tuple[str, float]:
     """把一条 trace 归入唯一互斥桶，返回 (bucket_key, evidence_us)。
 
-    优先级：URMA 超时（文本） > Client/Worker 交叉窗口未细分（request_mode
-    =unknown） > 普通瓶颈 winner-take-all。evidence_us 为该桶主阶段耗时：
-    普通瓶颈取 winner 维度耗时，超时取日志 timeout elapsedMs，交叉窗口取总时延。
+    优先级：URMA 超时（文本） > request_mode=unknown 粗分定界 >
+    普通瓶颈 winner-take-all。evidence_us 为该桶主阶段耗时：
+    普通瓶颈取 winner 维度耗时，超时取日志 timeout elapsedMs，
+    粗分 data_worker 取 worker 侧窗口，粗分 cross_window 取总时延。
     """
     total_us = float(getattr(row, "total_latency_us", None) or 0.0)
 
@@ -148,8 +154,19 @@ def _classify_dominant(row: Any, dims: dict[str, float]) -> tuple[str, float]:
         ev = float(m.group(1)) * 1000.0 if m else total_us
         return "urma_timeout", max(ev, 0.0)
 
-    # 2. Client/Worker 交叉窗口未细分：yuanrong 无法判定 local/remote
+    # 2. request_mode=unknown：RPC 字段无映射原材料（bRPC perf 行未入库时
+    #    d1/d2 恒 0），按现有列粗分定界——worker 侧窗口（访问窗口或内部
+    #    处理）占 total ≥50% 判 data_worker（数据面慢），否则客户端等待
+    #    主导（worker 干净或未触达数据面）落 cross_window，证据取总时延。
+    #    RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本
+    #    brpc_stage_drill.py 深挖（latency-analysis SKILL 阶段 4.5）。
     if getattr(row, "request_mode", None) == "unknown":
+        worker_side_us = max(
+            _num(getattr(row, "worker_access_latency_us", None)),
+            _num(getattr(row, "local_worker_internal_us", None)),
+        )
+        if total_us > 0 and worker_side_us >= 0.5 * total_us:
+            return "data_worker", worker_side_us
         return "cross_window", total_us
 
     # 3. 普通瓶颈 winner-take-all（d4 urma_link 为外部因子，不参与投票）
@@ -243,6 +260,12 @@ class StatsService:
             key: {"success": 0, "fail": 0, "ev": [], "client": [], "top": []}
             for key, _, _, _ in _DOMINANT_BUCKET_SPEC
         }
+        # 粗分来源统计（request_mode=unknown）：data_worker=worker 窗口
+        # ≥50% 总时延；cross_window=客户端等待主导（worker 干净/未触达）
+        cw_reached = 0
+        cw_unreached = 0
+        cw_shares: list[float] = []
+        dw_coarse_cnt = 0
         for row in sampled:
             dims = _component_dim_us(row)
             key, ev_us = _classify_dominant(row, dims)
@@ -261,6 +284,20 @@ class StatsService:
                 ev_ms = ev_us / 1000.0
                 b["ev"].append(ev_ms)
                 b["top"].append((row.trace_id, ev_ms, client_ms))
+            if getattr(row, "request_mode", None) == "unknown":
+                if key == "data_worker":
+                    dw_coarse_cnt += 1
+                elif key == "cross_window":
+                    worker_side_us = max(
+                        _num(getattr(row, "worker_access_latency_us", None)),
+                        _num(getattr(row, "local_worker_internal_us", None)),
+                    )
+                    if worker_side_us > 0:
+                        cw_reached += 1
+                        if client_us > 0:
+                            cw_shares.append(worker_side_us / client_us)
+                    else:
+                        cw_unreached += 1
 
         items: list[StageStatsItem] = []
         for key, name, note, action in _DOMINANT_BUCKET_SPEC:
@@ -273,6 +310,45 @@ class StatsService:
             metric_name = (
                 "URMA timeout elapsedMs" if key == "urma_timeout" else "主阶段耗时"
             )
+            if key == "cross_window":
+                cnt = b["success"] + b["fail"]
+                if cnt > 0:
+                    share_med = None
+                    if cw_shares:
+                        s = sorted(cw_shares)
+                        mid = len(s) // 2
+                        share_med = round(
+                            (s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2)
+                            * 100.0,
+                            1,
+                        )
+                    seg = [
+                        "粗分：request_mode=unknown，客户端等待主导"
+                        "（worker 侧窗口<50% 总时延）"
+                    ]
+                    if cw_reached:
+                        seg.append(
+                            f"{cw_reached}/{cnt} 条 worker 有窗口但干净"
+                            + (
+                                f"，worker 窗口占比中位数 {share_med}%"
+                                if share_med is not None
+                                else ""
+                            )
+                        )
+                    if cw_unreached:
+                        seg.append(
+                            f"{cw_unreached}/{cnt} 条未触达数据面（worker 窗口列空）"
+                        )
+                    seg.append(
+                        "RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本"
+                        " brpc_stage_drill.py（latency-analysis 阶段 4.5）"
+                    )
+                    note = "；".join(seg)
+            elif key == "data_worker" and dw_coarse_cnt > 0:
+                note = note + (
+                    f"；含粗分 {dw_coarse_cnt} 条（request_mode=unknown，"
+                    "worker 侧窗口≥50% 总时延，RPC 字段无映射原材料）"
+                )
             items.append(
                 StageStatsItem(
                     key=key,
@@ -307,6 +383,7 @@ class StatsService:
         notes = [
             "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶",
             "URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+            "request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
         ]
         if truncated:
             notes.insert(0, f"达到采样上限 {cap}，异常/top慢合并去重已截断")
