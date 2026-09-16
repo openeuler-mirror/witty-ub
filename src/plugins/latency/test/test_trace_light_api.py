@@ -1,9 +1,15 @@
-"""轻量取数层 API（/trace + /stats/stages）单元测试。
+"""轻量取数层 API（/trace + /stats/*）单元测试。
 
 对应设计文档 docs/design/trace-light-api.md 批次 1（TDD：测试先行）：
 - POST /trace/list     trace 清单（粗筛主接口，时延/故障双源合并）
 - GET  /trace/{id}     单 trace 下钻（轻量画像）
 - POST /stats/stages   主导问题分类（组件定位入口，8 互斥桶）
+
+批次 2（§11.1 单维度统计）：
+- POST /stats/error_codes  Top 故障码（trace 级 Counter + 日志级事件数）
+- POST /stats/pods         Top Pod（时延侧聚合 + 故障侧 join）
+- POST /stats/links        Top 源目对（时延侧聚合 + 故障侧 join）
+- POST /stats/heatmap      时间热点（自动选窗 + slots 上限 240）
 
 数据全部按当前表结构 mock（log_parse_result / trace_failure_event），
 底层 manager 与 service 打桩，不依赖真实数据库。
@@ -12,11 +18,15 @@
 - latency.schemas.trace_light.ListTracesRequest / GetStageStatsRequest /
   TraceListItem / TraceFailureCodeItem / ListTracesMsg /
   GetTraceMsg / StageStatsItem / StageStatsTopTrace / GetStageStatsMsg
+- latency.schemas.trace_light（批次 2）StatsDimensionRequest /
+  HeatmapStatsRequest / ErrorCodeStatItem / PodStatItem / LinkStatItem /
+  HeatmapSlotItem 及各 Msg/Response
 - latency.services.trace.TraceService
 - latency.services.stats.StatsService
 - latency.routers.trace / latency.routers.stats
 """
 
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -34,14 +44,24 @@ from latency.routers import trace as trace_router
 from latency.schemas.log import LogParseResultModel
 from latency.schemas.log_failure_event import TraceFailureEventModel
 from latency.schemas.trace_light import (
+    ErrorCodeStatItem,
+    ErrorCodeStatsMsg,
     FailureCodeCntItem,
     GetStageStatsMsg,
     GetStageStatsRequest,
     GetTraceMsg,
+    HeatmapStatsMsg,
+    HeatmapStatsRequest,
+    HeatmapSlotItem,
+    LinkStatItem,
+    LinkStatsMsg,
     ListTracesMsg,
     ListTracesRequest,
+    PodStatItem,
+    PodStatsMsg,
     StageStatsItem,
     StageStatsTopTrace,
+    StatsDimensionRequest,
     TraceFailureCodeItem,
     TraceFailureCodeStatModel,
     TraceListItem,
@@ -71,6 +91,18 @@ FAILURE_CODES_BY_IDS = (
 )
 STATS_LATENCY_LIST = (
     "latency.services.stats.LogParseResultPGManager.list_log_parse_results"
+)
+# 批次 2 单维度统计：SQL 聚合下推 DB（TraceLightPGManager 新增方法）
+STATS_ERROR_CODES = (
+    "latency.services.stats.TraceLightPGManager.list_error_code_stats"
+)
+STATS_PODS = "latency.services.stats.TraceLightPGManager.list_pod_stats"
+STATS_LINKS = "latency.services.stats.TraceLightPGManager.list_link_stats"
+STATS_FAULT_RANGE = (
+    "latency.services.stats.TraceLightPGManager.list_fault_time_range"
+)
+STATS_HEATMAP_BUCKETS = (
+    "latency.services.stats.TraceLightPGManager.list_heatmap_buckets"
 )
 
 # 8 互斥桶固定顺序（light_result._DOMINANT_BUCKET_SPEC / 设计文档 §4.3）
@@ -1023,3 +1055,423 @@ class TestTraceLightRouters:
             "kb_id": KB_ID, "sample_cap": 10,
         })
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# 批次 2：/stats/* 单维度统计（§11.1）
+# ---------------------------------------------------------------------------
+
+class TestStatsDimensionRequestSchema:
+    def test_defaults(self):
+        req = StatsDimensionRequest(kb_id=KB_ID)
+        assert req.log_id is None
+        assert req.operation is None
+        assert req.start_time is None
+        assert req.end_time is None
+        assert req.top_n == 20
+
+    @pytest.mark.parametrize("top_n", [1, 20, 100])
+    def test_top_n_valid(self, top_n):
+        assert StatsDimensionRequest(kb_id=KB_ID, top_n=top_n).top_n == top_n
+
+    @pytest.mark.parametrize("top_n", [0, 101, -1])
+    def test_top_n_bounds(self, top_n):
+        with pytest.raises(ValueError):
+            StatsDimensionRequest(kb_id=KB_ID, top_n=top_n)
+
+    def test_heatmap_defaults(self):
+        req = HeatmapStatsRequest(kb_id=KB_ID)
+        assert req.window_size is None
+        assert req.top_n == 20  # 共用骨架字段（heatmap 不适用 top_n）
+
+    @pytest.mark.parametrize("window_size", ["1m", "10m", "1h"])
+    def test_heatmap_window_size_valid(self, window_size):
+        assert (
+            HeatmapStatsRequest(kb_id=KB_ID, window_size=window_size).window_size
+            == window_size
+        )
+
+    def test_heatmap_window_size_rejects_unknown(self):
+        with pytest.raises(ValueError):
+            HeatmapStatsRequest(kb_id=KB_ID, window_size="5m")
+
+    def test_strict_type_no_coercion(self):
+        with pytest.raises(ValueError):
+            StatsDimensionRequest(kb_id=KB_ID, top_n="20")
+
+
+class TestDimensionStatsService:
+    async def test_error_codes_passthrough_with_event_cnt(self):
+        """trace_cnt 降序由 manager 保证，服务层透传 + 口径 note。"""
+        items = [
+            ErrorCodeStatItem(status_code="1008", trace_cnt=5093, event_cnt=12000),
+            ErrorCodeStatItem(status_code="1001", trace_cnt=371, event_cnt=400),
+        ]
+        with patch(STATS_ERROR_CODES, new=AsyncMock(return_value=(2, items))):
+            msg = await StatsService.get_error_code_stats(
+                StatsDimensionRequest(kb_id=KB_ID))
+
+        assert msg.total == 2
+        assert msg.items == items
+        assert "status_codes 过滤取值" in msg.note
+        assert "event_cnt" in msg.note
+
+    async def test_error_codes_event_side_unavailable_note(self):
+        """log_failure_event 侧无数据 → event_cnt 全 null + note 说明。"""
+        items = [
+            ErrorCodeStatItem(status_code="1001", trace_cnt=371, event_cnt=None)
+        ]
+        with patch(STATS_ERROR_CODES, new=AsyncMock(return_value=(1, items))):
+            msg = await StatsService.get_error_code_stats(
+                StatsDimensionRequest(kb_id=KB_ID))
+
+        assert msg.items[0].event_cnt is None
+        assert "event_cnt 为 null" in msg.note
+
+    async def test_error_codes_empty_items(self):
+        with patch(STATS_ERROR_CODES, new=AsyncMock(return_value=(0, []))):
+            msg = await StatsService.get_error_code_stats(
+                StatsDimensionRequest(kb_id=KB_ID))
+
+        assert msg.total == 0
+        assert msg.items == []
+        assert "status_codes" in msg.note
+
+    async def test_error_codes_forwards_filters(self):
+        captured = []
+
+        async def fake(req):
+            captured.append(req)
+            return 0, []
+
+        with patch(STATS_ERROR_CODES, new=fake):
+            await StatsService.get_error_code_stats(StatsDimensionRequest(
+                kb_id=KB_ID, log_id=LOG_ID, operation="GET", top_n=5,
+                start_time="2026-09-03 00:00:00",
+                end_time="2026-09-03 01:00:00",
+            ))
+
+        assert len(captured) == 1
+        assert captured[0].kb_id == KB_ID
+        assert captured[0].log_id == LOG_ID
+        assert captured[0].operation == "GET"
+        assert captured[0].top_n == 5
+
+    async def test_pods_passthrough_with_note(self):
+        items = [
+            PodStatItem(
+                pod_ip="10.0.1.5", host="host-101",
+                trace_cnt=100, fault_trace_cnt=80,
+            ),
+            PodStatItem(
+                pod_ip="10.0.1.6", host="host-102",
+                trace_cnt=90, fault_trace_cnt=0,
+            ),
+        ]
+        with patch(STATS_PODS, new=AsyncMock(return_value=(2, items))):
+            msg = await StatsService.get_pod_stats(
+                StatsDimensionRequest(kb_id=KB_ID))
+
+        assert msg.total == 2
+        assert msg.items == items
+        assert "各 Pod 均计数一次" in msg.note
+        assert "pod_ip 过滤取值" in msg.note
+
+    async def test_links_passthrough_with_note(self):
+        items = [
+            LinkStatItem(
+                src_ip="10.0.1.5", dst_ip="10.0.2.8",
+                trace_cnt=100, fault_trace_cnt=80,
+            ),
+        ]
+        with patch(STATS_LINKS, new=AsyncMock(return_value=(1, items))):
+            msg = await StatsService.get_link_stats(
+                StatsDimensionRequest(kb_id=KB_ID))
+
+        assert msg.total == 1
+        assert msg.items == items
+        assert "src_ip/dst_ip" in msg.note
+        assert "均非空" in msg.note
+
+
+class TestHeatmapStatsService:
+    @staticmethod
+    def _range_mock(min_ts, max_ts):
+        return patch(
+            STATS_FAULT_RANGE, new=AsyncMock(return_value=(min_ts, max_ts))
+        )
+
+    @staticmethod
+    def _buckets_mock(items):
+        return patch(STATS_HEATMAP_BUCKETS, new=AsyncMock(return_value=items))
+
+    async def test_auto_window_1m_for_short_span(self):
+        """跨度 30min → 自动 1m，buckets 以 60s 分桶。"""
+        with (
+            self._range_mock(
+                datetime(2026, 9, 3, 12, 0, 0),
+                datetime(2026, 9, 3, 12, 30, 0),
+            ),
+            self._buckets_mock([
+                HeatmapSlotItem(
+                    window_start="2026-09-03 12:00:00", fault_trace_cnt=5
+                ),
+            ]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(
+                HeatmapStatsRequest(kb_id=KB_ID))
+
+        assert msg.window_size == "1m"
+        assert msg.total == 1
+        assert msg.items[0].window_start == "2026-09-03 12:00:00"
+        buckets.assert_awaited_once()
+        assert buckets.call_args[0][1] == 60
+        assert "自动" in msg.note
+
+    async def test_auto_window_10m_for_medium_span(self):
+        """跨度 3h → 自动 10m（18 slots ≤ 240，不放大）。"""
+        with (
+            self._range_mock(
+                datetime(2026, 9, 3, 9, 0, 0),
+                datetime(2026, 9, 3, 12, 0, 0),
+            ),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(
+                HeatmapStatsRequest(kb_id=KB_ID))
+
+        assert msg.window_size == "10m"
+        assert buckets.call_args[0][1] == 600
+
+    async def test_auto_window_enlarged_when_slots_exceed_240(self):
+        """跨度 45h：自动 10m → 270 slots > 240 → 放大到 1h。"""
+        with (
+            self._range_mock(
+                datetime(2026, 9, 1, 12, 0, 0),
+                datetime(2026, 9, 3, 9, 0, 0),
+            ),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(
+                HeatmapStatsRequest(kb_id=KB_ID))
+
+        assert msg.window_size == "1h"
+        assert buckets.call_args[0][1] == 3600
+        assert "45.0h" in msg.note
+
+    async def test_explicit_window_not_enlarged(self):
+        """指定 1m 跨度 10h（600 slots）：尊重显式选择，仅 note 提示超限。"""
+        with (
+            self._range_mock(
+                datetime(2026, 9, 3, 2, 0, 0),
+                datetime(2026, 9, 3, 12, 0, 0),
+            ),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(
+                HeatmapStatsRequest(kb_id=KB_ID, window_size="1m"))
+
+        assert msg.window_size == "1m"
+        assert buckets.call_args[0][1] == 60
+        assert "超过 240 上限" in msg.note
+        assert "指定" in msg.note
+
+    async def test_no_data_returns_empty_with_note(self):
+        with (
+            self._range_mock(None, None),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(
+                HeatmapStatsRequest(kb_id=KB_ID))
+
+        assert msg.total == 0
+        assert msg.window_size == "10m"
+        assert msg.items == []
+        assert "无故障 trace 数据" in msg.note
+        buckets.assert_not_awaited()
+
+    async def test_invalid_window_start_after_end(self):
+        with (
+            self._range_mock(None, None),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(HeatmapStatsRequest(
+                kb_id=KB_ID,
+                start_time="2026-09-03 12:30:00",
+                end_time="2026-09-03 12:00:00",
+            ))
+
+        assert msg.total == 0
+        assert "时间窗无效" in msg.note
+        buckets.assert_not_awaited()
+
+    async def test_request_bounds_extend_data_range(self):
+        """请求时间窗宽于数据范围：跨度按请求窗计算（选窗依据请求窗）。"""
+        with (
+            self._range_mock(
+                datetime(2026, 9, 3, 11, 50, 0),
+                datetime(2026, 9, 3, 12, 0, 0),
+            ),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(HeatmapStatsRequest(
+                kb_id=KB_ID,
+                start_time="2026-09-03 10:00:00",
+                end_time="2026-09-03 12:00:00",
+            ))
+
+        # 有效跨度 2h（按请求窗）→ 1m，slots=120 ≤ 240
+        assert msg.window_size == "1m"
+        assert buckets.call_args[0][1] == 60
+
+    async def test_one_sided_bound_uses_data_for_other_side(self):
+        """仅给 start_time：end 取故障侧数据 max（缺省侧数据补齐）。"""
+        with (
+            self._range_mock(
+                datetime(2026, 9, 3, 10, 0, 0),
+                datetime(2026, 9, 3, 12, 0, 0),
+            ),
+            self._buckets_mock([]) as buckets,
+        ):
+            msg = await StatsService.get_heatmap_stats(HeatmapStatsRequest(
+                kb_id=KB_ID, start_time="2026-09-03 09:00:00"))
+
+        # 有效跨度 09:00→12:00 = 3h → 10m
+        assert msg.window_size == "10m"
+        assert buckets.call_args[0][1] == 600
+
+
+class TestStatsDimensionRouters:
+    async def test_error_codes_passthrough(self, client):
+        msg = ErrorCodeStatsMsg(
+            total=1,
+            items=[ErrorCodeStatItem(
+                status_code="1001", trace_cnt=371, event_cnt=400,
+            )],
+        )
+        with (
+            patch("latency.routers.stats.ResourceIdService.validate_request",
+                  new=AsyncMock(return_value=None)),
+            patch("latency.routers.stats.StatsService.get_error_code_stats",
+                  new=AsyncMock(return_value=msg)),
+        ):
+            resp = await client.post("/stats/error_codes", json={"kb_id": KB_ID})
+
+        assert resp.status_code == 200
+        result = resp.json()["result"]
+        assert result["total"] == 1
+        assert result["items"][0] == {
+            "status_code": "1001", "trace_cnt": 371, "event_cnt": 400,
+        }
+
+    async def test_error_codes_event_cnt_null_in_json(self, client):
+        msg = ErrorCodeStatsMsg(
+            total=1,
+            items=[ErrorCodeStatItem(status_code="1001", trace_cnt=371)],
+        )
+        with (
+            patch("latency.routers.stats.ResourceIdService.validate_request",
+                  new=AsyncMock(return_value=None)),
+            patch("latency.routers.stats.StatsService.get_error_code_stats",
+                  new=AsyncMock(return_value=msg)),
+        ):
+            resp = await client.post("/stats/error_codes", json={"kb_id": KB_ID})
+
+        assert resp.status_code == 200
+        assert resp.json()["result"]["items"][0]["event_cnt"] is None
+
+    async def test_pods_passthrough(self, client):
+        msg = PodStatsMsg(
+            total=1,
+            items=[PodStatItem(
+                pod_ip="10.0.1.5", host="host-101",
+                trace_cnt=100, fault_trace_cnt=80,
+            )],
+        )
+        with (
+            patch("latency.routers.stats.ResourceIdService.validate_request",
+                  new=AsyncMock(return_value=None)),
+            patch("latency.routers.stats.StatsService.get_pod_stats",
+                  new=AsyncMock(return_value=msg)),
+        ):
+            resp = await client.post("/stats/pods", json={"kb_id": KB_ID})
+
+        assert resp.status_code == 200
+        result = resp.json()["result"]
+        assert result["total"] == 1
+        assert result["items"][0] == {
+            "pod_ip": "10.0.1.5", "host": "host-101",
+            "trace_cnt": 100, "fault_trace_cnt": 80,
+        }
+
+    async def test_links_passthrough(self, client):
+        msg = LinkStatsMsg(
+            total=1,
+            items=[LinkStatItem(
+                src_ip="10.0.1.5", dst_ip="10.0.2.8",
+                trace_cnt=100, fault_trace_cnt=80,
+            )],
+        )
+        with (
+            patch("latency.routers.stats.ResourceIdService.validate_request",
+                  new=AsyncMock(return_value=None)),
+            patch("latency.routers.stats.StatsService.get_link_stats",
+                  new=AsyncMock(return_value=msg)),
+        ):
+            resp = await client.post("/stats/links", json={"kb_id": KB_ID})
+
+        assert resp.status_code == 200
+        result = resp.json()["result"]
+        assert result["total"] == 1
+        assert result["items"][0] == {
+            "src_ip": "10.0.1.5", "dst_ip": "10.0.2.8",
+            "trace_cnt": 100, "fault_trace_cnt": 80,
+        }
+
+    async def test_heatmap_passthrough_with_window_size(self, client):
+        msg = HeatmapStatsMsg(
+            total=2, window_size="1m",
+            items=[
+                HeatmapSlotItem(
+                    window_start="2026-09-03 12:00:00", fault_trace_cnt=5
+                ),
+                HeatmapSlotItem(
+                    window_start="2026-09-03 12:01:00", fault_trace_cnt=8
+                ),
+            ],
+            note="窗口 1m（自动）",
+        )
+        with (
+            patch("latency.routers.stats.ResourceIdService.validate_request",
+                  new=AsyncMock(return_value=None)),
+            patch("latency.routers.stats.StatsService.get_heatmap_stats",
+                  new=AsyncMock(return_value=msg)),
+        ):
+            resp = await client.post("/stats/heatmap", json={"kb_id": KB_ID})
+
+        assert resp.status_code == 200
+        result = resp.json()["result"]
+        assert result["total"] == 2
+        assert result["window_size"] == "1m"
+        assert result["items"][0] == {
+            "window_start": "2026-09-03 12:00:00", "fault_trace_cnt": 5,
+        }
+
+    async def test_top_n_over_100_rejected(self, client):
+        resp = await client.post("/stats/error_codes", json={
+            "kb_id": KB_ID, "top_n": 101,
+        })
+        assert resp.status_code == 422
+        assert resp.json()["code"] == 422
+
+    async def test_heatmap_invalid_window_size_rejected(self, client):
+        resp = await client.post("/stats/heatmap", json={
+            "kb_id": KB_ID, "window_size": "5m",
+        })
+        assert resp.status_code == 422
+
+    async def test_stats_dimension_requires_kb_id(self, client):
+        for path in ("/stats/error_codes", "/stats/pods", "/stats/links",
+                     "/stats/heatmap"):
+            resp = await client.post(path, json={})
+            assert resp.status_code == 422
