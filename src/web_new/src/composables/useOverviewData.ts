@@ -270,7 +270,7 @@ function createOverviewStateInner() {
 
   /**
    * 阶段（yuanrong 分解）字段口径：请求带 stat_type=p99 时，后端只把 p99_<metric> 挂到
-   * ip_pair 上；历史口径响应仍可能是 ave_<metric>，所以先 p99 再 ave 回退。
+   * ip_pair 上；旧数据可能只有 ave_<metric>，所以先 p99 再 ave 回退。
    */
   const pairStageMetric = (pair: any, key: string): number | null => {
     for (const field of [`p99_${key}`, `ave_${key}`]) {
@@ -622,8 +622,7 @@ function createOverviewStateInner() {
   const brpcIfaceNames = computed(() =>
     [...new Set(brpcFileRows.value.map((row) => row.interface_name).filter(Boolean))].sort(),
   )
-  // 两张总览图（成功率 / 时延）共用一套接口勾选——同一批曲线在两个视角下对照，
-  // 不再各自渲染一份 21 项清单
+  // 两张总览图（成功率 / 时延）共用一套接口勾选，便于在同一批曲线上对照两个视角
   const brpcOverviewSelectedIfaces = ref<string[]>([])
   const brpcSingleIface = ref('')
 
@@ -3219,7 +3218,7 @@ function createOverviewStateInner() {
     ]
     return defs.map((def) => {
       const value = row ? row[def.key] : null
-      // 与上游口径一致：缺失 = 日志不存在该时延项目；负值 = 由总时延被截断引起
+      // 缺失 = 日志不存在该时延项目；负值 = 由总时延被截断引起
       const status =
         value == null
           ? '日志不存在该时延项目'
@@ -3664,7 +3663,7 @@ function createOverviewStateInner() {
         max: '最大',
       }
       const statLabel = statLabelMap[overview.statType] || '均值'
-      // 粗粒度 P95/P99 是 10 秒桶分位值的再聚合近似（文案口径）
+      // 粗粒度 P95/P99 是 10 秒桶分位值的再聚合近似，UI 需标注
       const approximate = overviewScale.value >= 60 && ['p95', 'p99'].includes(overview.statType)
       const statSuffix = approximate ? '，粗粒度近似' : ''
 

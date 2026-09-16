@@ -6,5 +6,3 @@ export const listTasks = (body: Record<string, unknown>) =>
     method: 'POST',
     body: JSON.stringify(body),
   })
-
-export const getTask = (taskId: string) => request<{ task: TaskModel | null }>(`/task/${taskId}`)

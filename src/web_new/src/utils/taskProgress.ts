@@ -90,7 +90,7 @@ const failureReasonStatuses = new Set(['failed', 'failed_pending_remove', 'retry
 const taskFailureMessagePattern = /(?:失败|异常停止|error|failed|exception)/i
 
 // 失败原因不能只取「最新一条报告」：任务失败后仍会继续写入 [polars] 进度报告，
-// 会把原因顶掉（旧版同样问题）。这里取最新一条带失败语义的报告。
+// 会把原因顶掉。这里取最新一条带失败语义的报告。
 export const taskFailureReason = (file: TaskProgressSource): string => {
   if (!failureReasonStatuses.has(file.overall_status ?? '')) return ''
 

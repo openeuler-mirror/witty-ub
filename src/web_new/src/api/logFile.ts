@@ -24,9 +24,6 @@ export const listAllLogFiles = async (kbId: string) => {
   return (all.log_files ?? []).filter((file) => file.existed_status !== false)
 }
 
-export const getLogFile = (logFileId: string) =>
-  request<{ log_file: LogFileModel | null }>(`/log_file/${logFileId}`)
-
 export const uploadLogFilesJson = (
   kbId: string,
   configs: Array<Record<string, unknown>>,

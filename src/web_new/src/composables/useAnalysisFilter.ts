@@ -63,9 +63,6 @@ export function createAnalysisFilter() {
   const showOnlyNodes = (ips: string[]) => {
     nodeWhitelist.value = [...ips]
   }
-  const removeWhitelistNode = (ip: string) => {
-    nodeWhitelist.value = nodeWhitelist.value.filter((item) => item !== ip)
-  }
   const clearWhitelist = () => {
     nodeWhitelist.value = []
   }
@@ -93,7 +90,6 @@ export function createAnalysisFilter() {
     setFocusLink,
     clearFocus,
     showOnlyNodes,
-    removeWhitelistNode,
     clearWhitelist,
     reset,
   }

@@ -17,7 +17,6 @@ test('writable=true keeps every write entry usable', () => {
   })
 
   assert.equal(state.writeRestricted, false)
-  assert.equal(state.diskMode, 'normal')
   assert.equal(state.message, WRITE_RESTRICTED_MESSAGE)
 })
 
@@ -32,7 +31,6 @@ test('writable=false locks writes and prefers the server message', () => {
     {
       writeRestricted: true,
       message: '服务器磁盘空间不足，当前仅开放查询和删除操作',
-      diskMode: 'warning',
     },
   )
 

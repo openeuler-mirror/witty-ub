@@ -5,7 +5,6 @@ export const WRITE_RESTRICTED_MESSAGE = '服务器磁盘空间不足，当前仅
 export type ServiceHealthState = {
   writeRestricted: boolean
   message: string
-  diskMode: string
 }
 
 // 只有拿到健康响应才判定写受限：writable 缺省（旧后端 / 异常响应）时按可写处理，
@@ -17,6 +16,5 @@ export const parseServiceHealth = (
   return {
     writeRestricted: health?.writable === false,
     message: message || WRITE_RESTRICTED_MESSAGE,
-    diskMode: health?.disk_mode?.trim() ?? '',
   }
 }
