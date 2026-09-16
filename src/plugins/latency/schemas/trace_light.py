@@ -1,5 +1,9 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""Trace 轻量取数层 schema（/trace/list + /trace/{trace_id} + /stats/stages）。
+"""Trace 轻量取数层 schema（/trace/list + /trace/{trace_id} + /stats/*）。
+
+批次 1：/trace/list + /trace/{trace_id} + /stats/stages；
+批次 2（设计文档 §11.1）：/stats/error_codes | /stats/pods | /stats/links |
+/stats/heatmap（四端点共用请求骨架，响应统一 {"total", "items"}）。
 
 独立新增文件（设计文档 docs/design/trace-light-api.md）：全部为轻量取数
 API 专用的请求/响应模型，不复用、不修改既有 schemas 文件中的旧类。
@@ -301,3 +305,126 @@ class GetStageStatsMsg(BaseModel):
 
 class GetStageStatsResponse(ResponseBase):
     result: GetStageStatsMsg = Field(..., description="主导问题分类响应结果")
+
+
+# ============================================================
+# 请求模型：/stats/* 单维度统计（批次 2，设计文档 §11.1）
+# ============================================================
+class StatsDimensionRequest(StrictRequestModel):
+    """单维度统计共用请求骨架（/stats/error_codes | /stats/pods | /stats/links）。
+
+    设计文档 docs/design/trace-light-api.md §11.1：kb_id 必填，其余过滤
+    可选；top_n 默认 20（≤100）；响应统一 {"total", "items"}。
+    联动纪律：每个 /stats/* 的 Top 项即 /trace/list 对应过滤器的取值
+    （Top 码 → status_codes、Top Pod → pod_ip、Top 源目 → src_ip/dst_ip）。
+    """
+    kb_id: str = Field(..., description="知识库ID，用于过滤")
+    log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志文件")
+    operation: Optional[str] = Field(default=None, description="操作类型过滤：GET / SET")
+    start_time: Optional[TimeStr] = Field(
+        default=None, description="开始时间，格式为YYYY-MM-DD HH:MM:SS"
+    )
+    end_time: Optional[TimeStr] = Field(
+        default=None, description="结束时间，格式为YYYY-MM-DD HH:MM:SS"
+    )
+    top_n: int = Field(
+        default=20, ge=1, le=100, description="返回条数上限（≤100），默认20"
+    )
+
+
+class HeatmapStatsRequest(StatsDimensionRequest):
+    """时间热点统计请求（/stats/heatmap，追加 window_size）。
+
+    window_size 缺省按时长自动：跨度≤2h→1m、≤48h→10m、否则 1h；
+    自动模式下 slots 上限 240（超限自动放大窗口）。heatmap 返回全部
+    有数据时间槽（≤240），top_n 不适用（仅为共用骨架字段）。
+    """
+    window_size: Optional[Literal["1m", "10m", "1h"]] = Field(
+        default=None,
+        description="时间槽窗口：1m/10m/1h；缺省按时长自动（≤2h→1m、≤48h→10m、否则1h）",
+    )
+
+
+# ============================================================
+# 响应模型：/stats/error_codes
+# ============================================================
+class ErrorCodeStatItem(BaseModel):
+    """故障码统计条目（trace 级 Counter，trace_cnt 降序）。"""
+    status_code: str = Field(..., description="故障码")
+    trace_cnt: int = Field(..., description="挂有该故障码的 trace 数（trace_failure_event trace 级）")
+    event_cnt: Optional[int] = Field(
+        default=None,
+        description="日志级事件数（log_failure_event 侧；该侧无数据时为 null）",
+    )
+
+
+class ErrorCodeStatsMsg(BaseModel):
+    total: int = Field(..., description="故障码维度基数（去重故障码总数）")
+    items: list[ErrorCodeStatItem] = Field(default_factory=list, description="Top 故障码列表")
+    note: Optional[str] = Field(default=None, description="口径/联动说明")
+
+
+class ErrorCodeStatsResponse(ResponseBase):
+    result: ErrorCodeStatsMsg = Field(..., description="故障码统计响应结果")
+
+
+# ============================================================
+# 响应模型：/stats/pods
+# ============================================================
+class PodStatItem(BaseModel):
+    """Pod 统计条目（时延侧 pod 聚合 + 故障侧 join）。"""
+    pod_ip: str = Field(..., description="Pod IP")
+    host: Optional[str] = Field(default=None, description="主机名（该 Pod 涉及行的 host 聚合）")
+    trace_cnt: int = Field(..., description="该 Pod 涉及的 trace 数（多 Pod trace 在各 Pod 均计数一次）")
+    fault_trace_cnt: int = Field(..., description="其中在故障侧（trace_failure_event）有记录的 trace 数")
+
+
+class PodStatsMsg(BaseModel):
+    total: int = Field(..., description="Pod 维度基数（去重 Pod IP 总数）")
+    items: list[PodStatItem] = Field(default_factory=list, description="Top Pod 列表")
+    note: Optional[str] = Field(default=None, description="口径/联动说明")
+
+
+class PodStatsResponse(ResponseBase):
+    result: PodStatsMsg = Field(..., description="Pod 统计响应结果")
+
+
+# ============================================================
+# 响应模型：/stats/links
+# ============================================================
+class LinkStatItem(BaseModel):
+    """源目对统计条目（时延侧 src/dst 聚合 + 故障侧 join）。"""
+    src_ip: str = Field(..., description="源 IP")
+    dst_ip: str = Field(..., description="目的 IP")
+    trace_cnt: int = Field(..., description="该源目对涉及的 trace 数")
+    fault_trace_cnt: int = Field(..., description="其中在故障侧（trace_failure_event）有记录的 trace 数")
+
+
+class LinkStatsMsg(BaseModel):
+    total: int = Field(..., description="源目对维度基数（去重 (src_ip, dst_ip) 总数）")
+    items: list[LinkStatItem] = Field(default_factory=list, description="Top 源目对列表")
+    note: Optional[str] = Field(default=None, description="口径/联动说明")
+
+
+class LinkStatsResponse(ResponseBase):
+    result: LinkStatsMsg = Field(..., description="源目对统计响应结果")
+
+
+# ============================================================
+# 响应模型：/stats/heatmap
+# ============================================================
+class HeatmapSlotItem(BaseModel):
+    """时间热点槽（window_start 升序，仅含有数据时间槽）。"""
+    window_start: str = Field(..., description="时间槽起点，格式为YYYY-MM-DD HH:MM:SS")
+    fault_trace_cnt: int = Field(..., description="该槽内有故障事件记录的 trace 数（跨槽 trace 在每槽各计一次）")
+
+
+class HeatmapStatsMsg(BaseModel):
+    total: int = Field(..., description="有数据时间槽总数")
+    window_size: str = Field(..., description="实际使用的时间槽窗口（1m/10m/1h）")
+    items: list[HeatmapSlotItem] = Field(default_factory=list, description="时间热点序列（window_start 升序）")
+    note: Optional[str] = Field(default=None, description="选窗/口径说明")
+
+
+class HeatmapStatsResponse(ResponseBase):
+    result: HeatmapStatsMsg = Field(..., description="时间热点统计响应结果")

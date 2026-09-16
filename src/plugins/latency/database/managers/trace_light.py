@@ -21,18 +21,30 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.dialects.postgresql import array
 
 from latency.database.engine import PGManager
-from latency.database.models import LogFile, LogParseResult, TraceFailureEvent
+from latency.database.models import (
+    LogFailureEvent,
+    LogFile,
+    LogParseResult,
+    TraceFailureEvent,
+)
 from latency.database.utils import format_ip, format_timestamp, parse_timestamp
 from latency.schemas.request import ListLogParseResultRequest
 from latency.schemas.trace_light import (
+    ErrorCodeStatItem,
     FailureCodeCntItem,
+    HeatmapSlotItem,
+    HeatmapStatsRequest,
+    LinkStatItem,
     ListFailureCodeStatsRequest,
+    PodStatItem,
+    StatsDimensionRequest,
     TraceFailureCodeStatModel,
 )
 
@@ -564,3 +576,332 @@ class TraceLightPGManager:
         for stat in stats_map.values():
             stat.failure_cnt = sum(item.cnt for item in stat.codes)
         return list(stats_map.values())
+
+    # ------------------------------------------------------------------
+    # /stats/* 单维度统计聚合（批次 2，设计文档 §11.1）
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def list_error_code_stats(
+        req: StatsDimensionRequest,
+    ) -> tuple[int, list[ErrorCodeStatItem]]:
+        """故障码统计：trace 级 Counter（trace_cnt 降序）+ 日志级事件数。
+
+        trace_cnt：trace_failure_event 按码 unnest 后的 distinct trace 计数
+        （同 §5 failure_codes 口径，不过滤 failure_mode）；
+        event_cnt：log_failure_event 侧按码行计数，该侧无任何数据时为 null。
+        聚合/排序/LIMIT 下推 DB，应用侧只接收 top_n 行。
+        """
+        log_ids = await _stats_scope(req)
+        if not log_ids:
+            return 0, []
+        conds = _fault_stats_conds(log_ids, req)
+
+        expanded = (
+            select(
+                TraceFailureEvent.trace_id.label("trace_id"),
+                func.unnest(TraceFailureEvent.status_code).label("code"),
+            )
+            .where(*conds)
+            .cte("expanded")
+        )
+        code_col = expanded.c.code
+        trace_cnt_col = func.count(
+            func.distinct(expanded.c.trace_id)
+        ).label("trace_cnt")
+        agg = select(code_col, trace_cnt_col).group_by(code_col)
+        count_stmt = select(func.count()).select_from(agg.subquery())
+        page_stmt = agg.order_by(
+            trace_cnt_col.desc(), code_col.asc()
+        ).limit(req.top_n)
+
+        ev_conds = [LogFailureEvent.status_code.is_not(None)]
+        if log_ids:
+            ev_conds.append(LogFailureEvent.log_id.in_(log_ids))
+        if req.start_time:
+            ev_conds.append(
+                LogFailureEvent.timestamp >= parse_timestamp(req.start_time)
+            )
+        if req.end_time:
+            ev_conds.append(
+                LogFailureEvent.timestamp <= parse_timestamp(req.end_time)
+            )
+        event_stmt = (
+            select(
+                LogFailureEvent.status_code.label("code"),
+                func.count().label("event_cnt"),
+            )
+            .where(*ev_conds)
+            .group_by(LogFailureEvent.status_code)
+        )
+
+        async with PGManager.session() as session:
+            total = (await session.execute(count_stmt)).scalar() or 0
+            page_rows = (await session.execute(page_stmt)).all()
+            event_rows = (await session.execute(event_stmt)).all()
+
+        event_map = {row.code: row.event_cnt for row in event_rows}
+        event_available = bool(event_rows)
+        items = [
+            ErrorCodeStatItem(
+                status_code=row.code,
+                trace_cnt=row.trace_cnt,
+                event_cnt=(event_map.get(row.code, 0) if event_available else None),
+            )
+            for row in page_rows
+        ]
+        return total, items
+
+    @staticmethod
+    async def list_pod_stats(
+        req: StatsDimensionRequest,
+    ) -> tuple[int, list[PodStatItem]]:
+        """Pod 统计：时延侧 pod 聚合 + 故障侧 join（fault_trace_cnt）。
+
+        时延侧 unnest(pod_ips) 每 (trace, pod) 一行——多 Pod trace 在各 Pod
+        均计数一次；fault_trace_cnt 为该 Pod 的 trace 在 trace_failure_event
+        （kb/log 范围，不重复施加时间/operation 过滤——trace 集合由时延侧
+        过滤决定）有记录的 trace 数。host 取该 Pod 涉及行的 min(host)。
+        """
+        log_ids = await _stats_scope(req)
+        if not log_ids:
+            return 0, []
+
+        lat_req = ListLogParseResultRequest(
+            kb_id=req.kb_id,
+            log_id=req.log_id,
+            operation=req.operation,
+            start_time=req.start_time,
+            end_time=req.end_time,
+        )
+        lat = _apply_latency_filters(
+            select(
+                LogParseResult.trace_id.label("trace_id"),
+                LogParseResult.host.label("host"),
+                func.unnest(LogParseResult.pod_ips).label("pod_ip"),
+            ),
+            lat_req,
+        ).cte("lat")
+        fault_ids = (
+            select(TraceFailureEvent.trace_id.label("trace_id"))
+            .where(TraceFailureEvent.log_id.in_(log_ids))
+            .cte("fault_ids")
+        )
+        joined = lat.outerjoin(fault_ids, lat.c.trace_id == fault_ids.c.trace_id)
+        agg = (
+            select(
+                lat.c.pod_ip.label("pod_ip"),
+                func.min(lat.c.host).label("host"),
+                func.count(func.distinct(lat.c.trace_id)).label("trace_cnt"),
+                func.count(
+                    func.distinct(fault_ids.c.trace_id)
+                ).label("fault_trace_cnt"),
+            )
+            .select_from(joined)
+            .where(lat.c.pod_ip != "")
+            .group_by(lat.c.pod_ip)
+        )
+        sub = agg.subquery()
+        count_stmt = select(func.count()).select_from(sub)
+        page_stmt = (
+            select(sub)
+            .order_by(
+                sub.c.fault_trace_cnt.desc(),
+                sub.c.trace_cnt.desc(),
+                sub.c.pod_ip.asc(),
+            )
+            .limit(req.top_n)
+        )
+        async with PGManager.session() as session:
+            total = (await session.execute(count_stmt)).scalar() or 0
+            rows = (await session.execute(page_stmt)).all()
+        return total, [
+            PodStatItem(
+                pod_ip=r.pod_ip,
+                host=r.host,
+                trace_cnt=r.trace_cnt,
+                fault_trace_cnt=r.fault_trace_cnt,
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    async def list_link_stats(
+        req: StatsDimensionRequest,
+    ) -> tuple[int, list[LinkStatItem]]:
+        """源目对统计：时延侧 src/dst 聚合 + 故障侧 join（fault_trace_cnt）。
+
+        仅统计 src_ip 与 dst_ip 均非空的行（链路维度需两端齐全）；
+        fault 口径同 list_pod_stats（kb/log 范围内有故障记录）。
+        """
+        log_ids = await _stats_scope(req)
+        if not log_ids:
+            return 0, []
+
+        lat_req = ListLogParseResultRequest(
+            kb_id=req.kb_id,
+            log_id=req.log_id,
+            operation=req.operation,
+            start_time=req.start_time,
+            end_time=req.end_time,
+        )
+        lat = _apply_latency_filters(
+            select(
+                LogParseResult.trace_id.label("trace_id"),
+                func.host(LogParseResult.src_ip).label("src_ip"),
+                func.host(LogParseResult.dst_ip).label("dst_ip"),
+            ),
+            lat_req,
+        ).where(
+            LogParseResult.src_ip.is_not(None),
+            LogParseResult.dst_ip.is_not(None),
+        ).cte("lat")
+        fault_ids = (
+            select(TraceFailureEvent.trace_id.label("trace_id"))
+            .where(TraceFailureEvent.log_id.in_(log_ids))
+            .cte("fault_ids")
+        )
+        joined = lat.outerjoin(fault_ids, lat.c.trace_id == fault_ids.c.trace_id)
+        agg = (
+            select(
+                lat.c.src_ip.label("src_ip"),
+                lat.c.dst_ip.label("dst_ip"),
+                func.count(func.distinct(lat.c.trace_id)).label("trace_cnt"),
+                func.count(
+                    func.distinct(fault_ids.c.trace_id)
+                ).label("fault_trace_cnt"),
+            )
+            .select_from(joined)
+            .group_by(lat.c.src_ip, lat.c.dst_ip)
+        )
+        sub = agg.subquery()
+        count_stmt = select(func.count()).select_from(sub)
+        page_stmt = (
+            select(sub)
+            .order_by(
+                sub.c.fault_trace_cnt.desc(),
+                sub.c.trace_cnt.desc(),
+                sub.c.src_ip.asc(),
+                sub.c.dst_ip.asc(),
+            )
+            .limit(req.top_n)
+        )
+        async with PGManager.session() as session:
+            total = (await session.execute(count_stmt)).scalar() or 0
+            rows = (await session.execute(page_stmt)).all()
+        return total, [
+            LinkStatItem(
+                src_ip=r.src_ip,
+                dst_ip=r.dst_ip,
+                trace_cnt=r.trace_cnt,
+                fault_trace_cnt=r.fault_trace_cnt,
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    async def list_fault_time_range(
+        req: HeatmapStatsRequest,
+    ) -> tuple[Optional[datetime], Optional[datetime]]:
+        """trace_failure_event 时间范围（过滤条件下的 min/max timestamp）。
+
+        供 /stats/heatmap 服务层计算跨度选窗；无数据返回 (None, None)。
+        """
+        log_ids = await _stats_scope(req)
+        if not log_ids:
+            return None, None
+        conds = _fault_stats_conds(
+            log_ids, req
+        ) + [TraceFailureEvent.timestamp.is_not(None)]
+        stmt = select(
+            func.min(TraceFailureEvent.timestamp),
+            func.max(TraceFailureEvent.timestamp),
+        ).where(*conds)
+        async with PGManager.session() as session:
+            row = (await session.execute(stmt)).first()
+        if row is None:
+            return None, None
+        return row[0], row[1]
+
+    @staticmethod
+    async def list_heatmap_buckets(
+        req: HeatmapStatsRequest,
+        window_seconds: int,
+    ) -> list[HeatmapSlotItem]:
+        """时间热点分桶：epoch 对窗口 floor 取整，distinct trace 计数。
+
+        复用 list_time_aggregated_failure_events 的 DB 侧时间分桶思路；
+        10m 无法用 date_trunc 表达，统一走 epoch floor（纯算术，无时区
+        转换，timestamp 为 naive 本地时间）。仅返回有数据的时间槽，
+        window_start 升序；跨槽 trace 在每个有事件的槽各计一次。
+        """
+        log_ids = await _stats_scope(req)
+        if not log_ids:
+            return []
+        conds = _fault_stats_conds(
+            log_ids, req
+        ) + [TraceFailureEvent.timestamp.is_not(None)]
+        bucket_expr = func.floor(
+            func.extract("epoch", TraceFailureEvent.timestamp) / window_seconds
+        ) * window_seconds
+        stmt = (
+            select(
+                bucket_expr.label("bucket_epoch"),
+                func.count(func.distinct(TraceFailureEvent.trace_id)).label(
+                    "fault_trace_cnt"
+                ),
+            )
+            .where(*conds)
+            .group_by(bucket_expr)
+            .order_by(bucket_expr.asc())
+        )
+        async with PGManager.session() as session:
+            rows = (await session.execute(stmt)).all()
+        return [
+            HeatmapSlotItem(
+                window_start=(
+                    datetime(1970, 1, 1)
+                    + timedelta(seconds=int(row.bucket_epoch))
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+                fault_trace_cnt=row.fault_trace_cnt,
+            )
+            for row in rows
+        ]
+
+
+# ---------------------------------------------------------------------------
+# /stats/* 统计过滤辅助（批次 2）
+# ---------------------------------------------------------------------------
+
+def _fault_stats_conds(log_ids: list[str], req: StatsDimensionRequest) -> list:
+    """trace_failure_event 统计过滤：kb/log 收窄 + operation/时间窗。
+
+    口径对齐 _trace_filter_conditions 的 log_id/operation/时间部分
+    （operation 为故障侧精确匹配；时间过滤作用于故障侧 timestamp）。
+    """
+    conds = []
+    if log_ids:
+        conds.append(TraceFailureEvent.log_id.in_(log_ids))
+    if req.operation:
+        conds.append(TraceFailureEvent.operation == req.operation)
+    if req.start_time:
+        conds.append(
+            TraceFailureEvent.timestamp >= parse_timestamp(req.start_time)
+        )
+    if req.end_time:
+        conds.append(
+            TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+        )
+    return conds
+
+
+async def _stats_scope(req: StatsDimensionRequest) -> list[str]:
+    """kb_id → 有效 log_id 列表并收窄到 log_id。
+
+    kb 无有效日志文件、或 log_id 不属于该 kb 时返回空列表/哨兵，
+    调用方以空列表短路返回空结果。
+    """
+    log_ids = await _log_ids_for_kb_id(req.kb_id)
+    if req.kb_id and not log_ids:
+        return []
+    return _narrow_log_ids(log_ids, req.log_id)

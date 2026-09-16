@@ -1,6 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""主导问题分类服务（/stats/stages，组件定位入口）。
+"""统计服务（/stats/*）。
 
+主导问题分类（/stats/stages，组件定位入口）：
 血缘：yuanrong-scripts/ds_trace_bottleneck.py 的 problem_summary
 （图 1-1 主问题 Trace 数 / 图 1-2 关键证据耗时）。
 四件套（桶定义 / 26 us 字段 8 维归因 / 互斥分类 / 采样）自 light_result.py
@@ -8,6 +9,11 @@
 - 聚合时同步收集 Client 总时延分位（client_p50_ms / client_p90_ms）；
 - 桶定义表挂 action 治理指引文案（脚本 guidance_actions 8 句）；
 - 每桶维护证据耗时 top-N 下钻种子（top_traces，直接用于 /trace 批查）。
+
+批次 2（设计文档 §11.1）：/stats/error_codes | /stats/pods | /stats/links |
+/stats/heatmap 四个单维度统计——SQL 聚合下推 DB（TraceLightPGManager），
+服务层负责响应拼装、heatmap 自动选窗（跨度≤2h→1m、≤48h→10m、否则 1h，
+slots 上限 240 超限自动放大）与联动口径 note。
 """
 
 import asyncio
@@ -18,15 +24,23 @@ import re
 from typing import Any, Optional
 
 from latency.database.managers.log_parse_result import LogParseResultPGManager
+from latency.database.managers.trace_light import TraceLightPGManager
+from latency.database.utils import parse_timestamp
 from latency.schemas.request import (
     ListLogParseResultRequest,
     SortField,
 )
 from latency.schemas.trace_light import (
+    ErrorCodeStatsMsg,
     GetStageStatsMsg,
     GetStageStatsRequest,
+    HeatmapStatsMsg,
+    HeatmapStatsRequest,
+    LinkStatsMsg,
+    PodStatsMsg,
     StageStatsItem,
     StageStatsTopTrace,
+    StatsDimensionRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -197,8 +211,33 @@ def _zero_bucket_items() -> list[StageStatsItem]:
     ]
 
 
+# /stats/heatmap 自动选窗（设计文档 §11.1）：跨度≤2h→1m、≤48h→10m、
+# 否则 1h；自动模式下 slots 上限 240，超限逐级放大窗口（指定窗口不放大）。
+_WINDOW_SECONDS = {"1m": 60, "10m": 600, "1h": 3600}
+_WINDOW_ORDER = ["1m", "10m", "1h"]
+_HEATMAP_MAX_SLOTS = 240
+
+
+def _auto_window(span_seconds: float) -> str:
+    """按时间跨度自动选窗：≤2h→1m、≤48h→10m、否则 1h。"""
+    if span_seconds <= 2 * 3600:
+        return "1m"
+    if span_seconds <= 48 * 3600:
+        return "10m"
+    return "1h"
+
+
+def _format_span(seconds: float) -> str:
+    """跨度秒数的人类可读格式（note 用）。"""
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f}h"
+    if seconds >= 60:
+        return f"{seconds / 60:.1f}m"
+    return f"{seconds:.0f}s"
+
+
 class StatsService:
-    """主导问题分类服务"""
+    """主导问题分类 + 单维度统计服务"""
 
     @staticmethod
     async def get_stage_stats(req: GetStageStatsRequest) -> GetStageStatsMsg:
@@ -391,6 +430,107 @@ class StatsService:
             operation="GET",
             sample_cnt=len(sampled),
             truncated=truncated,
+            items=items,
+            note="；".join(notes),
+        )
+
+    # ------------------------------------------------------------------
+    # /stats/* 单维度统计（批次 2，设计文档 §11.1）
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_error_code_stats(
+        req: StatsDimensionRequest,
+    ) -> ErrorCodeStatsMsg:
+        """Top 故障码：trace 级 Counter（trace_cnt 降序）+ 日志级事件数。"""
+        total, items = await TraceLightPGManager.list_error_code_stats(req)
+        notes = ["Top 故障码可直接作为 /trace/list 的 status_codes 过滤取值"]
+        if items and all(i.event_cnt is None for i in items):
+            notes.append("log_failure_event 侧无日志级事件数据，event_cnt 为 null")
+        elif any(i.event_cnt is not None for i in items):
+            notes.append("event_cnt 为 log_failure_event 侧日志级事件数")
+        return ErrorCodeStatsMsg(total=total, items=items, note="；".join(notes))
+
+    @staticmethod
+    async def get_pod_stats(req: StatsDimensionRequest) -> PodStatsMsg:
+        """Top Pod：时延侧 pod 聚合 + 故障侧 join（fault_trace_cnt 降序）。"""
+        total, items = await TraceLightPGManager.list_pod_stats(req)
+        note = (
+            "多 Pod trace 在各 Pod 均计数一次；fault_trace_cnt 为该 Pod 的 trace "
+            "在故障侧（trace_failure_event，kb/log 范围）有记录的数量；"
+            "Top Pod 可直接作为 /trace/list 的 pod_ip 过滤取值"
+        )
+        return PodStatsMsg(total=total, items=items, note=note)
+
+    @staticmethod
+    async def get_link_stats(req: StatsDimensionRequest) -> LinkStatsMsg:
+        """Top 源目对：时延侧 src/dst 聚合 + 故障侧 join。"""
+        total, items = await TraceLightPGManager.list_link_stats(req)
+        note = (
+            "仅统计 src_ip 与 dst_ip 均非空的链路；fault_trace_cnt 口径同 "
+            "/stats/pods；Top 源目对可直接作为 /trace/list 的 src_ip/dst_ip "
+            "过滤取值"
+        )
+        return LinkStatsMsg(total=total, items=items, note=note)
+
+    @staticmethod
+    async def get_heatmap_stats(req: HeatmapStatsRequest) -> HeatmapStatsMsg:
+        """时间热点：自动选窗 + slots 上限 240（超限自动放大窗口）。
+
+        跨度 = 请求时间窗（缺省侧用故障侧数据 min/max 补齐）；
+        指定 window_size 时不放大（尊重显式选择），超限仅 note 提示。
+        """
+        data_min, data_max = await TraceLightPGManager.list_fault_time_range(req)
+        start = parse_timestamp(req.start_time) or data_min
+        end = parse_timestamp(req.end_time) or data_max
+
+        if start is None or end is None:
+            return HeatmapStatsMsg(
+                total=0,
+                window_size=req.window_size or "10m",
+                items=[],
+                note="时间窗内无故障 trace 数据（trace_failure_event 侧无记录）",
+            )
+        if end < start:
+            return HeatmapStatsMsg(
+                total=0,
+                window_size=req.window_size or "10m",
+                items=[],
+                note="时间窗无效：start_time 晚于 end_time",
+            )
+
+        span = (end - start).total_seconds()
+        auto = req.window_size is None
+        window = req.window_size or _auto_window(span)
+        if auto:
+            while (
+                window != "1h"
+                and math.ceil(span / _WINDOW_SECONDS[window]) > _HEATMAP_MAX_SLOTS
+            ):
+                window = _WINDOW_ORDER[_WINDOW_ORDER.index(window) + 1]
+
+        items = await TraceLightPGManager.list_heatmap_buckets(
+            req, _WINDOW_SECONDS[window]
+        )
+
+        notes = []
+        if auto:
+            notes.append(
+                f"窗口 {window}（自动：跨度≤2h→1m、≤48h→10m、否则 1h；"
+                f"实际跨度 {_format_span(span)}）"
+            )
+        else:
+            notes.append(f"窗口 {window}（指定）")
+        slots_est = max(1, math.ceil(span / _WINDOW_SECONDS[window]))
+        if slots_est > _HEATMAP_MAX_SLOTS:
+            notes.append(
+                f"估算 slots {slots_est} 超过 {_HEATMAP_MAX_SLOTS} 上限"
+                "（窗口已到最大 1h）"
+            )
+        notes.append("仅返回有数据的时间槽；跨槽 trace 在每个有事件的槽各计一次")
+        return HeatmapStatsMsg(
+            total=len(items),
+            window_size=window,
             items=items,
             note="；".join(notes),
         )
