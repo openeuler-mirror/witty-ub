@@ -91,6 +91,11 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },
+        // 磁盘降级状态轮询：与 packaging/nginx 模板的反代清单保持一致
+        '/health_check': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
       },
     },
   }
