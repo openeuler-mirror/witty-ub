@@ -258,6 +258,28 @@ async def test_dispatch_reverts_to_pending_when_worker_start_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_base_worker_start_does_not_overwrite_fast_child_completion(monkeypatch):
+    """The dispatcher owns RUNNING; BaseWorker.run must not restore stale state."""
+    task = _make_task()
+    monkeypatch.setattr(
+        TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=task),
+    )
+    update_task = AsyncMock(return_value=True)
+    monkeypatch.setattr(TaskPGManager, "update_task", update_task)
+    monkeypatch.setattr(
+        BaseWorker,
+        "find_worker_class",
+        lambda _name: SimpleNamespace(run=lambda: None),
+    )
+    monkeypatch.setattr(ProcessHandler, "add_task", lambda *_args, **_kwargs: True)
+
+    assert await BaseWorker.run(task.id) is True
+    update_task.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_skips_task_stopped_before_dispatch(monkeypatch):
     task = _make_task()
     monkeypatch.setattr(

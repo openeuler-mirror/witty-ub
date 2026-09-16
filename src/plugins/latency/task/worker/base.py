@@ -176,7 +176,11 @@ class BaseWorker:
         if not flag:
             logger.error("ProcessHandler.add_task 失败: task_id=%s worker=%s", task_id, worker_name)
             return False
-        await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
+        # The dispatcher atomically claims PENDING -> RUNNING before starting
+        # the child.  Do not write RUNNING again here: a small/local log can
+        # finish in the child before add_task() returns, and this parent-side
+        # write would then overwrite SUCCESSFUL_PENDING_REMOVE.  The result is
+        # a task with a 100% report that remains RUNNING forever in the UI.
         return True
 
     @staticmethod
