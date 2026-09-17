@@ -1,0 +1,18 @@
+# ruff 规范门禁 —— 仅作用于 latency 插件目录（src/plugins/latency/）。
+#
+# 用法（在本目录下执行）：
+#   ruff check .                 # 检查
+#   ruff check . --statistics    # 按规则编号汇总计数
+#   ruff check . --fix           # 自动修可修项（导入顺序 I / 升级 UP 等）
+#   ruff check . --diff          # 只看自动修复会产生的 diff，不落盘
+#
+# ruff 本体装在独立环境，不占用部署 venv：
+#   C:/Users/69490/.penguin/data/default_project/agents/default_agent/shared_env/ruff/venv/Scripts/ruff.exe
+#
+# 说明：本配置只做静态检查，不设 formatter（line-length 仅供 E501 判定）。
+
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]

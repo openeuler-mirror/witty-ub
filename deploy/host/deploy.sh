@@ -11,6 +11,7 @@
 #   bash deploy/host/deploy.sh --start  # 仅启动服务（已部署过）
 #   bash deploy/host/deploy.sh --stop   # 停止所有服务
 #   bash deploy/host/deploy.sh --clean  # 一键清理
+#   bash deploy/host/deploy.sh --pull   # 日常更新：git pull + 部署 + 重启（一条命令）
 #
 # 前后端分离部署 (WITTY_ROLE=all|backend|frontend, 或 --role backend/frontend):
 #   后端机: bash deploy/host/deploy.sh --deploy --role backend
@@ -24,11 +25,11 @@
 #   健康: http://localhost:9772/health_check
 #
 # 进程管理:
-#   默认 systemd user units 托管 (witty-ub-backend / witty-ub-frontend),
-#   机器重启 / 异常退出后自动拉起 (Restart=always)。
-#   systemctl --user 不可用 (缺 systemd-pam / WSL / 容器) 时自动回退
-#   nohup 裸进程 + PID 文件托管 (无崩溃自愈/开机自启)。
-#   可用 DEPLOY_PM=systemd|nohup 强制指定托管方式 (测试/排障)。
+#   默认 nohup 裸进程 + PID 文件托管（`.deploy-logs/backend.pid` / `frontend.pid`），
+#   不动 systemd、不依赖 systemctl --user。
+#   2026-09-17 起不再默认使用 systemd user unit：openEuler 24.03+ 缺 pam_systemd.so
+#   时 systemctl --user 全不可用，会和裸进程抢 9772；显式部署时还会被自己的 unit 卡住。
+#   要用 systemd user unit（崩溃自愈/开机自启）需显式指定：DEPLOY_PM=systemd。
 #   开发前端时手动运行: cd src/web && npm run dev
 
 set -euo pipefail
@@ -194,18 +195,33 @@ build_frontend() {
     mkdir -p "$LOG_DIR"
 
     cd "$WEB_DIR"
-    _check_node || _warn "Node 版本不满足要求，前端编译可能失败"
+    # 前端编译需要 Node >= 20.19；脚本自己装/升，装不上就当场失败
+    if ! ensure_node; then
+        _err "Node.js 不可用，无法编译前端"
+        exit 1
+    fi
     if ! npm ping --silent 2>/dev/null; then
         _warn "npm registry 不可达 (SSL 代理拦截?)"
         _info "已检测到 .npmrc 文件:"
         grep -H '^registry=' "$WEB_DIR/.npmrc" "$PROJECT_DIR/.npmrc" 2>/dev/null || true
         _info "可尝试: npm config set strict-ssl false"
     fi
-    [ -d node_modules ] || npm install --silent 2>&1 | tee "$LOG_DIR/frontend-build.log" >/dev/null
+    # 依赖装不上就是硬失败：前端跑不起来必须让部署当场失败，不能"部署成功但页面打不开"。
+    if [ ! -d node_modules ]; then
+        if ! npm install --silent 2>&1 | tee "$LOG_DIR/frontend-build.log" >/dev/null; then
+            _err "npm install 失败，前端无法启动（日志: $LOG_DIR/frontend-build.log）"
+            tail -30 "$LOG_DIR/frontend-build.log" >&2 || true
+            exit 1
+        fi
+    fi
     if ! npm run build-only 2>&1 | tee "$LOG_DIR/frontend-build.log"; then
-        _warn "前端编译失败，最近日志:"
-        tail -30 "$LOG_DIR/frontend-build.log"
-        _warn "可先运行 npm run dev 启动开发模式"
+        if [ -d dist ] && [ -n "$(ls -A dist 2>/dev/null)" ]; then
+            _warn "前端编译失败，但已有 dist/ 可用（vite preview 仍能起；日志见 $LOG_DIR/frontend-build.log）"
+        else
+            _err "前端编译失败且没有可用的 dist/，前端无法启动（日志: $LOG_DIR/frontend-build.log）"
+            tail -30 "$LOG_DIR/frontend-build.log" >&2 || true
+            exit 1
+        fi
     fi
     cd "$PROJECT_DIR"
     _log "前端编译完成: $WEB_DIR/dist/"
@@ -216,7 +232,9 @@ build_frontend() {
 copy_data_files() {
     _step_header "部署数据文件"
 
-    local WITTY_DIR="/var/witty-ub"
+    # 与 systemd unit / sync_pg_credentials / install_systemd_units 一致地读取
+    # WITTY_DIR: 硬编码会让数据文件落到 /var/witty-ub, 而后端按 WITTY_DIR 读别处。
+    local WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
     local SUDO=""
     _is_root || SUDO="sudo"
 
@@ -388,7 +406,7 @@ start_frontend_node() {
     else
         WEB_MODE="vite"
         _warn "nginx 或 dist/ 不可用, 回退 vite preview 反代 (port 5173)"
-        _check_node || _warn "Node 版本不满足要求，前端可能无法启动"
+        ensure_node || _warn "Node.js 不满足要求，前端可能无法启动"
         export VITE_DEV_API_TARGET="$WITTY_BACKEND_URL"
         nohup bash "$SCRIPT_DIR/run_frontend_vite.sh" >"$LOG_DIR/frontend.log" 2>&1 &
         echo $! >"$LOG_DIR/frontend.pid"
@@ -411,6 +429,35 @@ start_frontend_node() {
     fi
 }
 
+# ──────────────────── 拉取代码（--pull）────────────────────
+
+# 日常更新用：--pull 会先在这里 git pull --ff-only，再走部署/启动。
+# 工作区脏只警告不拦（--ff-only 本身不会产生冲突提交）。
+pull_code() {
+    _step_header "拉取代码"
+    if [ ! -d "$PROJECT_DIR/.git" ]; then
+        _warn "$PROJECT_DIR 不是 git 检出，跳过 --pull"
+        return 0
+    fi
+    if ! git -C "$PROJECT_DIR" diff --quiet 2>/dev/null \
+        || ! git -C "$PROJECT_DIR" diff --cached --quiet 2>/dev/null; then
+        _warn "工作区有未提交改动 —— git pull 可能失败，先提交或用 --no-pull 方式部署"
+    fi
+    local before after
+    before="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+    if ! git -C "$PROJECT_DIR" pull --ff-only; then
+        _err "git pull --ff-only 失败（工作区脏 / 网络 / 分叉）—— 先处理它"
+        _info "只想用当前代码部署: 去掉 --pull 再跑一次"
+        return 1
+    fi
+    after="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+    if [ "$before" = "$after" ]; then
+        _log "代码已是最新（${after:0:8}）"
+    else
+        _log "已更新 ${before:0:8} → ${after:0:8}"
+    fi
+}
+
 # ──────────────────── 启动服务 ────────────────────
 
 start_services() {
@@ -426,11 +473,10 @@ start_services() {
     fi
 
     # --- 选择进程托管方式 ---
-    # 默认 auto: systemd user units 优先 (崩溃自愈/开机自启);
-    # systemctl --user 不可用 (缺 systemd-pam / WSL / 容器) 时回退 nohup 裸进程。
-    # DEPLOY_PM=systemd|nohup 可强制指定 (测试/排障)。
+    # 默认：裸进程 (nohup + PID 文件)。**不碰 systemd --user**。
+    # 想用 systemd user unit（崩溃自愈/开机自启）必须显式：DEPLOY_PM=systemd。
     local USE_SYSTEMD=0
-    case "${DEPLOY_PM:-auto}" in
+    case "${DEPLOY_PM:-nohup}" in
     systemd)
         if systemd_user_available; then
             USE_SYSTEMD=1
@@ -439,17 +485,24 @@ start_services() {
             return 1
         fi
         ;;
-    nohup)
-        USE_SYSTEMD=0
-        _warn "DEPLOY_PM=nohup 强制使用裸进程托管"
-        ;;
     *)
-        if install_systemd_units; then
-            USE_SYSTEMD=1
-            _log "进程托管: systemd user units (崩溃自愈/开机自启)"
-        else
-            _warn "进程托管: 回退 nohup 裸进程 + PID 文件 (无崩溃自愈/开机自启)"
-            _info "恢复 systemd 托管: openEuler 24.03+ 执行 sudo dnf install -y systemd-pam 后重跑"
+        USE_SYSTEMD=0
+        _log "进程托管: 裸进程 (nohup + PID 文件)"
+        # 只有一个主人：历史上装过的 systemd user unit 一律停用 + 挪走。
+        # user bus 不可用时 systemctl 会直接失败，所以还要把 unit 文件改名，
+        # 否则它下次开机（或别人再跑一次 deploy）又会把服务拉起来形成两个主人。
+        if systemd_unit_installed; then
+            _warn "检测到历史安装的 systemd user unit —— 停用并挪走（避免两个主人抢 9772）"
+            systemctl --user disable --now witty-ub-backend.service 2>/dev/null || true
+            systemctl --user disable --now witty-ub-frontend.service 2>/dev/null || true
+            local unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+            for u in witty-ub-backend.service witty-ub-frontend.service; do
+                if [ -f "$unit_dir/$u" ]; then
+                    mv "$unit_dir/$u" "$unit_dir/$u.disabled-$(date +%s)" 2>/dev/null \
+                        && _log "已挪走 $unit_dir/$u" || true
+                fi
+            done
+            systemctl --user daemon-reload 2>/dev/null || true
         fi
         ;;
     esac
@@ -508,12 +561,21 @@ start_services() {
             return 1
         fi
         if [ "$USE_SYSTEMD" = "1" ]; then
-            _info "启动 FastAPI 后端 (systemd user unit)..."
-            systemctl --user start witty-ub-backend.service || {
+            # 已在跑就 restart：systemctl start 对 active 的 unit 是 no-op，
+            # 会把"新代码还没加载"当成"部署成功"（旧进程继续应答健康检查）。
+            if systemctl --user is-active --quiet witty-ub-backend.service; then
+                _info "重启 FastAPI 后端 (systemd user unit, 已在运行)..."
+                _SYSD_VERB=restart
+            else
+                _info "启动 FastAPI 后端 (systemd user unit)..."
+                _SYSD_VERB=start
+            fi
+            systemctl --user "$_SYSD_VERB" witty-ub-backend.service || {
                 _err "后端 unit 启动失败"
                 return 1
             }
         else
+            refuse_if_backend_already_serving "$LOG_DIR/backend.pid" || return 1
             _info "启动 FastAPI 后端 (nohup 裸进程)..."
             # 环境与 systemd unit 对齐 (PYTHONPATH/WITTY_DIR/WITTY_INSTALL_PATH/CONFIG)。
             # 必须用 venv python: 系统 python3 无 polars, 解析任务会 ModuleNotFoundError。
@@ -552,10 +614,10 @@ start_services() {
         # frontend 角色: nginx 静态托管 + 反代远端后端 + OpenCode (裸进程)
         start_frontend_node
     elif [ "$WITTY_ROLE" != "backend" ] && [ -d "$WEB_DIR" ]; then
-        _check_node || _warn "Node 版本不满足要求，前端可能无法启动"
+        ensure_node || _warn "Node.js 不满足要求，前端可能无法启动"
         if [ "$USE_SYSTEMD" = "1" ]; then
             _info "启动前端 (systemd user unit, vite preview 托管 dist/)..."
-            systemctl --user start witty-ub-frontend.service || {
+            systemctl --user ${_SYSD_VERB:-start} witty-ub-frontend.service || {
                 _err "前端 unit 启动失败"
                 return 1
             }
@@ -702,9 +764,12 @@ clean_all() {
         found=1
     fi
     if _has_cmd psql && _psql -c "" >/dev/null 2>&1; then
+        # log_knowledge 可能尚不存在(PG 已装但后端从未跑过)。查询失败时
+        # 管道在 set -e + pipefail 下会直接终止脚本, 使 --clean 什么都不做,
+        # 故这里显式兜住失败并退化为 "?"。
         local n
-        n=$(_psql -tAc "SELECT count(*) FROM log_knowledge" 2>/dev/null | tr -d ' ')
-        echo "  - PostgreSQL 数据库 witty-ub 存在 (知识库 $n 个)"
+        n="$(_psql -tAc "SELECT count(*) FROM log_knowledge" 2>/dev/null | tr -d ' ' || true)"
+        echo "  - PostgreSQL 数据库 witty-ub 存在 (知识库 ${n:-?} 个)"
         found=1
     fi
     [ -d "$PROJECT_DIR/build" ] && echo "  - 构建产物: $PROJECT_DIR/build"
@@ -759,13 +824,18 @@ clean_all() {
     # 2. 清 PG 数据(保留数据库本身, 只清数据)
     if _has_cmd psql && _psql -c "" >/dev/null 2>&1; then
         _info "清空 PostgreSQL 数据..."
-        _psql -c "
+        # 放进 if 条件里: 该管道在 set -e + pipefail 下失败会直接终止脚本,
+        # 留下“库未清空、/var/witty-ub 也未删”的半成品状态。
+        if _psql -c "
             DO \$\$ DECLARE t text; BEGIN
                 FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='public' LOOP
                     EXECUTE format('TRUNCATE TABLE %I CASCADE', t);
                 END LOOP;
-            END \$\$;" 2>&1 | tail -2
-        _log "PostgreSQL 数据已清空"
+            END \$\$;" 2>&1 | tail -2; then
+            _log "PostgreSQL 数据已清空"
+        else
+            _warn "PostgreSQL 数据清空失败(见上方错误), 数据仍保留"
+        fi
     else
         _warn "PostgreSQL 未连接，跳过清库 (检查 deploy.conf 或 PG_HOST/PG_PORT_RPM 环境变量)"
     fi
@@ -960,6 +1030,7 @@ menu_main() {
 
 # 先提取 --role <role> / --role=<role> (剩余参数原样传给子命令 case)
 ROLE_ARGS=()
+PULL_CODE=0
 while [ $# -gt 0 ]; do
     case "$1" in
     --role)
@@ -974,6 +1045,10 @@ while [ $# -gt 0 ]; do
         WITTY_ROLE="${1#--role=}"
         shift
         ;;
+    --pull)
+        PULL_CODE=1
+        shift
+        ;;
     *)
         ROLE_ARGS+=("$1")
         shift
@@ -981,6 +1056,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 set -- ${ROLE_ARGS[@]+"${ROLE_ARGS[@]}"}
+
+# --pull 而不带其它动作 → 直接完整部署（日常更新一条命令，不进菜单）
+if [ "$PULL_CODE" = "1" ] && [ $# -eq 0 ]; then
+    set -- --deploy
+fi
+if [ "$PULL_CODE" = "1" ]; then
+    pull_code || exit 1
+fi
 
 case "$WITTY_ROLE" in
 all | backend | frontend) ;;
@@ -1019,7 +1102,10 @@ case "${1:-menu}" in
     echo "  --start / -s  仅启动服务"
     echo "  --stop  / -x  停止服务"
     echo "  --clean / -c  一键清理（交互选择范围: 服务+PG数据+var数据 / 或加 build+venv+日志）"
+    echo "  --pull        先 git pull --ff-only 再执行上面任一动作"
     echo "  --help  / -h  显示帮助"
+    echo ""
+    echo "日常更新代码就一条命令: bash deploy/host/deploy.sh --pull"
     echo ""
     echo "前后端分离部署:"
     echo "  --role all|backend|frontend   部署角色（默认 all, 也可用环境变量 WITTY_ROLE）"

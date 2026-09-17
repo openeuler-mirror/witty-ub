@@ -37,21 +37,27 @@ install_system_deps() {
         zlib1g-dev libbrotli-dev libre2-dev
         postgresql postgresql-client
         python3 python3-pip python3-venv
-        nodejs npm git curl nginx
+        # 本机 nodejs 由 NodeSource 安装(Conflicts/Provides: npm, 自带 npm),
+        # 发行版 npm 包无法共存, 故跳过这两个已满足的包。
+        git curl nginx
         libpam-systemd
     )
 
     if [ "$OS_ID" = "rpm" ]; then
-        if _is_root; then
+        if _is_root || _has_cmd sudo; then
+            # 与 apt 分支对称: 非 root 但有 sudo 时同样执行安装, 否则
+            # 会静默跳过全部系统依赖, 之后 cmake/g++ 缺失才在编译期报错。
+            local SUDO_CMD=()
+            _is_root || SUDO_CMD=(sudo)
             # systemd-pam (24.03+): pam_systemd.so 缺失 → systemctl --user 全不可用
             # 22.03 无此包 → 先探测存在才装, 避免 dnf 整批失败
             local SYSTEMD_PAM=""
             dnf list systemd-pam >/dev/null 2>&1 && SYSTEMD_PAM="systemd-pam"
             [ -n "$SYSTEMD_PAM" ] && RPM_PKGS+=("$SYSTEMD_PAM")
-            $PM_INSTALL "${RPM_PKGS[@]}"
-            systemctl enable postgresql 2>/dev/null || true
+            "${SUDO_CMD[@]}" $PM_INSTALL "${RPM_PKGS[@]}"
+            "${SUDO_CMD[@]}" systemctl enable postgresql 2>/dev/null || true
         else
-            _warn "需要 root 权限安装系统包，请运行:"
+            _warn "需要 root/sudo 权限安装系统包，请运行:"
             echo "  sudo $PM_INSTALL ${RPM_PKGS[*]}"
             _info "跳过系统包安装，假设已手动安装"
         fi
@@ -100,9 +106,18 @@ install_python_deps() {
     _log "Python 依赖安装完成"
 }
 
-# 独立执行入口
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# ──────────────────── 组合入口 ────────────────────
+
+# 系统依赖 + Python 依赖。deploy.sh 交互菜单选项 2 (仅安装依赖) 调用的就是这个
+# 函数名；此前它只存在于 deploy/rpm/libexec/install_deps.sh，宿主机菜单按下 2
+# 会直接 "install_deps: command not found" 并让 deploy.sh 以 127 退出。
+install_deps() {
     detect_os
     install_system_deps
     install_python_deps
+}
+
+# 独立执行入口
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    install_deps
 fi

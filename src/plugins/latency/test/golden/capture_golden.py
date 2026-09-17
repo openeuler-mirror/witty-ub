@@ -81,15 +81,16 @@ def _dataclass_fields(dc, skip: frozenset[str]) -> dict:
     return out
 
 
-def _bucket_rep_rows(rows_by_granularity: dict[int, list[tuple]]) -> dict:
-    """Serialize {granularity: [COPY tuples]} -> {label: [{col: val}, ...]}."""
+def _bucket_rep_rows(frames_by_granularity: dict[int, object]) -> dict:
+    """Serialize {granularity: 列式 frame} -> {label: [{col: val}, ...]}."""
     from latency.bucket.statistics import BUCKET_COLUMNS, GRANULARITY_LABELS
 
     out = {}
-    for g, tuples in rows_by_granularity.items():
+    for g, frame in frames_by_granularity.items():
+        rows = frame.select(list(BUCKET_COLUMNS)).iter_rows()
         out[GRANULARITY_LABELS[g]] = [
             dict(zip(BUCKET_COLUMNS, (_json_safe(v) for v in row)))
-            for row in tuples
+            for row in rows
         ]
     return out
 
@@ -133,14 +134,9 @@ def snapshot_trace_index(df_trace, log_file_id: str, kb_id: str) -> dict:
         compute_bucket_stats_from_frame,
     )
 
-    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    materializer = functools.partial(
-        KVCacheLogParseWorker._make_field_row,
-        log_file_id=log_file_id,
-        created_at=created_at,
-    )
+    # P3: 代表行直接产出列式 frame（materializer 参数已删）
     bucket_rep_rows = compute_bucket_stats_from_frame(
-        df_trace, kb_id=kb_id, log_id=log_file_id, materializer=materializer
+        df_trace, kb_id=kb_id, log_id=log_file_id
     )
 
     # ── 确定性排序（dict/set 迭代序不可靠）──
@@ -162,7 +158,7 @@ def snapshot_trace_index(df_trace, log_file_id: str, kb_id: str) -> dict:
             "anomalous_tids": len(anom_tids),
             "detail_rows": len(detail_rows),
             "bucket_rep_rows": {
-                label: len(rows) for label, rows in bucket_rep_rows.items()
+                label: frame.height for label, frame in bucket_rep_rows.items()
             },
         },
         "src_dst_events": [

@@ -268,7 +268,8 @@ SELinux 标签，将 TCP 8080 标记为 `http_port_t`，并开启
 域的 Web 服务。Enforcing 保持启用；Web RPM 在 spec 中声明 SELinux 工具依赖，
 由 dnf/yum 安装时拉齐。`/usr/sbin/semanage` 文件依赖用于适配不同发行版的软件包名称。
 旧版 RPM 缺少工具时可先执行 `sudo dnf install -y /usr/sbin/semanage policycoreutils`
-（使用 yum 的系统将 dnf 替换为 yum），再重新部署。
+（使用 yum 的系统将 dnf 替换为 yum），再重新部署。缺少 `semanage` 时部署也会直接报出
+需要安装 `policycoreutils-python-utils`（旧系统为 `policycoreutils-python`）与 `policycoreutils`。
 升级后执行 `sudo witty-ub manager deploy`，会重新渲染配置并重启 Web 服务。
 
 HTTP 413 表示请求体超过限制；本项目默认配置和模板均设为 `client_max_body_size 20G`，

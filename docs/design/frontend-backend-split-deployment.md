@@ -32,12 +32,12 @@
 
 ### 2.3 前端 API 寻址（src/web）
 
-- [App.vue:822-823](../../src/web/src/App.vue#L822-L823)：
-  - `apiBase = VITE_API_BASE_URL ?? ''` —— 默认空串，即**同源相对路径**；
-  - `defaultAgentApiBase = VITE_OPENCODE_API_BASE_URL ?? '/agent-api'`。
-- 两者均为**构建期** env 固化，改后端地址需重新 `npm run build`。
+- [App.vue:859-880](../../src/web/src/App.vue#L859-L880)：
+  - `apiBase = VITE_API_BASE_URL ?? runtimeConfig.apiBase ?? ''` —— 默认空串，即**同源相对路径**；
+  - `defaultAgentApiBase = VITE_OPENCODE_API_BASE_URL ?? runtimeConfig.agentApiBase ?? '/agent-api'`。
+- 两者优先取**构建期** env，并以 `config.json` 注入的 `runtimeConfig` 作为回退；未配置时默认同源相对路径。改后端地址只需部署脚本改写前端节点上的 `config.json`，改 `VITE_*` 才需重新 `npm run build`。
 - 例外：Agent 登录页已有 `agentServerAddress` 输入，Agent API 地址支持运行时覆盖。
-- [vite.config.ts](../../src/web/vite.config.ts) 的 dev/preview proxy 目标硬编码 `127.0.0.1:9772 / 4096`。
+- [vite.config.ts](../../src/web/vite.config.ts) 的 dev/preview proxy 目标默认为 `127.0.0.1:9772 / 4096`，可经 `VITE_DEV_API_TARGET` / `VITE_DEV_AGENT_TARGET` 覆盖。
 
 ### 2.4 各部署形态的耦合点
 
@@ -90,7 +90,7 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 
 1. **运行时配置注入（核心改动）**：
    - `public/config.json`（默认 `{"apiBase": "", "agentApiBase": "/agent-api"}`）随 dist 发布；
-   - `index.html` 在应用启动前 fetch `/config.json` 写入 `window.__WITTY_CONFIG__`，`App.vue` 读取顺序：`VITE_* 构建期值`（回退）→ `config.json`；
+   - `index.html` 在应用启动前 fetch `/config.json` 写入 `window.__WITTY_CONFIG__`；`App.vue` 读取顺序为 `VITE_*` 构建期值 → `config.json` → 默认值；
    - 效果：同一份 dist 镜像/RPM 在前端节点上由部署脚本改写 `config.json` 即可切换后端，无需重新构建。选择反代方案时 `config.json` 保持默认即可，此机制主要服务备选直连方案与未来扩展。
 2. **vite.config.ts proxy 参数化**：dev/preview proxy 目标从 `process.env.VITE_DEV_API_TARGET` / `VITE_DEV_AGENT_TARGET` 读取（默认仍 `127.0.0.1`），支持前端开发者远程连后端调试。
 3. Agent 登录页的 `agentServerAddress` 已支持运行时覆盖，无需改动。
@@ -130,12 +130,12 @@ Agent（OpenCode + witty_ub_diagnostician bundle）对后端机的依赖**只有
 
 ### 4.6 Agent（OpenCode）配置参数化
 
-Agent bundle（`witty_ub_diagnostician/`）当前在提示词 [agents/witty-ub-diagnostician.md](../../witty_ub_diagnostician/agents/witty-ub-diagnostician.md) 中 3 处硬编码 `http://127.0.0.1:9772`，且明令"禁止通过 curl 访问其他主机、其他端口"，另有 `--noproxy 127.0.0.1`——这是 OpenCode 迁往前端节点的主要障碍。改造：
+Agent bundle（`witty_ub_diagnostician/`）的提示词 [agents/witty-ub-diagnostician.md](../../witty_ub_diagnostician/agents/witty-ub-diagnostician.md) 已用占位符 `${WITTY_API_BASE}` / `${WITTY_NO_PROXY}` 代替固定地址（`${WITTY_API_BASE}` 默认值见 `deploy_opencode.sh` 的 `http://127.0.0.1:9772`），并明令"禁止通过 curl 访问其他主机、其他端口"，从而支持 Agent 随迁移后的后端基址访问远程 9772。改造：
 
 - 提示词参数化：仓库内的 `witty-ub-diagnostician.md` 直接保留 `${WITTY_API_BASE}`（默认 `http://127.0.0.1:9772`）/ `${WITTY_NO_PROXY}`。部署脚本不渲染、不复制、不改写提示词；OpenCode 进程导出变量，Agent 执行 Bash 时展开。
 - `docker/entrypoint.sh`、`deploy_opencode.sh` 的 `--hostname` 参数化为 `${OPENCODE_HOST:-127.0.0.1}`（仅兜底落位 B 需要 `0.0.0.0`）。
 - experience 卷（experience.db）与 `OPENCODE_CONFIG_DIR`（LLM key）归属前端节点的 agent 运行时，不随后端角色部署。
-- 顺带修复该 commit 引入的问题：`deploy/deploy.conf` 中 `OPENCODE_CONFIG_DIR` 硬编码个人路径 `/home/tsn/opencode`（应回退 `${HOME}/.config/opencode` 默认值）；目录名拼写 `witty_ub_diagnostician` → `witty_ub_diagnostician`（已扩散至 Dockerfile/entrypoint/deploy_opencode.sh/deploy.sh/opencode.json 多处路径，宜尽早统一更名）。
+- `deploy/deploy.conf` 的 `OPENCODE_CONFIG_DIR` 默认为空（留空时回退 `~/.config/opencode`），不绑定个人路径；仓库内命名约定为：目录及部署路径用下划线 `witty_ub_diagnostician`（`Dockerfile`、`docker/entrypoint.sh`、`deploy_opencode.sh`、`deploy.sh`、`opencode.json` 中的路径引用一致），agent 的逻辑名用连字符 `witty-ub-diagnostician`（`opencode.json` 的 agent 键、`App.vue` 的 `agentName`、提示词文件名 `agents/witty-ub-diagnostician.md`），两者属不同命名域、各在其位，无需统一更名。
 
 ### 4.7 安全
 

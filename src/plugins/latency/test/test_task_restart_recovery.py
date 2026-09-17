@@ -68,6 +68,51 @@ def _mock_dispatch_claim(monkeypatch, claimed=True, running_status=None):
     return transitions
 
 
+@pytest.fixture(autouse=True)
+def _reset_dispatch_state():
+    TaskHandler._dispatching_task_ids.clear()
+    TaskHandler._preprocess_inflight.clear()
+    yield
+    TaskHandler._dispatching_task_ids.clear()
+    TaskHandler._preprocess_inflight.clear()
+
+
+async def _drain_pending_dispatch():
+    """handle_pending_tasks 后台派发：等待本轮派发协程全部结束。"""
+    dispatch_tasks = list(TaskHandler._dispatch_tasks)
+    if dispatch_tasks:
+        await asyncio.gather(*dispatch_tasks)
+
+
+def _make_task(**overrides):
+    task = SimpleNamespace(
+        id="task-id",
+        op_id="log-id",
+        task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        task_config=None,
+    )
+    task.__dict__.update(overrides)
+    return task
+
+
+def _mock_dispatch_claim(monkeypatch, claimed=True, running_status=None):
+    """派发协程依赖的状态迁移/回查 mock。"""
+    transitions = AsyncMock(return_value=claimed)
+    monkeypatch.setattr(
+        TaskPGManager,
+        "transition_task_status",
+        transitions,
+    )
+    if running_status is None:
+        running_status = TaskStatusEnum.RUNNING
+    monkeypatch.setattr(
+        TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=SimpleNamespace(status=running_status)),
+    )
+    return transitions
+
+
 @pytest.mark.asyncio
 async def test_init_task_queue_routes_interrupted_tasks_through_retry(monkeypatch):
     recover = AsyncMock(return_value=True)

@@ -2,29 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import signal
 import subprocess
 import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
-from pydantic import ValidationError
-
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.task import TaskPGManager
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.brpc_diagnosis import BrpcDiagBatch
 from latency.schemas.task import TaskModel
 from latency.services.brpc_diagnosis_importer import BrpcDiagnosisImporter
 from latency.task.worker.base import BaseWorker
-
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +106,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     def _resolve_start_time(task_id: str) -> str | None:
-        from latency.task.task_handler import TaskHandler
+        from latency.task.task_handler import TaskHandler  # 懒加载：仅 start_time 时需要
 
         parse_config = TaskHandler.get_task_config(task_id)
         if parse_config is not None and parse_config.end_time:
@@ -363,7 +361,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
         except Exception:
-            logger.exception("failed to persist UBSocket diagnosis failure")
+            logger.exception("failed to persist UBSocket diagnosis failure: task_id=%s", task_id)
 
     @staticmethod
     async def run(

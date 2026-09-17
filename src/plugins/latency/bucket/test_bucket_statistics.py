@@ -4,7 +4,8 @@
 覆盖：
   1. compute_bucket_ids：手算桶号 / 跨天不碰撞 / 无 8h 偏移 / NaT 过滤
   2. 分位代表行：手算 floor(cnt*p)-1 索引（奇数桶 cnt=5、小桶 cnt=2、cnt=1 边界）
-  3. numpy 参考复刻（保留原语）== polars frame 路径：四档粒度 rep-rows 全等
+  3. numpy 参考复刻（本文件保留的等价参考）== polars frame 路径：
+     四档粒度 rep-rows 全等（P3 起生产直接产出列式 frame，无 materializer）
   4. 写库幂等：临时表（与正式表同构 DDL）两次 run 同 log_id 行数相同
   5. 失败降级：_store_bucket_stats_degraded 异常仅记日志返回 None
 
@@ -25,8 +26,8 @@ from latency.bucket.statistics import (
     BUCKET_COLUMNS,
     GRANULARITY_KEYS,
     GRANULARITY_LABELS,
+    METRIC_KEYS,
     PERCENTILE_MODES,
-    _build_bucket_rows,
     _group_edges,
     _normalize_op,
     compute_bucket_stats_from_frame,
@@ -36,6 +37,7 @@ from latency.bucket.statistics import (
 )
 from latency.database.engine import PGManager
 from latency.schemas.log import (
+    YUANRONG_METRIC_FIELDS,
     LogParseResultDataclass,
     SparseLogParseResultDataclass,
 )
@@ -332,6 +334,76 @@ def _pick_reps(rows):
     return rows, per_gran, _serial_pick(order, latency, per_gran)
 
 
+# ---------------------------------------------------------------------------
+# 3b. numpy 参考代表行（P3 起生产已删 _representative_tuple / _build_bucket_rows，
+#     本文件保留一份等价参考实现，保证 T4 parity 测试的覆盖率不下降）
+# ---------------------------------------------------------------------------
+
+def _ip_str(value) -> str | None:
+    """``parse_ip`` 归一化后的字符串形式（两侧比对的共同口径）。"""
+    from latency.database.utils import parse_ip
+
+    parsed = parse_ip(value)
+    return None if parsed is None else str(parsed)
+
+
+def _np_representative_tuple(kb_id, log_id, bucket_start_dt, op_code, mode_name, r):
+    """旧生产 ``_representative_tuple`` 的等价参考（48 列，src/dst 走 parse_ip）。"""
+    return (
+        kb_id,
+        log_id,
+        bucket_start_dt,
+        "GET" if op_code == 0 else "SET",
+        mode_name,
+        _ip_str(getattr(r, "src_ip", None)),
+        _ip_str(getattr(r, "dst_ip", None)),
+        getattr(r, "trace_id", None),
+        *(getattr(r, name, None) for name in METRIC_KEYS),
+        *(getattr(r, name, None) for name in YUANRONG_METRIC_FIELDS),
+    )
+
+
+def _np_build_bucket_rows(valid_rows, per_granularity, reps, kb_id, log_id):
+    """旧生产 ``_build_bucket_rows`` 的等价参考（numpy 选取 + tuple 拼装）。"""
+    rows_by_granularity: dict[int, list[tuple]] = {}
+    for g in GRANULARITY_KEYS:
+        _, _, ops, buckets = per_granularity[g]
+        rows: list[tuple] = []
+        for gid, mode_idx, orig in reps[g]:
+            mode_name = PERCENTILE_MODES[mode_idx][0]
+            bucket_start_dt = np.datetime64(int(buckets[gid]) * g, "s").item()
+            rows.append(
+                _np_representative_tuple(
+                    kb_id, log_id, bucket_start_dt, int(ops[gid]), mode_name,
+                    valid_rows[orig],
+                )
+            )
+        rows_by_granularity[g] = rows
+    return rows_by_granularity
+
+
+def _frame_rows_as_tuples(frame) -> list[tuple]:
+    """代表行 frame → ``BUCKET_COLUMNS`` 顺序的 tuple（src/dst 归一为字符串）。
+
+    frame 里 src_ip/dst_ip 是原始字符串（INET 归一化在生产由
+    ``log_parse_result_bulk.copy_dataframe`` 承担），参考路径给的是 ``parse_ip``
+    产物，故两侧都按 ``str()`` 归一后比较。
+    """
+    from latency.database.managers.log_parse_result_bulk import (
+        BUCKET_COLUMNS as _BULK_COLUMNS,
+    )
+
+    columns = list(_BULK_COLUMNS)
+    out: list[tuple] = []
+    for row in frame.select(columns).iter_rows():
+        values = list(row)
+        for index, name in enumerate(columns):
+            if name in ("src_ip", "dst_ip"):
+                values[index] = _ip_str(values[index])
+        out.append(tuple(values))
+    return out
+
+
 def _trace_index_to_labeled(trace_index):
     """3 层 {trace_id: {label: [entries]}} → {label: [entries]} (扫描产物形态)。"""
     by_label: dict[str, list] = {}
@@ -347,7 +419,7 @@ def test_bucket_percentiles_match_golden_field_table_source():
     pmax=99）；timestamp 齐全 → 无 epoch-0 桶行。"""
     rows = [_make_row(i, "2026-05-10 12:00:00", "GET", float(i)) for i in range(100)]
     valid, per_gran, reps = _pick_reps(rows)
-    by_gran = _build_bucket_rows(valid, per_gran, reps, "kb", "lg")
+    by_gran = _np_build_bucket_rows(valid, per_gran, reps, "kb", "lg")
 
     expected = [49.0, 98.0, 98.0, 99.0]
     for g in GRANULARITY_KEYS:
@@ -460,11 +532,11 @@ def test_bucket_stats_from_frame_matches_numpy_path():
     同一 trace_index 两条喂入路径（同数据）：
     - numpy 参考：_build_field_table_rows（dataclass）→ _pick_reps（保留原语
       复刻，含 compute_bucket_ids/_group_edges/pick_percentile_rows）+
-      _build_bucket_rows
+      _np_build_bucket_rows（本文件保留的等价参考）
     - polars：build_trace_frame（df_trace）→ compute_bucket_stats_from_frame
-    四档粒度 rep-rows 整行 tuple 相等（同 kth positions → 同 rep trace_ids、
-    同 14 METRIC_KEYS 值、同 src/dst/bucket_start）；materializer 路径
-    （_make_field_row，worker 生产路径）一并验证。
+      直接产出列式 frame（P3 起生产路径，materializer 已删）
+    四档粒度 rep-rows 前 22 列整行 tuple 相等（同 kth positions → 同 rep
+    trace_ids、同 14 METRIC_KEYS 值、同 src/dst/bucket_start）。
     """
     from latency.task.worker.kv_cache_log_parse_worker import (
         KVCacheLogParseWorker,
@@ -477,22 +549,17 @@ def test_bucket_stats_from_frame_matches_numpy_path():
     dc_rows = KVCacheLogParseWorker._build_field_table_rows(flat, "opft")
     df_trace = _frame_from_trace_index(trace_index)
 
-    # numpy 参考路径（T7 后用保留原语复刻：_serial_pick）
+    # numpy 参考路径（T7 后用保留原语复刻：_serial_pick；P3 后生产实现已删，
+    # 参考实现保留在本文件内）
     valid, per_gran, reps = _pick_reps(dc_rows)
-    rows_np = _build_bucket_rows(valid, per_gran, reps, "kb", "lg")
+    rows_np = _np_build_bucket_rows(valid, per_gran, reps, "kb", "lg")
 
-    # polars 路径（无 materializer：直读 df 行；有 materializer：worker 生产形态）
-    rows_pl = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
-    rows_pl_mat = compute_bucket_stats_from_frame(
-        df_trace,
-        kb_id="kb",
-        log_id="lg",
-        materializer=lambda r: KVCacheLogParseWorker._make_field_row(r, "lg"),
-    )
+    # polars 路径（P3：直接产出列式 frame，无 materializer 参数）
+    frames_pl = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
 
     # 300 条 trace（每秒 1 条, GET/SET 交替）→ 10s 桶 30 个 / 60s 桶 5 个 /
     # 600s 与 1h 各 1 个桶；每 (桶,op) 组 4 个 mode 代表行。
-    assert {g: len(rows_pl[g]) for g in GRANULARITY_KEYS} == {
+    assert {g: frames_pl[g].height for g in GRANULARITY_KEYS} == {
         10: 240, 60: 40, 600: 8, 3600: 8,
     }
     for g in GRANULARITY_KEYS:
@@ -500,20 +567,21 @@ def test_bucket_stats_from_frame_matches_numpy_path():
         # （mode/trace_id/src/dst/bucket_start + 14 值）；yuanrong 26 列只走
         # polars 路径，numpy 参考不含，故只比前 22 列。
         legacy_np = {tuple(r[:22]) for r in rows_np[g]}
-        assert {tuple(r[:22]) for r in rows_pl[g]} == legacy_np, (
-            f"granularity {g} rep-rows 不一致"
-        )
-        assert {tuple(r[:22]) for r in rows_pl_mat[g]} == legacy_np, (
-            f"granularity {g} materializer 路径不一致"
-        )
-        assert len(rows_pl[g][0]) == len(BUCKET_COLUMNS) == 48
-        assert rows_pl[g][0][22] is not None  # BUCKET_COLUMNS[22] = total_latency_us
+        got = {tuple(r[:22]) for r in _frame_rows_as_tuples(frames_pl[g])}
+        assert got == legacy_np, f"granularity {g} rep-rows 不一致"
+        assert len(frames_pl[g].columns) == len(BUCKET_COLUMNS) == 48
+        # BUCKET_COLUMNS 里的 total_latency_us 由拷贝路径写库，frame 里应非空
+        assert frames_pl[g]["total_latency_us"][0] is not None
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_bucket_stats_from_frame_db_write_idempotent():
     """T4 写库契约：df_trace 喂 _store_bucket_stats_degraded（polars 路径）→
     4 张表行数 > 0、同 log_id 两次 run 幂等（先删后插无重复）。"""
+    from latency.task.worker.kv_cache_log_parse_worker import (
+        KVCacheLogParseWorker,
+    )
+
     suffix = uuid.uuid4().hex[:8]
     tables = {
         g: f"latency_bucket_test_{suffix}_{GRANULARITY_LABELS[g]}"
@@ -558,10 +626,25 @@ def test_bucket_rep_rows_carry_yuanrong():
     """yuanrong 富化契约：代表行 tuple 带 26 项分段时延（48 列），
     BUCKET_COLUMNS[22]=total_latency_us 非空、[23]=request_mode 合法。"""
     df_trace = _frame_from_trace_index(_trace_index_fixture(300))
-    rows = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
+    frames = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
     for g in GRANULARITY_KEYS:
-        assert rows[g], f"{GRANULARITY_LABELS[g]} 应产生代表行"
-        assert len(rows[g][0]) == len(BUCKET_COLUMNS) == 48
-        assert rows[g][0][22] is not None
-        assert rows[g][0][23] in ("remote", "local", "unknown")
-        assert all(len(r) == 48 for r in rows[g])
+        frame = frames[g]
+        assert frame.height > 0, f"{GRANULARITY_LABELS[g]} 应产生代表行"
+        assert len(frame.columns) == len(BUCKET_COLUMNS) == 48
+        assert frame["total_latency_us"][0] is not None
+        assert frame["request_mode"][0] in ("remote", "local", "unknown")
+
+def test_frame_from_records_survives_float_after_100_int_rows():
+    """回归：前 100 行时延恰好是整数、第 101 行出现浮点 → 旧实现整批建帧失败，
+    被降级包装吞掉后 4 张分桶表 0 行（前端"暂无时延数据"）。"""
+    import polars as pl
+
+    from latency.bucket.statistics import _frame_from_records
+
+    rows = [{"total_latency": 1} for _ in range(100)]
+    rows.append({"total_latency": 408.0})
+    rows.append({"total_latency": 2})
+    df = _frame_from_records(rows)
+    assert df.height == 102
+    assert df["total_latency"].dtype == pl.Float64
+    assert df["total_latency"].to_list()[100] == 408.0

@@ -104,6 +104,15 @@ async def bad_request_exception_handler(request: fastapi.Request, exc: BadReques
 async def request_validation_exception_handler(request: fastapi.Request, exc: RequestValidationError):
     from fastapi.encoders import jsonable_encoder
     from fastapi.responses import JSONResponse
+    # 把失败请求的原始 body 与校验明细写进日志（前端只显示"请求参数校验失败"，看不到是哪个字段）
+    try:
+        raw = await request.body()
+        logger.warning(
+            f"[422] {request.method} {request.url.path} content-type="
+            f"{request.headers.get('content-type')} body={raw[:1500]!r} errors={exc.errors()}"
+        )
+    except Exception as log_exc:  # noqa: BLE001
+        logger.warning(f"[422] cannot log body: {log_exc}")
     return JSONResponse(
         status_code=422,
         content={
@@ -239,6 +248,14 @@ async def startup_event():
     # handle_tasks 实例同时 reinit/启动同一个任务。coalesce 合并执行期间积压的 tick。
     scheduler.add_job(
         TaskHandler.handle_tasks,
+        "interval",
+        seconds=1,
+        max_instances=1,
+        coalesce=True,
+    )
+    # 收尸独立成 job：它要 join 子进程，慢的时候不该吃掉派发的节拍。
+    scheduler.add_job(
+        TaskHandler.reap_finished_processes,
         "interval",
         seconds=1,
         max_instances=1,

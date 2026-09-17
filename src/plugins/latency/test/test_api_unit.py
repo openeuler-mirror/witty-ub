@@ -409,7 +409,7 @@ class TestDiagnosisConfig:
         )
         assert resp.status_code == 404
 
-    @pytest.mark.parametrize("log_type", ["kv-cache", "brpc", "Other"])
+    @pytest.mark.parametrize("log_type", ["brpc", "Other"])
     def test_reject_unsupported_log_type(
         self, base_url, session_client, existing_kb, log_type
     ):
