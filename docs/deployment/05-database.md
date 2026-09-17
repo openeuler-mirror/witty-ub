@@ -167,6 +167,25 @@ sudo -u postgres psql -c "CREATE USER witty-ub WITH PASSWORD '<STRONG_PASSWORD>'
 sudo -u postgres psql -c "CREATE DATABASE witty-ub OWNER witty-ub;"
 ```
 
+### 写入口令密钥文件（源码 host 部署必需）
+
+手工建库设置的口令必须落到启动器读取的密钥文件，否则启动后端会报
+`[error] 未找到 PostgreSQL 口令, 后端无法连接数据库。`（RPM 包部署由
+`witty-ub manager deploy` 自动生成，可跳过本步）。
+
+```bash
+# 源码 host 部署：<仓库>/deploy/pg.passwd（0400，属主必须是运行后端的用户）
+cd <仓库>
+printf '%s' '<STRONG_PASSWORD>' | install -m 0400 /dev/stdin deploy/pg.passwd
+ls -l deploy/pg.passwd        # 期望 -r-------- <部署用户> ... deploy/pg.passwd
+
+# RPM 包部署：/etc/witty-ub/pg.passwd（0600 root）
+printf '%s' '<STRONG_PASSWORD>' | sudo install -m 0600 /dev/stdin /etc/witty-ub/pg.passwd
+```
+
+> 也可以直接执行 `sudo bash deploy/deploy_pg.sh --rpm` 让脚本完成"建库 + 生成随机口令 +
+> 写密钥文件"，无需手工建库。
+
 ### 验证（RPM 部署）
 
 ```bash

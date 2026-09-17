@@ -74,7 +74,7 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 | --------- | --------- | --------- |
 | 容器 | 32412 → 8080（Nginx） | 9772（FastAPI）、4096（OpenCode），均经 Nginx 反代 |
 | 容器 split profile | 32413 → 8080（前端容器） | backend 容器 9772 不对外 |
-| 宿主机脚本 | 8080（Nginx，回退 vite preview 5173）、9772（后端） | 5432（PostgreSQL） |
+| 宿主机脚本 | 单机（`--role all`）：5173（vite preview 托管 `dist/`）；分离前端（`--role frontend`）：8080（Nginx 托管 + 反代，无 nginx 时回退 vite preview 5173）；9772（后端） | 5432（PostgreSQL） |
 | RPM | 8080（Nginx）、9772（FastAPI） | 5432（PostgreSQL） |
 
 ## 环境要求
@@ -136,7 +136,10 @@ witty-ub/
 │   ├── host/                     # 宿主机/源码部署
 │   │   ├── deploy.sh             # 一键部署脚本（--role backend/frontend）
 │   │   ├── install_deps.sh       # 依赖安装
-│   │   ├── run_frontend.sh       # 前端启动器 (vite preview / dev 回退)
+│   │   ├── run_backend.sh        # 后端启动器 (读 deploy/pg.passwd 后启动 FastAPI)
+│   │   ├── run_frontend_nginx.sh # 前端启动器 (Nginx 模式: 8080 静态托管 + 反代)
+│   │   ├── run_frontend_vite.sh  # 前端启动器 (Vite 模式: 5173 preview / dev 回退)
+│   │   ├── run_frontend.sh       # 旧入口, 转发到 run_frontend_vite.sh
 │   │   ├── systemd/              # systemd user unit 模板
 │   │   └── _lib.sh               # 共享工具库
 │   └── docker/                   # 容器部署

@@ -2,11 +2,20 @@
 # witty-ub is licensed under the Mulan PSL v2.
 #
 # witty-ub 前端 Nginx 配置模板（前后端分离部署）
-# 占位符由部署脚本 envsubst 渲染:
+#
+# 独立完整配置（自带 events/http），用 `nginx -c <file>` 加载，不由 /etc/nginx 读取。
+#
+# 占位符:
 #   WITTY_BACKEND_URL  后端 FastAPI 地址 (默认 http://127.0.0.1:9772)
 #   WITTY_AGENT_URL    OpenCode 地址       (默认 http://127.0.0.1:4096)
-# 渲染示例:
+# 渲染:
 #   envsubst '${WITTY_BACKEND_URL} ${WITTY_AGENT_URL}' < nginx.conf.template > nginx.conf
+#
+# pid / error_log / access_log / root 使用 RPM 与容器部署预建的目录:
+#   /run/witty-ub-web (systemd RuntimeDirectory=、镜像预建)、/var/log/witty-ub-web
+#   静态根目录 /var/witty-ub/web
+# 源码部署由 deploy/host/run_frontend_nginx.sh 渲染, 并把 pid / 日志 / 静态根目录
+# 改写为仓库内路径。
 
 pid /run/witty-ub-web/nginx.pid;
 error_log /var/log/witty-ub-web/error.log warn;

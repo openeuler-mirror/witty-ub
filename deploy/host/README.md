@@ -14,9 +14,28 @@
 |------|------|
 | `deploy.sh` | 一键部署入口（交互式菜单 / 完整部署 / 启动 / 停止 / 清理） |
 | `install_deps.sh` | 系统依赖 + Python venv 依赖安装 |
-| `run_frontend.sh` | 前端启动器（vite preview 托管 dist/，无 dist 时回退 dev server） |
+| `run_backend.sh` | 后端启动器（从 `deploy/pg.passwd` 读取 PG 口令后启动 FastAPI） |
+| `run_frontend_nginx.sh` | 前端 Nginx 模式启动器（静态托管 `dist/` + 反代；`start`/`stop`/`restart`/`reload`/`status`） |
+| `run_frontend_vite.sh` | 前端 Vite 模式启动器（`vite preview` 托管 `dist/`，无 dist 时回退 dev server） |
+| `run_frontend.sh` | 旧入口，转发到 `run_frontend_vite.sh`（既有 `witty-ub-frontend.service` 的 `ExecStart` 指向本文件） |
 | `systemd/` | systemd user unit 模板（`witty-ub-backend.service` / `witty-ub-frontend.service`） |
 | `_lib.sh` | 共享工具库（色彩日志 / OS 检测 / PG 凭据加载，被其他脚本 source） |
+
+### 前端的两种托管方式
+
+两个启动器托管同一份 `src/web/dist/`，区别在托管方式与适用场景：
+
+| | Nginx 模式（`run_frontend_nginx.sh`） | Vite 模式（`run_frontend_vite.sh`） |
+| --- | --- | --- |
+| 端口 | 8080 | 5173 |
+| 依赖 | nginx + sudo（发布到 `/var/witty-ub/web`） | Node.js + `node_modules` |
+| 反代 | nginx 配置（`packaging/nginx/witty-ub-web.conf.template`） | Vite `server.proxy`（preview 继承），上游取 `VITE_DEV_API_TARGET` / `VITE_DEV_AGENT_TARGET` |
+| 生产特性 | 大文件上传流式转发（`proxy_request_buffering off`，20G 上限）、SSE 长连接（`proxy_read_timeout 3600s`） | 开发预览级：静态资源与上传/长连接无针对性调优 |
+| 进程托管 | 裸进程（`start`/`stop`/`status`/`reload`），**未装 systemd 单元** | systemd user unit `witty-ub-frontend.service`（`Restart=always`，可开机自启） |
+| 使用场景 | 生产入口：`--role frontend` 分离部署、源码部署（[06-source.md](../../docs/deployment/06-source.md)） | 单机 `--role all` 默认入口、无 nginx 时的兜底、前端开发调试 |
+
+对外提供服务的入口固定用 Nginx 模式（8080）；免 root 的临时入口或需要 systemd user
+unit 托管时用 Vite 模式（5173）。
 
 ---
 
@@ -243,7 +262,8 @@ journalctl --user -u witty-ub-frontend.service -f
 |------|---------|
 | `systemctl --user` 不可用 | openEuler 24.03+ 安装 `systemd-pam`；或 `loginctl enable-linger <用户>`。脚本已自动回退 nohup 不阻塞 |
 | 后端启动超时 / 健康检查失败 | `journalctl --user -u witty-ub-backend.service` 或 `.deploy-logs/backend.log`（最常见：PG 密码/端口配置错误） |
-| 前端 5173 无响应 | 确认 `src/web/dist/` 存在（无 dist 时回退 dev server）；`run_frontend.sh` 用 `--strictPort`，端口被占会立即失败 |
+| 前端 5173 无响应 | 确认 `src/web/dist/` 存在（无 dist 时回退 dev server）；`run_frontend_vite.sh` 用 `--strictPort`，端口被占会立即失败 |
+| 前端 8080 无响应 | 确认已安装 nginx 且 `src/web/dist/` 有内容；`bash deploy/host/run_frontend_nginx.sh status`，错误日志见 `.deploy-logs/web-error.log` |
 | 端口冲突 | `ss -tlnp \| grep 5173` / `ss -tlnp \| grep 9772` |
 | C++ 编译失败 | 按报错补装依赖后重跑；`cmake . -DCMAKE_BUILD_TYPE=Release && make -j\$(nproc) witty-ub-diag-tool` |
 | 前端编译失败 | `npm ping` 检查 registry 可达性；编译失败不阻塞部署，可先 `npm run dev` 用开发模式 |
