@@ -3,7 +3,7 @@
 对应设计文档 docs/design/trace-light-api.md 批次 1（TDD：测试先行）：
 - POST /trace/list     trace 清单（粗筛主接口，时延/故障双源合并）
 - GET  /trace/{id}     单 trace 下钻（轻量画像）
-- POST /stats/stages   主导问题分类（组件定位入口，8 互斥桶）
+- POST /stats/stages   主导问题分类（组件定位入口，GET 8 桶 / SET 5 桶独立视角）
 
 批次 2（§11.1 单维度统计）：
 - POST /stats/error_codes  Top 故障码（trace 级 Counter + 日志级事件数）
@@ -109,6 +109,12 @@ STATS_HEATMAP_BUCKETS = (
 BUCKET_KEYS = [
     "rpc_network", "rpc_queue", "query_meta", "urma",
     "data_worker", "cross_window", "residual", "urma_timeout",
+]
+
+# SET 独立视角 5 桶固定顺序（stats._SET_BUCKET_SPEC，GET/SET key 不重叠）
+SET_BUCKET_KEYS = [
+    "set_urma_timeout", "set_no_evidence", "set_residual",
+    "set_client", "set_worker",
 ]
 
 
@@ -804,15 +810,212 @@ class TestStageStatsService:
         assert all(i.trace_cnt == 0 for i in msg.items)
         assert msg.note  # 说明归因子集为空
 
-    async def test_operation_set_short_circuits_with_note(self):
-        """SET 无归因子集：items 空 + note，不触发明细查询。"""
-        with patch(STATS_LATENCY_LIST, new=AsyncMock()) as manager_mock:
+    async def test_set_independent_buckets_full_scenario(self):
+        """SET 独立视角：5 桶固定返回，逐桶口径与证据列实测可得。"""
+        anomalous_rows = [
+            # set_client：有 worker 列，SDK 段主导（node48 DS_KV_CLIENT_SET 主流）
+            make_parse_result(
+                "t-set-cli-1", is_anomalous=True, total_latency=21.565,
+                operation="DS_KV_CLIENT_SET",
+                total_latency_us=21565.0, sdk_processing_us=21511.0,
+                worker_access_latency_us=35.0, local_worker_internal_us=54.0,
+            ),
+            # set_worker：Worker 写处理主导（node48 长尾：92.5ms 中 worker 89.6ms）
+            make_parse_result(
+                "t-set-wrk-1", is_anomalous=True, total_latency=92.503,
+                operation="DS_POSIX_CREATE",
+                total_latency_us=92503.0, sdk_processing_us=2945.0,
+                worker_access_latency_us=89535.0,
+                local_worker_internal_us=89558.0,
+            ),
+            # set_no_evidence：worker 侧列全空（数据面未观测）
+            make_parse_result(
+                "t-set-nev-1", is_anomalous=True, total_latency=20.3,
+                operation="DS_POSIX_CREATE",
+                total_latency_us=20300.0, sdk_processing_us=20300.0,
+            ),
+            # set_urma_timeout：文本匹配优先于 worker 分段
+            make_parse_result(
+                "t-set-to-1", is_anomalous=True, total_latency=100.0,
+                operation="DS_POSIX_PUBLISH",
+                total_latency_us=100000.0, sdk_processing_us=2000.0,
+                local_worker_internal_us=1000.0,
+                anomaly_reason="urma wait timeout, elapsed_ms=100.0",
+            ),
+            # set_residual：total − (sdk + worker) ≥ +0.5ms（残差 18ms 未被两段解释，
+            # node48 侧对应唯一偏离行：total 11908 / sdk+locint 3755 → 残差 8153us）
+            make_parse_result(
+                "t-set-res-1", is_anomalous=True, total_latency=20.0,
+                operation="DS_KV_CLIENT_SET",
+                total_latency_us=20000.0, sdk_processing_us=1000.0,
+                worker_access_latency_us=1000.0,
+                local_worker_internal_us=1000.0,
+            ),
+        ]
+        with self._patch_stats_manager(anomalous_rows, []):
             msg = await StatsService.get_stage_stats(
                 GetStageStatsRequest(kb_id=KB_ID, operation="SET"))
 
+        assert msg.operation == "SET"
+        assert msg.sample_cnt == 5
+        assert msg.truncated is False
+        assert [i.key for i in msg.items] == SET_BUCKET_KEYS
+        # 互斥：Σ trace_cnt == sample_cnt
+        assert sum(i.trace_cnt for i in msg.items) == msg.sample_cnt
+
+        by_key = {i.key: i for i in msg.items}
+
+        cli = by_key["set_client"]
+        assert cli.trace_cnt == 1
+        assert cli.fail_cnt == 1
+        assert cli.max_ms == 21.511  # 证据 = sdk_processing_us
+        assert cli.client_p50_ms == 21.565
+        assert cli.metric_name == "主阶段耗时"
+        assert cli.top_traces[0].trace_id == "t-set-cli-1"
+
+        wrk = by_key["set_worker"]
+        assert wrk.trace_cnt == 1
+        assert wrk.max_ms == 89.558  # 证据 = local_worker_internal_us
+        assert wrk.top_traces[0].trace_id == "t-set-wrk-1"
+
+        nev = by_key["set_no_evidence"]
+        assert nev.trace_cnt == 1
+        assert nev.max_ms == 20.3  # 证据 = 总时延
+        assert nev.metric_name == "Client 总时延（数据面未观测）"
+        assert "DS_POSIX_CREATE" in nev.note  # 家族构成
+
+        ut = by_key["set_urma_timeout"]
+        assert ut.trace_cnt == 1
+        assert ut.max_ms == 100.0  # elapsed_ms=100.0 → 100000us
+        assert ut.metric_name == "URMA timeout elapsedMs"
+
+        res = by_key["set_residual"]
+        assert res.trace_cnt == 1
+        assert res.max_ms == 18.0
+
+        # 治理指引 + 样本集/剔除维度说明
+        assert all(i.action for i in msg.items)
+        assert "样本集" in msg.note
+        for token in ("c2w", "create_latency", "publish_latency", "residual"):
+            assert token in msg.note
+
+    async def test_set_no_worker_columns_lands_in_no_evidence(self):
+        """worker 侧列全空 → set_no_evidence，其余桶零计数仍返回。"""
+        rows = [
+            make_parse_result(
+                "t-set-nev-1", is_anomalous=True, total_latency=20.22,
+                operation="DS_KV_CLIENT_SET", total_latency_us=20220.0,
+                sdk_processing_us=20220.0,
+            ),
+        ]
+        with self._patch_stats_manager(rows, []):
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID, operation="SET"))
+
+        by_key = {i.key: i for i in msg.items}
+        assert by_key["set_no_evidence"].trace_cnt == 1
+        assert by_key["set_no_evidence"].p50_ms == 20.22
+        for key in ("set_client", "set_worker", "set_urma_timeout", "set_residual"):
+            assert by_key[key].trace_cnt == 0
+            assert by_key[key].p50_ms is None
+
+    async def test_set_worker_dominant_long_tail(self):
+        """worker 写处理 > SDK 段 → set_worker（证据取 worker 侧耗时）。"""
+        rows = [
+            make_parse_result(
+                "t-set-wrk-1", is_anomalous=True, total_latency=92.503,
+                operation="DS_POSIX_CREATE",
+                total_latency_us=92503.0, sdk_processing_us=2945.0,
+                worker_access_latency_us=89535.0,
+                local_worker_internal_us=89558.0,
+            ),
+            make_parse_result(
+                "t-set-wrk-2", is_anomalous=True, total_latency=80.0,
+                operation="DS_POSIX_CREATE",
+                total_latency_us=80000.0, sdk_processing_us=1000.0,
+                local_worker_internal_us=79000.0,
+            ),
+        ]
+        with self._patch_stats_manager(rows, []):
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID, operation="SET"))
+
+        wrk = {i.key: i for i in msg.items}["set_worker"]
+        assert wrk.trace_cnt == 2
+        # top_traces 按证据耗时降序
+        assert [t.trace_id for t in wrk.top_traces] == ["t-set-wrk-1", "t-set-wrk-2"]
+        assert wrk.top_traces[0].evidence_ms == 89.558
+
+    async def test_set_timeout_text_priority_over_worker_split(self):
+        """SET 侧 URMA 超时文本匹配优先级最高（近似口径保留）。"""
+        rows = [
+            make_parse_result(
+                "t-set-to-1", is_anomalous=True, total_latency=100.0,
+                operation="DS_POSIX_PUBLISH", total_latency_us=100000.0,
+                sdk_processing_us=2000.0, local_worker_internal_us=1000.0,
+                content="URMA_WAIT_TIMEOUT",
+            ),
+        ]
+        with self._patch_stats_manager(rows, []):
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID, operation="SET"))
+
+        by_key = {i.key: i for i in msg.items}
+        assert by_key["set_urma_timeout"].trace_cnt == 1
+        assert by_key["set_worker"].trace_cnt == 0
+        # 无 elapsedMs → 证据退回总时延
+        assert by_key["set_urma_timeout"].max_ms == 100.0
+
+    async def test_get_still_returns_eight_buckets_without_set_note(self):
+        """GET 回归：仍为 8 桶、无 set_ 前缀、不含 SET 剔除维度说明。"""
+        rows = [
+            make_parse_result(
+                "t-qm-1", is_anomalous=True, total_latency=20.155,
+                total_latency_us=20155.0,
+                worker_access_latency_us=20150.0, urma_processing_us=5.0,
+            ),
+        ]
+        with self._patch_stats_manager(rows, []):
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID))
+
+        assert msg.operation == "GET"
+        assert len(msg.items) == 8
+        assert [i.key for i in msg.items] == BUCKET_KEYS
+        assert not any(i.key.startswith("set_") for i in msg.items)
+        assert "create_latency" not in msg.note
+        assert msg.note
+
+    async def test_unknown_operation_returns_empty_items_with_note(self):
+        """未知 operation（如 SCAN）仍短路：空 items + note，不触发明细查询。"""
+        with patch(STATS_LATENCY_LIST, new=AsyncMock()) as manager_mock:
+            msg = await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID, operation="SCAN"))
+
         assert msg.items == []
-        assert "GET" in msg.note
+        assert msg.operation == "SCAN"
+        assert "GET" in msg.note and "SET" in msg.note
         manager_mock.assert_not_awaited()
+
+    async def test_set_operation_forwarded_to_manager(self):
+        """SET 采样下推：明细查询的 operation 必须是 "SET"。"""
+        captured: list[str] = []
+
+        async def fake_list(req):
+            captured.append(req.operation)
+            return 1, [
+                make_parse_result(
+                    "t-set-1", is_anomalous=True, total_latency=20.0,
+                    operation="DS_POSIX_CREATE", total_latency_us=20000.0,
+                    sdk_processing_us=20000.0,
+                )
+            ]
+
+        with patch(STATS_LATENCY_LIST, new=fake_list):
+            await StatsService.get_stage_stats(
+                GetStageStatsRequest(kb_id=KB_ID, operation="SET"))
+
+        assert captured == ["SET", "SET"]
 
     async def test_truncated_when_anomalous_total_exceeds_returned_rows(self):
         rows = [
