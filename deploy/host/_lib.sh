@@ -35,9 +35,10 @@ _step_header() { echo ""; echo -e "${_COLOR_GREEN}═══ $* ═══${_COLOR
 _has_cmd() { command -v "$1" &>/dev/null; }
 _is_root() { [ "$(id -u)" -eq 0 ]; }
 
-# 最低 Node 版本: Vite 6 / Rolldown 需要 ≥ 20.19
+# 最低 Node 版本与 src/web/package.json 的 engines.node 一致。
 _NODE_MIN_MAJOR=20
-_NODE_MIN_MINOR=19
+_NODE_MIN_MINOR=18
+_NODE_MIN_PATCH=2
 
 _check_node() {
     if ! _has_cmd node; then
@@ -51,15 +52,19 @@ _check_node() {
         _warn "无法解析 Node 版本"
         return 1
     fi
-    local MAJOR MINOR
+    local MAJOR MINOR PATCH
     MAJOR="$(echo "$VER" | cut -d. -f1)"
     MINOR="$(echo "$VER" | cut -d. -f2)"
+    PATCH="$(echo "$VER" | cut -d. -f3 | tr -dc '0-9')"
+    [ -n "$PATCH" ] || PATCH=0
     if [ "$MAJOR" -gt "$_NODE_MIN_MAJOR" ] || \
-       { [ "$MAJOR" -eq "$_NODE_MIN_MAJOR" ] && [ "$MINOR" -ge "$_NODE_MIN_MINOR" ]; }; then
+       { [ "$MAJOR" -eq "$_NODE_MIN_MAJOR" ] && [ "$MINOR" -gt "$_NODE_MIN_MINOR" ]; } || \
+       { [ "$MAJOR" -eq "$_NODE_MIN_MAJOR" ] && [ "$MINOR" -eq "$_NODE_MIN_MINOR" ] && \
+         [ "$PATCH" -ge "$_NODE_MIN_PATCH" ]; }; then
         _info "Node.js v$VER ✓"
         return 0
     fi
-    _warn "Node.js v$VER 太旧，Vite 前端需要 ≥ v${_NODE_MIN_MAJOR}.${_NODE_MIN_MINOR}"
+    _warn "Node.js v$VER 太旧，前端需要 ≥ v${_NODE_MIN_MAJOR}.${_NODE_MIN_MINOR}.${_NODE_MIN_PATCH}"
     _info "安装 Node 22.x LTS (示例):"
     _info "  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
     _info "  sudo apt-get install -y nodejs"

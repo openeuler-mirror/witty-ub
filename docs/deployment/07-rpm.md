@@ -89,6 +89,10 @@ sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
 sudo witty-ub manager deploy --backend http://<后端IP>:9772
 ```
 
+> 前端由系统单元 `witty-ub-web.service` 托管 Nginx，监听 8080。单元的
+> `RuntimeDirectory=` / `LogsDirectory=` 会预建 `/run/witty-ub-web` 与
+> `/var/log/witty-ub-web`，pid、错误日志、访问日志写在这两个目录下。
+
 配置 OpenCode，然后通过交互菜单启动 Agent：
 
 ```bash
@@ -106,7 +110,7 @@ sudo -E witty-ub manager
 验证：
 
 ```bash
-curl http://127.0.0.1:8080/                 # Web 200
+curl http://127.0.0.1:8080/                 # 前端页面 200
 curl http://127.0.0.1:8080/health_check     # 远端后端经反代 200
 curl http://127.0.0.1:8080/agent-api/doc    # OpenCode 经反代 200
 ```

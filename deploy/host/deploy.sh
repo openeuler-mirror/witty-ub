@@ -368,47 +368,19 @@ install_systemd_units() {
 
 # ──────────────────── frontend 角色: Web + OpenCode ────────────────────
 
-render_web_nginx() {
-    # 渲染统一 nginx 模板: 静态托管 dist/ + 反代远端后端/本机 OpenCode。
-    # envsubst 优先 (gettext), 缺失时 sed 兜底, 不强依赖新包。
-    if command -v envsubst >/dev/null 2>&1; then
-        envsubst '${WITTY_BACKEND_URL} ${WITTY_AGENT_URL}' \
-            <"$PROJECT_DIR/packaging/nginx/witty-ub-web.conf.template"
-    else
-        sed -e "s|\${WITTY_BACKEND_URL}|$WITTY_BACKEND_URL|g" \
-            -e "s|\${WITTY_AGENT_URL}|$WITTY_AGENT_URL|g" \
-            "$PROJECT_DIR/packaging/nginx/witty-ub-web.conf.template"
-    fi | sed \
-        -e "s|pid /run/witty-ub-web/nginx.pid;|pid $PROJECT_DIR/.deploy-run/nginx.pid;|" \
-        -e "s|error_log /var/log/witty-ub-web/error.log warn;|error_log $LOG_DIR/web-error.log warn;|" \
-        -e "s|access_log /var/log/witty-ub-web/access.log;|access_log $LOG_DIR/web-access.log;|"
-}
-
 start_frontend_node() {
     local DIST_DIR="$PROJECT_DIR/src/web/dist"
-    local SUDO=""
-    _is_root || SUDO="sudo"
 
     # --- Web: nginx 静态托管 + 反代 (需 dist 构建产物), 否则回退 vite preview ---
     if [ -d "$DIST_DIR" ] && [ -n "$(ls -A "$DIST_DIR" 2>/dev/null)" ] && _has_cmd nginx; then
         WEB_MODE="nginx"
         _info "启动 Web (nginx 静态托管 dist/ + 反代, port 8080)..."
-        # 清理本项目旧 nginx / 旧 vite 实例
-        [ -f "$PROJECT_DIR/.deploy-run/nginx.pid" ] && $SUDO kill "$($SUDO cat "$PROJECT_DIR/.deploy-run/nginx.pid")" 2>/dev/null || true
-        _has_cmd fuser && fuser -k 8080/tcp 5173/tcp 2>/dev/null || true
-        sleep 1
+        # 释放 Vite 端口 (本项目的 nginx 实例由启动器自行处理)
+        _has_cmd fuser && fuser -k 5173/tcp 2>/dev/null || true
         mkdir -p "$PROJECT_DIR/.deploy-run" "$LOG_DIR"
-        # 发布 dist 到 /var/witty-ub/web: nginx worker(非特权用户)无法
-        # 穿透用户 home 目录(750), 不能直接托管 ~/src/web/dist。
-        $SUDO mkdir -p /var/witty-ub
-        $SUDO rm -rf /var/witty-ub/web
-        $SUDO cp -r "$DIST_DIR" /var/witty-ub/web
-        $SUDO chmod -R a+rX /var/witty-ub/web
-        render_web_nginx >"$PROJECT_DIR/.deploy-run/nginx.conf"
-        $SUDO nginx -c "$PROJECT_DIR/.deploy-run/nginx.conf"
-        sleep 1
-        if curl --noproxy '*' -so /dev/null -w "%{http_code}" http://127.0.0.1:8080 2>/dev/null | grep -q 200; then
-            _log "Web 已启动 (nginx, port 8080, backend=$WITTY_BACKEND_URL)"
+        # 渲染配置、发布 dist、启动与自检由 Nginx 模式启动器完成
+        if bash "$SCRIPT_DIR/run_frontend_nginx.sh" start; then
+            _log "Web 已启动 (nginx, port ${WITTY_WEB_PORT:-8080}, backend=$WITTY_BACKEND_URL)"
         else
             _err "nginx 启动失败, 查看 $LOG_DIR/web-error.log"
             return 1
@@ -418,7 +390,7 @@ start_frontend_node() {
         _warn "nginx 或 dist/ 不可用, 回退 vite preview 反代 (port 5173)"
         _check_node || _warn "Node 版本不满足要求，前端可能无法启动"
         export VITE_DEV_API_TARGET="$WITTY_BACKEND_URL"
-        nohup bash "$SCRIPT_DIR/run_frontend.sh" >"$LOG_DIR/frontend.log" 2>&1 &
+        nohup bash "$SCRIPT_DIR/run_frontend_vite.sh" >"$LOG_DIR/frontend.log" 2>&1 &
         echo $! >"$LOG_DIR/frontend.pid"
         sleep 3
         if curl --noproxy 127.0.0.1 -so /dev/null -w "%{http_code}" http://127.0.0.1:5173 2>/dev/null | grep -q 200; then
@@ -589,7 +561,7 @@ start_services() {
             }
         else
             _info "启动前端 (nohup 裸进程, vite preview 托管 dist/)..."
-            nohup bash "$SCRIPT_DIR/run_frontend.sh" >"$LOG_DIR/frontend.log" 2>&1 &
+            nohup bash "$SCRIPT_DIR/run_frontend_vite.sh" >"$LOG_DIR/frontend.log" 2>&1 &
             echo $! >"$LOG_DIR/frontend.pid"
         fi
 
@@ -610,13 +582,9 @@ stop_services() {
     _info "停止 Vite 前端..."
     systemctl --user stop witty-ub-frontend.service 2>/dev/null || true
 
-    # 停止 frontend 角色的 nginx (本项目实例, pid 文件存在才动)
-    local SUDO=""
-    _is_root || SUDO="sudo"
-    if [ -f "$PROJECT_DIR/.deploy-run/nginx.pid" ]; then
-        _info "停止 Web nginx..."
-        $SUDO kill "$($SUDO cat "$PROJECT_DIR/.deploy-run/nginx.pid")" 2>/dev/null || true
-    fi
+    # 停止 frontend 角色的 nginx (未启动时静默跳过)
+    _info "停止 Web nginx..."
+    bash "$SCRIPT_DIR/run_frontend_nginx.sh" stop || true
     # 停止 OpenCode 裸进程 (frontend 角色)
     _has_cmd fuser && fuser -k 4096/tcp 2>/dev/null || true
 

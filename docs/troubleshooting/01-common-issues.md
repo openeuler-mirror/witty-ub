@@ -316,6 +316,77 @@ docker exec witty-ub-frontend curl -s --noproxy '*' http://<后端IP>:9772/healt
 
 ---
 
+## 12. 源码部署：后端报"未找到 PostgreSQL 口令"（密钥文件缺失/不可读）
+
+**症状**: `deploy/host/run_backend.sh` 直接退出并打印
+`[error] 未找到 PostgreSQL 口令, 后端无法连接数据库。`
+
+**原因**: 源码 host 部署的 PG 口令只放在密钥文件 `deploy/pg.passwd`（0400），
+不写进 `deploy.conf`。三种常见触发方式：
+
+1. 按 [05-database.md](../deployment/05-database.md) 手工建库（`CREATE USER ... PASSWORD`）
+   后没有生成密钥文件
+2. 密钥文件属主是 root（整条流程用 root 执行），而服务以降权用户运行 → 文件存在但不可读
+3. `deploy/pg.passwd` 被 `rsync --delete`/手工清理误删
+
+**排查与修复**:
+
+```bash
+# 1. 确认是否真的不存在，还是存在但当前用户不可读
+ls -l deploy/pg.passwd /etc/witty-ub/pg.passwd 2>/dev/null
+test -r deploy/pg.passwd && echo OK || echo "NOT READABLE by $(id -un)"
+
+# 2. 已知口令 → 写入密钥文件（属主必须是运行后端的用户）
+printf '%s' '<PG 口令>' | install -m 0400 /dev/stdin deploy/pg.passwd
+
+# 3. 未知口令 → 让部署脚本重新对齐 PG 口令与密钥文件（会 ALTER USER 改口令）
+sudo bash deploy/deploy_pg.sh --rpm
+
+# 4. 临时指定口令启动（不落盘，仅本次生效）
+PG_PASSWORD='<PG 口令>' bash deploy/host/run_backend.sh
+
+# 5. 校验：口令能否真正连上 PG
+PGPASSWORD="$(cat deploy/pg.passwd)" psql -h 127.0.0.1 -p 5432 -U witty-ub -d witty-ub -tAc 'select 1'
+```
+
+---
+
+## 13. 源码部署：Nginx 起不来，`/run/witty-ub-web/nginx.pid` 不存在
+
+**症状**: `sudo nginx -c /etc/witty-ub/web/nginx.conf` 报
+
+```text
+nginx: [emerg] open() "/run/witty-ub-web/nginx.pid" failed (2: No such file or directory)
+nginx: [emerg] open() "/var/log/witty-ub-web/error.log" failed (2: No such file or directory)
+```
+
+**原因**: `packaging/nginx/witty-ub-web.conf.template` 里的 pid / 日志 / 静态根目录指向
+RPM 与容器部署预建的目录（RPM 由 systemd 单元的 `RuntimeDirectory=` / `LogsDirectory=`
+建 `/run/witty-ub-web`、`/var/log/witty-ub-web`，容器由 `Dockerfile.base` 预建）。
+直接用该模板渲染并 `nginx -c` 启动时，这些目录在源码部署的机器上不存在。
+
+**排查与修复**:
+
+```bash
+# 用仓库启动器启动（把 pid/日志/静态根目录改写到仓库内，无需预建系统目录）
+bash deploy/host/run_frontend_nginx.sh start
+bash deploy/host/run_frontend_nginx.sh status
+
+# 确认渲染结果里已无 systemd/容器专用路径
+grep -nE 'pid|error_log|access_log|root ' .deploy-run/nginx.conf
+
+# 端口/反代排查
+ss -tlnp | grep 8080
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/health_check   # 200=反代通
+tail -50 .deploy-logs/web-error.log
+```
+
+> 该 nginx 配置是独立配置（自带 `events`/`http`，用 `nginx -c` 指定加载），
+> `systemctl reload nginx` / `nginx -s reload` 对它无效，重载用
+> `bash deploy/host/run_frontend_nginx.sh reload`。
+
+---
+
 ## 相关文档
 
 - 容器运行问题排查 → [02-container-runtime.md](02-container-runtime.md)
