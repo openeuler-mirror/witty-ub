@@ -73,7 +73,10 @@ class GetStageStatsRequest(StrictRequestModel):
     log_id: Optional[str] = Field(default=None, description="日志文件ID，用于过滤指定日志文件")
     operation: Optional[str] = Field(
         default="GET",
-        description="操作类型过滤：GET / SET（仅 GET 支持主导问题分类，SET 返回空 items + note）",
+        description=(
+            "操作类型过滤：GET / SET（两者为独立视角，桶口径不同：GET→8 互斥桶，"
+            "SET→5 互斥桶；其他操作返回空 items + note）"
+        ),
     )
     start_time: Optional[TimeStr] = Field(
         default=None,
@@ -252,19 +255,23 @@ class StageStatsItem(BaseModel):
 
     每条 trace 按“最大互斥阶段”归入唯一一个桶（winner-take-all），
     URMA 超时 / 交叉窗口未细分走规则特判；桶间互斥、合计 = 采样 trace 数。
+    GET / SET 为两套独立口径（读路径 8 维 / 写路径实测两段）。
     """
     key: str = Field(
         ...,
         description=(
-            "桶标识：rpc_network/rpc_queue/query_meta/urma/data_worker/"
-            "cross_window/residual/urma_timeout"
+            "桶标识：GET→rpc_network/rpc_queue/query_meta/urma/data_worker/"
+            "cross_window/residual/urma_timeout；SET→set_urma_timeout/"
+            "set_no_evidence/set_residual/set_client/set_worker"
         ),
     )
     name: str = Field(
         ...,
         description=(
-            "桶显示名：RPC网络/RPC排队/QueryMeta/URMA/Data Worker服务端处理/"
-            "Client/Worker交叉窗口未细分/未解释残差/URMA超时"
+            "桶显示名：GET→RPC网络/RPC排队/QueryMeta/URMA/Data Worker服务端处理/"
+            "Client/Worker交叉窗口未细分/未解释残差/URMA超时；"
+            "SET→SET·URMA超时/SET·数据面未观测/SET·未解释残差/"
+            "SET·客户端SDK段/SET·Worker写处理"
         ),
     )
     trace_cnt: int = Field(default=0, description="归入该桶的 trace 总数（成功+失败）")
@@ -283,7 +290,10 @@ class StageStatsItem(BaseModel):
     )
     metric_name: str = Field(
         default="主阶段耗时",
-        description="证据口径：主阶段耗时 / URMA timeout elapsedMs",
+        description=(
+            "证据口径：主阶段耗时 / URMA timeout elapsedMs / "
+            "Client 总时延（数据面未观测）"
+        ),
     )
     action: str = Field(default="", description="该类问题的治理指引（静态文案）")
     note: Optional[str] = Field(default=None, description="桶口径/构成字段说明")
@@ -294,11 +304,11 @@ class StageStatsItem(BaseModel):
 
 
 class GetStageStatsMsg(BaseModel):
-    operation: str = Field(..., description="操作类型（仅 GET 支持主导问题分类）")
+    operation: str = Field(..., description="操作类型（GET→8 桶 / SET→5 桶，两套独立口径）")
     sample_cnt: int = Field(..., description="实际参与分类的采样 trace 数（= Σ各桶 trace_cnt）")
     truncated: bool = Field(default=False, description="是否因采样上限截断")
     items: list[StageStatsItem] = Field(
-        default_factory=list, description="8 互斥桶（固定顺序，含零计数桶）"
+        default_factory=list, description="互斥桶（固定顺序，含零计数桶；GET 8 个 / SET 5 个）"
     )
     note: Optional[str] = Field(default=None, description="样本集/口径说明")
 

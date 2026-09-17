@@ -81,6 +81,39 @@ _TIMEOUT_ELAPSED_RE = re.compile(
     r"elapsed[_ ]?ms[\"']?\s*[:=]\s*(\d+(?:\.\d+)?)", re.IGNORECASE
 )
 
+# SET（写操作）独立视角互斥分类桶：(key, 显示名, 口径 note, 治理指引 action)。
+#
+# SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），可用列也不同。node48 实测
+# （3638 条 SET 行）：
+# - urma_processing_us / create_latency / publish_latency / w2w_urma_latency
+#   在当前解析路径恒为 NULL（trace_frame 显式置 None）；
+# - c2w_urma_latency = total_ms − worker_total_latency，而 SET 的
+#   worker_total_latency 实测近 0 → c2w 恒 ≈ 总时延，无额外信息量；
+# - sdk_processing_us + local_worker_internal_us ≡ total_latency_us
+#   （3638 行仅 1 行偏离），故残差基本恒 0；
+# - master/remote/sdk RPC 细分列在 SET 侧非空 ≈ 0。
+# 据此只保留实测可得的归因维度，其余维度在响应 note 中显式列明原因。
+_SET_BUCKET_SPEC: list[tuple[str, str, str, str]] = [
+    ("set_urma_timeout", "SET·URMA超时",
+     "anomaly_reason/content 文本匹配 timeout/超时（近似口径；node48 SET 侧暂 0 命中）",
+     "已观测到 URMA_WAIT_TIMEOUT；先查 completion、send lane、pending WR，再核对写路径错误上浮链是否阻塞。"),
+    ("set_no_evidence", "SET·数据面未观测",
+     "local_worker_internal_us 与 worker_access_latency_us 均空（该 trace 无 Worker 侧行），证据取总时延",
+     "客户端段独占且缺数据面证据：按 trace_id 复核 Worker 侧是否真的未打印，区分本地命中与观测缺口，勿直接判为 Worker 端慢。"),
+    ("set_residual", "SET·未解释残差",
+     "total_latency_us − (sdk_processing_us + local_worker_internal_us) ≥ +0.5ms，证据取残差",
+     "写路径未被 SDK 段与 Worker 段覆盖：优先补齐 CREATE/PUBLISH 分段观测（create_latency/publish_latency 当前解析路径不产出）。"),
+    ("set_client", "SET·客户端SDK段",
+     "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时",
+     "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。"),
+    ("set_worker", "SET·Worker写处理",
+     "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时",
+     "Worker 端 CREATE/PUBLISH 处理主导：排查元数据落盘、buffer 准备、锁竞争与远端 Worker 调度。"),
+]
+
+# SET 残差判定阈值（us）：实测唯一偏离为 8153us，0.5ms 可捕获离群而不计入舍入误差
+_SET_RESIDUAL_THRESHOLD_US = 500.0
+
 # 每桶下钻种子条数（全量约 8 桶 × 5 条 × ~60B ≈ 2.4KB，体积可控）
 _TOP_TRACES_PER_BUCKET = 5
 
@@ -196,6 +229,60 @@ def _classify_dominant(row: Any, dims: dict[str, float]) -> tuple[str, float]:
     return key, max(candidates[key], 0.0)
 
 
+def _set_family_handle(row: Any) -> str:
+    """SET 行的原始 handle（DS_KV_CLIENT_SET / DS_POSIX_CREATE / DS_POSIX_PUBLISH）。
+
+    ``log_parse_result.operation`` 存的是原始 handle（非归一 "SET"），故可直接
+    用作家族构成统计；缺失时回落 "unknown"。
+    """
+    return str(getattr(row, "operation", None) or "unknown")
+
+
+def _classify_dominant_set(row: Any) -> tuple[str, float]:
+    """把一条 SET trace 归入唯一互斥桶，返回 (bucket_key, evidence_us)。
+
+    优先级：URMA 超时（文本）> 数据面未观测（Worker 侧列全空）>
+    未解释残差（total − 两段之和 ≥ 阈值）> 客户端 SDK 段 / Worker 写处理（比大小）。
+
+    与 GET 的 8 维公式不通用的原因见 ``_SET_BUCKET_SPEC`` 上方注释：
+    SET 侧 urma_processing/c2w/RPC 细分列不可用，仅 sdk 段与 Worker 端两段
+    可实测（且二者之和 ≡ 总时延）。
+    """
+    total_us = _num(getattr(row, "total_latency_us", None))
+
+    # 1. URMA 超时：文本匹配优先（近似口径，与 GET 侧同一识别式）
+    text = " ".join(
+        str(x)
+        for x in (getattr(row, "anomaly_reason", None), getattr(row, "content", None))
+        if x
+    )
+    if text and _TIMEOUT_TEXT_RE.search(text):
+        m = _TIMEOUT_ELAPSED_RE.search(text)
+        ev = float(m.group(1)) * 1000.0 if m else total_us
+        return "set_urma_timeout", max(ev, 0.0)
+
+    sdk_us = _num(getattr(row, "sdk_processing_us", None))
+    worker_us = _num(getattr(row, "local_worker_internal_us", None))
+    has_worker_side = (
+        getattr(row, "local_worker_internal_us", None) is not None
+        or getattr(row, "worker_access_latency_us", None) is not None
+    )
+
+    # 2. Worker 侧无行 → 数据面未观测（证据取总时延）
+    if not has_worker_side:
+        return "set_no_evidence", max(total_us, 0.0)
+
+    # 3. 未解释残差：总时延显著大于两段之和（证据取残差本身）
+    residual_us = total_us - (sdk_us + worker_us)
+    if residual_us >= _SET_RESIDUAL_THRESHOLD_US:
+        return "set_residual", residual_us
+
+    # 4/5. SDK 段 vs Worker 写处理
+    if sdk_us >= worker_us:
+        return "set_client", max(sdk_us, 0.0)
+    return "set_worker", max(worker_us, 0.0)
+
+
 def _percentile_ms(sorted_ms: list[float], q: float) -> Optional[float]:
     """nearest-rank 分位（输入需升序），单位 ms。"""
     if not sorted_ms:
@@ -204,10 +291,10 @@ def _percentile_ms(sorted_ms: list[float], q: float) -> Optional[float]:
     return round(sorted_ms[idx], 3)
 
 
-def _zero_bucket_items() -> list[StageStatsItem]:
+def _zero_bucket_items(spec: list[tuple[str, str, str, str]] = _DOMINANT_BUCKET_SPEC) -> list[StageStatsItem]:
     return [
         StageStatsItem(key=key, name=name, note=note, action=action)
-        for key, name, note, action in _DOMINANT_BUCKET_SPEC
+        for key, name, note, action in spec
     ]
 
 
@@ -241,22 +328,39 @@ class StatsService:
 
     @staticmethod
     async def get_stage_stats(req: GetStageStatsRequest) -> GetStageStatsMsg:
-        operation = (req.operation or "GET").upper()
-        if operation != "GET":
-            # SET 阶段字段不同，无归因子集：items 空 + note，不触发明细查询
-            return GetStageStatsMsg(
-                operation=operation,
-                sample_cnt=0,
-                truncated=False,
-                items=[],
-                note="仅 GET 支持主导问题分类（SET 阶段字段不同），请将 operation 切换为 GET。",
-            )
+        """主导问题分类入口：按 operation 分派到 GET / SET 两套独立视角。
 
+        GET（读）与 SET（写）的请求流程与可观测字段不同，两套桶口径完全独立
+        （见 ``_DOMINANT_BUCKET_SPEC`` / ``_SET_BUCKET_SPEC``），不做跨
+        operation 混合归桶；其他 operation 仍短路返回空 items + note。
+        """
+        operation = (req.operation or "GET").upper()
+        if operation == "GET":
+            return await StatsService._get_stage_stats_get(req)
+        if operation == "SET":
+            return await StatsService._get_stage_stats_set(req)
+        return GetStageStatsMsg(
+            operation=operation,
+            sample_cnt=0,
+            truncated=False,
+            items=[],
+            note="仅支持 GET / SET 主导问题分类（其他操作无归因子集），请将 operation 切换为 GET 或 SET。",
+        )
+
+    @staticmethod
+    async def _sample_traces(
+        req: GetStageStatsRequest,
+    ) -> tuple[int, int, list, list, list]:
+        """GET/SET 共用采样管道：异常 trace 全量 + top 慢正常，合并去重。
+
+        返回 ``(anom_total, norm_total, anomalous_rows, normal_rows, sampled)``；
+        仅保留 ``total_latency_us`` 有值的代表 trace，异常侧优先。
+        """
         cap = req.sample_cap
         base = dict(
             kb_id=req.kb_id,
             log_id=req.log_id,
-            operation="GET",
+            operation=(req.operation or "GET").upper(),
             start_time=req.start_time,
             end_time=req.end_time,
             sort_fields=[SortField(field="total_latency", order="desc")],
@@ -285,6 +389,34 @@ class StatsService:
             sampled.append(row)
             if len(sampled) >= cap:
                 break
+        return (
+            anom_total, norm_total,
+            list(anomalous_rows), list(normal_rows), sampled,
+        )
+
+    @staticmethod
+    def _is_truncated(
+        anom_total: int,
+        norm_total: int,
+        anomalous_rows: list,
+        normal_rows: list,
+        sample_cnt: int,
+        cap: int,
+    ) -> bool:
+        """采样截断判定（GET/SET 共用）：上游总数超出返回行数或触达采样上限。"""
+        return (
+            anom_total > len(anomalous_rows)
+            or norm_total > len(normal_rows)
+            or sample_cnt >= cap
+        )
+
+    @staticmethod
+    async def _get_stage_stats_get(req: GetStageStatsRequest) -> GetStageStatsMsg:
+        """GET 读路径主导问题分类（8 互斥桶，设计文档 §4.3）。"""
+        cap = req.sample_cap
+        (anom_total, norm_total, anomalous_rows, normal_rows, sampled) = (
+            await StatsService._sample_traces(req)
+        )
 
         if not sampled:
             return GetStageStatsMsg(
@@ -414,10 +546,8 @@ class StatsService:
                 )
             )
 
-        truncated = (
-            anom_total > len(anomalous_rows)
-            or norm_total > len(normal_rows)
-            or len(sampled) >= cap
+        truncated = StatsService._is_truncated(
+            anom_total, norm_total, anomalous_rows, normal_rows, len(sampled), cap
         )
         notes = [
             "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶",
@@ -428,6 +558,115 @@ class StatsService:
             notes.insert(0, f"达到采样上限 {cap}，异常/top慢合并去重已截断")
         return GetStageStatsMsg(
             operation="GET",
+            sample_cnt=len(sampled),
+            truncated=truncated,
+            items=items,
+            note="；".join(notes),
+        )
+
+    @staticmethod
+    async def _get_stage_stats_set(req: GetStageStatsRequest) -> GetStageStatsMsg:
+        """SET 写路径主导问题分类（5 互斥桶，口径见 ``_SET_BUCKET_SPEC``）。
+
+        与 GET 不共用 8 维公式：SET 侧 urma_processing_us / create_latency /
+        publish_latency / w2w_urma_latency 在当前解析路径恒空，c2w_urma_latency
+        恒≈总时延，故只保留 sdk 段与 Worker 端两段实测维度（+ 超时文本、
+        数据面未观测、未解释残差三个边界桶），其余维度在响应 note 中列明原因。
+        """
+        cap = req.sample_cap
+        (anom_total, norm_total, anomalous_rows, normal_rows, sampled) = (
+            await StatsService._sample_traces(req)
+        )
+
+        if not sampled:
+            return GetStageStatsMsg(
+                operation="SET",
+                sample_cnt=0,
+                truncated=False,
+                items=_zero_bucket_items(_SET_BUCKET_SPEC),
+                note="明细中无 SET 归因子集（异常+top慢，缺 total_latency_us 字段），主导问题分类无样本",
+            )
+
+        buckets: dict[str, dict[str, Any]] = {
+            key: {"success": 0, "fail": 0, "ev": [], "client": [], "top": [], "fam": {}}
+            for key, _, _, _ in _SET_BUCKET_SPEC
+        }
+        for row in sampled:
+            key, ev_us = _classify_dominant_set(row)
+            b = buckets.get(key)
+            if b is None:
+                continue
+            if getattr(row, "is_anomalous", False):
+                b["fail"] += 1
+            else:
+                b["success"] += 1
+            client_ms = _num(getattr(row, "total_latency_us", None)) / 1000.0
+            if client_ms > 0:
+                b["client"].append(client_ms)
+            if ev_us and ev_us > 0:
+                ev_ms = ev_us / 1000.0
+                b["ev"].append(ev_ms)
+                b["top"].append((row.trace_id, ev_ms, client_ms))
+            handle = _set_family_handle(row)
+            b["fam"][handle] = b["fam"].get(handle, 0) + 1
+
+        metric_names = {
+            "set_urma_timeout": "URMA timeout elapsedMs",
+            "set_no_evidence": "Client 总时延（数据面未观测）",
+        }
+        items: list[StageStatsItem] = []
+        for key, name, note, action in _SET_BUCKET_SPEC:
+            b = buckets[key]
+            ev = sorted(b["ev"])
+            client = sorted(b["client"])
+            top = heapq.nlargest(
+                _TOP_TRACES_PER_BUCKET, b["top"], key=lambda t: t[1]
+            )
+            if b["fam"]:
+                fam = "、".join(
+                    f"{h} {c}"
+                    for h, c in sorted(b["fam"].items(), key=lambda kv: (-kv[1], kv[0]))
+                )
+                note = note + f"；家族构成：{fam}"
+            items.append(
+                StageStatsItem(
+                    key=key,
+                    name=name,
+                    trace_cnt=b["success"] + b["fail"],
+                    success_cnt=b["success"],
+                    fail_cnt=b["fail"],
+                    p50_ms=_percentile_ms(ev, 0.5),
+                    p90_ms=_percentile_ms(ev, 0.9),
+                    max_ms=round(ev[-1], 3) if ev else None,
+                    client_p50_ms=_percentile_ms(client, 0.5),
+                    client_p90_ms=_percentile_ms(client, 0.9),
+                    metric_name=metric_names.get(key, "主阶段耗时"),
+                    action=action,
+                    note=note,
+                    top_traces=[
+                        StageStatsTopTrace(
+                            trace_id=tid,
+                            evidence_ms=round(ev_ms, 3),
+                            client_ms=round(c_ms, 3) if c_ms > 0 else None,
+                        )
+                        for tid, ev_ms, c_ms in top
+                    ],
+                )
+            )
+
+        truncated = StatsService._is_truncated(
+            anom_total, norm_total, anomalous_rows, normal_rows, len(sampled), cap
+        )
+        notes = [
+            "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶",
+            "SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列",
+            "SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）",
+            "URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+        ]
+        if truncated:
+            notes.insert(0, f"达到采样上限 {cap}，异常/top慢合并去重已截断")
+        return GetStageStatsMsg(
+            operation="SET",
             sample_cnt=len(sampled),
             truncated=truncated,
             items=items,
