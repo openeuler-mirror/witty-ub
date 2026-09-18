@@ -43,8 +43,8 @@ export const THRESHOLD_OPTIONS: {
   description: string
 }[] = [
   { key: 'total_p99_threshold_ms', label: '总时延 P99 阈值', description: '端到端总耗时' },
-  { key: 'c2w_p99_threshold_ms', label: 'C2W 时延 P99 阘值', description: 'Client 到 Worker' },
-  { key: 'w2w_p99_threshold_ms', label: 'W2W 时延 P99 阘值', description: 'Worker 间调用' },
+  { key: 'c2w_p99_threshold_ms', label: 'C2W 时延 P99 阈值', description: 'Client 到 Worker' },
+  { key: 'w2w_p99_threshold_ms', label: 'W2W 时延 P99 阈值', description: 'Worker 间调用' },
   {
     key: 'urma_link_p99_threshold_ms',
     label: 'URMA 建链 P99 阈值',

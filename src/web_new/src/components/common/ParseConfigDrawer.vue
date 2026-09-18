@@ -31,7 +31,14 @@ const parseConfigSummary =
 
 // 后端运行链路当前仅消费 total_p99_threshold_ms 与文件名 Pattern；其余字段保存仅持久化。
 // 后端判定消费补齐后移除此标注
+// 后端解析 worker 会读的阈值（判定异常）
 const CONSUMED_THRESHOLD_KEYS = new Set<DiagnosisThresholdKey>(['total_p99_threshold_ms'])
+// 新版前端自己用的阈值（总览表 / 曲线的异常标色）
+const UI_THRESHOLD_KEYS = new Set<DiagnosisThresholdKey>([
+  'total_p9999_threshold_ms',
+  'total_pmax_threshold_ms',
+  'total_ave_threshold_ms',
+])
 
 const draft = reactive<DiagnosisConfigForm>(defaultDiagnosisConfig())
 const patternInputs = reactive<Record<DiagnosisPatternKey, string>>({
@@ -279,15 +286,26 @@ const save = async () => {
 
         <section class="parse-section">
           <h3>时延异常阈值（ms）</h3>
+          <p class="config-note">
+            「总时延 P99 阈值」由后端解析判定使用；「P99.99 / Pmax / 均值」用于本页总览的异常
+            标色；C2W / W2W / URMA 建链 / QueryMeta 四个阶段阈值当前没有任何链路消费
+            （保存到资产配置，仅持久化）。
+          </p>
           <div class="threshold-grid">
             <label v-for="option in THRESHOLD_OPTIONS" :key="option.key" class="threshold-item">
               <span class="threshold-label">
                 {{ option.label }}
                 <span
-                  v-if="!CONSUMED_THRESHOLD_KEYS.has(option.key)"
-                  class="config-ineffective-chip"
-                  title="后端判定暂未消费该配置项，保存仅持久化"
-                  >暂未生效</span
+                  v-if="CONSUMED_THRESHOLD_KEYS.has(option.key)"
+                  class="config-effective-chip"
+                  title="后端解析 / 诊断链路会读取这个阈值"
+                  >后端生效</span
+                >
+                <span
+                  v-else-if="UI_THRESHOLD_KEYS.has(option.key)"
+                  class="config-ui-chip"
+                  title="后端不读，由本页总览的异常标色使用"
+                  >前端标色</span
                 >
               </span>
               <input
@@ -302,12 +320,10 @@ const save = async () => {
         </section>
 
         <section class="parse-section">
-          <h3>
-            滑动窗口对（size / step）
-            <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
-              >暂未生效</span
-            >
-          </h3>
+          <h3>滑动窗口对（size / step）</h3>
+          <p class="config-note">
+            这组参数会保存到资产配置，但当前解析链路尚未消费，调整不会改变分析结果。
+          </p>
           <div
             v-for="(pair, index) in draft.logAnalyzerParams.slidingWindowPairs"
             :key="index"
@@ -335,12 +351,10 @@ const save = async () => {
         </section>
 
         <section class="parse-section">
-          <h3>
-            区间异常密度阈值
-            <span class="config-ineffective-chip" title="后端判定暂未消费该配置项，保存仅持久化"
-              >暂未生效</span
-            >
-          </h3>
+          <h3>区间异常密度阈值</h3>
+          <p class="config-note">
+            该参数会保存到资产配置，但当前解析链路尚未消费，调整不会改变分析结果。
+          </p>
           <div class="sliding-row">
             <input
               class="input"
@@ -451,17 +465,35 @@ const save = async () => {
 .threshold-label {
   font-size: 12px;
 }
-.config-ineffective-chip {
+.config-effective-chip {
   margin-left: 6px;
   padding: 0 6px;
   font-size: 10px;
   line-height: 16px;
   border-radius: 999px;
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fcd34d;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #34d399;
   font-weight: 400;
   white-space: nowrap;
+}
+.config-ui-chip {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.config-note {
+  margin: 2px 0 8px;
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .threshold-desc {
   font-size: 11px;
