@@ -40,8 +40,8 @@ from latency.parse.labels import (
 )
 from latency.ENUM.ds_log import EntryType, TupleField
 from latency.parse.parallel_scanner import ParallelFileScanner
+from latency.parse.trace_frames import TraceFrames, detach_trace_strings
 from latency.parse.parallel_scanner.trace_frame import (
-    bucket_representative_tids,
     build_trace_frame,
     build_trace_frame_light,
     detail_tids_from,
@@ -51,6 +51,7 @@ from latency.ENUM.task import TaskSplitStrategy
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.log_parse_result_bulk import (
     LOG_PARSE_RESULT_SPEC,
+    build_records,
     copy_dataframe,
 )
 from latency.database.managers.task import TaskPGManager
@@ -119,28 +120,74 @@ def _diagnosis_threshold_ms(diagnosis_config) -> float:
     return 5.0
 
 
-def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float):
+def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float, *, compact: bool = False):
     """轻列归并 → 定"需要算的 trace" → 第二次投影补宽列 → 拼回一份 df_trace。
 
     全量只算轻列（LIGHT_COLUMNS）；宽列只给 明细子集 ∪ 分桶代表行 算。
-    第二次投影从 ``scan_ctx`` 里保留的 **read 产物**上做，不重读日志文件。
+    从扫描缓存逐批补宽列，大输入按 trace 分区归并，不重读源日志。
     输出的列集与列序与旧的单次 40 列归并**逐列一致**（契约不变）。
+    compact=True 时返回 TraceFrames，把宽列保留到明细/分桶消费时才按批展开。
     """
     from latency.parse.columns import TRACE_COLUMNS
     from latency.parse.parallel_scanner.scan_vector import materialize_wide
+    import polars as pl
 
-    trace_light = build_trace_frame_light(light_rows)
-    needed = set(detail_tids_from(trace_light, threshold_ms))
-    # 分桶代表行也要有宽列：桶表落的是代表行的指标值，其中 26 项来自 ``__`` 原材料。
-    needed |= set(bucket_representative_tids(trace_light))
-    if not needed:
+    trace_light = detach_trace_strings(build_trace_frame_light(light_rows))
+    # group_by 产物不再引用逐行轻列载荷；在宽列投影前释放它。
+    del light_rows
+    needed = detail_tids_from(trace_light, threshold_ms, as_series=True)
+    # Keep the small representative selection for bucket persistence, so the
+    # all-trace sort/group selection runs only once per parse task.
+    from latency.bucket.representatives import select_bucket_representatives
+    representatives = select_bucket_representatives(trace_light)
+    needed = pl.concat([needed, *(rows["tid"] for rows in representatives.values())]).unique()
+    if needed.is_empty():
         return trace_light
 
-    wide_rows = materialize_wide(scan_ctx, needed)
-    wide_trace = build_trace_frame(
-        wide_rows, threshold_ms=threshold_ms, detail_tids=needed
-    )
-    del wide_rows
+    selected_rows = scan_ctx.light_rows.filter(
+        pl.col("tid").is_in(needed.implode())
+    ).select("__row")
+    expected_rows = selected_rows.height
+    if expected_rows > 262_144:
+        from latency.parse.parallel_scanner.memory_scan import iter_wide
+        from latency.parse.parallel_scanner.bounded_trace import build_trace_frame_batched
+
+        wide_trace = build_trace_frame_batched(
+            iter_wide(scan_ctx, needed, sparse=True, selected_rows=selected_rows),
+            expected_rows,
+            # Prefer fewer native reductions over small memory partitions.
+            # Very large inputs still retain the compressed fallback.
+            target_partition_rows=1_048_576,
+            target_partition_bytes=256 * 1024 * 1024,
+            compression_threshold_bytes=2 * 1024 * 1024 * 1024,
+            complete_schema=True,
+        )
+        # Shared source lines can emit extra tids; retain their base metrics,
+        # but only requested tids carry deferred yuanrong materials.
+        wanted_mask = wide_trace["tid"].is_in(needed.implode())
+        wide_trace = wide_trace.with_columns([
+            pl.when(wanted_mask).then(pl.col(name)).alias(name)
+            for name in wide_trace.columns if name.startswith("__")
+        ])
+    else:
+        wide_rows = materialize_wide(scan_ctx, needed, selected_rows=selected_rows)
+        # No later phase reads scanner source text or per-line row locators.
+        scan_ctx.lines = None
+        scan_ctx.light_rows = None
+        scan_ctx.info_cache = None
+        all_selected = wide_rows["tid"].is_in(needed.implode()).all()
+        wide_trace = build_trace_frame(
+            wide_rows, threshold_ms=None if all_selected else threshold_ms, detail_tids=needed
+        )
+        wide_trace = detach_trace_strings(wide_trace)
+        del wide_rows
+
+    del selected_rows
+
+    if compact:
+        details = TraceFrames.from_frames(trace_light, wide_trace)
+        details.bucket_representatives = representatives
+        return details
 
     merge_cols = [
         name
@@ -148,6 +195,7 @@ def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float):
         if name != "tid" and name not in trace_light.columns
     ]
     if not merge_cols:
+        del wide_trace
         return trace_light
     merged = trace_light.join(
         wide_trace.select(["tid", *merge_cols]),
@@ -155,6 +203,7 @@ def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float):
         how="left",
         coalesce=True,
     )
+    del wide_trace
     # 列序回到旧契约：TRACE_COLUMNS 在前、``__`` 原材料在后
     order = [name for name in TRACE_COLUMNS if name in merged.columns]
     order += [name for name in merged.columns if name.startswith("__")]
@@ -404,6 +453,7 @@ class KVCacheLogParseWorker(BaseWorker):
         task_id: str = "",  # 用于上报分阶段耗时到 TaskReport
         scan_progress_cb: Optional[Callable[[float], Awaitable]] = None,
         stage_timer: Any = None,  # latency.common.stage_timing.StageTimer | None
+        compact: bool = False,
     ) -> Any:
         """解析日志文件
 
@@ -419,6 +469,8 @@ class KVCacheLogParseWorker(BaseWorker):
                 ``scan`` = 整段 ``scanner.scan_all``（detail = 文件数 / 扫描行数）、
                 ``trace_frame`` = ``build_trace_frame`` 归并（detail = trace 行数）。
                 报告由调用方（``run``）统一 ``emit``。
+            compact: 任务内部保留轻列与明细宽列分离的 TraceFrames，避免全量铺宽列。
+                默认 False 保持直接调用者的 DataFrame 返回契约。
 
         Returns:
             列式路径（默认，WITTY_UB_SCAN_COLUMNS=1）: polars DataFrame ——
@@ -541,8 +593,12 @@ class KVCacheLogParseWorker(BaseWorker):
                 threshold_ms = _diagnosis_threshold_ms(diagnosis_config)
                 if scan_ctx is not None:
                     # 轻列 → 定"需要算的 trace" → 从 read 产物补算宽列（不重读文件）
+                    # pop 后调用期间只剩 helper 持有逐行轻列帧，使其能在
+                    # group_by 完成后、宽列物化前真正释放。
+                    light_rows_holder = [column_rows]
+                    column_rows = None
                     trace_index = _merge_light_then_wide(
-                        column_rows, scan_ctx, threshold_ms
+                        light_rows_holder.pop(), scan_ctx, threshold_ms, compact=compact
                     )
                 else:
                     trace_index = build_trace_frame(
@@ -1276,12 +1332,17 @@ class KVCacheLogParseWorker(BaseWorker):
     def _build_detail_frame(
         detail_subset: Any,
         top1000_tids: set[str],
-        anomalous_only_tids: set[str],
-        anomalous_tids: set[str],
+        anomalous_only_tids: Any,
+        anomalous_tids: Any,
         src_dst_to_agg_id_map: dict | None = None,
         log_file_id: str = "",
         top1000_created_at: str | None = None,
         anomalous_created_at: str | None = None,
+        threshold_ms: float | None = None,
+        anomalous_only_count: int | None = None,
+        aggregate_keys: Any = None,
+        top_rows_sorted: bool = False,
+        ordered_top_count: int | None = None,
     ) -> Any:
         """df_trace 片段 -> log_parse_result 待写 frame（P3 列式写库路径）。
 
@@ -1298,45 +1359,78 @@ class KVCacheLogParseWorker(BaseWorker):
         """
         import polars as pl
 
+        if threshold_ms is None:
+            anomaly_expr = pl.col("tid").is_in(anomalous_tids)
+            anomaly_only_expr = pl.col("tid").is_in(anomalous_only_tids)
+            has_anomalous_only = bool(anomalous_only_tids)
+        else:
+            # 生产路径直接复用阈值表达式，避免把所有异常 tid
+            # 再物化为 Python set（高异常率时这一份就可占用数百 MB）。
+            anomaly_expr = (pl.col("total_ms") >= threshold_ms).fill_null(False)
+            anomaly_only_expr = anomaly_expr & ~pl.col("tid").is_in(top1000_tids)
+            has_anomalous_only = (
+                anomalous_only_count > 0
+                if anomalous_only_count is not None
+                else bool(detail_subset.select(anomaly_only_expr.any()).item())
+            )
+
         # created_at 取值顺序与旧路径逐字对齐：先 anomalous 后 top1000，且只有在
         # 真有 anomalous-only 行时才为异常段取（旧 _build_anomalous_detail_rows
         # 也是在 ``if anomalous_tids:`` 分支里才调 _utc_now_str()）。
         if anomalous_created_at is None:
-            anomalous_created_at = _utc_now_str() if anomalous_only_tids else None
+            anomalous_created_at = _utc_now_str() if has_anomalous_only else None
         if top1000_created_at is None:
             top1000_created_at = _utc_now_str()
         if anomalous_created_at is None:
             # 无 anomalous-only 行：该段 0 行，取值不影响落库
             anomalous_created_at = top1000_created_at
 
-        empty = detail_subset.head(0)
-        if top1000_tids:
-            top_frame = (
-                detail_subset.filter(pl.col("tid").is_in(top1000_tids))
-                .sort("total_latency", descending=True)
-                .with_columns(
-                    pl.col("tid").is_in(anomalous_tids).alias("is_anomalous"),
+        if ordered_top_count is not None:
+            # The bounded iterator already selected and ordered every row. Mark
+            # its top/anomaly boundary directly instead of filtering/copying all
+            # metric columns twice and concatenating them back together.
+            top_count = ordered_top_count
+            if not 0 <= top_count <= detail_subset.height:
+                raise ValueError("ordered_top_count outside detail batch")
+            anomaly_count = detail_subset.height - top_count
+            detail_frame = detail_subset.with_columns(
+                anomaly_expr.alias("is_anomalous"),
+                pl.when(pl.int_range(pl.len()) < top_count)
+                .then(pl.lit(top1000_created_at)).otherwise(pl.lit(anomalous_created_at))
+                .alias("created_at"),
+            )
+        else:
+            empty = detail_subset.head(0)
+            if top1000_tids:
+                top_frame = detail_subset.filter(pl.col("tid").is_in(top1000_tids))
+                if not top_rows_sorted:
+                    top_frame = top_frame.sort("total_latency", descending=True)
+                top_frame = (
+                    top_frame.with_columns(
+                        anomaly_expr.alias("is_anomalous"),
+                        pl.lit(top1000_created_at).alias("created_at"),
+                    )
+                )
+            else:
+                top_frame = empty.with_columns(
+                    pl.lit(False).alias("is_anomalous"),
                     pl.lit(top1000_created_at).alias("created_at"),
                 )
-            )
-        else:
-            top_frame = empty.with_columns(
-                pl.lit(False).alias("is_anomalous"),
-                pl.lit(top1000_created_at).alias("created_at"),
-            )
-        if anomalous_only_tids:
-            anomalous_frame = detail_subset.filter(
-                pl.col("tid").is_in(anomalous_only_tids)
-            ).with_columns(
-                pl.lit(True).alias("is_anomalous"),
-                pl.lit(anomalous_created_at).alias("created_at"),
-            )
-        else:
-            anomalous_frame = empty.with_columns(
-                pl.lit(True).alias("is_anomalous"),
-                pl.lit(anomalous_created_at).alias("created_at"),
-            )
-        detail_frame = pl.concat([top_frame, anomalous_frame], how="vertical")
+            if has_anomalous_only:
+                anomalous_frame = detail_subset.filter(
+                    anomaly_only_expr
+                ).with_columns(
+                    pl.lit(True).alias("is_anomalous"),
+                    pl.lit(anomalous_created_at).alias("created_at"),
+                )
+            else:
+                anomalous_frame = empty.with_columns(
+                    pl.lit(True).alias("is_anomalous"),
+                    pl.lit(anomalous_created_at).alias("created_at"),
+                )
+            detail_frame = pl.concat([top_frame, anomalous_frame], how="vertical")
+            top_count = top_frame.height
+            anomaly_count = anomalous_frame.height
 
         # log_id：旧路径 ``log_file_id or flat.get("log_id", "")``
         if log_file_id:
@@ -1346,7 +1440,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
         agg_map = src_dst_to_agg_id_map or {}
         if agg_map:
-            agg_keys = pl.DataFrame(
+            agg_keys = aggregate_keys if aggregate_keys is not None else pl.DataFrame(
                 {
                     "_src_k": [key[0] for key in agg_map],
                     "_dst_k": [key[1] for key in agg_map],
@@ -1361,19 +1455,19 @@ class KVCacheLogParseWorker(BaseWorker):
                 },
             )
             detail_frame = (
-                detail_frame.with_row_index("_seq")
-                .with_columns(
+                detail_frame.with_columns(
                     pl.col("src").fill_null("").alias("_src_k"),
                     pl.col("dst").fill_null("").alias("_dst_k"),
                     KVCacheLogParseWorker._op_key_expr().alias("_op_k"),
                 )
-                .join(agg_keys, on=["_src_k", "_dst_k", "_op_k"], how="left")
-                # 行序契约：join 后按写入序复位（左联保留左表行序，但显式排序更稳）
-                .sort("_seq")
+                .join(
+                    agg_keys, on=["_src_k", "_dst_k", "_op_k"],
+                    how="left", maintain_order="left",
+                )
                 .with_columns(
                     pl.col("_agg_id").fill_null("").alias("aggregated_event_id")
                 )
-                .drop(["_seq", "_src_k", "_dst_k", "_op_k", "_agg_id"])
+                .drop(["_src_k", "_dst_k", "_op_k", "_agg_id"])
             )
         else:
             detail_frame = detail_frame.with_columns(
@@ -1383,8 +1477,8 @@ class KVCacheLogParseWorker(BaseWorker):
         logger.info(
             "[yuanrong] detail frame built: top%d (total_latency desc) + "
             "anomalous-only %d = %d rows, agg_id map=%d",
-            top_frame.height,
-            anomalous_frame.height,
+            top_count,
+            anomaly_count,
             detail_frame.height,
             len(agg_map),
         )
@@ -1394,11 +1488,13 @@ class KVCacheLogParseWorker(BaseWorker):
     def _build_detail_payload(
         detail_subset: Any,
         top1000_tids: set[str],
-        anomalous_only_tids: set[str],
-        anomalous_tids: set[str],
+        anomalous_only_tids: Any,
+        anomalous_tids: Any,
         src_dst_to_agg_id_map: dict | None = None,
         log_file_id: str = "",
         kb_id: str = "",
+        threshold_ms: float | None = None,
+        anomalous_only_count: int | None = None,
     ) -> Any:
         """明细待写载荷：列式 frame（``_build_detail_frame`` 的唯一产物）。
 
@@ -1412,7 +1508,143 @@ class KVCacheLogParseWorker(BaseWorker):
             anomalous_tids=anomalous_tids,
             src_dst_to_agg_id_map=src_dst_to_agg_id_map,
             log_file_id=log_file_id,
+            threshold_ms=threshold_ms,
+            anomalous_only_count=anomalous_only_count,
         )
+
+    @staticmethod
+    def _iter_detail_frames(
+        trace_index: Any,
+        top1000_tids: set[str],
+        threshold_ms: float,
+        src_dst_to_agg_id_map: dict,
+        log_file_id: str,
+        anomalous_only_count: int,
+        batch_size: int = 100_000,
+        trace_details: TraceFrames | None = None,
+    ):
+        """按 top1000 + anomalous-only 顺序物化有界明细帧。
+
+        全量只保留窄行号索引；26 项 yuanrong 派生列和入库宽列每次
+        最多存活 ``batch_size`` 行。原生计算每批 100K，Python COPY 转换
+        每批最多 50K；所有批次共享一次 COPY。
+        """
+        import polars as pl
+        from latency.parse.parallel_scanner.trace_frame import _yuanrong_from_grouped
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+
+        index = trace_index.select(
+            "tid", "total_ms", "total_latency"
+        ).with_row_index("_row")
+        anomaly_expr = (pl.col("total_ms") >= threshold_ms).fill_null(False)
+        top_indices = (
+            index.filter(pl.col("tid").is_in(top1000_tids))
+            .sort("total_latency", descending=True)
+            ["_row"]
+        )
+        anomaly_indices = index.filter(
+            anomaly_expr & ~pl.col("tid").is_in(top1000_tids)
+        )["_row"]
+        top_count = len(top_indices)
+        indices = pl.concat([top_indices, anomaly_indices])
+        del index, top_indices, anomaly_indices
+        expected_rows = len(top1000_tids) + anomalous_only_count
+        if len(indices) != expected_rows:
+            raise ValueError(f"Detail selection count mismatch: {len(indices)}/{expected_rows}")
+
+        anomalous_created_at = (
+            _utc_now_str() if anomalous_only_count else None
+        )
+        top_created_at = _utc_now_str()
+        # Endpoint groups are shared by every detail batch. Build their lookup
+        # once, including when anomaly volume spans hundreds of COPY batches.
+        aggregate_keys = None
+        if src_dst_to_agg_id_map:
+            aggregate_keys = pl.DataFrame({
+                "_src_k": [key[0] for key in src_dst_to_agg_id_map],
+                "_dst_k": [key[1] for key in src_dst_to_agg_id_map],
+                "_op_k": [key[2] for key in src_dst_to_agg_id_map],
+                "_agg_id": list(src_dst_to_agg_id_map.values()),
+            }, schema={name: pl.String for name in ("_src_k", "_dst_k", "_op_k", "_agg_id")})
+        for offset in range(0, len(indices), batch_size):
+            subset = trace_index[indices.slice(offset, batch_size)]
+            if trace_details is not None:
+                subset = trace_details.enrich(subset)
+            subset = _yuanrong_from_grouped(subset)
+            yield KVCacheLogParseWorker._build_detail_frame(
+                subset,
+                top1000_tids=top1000_tids,
+                anomalous_only_tids=None,
+                anomalous_tids=None,
+                src_dst_to_agg_id_map=src_dst_to_agg_id_map,
+                log_file_id=log_file_id,
+                top1000_created_at=top_created_at,
+                anomalous_created_at=anomalous_created_at,
+                threshold_ms=threshold_ms,
+                anomalous_only_count=anomalous_only_count,
+                aggregate_keys=aggregate_keys,
+                top_rows_sorted=True,
+                ordered_top_count=min(max(top_count - offset, 0), subset.height),
+            )
+            del subset
+
+    @staticmethod
+    async def _store_detail_frames(frames, *, stage_timer=None, build_timing=None) -> int:
+        """Stream bounded detail batches through one COPY and one transaction."""
+        from latency.database.engine import PGManager
+        from latency.common.stage_timing import read_cpu_seconds
+
+        total = 0
+        iterator = iter(frames)
+        timer = as_stage_timer(stage_timer)
+
+        def records():
+            nonlocal total
+            while True:
+                started = time.perf_counter()
+                cpu_started = read_cpu_seconds()
+                with timer.stage("detail") as scope:
+                    frame = next(iterator, None)
+                    scope.detail = f"{frame.height if frame is not None else 0} 行"
+                if build_timing is not None:
+                    build_timing["wall"] += time.perf_counter() - started
+                    cpu_finished = read_cpu_seconds()
+                    if cpu_started is not None and cpu_finished is not None:
+                        build_timing["cpu"] += cpu_finished - cpu_started
+                if frame is None:
+                    return
+                # Bound conversion even for callers supplying larger frames.
+                # Preserve copy_dataframe's shared fallback timestamp per frame.
+                created_at = datetime.now(timezone.utc)
+                for chunk in frame.iter_slices(50_000):
+                    batch, _ = build_records(
+                        chunk, LOG_PARSE_RESULT_SPEC, created_at=created_at, materialize=False
+                    )
+                    count = chunk.height
+                    yield from batch
+                    total += count
+                    del batch, chunk
+                del frame
+
+        stream = records()
+        try:
+            async with PGManager.connection() as conn:
+                raw = await conn.get_raw_connection()
+                status = await raw.driver_connection.copy_records_to_table(
+                    LOG_PARSE_RESULT_SPEC.table,
+                    records=stream,
+                    columns=list(LOG_PARSE_RESULT_SPEC.columns),
+                )
+                if status != f"COPY {total}":
+                    raise RuntimeError(f"Failed to bulk copy log parse results: {status}, expected {total}")
+        finally:
+            stream.close()
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
+        return total
 
     # 存库
     @staticmethod
@@ -1421,6 +1653,9 @@ class KVCacheLogParseWorker(BaseWorker):
         src_dst_aggregated_events: list[SrcDstAggregatedEventDataclass],
         time_window_aggregated_events: list[TimeWindowAggregatedEventDataclass] | None = None,
         kb_id: str = "",
+        *,
+        detail_frames=None,
+        stage_timer=None,
     ) -> bool:
         """存库
 
@@ -1436,14 +1671,26 @@ class KVCacheLogParseWorker(BaseWorker):
                 （列式归一化 + COPY）。旧的 ``LogParseResultDataclass`` 列表仍
                 支持（少数测试/工具直接构造行对象），走
                 ``add_log_parse_results``。
+            detail_frames: 生产路径的有界明细迭代器，与两种聚合表保持并发写入。
+            stage_timer: 分别记录迭代器构建明细和并发写库耗时。
         """
         import time as _time
+        from latency.common.stage_timing import read_cpu_seconds
+
+        build_timing = {"wall": 0.0, "cpu": 0.0}
+        detail_rows_written = KVCacheLogParseWorker._detail_row_count(anomalous_detail_rows)
 
         if time_window_aggregated_events:
             for event in time_window_aggregated_events:
                 event.kb_id = kb_id
 
         async def _store_detail() -> None:
+            nonlocal detail_rows_written
+            if detail_frames is not None:
+                detail_rows_written = await KVCacheLogParseWorker._store_detail_frames(
+                    detail_frames, stage_timer=stage_timer, build_timing=build_timing
+                )
+                return
             if anomalous_detail_rows is None:
                 return
             import polars as pl
@@ -1485,6 +1732,7 @@ class KVCacheLogParseWorker(BaseWorker):
             return len(time_window_aggregated_events)
 
         t_store_start = _time.perf_counter()
+        cpu_started = read_cpu_seconds()
         results = await asyncio.gather(
             _store_detail(),
             _store_src_dst(),
@@ -1492,6 +1740,20 @@ class KVCacheLogParseWorker(BaseWorker):
             return_exceptions=True,
         )
         t_store_elapsed = _time.perf_counter() - t_store_start
+        cpu_finished = read_cpu_seconds()
+        # Detail construction is synchronous and blocks the event loop. Account
+        # for it separately while retaining the three concurrent database writes.
+        as_stage_timer(stage_timer).add(
+            "store",
+            wall_s=max(0.0, t_store_elapsed - build_timing["wall"]),
+            cpu_s=(
+                max(0.0, cpu_finished - cpu_started - build_timing["cpu"])
+                if cpu_started is not None and cpu_finished is not None else None
+            ),
+            detail="明细与聚合写库",
+            start=t_store_start,
+            end=t_store_start + t_store_elapsed,
+        )
 
         success = True
         num_aggregate_rows = 0
@@ -1507,7 +1769,7 @@ class KVCacheLogParseWorker(BaseWorker):
 
         logger.info(
             "[STORE] detail_rows=%d store_elapsed=%.1fs aggregate_rows=%d",
-            KVCacheLogParseWorker._detail_row_count(anomalous_detail_rows),
+            detail_rows_written,
             t_store_elapsed,
             num_aggregate_rows,
         )
@@ -1522,6 +1784,7 @@ class KVCacheLogParseWorker(BaseWorker):
         task_id: str | None = None,
         tables=None,
         stage_timer: Any = None,
+        trace_details: TraceFrames | None = None,
     ) -> dict[int, int] | None:
         """Write 4 latency_bucket_* tables from df_trace, degrading on failure.
 
@@ -1552,6 +1815,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 task_id=task_id or None,
                 tables=tables,
                 stage_timer=stage_timer,
+                trace_details=trace_details,
             )
         except Exception as e:
             logger.exception("[run] Bucket stats failed, degraded: %s", e)
@@ -1609,7 +1873,11 @@ class KVCacheLogParseWorker(BaseWorker):
                 task_id=task_id,
                 scan_progress_cb=_scan_progress,
                 stage_timer=timer,
+                compact=True,
             )
+            trace_details = trace_index if isinstance(trace_index, TraceFrames) else None
+            if trace_details is not None:
+                trace_index = trace_details.light
             t_parse = time.perf_counter() - t_run_start
 
             if trace_index is None or _trace_row_count(trace_index) == 0:
@@ -1647,6 +1915,9 @@ class KVCacheLogParseWorker(BaseWorker):
                 analyzer_config = (
                     await DiagnosisConfigPGManager.get_or_create(kb_id)
                 ).log_analyzer_params
+            threshold_ms = float(
+                getattr(analyzer_config, "total_p99_threshold_ms", 5.0) or 5.0
+            )
 
             # 检查任务是否被取消
             task = await TaskPGManager.get_task_by_task_id(task_id)
@@ -1666,7 +1937,10 @@ class KVCacheLogParseWorker(BaseWorker):
                     anomalous_tids,
                     df_trace,
                 ) = await KVCacheLogParseWorker._aggregate_three_way(
-                    trace_index, analyzer_config, log_file_id=task.op_id
+                    trace_index,
+                    analyzer_config,
+                    log_file_id=task.op_id,
+                    materialize_anomaly_ids=False,
                 )
                 agg_scope.detail = (
                     f"端点 {len(src_dst_aggregated_events)} / "
@@ -1717,7 +1991,6 @@ class KVCacheLogParseWorker(BaseWorker):
             #    _yuanrong_from_grouped 从全量 347k 行延后到 ~(1K+anomalous) 行子集，
             #    5 遍 with_columns 开销从 347k×5 降到 ~ (1K+anomalous)×5。
             import polars as pl
-            from latency.parse.parallel_scanner.trace_frame import _yuanrong_from_grouped
 
             # [timing] detail = yuanrong 分段 + top1000/异常子集 → 明细载荷
             t_detail_start = time.perf_counter()
@@ -1737,45 +2010,45 @@ class KVCacheLogParseWorker(BaseWorker):
 
                 # 异常 trace 如果在 top1000 中：top1000 行标 is_anomalous，
                 # 不再单独构建异常行（避免同一 trace 在 log_parse_result 存两行）。
-                anomalous_only_tids: set[str] = anomalous_tids - top1000_tids
-                if anomalous_only_tids:
+                anomaly_expr = (pl.col("total_ms") >= threshold_ms).fill_null(False)
+                anomalous_only_count = int(
+                    trace_index.select(
+                        (anomaly_expr & ~pl.col("tid").is_in(top1000_tids)).sum()
+                    ).item()
+                    or 0
+                )
+                if anomalous_only_count:
                     logger.info(
                         "[yuanrong] %d anomalous traces outside top1000, "
                         "will build separate rows",
-                        len(anomalous_only_tids),
+                        anomalous_only_count,
                     )
 
-                all_detail_tids: set[str] = top1000_tids | anomalous_tids
-                detail_payload: Any = []
-                if all_detail_tids:
-                    detail_subset = trace_index.filter(
-                        pl.col("tid").is_in(all_detail_tids)
-                    )
-                    detail_subset = _yuanrong_from_grouped(detail_subset)
-                    # P3: 明细待写载荷 —— 列式 frame（行序 = top1000 降序 +
-                    # anomalous-only，created_at 两段各取一次，aggregated_event_id
-                    # 由 frame join 回填）。
-                    detail_payload = KVCacheLogParseWorker._build_detail_payload(
-                        detail_subset,
-                        top1000_tids=top1000_tids,
-                        anomalous_only_tids=anomalous_only_tids,
-                        anomalous_tids=anomalous_tids,
-                        src_dst_to_agg_id_map=src_dst_to_agg_id_map,
-                        log_file_id=log_file_id,
-                        kb_id=kb_id or "",
+                detail_count = len(top1000_tids) + anomalous_only_count
+                detail_frames = None
+                if top1000_tids or len(anomalous_tids):
+                    detail_frames = KVCacheLogParseWorker._iter_detail_frames(
+                        trace_index,
+                        top1000_tids,
+                        threshold_ms,
+                        src_dst_to_agg_id_map,
+                        log_file_id,
+                        anomalous_only_count,
+                        trace_details=trace_details,
                     )
                 else:
                     logger.info("[yuanrong] no detail tids (top1000=%d anomalous=%d), skipped",
                                len(top1000_tids), len(anomalous_tids))
-                detail_scope.detail = (
-                    f"{KVCacheLogParseWorker._detail_row_count(detail_payload)} 行"
-                )
+                detail_scope.detail = f"{detail_count} 行（准备分批写入）"
             t_detail = time.perf_counter() - t_detail_start
             await progress.report("detail", 1.0)
             await progress.stage_log(
                 "detail",
-                f"rows={KVCacheLogParseWorker._detail_row_count(detail_payload)}",
+                f"rows={detail_count}, prepared for bounded writes",
             )
+
+            anomalous_count = len(anomalous_tids)
+            del trace_index, anomalous_tids
 
             # ── 分位桶统计：df_trace（T4 frame 路径, polars 选代表行）→
             # 4 张 latency_bucket_* 表。仅对选中代表行构造 dataclass（~300），
@@ -1787,6 +2060,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 rows=df_trace,
                 task_id=task_id,
                 stage_timer=timer,
+                trace_details=trace_details,
             )
             await progress.report("bucket", 1.0)
             # 降级返回 None 时必须如实报告：原先无条件打 "written"，导致
@@ -1802,25 +2076,23 @@ class KVCacheLogParseWorker(BaseWorker):
                     "latency_bucket_* NOT written (degraded, see backend log)",
                 )
 
-            anomalous_count = len(anomalous_tids)
-            del trace_index, df_trace, anomalous_tids
+            del df_trace, trace_details
 
-            # Persist aggregates after the bounded detail writes.
+            # The detail iterator owns its input until all batches are consumed;
+            # keep detail and aggregate writes concurrent as before.
             t_store_start = time.perf_counter()
             # [timing] store = 写库插入；分桶 4 表的 delete+insert 已在
             # compute_and_store_bucket_stats_from_frame 里登记到同一阶段（累加）。
             await progress.report("store", 0.0, detail="写库")
-            with timer.stage("store") as store_scope:
-                stored = await KVCacheLogParseWorker.store_result(
-                    anomalous_detail_rows=detail_payload,
-                    src_dst_aggregated_events=src_dst_aggregated_events,
-                    time_window_aggregated_events=time_window_aggregated_events,
-                    kb_id=kb_id or "",
-                )
-                store_scope.detail = (
-                    f"明细 {KVCacheLogParseWorker._detail_row_count(detail_payload)} 行 / "
-                    f"聚合 {len(src_dst_aggregated_events)} 条 / 分桶 4 表"
-                )
+            stored = await KVCacheLogParseWorker.store_result(
+                anomalous_detail_rows=None,
+                src_dst_aggregated_events=src_dst_aggregated_events,
+                time_window_aggregated_events=time_window_aggregated_events,
+                kb_id=kb_id or "",
+                detail_frames=detail_frames,
+                stage_timer=timer,
+            )
+            del detail_frames
             t_store = time.perf_counter() - t_store_start
             await progress.report("store", 1.0)
             await progress.stage_log("store", f"stored={stored}", elapsed_ms=t_store * 1000)
@@ -1828,7 +2100,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 task.id,
                 (
                     "[perf][store.summary] "
-                    f"detail_rows={KVCacheLogParseWorker._detail_row_count(detail_payload)}, "
+                    f"detail_rows={detail_count}, "
                     f"aggregated={len(src_dst_aggregated_events)}, "
                     f"stored={stored}, time={t_store:.3f}s"
                 ),
@@ -1868,8 +2140,8 @@ class KVCacheLogParseWorker(BaseWorker):
                 f"=== [TASK TIMING] Total: {t_total:.1f}s ===\n"
                 f"  [1] Parse log:       {t_parse:7.1f}s ({pct_p:5.1f}%)\n"
                 f"  [2] Aggregate result:{t_agg:7.1f}s ({pct_a:5.1f}%)\n"
-                f"  [3] Build/store detail: {t_detail:7.1f}s\n"
-                f"  [4] Store aggregates: {t_store:7.1f}s ({pct_s:5.1f}%)\n"
+                f"  [3] Prepare detail: {t_detail:7.1f}s\n"
+                f"  [4] Build/store results: {t_store:7.1f}s ({pct_s:5.1f}%)\n"
                 f"============================================================"
             )
             await BaseWorker.report(task.id, f"[TASK] Parse log: {t_parse:.1f}s ({pct_p:.1f}%)", t_parse)

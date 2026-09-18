@@ -143,23 +143,40 @@ _MAX_BATCHES = 32
 
 
 def _split_paths_by_size(paths: list[str], k: int) -> list[list[str]]:
-    """按累计文件大小把路径均分成 k 批（负载均衡）。"""
-    import os  # 用途待确认
+    """按文件序（= rank 序）把路径切成 k 个**连续**、大小大致均衡的批。
 
-    sized = []
+    连续性让 read 产物天然按 (rank, 文件内行序) 有序：`_project_light` 与
+    `iter_wide` 的恢复排序可用 O(n) is_sorted 探测直接跳过（省两次全量
+    排序拷贝）。均衡用目标字节数贪心近似；批内文件不跨批，文件内行序
+    不变，行序契约 (rank, row) 与负载均衡分法完全一致。
+    """
+    import os
+
+    sized: list[tuple[int, str]] = []
     for path in paths:
         try:
             sized.append((os.path.getsize(path), path))
         except OSError:
             sized.append((0, path))
-    sized.sort(key=lambda item: -item[0])
-    buckets: list[list[str]] = [[] for _ in range(k)]
-    loads = [0] * k
-    for size, path in sized:
-        index = loads.index(min(loads))
-        buckets[index].append(path)
-        loads[index] += size
-    return [bucket for bucket in buckets if bucket]
+    if not sized:
+        return []
+    total = sum(size for size, _ in sized)
+    target = max(total / k, 1.0)
+    count = len(sized)
+    batches: list[list[str]] = []
+    current: list[str] = []
+    acc = 0
+    for index, (size, path) in enumerate(sized):
+        current.append(path)
+        acc += size
+        files_left = count - index - 1
+        batches_left = k - len(batches) - 1
+        if acc >= target and batches_left > 0 and files_left >= batches_left:
+            batches.append(current)
+            current, acc = [], 0
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _emit_progress(progress_cb: Callable[[float], object] | None, fraction: float) -> None:
@@ -182,7 +199,19 @@ def _read_batch(paths: list[str], gate: pl.Expr) -> pl.DataFrame:
     """一批文件的读 + 行闸门（各自一次 collect）。"""
     import polars as pl  # 懒加载 polars
 
-    return pl.scan_lines(paths, include_file_paths="__file").filter(gate).collect()
+    return (
+        pl.scan_lines(paths, include_file_paths="__file")
+        .filter(gate)
+        .with_columns(
+            # File names repeat for every line; retain one dictionary entry per
+            # file instead of a 16-byte string view per record.
+            pl.col("__file").cast(pl.Categorical),
+            # Filtered StringViews otherwise pin buffers containing discarded
+            # lines, including arbitrarily large unrelated runtime messages.
+            pl.concat_str([pl.col("line"), pl.lit("")]).alias("line"),
+        )
+        .collect(engine="streaming")
+    )
 
 
 #: 被跳过的坏文件：(路径, 原因摘要)。原因带异常类型，可直接展示给用户
@@ -195,7 +224,7 @@ def _empty_line_frame() -> pl.DataFrame:
 
     return pl.DataFrame({
         "line": pl.Series([], dtype=pl.Utf8),
-        "__file": pl.Series([], dtype=pl.Utf8),
+        "__file": pl.Series([], dtype=pl.Categorical),
     })
 
 
@@ -278,6 +307,43 @@ def _read_with_progress(paths: list[str], gate: pl.Expr,
     if len(kept) == 1:
         return kept[0], skipped
     return pl.concat(kept, how="vertical"), skipped
+
+
+_LIGHT_BATCH_ROWS = 262_144
+
+
+def _path_filter(frame, paths):
+    """Keep dictionary-encoded scan paths without expanding one string per row."""
+    import polars as pl
+
+    posix_paths = [path.replace("\\", "/") for path in paths]
+    column = pl.col("__file")
+    if frame.schema["__file"] == pl.Categorical and not any(
+        "\\" in path for path in frame["__file"].cat.get_categories()
+    ):
+        return column.is_in(posix_paths)
+    return column.cast(pl.String).str.replace("\\", "/", literal=True).is_in(posix_paths)
+
+
+def _project_light(project, frame, paths, parsers, **kwargs):
+    """Filter parser families before allocating path/field string arrays."""
+    import polars as pl
+
+    source = frame.with_row_index("__row").filter(_path_filter(frame, paths))
+    if source.height <= _LIGHT_BATCH_ROWS:
+        return project(source, paths, parsers, light=True, **kwargs)
+    # Bound the temporary split/regex columns, which are much larger than the
+    # emitted light metrics. Progress reads may interleave file groups, so
+    # restore parser file/row order after concatenating the bounded projections.
+    parts = [project(batch, paths, parsers, light=True, **kwargs)
+             for batch in source.iter_slices(_LIGHT_BATCH_ROWS)]
+    out = pl.concat(parts, how="diagonal_relaxed")
+    # Read batches are file-rank contiguous, so the common case is already in
+    # (__rank, __row) order; the O(n) probe skips the full sort copy.
+    rank = out["__rank"]
+    if rank.null_count() or not rank.is_sorted():
+        return out.sort(["__rank", "__row"], maintain_order=True)
+    return out
 
 def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig | None = None,
                scan_scope: dict | None = None,
@@ -380,35 +446,57 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
         )
     if light:
         light_parts: list = []
+        info_cache = None
         if access_pairs:
-            rows = access_label_columns(
+            rows = _project_light(access_label_columns,
                 frame, [p for p, _ in access_pairs],
                 [[parsers[i] for i in idx] for _, idx in access_pairs],
                 file_rank=file_rank, log_ids=log_ids,
                 window=window, min_elapsed_us=min_elapsed_us,
-                light=True,
+                defer_unused=True,
             )
             if rows.height:
                 light_parts.append(rows)
         if info_pairs:
-            rows = info_label_columns(
+            rows = _project_light(info_label_columns,
                 frame, [p for p, _ in info_pairs],
                 [[parsers[i] for i in idx] for _, idx in info_pairs],
                 file_rank=file_rank,
-                light=True,
+                defer_unused=True,
+                cache_classification=True,
             )
             if rows.height:
                 light_parts.append(rows)
+                # Retain classification and trace identity from the light
+                # pass; the wide pass still validates its numeric extractors.
+                # The tid values share the existing locator's string buffers.
+                info_cache = rows.select(
+                    "__row", "__info_cat", pl.col("tid").alias("__info_tid"),
+                )
+        # Metric-free rows still need locators for exact wide parsing. They do
+        # not contribute to first(non-null), endpoint rank, or latency fallback;
+        # avoid allocating eleven typed columns for those INFO/RPC records.
+        locator = (
+            pl.concat([part.select("tid", "__row") for part in light_parts])
+            if light_parts else _empty_light_frame().select("tid", "__row")
+        )
+        projected = []
+        for part in light_parts:
+            metrics = [name for name in LIGHT_COLUMNS if name not in {"tid", "_src_rank"} and name in part.columns]
+            active = pl.col("_src_rank") != 0
+            if metrics:
+                active = active | pl.any_horizontal(pl.col(name).is_not_null() for name in metrics)
+            projected.append(_normalize_light(part.filter(active)))
         light_rows = (
             pl.concat(
-                [_normalize_light(part) for part in light_parts], how="vertical"
+                projected, how="vertical"
             ).select([*_LIGHT_KEYS, *LIGHT_COLUMNS])
             if light_parts
             else _empty_light_frame()
         )
-        return light_rows, skipped, ScanContext(
-            lines=frame,
-            light_rows=light_rows,
+        return light_rows.select(LIGHT_COLUMNS), skipped, ScanContext(
+            lines=frame.with_row_index("__row") if info_cache is not None else frame,
+            light_rows=locator,
             parsers=tuple(parsers),
             access_pairs=access_pairs,
             info_pairs=info_pairs,
@@ -416,6 +504,7 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
             log_ids=log_ids,
             window=window,
             min_elapsed_us=min_elapsed_us,
+            info_cache=info_cache,
         )
 
     if frame.height == 0:
@@ -493,8 +582,8 @@ class ScanContext:
     这是一次读入、两次投影的支点：宽列只对需要的 trace 算时，不再重读文件。
     """
 
-    lines: pl.DataFrame                  # read 产物：line + __file（全目录命中前的原始行）
-    light_rows: pl.DataFrame             # 第一次投影的轻列帧（含 _LIGHT_KEYS），__row 即 lines 的行号
+    lines: pl.DataFrame | None           # read 产物：line + dictionary-encoded __file
+    light_rows: pl.DataFrame | None      # 仅 tid + __row；宽列流式消费后释放
     parsers: tuple                       # **原始** parsers 列表（access/info pairs 里的 index 相对它）
     access_pairs: list                   # [(path, [parser_index, ...]), ...]
     info_pairs: list                     # 同上（worker info 侧）
@@ -502,6 +591,7 @@ class ScanContext:
     log_ids: dict                        # 文件 → log_id（第二次投影必须沿用同一批，否则 log_id 变）
     window: tuple | None                 # parse_config 的时间窗
     min_elapsed_us: float | None         # parse_config 的最小耗时过滤
+    info_cache: pl.DataFrame | None = None  # validated INFO category/tid by source row
 
 
 def _normalize_light(part: pl.DataFrame) -> pl.DataFrame:
@@ -530,7 +620,7 @@ def _empty_light_frame() -> pl.DataFrame:
     })
 
 
-def materialize_wide(ctx: ScanContext, tids) -> pl.DataFrame:
+def materialize_wide(ctx: ScanContext, tids, *, selected_rows=None) -> pl.DataFrame:
     """**第二次投影**：只对给定 tid 的行算满 40 列（不重读文件）。
 
     做法：用第一次投影留下的 ``__row``（= read 产物的行号）把 read 产物里这些行
@@ -538,24 +628,24 @@ def materialize_wide(ctx: ScanContext, tids) -> pl.DataFrame:
     """
     import polars as pl  # 懒加载 polars
 
-    wanted = {str(t) for t in tids if t}
-    if not wanted:
+    from .memory_scan import _wanted_series
+
+    if ctx.light_rows is None or ctx.lines is None or ctx.light_rows.height == 0:
         return _empty_frame()
-    if ctx.light_rows.height == 0:
-        return _empty_frame()
+    if selected_rows is None:
+        wanted = _wanted_series(tids)
+        if wanted.is_empty():
+            return _empty_frame()
+        selected_rows = ctx.light_rows.filter(pl.col("tid").is_in(wanted.implode()))
     keep = (
-        ctx.light_rows
-        .filter(pl.col("tid").is_in(list(wanted)))
+        selected_rows
         .select("__row")
         .unique()
+        .sort("__row")
     )
     if keep.height == 0:
         return _empty_frame()
-    sub = (
-        ctx.lines.with_row_index("__row")
-        .join(keep, on="__row", how="semi")
-        .drop("__row")
-    )
+    sub = ctx.lines if keep.height == ctx.lines.height else ctx.lines[keep.to_series()]
     if sub.height == 0:
         return _empty_frame()
 
@@ -570,8 +660,13 @@ def materialize_wide(ctx: ScanContext, tids) -> pl.DataFrame:
         if rows.height:
             parts.append(rows)
     if ctx.info_pairs:
+        info_source = sub
+        if ctx.info_cache is not None:
+            info_source = sub.join(
+                ctx.info_cache, on="__row", how="left", maintain_order="left",
+            )
         rows = info_label_columns(
-            sub, [p for p, _ in ctx.info_pairs],
+            info_source, [p for p, _ in ctx.info_pairs],
             [[ctx.parsers[i] for i in idx] for _, idx in ctx.info_pairs],
             file_rank=ctx.file_rank,
         )

@@ -10,7 +10,7 @@
     C1  算桶号：绝对墙钟对齐（epoch 秒 // 粒度，floor），跨天自动唯一，
         无时区 / DST 坑；桶起点可直接由桶号还原，与回退实时 SQL 一致。
     C2  组键：(桶号, operation)，GET/SET 分开选代表行。
-    C3  组内按 total_latency 排序（``rank("ordinal")``）后取 4 分位代表行。
+    C3  按 total_latency/tid 定序后，每组直接取 4 分位代表行。
     C4  每档粒度产出一个 ``BUCKET_COLUMNS`` 形状的列式 frame（8 固定键 +
         14 legacy 指标 + 26 yuanrong 分段时延），4 张表 delete+insert 放一个
         事务（写库幂等）；COPY 由 ``log_parse_result_bulk.copy_dataframe``
@@ -79,9 +79,8 @@ METRIC_KEYS: tuple[str, ...] = (
     "worker_total_latency",
 )
 
-# Phase 1（定序 + 取分位位次）实际读到的列：桶号由 bucket_epoch 现算，
-# 代表行落地只需要 tid / src / dst + 14 个时延列，其余列不参与排序与取位次。
-_SORT_COLUMNS: tuple[str, ...] = (
+# 选中代表行后读取的字段；全量排序只携带 tid/bucket_epoch/total_latency/_op_code。
+_REPRESENTATIVE_COLUMNS: tuple[str, ...] = (
     "bucket_epoch",
     "_op_code",
     "tid",
@@ -129,7 +128,8 @@ BUCKET_COLUMNS: tuple[str, ...] = (
 # df_trace 中 yuanrong 内部原材料列（``_yuanrong_from_grouped`` 的输入），
 # 用于判断 df_trace 是否携带可计算的 yuanrong 分段时延。
 _YUANRONG_INTERNAL_COLS: tuple[str, ...] = (
-    "__se", "__sop", "__we", "__ue", "__ui", "__cn", "__ce", "__cs", "__cnw",
+    "__se", "__sop", "__wsum", "__wmax", "__wn", "__umax", "__uimax", "__cn",
+    "__ce0", "__ce1", "__ce2esum", "__cs0", "__cs1", "__cnw0", "__cnw1",
     "__me", "__ms", "__mn", "__re", "__rs", "__rn", "__qm",
 )
 
@@ -258,6 +258,7 @@ def compute_bucket_stats_from_frame(
     df_trace,
     kb_id: str = "",
     log_id: str = "",
+    trace_details=None,
 ) -> dict[int, Any]:
     """纯 polars 分位代表行选择（T7 后唯一选择路径，含 yuanrong 富化）。
 
@@ -268,10 +269,9 @@ def compute_bucket_stats_from_frame(
       10 整除 60/600/3600，故 10s 对齐 epoch 整除粒度 == 原时间戳整除粒度，
       桶起点与墙钟对齐一致。op_code 复用 ``_normalize_op`` 语义
       （含 "GET" → 0，其余含 None → 1）。
-    - 代表行：组内按 ``total_latency`` 排序（``rank("ordinal")``，并列按
-      行序稳定断结）后取 ``percentile_kth_positions(cnt)`` 指定的 kth 位置行。
-      实现上（A2）先投影到 ``_SORT_COLUMNS`` 只排一次序，再按档用 window
-      取位次，语义与逐档 ``sort()`` 一致。
+    - 代表行：按 ``(total_latency, tid)`` 定序，各组直接取
+      ``percentile_kth_positions(cnt)`` 指定的 kth 行，不构建全量窗口排名。
+      生产路径复用宽列预选时保存的代表行，避免再次排序和分组。
     - yuanrong 富化（Phase 2）：对 4 档粒度收集到的代表 trace_id 去重后，
       仅当 df_trace 携带 ``_YUANRONG_INTERNAL_COLS`` 内部列时调用
       ``_yuanrong_from_grouped`` 一次算出 26 项分段时延，再按 tid 并入代表行
@@ -281,12 +281,13 @@ def compute_bucket_stats_from_frame(
     取值语义与原 ``_representative_tuple`` 逐字段一致，交给
     ``log_parse_result_bulk.copy_dataframe`` 做类型归一化（INET / TIMESTAMP）
     与 COPY。行序仍为「粒度 (10,60,600,3600) × 模式
-    (median,p99,p9999,pmax) × df 行序」，与原实现相同。
+    (median,p99,p9999,pmax) × (桶, operation) 顺序」，与原实现相同。
 
     Args:
         df_trace: T2 ``parse_log`` 产出的 polars DataFrame（TRACE_COLUMNS
             + yuanrong 内部列，每 trace 一行）。
         kb_id / log_id: 写库冗余键（frame 前两列）。
+        trace_details: 可选紧凑宽列存储；选中代表行后按行号补入指标。
 
     Returns:
         {granularity: polars.DataFrame}，4 档各一份，可直接喂 ``_store_bucket_rows``。
@@ -295,77 +296,36 @@ def compute_bucket_stats_from_frame(
 
     from latency.parse.parallel_scanner.trace_frame import _yuanrong_from_grouped
 
-    df = df_trace.filter(
-        pl.col("bucket_epoch").is_not_null()
-        & pl.col("total_ms").is_not_null()
-    )
-    if df.height == 0:
-        return {g: _empty_bucket_frame() for g in GRANULARITY_KEYS}
+    from latency.bucket.representatives import select_bucket_representatives
 
-    df = df.with_columns(
-        pl.when(pl.col("operation").str.contains("GET", literal=True))
-        .then(pl.lit(0, dtype=pl.Int64))
-        .otherwise(pl.lit(1, dtype=pl.Int64))
-        .alias("_op_code"),
-    )
-
-    # ── Phase 1: collect all representative rows (in df row order) ───
-    # ① 投影：排序只看 _SORT_COLUMNS（19 列），不再对 49 列全宽排序
-    #    （本机 kv218 实测：50 列裸排序 0.95s → 投影 19 列 0.30s）。
-    # ② 一次排序服务 4 档：组内相对序只由 (total_latency, tid) 决定
-    #    （_bucket_id / _op_code 是分组键，组内恒定），故按 (total_latency, tid)
-    #    全局定序后，每个 (桶, op) 组内的相对序与原来每档
-    #    sort(["_bucket_id", "_op_code", "total_latency", "tid"]) 完全一致，
-    #    代表行仍与输入行序无关（total_latency 并列时由 tid 断结）。
-    # ③ 各档改为在**同一个**已定序帧上用 window 取 rank("ordinal") / pl.len()，
-    #    不再每档各排一次全量；本机 kv218 实测 Phase 1 合计 4.76s → 1.31s
-    #    （整个分桶函数 6.54s → 3.11s，其余是未改动的 Phase 2/3）。
-    df_ord = df.select(_SORT_COLUMNS).sort(["total_latency", "tid"], nulls_last=True)
-
+    selections = getattr(trace_details, "bucket_representatives", None)
+    if selections is None:
+        selections = select_bucket_representatives(df_trace, GRANULARITY_KEYS)
     pending: list[dict[str, Any]] = []
-    for g in GRANULARITY_KEYS:
-        dg = df_ord.with_columns((pl.col("bucket_epoch") // g).alias("_bucket_id"))
-        dg = dg.with_columns(
-            pl.col("total_latency")
-            .rank("ordinal")
-            .over(["_bucket_id", "_op_code"])
-            .cast(pl.Int64)
-            .alias("_rank"),
-            pl.len().over(["_bucket_id", "_op_code"]).alias("_cnt"),
-        )
-        for mode_name, p in PERCENTILE_MODES:
-            # kth rank（1-based）= max(1, min(floor(cnt*p), cnt))，与
-            # percentile_kth_positions 的 0-based 位置 +1 完全一致（pmax→cnt）。
-            kth_rank = (
-                (pl.col("_cnt").cast(pl.Float64) * p)
-                .floor()
-                .cast(pl.Int64)
-                .clip(lower_bound=1, upper_bound=pl.col("_cnt"))
-            )
-            # 取中的行散布在 (total_latency, tid) 全局序里，按 (桶, op) 复原原行序：
-            # 每个 (桶, op) 每个模式恰一行，(桶, op) 即全序。
-            hit = dg.filter(pl.col("_rank") == kth_rank).sort(
-                ["_bucket_id", "_op_code"]
-            )
-            for row in hit.iter_rows(named=True):
-                # 桶起点 = 桶号 * 粒度（epoch 秒，与 compute_bucket_ids 同源）。
-                bucket_start_dt = np.datetime64(
-                    int(row["_bucket_id"]) * g, "s"
-                ).item()
-                pending.append({
-                    "g": g,
-                    "bucket_dt": bucket_start_dt,
-                    "op_code": int(row["_op_code"]),
-                    "mode": mode_name,
-                    "row": row,
-                    "tid": row.get("tid"),
-                })
+    for g, selected in selections.items():
+        for row in selected.iter_rows(named=True):
+            pending.append({
+                "g": g,
+                "bucket_dt": np.datetime64(int(row["_bucket_id"]) * g, "s").item(),
+                "op_code": int(row["_op_code"]),
+                "mode": row["mode"],
+                "row": row,
+                "tid": row["tid"],
+            })
 
     # ── Phase 2: yuanrong enrichment (dedup across all granularities) ─
     rep_tids: set[Any] = {p["tid"] for p in pending if p["tid"]}
     yr_lookup: dict[Any, dict[str, Any]] = {}
-    if rep_tids and all(c in df.columns for c in _YUANRONG_INTERNAL_COLS):
-        rep_df = df.filter(pl.col("tid").is_in(rep_tids))
+    rep_df = df_trace.filter(pl.col("tid").is_in(rep_tids))
+    if trace_details is not None:
+        rep_df = trace_details.enrich(rep_df)
+    metric_lookup = {
+        row["tid"]: row
+        for row in rep_df.select(
+            [c for c in _REPRESENTATIVE_COLUMNS if c in rep_df.columns]
+        ).iter_rows(named=True)
+    }
+    if rep_tids and all(c in rep_df.columns for c in _YUANRONG_INTERNAL_COLS):
         if rep_df.height > 0:
             yr = _yuanrong_from_grouped(rep_df)
             yr_lookup = {
@@ -376,7 +336,7 @@ def compute_bucket_stats_from_frame(
     # ── Phase 3: 每档粒度一个 BUCKET_COLUMNS 形状的 frame ─────────────
     records: dict[int, list[dict[str, Any]]] = {g: [] for g in GRANULARITY_KEYS}
     for item in pending:
-        row = item["row"]
+        row = metric_lookup.get(item["tid"], item["row"])
         yrow = yr_lookup.get(item["tid"]) if item["tid"] else None
         records[item["g"]].append({
             "kb_id": kb_id,
@@ -500,6 +460,7 @@ async def compute_and_store_bucket_stats_from_frame(
     task_id: str | None = None,
     tables: dict[int, str] | None = None,
     stage_timer: Any | None = None,
+    trace_details=None,
 ) -> dict[int, int]:
     """df_trace → 4 张统计表（T7 后唯一写库入口）。
 
@@ -514,6 +475,7 @@ async def compute_and_store_bucket_stats_from_frame(
         stage_timer: 可选 ``latency.common.stage_timing.StageTimer``（None = 不
             打结构化耗时）。按调用边界登记两个阶段：``bucket`` = polars 选代表行
             （计算部分）、``store`` = 4 张表的 delete+insert（插入部分）。
+        trace_details: 与 compute_bucket_stats_from_frame 同参，只有代表行展开宽列。
 
     Returns:
         {granularity: 写入行数}。
@@ -529,7 +491,7 @@ async def compute_and_store_bucket_stats_from_frame(
         # [timing] bucket = 分桶代表行计算（不碰 DB）
         with timer.stage("bucket") as bucket_scope:
             frames_by_granularity = await asyncio.to_thread(
-                compute_bucket_stats_from_frame, df_trace, kb_id, log_id
+                compute_bucket_stats_from_frame, df_trace, kb_id, log_id, trace_details
             )
             bucket_scope.detail = (
                 f"{len(GRANULARITY_KEYS)} 粒度 / "

@@ -13,7 +13,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Iterator, Protocol
 
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import array
@@ -36,6 +36,11 @@ from latency.schemas.request import (
 
 
 logger = logging.getLogger(__name__)
+
+
+class _EventRows(Protocol):
+    def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[dict]: ...
 
 
 class LogFailureEventPGManager:
@@ -213,7 +218,8 @@ class LogFailureEventPGManager:
         objs = []
         for event in results:
             param = dict(event)
-            param.setdefault("id", str(uuid.uuid4()))
+            if "id" not in param:
+                param["id"] = str(uuid.uuid4())
             failure_mode = param.get("failure_mode", [])
             if isinstance(failure_mode, list):
                 param["failure_mode"] = ",".join(failure_mode)
@@ -279,6 +285,40 @@ class LogFailureEventPGManager:
             time.perf_counter() - t_start,
         )
         return ids_added
+
+    @staticmethod
+    async def add_log_failure_event_records(records: list[tuple] | Iterator[tuple]) -> None:
+        """Stream already converted context rows in one atomic transaction.
+
+        The context scanner knows every field and does not need the generic
+        dictionary/default/ORM conversion or the unused list of inserted IDs.
+        Field order is the same as ``_LOG_FAILURE_COPY_COLUMNS``.
+        """
+        if not records:
+            return
+        async with PGManager.connection() as conn:
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.copy_records_to_table(
+                "log_failure_event", records=records,
+                columns=LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS,
+            )
+
+    @staticmethod
+    async def add_log_failure_event_csv(source) -> None:
+        """Stream CSV-encoded context rows in one atomic ``FORMAT csv`` COPY.
+
+        ``source`` 是 UTF-8 CSV 字节块的异步迭代器（polars ``write_csv`` 产物：
+        ``quote_style="non_numeric"`` + ``null_value="\\\\N"``）。每片全量字符串
+        加引号、NULL 写未引用 ``\\\\N``，空串与字面 ``\\\\N`` 由引号精确区分，
+        全程不物化任何逐行 Python 对象。
+        """
+        async with PGManager.connection() as conn:
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.copy_to_table(
+                "log_failure_event", source=source,
+                columns=LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS,
+                format="csv", null="\\N",
+            )
 
     @staticmethod
     async def add_log_failure_event_if_not_exist(
@@ -419,7 +459,8 @@ class LogFailureEventPGManager:
     @staticmethod
     def _trace_failure_event_dict_to_tuple(event: dict) -> tuple[Any, ...]:
         param = dict(event)
-        param.setdefault("id", str(uuid.uuid4()))
+        if "id" not in param:
+            param["id"] = str(uuid.uuid4())
         for key in ("pod_names", "host_names", "cluster_names"):
             value = param.get(key, [])
             if isinstance(value, str):
@@ -462,7 +503,7 @@ class LogFailureEventPGManager:
         )
 
     @staticmethod
-    async def add_trace_failure_event_raw(results: list[dict]) -> list[str]:
+    async def add_trace_failure_event_raw(results: _EventRows) -> list[str]:
         ids_added: list[str] = []
         if not results:
             return ids_added
@@ -473,7 +514,8 @@ class LogFailureEventPGManager:
         objs = []
         for event in results:
             param = dict(event)
-            param.setdefault("id", str(uuid.uuid4()))
+            if "id" not in param:
+                param["id"] = str(uuid.uuid4())
             for key in ("pod_names", "host_names", "cluster_names"):
                 value = param.get(key, [])
                 if isinstance(value, str):
@@ -517,24 +559,23 @@ class LogFailureEventPGManager:
         return ids_added
 
     @staticmethod
-    async def _copy_trace_failure_events(results: list[dict]) -> list[str]:
+    async def _copy_trace_failure_events(results: _EventRows) -> list[str]:
         t_start = time.perf_counter()
-        records = [
-            LogFailureEventPGManager._trace_failure_event_dict_to_tuple(r)
-            for r in results
-        ]
-        ids_added = [r[2] for r in records]
+        ids_added: list[str] = []
+
+        def records():
+            for result in results:
+                record = LogFailureEventPGManager._trace_failure_event_dict_to_tuple(result)
+                ids_added.append(record[2])
+                yield record
+
         async with PGManager.connection() as conn:
             raw_conn = await conn.get_raw_connection()
             asyncpg_conn = raw_conn.driver_connection
             columns = LogFailureEventPGManager._TRACE_FAILURE_COPY_COLUMNS
-            for i in range(0, len(records), LogFailureEventPGManager._COPY_BATCH_SIZE):
-                batch = records[i : i + LogFailureEventPGManager._COPY_BATCH_SIZE]
-                await asyncpg_conn.copy_records_to_table(
-                    "trace_failure_event",
-                    records=batch,
-                    columns=columns,
-                )
+            await asyncpg_conn.copy_records_to_table(
+                "trace_failure_event", records=records(), columns=columns,
+            )
         logger.info(
             "[Store][PG] COPY %s trace_failure_event rows done in %.3fs",
             len(results),

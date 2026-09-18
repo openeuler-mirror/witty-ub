@@ -28,8 +28,8 @@
   ``filter`` + 列抽取 → ``pl.concat`` → ``sort`` → **唯一一次 ``collect()``**。
   中途不再逐步骤物化（旧写法每一步 ``with_columns``/``filter`` 都是一次
   ``pl.DataFrame`` 物化，85951 行上共 136 次）；
-* 时间戳只让 polars 做 ISO 形状判定（``str.to_datetime(strict=False)``），
-  polars 不认的**唯一值**才回落 Python ``parse_timestamp``（真实语料 0 次回落）；
+* 时间戳用显式 ISO 日期时间格式校验，接受空格或 T 分隔、有无小数秒；
+  不依赖每个批次的格式推断，坏日期不会导致同批有效记录被丢弃；
 * 数值列（cost / inflight / elapsed_ms）先走 Rust ``cast(strict=False)``，
   只有当出现"Rust 拒绝"时才对该列**唯一值**跑 Python（真实语料 0 次触发）；
 * ``_rpc_*`` 由 ``str.split + list.eval(str.extract) + list.last`` 一条列运算得出，
@@ -64,7 +64,6 @@ from latency.parse.parallel_scanner.columnar import (
 )
 from latency.parse import ClientInfoParser  # P2：isinstance 分派，暂留
 from latency.parse.columns import LIGHT_COLUMNS
-from latency.parse.keywords import ALL_KEYWORDS
 from latency.parse.keywords import IP_ENDPOINT_RE as _IP_ENDPOINT_RE
 from latency.parse.labels import (
     LABEL_TO_COLUMNS,
@@ -155,6 +154,7 @@ _DTYPE_OF[_FILE_COLUMN] = pl.Utf8
 _DTYPE_OF[_ROW_COLUMN] = pl.Int64
 # light 帧里要多带一列定位键 __rank（走 _empty_frame 时需要 dtype 表里有它）
 _DTYPE_OF[_RANK_COLUMN] = pl.Int64
+_DTYPE_OF["__info_cat"] = pl.UInt8
 
 # ---------------------------------------------------------------------------
 # 1. 列式正则：与 regex/kvcache_log.py 同语义，仅把位置捕获组补上命名
@@ -262,8 +262,6 @@ _CATS_FOR_LABEL: dict[str, tuple[int, ...]] = {}
 for _idx, (_kw, _label) in enumerate(_CHAIN, start=1):
     _CATS_FOR_LABEL[_label] = (*_CATS_FOR_LABEL.get(_label, ()), _idx)
 
-_KEYWORD_RE = "|".join(re.escape(kw) for kw in ALL_KEYWORDS)  # 与 contains_any 同语义的对照
-
 #: 关闭"公共子计划消除"（comm_subplan_elim）的收集参数。
 #:
 #: 实测（polars 1.44.1，85951 行候选帧）：12 个 label 分支共用同一份候选帧计划，但
@@ -311,7 +309,14 @@ def _ts_ok_expr() -> pl.Expr:
     同上：老实现用 ``map_batches`` + 怪值回落 Python；真实语料 0 次回落，
     等价成 polars 原生解析。
     """
-    return pl.col("_ts").str.to_datetime(strict=False).is_not_null()
+    # Match the four date/time formats accepted by parse_timestamp, with or
+    # without fractional seconds and with a space or T separator. Inferring a
+    # format from each batch can drop valid records when a bad date comes first.
+    return (
+        pl.col("_ts").str.replace(" ", "T", literal=True, n=1)
+        .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%.f", strict=False)
+        .is_not_null()
+    )
 
 
 def _ms_expr() -> pl.Expr:
@@ -358,9 +363,15 @@ def _extract(frame: pl.LazyFrame, pattern: str, fields: Sequence[str],
     未命中时 polars 返回"全 null 结构体"，因此各规格用**必填组**非 null 作为命中
     判据（这些正则的必填组都不可能匹配空串）。
     """
-    groups = pl.col("msg").str.extract_groups(pattern)
+    # Keep the capture struct as one explicit intermediate column. Repeating
+    # extract_groups under every struct.field can execute the same regex once
+    # per capture in the streaming plan (especially the 10-field RPC pattern).
+    # Projection pushdown still removes fields that light mode does not use.
+    group_column = "_groups_" + prefix
     return frame.with_columns(
-        *[groups.struct.field(name).alias(prefix + name) for name in fields]
+        pl.col("msg").str.extract_groups(pattern).alias(group_column)
+    ).with_columns(
+        *[pl.col(group_column).struct.field(name).alias(prefix + name) for name in fields]
     )
 
 
@@ -510,12 +521,26 @@ def _prepare_candidates(
     if "line" not in frame.columns:
         raise ValueError("info_label_columns: frame 缺少 'line' 列")
     source = frame.lazy()
+    cached = "__info_cat" in frame.columns and "__info_tid" in frame.columns
+    cache_columns = [
+        pl.col("__info_cat").alias("_cat"),
+        pl.col("__info_tid").alias("trace_id"),
+    ] if cached else []
+    extra_paths = (
+        frame[_FILE_COLUMN].unique(maintain_order=True).cast(pl.Utf8).to_list()
+        if _FILE_COLUMN in frame.columns else []
+    )
+    categorical_paths = (
+        _FILE_COLUMN in frame.columns
+        and frame.schema[_FILE_COLUMN] == pl.Categorical
+        and not any("\\" in path for path in extra_paths if path is not None)
+    )
     if _FILE_COLUMN in frame.columns:
-        extra_paths = frame[_FILE_COLUMN].cast(pl.Utf8).unique(maintain_order=True).to_list()
         base = source.select(
             pl.col("line").cast(pl.Utf8),
-            pl.col(_FILE_COLUMN).cast(pl.Utf8),
+            pl.col(_FILE_COLUMN) if categorical_paths else pl.col(_FILE_COLUMN).cast(pl.Utf8),
             *([pl.col(_ROW_COLUMN).cast(pl.Int64)] if _ROW_COLUMN in frame.columns else []),
+            *cache_columns,
         )
     elif len(paths) == 1:
         extra_paths = [paths[0]]
@@ -523,6 +548,7 @@ def _prepare_candidates(
             pl.col("line").cast(pl.Utf8),
             pl.lit(paths[0], dtype=pl.Utf8).alias(_FILE_COLUMN),
             *([pl.col(_ROW_COLUMN).cast(pl.Int64)] if _ROW_COLUMN in frame.columns else []),
+            *cache_columns,
         )
     else:
         raise ValueError(
@@ -539,7 +565,8 @@ def _prepare_candidates(
     # 只处理**本模块负责的文件**：否则同一份帧里的其它文件（例如只被 ClientInfoParser
     # 认领的 client INFO）会被 info 链产出成错 label 的"幻影行"。
     posix_paths = [p.replace("\\", "/") for p in paths]
-    base = base.with_columns(pl.col(_FILE_COLUMN).str.replace("\\", "/", literal=True).alias(_FILE_COLUMN))
+    if not categorical_paths:
+        base = base.with_columns(pl.col(_FILE_COLUMN).str.replace("\\", "/", literal=True).alias(_FILE_COLUMN))
     if posix_paths:
         base = base.filter(pl.col(_FILE_COLUMN).is_in(posix_paths))
 
@@ -557,14 +584,39 @@ def _prepare_candidates(
         pl.col(_RANK_COLUMN).cast(pl.Int64),
         pl.col("_file_pod_ip").cast(pl.Utf8),
     )
+    if categorical_paths:
+        _meta_frame = _meta_frame.with_columns(pl.col(_FILE_COLUMN).cast(pl.Categorical))
     base = base.join(_meta_frame.lazy(), on=_FILE_COLUMN, how="left").with_columns(
         pl.col("_file_pod_ip").fill_null(""),
+        pl.col(_FILE_COLUMN).cast(pl.String),
     )
+
+    # Classify once and use the classification as the keyword gate. The old
+    # separate keyword regex scanned every line again before these same literal
+    # searches. Keep first-match priority, including the src/dst fallback.
+    line = pl.col("line")
+    if cached:
+        # A cache is built by the light pass after header/date validation. A
+        # null cache key means this source row did not produce an INFO entry.
+        base = base.filter(pl.col("_cat").is_not_null())
+    else:
+        cat_expr: pl.Expr | None = None
+        for index, (keyword, _label) in enumerate(_CHAIN, start=1):
+            if keyword is None:
+                condition = line.str.contains("src", literal=True) & line.str.contains(
+                    "dst", literal=True
+                )
+            else:
+                condition = line.str.contains(keyword, literal=True)
+            cat_expr = _build_category(index, condition, cat_expr)
+        cat = cat_expr.otherwise(pl.lit(0, dtype=pl.Int32))
+        base = base.with_columns(cat.alias("_cat")).filter(
+            line.str.starts_with("2") & (pl.col("_cat") > 0)
+        )
 
     # line[0] == "2" ∧ parts ≥ RUN_LOG_MIN_PARTS ∧ _line_may_match（关键字或 src&dst）
     # str.splitn 返回 Struct(field_0..field_7)：field_7 为"剩余整段"（== "|".join(parts[7:])），
     # 不足 8 段时按 null 补齐，故 field_7 非 null ⟺ len(line.split("|")) >= 8。
-    line = pl.col("line")
     parts = line.str.splitn("|", RUN_LOG_MIN_PARTS)
 
     base = base.with_columns(parts.struct.unnest())  # 一次 splitn，8 个字段落列
@@ -575,24 +627,21 @@ def _prepare_candidates(
         pl.col("field_6").str.strip_chars().alias("_cluster"),
         pl.col("field_7").str.strip_chars().alias("msg"),
         pl.col("field_7").is_not_null().alias("_full"),
-        (
-            # 注意：`str.contains_any`（Aho-Corasick）在本机实测反而慢 2.8×
-            # （341671 行 182 ms vs 正则 65 ms，它每次求值都重编译自动机），故继续用正则。
-            line.str.contains(_KEYWORD_RE)
-            | (
-                line.str.contains("src", literal=True)
-                & line.str.contains("dst", literal=True)
-            )
-        ).alias("_may"),
     )
-    base = base.filter(line.str.starts_with("2") & pl.col("_full") & pl.col("_may"))
+    if not cached:
+        base = base.filter(pl.col("_full"))
 
     explicit = (
         line.str.extract(V_TRACE_FIELD_RE)
         .str.strip_chars()
         .str.strip_chars("[]{}()\"'")
     )
-    uuid = line.str.extract(V_UUID_RE)
+    # A normal trace column makes the UUID fallback unreachable. Mask its
+    # input before extraction; when/otherwise alone eagerly runs the regex.
+    uuid = (
+        pl.when(pl.col("_trace_col").is_not_null() & (pl.col("_trace_col") != ""))
+        .then(None).otherwise(line).str.extract(V_UUID_RE)
+    )
     trace_id = (
         pl.when(explicit.is_not_null() & (explicit != ""))
         .then(explicit)
@@ -609,29 +658,18 @@ def _prepare_candidates(
         _lit_none(pl.Utf8)
     )
 
-    cat_expr: pl.Expr | None = None
-    for index, (keyword, _label) in enumerate(_CHAIN, start=1):
-        if keyword is None:
-            condition = line.str.contains("src", literal=True) & line.str.contains(
-                "dst", literal=True
-            )
-        else:
-            condition = line.str.contains(keyword, literal=True)
-        cat_expr = _build_category(index, condition, cat_expr)
-    cat = cat_expr.otherwise(pl.lit(0, dtype=pl.Int32))
-
     base = base.with_columns(
-        trace_id.alias("trace_id"),
+        (pl.col("trace_id") if cached else trace_id).alias("trace_id"),
         pod_ip.alias("pod_ip"),
         cluster.alias("cluster_name"),
-        cat.alias("_cat"),
     )
     # parse_timestamp 的成败（列运算判定，不再回落 Python）
-    base = base.filter(_ts_ok_expr())
+    if not cached:
+        base = base.filter(_ts_ok_expr())
     # 之后只用到 msg 与派生列：把大列 line 与中间列一起丢给优化器（少搬几百 MB）
     return base.drop(
         "line", "_ts", "_pod_name", "_trace_col", "_cluster", "_file_pod_ip",
-        "_full", "_may",
+        "_full",
         *[f"field_{index}" for index in range(RUN_LOG_MIN_PARTS)],
     )
 
@@ -641,13 +679,16 @@ def _prepare_candidates(
 # ---------------------------------------------------------------------------
 
 def _base_values(elapsed: pl.Expr, resp_msg: pl.Expr | None) -> dict:
-    return {
+    values = {
         "tid": pl.col("trace_id"),
         "pod_ip": pl.col("pod_ip"),
         "cluster_name": pl.col("cluster_name"),
         "_elapsed_us": elapsed,
         "_resp_msg": resp_msg if resp_msg is not None else _lit_none(pl.Utf8),
     }
+    if resp_msg is None:
+        values.update({column: _lit_none(pl.Float64) for _, column in _RPC_KEYS})
+    return values
 
 
 def _urma(frame: pl.LazyFrame) -> tuple[pl.LazyFrame, dict[str, pl.Expr], pl.Expr]:
@@ -823,6 +864,20 @@ def _timed(frame: pl.LazyFrame, label: str) -> tuple[pl.LazyFrame, dict[str, pl.
         resp_msg = _lit_none(pl.Utf8)
 
     values = _base_values(elapsed, resp_msg)
+    # These fields already came from named regex captures. Formatting every
+    # captured field as response text and parsing that text back into numbers
+    # creates large temporary string/list buffers in the wide pass.
+    for key, column in _RPC_KEYS:
+        if label == SDK_PROCESS_LABEL:
+            # slow_items may contain arbitrary comma-separated response fields;
+            # retain their existing last-valid-key parsing semantics.
+            continue
+        if key in fields:
+            # MASTER_RPC_RE already constrains these captures to unsigned
+            # digits, matching the response parser's accepted numeric values.
+            values[column] = pl.col(prefix + key).cast(pl.Float64)
+        else:
+            values[column] = _lit_none(pl.Float64)
     if has_src:
         values["src"] = src.fill_null("")
     if has_dst:
@@ -856,7 +911,7 @@ def _empty_frame(columns: Sequence[str] = _OUTPUT_COLUMNS) -> pl.DataFrame:
 
 def _finalize(
     frame: pl.LazyFrame, label: str, values: dict[str, pl.Expr], valid: pl.Expr,
-    *, light: bool = False,
+    *, light: bool = False, sparse: bool = False, cache_classification: bool = False,
 ) -> pl.LazyFrame:
     """过滤 → 投影（``LABEL_TO_COLUMNS`` 的列集 + 内部列）→ 补齐 ``_rpc_*``。
 
@@ -868,7 +923,15 @@ def _finalize(
     latency_column = _latency_column(label)
     lights = _light_columns(label) if light else None
     if lights is None:
-        keep_values = values
+        # A sparse batch is consumed by the trace reducer, whose input contract
+        # excludes _resp_msg. Direct RPC captures make the entire response
+        # formatter removable by projection pushdown.
+        keep_values = {
+            name: expr for name, expr in values.items()
+            if not (sparse and name == "_resp_msg" and all(
+                column in values for _, column in _RPC_KEYS
+            ))
+        }
     else:
         # 不在投影里的值表达式不进 with_columns —— polars 于是不为它们建算子
         keep_values = {name: expr for name, expr in values.items() if name in lights}
@@ -885,6 +948,8 @@ def _finalize(
         pl.col(_ROW_COLUMN),
         pl.col(_RANK_COLUMN),
     ]
+    if light and cache_classification:
+        exprs.append(pl.col("_cat").cast(pl.UInt8).alias("__info_cat"))
     for name in TRACE_COLUMNS:
         if lights is not None and name not in lights:
             continue                       # light：该 label 的宽列一次都不 select
@@ -893,14 +958,16 @@ def _finalize(
             exprs.append(_lit_none(pl.Float64).alias(name))
         elif name in present:
             exprs.append(pl.col(name).alias(name))
-        else:
+        elif not sparse or lights is not None:
             exprs.append(_lit_none(_DTYPE_OF[name]).alias(name))
     if lights is None:
         exprs.append(pl.lit(label, dtype=pl.Utf8).alias("_label"))
     exprs.append(pl.lit(_SRC_RANK.get(label, 0), dtype=pl.Int64).alias("_src_rank"))
     if lights is None:
         exprs.append(pl.col("_elapsed_us"))
-        exprs.append(pl.col("_resp_msg"))
+        if "_resp_msg" in keep_values:
+            exprs.append(pl.col("_resp_msg"))
+        exprs.extend(pl.col(column) for _, column in _RPC_KEYS if column in keep_values)
 
     out = out.select(exprs)
     if latency_column is not None and (lights is None or latency_column in lights):
@@ -909,9 +976,13 @@ def _finalize(
     if lights is not None:
         # light：各 label 产出的轻列不同，就按本分支真正建出来的 exprs 输出
         # （列**按名**拼接，见 info_label_columns 的 diagonal_relaxed）。
-        return out.select(exprs)
+        return out
     # _rpc_* 由列运算得出，逐字段对齐 columnar._parse_rpc_resp
-    out = out.with_columns(*[_rpc_expr(key, column) for key, column in _RPC_KEYS])
+    out = out.with_columns(*[
+        _rpc_expr(key, column) for key, column in _RPC_KEYS if column not in keep_values
+    ])
+    if sparse:
+        return out
     return out.select(*_OUTPUT_COLUMNS, _RANK_COLUMN)
 
 
@@ -926,7 +997,8 @@ def _collect(lf: pl.LazyFrame) -> pl.DataFrame:
 
 def info_label_columns(
     frame: pl.DataFrame, files: Sequence, parsers: Sequence, *, file_rank: dict[str, int],
-    light: bool = False,
+    light: bool = False, sparse: bool = False, defer_unused: bool = False,
+    cache_classification: bool = False,
 ) -> pl.DataFrame:
     """worker-info 12 个 label 的列式解析（替代逐行 Python regex）。
 
@@ -955,6 +1027,19 @@ def info_label_columns(
     行集与 ``light=False`` 逐行一致（过滤条件、``valid`` 未改）。各分支列集因此不同，
     light 用 ``how="diagonal_relaxed"`` 拼接（不为了对齐而铺 null 列）。
 
+    ``sparse=True`` omits absent wide columns and generated response text unused
+    by the trace reducer; RPC numeric fields come directly from regex captures.
+    The batched reducer restores the typed schema for its current partition.
+    ``defer_unused=True`` retains
+    only tid/row locators for INFO labels without light metrics, postponing
+    their validation until the wide pass. Such candidates are never aggregated
+    as light metric rows. Both options leave the default public output intact.
+
+    ``cache_classification=True`` adds a byte-sized ``__info_cat`` column to
+    light output. Supplying it with the light ``tid`` renamed ``__info_tid``
+    on wide source rows reuses classification, trace resolution and validated
+    header timestamps; wide message extraction and validation still run.
+
     不支持 ``scan_scope`` / ``_filter_by_time``（抛 ``NotImplementedError``）。
     """
     paths, per_file = _normalize_inputs(files, parsers)
@@ -969,28 +1054,56 @@ def info_label_columns(
         out_columns: tuple[str, ...] = (
             *(name for name in _LIGHT_OUTPUT_COLUMNS if name in produced),
             _FILE_COLUMN, _ROW_COLUMN, _RANK_COLUMN,
+            *(("__info_cat",) if cache_classification else ()),
         )
     else:
         out_columns = _OUTPUT_COLUMNS
     # .cache()：12 个 label 分支共用这一份候选帧计划，显式缓存后只执行一次
-    candidates = _prepare_candidates(frame, paths, per_file, file_rank).cache()
+    candidates = _prepare_candidates(frame, paths, per_file, file_rank)
+    if light:
+        # Cache only columns consumed by the light extractors. Explicit cache
+        # nodes otherwise keep wide-only pod/cluster metadata for every row.
+        candidates = candidates.select(
+            "msg", "trace_id", "_cat", _FILE_COLUMN, _ROW_COLUMN, _RANK_COLUMN,
+        )
+    candidates = candidates.cache()
 
     branches: list[pl.LazyFrame] = []
+    locator_categories: list[int] = []
     for label, extractor in _EXTRACTORS.items():
         cats = _CATS_FOR_LABEL.get(label, ())
         if not cats:
             continue
         sub = candidates.filter(pl.col("_cat").is_in(list(cats)))
+        if (light and defer_unused and _SRC_RANK.get(label, 0) == 0
+                and not (_light_columns(label) - {"tid", "_src_rank"})):
+            # These rows contribute no light metric. Keep only their location;
+            # the wide pass still applies the exact extractor/validation when
+            # that trace is selected. Invalid candidates cannot affect light
+            # aggregation because the scanner removes metric-free rows.
+            locator_categories.extend(cats)
+            continue
         extract_frame, values, valid = extractor(sub)
-        branches.append(_finalize(extract_frame, label, values, valid, light=light))
+        branches.append(_finalize(
+            extract_frame, label, values, valid, light=light, sparse=sparse,
+            cache_classification=cache_classification,
+        ))
+    if locator_categories:
+        branches.append(candidates.filter(pl.col("_cat").is_in(locator_categories)).select(
+            pl.col("trace_id").alias("tid"),
+            pl.lit(0, dtype=pl.Int64).alias("_src_rank"),
+            pl.col(_FILE_COLUMN), pl.col(_ROW_COLUMN), pl.col(_RANK_COLUMN),
+            *([pl.col("_cat").cast(pl.UInt8).alias("__info_cat")]
+              if cache_classification else []),
+        ))
     if not branches:
         return _empty_frame(out_columns).select(out_columns)
 
-    plan = (
-        pl.concat(branches, how="diagonal_relaxed" if light else "vertical")
-        .sort([_RANK_COLUMN, _ROW_COLUMN])
-        .select(out_columns)
-    )
+    plan = pl.concat(branches, how="diagonal_relaxed" if light or sparse else "vertical")
+    if sparse and not light:
+        present = plan.collect_schema().names()
+        out_columns = tuple(name for name in out_columns if name in present)
+    plan = plan.sort([_RANK_COLUMN, _ROW_COLUMN]).select(out_columns)
     # 整条链唯一一次物化；kwargs 见 _COLLECT_KWARGS（不加则共用基帧被重算 12 次）
     try:
         out = plan.collect(**_COLLECT_KWARGS)
