@@ -41,7 +41,8 @@ public:
 private:
     std::unique_ptr<LogCollector> collector_;
     std::unique_ptr<DiagnosisEngine> engine_;
-    std::filesystem::path outputPath_;
+    std::filesystem::path batchOutputPath_;
+    std::filesystem::path schemaOutputPath_;
     std::string taskId_;
     std::int64_t timestamp_ = 0;
 };

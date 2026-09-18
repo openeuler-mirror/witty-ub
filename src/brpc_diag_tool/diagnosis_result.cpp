@@ -735,18 +735,26 @@ std::string DiagnosisResult::BuildBatchContent(const std::string &taskId, const 
     return batchContent;
 }
 
-bool DiagnosisResult::Dump(const std::filesystem::path &outputDirectory, const std::string &taskId) const
+bool DiagnosisResult::Dump(const std::filesystem::path &batchDirectory,
+                           const std::filesystem::path &schemaDirectory, const std::string &taskId) const
 {
     std::error_code directoryError;
-    std::filesystem::create_directories(outputDirectory, directoryError);
+    std::filesystem::create_directories(batchDirectory, directoryError);
     if (directoryError) {
-        LOG_ERROR << "failed to create diagnosis output directory " << outputDirectory.string() << ": "
+        LOG_ERROR << "failed to create diagnosis batch directory " << batchDirectory.string() << ": "
+                  << directoryError.message();
+        return false;
+    }
+    directoryError.clear();
+    std::filesystem::create_directories(schemaDirectory, directoryError);
+    if (directoryError) {
+        LOG_ERROR << "failed to create diagnosis schema directory " << schemaDirectory.string() << ": "
                   << directoryError.message();
         return false;
     }
     const Json::Value schemaPayload = BuildSchemaPayload();
     std::string schemaId;
-    if (!PublishSchema(outputDirectory, schemaPayload, schemaId)) {
+    if (!PublishSchema(schemaDirectory, schemaPayload, schemaId)) {
         return false;
     }
     const std::int64_t createdAtTimestamp =
@@ -757,12 +765,12 @@ bool DiagnosisResult::Dump(const std::filesystem::path &outputDirectory, const s
         return false;
     }
     const std::string batchContent = BuildBatchContent(taskId, *batchId, schemaId, createdAtTimestamp);
-    const std::filesystem::path batchPath = outputDirectory / ("batch_" + taskId + ".jsonl");
+    const std::filesystem::path batchPath = batchDirectory / ("batch_" + taskId + ".jsonl");
     if (!WriteAtomically(batchPath, batchContent)) {
         return false;
     }
-    LOG_INFO << "diagnosis schema " << schemaId << " and batch " << *batchId << " published to "
-             << outputDirectory.string();
+    LOG_INFO << "diagnosis schema " << schemaId << " published to " << schemaDirectory.string() << ", batch "
+             << *batchId << " published to " << batchDirectory.string();
     return true;
 }
 

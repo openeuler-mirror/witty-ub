@@ -66,6 +66,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     async def reinit(task_id: str) -> bool:
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if task is None:
             return False
@@ -83,11 +84,13 @@ class BrpcLogDiagnosisWorker(BaseWorker):
     @staticmethod
     async def deinit(task_id: str) -> str:
         BrpcLogDiagnosisWorker._unregister_process(task_id)
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         return task_id
 
     @staticmethod
     async def delete(task_id: str) -> str:
         await BrpcLogDiagnosisWorker.stop(task_id)
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         return task_id
 
     @staticmethod
@@ -141,7 +144,30 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     def _output_dir() -> Path:
-        return Path(os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)) / "brpc-diag"
+        return Path(os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)) / "brpc-tmp"
+
+    @staticmethod
+    def _schema_dir() -> Path:
+        return Path(os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)) / "cache"
+
+    @staticmethod
+    def _cleanup_task_files(task_id: str) -> None:
+        """删除一个 BRPC 任务的临时 batch/PID；持久 schema 缓存不动。"""
+        if _TASK_ID_PATTERN.fullmatch(task_id) is None:
+            logger.warning("refusing to clean files for invalid UBSocket task ID: %r", task_id)
+            return
+        output_dir = BrpcLogDiagnosisWorker._output_dir()
+        paths = [
+            output_dir / f"batch_{task_id}.jsonl",
+            output_dir / f".worker_{task_id}.pid",
+        ]
+        paths.extend(output_dir.glob(f".batch_{task_id}.jsonl.tmp.*"))
+        paths.extend(output_dir.glob(f".worker_{task_id}.pid.*.tmp"))
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("failed to clean UBSocket task file %s: %s", path, exc)
 
     @staticmethod
     def _pid_path(task_id: str) -> Path:
@@ -343,7 +369,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 f"UBSocket 诊断 batch task_id 不匹配: {batch.task_id!r}"
             )
         schema_path = (
-            BrpcLogDiagnosisWorker._output_dir()
+            BrpcLogDiagnosisWorker._schema_dir()
             / f"schema_{batch.schema_id}.json"
         )
         if not schema_path.is_file():
@@ -438,4 +464,5 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             terminated = True
         else:
             terminated = BrpcLogDiagnosisWorker._terminate_pid(task_id)
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         return task_id if terminated else None

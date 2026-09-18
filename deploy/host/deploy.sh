@@ -849,7 +849,8 @@ clean_all() {
             /var/witty-ub/data \
             /var/witty-ub/config \
             /var/witty-ub/witty_ub_diagnostician \
-            /var/witty-ub/cache 2>/dev/null || true
+            /var/witty-ub/cache \
+            /var/witty-ub/brpc-tmp 2>/dev/null || true
         _log "/var/witty-ub 数据已删除"
     fi
 
