@@ -19,3 +19,13 @@ export const countsSettled = (overallStatus: string): boolean => SETTLED_STATUSE
 /** 计数单元格文案：未跑完显示 `—`，跑完显示真实计数（缺失按 0）。 */
 export const countText = (value: number | null | undefined, overallStatus: string): string =>
   countsSettled(overallStatus) ? String(value ?? 0) : '—'
+
+/**
+ * 资产卡片的日志文件数：来自 `/log_file/list/{kb}` 的 `total`（真实文件数），
+ * 尚未加载到（或该请求失败）时显示 `—`。
+ *
+ * 不回退到 `LogKnowledgeModel.task_cnt`：那一列由 `refresh_kb_counters` 维护，
+ * UBSocket 任务的收尾只 touch 更新时间、不刷新计数，所以只跑过 UBSocket 任务的资产会恒为 0。
+ */
+export const assetLogFileCountText = (count: number | undefined): string =>
+  count === undefined ? '—' : String(count)

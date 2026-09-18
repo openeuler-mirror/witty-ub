@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatTime } from './utils/format'
-import { countText } from './utils/inspectionCounts'
+import { assetLogFileCountText, countText } from './utils/inspectionCounts'
 import {
   buildTimelineTicks,
   formatParseTimingCores,
@@ -45,7 +45,8 @@ const {
   selectedAsset,
   assetError,
   assetLatestTasks,
-  loadAssetLatestTasks,
+  assetLogFileCounts,
+  loadAssetCardSummaries,
   loadAssets,
   enterAsset,
   goAssetList,
@@ -111,7 +112,7 @@ const openParseConfig = () => {
 }
 
 // 资产卡片摘要：只为当前页的卡片拉取「最近一条任务」，不阻塞列表渲染
-watch(pagedAssets, (list) => void loadAssetLatestTasks(list), { immediate: true })
+watch(pagedAssets, (list) => void loadAssetCardSummaries(list), { immediate: true })
 
 // 卡片状态徽标：undefined = 未加载（不渲染），null = 该资产还没有任务
 const assetTaskBadge = (assetId: string) => {
@@ -269,10 +270,10 @@ onBeforeUnmount(() => {
             {{ asset.description || '—' }}
           </div>
           <div class="asset-card-stats">
-            <!-- 后端 task_cnt 取的是 log_knowledge.total_count，等于有效日志文件数；
-                 log_file_cnt 恒为 0，不能用 -->
+            <!-- 计数取 /log_file/list 的 total：资产列表里的 task_cnt 只在 KVCache 任务收尾时
+                 刷新，UBSocket 资产的该列会恒为 0 -->
             <span
-              ><b>{{ asset.task_cnt ?? 0 }}</b> 个日志文件</span
+              ><b>{{ assetLogFileCountText(assetLogFileCounts[asset.id]) }}</b> 个日志文件</span
             >
             <span>更新 {{ formatTime(asset.updated_at) }}</span>
           </div>

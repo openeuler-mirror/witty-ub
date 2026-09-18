@@ -4,6 +4,7 @@ import { errorText, paginate } from '../utils/format'
 import { useToast } from './useToast'
 import { useServiceHealth } from './useServiceHealth'
 import { createLogKb, deleteLogKb, getLogKb, listAllLogKbs, updateLogKb } from '../api/logKnowledge'
+import { listLogFiles } from '../api/logFile'
 import { listTasks } from '../api/task'
 
 type AssetLatestTask = { status: string; taskType: string; createdAt: string }
@@ -54,53 +55,56 @@ function createAssetsState() {
   )
   const pagedAssets = computed(() => paginate(filteredAssets.value, assetPage.value, assetPageSize))
 
-  // 资产卡片摘要：每个资产只取最新一条任务（轻量、不含 task_reports）。
-  // 请求失败的资产保持 undefined，卡片不渲染状态，避免误报「暂无任务」。
+  // 资产卡片摘要（当前页）：最新一条任务（轻量、不含 task_reports）+ 日志文件数。
+  // 两项各自独立失败：取不到的那一项保持 undefined —— 卡片不渲染状态徽标、计数显示 `—`，
+  // 避免误报「暂无任务」或把不准确的计数显示出来。
   const assetLatestTasks = ref<Record<string, AssetLatestTask | null>>({})
+  const assetLogFileCounts = ref<Record<string, number>>({})
 
-  const loadAssetLatestTasks = async (list: LogKnowledge[]) => {
+  const loadAssetCardSummaries = async (list: LogKnowledge[]) => {
     const pending = list
       .map((asset) => asset.id)
-      .filter((id) => id && !(id in assetLatestTasks.value))
+      .filter((id) => id && (!(id in assetLatestTasks.value) || !(id in assetLogFileCounts.value)))
     if (pending.length === 0) return
 
     const results = await Promise.all(
       pending.map(async (id) => {
-        try {
-          const { tasks } = await listTasks({
-            kb_id: id,
-            created_sorted_desc: true,
-            page_cnt: 1,
-            page_num: 1,
-          })
-          const task = tasks?.[0]
-          return [
-            id,
-            task
-              ? {
-                  status: task.status ?? '',
-                  taskType: task.task_type ?? '',
-                  createdAt: task.created_at ?? '',
-                }
-              : null,
-          ] as const
-        } catch {
-          return null
-        }
+        const [task, count] = await Promise.all([
+          listTasks({ kb_id: id, created_sorted_desc: true, page_cnt: 1, page_num: 1 })
+            .then(({ tasks }) => tasks?.[0] ?? null)
+            .catch(() => undefined),
+          // 文件数只认 /log_file/list 的 total；资产列表里的 task_cnt 在 UBSocket 资产上不刷新
+          listLogFiles(id, 1, 1)
+            .then(({ total }) => total ?? 0)
+            .catch(() => undefined),
+        ])
+        return [id, task, count] as const
       }),
     )
 
-    const next = { ...assetLatestTasks.value }
-    for (const item of results) {
-      if (item) next[item[0]] = item[1]
+    const nextTasks = { ...assetLatestTasks.value }
+    const nextCounts = { ...assetLogFileCounts.value }
+    for (const [id, task, count] of results) {
+      if (task !== undefined) {
+        nextTasks[id] = task
+          ? {
+              status: task.status ?? '',
+              taskType: task.task_type ?? '',
+              createdAt: task.created_at ?? '',
+            }
+          : null
+      }
+      if (count !== undefined) nextCounts[id] = count
     }
-    assetLatestTasks.value = next
+    assetLatestTasks.value = nextTasks
+    assetLogFileCounts.value = nextCounts
   }
 
   const loadAssets = async () => {
     assetsLoading.value = true
     assetsError.value = ''
     assetLatestTasks.value = {}
+    assetLogFileCounts.value = {}
     try {
       assets.value = await listAllLogKbs()
     } catch (error) {
@@ -233,7 +237,8 @@ function createAssetsState() {
     assetPages,
     pagedAssets,
     assetLatestTasks,
-    loadAssetLatestTasks,
+    assetLogFileCounts,
+    loadAssetCardSummaries,
     loadAssets,
     selectedAsset,
     assetError,
