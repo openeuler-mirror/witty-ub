@@ -11,8 +11,13 @@ export type LogKnowledge = {
   id: string
   name: string
   description: string
+  /**
+   * 名字叫「任务数」，后端 `refresh_kb_counters` 实际写的是**有效日志文件数**
+   * （`log_knowledge.total_count = COUNT(log_file)`）；界面按「日志文件」展示。
+   * 后端另有 `log_file_cnt` 字段但恒为 0，不要用。
+   */
   task_cnt?: number
-  log_file_cnt?: number
+  /** 该资产下各日志 `anomalous_count` 之和（解析判定的异常 trace 数），卡片不展示。 */
   anomaly_cnt?: number
   created_at?: string
   updated_at?: string
