@@ -909,12 +909,28 @@ void DiagnosisEngine::BeginDiagnosis()
 
 void DiagnosisEngine::AnalyzeAccessLine(std::string_view line)
 {
+    std::array<std::string_view, ACCESS_FIELDS_SIZE> fields{};
+    if (!SplitExactFields(line, fields)) {
+        return;
+    }
+    int statusCode = 0;
+    if (!log_helper::ParseInt(fields[STATUSCODE_IDX], statusCode)) {
+        return;
+    }
+    const bool respMsgNonempty = !log_helper::TrimView(fields[RESPMSG_IDX]).empty();
+    const std::optional<std::size_t> ruleIndex = ResolveAccessRule(statusCode, respMsgNonempty);
+    if (!ruleIndex.has_value()) {
+        return;
+    }
+
     std::shared_ptr<FailureLogInfoAccess> log;
     if (!ParseAccessLog(std::string(line), log) || log->traceId.empty()) {
         return;
     }
-    const std::optional<std::size_t> ruleIndex = ResolveAccessRule(*log);
-    if (!ruleIndex.has_value() || IsAccessLocationMismatch(*ruleIndex, *log)) {
+    if (ruleIndex == unknownAccessRuleIndex_) {
+        LOG_WARN << UNKNOWN_STATUS_HINT << ", status_code=" << statusCode;
+    }
+    if (IsAccessLocationMismatch(*ruleIndex, *log)) {
         return;
     }
     const auto traceIterator = diagnosisTraces_.try_emplace(log->traceId).first;
@@ -1051,20 +1067,19 @@ bool DiagnosisEngine::AnalyzeAccessLogs(const std::vector<std::string> &paths)
     return true;
 }
 
-std::optional<std::size_t> DiagnosisEngine::ResolveAccessRule(const FailureLogInfoAccess &log) const
+std::optional<std::size_t> DiagnosisEngine::ResolveAccessRule(int statusCode, bool respMsgNonempty) const
 {
     for (std::size_t index : conditionalAccessRuleIndices_) {
         const AccessMatchCondition &condition = *rules_[index].accessMatchCondition;
-        if (log.statusCode == condition.statusCode && (!condition.respMsgNonempty || !log.respMsg.empty())) {
+        if (statusCode == condition.statusCode && (!condition.respMsgNonempty || respMsgNonempty)) {
             return index;
         }
     }
-    auto statusIterator = accessStatusToRuleIndex_.find(log.statusCode);
+    auto statusIterator = accessStatusToRuleIndex_.find(statusCode);
     if (statusIterator != accessStatusToRuleIndex_.end()) {
         return statusIterator->second;
     }
-    if (log.statusCode != SUCCESS_STATUS_CODE) {
-        LOG_WARN << UNKNOWN_STATUS_HINT << ", status_code=" << log.statusCode;
+    if (statusCode != SUCCESS_STATUS_CODE) {
         return unknownAccessRuleIndex_;
     }
     return std::nullopt;

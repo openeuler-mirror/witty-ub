@@ -68,7 +68,7 @@ private:
         bool &inRange;
         std::ostream &output;
         LogKind kind;
-        bool useMappedInput;
+        bool batchRuntimeLines;
         std::vector<std::string_view> &runtimeLines;
     };
 
@@ -86,9 +86,12 @@ private:
     std::vector<std::string> FindMatchingFiles(const std::string &dir, const std::string &pattern);
     bool ExtractLogLinesByTimeWindow(const std::string &inputPath, const std::string &outputPath, bool append,
                                      LogKind kind);
-    void WriteExtractedLine(std::ostream &output, std::string_view line, LogKind kind, bool useMappedInput,
+    void WriteExtractedLine(std::ostream &output, std::string_view line, LogKind kind, bool batchRuntimeLines,
                             std::vector<std::string_view> &runtimeLines) const;
     bool ProcessExtractedLine(std::string_view line, LineProcessContext &ctx) const;
+    bool ProcessGzipInput(const std::string &inputPath, LineProcessContext &ctx) const;
+    bool ProcessMappedInput(const MappedReadFile &input, LineProcessContext &ctx) const;
+    bool ProcessStreamInput(std::istream &input, LineProcessContext &ctx) const;
     bool FeedExtractedLog(const std::string &path, LogKind kind);
     RackResult BuildLogTypeToPathMap();
     RackResult StoreFailureTraces() const;
