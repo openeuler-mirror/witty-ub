@@ -414,6 +414,83 @@ tr:hover td {
   color: var(--danger);
 }
 
+/* 坏日志跳过告警（折叠态）：琥珀色摘要，全文与逐条文案走 title / 明细行 */
+.task-skip-chip {
+  overflow: hidden;
+  color: #b45309;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 名称列的展开箭头：无明细时留同宽占位，保证多行名称对齐 */
+.task-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.task-expand-btn,
+.task-expand-placeholder {
+  flex: 0 0 18px;
+  width: 18px;
+}
+
+.task-expand-btn {
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.task-expand-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.task-expand-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.task-name-block {
+  min-width: 0;
+}
+
+/* 明细行：占满整行，不参与操作列的吸附 */
+.task-detail-row > td {
+  position: static;
+  padding: 12px 16px;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.task-detail-skip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-md);
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+}
+
+.task-detail-skip-title {
+  font-weight: 600;
+}
+
+.task-detail-skip-line {
+  word-break: break-all;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

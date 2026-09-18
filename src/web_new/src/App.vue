@@ -48,6 +48,10 @@ const {
   statusOf,
   progressOf,
   progressMessageOf,
+  isTaskDetailOpen,
+  toggleTaskDetail,
+  skippedAlertsOf,
+  hasTaskDetailOf,
   statusLabel,
   statusBadgeClass,
   isRunningStatus,
@@ -243,9 +247,13 @@ onBeforeUnmount(() => {
               {{ assetTaskBadge(asset.id)?.label }}
             </span>
           </div>
-          <div class="asset-card-desc" :title="asset.description">{{ asset.description || '—' }}</div>
+          <div class="asset-card-desc" :title="asset.description">
+            {{ asset.description || '—' }}
+          </div>
           <div class="asset-card-stats">
-            <span><b>{{ asset.task_cnt ?? 0 }}</b> 个任务</span>
+            <span
+              ><b>{{ asset.task_cnt ?? 0 }}</b> 个任务</span
+            >
             <span>更新 {{ formatTime(asset.updated_at) }}</span>
           </div>
           <div class="asset-card-actions">
@@ -393,82 +401,124 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="file in pagedTasks" :key="file.id">
-                <td class="task-name-cell">
-                  <div class="task-name" :title="file.name">{{ file.name }}</div>
-                  <div class="task-path" :title="file.file_path">{{ file.file_path || '—' }}</div>
-                </td>
-                <td>
-                  <span
-                    :class="[
-                      'badge',
-                      file.log_type === 'UBSocket' ? 'badge-pending' : 'badge-success',
-                    ]"
-                  >
-                    {{ file.log_type }}
-                  </span>
-                </td>
-                <td>
-                  <div class="task-progress-stack">
-                    <div class="progress-cell">
-                      <div class="progress-bar">
-                        <div class="fill" :style="{ width: progressOf(file) + '%' }"></div>
+              <template v-for="file in pagedTasks" :key="file.id">
+                <tr>
+                  <td class="task-name-cell">
+                    <div class="task-name-row">
+                      <button
+                        v-if="hasTaskDetailOf(file)"
+                        type="button"
+                        class="task-expand-btn"
+                        :aria-expanded="isTaskDetailOpen(file)"
+                        :title="isTaskDetailOpen(file) ? '收起解析明细' : '展开解析明细'"
+                        @click="toggleTaskDetail(file)"
+                      >
+                        {{ isTaskDetailOpen(file) ? '▾' : '▸' }}
+                      </button>
+                      <span v-else class="task-expand-placeholder" aria-hidden="true"></span>
+                      <div class="task-name-block">
+                        <div class="task-name" :title="file.name">{{ file.name }}</div>
+                        <div class="task-path" :title="file.file_path">
+                          {{ file.file_path || '—' }}
+                        </div>
                       </div>
-                      <span class="progress-value">{{ Math.round(progressOf(file)) }}%</span>
                     </div>
-                    <div
-                      v-if="taskRowHint(file)"
-                      :class="[
-                        'task-row-hint',
-                        { 'task-row-hint-failed': taskRowHintIsFailure(file) },
-                      ]"
-                      :title="taskRowHint(file)"
-                    >
-                      {{ taskRowHint(file) }}
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <span :class="['badge', statusBadgeClass(statusOf(file))]">
-                    {{ statusLabel(statusOf(file)) }}
-                  </span>
-                </td>
-                <td>{{ formatTime(file.created_at) }}</td>
-                <td class="num">{{ file.anomaly_cnt ?? '-' }}</td>
-                <td class="num">{{ file.trace_failure_event_cnt ?? '-' }}</td>
-                <td>
-                  <div class="task-actions">
-                    <template v-if="isPending(file)">
-                      <button class="btn btn-sm btn-primary" @click="runLogFile(file)">
-                        ▶ 开始
-                      </button>
-                    </template>
-                    <template v-else-if="isRunning(file)">
-                      <button class="btn btn-sm btn-default" @click="stopLogFile(file)">
-                        ■ 停止
-                      </button>
-                    </template>
-                    <template v-else-if="isFailed(file)">
-                      <button class="btn btn-sm btn-text" @click="runLogFile(file)">↻ 重试</button>
-                    </template>
-                    <button
-                      v-if="canRunBrpcDiagnosis(file)"
-                      class="btn btn-sm btn-default"
-                      @click="openBrpcDiagnosis(file)"
-                    >
-                      ▶ 运行诊断
-                    </button>
+                  </td>
+                  <td>
                     <span
-                      v-else-if="isRunningStatus(brpcDiagStatusOf(file))"
-                      class="badge badge-running"
-                      >诊断中</span
+                      :class="[
+                        'badge',
+                        file.log_type === 'UBSocket' ? 'badge-pending' : 'badge-success',
+                      ]"
                     >
-                    <button class="btn btn-sm btn-danger" @click="deleteLogFile(file)">
-                      ✕ 删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                      {{ file.log_type }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="task-progress-stack">
+                      <div class="progress-cell">
+                        <div class="progress-bar">
+                          <div class="fill" :style="{ width: progressOf(file) + '%' }"></div>
+                        </div>
+                        <span class="progress-value">{{ Math.round(progressOf(file)) }}%</span>
+                      </div>
+                      <div
+                        v-if="taskRowHint(file)"
+                        :class="[
+                          'task-row-hint',
+                          { 'task-row-hint-failed': taskRowHintIsFailure(file) },
+                        ]"
+                        :title="taskRowHint(file)"
+                      >
+                        {{ taskRowHint(file) }}
+                      </div>
+                      <div
+                        v-if="skippedAlertsOf(file).length"
+                        class="task-skip-chip"
+                        :title="skippedAlertsOf(file).join('\n')"
+                      >
+                        ⚠ {{ skippedAlertsOf(file)[0] }}
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span :class="['badge', statusBadgeClass(statusOf(file))]">
+                      {{ statusLabel(statusOf(file)) }}
+                    </span>
+                  </td>
+                  <td>{{ formatTime(file.created_at) }}</td>
+                  <td class="num">{{ file.anomaly_cnt ?? '-' }}</td>
+                  <td class="num">{{ file.trace_failure_event_cnt ?? '-' }}</td>
+                  <td>
+                    <div class="task-actions">
+                      <template v-if="isPending(file)">
+                        <button class="btn btn-sm btn-primary" @click="runLogFile(file)">
+                          ▶ 开始
+                        </button>
+                      </template>
+                      <template v-else-if="isRunning(file)">
+                        <button class="btn btn-sm btn-default" @click="stopLogFile(file)">
+                          ■ 停止
+                        </button>
+                      </template>
+                      <template v-else-if="isFailed(file)">
+                        <button class="btn btn-sm btn-text" @click="runLogFile(file)">
+                          ↻ 重试
+                        </button>
+                      </template>
+                      <button
+                        v-if="canRunBrpcDiagnosis(file)"
+                        class="btn btn-sm btn-default"
+                        @click="openBrpcDiagnosis(file)"
+                      >
+                        ▶ 运行诊断
+                      </button>
+                      <span
+                        v-else-if="isRunningStatus(brpcDiagStatusOf(file))"
+                        class="badge badge-running"
+                        >诊断中</span
+                      >
+                      <button class="btn btn-sm btn-danger" @click="deleteLogFile(file)">
+                        ✕ 删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="isTaskDetailOpen(file)" class="task-detail-row">
+                  <td colspan="8">
+                    <div v-if="skippedAlertsOf(file).length" class="task-detail-skip" role="alert">
+                      <span class="task-detail-skip-title">已跳过读不出来的日志文件</span>
+                      <span
+                        v-for="alert in skippedAlertsOf(file)"
+                        :key="alert"
+                        class="task-detail-skip-line"
+                      >
+                        {{ alert }}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
