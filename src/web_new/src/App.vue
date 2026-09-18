@@ -2,12 +2,16 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatTime } from './utils/format'
 import {
+  buildTimelineTicks,
   formatParseTimingCores,
   formatParseTimingRows,
   formatParseTimingSeconds,
   formatParseTimingShare,
+  formatTaskLaneSegmentTitle,
   parseTimingHeadlineLabel,
   parseTimingHeadlineSeconds,
+  taskLaneSegmentStyle,
+  taskLaneTickStyle,
 } from './utils/parseTiming'
 import type { LogFileModel } from './types'
 import { useToast } from './composables/useToast'
@@ -59,6 +63,10 @@ const {
   isTaskDetailOpen,
   toggleTaskDetail,
   parseTimingOf,
+  taskTimelineOf,
+  taskLanesOf,
+  taskAxisTotalSOf,
+  timelineLegendOf,
   skippedAlertsOf,
   hasTaskDetailOf,
   statusLabel,
@@ -526,25 +534,92 @@ onBeforeUnmount(() => {
                       </span>
                     </div>
 
-                    <div v-if="parseTimingOf(file)" class="task-detail-timing">
+                    <div
+                      v-if="parseTimingOf(file) || taskLanesOf(file).length"
+                      class="task-detail-timing"
+                    >
                       <div class="task-detail-timing-head">
                         <span class="task-detail-timing-title">解析用时</span>
                         <span class="task-detail-timing-total">
                           {{
                             formatParseTimingSeconds(
-                              parseTimingHeadlineSeconds(parseTimingOf(file)),
+                              parseTimingHeadlineSeconds(parseTimingOf(file), taskTimelineOf(file)),
                             )
                           }}
                         </span>
                         <span class="task-detail-timing-meta">
-                          {{ parseTimingHeadlineLabel() }}
+                          {{ parseTimingHeadlineLabel(taskTimelineOf(file)) }}
                         </span>
                         <span v-if="parseTimingOf(file)?.rows" class="task-detail-timing-meta">
                           {{ formatParseTimingRows(parseTimingOf(file)?.rows ?? null) }}
                         </span>
                       </div>
 
-                      <table class="task-timing-table">
+                      <!-- 三条泳道：解析 / 故障定界 / 上下文落库，共用一条时间轴；
+                         色块之间的空隙就是「在等」，右边留白 = 该任务已结束、别的还在跑 -->
+                      <div v-if="taskLanesOf(file).length" class="task-timing-lanes">
+                        <div class="task-timing-lane task-timing-lane--ticks">
+                          <span class="task-timing-lane-label"></span>
+                          <span class="task-timing-track">
+                            <span
+                              v-for="(tick, index) in buildTimelineTicks(taskAxisTotalSOf(file))"
+                              :key="`tick-${index}`"
+                              class="task-timing-tick"
+                              :style="taskLaneTickStyle(tick, taskAxisTotalSOf(file))"
+                            >
+                              {{ tick }}s
+                            </span>
+                          </span>
+                        </div>
+                        <div
+                          v-for="lane in taskLanesOf(file)"
+                          :key="lane.taskType"
+                          class="task-timing-lane"
+                        >
+                          <span class="task-timing-lane-label" :title="lane.taskType">
+                            {{ lane.label }}
+                          </span>
+                          <span class="task-timing-track">
+                            <span
+                              v-for="(segment, segmentIndex) in lane.segments"
+                              :key="`${segment.stage}-${segmentIndex}`"
+                              :class="[
+                                'task-timing-seg',
+                                `is-stage-${segment.stage}`,
+                                {
+                                  'is-waiting': segment.waiting,
+                                  'is-unknown': !segment.positionKnown,
+                                  'is-head': segment.head,
+                                },
+                              ]"
+                              :style="taskLaneSegmentStyle(segment, taskAxisTotalSOf(file))"
+                              :title="formatTaskLaneSegmentTitle(segment, taskAxisTotalSOf(file))"
+                            ></span>
+                          </span>
+                          <span class="task-timing-lane-total">
+                            {{ formatParseTimingSeconds(lane.totalS) }}
+                          </span>
+                          <span v-if="lane.note" class="task-timing-lane-note">{{
+                            lane.note
+                          }}</span>
+                          <span v-if="lane.running" class="task-timing-lane-running">进行中</span>
+                        </div>
+                      </div>
+
+                      <div v-if="taskLanesOf(file).length" class="task-timing-legend">
+                        <span
+                          v-for="item in timelineLegendOf(file)"
+                          :key="`legend-${item.stage}`"
+                          class="task-timing-legend-item"
+                        >
+                          <span
+                            :class="['task-timing-legend-dot', `is-stage-${item.stage}`]"
+                          ></span>
+                          {{ item.label }}
+                        </span>
+                      </div>
+
+                      <table v-if="parseTimingOf(file)" class="task-timing-table">
                         <thead>
                           <tr>
                             <th>阶段</th>

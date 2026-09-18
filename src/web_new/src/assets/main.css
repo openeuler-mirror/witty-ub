@@ -519,6 +519,192 @@ tr:hover td {
 
 /* 三条泳道（解析 / 故障定界 / 上下文落库）：每行左端任务名、中段共用时间轴、
    右端该任务总耗时；色块之间的空隙就是「在等」 */
+.task-timing-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 720px;
+  margin-bottom: 8px;
+}
+
+.task-timing-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.task-timing-lane--ticks {
+  height: 12px;
+}
+
+.task-timing-lane-label {
+  flex: 0 0 68px;
+  overflow: hidden;
+  color: var(--text2);
+  font-weight: 600;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-timing-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 14px;
+  /* 只留一条基线轴：铺满的底槽会被误读成「进度条没走满」 */
+  border-bottom: 1px solid var(--border);
+}
+
+.task-timing-lane--ticks .task-timing-track {
+  height: 12px;
+  border-bottom: none;
+}
+
+.task-timing-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.task-timing-seg.is-waiting {
+  background: var(--border);
+}
+
+.task-timing-seg.is-unknown {
+  opacity: 0.55;
+}
+
+.task-timing-lane-total {
+  flex: 0 0 52px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-timing-lane-note,
+.task-timing-lane-running {
+  color: var(--text3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.task-timing-lane-running {
+  color: var(--warning);
+}
+
+.task-timing-tick {
+  position: absolute;
+  top: 0;
+  color: var(--text3);
+  font-size: 11px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.task-timing-tick:first-child {
+  transform: none;
+}
+
+.task-timing-tick:last-child {
+  transform: translateX(-100%);
+}
+
+.task-timing-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--text2);
+  font-size: 12px;
+}
+
+.task-timing-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-timing-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+/* 每个阶段一种颜色：色块与图例共用同一条规则 */
+.task-timing-seg.is-stage-scan,
+.task-timing-legend-dot.is-stage-scan {
+  background: #2563eb;
+}
+
+.task-timing-seg.is-stage-trace_frame,
+.task-timing-legend-dot.is-stage-trace_frame {
+  background: #0ea5e9;
+}
+
+.task-timing-seg.is-stage-aggregate,
+.task-timing-legend-dot.is-stage-aggregate {
+  background: #8b5cf6;
+}
+
+.task-timing-seg.is-stage-detail,
+.task-timing-legend-dot.is-stage-detail {
+  background: #ec4899;
+}
+
+.task-timing-seg.is-stage-bucket,
+.task-timing-legend-dot.is-stage-bucket {
+  background: #14b8a6;
+}
+
+.task-timing-seg.is-stage-store,
+.task-timing-legend-dot.is-stage-store {
+  background: #64748b;
+}
+
+/* 故障定界三段：同色系深浅区分 */
+.task-timing-seg.is-stage-diagnose_prepare,
+.task-timing-legend-dot.is-stage-diagnose_prepare {
+  background: #fbbf24;
+}
+
+.task-timing-seg.is-stage-diagnose_tool,
+.task-timing-legend-dot.is-stage-diagnose_tool {
+  background: #f59e0b;
+}
+
+.task-timing-seg.is-stage-diagnose_persist,
+.task-timing-legend-dot.is-stage-diagnose_persist {
+  background: #d97706;
+}
+
+/* 上下文落库三段：等诊断=浅灰（没干活），取集合/落库=绿系深浅 */
+.task-timing-seg.is-stage-trace_store_wait,
+.task-timing-legend-dot.is-stage-trace_store_wait {
+  background: #e2e8f0;
+}
+
+.task-timing-seg.is-stage-trace_store_collect,
+.task-timing-legend-dot.is-stage-trace_store_collect {
+  background: #34d399;
+}
+
+.task-timing-seg.is-stage-trace_store_write,
+.task-timing-legend-dot.is-stage-trace_store_write {
+  background: #059669;
+}
+
+/* 补充段（非后端打点）：排队/启动 与 收尾 用中性灰 */
+.task-timing-seg.is-head,
+.task-timing-legend-dot.is-stage-_head,
+.task-timing-seg.is-stage-_tail,
+.task-timing-legend-dot.is-stage-_tail {
+  background: #cbd5e1;
+}
+
 .task-timing-table {
   width: 100%;
   max-width: 640px;

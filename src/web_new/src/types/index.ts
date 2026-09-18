@@ -1,4 +1,4 @@
-import type { ParseTimingReport } from '../utils/parseTiming'
+import type { ParseTimingReport, TaskSpan } from '../utils/parseTiming'
 
 export type ApiResponse<T> = {
   code?: number
@@ -56,6 +56,10 @@ export type LogFileModel = {
   overall_progress?: number
   /** 解析任务最新一条 `[timing]` 报告（= stage_timings 里解析任务那一项）。 */
   parse_timing?: ParseTimingReport | null
+  /** 按 task_type 分组、每个任务各取最新一条 `[timing]` 报告。 */
+  stage_timings?: Record<string, ParseTimingReport> | null
+  /** 三个任务各自的起止时间，用来把三条泳道对齐到同一条时间轴。 */
+  task_spans?: TaskSpan[] | null
   existed_status: boolean
   created_at: string
 }

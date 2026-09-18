@@ -1,7 +1,14 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { LogFileModel, LogType } from '../types'
 import { clampProgress, errorText, paginate, toDatetimeString, tsToEpochMs } from '../utils/format'
-import { resolveParseTimingReport, type ParseTimingReport } from '../utils/parseTiming'
+import {
+  buildTaskLanes,
+  collectTimelineLegend,
+  resolveParseTimingReport,
+  type ParseTimingReport,
+  type TaskLane,
+  type TaskTimeline,
+} from '../utils/parseTiming'
 import { collectSkippedFileAlerts } from '../utils/skipAlerts'
 import { latestTaskReport, taskProgressMessage } from '../utils/taskProgress'
 import { useToast } from './useToast'
@@ -49,7 +56,7 @@ function createTasksState() {
 
   const progressMessageOf = (file: LogFileModel) => taskProgressMessage(file)
 
-  // 任务行明细（解析用时 / 坏文件跳过告警）：默认收起，点行首箭头展开
+  // 任务行明细（解析用时 / 三任务泳道 / 坏文件跳过告警）：默认收起，点行首箭头展开
   const expandedTaskIds = ref<Set<string>>(new Set())
   const isTaskDetailOpen = (file: LogFileModel) => expandedTaskIds.value.has(file.id)
   const toggleTaskDetail = (file: LogFileModel) => {
@@ -69,13 +76,19 @@ function createTasksState() {
       })),
     )
 
+  const taskTimelineOf = (file: LogFileModel): TaskTimeline | null =>
+    buildTaskLanes(file.stage_timings ?? null, file.task_spans ?? null)
+
+  const taskLanesOf = (file: LogFileModel): TaskLane[] => taskTimelineOf(file)?.lanes ?? []
+  const taskAxisTotalSOf = (file: LogFileModel): number => taskTimelineOf(file)?.totalS ?? 0
+  const timelineLegendOf = (file: LogFileModel) => collectTimelineLegend(taskTimelineOf(file))
   // 解析进行中时可见任务自己就带 `[skip]`；任务切走后改用 /task/list 取回的解析任务告警。
   const skippedAlertsOf = (file: LogFileModel): string[] => {
     const live = collectSkippedFileAlerts(file.task?.task_reports)
     return live.length ? live : (skipAlertsByFile.value[file.id] ?? [])
   }
   const hasTaskDetailOf = (file: LogFileModel): boolean =>
-    Boolean(parseTimingOf(file) || skippedAlertsOf(file).length)
+    Boolean(parseTimingOf(file) || taskTimelineOf(file) || skippedAlertsOf(file).length)
 
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
@@ -439,6 +452,10 @@ function createTasksState() {
     isTaskDetailOpen,
     toggleTaskDetail,
     parseTimingOf,
+    taskTimelineOf,
+    taskLanesOf,
+    taskAxisTotalSOf,
+    timelineLegendOf,
     skippedAlertsOf,
     hasTaskDetailOf,
     statusLabel,
