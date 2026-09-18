@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  buildTimelineTicks,
   formatParseTimingCores,
   formatParseTimingRows,
   formatParseTimingSeconds,
@@ -8,6 +9,7 @@ import {
   parseTimingHeadlineLabel,
   parseTimingHeadlineSeconds,
   resolveParseTimingReport,
+  taskLaneTickStyle,
 } from '../src/utils/parseTiming.ts'
 
 // 后端冻结契约里的真实样例（[timing] 报告的单行 JSON，同时也是 file.parse_timing 的形状）。
@@ -126,13 +128,19 @@ test('占比重演后端样例口径：各阶段占比之和不超过 100%', () 
   assert.ok(sum > 0 && sum <= 100.1, `stages share sum = ${sum}`)
 })
 
-test('主数口径：优先后端给的端到端，缺省退回阶段之和', () => {
+test('时间轴刻度：0/¼/½/¾/总长，最后一条落在 100%', () => {
+  assert.deepEqual(buildTimelineTicks(3.7), [0, 0.9, 1.9, 2.8, 3.7])
+  assert.deepEqual(buildTimelineTicks(0), [])
+  assert.deepEqual(taskLaneTickStyle(1.85, 3.7), { left: '50.0000%' })
+  assert.deepEqual(taskLaneTickStyle(9, 3.7), { left: '100.0000%' })
+})
+
+test('主数口径：有泳道用端到端，无泳道退回解析任务；标签同步', () => {
   const report = resolveParseTimingReport({ ...timingObject, end_to_end_s: 12.5 }, [])
   assert.ok(report)
-  assert.equal(parseTimingHeadlineSeconds(report), 12.5)
-  assert.equal(parseTimingHeadlineLabel(), '解析任务')
-  const withoutEndToEnd = resolveParseTimingReport({ ...timingObject }, [])
-  assert.ok(withoutEndToEnd)
-  assert.equal(parseTimingHeadlineSeconds(withoutEndToEnd), 11.885)
-  assert.equal(parseTimingHeadlineSeconds(null), null)
+  assert.equal(parseTimingHeadlineSeconds(report, null), 12.5)
+  assert.equal(parseTimingHeadlineLabel(null), '解析任务')
+  const timeline = { lanes: [], totalS: 20, endToEndS: 20, running: false }
+  assert.equal(parseTimingHeadlineSeconds(report, timeline), 20)
+  assert.equal(parseTimingHeadlineLabel(timeline), '端到端（三个任务）')
 })
