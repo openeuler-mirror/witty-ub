@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatTime } from './utils/format'
-import { countCellTitle, countText } from './utils/inspectionCounts'
+import { countText } from './utils/inspectionCounts'
 import {
   buildTimelineTicks,
   formatParseTimingCores,
@@ -269,9 +269,9 @@ onBeforeUnmount(() => {
             {{ asset.description || '—' }}
           </div>
           <div class="asset-card-stats">
-            <!-- 后端的 task_cnt 取的是 log_knowledge.total_count，而它等于有效日志文件数
-                 （refresh_kb_counters 按 log_file 统计）；log_file_cnt 恒为 0，不能用 -->
-            <span title="该资产库下有效的日志文件数量（每个日志文件会派生解析/定界/落库任务）"
+            <!-- 后端 task_cnt 取的是 log_knowledge.total_count，等于有效日志文件数；
+                 log_file_cnt 恒为 0，不能用 -->
+            <span
               ><b>{{ asset.task_cnt ?? 0 }}</b> 个日志文件</span
             >
             <span>更新 {{ formatTime(asset.updated_at) }}</span>
@@ -415,18 +415,8 @@ onBeforeUnmount(() => {
                 <th>进度</th>
                 <th>状态</th>
                 <th>创建时间</th>
-                <th
-                  class="num"
-                  title="KVCache：解析判定的时延异常 trace 条数；UBSocket：profiling 结果文件数"
-                >
-                  时延异常
-                </th>
-                <th
-                  class="num"
-                  title="KVCache：落库的故障 trace 条数；UBSocket：诊断命中的故障接口数"
-                >
-                  通断异常
-                </th>
+                <th class="num">时延异常</th>
+                <th class="num">通断异常</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -497,10 +487,8 @@ onBeforeUnmount(() => {
                     </span>
                   </td>
                   <td>{{ formatTime(file.created_at) }}</td>
-                  <td class="num" :title="countCellTitle('latency', file.log_type)">
-                    {{ countText(file.anomaly_cnt, statusOf(file)) }}
-                  </td>
-                  <td class="num" :title="countCellTitle('fault', file.log_type)">
+                  <td class="num">{{ countText(file.anomaly_cnt, statusOf(file)) }}</td>
+                  <td class="num">
                     {{ countText(file.trace_failure_event_cnt, statusOf(file)) }}
                   </td>
                   <td>

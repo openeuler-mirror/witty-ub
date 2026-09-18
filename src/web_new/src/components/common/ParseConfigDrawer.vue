@@ -4,17 +4,20 @@ import BaseModal from './BaseModal.vue'
 import type { LogKnowledge } from '../../types'
 import { useServiceHealth } from '../../composables/useServiceHealth'
 import {
-  PATTERN_TYPES,
-  THRESHOLD_OPTIONS,
   defaultDiagnosisConfig,
   fetchDiagnosisConfig,
   listImportAssets,
   resetDiagnosisConfig,
   saveDiagnosisConfig,
+} from '../../api/diagnosisConfig'
+import {
+  EDITABLE_THRESHOLD_OPTIONS,
+  PATTERN_TYPES,
+  isValidThresholdValue,
+  withSanitizedHiddenParams,
   type DiagnosisConfigForm,
   type DiagnosisPatternKey,
-  type DiagnosisThresholdKey,
-} from '../../api/diagnosisConfig'
+} from '../../utils/parseConfigFields'
 
 const props = defineProps<{
   asset: LogKnowledge | null
@@ -28,17 +31,6 @@ const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 
 const parseConfigSummary =
   '各资产库配置相互独立，仅对后续添加的日志解析任务生效，未进行配置时使用默认配置'
-
-// 后端运行链路当前仅消费 total_p99_threshold_ms 与文件名 Pattern；其余字段保存仅持久化。
-// 后端判定消费补齐后移除此标注
-// 后端解析 worker 会读的阈值（判定异常）
-const CONSUMED_THRESHOLD_KEYS = new Set<DiagnosisThresholdKey>(['total_p99_threshold_ms'])
-// 新版前端自己用的阈值（总览表 / 曲线的异常标色）
-const UI_THRESHOLD_KEYS = new Set<DiagnosisThresholdKey>([
-  'total_p9999_threshold_ms',
-  'total_pmax_threshold_ms',
-  'total_ave_threshold_ms',
-])
 
 const draft = reactive<DiagnosisConfigForm>(defaultDiagnosisConfig())
 const patternInputs = reactive<Record<DiagnosisPatternKey, string>>({
@@ -104,43 +96,15 @@ const removePattern = (key: DiagnosisPatternKey, index: number) => {
   draft.logFilenamePattern[key].splice(index, 1)
 }
 
-const addSlidingWindowPair = () => {
-  draft.logAnalyzerParams.slidingWindowPairs.push({ size: 60, step: 10 })
-}
-
-const removeSlidingWindowPair = (index: number) => {
-  draft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
-}
-
-const slidingFieldId = (index: number, field: 'size' | 'step') => `sliding-window-${index}-${field}`
-
-const isPositiveDecimal = (value: unknown) =>
-  /^[0-9]+(?:\.[0-9]+)?$/.test(String(value)) && Number(value) > 0 && Number.isFinite(Number(value))
-
-const isPositiveInteger = (value: unknown) =>
-  /^[0-9]+$/.test(String(value)) && Number(value) > 0 && Number.isFinite(Number(value))
-
 const validate = () => {
   const invalid = new Set<string>()
   // 上限与后端 schema 一致，避免保存后请求被 422 拒绝
-  THRESHOLD_OPTIONS.forEach(({ key }) => {
-    const value = draft.logAnalyzerParams[key]
-    if (!isPositiveDecimal(value) || Number(value) > 1000) invalid.add(key)
+  EDITABLE_THRESHOLD_OPTIONS.forEach(({ key }) => {
+    if (!isValidThresholdValue(draft.logAnalyzerParams[key])) invalid.add(key)
   })
-  draft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
-    if (!isPositiveInteger(size) || Number(size) > 10000) invalid.add(slidingFieldId(index, 'size'))
-    if (!isPositiveInteger(step) || Number(step) > 1000) invalid.add(slidingFieldId(index, 'step'))
-  })
-  const density = draft.logAnalyzerParams.zone_anomaly_density_threshold
-  if (!isPositiveDecimal(density) || Number(density) > 1)
-    invalid.add('zone_anomaly_density_threshold')
   invalidFields.value = invalid
   if (invalid.size > 0) {
     validationError.value = '参数填写不合法，请检查红色输入框'
-    return false
-  }
-  if (draft.logAnalyzerParams.slidingWindowPairs.length === 0) {
-    validationError.value = '至少需要配置一组滑动窗口'
     return false
   }
   const emptyPattern = PATTERN_TYPES.find(({ key }) => draft.logFilenamePattern[key].length === 0)
@@ -194,7 +158,11 @@ const save = async () => {
     const saved =
       resetSnapshot.value !== '' && resetSnapshot.value === JSON.stringify(draft)
         ? await resetDiagnosisConfig(props.asset.id)
-        : await saveDiagnosisConfig(props.asset.id, draft)
+        : // 隐藏字段（后端尚未消费）原样透传，非法值回落到默认，避免看不见的字段把保存卡成 422
+          await saveDiagnosisConfig(
+            props.asset.id,
+            withSanitizedHiddenParams(draft, defaultDiagnosisConfig()),
+          )
     fillDraft(saved)
     close()
   } catch (err) {
@@ -286,83 +254,21 @@ const save = async () => {
 
         <section class="parse-section">
           <h3>时延异常阈值（ms）</h3>
-          <p class="config-note">
-            「总时延 P99 阈值」由后端解析判定使用；「P99.99 / Pmax / 均值」用于本页总览的异常
-            标色；C2W / W2W / URMA 建链 / QueryMeta 四个阶段阈值当前没有任何链路消费
-            （保存到资产配置，仅持久化）。
-          </p>
           <div class="threshold-grid">
-            <label v-for="option in THRESHOLD_OPTIONS" :key="option.key" class="threshold-item">
-              <span class="threshold-label">
-                {{ option.label }}
-                <span
-                  v-if="CONSUMED_THRESHOLD_KEYS.has(option.key)"
-                  class="config-effective-chip"
-                  title="后端解析 / 诊断链路会读取这个阈值"
-                  >后端生效</span
-                >
-                <span
-                  v-else-if="UI_THRESHOLD_KEYS.has(option.key)"
-                  class="config-ui-chip"
-                  title="后端不读，由本页总览的异常标色使用"
-                  >前端标色</span
-                >
-              </span>
+            <label
+              v-for="option in EDITABLE_THRESHOLD_OPTIONS"
+              :key="option.key"
+              class="threshold-item"
+            >
+              <span class="threshold-label">{{ option.label }}</span>
               <input
                 class="input"
                 :class="{ invalid: invalidFields.has(option.key) }"
                 type="text"
-                v-model="draft.logAnalyzerParams[option.key as DiagnosisThresholdKey]"
+                v-model="draft.logAnalyzerParams[option.key]"
               />
               <span class="threshold-desc">{{ option.description }}</span>
             </label>
-          </div>
-        </section>
-
-        <section class="parse-section">
-          <h3>滑动窗口对（size / step）</h3>
-          <p class="config-note">
-            这组参数会保存到资产配置，但当前解析链路尚未消费，调整不会改变分析结果。
-          </p>
-          <div
-            v-for="(pair, index) in draft.logAnalyzerParams.slidingWindowPairs"
-            :key="index"
-            class="sliding-row"
-          >
-            <input
-              class="input"
-              :class="{ invalid: invalidFields.has(slidingFieldId(index, 'size')) }"
-              type="text"
-              v-model="pair.size"
-              placeholder="窗口大小"
-            />
-            <input
-              class="input"
-              :class="{ invalid: invalidFields.has(slidingFieldId(index, 'step')) }"
-              type="text"
-              v-model="pair.step"
-              placeholder="滑动步长"
-            />
-            <button class="btn btn-default btn-sm" @click="removeSlidingWindowPair(index)">
-              删除
-            </button>
-          </div>
-          <button class="btn btn-text btn-sm" @click="addSlidingWindowPair">＋ 添加窗口对</button>
-        </section>
-
-        <section class="parse-section">
-          <h3>区间异常密度阈值</h3>
-          <p class="config-note">
-            该参数会保存到资产配置，但当前解析链路尚未消费，调整不会改变分析结果。
-          </p>
-          <div class="sliding-row">
-            <input
-              class="input"
-              :class="{ invalid: invalidFields.has('zone_anomaly_density_threshold') }"
-              type="text"
-              v-model="draft.logAnalyzerParams.zone_anomaly_density_threshold"
-            />
-            <span class="threshold-desc">取值 (0, 1]</span>
           </div>
         </section>
       </template>
@@ -465,48 +371,9 @@ const save = async () => {
 .threshold-label {
   font-size: 12px;
 }
-.config-effective-chip {
-  margin-left: 6px;
-  padding: 0 6px;
-  font-size: 10px;
-  line-height: 16px;
-  border-radius: 999px;
-  background: #ecfdf5;
-  color: #047857;
-  border: 1px solid #34d399;
-  font-weight: 400;
-  white-space: nowrap;
-}
-.config-ui-chip {
-  margin-left: 6px;
-  padding: 0 6px;
-  font-size: 10px;
-  line-height: 16px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #93c5fd;
-  font-weight: 400;
-  white-space: nowrap;
-}
-.config-note {
-  margin: 2px 0 8px;
-  color: var(--text3);
-  font-size: 12px;
-  line-height: 1.5;
-}
 .threshold-desc {
   font-size: 11px;
   color: var(--text3);
-}
-.sliding-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.sliding-row .input {
-  flex: 1;
 }
 .input.invalid {
   border-color: var(--danger, #dc2626);

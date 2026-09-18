@@ -1,68 +1,19 @@
 import rawDiagnosisConfig from '../../../../config/diagnosis_config.toml'
 import { request } from './http'
 import type { LogKnowledge } from '../types'
+import {
+  PATTERN_TYPES,
+  THRESHOLD_OPTIONS,
+  type DiagnosisConfigForm,
+  type DiagnosisPatternKey,
+  type DiagnosisThresholdKey,
+} from '../utils/parseConfigFields'
 
 const toml = rawDiagnosisConfig as any
 
-export type DiagnosisPatternKey =
-  | 'ds_client_access_log_file'
-  | 'ds_client_info_log_file'
-  | 'ds_worker_access_log_file'
-  | 'ds_worker_info_log_file'
-  | 'resource_log_file'
-
-export type DiagnosisThresholdKey =
-  | 'total_p99_threshold_ms'
-  | 'c2w_p99_threshold_ms'
-  | 'w2w_p99_threshold_ms'
-  | 'urma_link_p99_threshold_ms'
-  | 'query_meta_p99_threshold_ms'
-  | 'total_p9999_threshold_ms'
-  | 'total_pmax_threshold_ms'
-  | 'total_ave_threshold_ms'
-
-export type DiagnosisConfigForm = {
-  logFilenamePattern: Record<DiagnosisPatternKey, string[]>
-  logAnalyzerParams: Record<DiagnosisThresholdKey, number> & {
-    slidingWindowPairs: { size: number; step: number }[]
-    zone_anomaly_density_threshold: number
-  }
-}
-
-export const PATTERN_TYPES: { key: DiagnosisPatternKey; label: string }[] = [
-  { key: 'ds_client_access_log_file', label: '客户端接口日志' },
-  { key: 'ds_client_info_log_file', label: 'SDK 客户端运行日志' },
-  { key: 'ds_worker_access_log_file', label: 'Worker 接口日志' },
-  { key: 'ds_worker_info_log_file', label: 'Worker 运行日志' },
-  { key: 'resource_log_file', label: '资源日志' },
-]
-
-export const THRESHOLD_OPTIONS: {
-  key: DiagnosisThresholdKey
-  label: string
-  description: string
-}[] = [
-  { key: 'total_p99_threshold_ms', label: '总时延 P99 阈值', description: '端到端总耗时' },
-  { key: 'c2w_p99_threshold_ms', label: 'C2W 时延 P99 阈值', description: 'Client 到 Worker' },
-  { key: 'w2w_p99_threshold_ms', label: 'W2W 时延 P99 阈值', description: 'Worker 间调用' },
-  {
-    key: 'urma_link_p99_threshold_ms',
-    label: 'URMA 建链 P99 阈值',
-    description: 'URMA 链路建立耗时',
-  },
-  {
-    key: 'query_meta_p99_threshold_ms',
-    label: 'QueryMeta 时延阈值',
-    description: '查询元数据时延阈值',
-  },
-  {
-    key: 'total_p9999_threshold_ms',
-    label: '总时延 P9999 阈值',
-    description: '端到端总耗时 99.99 百分位',
-  },
-  { key: 'total_pmax_threshold_ms', label: '总时延 Pmax 阈值', description: '端到端总耗时最大值' },
-  { key: 'total_ave_threshold_ms', label: '总时延均值阈值', description: '端到端总耗时平均值' },
-]
+// 字段定义与「界面可见性」策略在 utils/parseConfigFields.ts（纯逻辑、可单测），这里只做 API 映射
+export { PATTERN_TYPES, THRESHOLD_OPTIONS }
+export type { DiagnosisConfigForm, DiagnosisPatternKey, DiagnosisThresholdKey }
 
 export const defaultDiagnosisConfig = (): DiagnosisConfigForm => ({
   logFilenamePattern: {
