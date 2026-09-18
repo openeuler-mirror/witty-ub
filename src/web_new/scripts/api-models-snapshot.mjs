@@ -6,6 +6,9 @@
  * 「新增字段（通常可直接用）」「字段消失/改名（前端必须改）」「枚举/类型变化
  * （前端判定逻辑要跟着改）」，再决定本页 UI 要不要动。
  *
+ * 快照默认落在本地 agent harness（`.agents/skills/web-new-dev/references/`），不进仓库；
+ * 可用 WITTY_API_SNAPSHOT 指定其它路径。
+ *
  * 用法：
  *   API_BASE_URL=http://<backend>:9772 node scripts/api-models-snapshot.mjs            # 打印当前接口
  *   API_BASE_URL=http://<backend>:9772 node scripts/api-models-snapshot.mjs --write    # 覆盖快照
@@ -17,7 +20,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const SNAPSHOT_PATH = join(HERE, '..', 'docs', 'api-models.snapshot.json')
+const SNAPSHOT_PATH =
+  process.env.WITTY_API_SNAPSHOT ??
+  join(HERE, '..', '..', '..', '.agents', 'skills', 'web-new-dev', 'references', 'api-models.snapshot.json')
 
 /** 前端直接读字段的后端模型；字段消失/改名会直接让界面显示不出来。 */
 const MODELS = [
@@ -189,6 +194,11 @@ if (args.includes('--write')) {
   writeFileSync(SNAPSHOT_PATH, `${JSON.stringify(snapshot, null, 2)}\n`)
   console.log(`快照已写入 ${SNAPSHOT_PATH}`)
 } else if (args.includes('--check')) {
+  if (!existsSync(SNAPSHOT_PATH)) {
+    console.error(`快照不存在：${SNAPSHOT_PATH}`)
+    console.error('快照随本地 harness 保存（不进仓库）。先跑一次 `npm run api:snapshot` 生成。')
+    process.exit(2)
+  }
   const expected = JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8'))
   const lines = diffSnapshots(expected, snapshot)
   if (lines.length === 0) {
