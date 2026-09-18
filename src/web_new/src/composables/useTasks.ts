@@ -11,6 +11,7 @@ import {
 } from '../utils/parseTiming'
 import { collectSkippedFileAlerts } from '../utils/skipAlerts'
 import { latestTaskReport, taskProgressMessage } from '../utils/taskProgress'
+import { splitUnsupportedUploadFiles, uploadHintText } from '../utils/uploadFiles'
 import { useToast } from './useToast'
 import { useAssets } from './useAssets'
 import { useServiceHealth } from './useServiceHealth'
@@ -379,7 +380,15 @@ function createTasksState() {
 
   const onTaskFilesChange = (event: Event) => {
     const input = event.target as HTMLInputElement
-    newTask.uploadFiles = Array.from(input.files ?? [])
+    const picked = Array.from(input.files ?? [])
+    const { accepted, rejected } = splitUnsupportedUploadFiles(newTask.taskType, picked)
+    // 后端对非 zip 的 KVCache 上传是「记日志 + 跳过」，接口仍 200 —— 选择阶段就拦掉，
+    // 并把原因说清楚，避免用户以为任务创建成功。
+    taskError.value =
+      rejected.length > 0
+        ? `已忽略不支持的文件：${rejected.map((file) => file.name).join('、')}（${uploadHintText(newTask.taskType)}）`
+        : ''
+    newTask.uploadFiles = accepted
   }
 
   const canSubmitTask = computed(() => {
@@ -407,18 +416,30 @@ function createTasksState() {
     savingTask.value = true
     taskError.value = ''
     try {
+      let outcome
+      let expectedCount = 1
       if (newTask.sourceType === 'upload') {
-        const configs = newTask.uploadFiles.map((file) => ({
+        const { accepted, rejected } = splitUnsupportedUploadFiles(
+          newTask.taskType,
+          newTask.uploadFiles,
+        )
+        if (rejected.length > 0) {
+          throw new Error(
+            `不支持的文件：${rejected.map((file) => file.name).join('、')}（${uploadHintText(newTask.taskType)}）`,
+          )
+        }
+        const configs = accepted.map((file) => ({
           name: file.name,
           source_type: 'upload',
           source: file.name,
           log_type: newTask.taskType,
         }))
-        await uploadLogFilesMultipart(asset.id, configs, newTask.uploadFiles, parseConfig)
+        expectedCount = accepted.length
+        outcome = await uploadLogFilesMultipart(asset.id, configs, accepted, parseConfig)
       } else {
         const source = newTask.source.trim()
         const name = newTask.name.trim() || source.split('/').pop() || source
-        await uploadLogFilesJson(
+        outcome = await uploadLogFilesJson(
           asset.id,
           [
             {
@@ -431,8 +452,22 @@ function createTasksState() {
           parseConfig,
         )
       }
+      // 后端可能受理了请求却一个文件都没登记（例如非 zip 的 KVCache 上传被跳过），
+      // 这种情况不能再报「创建成功」并关窗，否则用户只看到列表里什么都没有。
+      if (outcome.logFileIds.length === 0) {
+        throw new Error(
+          newTask.sourceType === 'upload'
+            ? `后端没有登记任何日志文件：${uploadHintText(newTask.taskType)}；请确认文件格式后重试`
+            : outcome.message || '后端没有登记任何日志文件，请检查日志来源后重试',
+        )
+      }
+      const skippedCount = expectedCount - outcome.logFileIds.length
       showCreateTask.value = false
-      toast('任务创建成功，等待解析', 'success')
+      if (skippedCount > 0) {
+        toast(`任务创建成功，但 ${skippedCount} 个文件被后端跳过`, 'error')
+      } else {
+        toast('任务创建成功，等待解析', 'success')
+      }
       await Promise.all([refreshLogFiles(), assets.loadAssets()])
     } catch (error) {
       taskError.value = errorText(error)

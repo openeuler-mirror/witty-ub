@@ -24,17 +24,24 @@ export const listAllLogFiles = async (kbId: string) => {
   return (all.log_files ?? []).filter((file) => file.existed_status !== false)
 }
 
-export const uploadLogFilesJson = (
+/** 上传结果：后端可能「受理了请求但一个文件都没登记」（非 zip 会被静默跳过），必须回传 id 列表。 */
+export type UploadLogFilesOutcome = {
+  logFileIds: string[]
+  message: string
+}
+
+export const uploadLogFilesJson = async (
   kbId: string,
   configs: Array<Record<string, unknown>>,
   parseConfig?: Record<string, unknown>,
-) => {
+): Promise<UploadLogFilesOutcome> => {
   const body: Record<string, unknown> = { upload_log_file_configs: configs }
   if (parseConfig && Object.keys(parseConfig).length > 0) body.parse_config = parseConfig
-  return request(`/log_file/${kbId}`, {
+  const result = await request<{ log_file_ids?: string[] }>(`/log_file/${kbId}`, {
     method: 'POST',
     body: JSON.stringify(body),
   })
+  return { logFileIds: result?.log_file_ids ?? [], message: '' }
 }
 
 export const uploadLogFilesMultipart = async (
@@ -42,7 +49,7 @@ export const uploadLogFilesMultipart = async (
   configs: Array<Record<string, unknown>>,
   files: File[],
   parseConfig?: Record<string, unknown>,
-) => {
+): Promise<UploadLogFilesOutcome> => {
   const formData = new FormData()
   formData.append('upload_log_file_configs', JSON.stringify(configs))
   if (parseConfig && Object.keys(parseConfig).length > 0) {
@@ -53,10 +60,14 @@ export const uploadLogFilesMultipart = async (
     method: 'POST',
     body: formData,
   })
-  const data = (await response.json().catch(() => null)) as ApiResponse<unknown> | null
+  const data = (await response.json().catch(() => null)) as ApiResponse<{
+    log_file_ids?: string[]
+  }> | null
   if (!response.ok || !data || (typeof data.code === 'number' && data.code !== 200)) {
     throw new Error(data?.message || `请求失败：${response.status}`)
   }
+  const result = data.result ?? data.data
+  return { logFileIds: result?.log_file_ids ?? [], message: data.message ?? '' }
 }
 
 export const runLogFile = (logFileId: string, run: boolean) =>

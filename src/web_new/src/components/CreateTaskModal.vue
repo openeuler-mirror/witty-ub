@@ -2,6 +2,7 @@
 import BaseModal from './common/BaseModal.vue'
 import { useTasks } from '../composables/useTasks'
 import { useServiceHealth } from '../composables/useServiceHealth'
+import { uploadAcceptAttr, uploadHintText } from '../utils/uploadFiles'
 
 const {
   showCreateTask,
@@ -60,8 +61,14 @@ const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
       <input class="input" v-model="newTask.source" placeholder="https://example.com/logs.zip" />
     </div>
     <div v-else class="form-group">
-      <input type="file" multiple class="file-input" @change="onTaskFilesChange" />
-      <div class="file-hint">支持 .log / .gz / .zip，可多选</div>
+      <input
+        type="file"
+        multiple
+        class="file-input"
+        :accept="uploadAcceptAttr(newTask.taskType)"
+        @change="onTaskFilesChange"
+      />
+      <div class="file-hint">{{ uploadHintText(newTask.taskType) }}</div>
     </div>
     <div class="advanced-toggle" @click="newTask.advanced = !newTask.advanced">
       {{ newTask.advanced ? '▼' : '▶' }} 高级配置
