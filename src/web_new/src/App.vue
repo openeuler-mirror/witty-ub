@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatTime } from './utils/format'
+import {
+  formatParseTimingCores,
+  formatParseTimingRows,
+  formatParseTimingSeconds,
+  formatParseTimingShare,
+  parseTimingHeadlineLabel,
+  parseTimingHeadlineSeconds,
+} from './utils/parseTiming'
 import type { LogFileModel } from './types'
 import { useToast } from './composables/useToast'
 import { useAssets } from './composables/useAssets'
@@ -50,6 +58,7 @@ const {
   progressMessageOf,
   isTaskDetailOpen,
   toggleTaskDetail,
+  parseTimingOf,
   skippedAlertsOf,
   hasTaskDetailOf,
   statusLabel,
@@ -515,6 +524,56 @@ onBeforeUnmount(() => {
                       >
                         {{ alert }}
                       </span>
+                    </div>
+
+                    <div v-if="parseTimingOf(file)" class="task-detail-timing">
+                      <div class="task-detail-timing-head">
+                        <span class="task-detail-timing-title">解析用时</span>
+                        <span class="task-detail-timing-total">
+                          {{
+                            formatParseTimingSeconds(
+                              parseTimingHeadlineSeconds(parseTimingOf(file)),
+                            )
+                          }}
+                        </span>
+                        <span class="task-detail-timing-meta">
+                          {{ parseTimingHeadlineLabel() }}
+                        </span>
+                        <span v-if="parseTimingOf(file)?.rows" class="task-detail-timing-meta">
+                          {{ formatParseTimingRows(parseTimingOf(file)?.rows ?? null) }}
+                        </span>
+                      </div>
+
+                      <table class="task-timing-table">
+                        <thead>
+                          <tr>
+                            <th>阶段</th>
+                            <th>用时</th>
+                            <th>占比</th>
+                            <th>核数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="stage in parseTimingOf(file)?.stages ?? []" :key="stage.stage">
+                            <td class="task-timing-stage">
+                              {{ stage.label }}
+                              <span v-if="stage.detail" class="task-timing-detail">
+                                {{ stage.detail }}
+                              </span>
+                            </td>
+                            <td>{{ formatParseTimingSeconds(stage.wall_s) }}</td>
+                            <td>
+                              {{
+                                formatParseTimingShare(
+                                  stage.wall_s,
+                                  parseTimingOf(file)?.total_s ?? 0,
+                                )
+                              }}
+                            </td>
+                            <td>{{ formatParseTimingCores(stage.cores) }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </td>
                 </tr>

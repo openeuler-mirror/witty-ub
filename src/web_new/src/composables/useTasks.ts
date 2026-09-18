@@ -1,6 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { LogFileModel, LogType } from '../types'
-import { clampProgress, errorText, paginate, toDatetimeString } from '../utils/format'
+import { clampProgress, errorText, paginate, toDatetimeString, tsToEpochMs } from '../utils/format'
+import { resolveParseTimingReport, type ParseTimingReport } from '../utils/parseTiming'
 import { collectSkippedFileAlerts } from '../utils/skipAlerts'
 import { latestTaskReport, taskProgressMessage } from '../utils/taskProgress'
 import { useToast } from './useToast'
@@ -48,7 +49,7 @@ function createTasksState() {
 
   const progressMessageOf = (file: LogFileModel) => taskProgressMessage(file)
 
-  // 任务行明细（坏文件跳过告警）：默认收起，点行首箭头展开
+  // 任务行明细（解析用时 / 坏文件跳过告警）：默认收起，点行首箭头展开
   const expandedTaskIds = ref<Set<string>>(new Set())
   const isTaskDetailOpen = (file: LogFileModel) => expandedTaskIds.value.has(file.id)
   const toggleTaskDetail = (file: LogFileModel) => {
@@ -57,12 +58,24 @@ function createTasksState() {
     expandedTaskIds.value = next
   }
 
+  // 解析用时主来源是日志列表接口的 parse_timing；解析任务结束后可见任务会切到
+  // 落库/诊断任务，主来源缺失时退回当前可见任务里最新一条 `[timing] {...}` 报告。
+  const parseTimingOf = (file: LogFileModel): ParseTimingReport | null =>
+    resolveParseTimingReport(
+      file.parse_timing ?? null,
+      (file.task?.task_reports ?? []).map((report) => ({
+        message: report.message,
+        time: tsToEpochMs(report.created_at ?? '') || 0,
+      })),
+    )
+
   // 解析进行中时可见任务自己就带 `[skip]`；任务切走后改用 /task/list 取回的解析任务告警。
   const skippedAlertsOf = (file: LogFileModel): string[] => {
     const live = collectSkippedFileAlerts(file.task?.task_reports)
     return live.length ? live : (skipAlertsByFile.value[file.id] ?? [])
   }
-  const hasTaskDetailOf = (file: LogFileModel): boolean => skippedAlertsOf(file).length > 0
+  const hasTaskDetailOf = (file: LogFileModel): boolean =>
+    Boolean(parseTimingOf(file) || skippedAlertsOf(file).length)
 
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
@@ -425,6 +438,7 @@ function createTasksState() {
     progressMessageOf,
     isTaskDetailOpen,
     toggleTaskDetail,
+    parseTimingOf,
     skippedAlertsOf,
     hasTaskDetailOf,
     statusLabel,

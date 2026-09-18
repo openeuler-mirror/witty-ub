@@ -1,3 +1,5 @@
+import type { ParseTimingReport } from '../utils/parseTiming'
+
 export type ApiResponse<T> = {
   code?: number
   message?: string
@@ -52,6 +54,8 @@ export type LogFileModel = {
   log_type: LogType
   task: TaskModel | null
   overall_progress?: number
+  /** 解析任务最新一条 `[timing]` 报告（= stage_timings 里解析任务那一项）。 */
+  parse_timing?: ParseTimingReport | null
   existed_status: boolean
   created_at: string
 }
