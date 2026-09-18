@@ -13947,7 +13947,9 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell trace-id">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
-                        <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
+                        <div class="aggregate-cell multi-line-pod-cell">
+                          <span v-html="row.podIp"></span>
+                        </div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
                         <div class="aggregate-cell">{{ row.host }}</div>
@@ -17871,8 +17873,9 @@ onBeforeUnmount(() => {
                         <div
                           class="aggregate-cell multi-line-pod-cell"
                           :title="getMultiLineCellTitle(row.podIp)"
-                          v-html="row.podIp"
-                        ></div>
+                        >
+                          <span v-html="row.podIp"></span>
+                        </div>
                         <div class="aggregate-cell" :title="row.clusterName">
                           {{ row.clusterName }}
                         </div>

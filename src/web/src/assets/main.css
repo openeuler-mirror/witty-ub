@@ -2792,9 +2792,13 @@ body.agent-panel-resizing-corner {
 }
 
 .aggregate-cell.multi-line-pod-cell {
-  display: block;
   line-height: 20px;
   white-space: nowrap;
+}
+
+.multi-line-pod-cell > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-code-popover-close {
