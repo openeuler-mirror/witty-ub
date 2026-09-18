@@ -62,6 +62,50 @@ test('task progress humanizes parser stages and milestones', () => {
   assert.equal(humanizeTaskProgressMessage('Task completed successfully'), '解析完成')
 })
 
+test('task progress ignores [timing]/[skip] reports and keeps the last real progress message', () => {
+  const file = {
+    overall_status: 'running',
+    task: {
+      task_reports: [
+        {
+          message: '[polars][scan] progress=42% 11 文件',
+          progress: 42,
+          created_at: '2026-09-18 10:00:00',
+        },
+        {
+          message: '[skip] 跳过 1 个坏日志文件：broken.log（编码损坏）',
+          progress: 0,
+          created_at: '2026-09-18 10:00:03',
+        },
+        {
+          message: '[timing] {"task_type":"kv_cache_log_parse_worker","total_s":11.885}',
+          progress: 0,
+          created_at: '2026-09-18 10:00:05',
+        },
+      ],
+    },
+  }
+  // 结构化耗时报告是给「解析用时」块用的，不能当「当前在做什么」文案渲染成原文 JSON。
+  assert.equal(taskProgressMessage(file), '正在扫描日志: 11 文件')
+  // 兜底进度同样要吃过滤后的报告，否则 0.0 的内部报告会把进度条打到 0。
+  assert.equal(latestTaskReport(file, true)?.progress, 42)
+})
+
+test('task progress stays empty when only internal reports exist', () => {
+  assert.equal(
+    taskProgressMessage({
+      overall_status: 'running',
+      task: {
+        task_reports: [
+          { message: '[timing] {"total_s":1}', progress: 0 },
+          { message: '[skip] 跳过 1 个坏日志文件：a.log', progress: 0 },
+        ],
+      },
+    }),
+    '',
+  )
+})
+
 test('latest task report keeps backend order when timestamps are missing or equal', () => {
   const withoutTimestamps = {
     task: {

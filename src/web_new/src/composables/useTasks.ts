@@ -39,7 +39,9 @@ function createTasksState() {
   const statusOf = (file: LogFileModel) => file.overall_status || 'unknown'
 
   const progressOf = (file: LogFileModel) => {
-    const progress = file.overall_progress ?? latestTaskReport(file)?.progress ?? 0
+    // 兜底报告要跳过内部噪声（[perf]/[timing]/[skip] 这类 progress=0.0 的报告），
+    // 否则后端没给 overall_progress 时进度条会被它们打到 0。
+    const progress = file.overall_progress ?? latestTaskReport(file, true)?.progress ?? 0
     return clampProgress(progress)
   }
 
