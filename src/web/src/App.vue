@@ -16,6 +16,26 @@ import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
 import { displayServerTime } from './utils/serverTime'
+import { collectSkippedFileAlerts } from './utils/skipAlerts'
+import {
+  buildTaskLanes,
+  buildTimelineTicks,
+  collectTimelineLegend,
+  formatParseTimingCores,
+  formatParseTimingRows,
+  formatParseTimingSeconds,
+  formatParseTimingShare,
+  formatTaskLaneSegmentTitle,
+  parseTimingHeadlineLabel,
+  parseTimingHeadlineSeconds,
+  resolveParseTimingReport,
+  taskLaneSegmentStyle,
+  taskLaneTickStyle,
+  type ParseTimingReport,
+  type TaskLane,
+  type TaskSpan,
+  type TaskTimeline,
+} from './utils/parseTiming'
 import rawDiagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
@@ -133,6 +153,12 @@ type LogFileModel = {
   overall_progress?: number
   existed_status: boolean
   created_at: string
+  /** 解析用时（后端在解析任务结束后写入日志列表接口）。 */
+  parse_timing?: ParseTimingReport | null
+  /** 三个任务（解析/故障定界/上下文落库）各自最新一条 [timing] 报告，key = task_type。 */
+  stage_timings?: Record<string, ParseTimingReport> | null
+  /** 三个任务各自的起止时间，用来把三条泳道对齐到同一条时间轴。 */
+  task_spans?: TaskSpan[] | null
 }
 
 type LogFilenamePatternKey =
@@ -9195,7 +9221,8 @@ const getTaskReportTime = (report: TaskReportModel) => {
   return d ? d.getTime() : 0
 }
 
-const ignoredTaskReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
+// `[timing]` 是解析用时的结构化报告，由「解析用时」块单独渲染，不当里程碑文案。
+const ignoredTaskReportPrefixes = ['[perf]', '[parse_log]', '[TASK]', '[timing]']
 const logFileTaskMilestoneMessages = new Set([
   'Task initialized',
   'Task reinitialized',
@@ -9247,7 +9274,7 @@ const getLatestLogFileTaskReport = (file: LogFileModel) => {
   )
 }
 
-const nonProgressReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
+const nonProgressReportPrefixes = ['[perf]', '[parse_log]', '[TASK]', '[timing]']
 const isProgressReport = (report: TaskReportModel) => {
   const message = report.message?.trim() ?? ''
   return !nonProgressReportPrefixes.some((prefix) => message.startsWith(prefix))
@@ -9261,6 +9288,32 @@ const getLatestProgressReport = (file: LogFileModel) => {
     null
   )
 }
+
+// 解析用时：优先取后端在日志列表里给出的 `file.parse_timing`；解析任务结束后可见任务会
+// 切成 store/诊断任务（services/log_file.py::_select_visible_task），那时列表接口拿不到解析
+// 任务的报告，就退回当前可见任务里最新的一条 `[timing] {...}`。两者都没有 → null（不渲染）。
+const getParseTimingReport = (file: LogFileModel): ParseTimingReport | null =>
+  resolveParseTimingReport(
+    file.parse_timing ?? null,
+    getLogFileTaskReports(file).map((report) => ({
+      message: report.message,
+      time: getTaskReportTime(report),
+    })),
+  )
+
+// 三条泳道（解析 / 故障定界 / 上下文落库）共用一条时间轴：
+// 时间轴原点 = task_spans 里最早的 start，每个任务的阶段偏移（相对自己 run() 起点）
+// 加上自己的 span 起点，就对齐到同一根轴上了。老接口（没有 stage_timings /
+// task_spans）→ 返回 null，面板退回原来「只有一张阶段表」的样子。
+const getTaskTimeline = (file: LogFileModel): TaskTimeline | null =>
+  buildTaskLanes(file.stage_timings ?? null, file.task_spans ?? null)
+
+// 下面几个只读小函数专供模板用（模板里不写 TS 的 `!` 非空断言）。
+const hasTaskTimeline = (file: LogFileModel): boolean => getTaskTimeline(file) !== null
+const getTaskLanes = (file: LogFileModel): TaskLane[] => getTaskTimeline(file)?.lanes ?? []
+const getTaskAxisTotalS = (file: LogFileModel): number => getTaskTimeline(file)?.totalS ?? 0
+// 图例：三条泳道里出现过的阶段（每种颜色都有说明）
+const getTimelineLegend = (file: LogFileModel) => collectTimelineLegend(getTaskTimeline(file))
 
 const getLogFileProgress = (file: LogFileModel) => {
   const overallProgress = Number(file.overall_progress)
@@ -9364,6 +9417,13 @@ const getLogFileFailureReasonLabel = (file: LogFileModel) => {
     ? '上次失败原因'
     : '状态原因'
 }
+
+/** 本次解析被跳过的坏日志文件（后端以 `[skip] ...` 上报）。 */
+const getSkippedFileAlerts = (file: LogFileModel): string[] =>
+  collectSkippedFileAlerts(file.task?.task_reports)
+
+const hasSkippedFileAlerts = (file: LogFileModel): boolean =>
+  getSkippedFileAlerts(file).length > 0
 
 const shouldShowLogFileProgress = (file: LogFileModel) =>
   Boolean(file.task || getLogFileOverallStatus(file))
@@ -16522,6 +16582,147 @@ onBeforeUnmount(() => {
                   >
                     {{ getLogFileFailureReasonLabel(file) }}：{{ getLogFileFailureReason(file) }}
                   </div>
+                </div>
+                <div v-if="hasSkippedFileAlerts(file)" class="log-file-skip-alert" role="alert">
+                  <span class="log-file-skip-alert-title">已跳过读不出来的日志文件</span>
+                  <span
+                    v-for="alert in getSkippedFileAlerts(file)"
+                    :key="alert"
+                    class="log-file-skip-alert-line"
+                  >
+                    {{ alert }}
+                  </span>
+                </div>
+                <div v-if="getParseTimingReport(file) || hasTaskTimeline(file)" class="log-file-timing">
+                  <div class="log-file-timing-head">
+                    <span class="log-file-timing-title">解析用时</span>
+                    <span class="log-file-timing-total">{{
+                      formatParseTimingSeconds(
+                        parseTimingHeadlineSeconds(getParseTimingReport(file), getTaskTimeline(file)),
+                      )
+                    }}</span>
+                    <span
+                      class="log-file-timing-rows"
+                      :title="
+                        hasTaskTimeline(file)
+                          ? '三个任务从最早开始到最晚结束的墙钟（不是三者相加）'
+                          : '该解析任务从创建到完成的墙钟：含预处理/调度/收尾'
+                      "
+                      >{{ parseTimingHeadlineLabel(getTaskTimeline(file)) }}</span
+                    >
+                    <span
+                      v-if="getParseTimingReport(file)?.rows"
+                      class="log-file-timing-rows"
+                      >{{ formatParseTimingRows(getParseTimingReport(file)?.rows ?? null) }}</span
+                    >
+                  </div>
+                  <!-- 分阶段表格原样保留：有泳道时收进 <details>（默认展开，可折叠），
+                       老接口渲染成普通 div，外观与改动前一致。 -->
+                  <!-- 泳道图与阶段表都算「解析明细」：默认折叠，点开才看；
+                       老接口（无 new 字段）渲染成 div，外观与改动前一致。 -->
+                  <component
+                    :is="hasTaskTimeline(file) ? 'details' : 'div'"
+                    class="log-file-timing-details"
+                  >
+                    <summary v-if="hasTaskTimeline(file)" class="log-file-timing-summary">
+                      任务时间线与解析阶段明细
+                    </summary>
+                  <!-- 三条泳道：解析 / 故障定界 / 上下文落库，共用一条时间轴。色块之间的
+                       空隙就是「在等」时间；每行还画了该任务自己的跨度条，右边留白 =
+                       这个任务已结束、别的任务还在跑。老接口（无新字段）整块不渲染。 -->
+                  <template v-if="hasTaskTimeline(file)">
+                    <div class="log-file-timing-lanes">
+                      <div class="log-file-timing-lane log-file-timing-lane--ticks">
+                        <span class="log-file-timing-lane-label"></span>
+                        <span class="log-file-timing-ticks-scale">
+                          <span
+                            v-for="(tick, index) in buildTimelineTicks(getTaskAxisTotalS(file))"
+                            :key="`tick-${index}`"
+                            class="log-file-timing-tick"
+                            :style="taskLaneTickStyle(tick, getTaskAxisTotalS(file))"
+                            >{{ tick }}s</span
+                          >
+                        </span>
+                        <span class="log-file-timing-lane-total"></span>
+                      </div>
+                      <div
+                        v-for="lane in getTaskLanes(file)"
+                        :key="lane.taskType"
+                        class="log-file-timing-lane"
+                        :class="`timing-lane-${lane.taskType}`"
+                      >
+                        <span class="log-file-timing-lane-label" :title="lane.taskType">{{
+                          lane.label
+                        }}</span>
+                        <span class="log-file-timing-lane-track">
+                          <span
+                            v-for="(segment, segmentIndex) in lane.segments"
+                            :key="`${segment.stage}-${segmentIndex}`"
+                            class="log-file-timing-seg"
+                            :class="[
+                              `is-stage-${segment.stage}`,
+                              {
+                                'is-waiting': segment.waiting,
+                                'is-unknown': !segment.positionKnown,
+                                'is-tail': segment.tail,
+                                'is-head': segment.head,
+                              },
+                            ]"
+                            :style="taskLaneSegmentStyle(segment, getTaskAxisTotalS(file))"
+                            :title="formatTaskLaneSegmentTitle(segment, getTaskAxisTotalS(file))"
+                          ></span>
+                        </span>
+                        <span class="log-file-timing-lane-total"></span>
+                        <span v-if="lane.note" class="log-file-timing-lane-note">{{ lane.note }}</span>
+                        <span v-if="lane.running" class="log-file-timing-running">进行中</span>
+                      </div>
+                    </div>
+                  </template>
+                    <div v-if="hasTaskTimeline(file)" class="log-file-timing-legend">
+                      <span
+                        v-for="item in getTimelineLegend(file)"
+                        :key="`legend-${item.stage}`"
+                        class="log-file-timing-legend-item"
+                      >
+                        <span
+                          class="log-file-timing-legend-dot"
+                          :class="`is-stage-${item.stage}`"
+                        ></span>
+                        {{ item.label }}
+                      </span>
+                    </div>
+
+                    <table class="log-file-timing-table">
+                      <thead>
+                        <tr>
+                          <th>阶段</th>
+                          <th>用时</th>
+                          <th>占比</th>
+                          <th>核数</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="stage in getParseTimingReport(file)?.stages ?? []" :key="stage.stage">
+                          <td class="log-file-timing-stage">
+                            {{ stage.label }}
+                            <span v-if="stage.detail" class="log-file-timing-detail">{{
+                              stage.detail
+                            }}</span>
+                          </td>
+                          <td>{{ formatParseTimingSeconds(stage.wall_s) }}</td>
+                          <td>
+                            {{
+                              formatParseTimingShare(
+                                stage.wall_s,
+                                getParseTimingReport(file)?.total_s ?? 0,
+                              )
+                            }}
+                          </td>
+                          <td>{{ formatParseTimingCores(stage.cores) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </component>
                 </div>
               </div>
               <div class="log-file-actions">

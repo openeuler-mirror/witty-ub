@@ -1,5 +1,5 @@
-import fnmatch
 import errno
+import fnmatch
 import gzip
 import logging
 import os
@@ -35,7 +35,7 @@ def default_preprocess_dir(log_file_id: str) -> str:
 
 
 def cleanup_preprocess_dir(log_file_id: str) -> str | None:
-    import time
+    import time  # 懒加载：本文件仅此处用到 time
     preprocess_dir = default_preprocess_dir(log_file_id)
     if not os.path.isdir(preprocess_dir):
         logger.info("日志预处理目录不存在: %s", preprocess_dir)
@@ -216,7 +216,7 @@ def split_unmatched_log_files(
 
             try:
                 with open(
-                    source_path, "r", encoding="utf-8", errors="ignore"
+                    source_path, encoding="utf-8", errors="ignore"
                 ) as source, open(
                     access_path, "w", encoding="utf-8"
                 ) as access_file, open(
@@ -287,7 +287,7 @@ def is_valid_archive_file(path: str) -> bool:
         return tarfile.is_tarfile(path)
     if extension == ".rar":
         try:
-            import rarfile
+            import rarfile  # 懒加载：可选依赖，仅校验 .rar 时用到
         except ImportError:
             logger.warning("rarfile 模块未安装，无法校验 .rar 文件: %s", path)
             return False
@@ -345,7 +345,7 @@ def _extract_zip(source_file: str, target_dir: str) -> int:
 
 def _extract_rar(source_file: str, target_dir: str) -> int:
     try:
-        import rarfile
+        import rarfile  # 懒加载：可选依赖，仅解压 .rar 时用到
     except ImportError:
         logger.warning("rarfile 模块未安装，跳过 .rar 文件: %s", source_file)
         return 0

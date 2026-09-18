@@ -1,0 +1,6 @@
+# 本目录下的脚本会被整体拷到 Linux 宿主机上执行。
+# Git for Windows 默认 core.autocrlf=true，会把 .sh 检出成 CRLF：
+#   - bash deploy/host/deploy.sh  → "set: pipefail: invalid option name" / $'' 报错
+#   - 直接执行 / systemd ExecStart → "bad interpreter: /bin/bash^M"
+# 因此整棵 deploy 树强制 LF 行尾。
+* text eol=lf

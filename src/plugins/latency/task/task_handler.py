@@ -2,20 +2,21 @@
 import asyncio
 import concurrent.futures
 import errno
-from typing import Optional
 import logging
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.task.worker.base import BaseWorker
-from latency.task.process_handle import ProcessHandler
-from latency.database.managers.task import TaskPGManager
+from typing import Optional
+
+from latency.common.disk_space import disk_capacity
 from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.task import TaskPGManager
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.schemas.parse_config import ParseConfig
 from latency.task.log_preprocessor import (
     default_preprocess_dir,
     needs_preprocess,
     preprocess_log_dir,
 )
-from latency.schemas.parse_config import ParseConfig
-from latency.common.disk_space import disk_capacity
+from latency.task.process_handle import ProcessHandler
+from latency.task.worker.base import BaseWorker
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,9 @@ class TaskHandler:
         await TaskPGManager.mark_interrupted_running_tasks_for_retry()
 
     @staticmethod
-    async def init_task(task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None) -> str:
+    async def init_task(
+        task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None
+    ) -> str:
         """初始化任务"""
         task_id = None
         try:
@@ -153,7 +156,8 @@ class TaskHandler:
                 TaskHandler._preprocess_inflight.pop(log_file.id, None)
 
         logger.info(
-            "日志预处理完成: task=%s log_file=%s source=%s output=%s extracted=%d copied=%d split=%d reused=%s",
+            "日志预处理完成: task=%s log_file=%s source=%s output=%s "
+            "extracted=%d copied=%d split=%d reused=%s",
             task.id,
             log_file.id,
             result.source_dir,
@@ -168,7 +172,7 @@ class TaskHandler:
         return result.output_dir
 
     @staticmethod
-    async def stop_task(task_id: str) -> Optional[str]:
+    async def stop_task(task_id: str) -> str | None:
         """停止任务"""
         try:
             flag = await BaseWorker.stop(task_id)
@@ -180,7 +184,7 @@ class TaskHandler:
             logger.exception(err)
 
     @staticmethod
-    async def delete_task(task_id: str) -> Optional[str]:
+    async def delete_task(task_id: str) -> str | None:
         """删除任务"""
         try:
             stop_flag = await BaseWorker.stop(task_id)
@@ -204,7 +208,9 @@ class TaskHandler:
             try:
                 await BaseWorker.deinit(task.id)
             except Exception as e:
-                logger.exception(f"[TaskQueueService] 处理成功任务失败，task_id={task.id}, error={e}")
+                logger.exception(
+                    f"[TaskQueueService] 处理成功任务失败，task_id={task.id}, error={e}"
+                )
 
     @staticmethod
     async def handle_failed_tasks():
@@ -277,7 +283,9 @@ class TaskHandler:
                 )
             return flag
         except Exception as e:
-            logger.exception(f"[TaskQueueService] 处理待处理任务失败 {e}")
+            logger.exception(
+                f"[TaskQueueService] 处理待处理任务失败 task_id={task.id}, {e}"
+            )
             if isinstance(e, OSError) and e.errno == errno.ENOSPC:
                 await TaskHandler._fail_preprocess_for_insufficient_space(task)
             else:
@@ -316,7 +324,12 @@ class TaskHandler:
             dispatch_task.add_done_callback(TaskHandler._dispatch_tasks.discard)
 
     @staticmethod
-    async def handle_tasks():
+    async def reap_finished_processes():
+        """收尸：把异常退出的任务标记为失败。
+
+        独立成一个调度 job —— 它内部要 join 子进程，慢的时候不该拖住
+        派发（``handle_tasks``）的 1 秒节拍。
+        """
         finished = await TaskHandler._collect_finished_processes()
         for task_id, exit_code in finished.items():
             task = await TaskPGManager.get_task_by_task_id(task_id)
@@ -326,6 +339,10 @@ class TaskHandler:
                     f"任务异常停止：工作进程意外退出（exit code {exit_code}），系统将自动重试",
                     status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
+
+    @staticmethod
+    async def handle_tasks():
+        # 收尸已拆到 reap_finished_processes（见 fastapi_server 的 job 注册）。
         # Successful cleanup can release preprocessing files and is safe in all modes.
         await TaskHandler.handle_successed_tasks()
         capacity = disk_capacity()

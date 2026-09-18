@@ -520,6 +520,11 @@ deploy_rpm() {
     fi
     log_ok "PostgreSQL client: $(psql --version 2>&1 | head -1)"
 
+    if ! command -v psql &> /dev/null; then
+        log_error "psql 客户端不可用，后续无法创建用户/数据库。请先安装客户端包后重试"
+        exit 1
+    fi
+
     # Step 2: 数据目录和服务名
     echo ""
     echo "[Step 2/7] Preparing data directory ..."
@@ -579,19 +584,21 @@ deploy_rpm() {
         cp "$PG_HBA" "${PG_HBA}.bak"
     fi
 
-    # postgres 超级用户本地免密
-    if grep -q "^local\s\+all\s\+postgres\s\+peer" "$PG_HBA" 2>/dev/null; then
-        :
-    else
-        sed -i '/^local\s\+all\s\+all/i local   all             postgres                                peer' "$PG_HBA" 2>/dev/null ||
-            echo "local   all             postgres                                peer" >/tmp/pg_hba_insert.tmp
+    # postgres 超级用户本地免密（peer）：必须排在 local all all（现已改成 md5）之前
+    if ! grep -q "^local\s\+all\s\+postgres\s\+peer" "$PG_HBA" 2>/dev/null; then
+        if grep -q "^local" "$PG_HBA" 2>/dev/null; then
+            sed -i '0,/^local/s//local   all             postgres                                peer\n&/' "$PG_HBA"
+        else
+            echo "local   all             postgres                                peer" >>"$PG_HBA"
+        fi
     fi
 
-    # 本地用户 md5 认证
-    sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
-    sed -i 's/^local\s\+all\s\+all\s\+ident/local   all             all                                     md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+ident/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+ident/host    all             all             ::1\/128                 md5/' "$PG_HBA"
+    # 本地/回环统一为 md5：用"匹配任意方法"的表达式，兼容发行版默认值差异
+    # （peer / ident / scram-sha-256 —— PG15 默认就是 scram-sha-256，
+    #  只匹配 ident|peer 的旧写法对 scram 完全改不动）
+    sed -i -E 's#^(local[[:space:]]+all[[:space:]]+all[[:space:]]+)(peer|ident|scram-sha-256)[[:space:]]*$#\1md5#' "$PG_HBA"
+    sed -i -E 's#^(host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.1/32[[:space:]]+)(ident|scram-sha-256)[[:space:]]*$#\1md5#' "$PG_HBA"
+    sed -i -E 's#^(host[[:space:]]+all[[:space:]]+all[[:space:]]+::1/128[[:space:]]+)(ident|scram-sha-256)[[:space:]]*$#\1md5#' "$PG_HBA"
 
     if ! grep -q "host    all             all             0.0.0.0/0" "$PG_HBA" 2>/dev/null; then
         echo "host    all             all             0.0.0.0/0               md5" >>"$PG_HBA"
@@ -619,29 +626,43 @@ deploy_rpm() {
 
     # listen_addresses/port/pg_hba 的变更需要重启服务才会生效；仅 start 在服务
     # 已运行时是 no-op，会导致后面的连接校验失败（且现场很难看出原因）。
+    # 实测 systemctl start 对已运行的服务不更新 ActiveEnterTimestamp。
     systemctl restart "$PG_SERVICE_NAME"
 
     log_info "Waiting for PostgreSQL to become ready ..."
     READY=0
     for _ in {1..30}; do
+        # 探针 ①: TCP 探测，必须显式 -h。不带 -h 时 pg_isready 走编译默认的 unix
+        # socket 目录；RPM 系发行版常把 socket 放在 /var/run/postgresql，与默认目录
+        # 不一致时服务健康也恒返回 "no response"。
         if command -v pg_isready &>/dev/null; then
-            if pg_isready -p "${PG_PORT}" &>/dev/null; then
+            if pg_isready -h 127.0.0.1 -p "${PG_PORT}" &>/dev/null; then
                 READY=1
                 break
             fi
         fi
-        if su - postgres -c "psql -h 127.0.0.1 -p ${PG_PORT} -U postgres -c 'SELECT 1'" &>/dev/null; then
+        # 探针 ②: 以 postgres 系统用户走本地 unix socket（pg_hba 中 local ... postgres peer，
+        # 无需口令）。不要用 TCP + 无口令：Step 5 已把 host 认证配成 md5，必然
+        # "password authentication failed"；</dev/null 防止 psql 交互式索要口令而挂住。
+        if su - postgres -c "psql -p ${PG_PORT} -tAc 'SELECT 1'" &>/dev/null </dev/null; then
             READY=1
             break
         fi
         sleep 1
     done
 
-    if [ "$READY" -eq 1 ] && systemctl is-active --quiet "$PG_SERVICE_NAME"; then
-        log_ok "PostgreSQL service is running"
+    # 服务是否起来以 systemd 为准；探针失败不再当作"服务没起来"（那会把
+    # "配置已生效、服务在跑但探针口径不对"误报成失败并中断 Step 7）。
+    if systemctl is-active --quiet "$PG_SERVICE_NAME"; then
+        if [ "$READY" -eq 1 ]; then
+            log_ok "PostgreSQL service is running"
+        else
+            log_warn "服务已 active，但就绪探针未通过（TCP/socket ${PG_PORT} 探测失败），继续后续步骤"
+        fi
     else
         log_error "PostgreSQL service failed to start"
         log_error "Check: systemctl status ${PG_SERVICE_NAME}"
+        log_error "Check: journalctl -u ${PG_SERVICE_NAME} -n 50 --no-pager"
         exit 1
     fi
 
@@ -741,6 +762,11 @@ deploy_apt() {
     fi
     log_ok "PostgreSQL client: $(psql --version 2>&1 | head -1)"
 
+    if ! command -v psql &> /dev/null; then
+        log_error "psql 客户端不可用，后续无法创建用户/数据库。请先安装客户端包后重试"
+        exit 1
+    fi
+
     # Step 2: Detect version and paths
     echo ""
     echo "[Step 2/7] Detecting PostgreSQL version and paths ..."
@@ -824,20 +850,21 @@ deploy_apt() {
         cp "$PG_HBA" "${PG_HBA}.bak"
     fi
 
-    # Keep postgres superuser local as peer
-    if grep -q "^local\s\+all\s\+postgres\s\+peer" "$PG_HBA" 2>/dev/null; then
-        :
-    else
-        sed -i '/^local\s\+all\s\+all/i local   all             postgres                                peer' "$PG_HBA" 2>/dev/null ||
-            echo "local   all             postgres                                peer" >/tmp/pg_hba_insert.tmp
+    # postgres 超级用户本地免密（peer）：必须排在 local all all（现已改成 md5）之前
+    if ! grep -q "^local\s\+all\s\+postgres\s\+peer" "$PG_HBA" 2>/dev/null; then
+        if grep -q "^local" "$PG_HBA" 2>/dev/null; then
+            sed -i '0,/^local/s//local   all             postgres                                peer\n&/' "$PG_HBA"
+        else
+            echo "local   all             postgres                                peer" >>"$PG_HBA"
+        fi
     fi
 
-    # Local users md5 auth
-    sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
-    sed -i 's/^local\s\+all\s\+all\s\+scram-sha-256/local   all             all                                     md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+md5/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
+    # 本地/回环统一为 md5：用"匹配任意方法"的表达式，兼容发行版默认值差异
+    # （peer / ident / scram-sha-256 —— PG15 默认就是 scram-sha-256，
+    #  只匹配 ident|peer 的旧写法对 scram 完全改不动）
+    sed -i -E 's#^(local[[:space:]]+all[[:space:]]+all[[:space:]]+)(peer|ident|scram-sha-256)[[:space:]]*$#\1md5#' "$PG_HBA"
+    sed -i -E 's#^(host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.1/32[[:space:]]+)(ident|scram-sha-256)[[:space:]]*$#\1md5#' "$PG_HBA"
+    sed -i -E 's#^(host[[:space:]]+all[[:space:]]+all[[:space:]]+::1/128[[:space:]]+)(ident|scram-sha-256)[[:space:]]*$#\1md5#' "$PG_HBA"
 
     if ! grep -q "host    all             all             0.0.0.0/0" "$PG_HBA" 2>/dev/null; then
         echo "host    all             all             0.0.0.0/0               md5" >>"$PG_HBA"
@@ -856,21 +883,28 @@ deploy_apt() {
     log_info "Waiting for PostgreSQL to become ready ..."
     READY=0
     for _ in {1..30}; do
+        # 探针 ①: 显式 -h，理由同 RPM 分支（不依赖编译默认 socket 目录）
         if command -v pg_isready &>/dev/null; then
-            if pg_isready -p "${PG_PORT}" &>/dev/null; then
+            if pg_isready -h 127.0.0.1 -p "${PG_PORT}" &>/dev/null; then
                 READY=1
                 break
             fi
         fi
-        if su - postgres -c "psql -h 127.0.0.1 -p ${PG_PORT} -U postgres -c 'SELECT 1'" &>/dev/null; then
+        # 探针 ②: local unix socket + peer（无需口令），且不读标准输入
+        if su - postgres -c "psql -p ${PG_PORT} -tAc 'SELECT 1'" &>/dev/null </dev/null; then
             READY=1
             break
         fi
         sleep 1
     done
 
-    if [ "$READY" -eq 1 ] && systemctl is-active --quiet "$PG_SERVICE_NAME"; then
-        log_ok "PostgreSQL service is running"
+    # 服务是否起来以 systemd 为准；探针失败不再当作"服务没起来"
+    if systemctl is-active --quiet "$PG_SERVICE_NAME"; then
+        if [ "$READY" -eq 1 ]; then
+            log_ok "PostgreSQL service is running"
+        else
+            log_warn "服务已 active，但就绪探针未通过（TCP/socket ${PG_PORT} 探测失败），继续后续步骤"
+        fi
     else
         log_error "PostgreSQL service failed to start"
         log_error "Check: systemctl status ${PG_SERVICE_NAME}"

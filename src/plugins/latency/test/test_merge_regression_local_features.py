@@ -109,10 +109,15 @@ def test_scanner_accepts_progress_cb():
     assert "progress_cb" in sig.parameters
 
 
-def test_scan_progress_cb_test_exists():
-    # The unit test for the scan progress callback must survive the merge
-    p = Path(__file__).parent / "test_scan_progress_cb.py"
-    assert p.is_file(), "test_scan_progress_cb.py missing after merge"
+def test_scan_progress_cb_is_wired():
+    # 扫描侧只剩列运算单一路径：progress_cb 仍必须被接住并在结束时回调一次。
+    import inspect
+
+    from latency.parse.parallel_scanner.scanner import ParallelFileScanner
+
+    source = inspect.getsource(ParallelFileScanner.scan_all)
+    assert "progress_cb" in inspect.signature(ParallelFileScanner.scan_all).parameters
+    assert "progress_cb(1.0)" in source.replace("await ", "")
 
 
 def test_golden_is_summary_only():

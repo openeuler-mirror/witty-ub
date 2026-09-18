@@ -10,10 +10,23 @@ class SourceType(StrEnum):
 
 
 class DiagnosisConfigLogType(StrEnum):
-    """日志类型，上传、解析和诊断配置共用（API 对外取值区分大小写）。"""
+    """日志类型，上传、解析和诊断配置共用。
+
+    对外规范取值是 ``KVCache`` / ``UBSocket``；历史上前端/脚本还发过 ``kv-cache``、
+    ``kvcache``、``ubsocket`` 这类写法，用 ``_missing_`` 统一归一化，避免为一个取值大小写
+    把整条登记打成 422。
+    """
 
     KVCACHE = "KVCache"
     UBSOCKET = "UBSocket"
+
+    @classmethod
+    def _missing_(cls, value):
+        key = str(value).strip().lower().replace("-", "").replace("_", "")
+        for member in cls:
+            if member.value.lower() == key:
+                return member
+        return None
 
 
 class LogLevel(StrEnum):

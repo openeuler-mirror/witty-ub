@@ -61,7 +61,7 @@ add_executable(witty-ub-brpc-diag
     witty_ub_brpc_diag_main.cpp
 )
 target_include_directories(witty-ub-brpc-diag PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(witty-ub-brpc-diag PRIVATE brpc_diag_tool)
+target_link_libraries(witty-ub-brpc-diag PRIVATE brpc_diag_tool log4cplus)
 
 add_executable(util-code-analyzer
     util_code_analyzer_main.cpp

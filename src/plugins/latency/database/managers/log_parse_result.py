@@ -730,7 +730,11 @@ class LogParseResultPGManager:
             "c2w_latency": LogParseResult.c2w_latency,
         }
         sort_col = valid_sort_fields.get(req.sort_by, LogParseResult.timestamp)
-        stmt = stmt.order_by(sort_col.desc() if req.sort_order.lower() == "desc" else sort_col.asc())
+        # tie-break：同一排序键下的行顺序不再取决于物理行序（否则翻页会随写入顺序漂移）
+        stmt = stmt.order_by(
+            sort_col.desc() if req.sort_order.lower() == "desc" else sort_col.asc(),
+            LogParseResult.trace_id.asc(),
+        )
 
         offset = (req.page_num - 1) * req.page_cnt
         stmt = stmt.offset(offset).limit(req.page_cnt)
@@ -771,7 +775,12 @@ class LogParseResultPGManager:
                 "只有一行整桶代表请求，无 IP 维度"
             )
         if not req.log_id:
-            return 0, []
+            # 原先静默返回 (0, [])：前端没带 log_id 时表现为"暂无时延数据"，看不出原因。
+            # 曲线是按单个日志文件查的，缺参数属于请求错误，显式 400。
+            raise BadRequestBizException(
+                "缺少 log_id：时延曲线按单个日志文件查询，请带上 log_id"
+                "（前端选择的是当前/默认的 KVCache 日志文件）"
+            )
         rows = await LogParseResultPGManager._query_bucket_stats(
             bucket_table, req, stats_mode
         )

@@ -6,7 +6,7 @@
 import logging
 import os
 from collections import Counter, defaultdict
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from latency.common.ds_log_io import glob_paths
 
@@ -33,11 +33,11 @@ class FileParserMapBuilder:
     """
 
     def __init__(
-        self,
+        self: "FileParserMapBuilder",
         log_dir: str,
         parsers: list["LogParser"],
-        gz_mapping: Optional[dict[str, str]] = None,
-    ):
+        gz_mapping: dict[str, str] | None = None,
+    ) -> None:
         self.log_dir = log_dir
         self.parsers = parsers
         # .gz 原路径 → 解压后路径
@@ -45,7 +45,7 @@ class FileParserMapBuilder:
         # 解压后路径 → 原 .gz 路径（用于日志输出）
         self._reverse_mapping = {v: k for k, v in self.gz_mapping.items()}
 
-    def build(self) -> dict[str, list["LogParser"]]:
+    def build(self: "FileParserMapBuilder") -> dict[str, list["LogParser"]]:
         """
         构建文件-解析器映射表
 
@@ -96,7 +96,9 @@ class FileParserMapBuilder:
         self._log_statistics(file_parser_map)
         return dict(file_parser_map)
 
-    def _log_statistics(self, file_parser_map: dict[str, list["LogParser"]]) -> None:
+    def _log_statistics(
+        self: "FileParserMapBuilder", file_parser_map: dict[str, list["LogParser"]]
+    ) -> None:
         """输出映射统计信息，帮助理解文件分布情况"""
         total_files = len(file_parser_map)
 

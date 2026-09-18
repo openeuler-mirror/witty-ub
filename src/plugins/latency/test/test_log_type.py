@@ -27,18 +27,34 @@ def test_upload_log_type_round_trip(log_type):
 
 
 @pytest.mark.parametrize(
-    "log_type",
-    ["kvcache", "kv-cache", "KV-Cache", "kv_cache", "KVCACHE",
-     "ubsocket", "UBSOCKET", "UbSocket", "brpc", "BRPC", "Other", "", None,
-     " KVCache", "UBSocket "],
+    ("raw", "expected"),
+    [
+        ("kvcache", "KVCache"), ("kv-cache", "KVCache"), ("KV-Cache", "KVCache"),
+        ("kv_cache", "KVCache"), ("KVCACHE", "KVCache"), (" KVCache", "KVCache"),
+        ("ubsocket", "UBSocket"), ("UBSOCKET", "UBSocket"), ("UbSocket", "UBSocket"),
+        ("UBSocket ", "UBSocket"),
+    ],
 )
-@pytest.mark.asyncio
-async def test_reject_invalid_upload_log_type(log_type):
+def test_normalize_upload_log_type_aliases(raw, expected):
+    """前端/脚本发过 kv-cache、kvcache 这类写法，统一归一化到规范取值。"""
+    config = UpLoadLogFileConfig(
+        source_type="local", source="/tmp/logs", log_type=raw
+    )
+    assert config.log_type.value == expected
+
+
+@pytest.mark.parametrize("log_type", ["brpc", "BRPC", "Other", "", None])
+def test_reject_truly_invalid_upload_log_type(log_type):
+    """真正不认识的值仍然必须拒。"""
     with pytest.raises(ValidationError):
         UpLoadLogFileConfig(
             source_type="local", source="/tmp/logs", log_type=log_type
         )
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("log_type", ["brpc", "Other"])
+async def test_api_rejects_truly_invalid_log_type(log_type):
     app = FastAPI()
 
     @app.post("/upload")
