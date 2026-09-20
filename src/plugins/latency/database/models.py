@@ -415,6 +415,87 @@ class DiagnosisCaseSignal(Base):
 
 
 # ============================================================
+# 4b. 超节点诊断案例库（/diag_case_library，独立于 diagnosis_case）
+# ============================================================
+class DiagCaseLibrary(Base):
+    """人工确认过的超节点诊断案例；draft → confirmed → archived。"""
+
+    __tablename__ = "diag_case_library"
+
+    # 身份
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_no: Mapped[Optional[str]] = mapped_column(String, unique=True)
+    # 状态机
+    status: Mapped[str] = mapped_column(String, default="draft")
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[Optional[str]] = mapped_column(String)
+    confirmed_by: Mapped[Optional[str]] = mapped_column(String)
+    archived_by: Mapped[Optional[str]] = mapped_column(String)
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    archive_reason: Mapped[Optional[str]] = mapped_column(Text)
+    # 来源
+    source: Mapped[str] = mapped_column(String, default="internal")
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
+    title: Mapped[Optional[str]] = mapped_column(String)
+    # 归属
+    log_type: Mapped[Optional[str]] = mapped_column(String)
+    kb_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    kb_name: Mapped[Optional[str]] = mapped_column(String)
+    cluster_name: Mapped[Optional[str]] = mapped_column(String)
+    hosts: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    pods: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    src_ips: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    dst_ips: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    node_type: Mapped[Optional[str]] = mapped_column(String)
+    version_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    scope_limits: Mapped[Optional[str]] = mapped_column(Text)
+    # 特征
+    operation: Mapped[Optional[str]] = mapped_column(String)
+    fault_type: Mapped[str] = mapped_column(String, default="unknown")
+    status_codes: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    failure_mode_ids: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    latency_components: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    log_keywords: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    stage_features_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    fault_shape: Mapped[Optional[str]] = mapped_column(String)
+    time_window_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    # 内容物
+    symptom_summary: Mapped[str] = mapped_column(Text, default="")
+    evidence_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    root_cause_summary: Mapped[str] = mapped_column(Text, default="")
+    root_cause_detail: Mapped[Optional[str]] = mapped_column(Text)
+    counter_evidence_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    remediation_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    verification_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    relations_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    # RAG 预留
+    search_text: Mapped[Optional[str]] = mapped_column(Text)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String)
+    embedded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    # 元信息
+    source_log_ids: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    existed_status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now(), onupdate=lambda: local_now()
+    )
+
+
+class DiagCaseLibrarySignal(Base):
+    __tablename__ = "diag_case_library_signal"
+
+    case_id: Mapped[str] = mapped_column(String, primary_key=True)
+    signal_type: Mapped[str] = mapped_column(String, primary_key=True)
+    signal_value: Mapped[str] = mapped_column(String, primary_key=True)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+
+
+# ============================================================
 # 5. UBSocket Profiling 结果表
 # ============================================================
 class BrpcProfilingResult(Base):
