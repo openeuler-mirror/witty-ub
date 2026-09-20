@@ -53,8 +53,8 @@ def test_wide_batches_preserve_family_file_and_row_order(tmp_path, progress, spa
     files, parsers = _sources(tmp_path)
     cb = (lambda _: None) if progress else None
     with patch.object(scan.uuid, "uuid4", return_value="stable-file-id"):
-        full, skipped, _ = scan.scan_frame(files, parsers, progress_cb=cb)
-        light, _, ctx = scan.scan_frame(files, parsers, light=True, progress_cb=cb)
+        full, skipped, _, _ = scan.scan_frame(files, parsers, progress_cb=cb)
+        light, _, ctx, _ = scan.scan_frame(files, parsers, light=True, progress_cb=cb)
     assert skipped == []
     assert light.columns == list(LIGHT_COLUMNS)
     assert ctx.light_rows.columns == ["tid", "__row"]
@@ -77,7 +77,7 @@ def test_wide_batches_preserve_family_file_and_row_order(tmp_path, progress, spa
 
 def test_empty_subset_consumes_context_and_reusable_mode_does_not(tmp_path):
     files, parsers = _sources(tmp_path)
-    light, _, ctx = scan.scan_frame(files, parsers, light=True)
+    light, _, ctx, _ = scan.scan_frame(files, parsers, light=True)
     assert list(iter_wide(ctx, [], consume=False)) == []
     assert ctx.lines is not None
     first = list(iter_wide(ctx, light["tid"], consume=False, batch_rows=10))
@@ -88,13 +88,27 @@ def test_empty_subset_consumes_context_and_reusable_mode_does_not(tmp_path):
     assert ctx.light_rows is None
 
 
-def test_bad_files_still_reported_with_compacted_source(tmp_path):
+def test_bad_files_sanitized_instead_of_skipped(tmp_path):
     files, parsers = _sources(tmp_path)
     broken = tmp_path / "broken.log"
     broken.write_bytes(b"2026 DS_KV_CLIENT_GET \xff\n")
     files.append([str(broken), [0]])
-    rows, skipped, ctx = scan.scan_frame(files, parsers, light=True)
+    rows, skipped, ctx, sanitized = scan.scan_frame(files, parsers, light=True)
     assert rows.height > 0
+    assert skipped == []
+    assert sanitized == [str(broken)]
+    assert str(broken) in ctx.log_ids
+
+
+def test_sanitization_failure_falls_back_to_skip(tmp_path, monkeypatch):
+    files, parsers = _sources(tmp_path)
+    broken = tmp_path / "broken.log"
+    broken.write_bytes(b"2026 DS_KV_CLIENT_GET \xff\n")
+    files.append([str(broken), [0]])
+    monkeypatch.setattr(scan, "_try_sanitize_utf8", lambda _path: None)
+    rows, skipped, ctx, sanitized = scan.scan_frame(files, parsers, light=True)
+    assert rows.height > 0
+    assert sanitized == []
     assert [path for path, reason in skipped] == [str(broken)]
     assert str(broken) not in ctx.log_ids
     assert str(broken) not in ctx.lines["__file"].to_list()
@@ -146,11 +160,11 @@ def test_light_batches_match_unsliced_projection_with_reordered_sources(tmp_path
         patch.object(scan, "_split_paths_by_size", return_value=read_groups),
     ):
         with patch.object(scan, "_LIGHT_BATCH_ROWS", 1_000_000):
-            expected, skipped, expected_ctx = scan.scan_frame(
+            expected, skipped, expected_ctx, _ = scan.scan_frame(
                 files, parsers, light=True, progress_cb=callback
             )
         with patch.object(scan, "_LIGHT_BATCH_ROWS", 3):
-            actual, actual_skipped, ctx = scan.scan_frame(
+            actual, actual_skipped, ctx, _ = scan.scan_frame(
                 files, parsers, light=True, progress_cb=callback
             )
     assert actual_skipped == skipped == []
@@ -189,8 +203,8 @@ def test_metric_free_candidates_never_change_light_aggregation(tmp_path):
     )
     files.append([str(rpc_path), [1]])
     with patch.object(scan.uuid, "uuid4", return_value="stable-file-id"):
-        full, _, _ = scan.scan_frame(files, parsers)
-        light, _, ctx = scan.scan_frame(files, parsers, light=True)
+        full, _, _, _ = scan.scan_frame(files, parsers)
+        light, _, ctx, _ = scan.scan_frame(files, parsers, light=True)
     assert light.height < full.height
     assert_frame_equal(
         build_trace_frame_light(light).sort("tid"),
@@ -235,9 +249,9 @@ def test_bad_info_timestamp_at_batch_start_does_not_drop_valid_following_rows(tm
     files = [[str(path), [0]]]
     parsers = [WorkerInfoParser()]
     with patch.object(scan, "_LIGHT_BATCH_ROWS", 1_000_000):
-        expected, _, expected_ctx = scan.scan_frame(files, parsers, light=True)
+        expected, _, expected_ctx, _ = scan.scan_frame(files, parsers, light=True)
     with patch.object(scan, "_LIGHT_BATCH_ROWS", 3):
-        actual, _, ctx = scan.scan_frame(files, parsers, light=True)
+        actual, _, ctx, _ = scan.scan_frame(files, parsers, light=True)
     assert expected.height == 3
     assert_frame_equal(actual, expected)
     assert_frame_equal(ctx.light_rows, expected_ctx.light_rows)
@@ -265,9 +279,9 @@ def test_info_timestamp_formats_and_calendar_validation_are_batch_independent(tm
     files = [[str(path), [0]]]
     parsers = [WorkerInfoParser()]
     with patch.object(scan, "_LIGHT_BATCH_ROWS", 1_000_000):
-        expected, _, expected_ctx = scan.scan_frame(files, parsers, light=True)
+        expected, _, expected_ctx, _ = scan.scan_frame(files, parsers, light=True)
     with patch.object(scan, "_LIGHT_BATCH_ROWS", batch_rows):
-        actual, _, ctx = scan.scan_frame(files, parsers, light=True)
+        actual, _, ctx, _ = scan.scan_frame(files, parsers, light=True)
     wanted = [f"trace-{index}" for index, (_, valid) in enumerate(timestamps) if valid]
     assert actual["tid"].to_list() == wanted
     assert_frame_equal(actual, expected)

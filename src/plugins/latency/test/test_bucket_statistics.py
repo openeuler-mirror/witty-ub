@@ -10,7 +10,7 @@
   5. 失败降级：_store_bucket_stats_degraded 异常仅记日志返回 None
 
 运行：cd src/plugins/latency && PYTHONPATH=/home/li/witty-ub_8632/src/plugins \
-  .venv/bin/python -m pytest bucket/test_bucket_statistics.py -v -p no:cacheprovider
+  .venv/bin/python -m pytest test/test_bucket_statistics.py -v -p no:cacheprovider
 """
 from __future__ import annotations
 
