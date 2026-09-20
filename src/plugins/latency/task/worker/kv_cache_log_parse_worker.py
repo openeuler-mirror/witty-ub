@@ -278,6 +278,27 @@ class GroupStats:
     latency_values: dict[str, list[float]] = field(default_factory=dict)
 
 
+_ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".zip", ".rar")
+
+
+def _map_to_original_path(
+    preprocessed_path: str, log_dir: str, source_path: str | None
+) -> str:
+    """把预处理目录下的文件路径映射回用户可见的原始路径。
+
+    - 无预处理（``source_path is None`` 或 ``source_path == log_dir``）：路径本身就是原始路径。
+    - 源是目录：``source_path / relpath``。
+    - 源是压缩包：``source_path(relpath)``，内部相对路径用括号标注。
+    """
+    if source_path is None or source_path == log_dir:
+        return preprocessed_path
+    rel = os.path.relpath(preprocessed_path, log_dir)
+    lower = source_path.lower()
+    if any(lower.endswith(ext) for ext in _ARCHIVE_EXTENSIONS):
+        return f"{source_path}({rel})"
+    return os.path.join(source_path, rel)
+
+
 class KVCacheLogParseWorker(BaseWorker):
     """
     KVCacheLogParseWorker
@@ -524,30 +545,21 @@ class KVCacheLogParseWorker(BaseWorker):
                 progress_cb=scan_progress_cb,
                 light=True,
             )
-            # 读不出来的坏文件：解析侧已跳过并记账，这里统一告警（不静默）
+            # 坏文件：解析侧已清洗或跳过并记账（后端 WARNING/INFO 日志）
+            sanitized_files = parsed.pop("sanitized_files", None) or []
             skipped_files = parsed.pop("skipped_files", None) or []
+            if sanitized_files:
+                logger.info(
+                    "[utf8] %d 个日志文件含非 UTF-8 字节已清洗: %s",
+                    len(sanitized_files),
+                    ", ".join(sanitized_files),
+                )
             if skipped_files:
-                skipped_preview = "；".join(
-                    f"{os.path.basename(p)}（{r}）" for p, r in skipped_files[:5]
-                )
-                skipped_more = (
-                    f" 等 {len(skipped_files)} 个"
-                    if len(skipped_files) > 5
-                    else ""
-                )
                 logger.warning(
-                    "[skip] %d 个日志文件读取失败已跳过: %s%s",
+                    "[utf8] %d 个日志文件清洗失败已跳过: %s",
                     len(skipped_files),
-                    skipped_preview,
-                    skipped_more,
+                    ", ".join(f"{p}({r})" for p, r in skipped_files),
                 )
-                if task_id:
-                    await BaseWorker.report(
-                        task_id,
-                        f"[skip] 跳过 {len(skipped_files)} 个坏日志文件："
-                        f"{skipped_preview}{skipped_more}",
-                        0.0,
-                    )
 
             # T1 (polars rewrite): 列式输出已随 legacy 标签一并返回, 本任务暂不消费
             # （T2 用 build_trace_frame 从列重建 df_trace），弹出避免下游误读。
@@ -619,11 +631,13 @@ class KVCacheLogParseWorker(BaseWorker):
             # backend.log 里就有这样一条假线索。
             scanned_files = getattr(getattr(scanner, "metrics", None), "total_files", None)
             if skipped_files:
+                source_path = log_file.file_path if log_id else None
                 detail = "；".join(
-                    f"{os.path.basename(p)}（{r}）" for p, r in skipped_files[:5]
+                    f"{_map_to_original_path(p, log_dir, source_path)}（{r}）"
+                    for p, r in skipped_files[:5]
                 )
                 raise RuntimeError(
-                    f"扫描没有产出任何列式行：{len(skipped_files)} 个日志文件全部读取失败"
+                    f"扫描没有产出任何列式行：{len(skipped_files)} 个日志文件全部清洗失败"
                     f"——{detail}；log_dir={log_dir}"
                 )
             raise RuntimeError(

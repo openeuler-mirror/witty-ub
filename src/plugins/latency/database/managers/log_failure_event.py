@@ -760,6 +760,26 @@ class LogFailureEventPGManager:
                         failure_mode=failure_mode_list,
                     )
                 )
+            # Deduplicate by raw_text, preferring classified rows. The parse
+            # worker inserts log_failure_event rows with random uuid4 ids while
+            # the trace-context backfill (trace_context.py) uses deterministic
+            # uuid5(log_id:trace_id:raw_text) ids. The two never collide on the
+            # primary key, so the same raw log line can appear twice with
+            # different ids — once classified by diagnosis, once unclassified
+            # from a redundant backfill. Collapse them so the UI shows one row
+            # per raw log line, keeping the classified version.
+            if events:
+                events.sort(key=lambda e: (not bool(e.failure_mode), e.timestamp or ""))
+                seen_texts: set[str] = set()
+                deduped: list[LogFailureEventModel] = []
+                for event in events:
+                    key = event.raw_text or ""
+                    if key in seen_texts:
+                        continue
+                    seen_texts.add(key)
+                    deduped.append(event)
+                deduped.sort(key=lambda e: e.timestamp or "")
+                events = deduped
             return len(events), events
         except Exception as e:
             print(f"查询日志故障事件失败，错误信息: {str(e)}")

@@ -25,8 +25,11 @@
 
 from __future__ import annotations
 
+import codecs
 import logging
+import os
 import re
+import tempfile
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -228,43 +231,131 @@ def _empty_line_frame() -> pl.DataFrame:
     })
 
 
+_SANITIZE_CHUNK_SIZE = 1 << 20  # 1 MB
+
+
+def _try_sanitize_utf8(path: str) -> str | None:
+    """洗一遍非 UTF-8 字节后写到同目录临时文件，返回临时路径；失败返回 None。
+
+    用流式增量解码（``errors='replace'``）把非法字节替换为 U+FFFD，
+    不载全文件进内存。临时文件建在原文件**同目录**，``unlink`` 是元数据操作
+    不产生跨分区拷贝。
+
+    ``.gz`` 文件：polars ``scan_lines`` 透明解压后做 UTF-8 校验，所以坏字节
+    报错形式相同。清洗时用 ``gzip.open`` 流式解压再洗，临时文件写**非压缩**
+    纯文本（不以 ``.gz`` 结尾），polars 读临时文件时不再解压，直接当文本读。
+    """
+    import gzip
+
+    is_gz = path.lower().endswith(".gz")
+    fd = -1
+    tmp_path: str | None = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".sanitized_", suffix=".log", dir=os.path.dirname(path) or "."
+        )
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        opener = gzip.open if is_gz else open
+        with opener(path, "rb") as src, os.fdopen(fd, "w", encoding="utf-8") as dst:
+            fd = -1  # ownership transferred to file object
+            while True:
+                chunk = src.read(_SANITIZE_CHUNK_SIZE)
+                if not chunk:
+                    dst.write(decoder.decode(b"", final=True))
+                    break
+                dst.write(decoder.decode(chunk))
+        return tmp_path
+    except (OSError, EOFError):
+        # OSError 覆盖 gzip.BadGzipFile；EOFError 覆盖截断的 gzip 流。
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return None
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def _read_sanitized(original_path: str, sanitized_path: str,
+                    gate: pl.Expr) -> pl.DataFrame:
+    """读清洗后的临时文件，但把 ``__file`` 列改写为原路径。
+
+    polars ``scan_lines`` 会把临时路径写进 ``__file``，下游 file_rank / log_ids
+    / parser 路由都按原路径配对——所以必须在帧里改回来。
+    """
+    import polars as pl  # 懒加载 polars
+
+    return (
+        pl.scan_lines([sanitized_path], include_file_paths="__file")
+        .filter(gate)
+        .with_columns(
+            pl.lit(original_path).cast(pl.Categorical).alias("__file"),
+            pl.concat_str([pl.col("line"), pl.lit("")]).alias("line"),
+        )
+        .collect(engine="streaming")
+    )
+
+
 def _read_batch_safely(
     paths: list[str], gate: pl.Expr
-) -> tuple[pl.DataFrame | None, list[SkippedFile]]:
+) -> tuple[pl.DataFrame | None, list[SkippedFile], list[str]]:
     """读一批文件；失败就二分拆分，定位到**具体哪个文件**坏。
 
     为什么要拆：polars 一次读多个文件时**报错文本里没有文件名**（实测只有
     ``OSError: unexpected end of file`` / ``ComputeError: invalid utf8``），
-    不逐文件重试就无法告诉用户是谁坏了。坏文件跳过、其余照常返回 ——
-    避免"一两个坏日志让整次解析失败"。
+    不逐文件重试就无法告诉用户是谁坏了。
 
-    返回 ``(帧, [(路径, 原因)])``；帧为 ``None`` 表示这一批全读不出来。
+    单文件失败时先**尝试清洗**非 UTF-8 字节（``_try_sanitize_utf8``），
+    清洗后让 polars 走回正常列式路径——不退化到逐行 Python 读，保留 gate /
+    projection / scan_ctx 全部优化。清洗失败才跳过。
+
+    返回 ``(帧, [(路径, 原因)], [被清洗的原路径])``；
+    帧为 ``None`` 表示这一批全读不出来。
     """
     import polars as pl  # 懒加载 polars
 
     if not paths:
-        return None, []
+        return None, [], []
     try:
-        return _read_batch(paths, gate), []
+        return _read_batch(paths, gate), [], []
     except MemoryError:
         raise  # 内存不足是环境问题，不许当成"坏文件"跳过
     except Exception as exc:  # noqa: BLE001 坏文件不该拖垮整批
         if len(paths) == 1:
-            return None, [(paths[0], f"{type(exc).__name__}: {exc}")]
+            original = paths[0]
+            sanitized_path = _try_sanitize_utf8(original)
+            if sanitized_path is not None:
+                try:
+                    frame = _read_sanitized(original, sanitized_path, gate)
+                    return frame, [], [original]
+                except Exception:  # noqa: BLE001 清洗后仍读不出来 → 跳过
+                    pass
+                finally:
+                    try:
+                        os.unlink(sanitized_path)
+                    except OSError:
+                        pass
+            return None, [(original, f"{type(exc).__name__}: {exc}")], []
         mid = len(paths) // 2
-        left, left_skipped = _read_batch_safely(paths[:mid], gate)
-        right, right_skipped = _read_batch_safely(paths[mid:], gate)
+        left, left_skipped, left_sanitized = _read_batch_safely(paths[:mid], gate)
+        right, right_skipped, right_sanitized = _read_batch_safely(paths[mid:], gate)
         kept = [frame for frame in (left, right) if frame is not None]
         skipped = [*left_skipped, *right_skipped]
+        sanitized = [*left_sanitized, *right_sanitized]
         if not kept:
-            return None, skipped
+            return None, skipped, sanitized
         merged = kept[0] if len(kept) == 1 else pl.concat(kept, how="vertical")
-        return merged, skipped
+        return merged, skipped, sanitized
 
 
 def _read_with_progress(paths: list[str], gate: pl.Expr,
                         progress_cb: Callable[[float], object] | None
-                        ) -> tuple[pl.DataFrame, list[SkippedFile]]:
+                        ) -> tuple[pl.DataFrame, list[SkippedFile], list[str]]:
     """并发分批读；每完成一批回调一次（已读字节 / 总字节）。返回合并后的帧。
 
     批与批之间**并发**（polars 在 collect 时释放 GIL），所以总并行度不掉 —— 实测本机
@@ -287,15 +378,17 @@ def _read_with_progress(paths: list[str], gate: pl.Expr,
     batches = _split_paths_by_size(paths, k)
     frames = [None] * len(batches)
     skipped: list[SkippedFile] = []
+    sanitized: list[str] = []
     done = 0
     with ThreadPoolExecutor(max_workers=len(batches)) as executor:
         futures = {executor.submit(_read_batch_safely, batch, gate): i
                    for i, batch in enumerate(batches)}
         for future in as_completed(futures):
             index = futures[future]
-            frame, batch_skipped = future.result()
+            frame, batch_skipped, batch_sanitized = future.result()
             frames[index] = frame
             skipped.extend(batch_skipped)
+            sanitized.extend(batch_sanitized)
             done += sum(sizes[p] for p in batches[index])
             if progress_cb is not None:
                 _emit_progress(progress_cb, min(1.0, done / total))
@@ -303,10 +396,10 @@ def _read_with_progress(paths: list[str], gate: pl.Expr,
 
     kept = [frame for frame in frames if frame is not None]
     if not kept:
-        return _empty_line_frame(), skipped
+        return _empty_line_frame(), skipped, sanitized
     if len(kept) == 1:
-        return kept[0], skipped
-    return pl.concat(kept, how="vertical"), skipped
+        return kept[0], skipped, sanitized
+    return pl.concat(kept, how="vertical"), skipped, sanitized
 
 
 _LIGHT_BATCH_ROWS = 262_144
@@ -349,11 +442,12 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
                scan_scope: dict | None = None,
                progress_cb: Callable[[float], object] | None = None,
                light: bool = False
-               ) -> tuple[pl.DataFrame, list[SkippedFile], ScanContext | None]:
+               ) -> tuple[pl.DataFrame, list[SkippedFile], ScanContext | None, list[str]]:
     """两步扫描：一次读 + 一条链 + 一次 collect。
 
-    返回 ``(DataFrame, [(被跳过文件路径, 原因)], scan_ctx)``：读不出来的文件跳过
-    并记账，由调用方告警 —— 不再让一个坏文件把整次解析拖死。
+    返回 ``(DataFrame, [(被跳过文件路径, 原因)], scan_ctx, [被清洗的原路径])``：
+    读不出来的文件先尝试清洗非 UTF-8 字节，清洗成功的列入第四个返回值，
+    清洗失败才跳过并记账，由调用方告警 —— 不再让一个坏文件把整次解析拖死。
 
     ``light=True`` 时只投影轻列（``LIGHT_COLUMNS``，全量消费者唯一读到的那些），
     并把**read 产物**装进返回的 :class:`ScanContext` —— 宽列随后按需用
@@ -426,9 +520,9 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
     gate = _gate_expr(seen_parsers)
     if progress_cb is not None and len(seen_paths) > _FILES_PER_BATCH:
         # 分批并发读：每批完成回调一次进度（前端看得到"在读第几批"而不是卡在 0%）
-        frame, skipped = _read_with_progress(seen_paths, gate, progress_cb)
+        frame, skipped, sanitized = _read_with_progress(seen_paths, gate, progress_cb)
     else:
-        frame, skipped = _read_batch_safely(seen_paths, gate)
+        frame, skipped, sanitized = _read_batch_safely(seen_paths, gate)
         if frame is None:
             frame = _empty_line_frame()
     if skipped:
@@ -505,10 +599,10 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
             window=window,
             min_elapsed_us=min_elapsed_us,
             info_cache=info_cache,
-        )
+        ), sanitized
 
     if frame.height == 0:
-        return _empty_frame(), skipped, None
+        return _empty_frame(), skipped, None, sanitized
 
     parts: list = []
     if access_pairs:
@@ -530,7 +624,7 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
             parts.append(rows)
     del frame
     if not parts:
-        return _empty_frame(), skipped, None
+        return _empty_frame(), skipped, None, sanitized
 
     # 2026-09-17：删掉"行序键 + 全量 sort"。
     # 旧实现为了复现多进程路径的物理行序，给每行额外挂了 __file/__row/__rank/__bucket
@@ -540,7 +634,7 @@ def scan_frame(file_group_files: list, parsers: list, parse_config: ParseConfig 
     # 所以这一套可以整体去掉。等价性由 40 列 + df_trace 逐列 sha1 验证。
     return pl.concat([_normalize(part) for part in parts], how="vertical").select(
         list(_OUTPUT_COLUMNS)
-    ), skipped, None
+    ), skipped, None, sanitized
 
 
 def _tag(rows: pl.DataFrame, bucket_of: dict) -> pl.DataFrame:

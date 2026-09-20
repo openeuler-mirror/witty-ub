@@ -16,7 +16,6 @@ import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
 import { displayServerTime } from './utils/serverTime'
-import { collectSkippedFileAlerts } from './utils/skipAlerts'
 import {
   buildTaskLanes,
   buildTimelineTicks,
@@ -9482,13 +9481,6 @@ const getLogFileFailureReasonLabel = (file: LogFileModel) => {
     : '状态原因'
 }
 
-/** 本次解析被跳过的坏日志文件（后端以 `[skip] ...` 上报）。 */
-const getSkippedFileAlerts = (file: LogFileModel): string[] =>
-  collectSkippedFileAlerts(file.task?.task_reports)
-
-const hasSkippedFileAlerts = (file: LogFileModel): boolean =>
-  getSkippedFileAlerts(file).length > 0
-
 const shouldShowLogFileProgress = (file: LogFileModel) =>
   Boolean(file.task || getLogFileOverallStatus(file))
 
@@ -16648,16 +16640,6 @@ onBeforeUnmount(() => {
                   >
                     {{ getLogFileFailureReasonLabel(file) }}：{{ getLogFileFailureReason(file) }}
                   </div>
-                </div>
-                <div v-if="hasSkippedFileAlerts(file)" class="log-file-skip-alert" role="alert">
-                  <span class="log-file-skip-alert-title">已跳过读不出来的日志文件</span>
-                  <span
-                    v-for="alert in getSkippedFileAlerts(file)"
-                    :key="alert"
-                    class="log-file-skip-alert-line"
-                  >
-                    {{ alert }}
-                  </span>
                 </div>
                 <div v-if="getParseTimingReport(file) || hasTaskTimeline(file)" class="log-file-timing">
                   <div class="log-file-timing-head">
