@@ -1,0 +1,1852 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Witty-UB 诊断报告 - {{ report.title }}</title>
+<style>:root {
+  /* ---- 品牌与强调（唯一真值来源） ---- */
+  --brand: #4f7cff; --brand-deep: #3a63e0; --brand-soft: #8fb0ff; --brand-pale: #dbe6ff; --brand-faint: #f0f4ff;
+  --teal: #37c7b5; --teal-pale: #d4f2ee; --teal-faint: #e9f9f7;
+  --accent: var(--brand); --accent-2: var(--teal);
+  --accent-grad: linear-gradient(90deg, var(--brand) 0%, var(--teal) 100%);
+  /* ---- 背景与表面 ---- */
+  --bg: #f4f7fb; --canvas: var(--bg); --card: #FFFFFF; --surface: var(--card);
+  /* ---- 文字三级 ---- */
+  --ink: #172B4D; --ink-soft: #3a4a60; --slate: #5D6B7A;
+  --t-primary: var(--ink); --t-secondary: var(--ink-soft); --t-muted: var(--slate);
+  /* ---- 边框与分隔 ---- */
+  --border: #E4E9F0; --divider: #EEF2F7; --line: #D5DEE8; --hairline: var(--border);
+  /* ---- 状态色 ---- */
+  --success: #22A06B; --success-pale: #ddf1e8; --success-faint: #edf8f3;
+  --info: var(--brand); --info-pale: var(--brand-pale); --info-faint: var(--brand-faint);
+  --warning: #F59E0B; --warning-pale: #fdeed2; --warning-faint: #fef8ec;
+  --danger: #E5484D; --danger-pale: #fbe0e0; --danger-faint: #fdf1f1;
+  --unknown: #8C959F; --unknown-pale: #e8ebee;
+  /* ---- 中性色阶（兼容旧语义名） ---- */
+  --gray-900: #172B4D; --gray-800: #172B4D; --gray-700: #3a4a60;
+  --gray-600: #5D6B7A; --gray-500: #8C959F; --gray-400: #9aa4ae;
+  --gray-300: #c3ccd6; --gray-200: #E4E9F0; --gray-100: #EEF2F7; --gray-50: #F6F8FA;
+  --white: #FFFFFF;
+  --navy: #101828; --navy-2: #172554;
+  /* ---- 阴影（轻微，克制悬浮） ---- */
+  --shadow-xs: 0 1px 2px rgba(23,43,77,.04);
+  --shadow-sm: 0 1px 3px rgba(23,43,77,.06);
+  --shadow: 0 2px 6px rgba(23,43,77,.06);
+  --shadow-md: 0 4px 12px rgba(23,43,77,.08);
+  --shadow-premium: 0 1px 2px rgba(16,24,40,.03), 0 16px 40px rgba(16,24,40,.055);
+  /* ---- 形状与动效 ---- */
+  --radius: 12px; --radius-sm: 8px;
+  --ease: cubic-bezier(.4,0,.2,1); --dur: 200ms;
+  --font-sans: 'HarmonyOS Sans SC','Source Han Sans SC','Microsoft YaHei',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;
+  --font-mono: 'JetBrains Mono','SFMono-Regular',ui-monospace,'Consolas',monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+.header .report-id { font-size: 12px; color: var(--gray-500); margin-top: 6px; font-family: var(--font-mono); }
+.header .generated-at { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+.info-value.code { font-family: var(--font-mono); font-size: 12px; }
+.status-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.status-badge.ok { background: var(--success-pale); color: var(--success); }
+.status-badge.warn { background: var(--warning-pale); color: var(--warning); }
+.conclusion-card .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 4px; overflow-wrap: break-word; }
+.conclusion-func {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 10px;
+  margin-top: 14px; background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--brand);
+  border-radius: var(--radius-sm); padding: 10px 14px;
+  transition: border-left-color var(--dur) var(--ease);
+}
+.conclusion-func:hover { border-left-color: var(--brand-deep); }
+.conclusion-func .func-label { font-size: 11px; color: var(--gray-500); letter-spacing: .6px; flex-shrink: 0; }
+.conclusion-func .func-name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--brand-deep); overflow-wrap: anywhere; word-break: break-all; line-height: 1.5; }
+.conclusion-func .func-loc { font-family: var(--font-mono); font-size: 12px; color: var(--gray-500); overflow-wrap: anywhere; word-break: break-all; }
+.key-findings { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--brand-pale); }
+.key-findings h4 { font-size: 13px; font-weight: 700; color: var(--gray-700); margin-bottom: 8px; }
+.key-findings ul { list-style: none; padding: 0; }
+.key-findings li { position: relative; padding: 4px 0 4px 18px; font-size: 13px; color: var(--gray-700); }
+.key-findings li::before { content: ''; position: absolute; left: 0; top: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); }
+.solution-group ul { list-style: none; padding: 0; }
+.solution-group.short-term li::before { content: '\26A1'; position: absolute; left: 0; font-size: 12px; }
+.solution-group.long-term li::before  { content: '\1F6E1'; position: absolute; left: 0; font-size: 12px; }
+.solution-group.verify li::before     { content: '\2713'; position: absolute; left: 0; font-size: 12px; color: var(--success); font-weight: 700; }
+
+/* ---------- Root cause reasoning chain ---------- */
+.chain-step { display: flex; gap: 12px; margin-bottom: 0; position: relative; }
+.chain-step:last-child .chain-connector { display: none; }
+.chain-marker { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 32px; }
+.chain-dot.confirmed { background: var(--danger); width: 16px; height: 16px; box-shadow: 0 0 0 2px var(--danger-pale); }
+.chain-connector { width: 2px; flex: 1; background: var(--line); min-height: 20px; margin: 4px 0; }
+.chain-content { flex: 1; padding-bottom: 16px; }
+.chain-step-desc { font-size: 13px; color: var(--gray-600); line-height: 1.6; }
+.chain-step.excluded .chain-dot { background: var(--gray-400); width: 12px; height: 12px; box-shadow: none; }
+
+/* ---------- Fault propagation chain (node-card vertical) ---------- */
+.prop-chainv { display: flex; flex-direction: column; }
+.pnode.origin { border: 1px solid var(--danger); border-left: 3px solid var(--danger); }
+.pnode.impact { border: 1px solid var(--warning); border-left: 3px solid var(--warning); }
+.pnode.origin .pnode-head { background: var(--danger-faint); }
+.pnode.impact .pnode-head { background: var(--warning-faint); }
+.pnode-order { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--brand); color: var(--white); font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.pnode.origin .pnode-order { background: var(--danger); }
+.pnode.impact .pnode-order { background: var(--warning); }
+.pnode-label { font-size: 13px; font-weight: 700; color: var(--gray-900); }
+.pnode.origin .pnode-label { color: var(--danger); }
+.pnode.impact .pnode-label { color: var(--warning); }
+.pnode-tag.tag-origin { background: var(--danger); color: var(--white); }
+.pnode-tag.tag-impact { background: var(--warning); color: var(--white); }
+.pconn { display: flex; flex-direction: column; align-items: center; padding: 2px 0; }
+.pconn-line { width: 2px; height: 12px; background: var(--gray-300); position: relative; }
+.pconn-line::after { content: ''; position: absolute; bottom: -1px; left: 50%; transform: translateX(-50%); border: 4px solid transparent; border-top: 6px solid var(--gray-300); border-bottom: 0; }
+.pconn-label { font-size: 10.5px; color: var(--gray-600); background: var(--gray-50); border: 1px solid var(--border); border-radius: 999px; padding: 1px 10px; margin-top: 3px; }
+.pfork { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.pfork-cols { display: flex; justify-content: center; gap: 32px; width: 100%; position: relative; padding-top: 18px; }
+.pfork-cols::before { content: ''; position: absolute; top: 0; left: 25%; right: 25%; height: 2px; background: var(--gray-300); }
+.pfork-col { display: flex; flex-direction: column; align-items: stretch; flex: 1; max-width: 360px; min-width: 0; position: relative; padding-top: 16px; }
+.pfork-col::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 2px; height: 16px; background: var(--gray-300); }
+.pfork-blabel { align-self: center; font-size: 10.5px; font-weight: 600; color: var(--gray-600); background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 1px 12px; margin-bottom: 8px; position: relative; z-index: 1; }
+.impact-scope { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--gray-600); }
+.impact-scope strong { color: var(--gray-800); }
+
+/* ---------- Statistics ---------- */
+.stat-block { margin-bottom: 20px; }
+.stat-block:last-child { margin-bottom: 0; }
+.stat-block h4 { font-size: 13px; font-weight: 700; color: var(--gray-700); margin-bottom: 10px; }
+
+/* Donut pie charts */
+.donut-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 20px; }
+.donut-card h4 { margin-bottom: 12px; }
+.donut-row { display: flex; align-items: center; gap: 16px; }
+.donut-hole .dh-num { font-size: 18px; font-weight: 700; color: var(--gray-900); line-height: 1.2; overflow-wrap: anywhere; }
+.donut-hole .dh-lbl { font-size: 10px; color: var(--gray-500); margin-top: 2px; }
+.donut-legend { list-style: none; flex: 1; min-width: 0; margin: 0; padding: 0; }
+.donut-legend li { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--gray-600); padding: 3px 0; }
+.donut-legend .lg-dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.donut-legend .lg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.donut-legend .lg-name.mono { font-family: var(--font-mono); font-size: 11.5px; }
+.donut-legend .lg-pct { font-family: var(--font-mono); font-weight: 700; color: var(--gray-800); flex-shrink: 0; }
+
+/* Time hotspot mini bar chart */
+.tchart { display: flex; align-items: stretch; gap: 8px; }
+.tcol { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.tbadge { font-size: 10px; font-weight: 700; line-height: 1; color: var(--white); background: var(--danger); border-radius: 999px; padding: 3px 8px; margin-bottom: 5px; white-space: nowrap; }
+.tval { font-size: 11px; font-family: var(--font-mono); font-weight: 600; color: var(--gray-600); margin-bottom: 5px; line-height: 1; }
+.tcol.spike .tval { color: var(--danger); }
+.tbar-wrap { width: 100%; height: 120px; display: flex; align-items: flex-end; justify-content: center; }
+.tbar { width: 68%; max-width: 44px; min-height: 5px; border-radius: 4px 4px 0 0; background: var(--gray-200); transition: background-color var(--dur) var(--ease); }
+.tbar.h0 { background: var(--gray-200); }
+.tbar.h1 { background: var(--brand-pale); }
+.tbar.h2 { background: var(--brand-soft); }
+.tbar.h3 { background: var(--brand); }
+.tbar.h4 { background: var(--danger); }
+.tcol.spike .tbar { box-shadow: 0 0 0 2px var(--danger-pale); }
+.ttime { font-size: 10.5px; font-family: var(--font-mono); color: var(--gray-500); margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border); width: 100%; text-align: center; white-space: nowrap; }
+.tcol.spike .ttime { color: var(--danger); font-weight: 700; border-top-color: var(--danger-pale); }
+.tlegend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+.tlegend .leg-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--gray-600); }
+.tlegend .leg-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.stage-share-seg.s-ok { background: var(--success); }
+.stage-share-seg.s-warn { background: var(--warning); }
+.stage-share-seg.s-bottleneck { background: var(--danger); }
+.stage-share-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.stage-share-legend .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--gray-600); }
+.stage-share-legend .leg-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.stage-table { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.stage-row { display: grid; grid-template-columns: 1.5fr 0.9fr 0.8fr 0.8fr 1fr; gap: 8px; align-items: center; padding: 9px 14px; font-size: 12px; }
+.stage-row { border-bottom: 1px solid var(--divider); color: var(--gray-700); transition: background-color var(--dur) var(--ease); }
+.stage-row:hover { background: #fbfcfd; }
+.stage-row:last-child { border-bottom: none; }
+.stage-name { font-weight: 600; color: var(--gray-800); overflow-wrap: break-word; }
+.stage-row.bottleneck .stage-name { color: var(--danger); }
+.stage-num { font-family: var(--font-mono); text-align: right; }
+.stage-na { color: var(--gray-400); text-align: right; }
+.stage-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.stage-status .st-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.stage-status.ok .st-dot { background: var(--success); }
+.stage-status.ok { color: var(--success); }
+.stage-status.warn .st-dot { background: var(--warning); }
+.stage-status.warn { color: var(--warning); }
+.stage-status.bottleneck .st-dot { background: var(--danger); }
+.stage-status.bottleneck { color: var(--danger); }
+.stage-detail { grid-column: 1 / -1; font-size: 11px; color: var(--gray-500); padding-top: 2px; }
+.stage-conclusion { margin-top: 12px; padding: 11px 14px; background: var(--brand-faint); border-left: 3px solid var(--brand); border-radius: var(--radius-sm); font-size: 13px; color: var(--gray-700); line-height: 1.6; }
+.stage-conclusion strong { color: var(--gray-900); }
+.kb-match-card:last-child { margin-bottom: 0; }
+.kb-match-id { font-size: 13px; font-weight: 700; color: var(--gray-800); font-family: var(--font-mono); }
+.kb-match-body { padding: 12px 16px; }
+.kb-match-row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.kb-match-row:last-child { margin-bottom: 0; }
+.kb-match-label { color: var(--gray-500); flex-shrink: 0; min-width: 48px; font-weight: 600; }
+.kb-match-value { color: var(--gray-700); }
+.kb-match-adoption { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.adoption-adopted { background: var(--success-pale); color: var(--success); }
+.adoption-reference { background: var(--info-pale); color: var(--info); }
+.adoption-not-adopted { background: var(--gray-100); color: var(--gray-500); }
+.workflow-stat .stat-label { font-size: 11px; color: var(--gray-500); margin-top: 2px; }
+.workflow-step { display: flex; gap: 12px; margin-bottom: 0; position: relative; }
+.workflow-step:last-child .workflow-connector { display: none; }
+.workflow-marker { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 28px; }
+.workflow-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--brand); flex-shrink: 0; margin-top: 6px; box-shadow: 0 0 0 2px var(--brand-pale); }
+.workflow-connector { width: 2px; flex: 1; background: var(--line); min-height: 16px; margin: 3px 0; }
+.workflow-content { flex: 1; padding-bottom: 14px; }
+.workflow-step-title { font-size: 13px; font-weight: 700; color: var(--gray-800); }
+.workflow-step-detail { font-size: 12px; color: var(--gray-500); margin-top: 2px; font-family: var(--font-mono); }
+.workflow-step-result { font-size: 12px; color: var(--gray-600); margin-top: 4px; padding: 4px 10px; background: var(--gray-50); border-radius: 6px; font-style: italic; }
+.node-role.role-entry { background: var(--gray-100); color: var(--gray-600); }
+.node-role.role-intermediate { background: var(--info-pale); color: var(--info); }
+.node-role.role-fault-point { background: var(--danger); color: var(--white); }
+.src-code-header .file-path { color: #cbd5e1; }
+.src-code-header .line-range { color: #64748b; }
+.src-code-body .ellipsis { color: #64748b; font-style: italic; display: block; text-align: center; }
+.src-analysis { font-size: 12px; color: var(--gray-700); line-height: 1.6; margin-bottom: 10px; }
+.src-analysis p { margin-bottom: 6px; }
+.src-analysis p:last-child { margin-bottom: 0; }
+.src-analysis .code-ref { font-family: var(--font-mono); font-size: 11px; background: var(--gray-100); padding: 1px 5px; border-radius: 3px; color: var(--brand-deep); }
+.src-fix strong { color: var(--success); }
+
+/* ---------- Motion（克制：纯淡入，200ms） ---------- */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.container > .section { animation: fadeIn var(--dur) var(--ease) both; }
+
+/* ---------- Utilities ---------- */
+.mono { font-family: var(--font-mono); }
+.text-red { color: var(--danger); } .text-green { color: var(--success); } .text-gray { color: var(--gray-500); }
+
+body {  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 8% 12%, rgba(79,124,255,.055), transparent 24rem),
+    radial-gradient(circle at 92% 28%, rgba(55,199,181,.04), transparent 22rem),
+    var(--canvas);
+}
+
+.header {  position: relative;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  color: #fff;
+  background:
+    radial-gradient(circle at 88% 4%, rgba(55,199,181,.18), transparent 28%),
+    radial-gradient(circle at 54% 118%, rgba(79,124,255,.23), transparent 38%),
+    linear-gradient(135deg, #0b1225 0%, #111d3d 55%, #102a45 100%);
+  border: 0;
+  box-shadow: none;
+}
+.header::before { content: ''; position: absolute; top: 0; left: 0; right: 0; background: var(--accent-grad); height: 4px; opacity: 1; }
+.header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .22;
+  background-image:
+    linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 92%);
+}
+.header-inner {  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  padding: 34px 32px 30px;
+}
+.report-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  color: rgba(255,255,255,.62);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+.report-kicker::before {
+  content: '';
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-2);
+}
+.hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+.hero-copy { min-width: 0; }
+.header h1 {
+  max-width: 760px;
+  color: #fff;
+  font-size: clamp(26px, 3vw, 40px);
+  font-weight: 720;
+  line-height: 1.22;
+  letter-spacing: -.75px;
+}
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: rgba(255,255,255,.56);
+  font-size: 11px;
+}
+.hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+.hero-meta span::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.3);
+}
+.hero-meta span:first-child::before { display: none; }
+.hero-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 5px;
+}
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.82);
+  font-size: 11px;
+  font-weight: 650;
+  backdrop-filter: blur(8px);
+}
+.hero-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #74e0c9; box-shadow: 0 0 0 3px rgba(116,224,201,.12); }
+.hero-chip.alert::before { background: #ff8a8f; box-shadow: 0 0 0 3px rgba(255,138,143,.12); }
+.hero-summary {
+  max-width: 930px;
+  margin-top: 28px;
+  padding-left: 16px;
+  border-left: 2px solid var(--accent-2);
+}
+.hero-summary-label {
+  margin-bottom: 4px;
+  color: rgba(255,255,255,.48);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.hero-summary-text {
+  color: rgba(255,255,255,.93);
+  font-size: 16px;
+  font-weight: 580;
+  line-height: 1.65;
+}
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  margin-top: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 12px;
+  background: rgba(255,255,255,.1);
+}
+.hero-metric {
+  min-width: 0;
+  padding: 14px 16px;
+  background: rgba(7,16,37,.34);
+}
+.hero-metric-label { color: rgba(255,255,255,.46); font-size: 10px; letter-spacing: .5px; }
+.hero-metric-value {
+  margin-top: 4px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 680;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hero-metric-value.mono { font-size: 12px; color: #b9c8ff; }
+
+.report-nav-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(255,255,255,.9);
+  box-shadow: 0 1px 10px rgba(16,24,40,.035);
+  backdrop-filter: blur(14px);
+}
+.report-nav {
+  display: flex;
+  gap: 6px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 10px 32px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.report-nav::-webkit-scrollbar { display: none; }
+.report-nav a {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 7px;
+  color: var(--slate);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.report-nav a:hover { color: var(--accent); background: #f0f4ff; }
+
+.container { margin: 0 auto; max-width: 1180px; padding: 32px 32px 80px; }
+.section {  position: relative;
+  background: var(--card);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  margin-bottom: 20px;
+  box-shadow: none;
+  overflow: hidden;
+  scroll-margin-top: 64px;
+}
+.section:hover { border-color: var(--hairline); box-shadow: none; }
+.section::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent-grad); opacity: .55; display: none; }
+.section-header {  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 21px 24px 17px;
+  background: transparent;
+  border-bottom: 1px solid var(--divider);
+}
+.section-num {  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  flex-shrink: 0;
+  justify-content: flex-start;
+  width: 28px;
+  height: auto;
+  padding-top: 3px;
+  border-radius: 0;
+  background: transparent;
+  color: #98a2b3;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+}
+.section-title {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.2px;
+}
+.section-title::after {
+  content: attr(data-subtitle);
+  display: block;
+  margin-top: 3px;
+  color: #98a2b3;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.section-body { padding: 24px; }
+.section-focus {
+  border-color: #d9e4ff;
+  box-shadow: var(--shadow-premium);
+}
+.section-focus .section-header { background: linear-gradient(90deg, #f8faff, #fff 62%); }
+.section-appendix { background: rgba(255,255,255,.72); }
+
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+.info-item { display: flex; align-items: baseline; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+.info-label { font-size: 13px; white-space: nowrap; min-width: 82px; color: #98a2b3; }
+.info-value { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+
+.conclusion-box {  border: 1px solid var(--brand-pale);
+  border-radius: var(--radius);
+  position: relative;
+  padding: 24px;
+  background: linear-gradient(135deg, #f5f8ff 0%, #f8fcfb 100%);
+  border-color: #dce6fb;
+}
+.conclusion-box::before {
+  content: '';
+  position: absolute;
+  top: 22px;
+  left: 0;
+  width: 3px;
+  height: 42px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.conclusion-text { font-weight: 700; color: var(--gray-900); line-height: 1.7; margin-bottom: 18px; max-width: 850px; font-size: 18px; letter-spacing: -.1px; }
+.conclusion-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.conclusion-card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 15px 16px; text-align: left; box-shadow: none; }
+.conclusion-card:hover { border-color: var(--border); box-shadow: none; }
+.conclusion-card .card-label { font-size: 11px; letter-spacing: .6px; margin-bottom: 6px; white-space: nowrap; color: #98a2b3; }
+.conclusion-card .card-value { font-weight: 700; color: var(--gray-900); overflow-wrap: break-word; word-break: break-word; line-height: 1.35; font-size: 18px; }
+
+.solution-group {  margin-bottom: 16px;
+  position: relative;
+  margin: 0;
+  padding: 18px 20px 18px 58px;
+  border-bottom: 1px solid var(--divider);
+}
+.solution-group:last-child { margin-bottom: 0; border-bottom: 0; }
+.solution-group::before {
+  position: absolute;
+  left: 20px;
+  top: 18px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 750;
+}
+.solution-group.short-term::before { content: 'NOW'; color: #d97706; background: #fff7e6; }
+.solution-group.long-term::before { content: 'L'; color: var(--accent); background: #edf2ff; }
+.solution-group.verify::before { content: 'OK'; color: var(--success); background: var(--success-faint); }
+.solution-group h4 { font-weight: 700; color: var(--gray-700); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--divider); padding: 0; border: 0; font-size: 14px; }
+.solution-group li { position: relative; padding: 4px 0 4px 20px; font-size: 13px; color: var(--gray-700); padding-left: 16px; }
+.solution-group li::before { content: '' !important; top: 12px; width: 5px; height: 5px; border-radius: 50%; background: #98a2b3; }
+
+.chain-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; box-shadow: 0 0 0 2px var(--brand-pale); background: var(--accent); }
+.chain-step-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; color: var(--ink); }
+.chain-step-evidence { display: inline-block; margin-top: 5px; font-size: 11px; color: var(--gray-500); padding: 2px 10px; border-radius: 999px; font-family: var(--font-mono); border: 1px solid #e4e7ec; background: #f9fafb; }
+.chain-step.excluded { opacity: .58; }
+.chain-step.excluded .chain-step-title { color: var(--gray-500); text-decoration: none; }
+.root-cause-card {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid #fecdd0;
+  border-left: 3px solid var(--danger);
+  border-radius: 10px;
+  background: linear-gradient(90deg, #fff5f5, #fff);
+}
+.root-cause-card strong { color: var(--danger); }
+.root-cause-value { color: var(--ink); font-size: 14px; font-weight: 650; }
+.root-cause-support { margin-top: 7px; color: var(--slate); font-size: 11px; }
+
+.pnode { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); border-color: var(--hairline); box-shadow: none; }
+.pnode:hover { border-color: var(--hairline); box-shadow: none; }
+.pnode-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 46px; padding: 10px 14px; }
+.pnode-detail { font-size: 11.5px; color: var(--gray-500); font-family: var(--font-mono); overflow-wrap: anywhere; flex: 1; }
+.pnode-tag { margin-left: auto; font-size: 10.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px; flex-shrink: 0; white-space: nowrap; border: 1px solid transparent; }
+.pnode-tag.tag-mid { color: var(--info); border-color: #d9e4ff; background: #f1f5ff; }
+
+.donut-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); break-inside: avoid; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 18px; box-shadow: none; }
+.donut-card:hover { border-color: var(--border); box-shadow: none; }
+.donut { border-radius: 50%; flex-shrink: 0; position: relative; width: 116px; height: 116px; }
+.donut-hole { position: absolute; background: var(--card); border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; inset: 22px; }
+.stage-share-bar { display: flex; overflow: hidden; background: var(--gray-100); margin-bottom: 6px; height: 18px; border-radius: 999px; }
+.stage-share-seg { display: flex; align-items: center; justify-content: center; font-weight: 600; color: var(--white); white-space: nowrap; overflow: hidden; min-width: 2px; font-size: 9px; }
+.stage-thead { display: grid; grid-template-columns: 1.5fr 0.9fr 0.8fr 0.8fr 1fr; gap: 8px; align-items: center; padding: 9px 14px; font-size: 12px; color: var(--gray-500); font-weight: 600; border-bottom: 1px solid var(--border); background: #f8fafc; }
+.stage-row.bottleneck { background: var(--danger-faint); font-weight: 600; color: var(--gray-900); box-shadow: inset 3px 0 0 var(--danger); }
+.stage-row.warn { background: var(--warning-faint); box-shadow: inset 3px 0 0 var(--warning); }
+
+.kb-match-card { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px; overflow: hidden; transition: box-shadow var(--dur) var(--ease); border-color: var(--hairline); }
+.kb-match-card:hover { box-shadow: none; }
+.kb-match-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--divider); background: #f8fafc; }
+.kb-match-stars { font-size: 12px; color: var(--warning); letter-spacing: 2px; }
+
+.workflow-summary { display: flex; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--divider); gap: 10px; }
+.workflow-stat { text-align: center; flex: 1; padding: 10px 6px; border-radius: var(--radius-sm); transition: background-color var(--dur) var(--ease); border: 1px solid var(--hairline); background: #f8fafc; }
+.workflow-stat:hover { background: #f8fafc; }
+.workflow-stat .stat-num { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+/* session id is a long opaque token: mono, smaller, wraps instead of stretching the row */
+.workflow-stat.stat-session { flex: 1.7; }
+.workflow-stat.stat-session .stat-num { font-family: var(--font-mono); font-size: 12px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+
+.src-code-block { color: #cbd5e1; overflow: hidden; margin-bottom: 10px; background: #111827; border: 1px solid #293244; }
+.src-code-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px; font-size: 10.5px; font-family: var(--font-mono); color: #94a3b8; background: #0b1220; }
+
+/* Source investigation workspace */
+.src-meta {  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 0;
+  border: 0;
+}
+.src-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  background: #f8fafc;
+  color: var(--slate);
+  font-size: 11px;
+}
+.src-meta-item strong { font-family: var(--font-mono); color: var(--ink-soft); }
+.role-fault-point .sps-num { background: #fee2e2; color: var(--danger); }
+  /* src-path styles removed */
+.src-chain { display: flex; flex-direction: column; gap: 0; }
+.chain-node {
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: #fff;
+}
+.chain-node.fault-point {  border-left: 3px solid var(--danger);
+  border: 1px solid #f0aeb2;
+  box-shadow: 0 8px 24px rgba(229,72,77,.08);
+}
+.chain-node-head {  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 2px 10px;
+  background: transparent;
+  border-bottom: 0;
+}
+.chain-node.fault-point .chain-node-head { background: transparent; border-bottom-color: transparent; }
+/* 节点间距由 .src-chain 的 gap 控制，无需在节点上覆盖边框/内边距 */
+.node-order { display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; width: 21px; height: 21px; background: #eaf0ff; color: var(--accent); }
+.chain-node.fault-point .node-order { background: var(--danger); color: #fff; }
+.node-func { font-family: var(--font-mono); overflow-wrap: anywhere; color: var(--ink-soft); font-size: 12px; }
+.chain-node.fault-point .node-func { color: var(--danger); }
+.node-loc { font-family: var(--font-mono); overflow-wrap: anywhere; color: #98a2b3; }
+.src-code-block { margin: 0; border: 0; border-radius: 0; }
+.src-code-body { overflow-x: auto; font-family: var(--font-mono); white-space: pre; padding: 11px 0; font-size: 11.5px; line-height: 1.55; }
+.src-code-body > div { min-height: 18px; padding: 0 14px; }
+.src-code-body .line-num { user-select: none; display: inline-block; text-align: right; width: 34px; margin-right: 10px; color: #64748b; }
+.src-code-body .highlight {  display: inline-block;
+  width: calc(100% - 48px);
+  padding-left: 9px;
+  border-left: 3px solid #f59e0b;
+  background: rgba(245,158,11,.14);
+  color: #fef3c7;
+}
+.fault-lock {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 13px 15px;
+  color: #7f1d1d;
+  background: #fff7f7;
+  border-top: 1px solid #f6d2d3;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.fault-lock-tag {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #fee2e2;
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 750;
+}
+.src-verdict { display: grid; grid-template-columns: 1fr; gap: 20px; margin-top: 34px; }
+.root-card, .fix-card {
+  position: relative;
+  padding: 26px 28px 26px 70px;
+  border-radius: 10px;
+}
+.root-card { border: 1px solid #f0c3c5; background: #fff8f8; }
+.fix-card { border: 1px solid #bce8dd; background: #f2fbf8; }
+.rc-title, .fx-title { margin-bottom: 13px; font-size: 13.5px; font-weight: 750; letter-spacing: .2px; }
+.rc-title { color: var(--danger); }
+.fx-title { color: var(--success); }
+.rc-title::before, .fx-title::before {
+  position: absolute;
+  left: 28px;
+  top: 27px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.rc-title::before { content: '!'; color: var(--danger); background: #fee2e2; }
+.fx-title::before { content: '✓'; color: var(--success); background: #dff6ef; }
+.rc-body, .fx-body { color: var(--ink-soft); font-size: 14px; line-height: 1.85; }
+.src-fix { background: var(--success-faint); border: 1px solid var(--success-pale); padding: 11px 14px; font-size: 12.5px; color: var(--gray-700); line-height: 1.6; margin-top: 10px !important; border-radius: 10px; }
+  /* src-path styles removed */
+  /* src-path styles removed */
+  /* src-path styles removed */
+  /* src-path styles removed */
+.src-chain { gap: 0; }
+.chain-node {
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  padding: 14px 16px;
+}
+.chain-node.fault-point {
+  border-color: #f0c3c5;
+  background: #fffdfd;
+  box-shadow: 0 2px 10px rgba(229,72,77,.06);
+}
+/* 故障点卡片边框/底色统一由 .chain-node.fault-point 控制 */
+.chain-node-head {
+  min-height: 0;
+  padding: 0 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.chain-node.fault-point .chain-node-head {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.node-order {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #edf2ff;
+  font-size: 15px;
+}
+.chain-node.fault-point .node-order { background: var(--danger); }
+.node-func { font-size: 16px; font-weight: 700; }
+.node-loc { font-size: 11px; }
+.node-role { margin-left: auto; font-weight: 600; border-radius: 999px; flex-shrink: 0; white-space: nowrap; padding: 4px 10px; font-size: 10px; }
+.node-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 4px;
+  color: #98a2b3;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+.node-next::before { content: '→'; color: #64748b; font-size: 17px; }
+.src-evidence { margin: 8px 0 0; border: 1px solid #edf0f5; border-radius: 8px; background: #fbfcfe; }
+.src-evidence summary { padding: 7px 11px; cursor: pointer; list-style: none; color: #7b8798; font-size: 10.5px; }
+.src-evidence summary::-webkit-details-marker { display: none; }
+.src-evidence summary::before { content: '＋'; margin-right: 5px; color: var(--accent); font-family: var(--font-mono); }
+.src-evidence[open] summary::before { content: '−'; }
+.src-evidence .src-code-block { margin: 0; border-top: 1px solid #edf0f5; border-radius: 0 0 8px 8px; opacity: .92; }
+.src-evidence .src-code-body { max-height: 210px; overflow: auto; font-size: 11px; }
+.fault-lock { margin: 9px 0 0; border-radius: 8px; }
+.fault-lock { padding: 10px 13px; border: 1px solid #f3d4d5; background: #fffafa; color: #7f1d1d; }
+/* 调用点真实源码片段 */
+.call-src { align-self: stretch; margin: 4px 8px 4px 8px; }
+.call-src-head { font-size: 10px; font-family: var(--font-mono); color: var(--gray-500); padding: 2px 2px 3px; }
+.call-src-head .cs-go { color: var(--brand-deep); font-weight: 700; }
+.call-src-body { background: var(--gray-50); border: 1px solid var(--border); border-left: 2px solid var(--brand); border-radius: 6px; overflow: hidden; }
+.call-src-body > div { padding: 2px 10px 2px 6px; font-family: var(--font-mono); font-size: 11px; white-space: pre; }
+.call-src-body .line-num { color: var(--gray-400); width: 26px; text-align: right; margin-right: 8px; display: inline-block; user-select: none; }
+.call-src-body .cs-call { background: var(--brand-faint); border-left: 2px solid var(--brand); }
+.call-src-body .cs-call.strong { background: var(--danger-faint); border-left-color: var(--danger); color: var(--gray-800); }
+/* 调用点 / 描述：与源码片段平行的同级取证块 */
+.src-chain { gap: 14px; }
+.ev-call .call-src-body { margin: 0 11px 9px; border-radius: 6px; }
+.ev-head { padding: 7px 11px 4px; color: #7b8798; font-size: 10.5px; }
+.ev-head .cs-loc { font-family: var(--font-mono); color: var(--gray-500); }
+.ev-head .cs-go { color: var(--brand-deep); font-weight: 700; font-family: var(--font-mono); }
+.ev-desc-body { padding: 0 11px 10px; color: #5D6B7A; font-size: 12px; line-height: 1.7; }
+.ev-desc.fault { border-color: #f6d2d3; background: #fff7f7; }
+.ev-desc.fault .ev-head { color: var(--danger); font-weight: 700; }
+.ev-desc.fault .ev-desc-body { color: #7f1d1d; padding-top: 2px; }
+
+
+.src-verdict { margin-top: 34px; padding-top: 8px; border-top: 1px dashed #dce4ef; }
+.root-card, .fix-card { box-shadow: none; }
+
+.footer { text-align: center; padding: 36px 0 16px; font-size: 11px; color: var(--gray-400); padding-top: 44px; }
+.footer .divider { height: 2px; margin: 0 auto 12px; width: 28px; background: var(--accent); }
+
+/* ===== Multi-fault: chips, roster, relations, action plan, archives ===== */
+.chip { display:inline-flex; align-items:center; gap:3px; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:600; line-height:1.7; white-space:nowrap; border:1px solid transparent; }
+.chip-role-primary { background:#fde8e8; color:#E5484D; border-color:#f6d2d3; }
+.chip-role-secondary { background:#fef3e2; color:#B45309; border-color:#fde3b8; }
+.chip-role-independent { background:#e8f1fe; color:#1d4ed8; border-color:#cfe0fb; }
+.chip-status-confirmed { background:#e7f6f0; color:#15805b; border-color:#c6ebdb; }
+.chip-status-suspected { background:#fff; color:#B45309; border:1px dashed #f0c98a; }
+.chip-status-excluded { background:#f2f4f7; color:#8C959F; border-color:#e2e6ec; text-decoration:line-through; }
+.chip-sev-P1 { background:#E5484D; color:#fff; }
+.chip-sev-P2 { background:#F59E0B; color:#fff; }
+.chip-sev-P3 { background:#e9edf3; color:#5D6B7A; }
+.chip-pri-P0 { background:#E5484D; color:#fff; }
+.chip-pri-P1 { background:#F59E0B; color:#fff; }
+.chip-pri-P2 { background:var(--brand); color:#fff; }
+.chip-conf { background:#eef4ff; color:#1d4ed8; border-color:#cfe0fb; font-family:var(--font-mono); }
+.fault-tag-sm { display:inline-block; margin-left:6px; padding:0 6px; border-radius:5px; background:#eef4ff; color:#1d4ed8; font-family:var(--font-mono); font-size:10px; font-weight:700; vertical-align:middle; }
+/* fault roster table */
+.roster-table, .ap-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.roster-table th, .ap-table th { text-align:left; padding:8px 10px; background:#f8fafc; color:#5D6B7A; font-weight:600; font-size:11.5px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.roster-table td, .ap-table td { padding:10px; border-bottom:1px solid #eef1f5; vertical-align:middle; }
+.roster-table tbody tr:hover td, .ap-table tbody tr:hover td { background:#f9fbff; }
+.roster-name { font-weight:650; color:var(--ink); }
+.roster-scope { color:#5D6B7A; font-size:12px; }
+.fault-id-chip { display:inline-flex; align-items:center; font-family:var(--font-mono); font-weight:800; font-size:12px; border-radius:7px; padding:3px 9px; text-decoration:none; white-space:nowrap; }
+.fault-id-chip.sm { font-size:10.5px; padding:1px 7px; margin:1px 2px; border-radius:5px; }
+.fault-id-chip.role-primary { background:#fde8e8; color:#E5484D; }
+.fault-id-chip.role-secondary { background:#fef3e2; color:#B45309; }
+.fault-id-chip.role-independent { background:#e8f1fe; color:#1d4ed8; }
+/* relations */
+.rel-title { font-size:13px; font-weight:700; color:var(--ink); margin:18px 0 4px; }
+.rel-list { display:flex; flex-direction:column; gap:12px; margin-top:10px; }
+.rel-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.rel-node { display:inline-flex; align-items:center; font-family:var(--font-mono); font-weight:800; font-size:12.5px; border:1px solid var(--border); background:#fff; border-radius:8px; padding:5px 12px; text-decoration:none; color:var(--ink); box-shadow:0 1px 2px rgba(16,24,40,.05); }
+.rel-link { flex:1; min-width:140px; display:flex; align-items:center; gap:8px; }
+.rel-line { flex:1; height:0; border-top:2px solid #E5484D; }
+.rel-arrow { color:#E5484D; font-size:11px; font-weight:700; }
+.rel-type-tag { font-size:11px; font-weight:700; padding:2px 11px; border-radius:999px; white-space:nowrap; }
+.rel-conf { font-size:10.5px; color:#8C959F; font-family:var(--font-mono); white-space:nowrap; }
+.rel-evidence { flex-basis:100%; font-size:11.5px; color:#5D6B7A; line-height:1.6; margin:0 0 0 6px; padding:2px 0 2px 12px; border-left:2px solid var(--border); }
+.rel-causes .rel-line { border-top:2px solid #E5484D; }
+.rel-causes .rel-arrow { color:#E5484D; }
+.rel-causes .rel-type-tag { background:#fde8e8; color:#E5484D; }
+.rel-common_cause .rel-line { border-top:2px dashed var(--teal); }
+.rel-common_cause .rel-arrow { display:none; }
+.rel-common_cause .rel-type-tag { background:#e6f7f4; color:#0f766e; }
+.rel-independent .rel-line { border-top:2px dotted #b6c0cc; }
+.rel-independent .rel-arrow { display:none; }
+.rel-independent .rel-type-tag { background:#f2f4f7; color:#5D6B7A; }
+.rel-correlated .rel-line { border-top:2px dashed #F59E0B; }
+.rel-correlated .rel-arrow { display:none; }
+.rel-correlated .rel-type-tag { background:#fef3e2; color:#B45309; }
+.rel-correlated .rel-type-tag::after { content:" ≠因果"; font-weight:400; }
+.rel-legend { display:flex; gap:18px; flex-wrap:wrap; margin-top:14px; font-size:11px; color:#5D6B7A; }
+.rel-legend i { display:inline-block; width:26px; vertical-align:middle; margin-right:6px; }
+.lg-causes { border-top:2px solid #E5484D; }
+.lg-common { border-top:2px dashed var(--teal); }
+.lg-independent { border-top:2px dotted #b6c0cc; }
+.lg-correlated { border-top:2px dashed #F59E0B; }
+/* action plan */
+.ap-table td { vertical-align:top; line-height:1.6; }
+.ap-action { font-weight:650; color:var(--ink); }
+.ap-dep { color:#8C959F; font-size:12px; }
+.ap-faults { white-space:nowrap; }
+/* fault archives */
+.fault-archive { border:1px solid var(--border); border-radius:14px; background:#fff; margin:0 0 22px; overflow:hidden; box-shadow:0 1px 3px rgba(16,24,40,.05); scroll-margin-top:76px; }
+.fault-archive.role-primary { border-color:#cfe0fb; }
+.fault-archive.role-secondary { border-color:#fde3b8; }
+.fault-archive.status-excluded { opacity:.65; }
+.fa-header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:13px 18px; background:linear-gradient(180deg,#fcfdff,#f7f9fc); border-bottom:1px solid var(--border); }
+.fault-archive.role-primary .fa-header { background:linear-gradient(180deg,#f5f9ff,#f1f6ff); }
+.fault-archive.role-secondary .fa-header { background:linear-gradient(180deg,#fffcf5,#fef8ec); }
+.fa-id { font-family:var(--font-mono); font-weight:800; font-size:14px; padding:4px 11px; border-radius:8px; }
+.fa-id.role-primary { background:#E5484D; color:#fff; }
+.fa-id.role-secondary { background:#F59E0B; color:#fff; }
+.fa-id.role-independent { background:var(--brand); color:#fff; }
+.fa-title { font-size:15px; font-weight:750; color:var(--ink); }
+.fa-tags { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; }
+.fa-body { padding:16px 18px 18px; }
+.fa-sub { font-size:12.5px; font-weight:700; color:var(--ink); margin:20px 0 10px; padding-left:9px; border-left:3px solid var(--accent); break-after:avoid; page-break-after:avoid; }
+.fa-sub:first-child { margin-top:2px; }
+.fa-secondary-note { background:#fef9e7; border:1px solid #fde3b8; border-radius:8px; padding:10px 14px; font-size:12.5px; line-height:1.7; color:#92600a; margin-bottom:12px; }
+.fa-body .conclusion-box { margin:0; }
+/* collapsible fault archive: default collapsed, click header to expand */
+details.fault-archive > summary.fa-header { list-style:none; cursor:pointer; user-select:none; -webkit-user-select:none; }
+details.fault-archive > summary.fa-header::-webkit-details-marker { display:none; }
+details.fault-archive:not([open]) > summary.fa-header { border-bottom-color:transparent; }
+.fa-ctrl { margin-left:6px; display:inline-flex; align-items:center; gap:7px; flex-shrink:0; }
+.fa-hint { font-size:11.5px; color:var(--slate); font-weight:600; white-space:nowrap; }
+.fa-hint::before { content:"点击展开详情"; }
+details.fault-archive[open] .fa-hint::before { content:"收起"; }
+/* collapsed-only one-line conclusion, so a folded archive still says what happened */
+.fa-oneline { display:none; flex-basis:100%; font-size:12.5px; color:var(--slate); line-height:1.65; }
+details.fault-archive:not([open]) > summary.fa-header .fa-oneline { display:block; }
+.fa-chevron { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:6px; background:#eef2f7; color:#5D6B7A; font-size:9px; line-height:1; transition:transform .2s ease, background .18s ease, color .18s ease; }
+details.fault-archive[open] .fa-chevron { transform:rotate(90deg); background:#e3ecfb; color:var(--accent); }
+summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
+/* fault category chip: error / latency / mixed */
+.chip-cat { border-radius: 6px; font-weight: 700; }
+.chip-cat-error { background:#f2f4f7; color:#5D6B7A; }
+.chip-cat-latency { background:#e6f7f5; color:#0f766e; }
+.chip-cat-mixed { background:#ede9fe; color:#6d28d9; }
+/* latency stage attribution (fault-level) */
+.lat-metrics { margin: 4px 0 12px; }
+.lat-metrics .conclusion-card.danger .card-value { color: var(--danger); }
+.lat-metrics .card-sub { color: var(--gray-500); font-size: 11px; margin-top: 3px; }
+.lat-table { border:1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 6px 0 4px; }
+.lat-thead, .lat-row { display: grid; grid-template-columns: 1.7fr 0.8fr 0.8fr 0.75fr 0.7fr 0.85fr; gap: 8px; align-items: center; padding: 8px 12px; font-size: 12px; }
+.lat-thead { background: #f8fafc; color: var(--gray-500); font-weight: 600; border-bottom: 1px solid var(--border); }
+.lat-row { border-bottom: 1px solid var(--divider); color: var(--gray-700); }
+.lat-row:last-child { border-bottom: none; }
+.lat-row.bottleneck { background: var(--danger-faint); font-weight: 600; color: var(--gray-900); box-shadow: inset 3px 0 0 var(--danger); }
+.lat-row.warn { background: var(--warning-faint); box-shadow: inset 3px 0 0 var(--warning); }
+.lat-name { font-weight: 600; color: var(--gray-800); overflow-wrap: break-word; }
+.lat-row.bottleneck .lat-name { color: var(--danger); }
+.lat-num { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+.lat-ratio { font-family: var(--font-mono); text-align: right; font-weight: 700; color: var(--danger); white-space: nowrap; }
+.lat-row.warn .lat-ratio { color: var(--warning); }
+.lat-row.ok .lat-ratio { color: var(--gray-700); font-weight: 600; }
+.lat-row .stage-status { justify-self: end; }
+.lat-detail { grid-column: 1 / -1; font-size: 11px; color: var(--gray-500); padding-top: 2px; line-height: 1.6; }
+.lat-conclusion { margin-top: 10px; padding: 10px 14px; background: var(--teal-faint); border-left: 3px solid var(--teal); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--gray-700); line-height: 1.7; }
+.lat-conclusion strong { color: var(--gray-900); }
+.stage-name .fault-id-chip.sm { margin-left: 6px; vertical-align: middle; }
+/* knowledge card upgrades */
+.kb-fid { font-family:var(--font-mono); font-size:10.5px; background:#eef4ff; color:#1d4ed8; border-radius:5px; padding:2px 7px; font-weight:700; }
+.kb-fit-list { margin:6px 0 2px; padding:8px 10px; background:#f8fafc; border-radius:7px; }
+.kb-fit-row { display:flex; gap:8px; padding:2px 0; font-size:11.5px; line-height:1.6; color:#5D6B7A; }
+.kb-fit-label { flex-shrink:0; color:#8C959F; font-weight:600; }
+.kb-apply { display:inline-flex; padding:2px 11px; border-radius:999px; font-size:11px; font-weight:700; margin-top:6px; }
+.kb-apply-direct { background:#e7f6f0; color:#15805b; }
+.kb-apply-adjust { background:#e8f1fe; color:#1d4ed8; }
+.kb-apply-reference { background:#f2f4f7; color:#5D6B7A; }
+.kb-apply-not_recommended { background:#fde8e8; color:#E5484D; }
+
+
+@media (max-width: 640px) {
+  .pfork-cols { flex-direction: column; gap: 14px; align-items: stretch; }
+  .pfork-cols::before { display: none; }
+  .pfork-col { max-width: none; padding-top: 0; }
+  .pfork-col::before { display: none; }
+  .pfork-blabel { margin-bottom: 6px; }
+}
+
+@media (max-width: 720px) { .donut-grid { grid-template-columns: 1fr; } }
+
+
+@media (max-width: 680px) {
+  .src-meta { flex-wrap: wrap; }
+  .src-path { margin-right: -4px; margin-left: -4px; }
+  .node-loc { flex-basis: 100%; margin-left: 29px; }
+  .node-role { margin-left: 29px; }
+}
+
+
+@media (max-width: 820px) {
+  .header-inner, .report-nav, .container { padding-left: 20px; padding-right: 20px; }
+  .hero-top { flex-direction: column; gap: 16px; }
+  .hero-status { padding: 0; }
+  .hero-metrics, .conclusion-cards { grid-template-columns: repeat(2, 1fr); }
+  .info-grid { grid-template-columns: 1fr; }
+  .workflow-summary { display: grid; grid-template-columns: repeat(2, 1fr); }
+  .stage-table { overflow-x: auto; }
+  .stage-thead, .stage-row { min-width: 680px; }
+  .lat-table { overflow-x: auto; }
+  .lat-thead, .lat-row { min-width: 620px; }
+  .roster-table, .ap-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .fa-tags { margin-left: 0; }
+}
+
+
+@media (max-width: 520px) {
+  .header-inner { padding-top: 26px; }
+  .header h1 { font-size: 26px; }
+  .hero-metrics { grid-template-columns: 1fr 1fr; }
+  .hero-metric { padding: 12px; }
+  .hero-metric-value { font-size: 14px; }
+  .container { padding-top: 20px; }
+  .section-header, .section-body { padding-left: 16px; padding-right: 16px; }
+  .conclusion-cards { grid-template-columns: 1fr 1fr; }
+  .donut-row { align-items: flex-start; }
+  .donut { width: 96px; height: 96px; }
+  .donut-hole { inset: 19px; }
+  .solution-group { padding-left: 52px; padding-right: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; animation-delay: 0s !important; transition-duration: .001s !important; }
+  .fa-chevron { transition: none; }
+}
+
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: #fff !important; }
+  .container { max-width: 100%; padding: 20px 0 0; }
+  .section { box-shadow: none; animation: none !important; border-color: #c8cfd8; break-inside: auto; page-break-inside: auto; }
+  .section::before { display: none; }
+  .header { box-shadow: none; background: #fff !important; color: var(--ink) !important; border-bottom: 2px solid var(--navy); }
+  .header h1 { color: var(--ink) !important; }
+  .header .report-id, .header .generated-at { color: #5D6B7A; }
+  .conclusion-box { background: white !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .src-evidence { display: block; }
+  .src-evidence summary { display: none; }
+  .src-evidence .src-code-block { border-top: 0; }
+  .report-nav-wrap, .header::after, .header::before { display: none; }
+  .header-inner { max-width: none; padding: 0 0 18px; }
+  .hero-summary-text, .hero-metric-value { color: var(--ink) !important; }
+  .report-kicker, .hero-meta, .hero-summary-label, .hero-metric-label { color: var(--slate) !important; }
+  .hero-chip { color: var(--ink); border-color: var(--border); background: #fff; }
+  .hero-metrics { border-color: var(--border); background: var(--border); }
+  .hero-metric { background: #fff; }
+  .hero-metric-value.mono { color: var(--accent) !important; }
+  .section-header { break-after: avoid; page-break-after: avoid; }
+  .conclusion-card, .donut-card, .pnode { break-inside: avoid; }
+  .kb-match-card { break-inside: avoid; page-break-inside: avoid; }
+  .chain-node, .stage-row { break-inside: avoid; }
+  .fault-archive { break-inside: auto; page-break-inside: auto; box-shadow: none; }
+  .fa-header { break-after: avoid; page-break-after: avoid; }
+  .roster-table tr, .ap-table tr, .rel-row { break-inside: avoid; page-break-inside: avoid; }
+/* collapsed fault archives must be fully expanded in print/PDF */
+  details.fault-archive:not([open]) > .fa-body { display: block !important; content-visibility: visible !important; }
+  details.fault-archive:not([open]) > summary.fa-header { border-bottom: 1px solid var(--border); }
+  .fa-ctrl { display: none; }
+  /* every archive is expanded in print, so the collapsed-only summary would duplicate 故障结论 */
+  .fa-oneline { display: none !important; }
+}
+</style>
+</head>
+<body>
+{%- if faults -%}
+  {%- set fault_list = faults -%}
+{%- else -%}
+  {%- set fault_list = [{'id':'F01','title':'诊断故障','role':'primary','status':'confirmed','severity':'P2','confidence':conclusion.confidence,'affected_scope':conclusion.affected_scope_desc,'conclusion':conclusion,'root_cause':root_cause,'propagation':propagation,'knowledge_matches':knowledge_matches,'solution':solution,'source_code':source_code}] -%}
+{%- endif -%}
+{%- set is_multi = fault_list | length > 1 -%}
+{%- set f0 = fault_list[0] -%}
+{%- set pns = namespace(p=f0) -%}
+{%- for _f in fault_list %}{% if incident_summary and _f.id == incident_summary.primary_fault_id %}{% set pns.p = _f %}{% endif %}{% endfor -%}
+{%- if incident_summary -%}
+  {%- set inc = incident_summary -%}
+{%- else -%}
+  {%- set inc = {'one_line_conclusion':conclusion.one_line_conclusion,'fault_count':1,'primary_fault_id':'F01','secondary_fault_count':0,'independent_fault_count':0,'overall_impact':conclusion.affected_scope_desc,'confidence':conclusion.confidence} -%}
+{%- endif -%}
+{%- set rels = fault_relations if fault_relations else [] -%}
+{%- set acts = action_plan if action_plan else [] -%}
+{%- set sec_ns = namespace(n=0) -%}
+
+
+<div class="header">
+  <div class="header-inner">
+    <div class="report-kicker">Witty-UB · Intelligent Operations</div>
+    <div class="hero-top">
+      <div class="hero-copy">
+        <h1>{{ report.title }}</h1>
+        <div class="hero-meta">
+          <span>报告编号 {{ report.report_id }}</span>
+          <span>生成时间 {{ report.generated_at }}</span>
+          <span>诊断对象 {{ basic_info.kb_name }}</span>
+        </div>
+      </div>
+      <div class="hero-status">
+        {% if is_multi %}<span class="hero-chip alert">识别 {{ inc.fault_count }} 个故障</span>{% elif f0.root_cause and f0.root_cause.confirmed_root_cause %}<span class="hero-chip alert">根因已定位</span>{% else %}<span class="hero-chip">分析进行中</span>{% endif %}
+        {% if basic_info.diagnosis_ok %}<span class="hero-chip">诊断完成</span>{% endif %}
+      </div>
+    </div>
+    <div class="hero-summary">
+      <div class="hero-summary-label">EXECUTIVE DIAGNOSIS</div>
+      <div class="hero-summary-text">{{ inc.one_line_conclusion }}</div>
+    </div>
+    <div class="hero-metrics">
+      {% if is_multi %}
+      <div class="hero-metric"><div class="hero-metric-label">识别故障</div><div class="hero-metric-value">{{ inc.fault_count }} 个</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">主故障</div><div class="hero-metric-value mono">{{ inc.primary_fault_id }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">次生 / 独立</div><div class="hero-metric-value">{{ inc.secondary_fault_count }} / {{ inc.independent_fault_count }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">{{ inc.confidence }}</div></div>
+      {% else %}
+      <div class="hero-metric"><div class="hero-metric-label">故障域</div><div class="hero-metric-value">{{ f0.conclusion.fault_domain }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">故障组件</div><div class="hero-metric-value">{{ f0.conclusion.fault_component }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">影响范围</div><div class="hero-metric-value">{{ f0.conclusion.affected_scope_pct }}%</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">诊断置信度</div><div class="hero-metric-value">{{ f0.conclusion.confidence }}</div></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+<div class="report-nav-wrap"><nav class="report-nav" aria-label="报告章节导航">
+  <a href="#overview">基础信息</a><a href="#summary">事件摘要</a>{% if is_multi %}<a href="#roster">故障清单</a>{% endif %}{% if acts %}<a href="#actionplan">处置计划</a>{% endif %}<a href="#statistics">统计分析</a><a href="#faults">故障档案</a><a href="#workflow">工作追踪</a>
+</nav></div>
+<div class="container">
+{# ================= Fault-scoped block macros ================= #}
+{% macro m_conclusion(c) %}
+{% if c %}
+<div class="conclusion-box">
+  <div class="conclusion-text">{{ c.one_line_conclusion }}</div>
+  {% if c.fault_domain or c.fault_component %}
+  <div class="conclusion-cards">
+    <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ c.fault_domain }}</div></div>
+    <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ c.fault_component }}</div></div>
+    <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{% if c.affected_scope_pct %}{{ c.affected_scope_pct }}%{% else %}—{% endif %}</div>{% if c.affected_scope_desc %}<div class="card-sub">{{ c.affected_scope_desc }}</div>{% endif %}</div>
+    <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ c.confidence or '—' }}</div></div>
+  </div>
+  {% endif %}
+  {% if c.fault_function %}
+  <div class="conclusion-func">
+    <span class="func-label">故障函数</span>
+    <code class="func-name">{{ c.fault_function }}</code>
+    {% if c.fault_function_loc %}<code class="func-loc">{{ c.fault_function_loc }}</code>{% endif %}
+  </div>
+  {% endif %}
+  {% if c.key_findings %}
+  <div class="key-findings"><h4>关键发现</h4><ul>{% for finding in c.key_findings %}<li>{{ finding }}</li>{% endfor %}</ul></div>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{# ---- Latency block: metric strip + per-stage attribution (P99 / baseline / ratio / share) ---- #}
+{% macro m_latency(lat) %}
+{% if lat %}
+  {% if lat.metrics %}
+  <div class="conclusion-cards lat-metrics">
+    {% for m in lat.metrics %}
+    <div class="conclusion-card{% if m.tone == 'danger' %} danger{% endif %}"><div class="card-label">{{ m.label }}</div><div class="card-value">{{ m.value }}</div>{% if m.sub %}<div class="card-sub">{{ m.sub }}</div>{% endif %}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if lat.stages %}
+  <div class="lat-table">
+    <div class="lat-thead">
+      <span>阶段</span><span class="lat-num">P99 时延</span><span class="lat-num">基线</span><span class="lat-num">放大</span><span class="lat-num">耗时占比</span><span class="stage-num" style="text-align:right;">状态</span>
+    </div>
+    {% for st in lat.stages %}
+    <div class="lat-row {{ st.status }}">
+      <span class="lat-name">{{ st.name }}</span>
+      <span class="lat-num">{{ st.p99 }}</span>
+      <span class="lat-num">{% if st.baseline %}{{ st.baseline }}{% else %}<span class="stage-na">—</span>{% endif %}</span>
+      <span class="lat-ratio">{% if st.ratio %}{{ st.ratio }}{% else %}<span class="stage-na">—</span>{% endif %}</span>
+      <span class="lat-num">{% if st.share %}{{ st.share }}{% else %}<span class="stage-na">—</span>{% endif %}</span>
+      <span class="stage-status {{ st.status }}">
+        <span class="st-dot"></span>
+        {% if st.status == 'bottleneck' %}瓶颈{% elif st.status == 'warn' %}异常{% else %}正常{% endif %}
+      </span>
+      {% if st.detail %}<span class="lat-detail">{{ st.detail }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if lat.conclusion %}
+  <div class="lat-conclusion">{{ lat.conclusion }}</div>
+  {% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro m_solution(s) %}
+    {% if s.short_term %}
+    <div class="solution-group short-term">
+      <h4>短期措施（立即执行）</h4>
+      <ul>
+        {% for item in s.short_term %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if s.long_term %}
+    <div class="solution-group long-term">
+      <h4>长期措施（预防复发）</h4>
+      <ul>
+        {% for item in s.long_term %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if s.verification %}
+    <div class="solution-group verify">
+      <h4>验证方法</h4>
+      <ul>
+        {% for item in s.verification %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  
+{% endmacro %}
+
+{% macro m_root_cause(rc) %}
+    {% for step in rc.reasoning_chain %}
+    <div class="chain-step {% if step.excluded %}excluded{% endif %}">
+      <div class="chain-marker">
+        <div class="chain-dot {% if step.confirmed %}confirmed{% endif %}"></div>
+        <div class="chain-connector"></div>
+      </div>
+      <div class="chain-content">
+        <div class="chain-step-title">{{ step.step_label }}: {{ step.title }}</div>
+        <div class="chain-step-desc">{{ step.description }}</div>
+        {% if step.evidence %}
+        <span class="chain-step-evidence">{{ step.evidence }}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if rc.confirmed_root_cause %}
+    <div class="root-cause-card">
+      <strong>确认根因：</strong>
+      <span class="root-cause-value">{{ rc.confirmed_root_cause }}</span>
+      {% if rc.supporting_knowledge %}
+      <div class="root-cause-support">
+        知识库支撑: <span class="mono">{{ rc.supporting_knowledge }}</span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  
+{% endmacro %}
+
+{% macro m_propagation(p) %}
+    <div class="prop-chainv">
+      {% set ns = namespace(order=0, bo=0) %}
+      {% for node in p.chain %}
+      {% set ns.order = ns.order + 1 %}
+      <div class="pnode {{ node.type or 'mid' }}">
+        <div class="pnode-head">
+          <span class="pnode-order">{{ ns.order }}</span>
+          <span class="pnode-label">{{ node.label }}</span>
+          {% if node.detail %}<span class="pnode-detail">{{ node.detail }}</span>{% endif %}
+          <span class="pnode-tag tag-{{ node.type or 'mid' }}">{% if node.tag %}{{ node.tag }}{% elif node.type == 'origin' %}故障源头{% elif node.type == 'impact' %}业务影响{% else %}传播环节{% endif %}</span>
+        </div>
+      </div>
+      {% if node.branches %}
+      <div class="pfork">
+        <div class="pconn">
+          <span class="pconn-line"></span>
+          {% if node.transition %}<span class="pconn-label">{{ node.transition }}</span>{% endif %}
+        </div>
+        <div class="pfork-cols">
+          {% for branch in node.branches %}
+          {% set b = branch if branch is mapping else {'nodes': branch} %}
+          <div class="pfork-col">
+            {% if b.label %}<span class="pfork-blabel">{{ b.label }}</span>{% endif %}
+            {% for sub in b.nodes %}
+            {% set ns.bo = ns.bo + 1 %}
+            <div class="pnode {{ sub.type or 'mid' }}">
+              <div class="pnode-head">
+                <span class="pnode-order">{{ ['a','b','c','d','e','f','g','h'][ns.bo - 1] }}</span>
+                <span class="pnode-label">{{ sub.label }}</span>
+                {% if sub.detail %}<span class="pnode-detail">{{ sub.detail }}</span>{% endif %}
+                <span class="pnode-tag tag-{{ sub.type or 'mid' }}">{% if sub.tag %}{{ sub.tag }}{% elif sub.type == 'origin' %}故障源头{% elif sub.type == 'impact' %}业务影响{% else %}传播环节{% endif %}</span>
+              </div>
+            </div>
+            {% if not loop.last %}
+            <div class="pconn">
+              <span class="pconn-line"></span>
+              {% if sub.transition %}<span class="pconn-label">{{ sub.transition }}</span>{% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% elif not loop.last %}
+      <div class="pconn">
+        <span class="pconn-line"></span>
+        {% if node.transition %}<span class="pconn-label">{{ node.transition }}</span>{% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% if p.impact_scope %}
+    <div class="impact-scope">
+      <strong>影响范围：</strong>
+      {% for scope in p.impact_scope %}
+      {{ scope }}{% if not loop.last %}；{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  
+{% endmacro %}
+
+{% macro m_knowledge(matches, fid) %}
+{% if matches %}
+{% for match in matches %}
+<div class="kb-match-card">
+  <div class="kb-match-header">
+    <span class="kb-match-id">{{ match.rank }} {{ match.id }}</span>
+    <span class="kb-match-stars">{{ match.stars }}</span>
+    {% if fid %}<span class="kb-fid">支撑 {{ fid }}</span>{% endif %}
+  </div>
+  <div class="kb-match-body">
+    <div class="kb-match-row"><span class="kb-match-label">匹配逻辑</span><span class="kb-match-value">{{ match.match_logic }}</span></div>
+    <div class="kb-match-row"><span class="kb-match-label">现象</span><span class="kb-match-value">{{ match.symptom }}</span></div>
+    <div class="kb-match-row"><span class="kb-match-label">原因</span><span class="kb-match-value">{{ match.root_cause }}</span></div>
+    {% if match.solution %}<div class="kb-match-row"><span class="kb-match-label">方案</span><span class="kb-match-value">{{ match.solution }}</span></div>{% endif %}
+    {% if match.phenomenon_fit or match.log_fit or match.rc_consistency or match.env_diff or match.adaptation %}
+    <div class="kb-fit-list">
+      {% if match.phenomenon_fit %}<div class="kb-fit-row"><span class="kb-fit-label">现象契合</span><span>{{ match.phenomenon_fit }}</span></div>{% endif %}
+      {% if match.log_fit %}<div class="kb-fit-row"><span class="kb-fit-label">日志/栈契合</span><span>{{ match.log_fit }}</span></div>{% endif %}
+      {% if match.rc_consistency %}<div class="kb-fit-row"><span class="kb-fit-label">根因一致</span><span>{{ match.rc_consistency }}</span></div>{% endif %}
+      {% if match.env_diff %}<div class="kb-fit-row"><span class="kb-fit-label">环境/版本差异</span><span>{{ match.env_diff }}</span></div>{% endif %}
+      {% if match.adaptation %}<div class="kb-fit-row"><span class="kb-fit-label">适配修改</span><span>{{ match.adaptation }}</span></div>{% endif %}
+    </div>
+    {% endif %}
+    <div>
+      {% if match.applicability %}
+      <span class="kb-apply kb-apply-{{ match.applicability }}">{% if match.applicability == 'direct' %}可直接采用{% elif match.applicability == 'adjust' %}调整后采用{% elif match.applicability == 'reference' %}仅供参考{% elif match.applicability == 'not_recommended' %}不建议采用{% else %}{{ match.applicability }}{% endif %}</span>
+      {% elif match.adoption_label %}
+      <span class="kb-match-adoption {{ match.adoption_class }}">{{ match.adoption_label }}</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<p style="color:var(--gray-500);font-size:13px;">无匹配的知识库条目。</p>
+{% endif %}
+{% endmacro %}
+
+{% macro m_source(sc) %}
+    {% if sc %}
+    <div class="src-meta">
+      <div class="src-meta-item">组件: <strong>{{ sc.component }}</strong></div>
+      {% if sc.call_chain %}
+      <div class="src-meta-item">调用链: <strong>{{ sc.call_chain | length }} 层</strong></div>
+      {% else %}
+      <div class="src-meta-item">文件: <strong>{{ sc.filename }}</strong></div>
+      <div class="src-meta-item">函数: <strong>{{ sc.function_name }}</strong></div>
+      {% if sc.line_range %}
+      <div class="src-meta-item">行号: <strong>{{ sc.line_range }}</strong></div>
+      {% endif %}
+      {% endif %}
+      {% if sc.failure_mode_id %}
+      <div class="src-meta-item">关联故障模式: <strong class="mono">{{ sc.failure_mode_id }}</strong></div>
+      {% endif %}
+    </div>
+    {% if sc.call_chain %}
+    <div class="src-chain">
+      {% for node in sc.call_chain %}
+      {%- set nxt = sc.call_chain[loop.index] if not loop.last else none -%}
+      {%- set cs_str = node.call_site if node.call_site else '' -%}
+      {%- set cs_num = (cs_str.split(':')[-1] | int) if ((':' in cs_str) and (cs_str.split(':')[-1] | int)) else 0 -%}
+      {%- set cs_hit = (node.code | selectattr('num', 'equalto', cs_num) | first) if cs_num else none -%}
+      <div class="chain-node {{ node.role }}">
+        <div class="chain-node-head">
+          <span class="node-order">{{ loop.index }}</span>
+          <code class="node-func">{{ node.function }}</code>
+          <span class="node-loc">{{ node.file }}{% if node.line %}:{{ node.line }}{% endif %}</span>
+          {% if node.role_label %}<span class="node-role role-{{ node.role }}">{{ node.role_label }}</span>{% endif %}
+        </div>
+        {% if node.code %}
+        <details class="src-evidence">
+          <summary>源码片段{% if node.line %} · {{ node.file }}:{{ node.line }}{% endif %}</summary>
+          <div class="src-code-block" style="margin-bottom:0;border-radius:0 0 8px 8px;border-top:1px solid #edf0f5;">
+            <div class="src-code-body">{%- for line in node.code -%}
+              <div>{% if line.ellipsis %}<span class="ellipsis">{{ line.text }}</span>{% else %}{% if line.highlight %}<span class="highlight">{% endif %}<span class="line-num">{{ line.num }}</span>{{ line.text }}{% if line.highlight %}</span>{% endif %}{% endif %}</div>
+            {%- endfor -%}</div>
+          </div>
+        </details>
+        {% endif %}
+        {% if not loop.last %}
+        <div class="src-evidence ev-call">
+          <div class="ev-head">调用点{% if cs_str %} · <span class="cs-loc">{{ cs_str }}</span>{% endif %} <span class="cs-go">&rarr; {{ nxt.function }}</span></div>
+          <div class="call-src-body">
+          {%- if cs_hit -%}
+            <div class="cs-call{% if cs_hit.highlight %} strong{% endif %}"><span class="line-num">{{ cs_hit.num }}</span>{{ cs_hit.text }}</div>
+          {%- else -%}
+            <div class="cs-call"><span class="line-num">?</span>// 调用 {{ nxt.function }}{{ ' @ ' ~ cs_str if cs_str }}</div>
+          {%- endif -%}
+          </div>
+        </div>
+        {% endif %}
+        {% if node.analysis %}
+        <div class="src-evidence ev-desc{% if node.role == 'fault-point' %} fault{% endif %}">
+          <div class="ev-head">{% if node.role == 'fault-point' %}故障点分析{% else %}描述{% endif %}</div>
+          <div class="ev-desc-body">{{ node.analysis }}</div>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if sc.root_cause or sc.fix_suggestion %}
+    <div class="src-verdict">
+      {% if sc.root_cause %}
+      <div class="root-card">
+        <div class="rc-title">根因锁定</div>
+        <div class="rc-body">{{ sc.root_cause }}</div>
+      </div>
+      {% endif %}
+      {% if sc.fix_suggestion %}
+      <div class="fix-card">
+        <div class="fx-title">修复建议</div>
+        <div class="fx-body">{{ sc.fix_suggestion }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    {% if sc.code_snippet %}
+    <div class="src-code-block">
+      <div class="src-code-header">
+        <span class="file-path">{{ sc.filename }}</span>
+        <span class="line-range">{{ sc.line_range }}</span>
+      </div>
+      <div class="src-code-body">{%- for line in sc.code_snippet -%}
+        <div>{% if line.ellipsis %}<span class="ellipsis">{{ line.text }}</span>{% else %}{% if line.highlight %}<span class="highlight">{% endif %}<span class="line-num">{{ line.num }}</span>{{ line.text }}{% if line.highlight %}</span>{% endif %}{% endif %}</div>
+      {%- endfor -%}</div>
+    </div>
+    {% endif %}
+    {% if sc.analysis %}
+    <div class="src-analysis">
+      {% for para in sc.analysis %}
+      <p>{{ para }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if sc.root_cause or sc.fix_suggestion %}
+    <div class="src-verdict">
+      {% if sc.root_cause %}
+      <div class="root-card">
+        <div class="rc-title">根因锁定</div>
+        <div class="rc-body">{{ sc.root_cause }}</div>
+      </div>
+      {% endif %}
+      {% if sc.fix_suggestion %}
+      <div class="fix-card">
+        <div class="fx-title">修复建议</div>
+        <div class="fx-body">{{ sc.fix_suggestion }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+    {% else %}
+    <p style="color:var(--gray-500);font-size:13px;">未获取到相关源码。可能原因：组件源码未拉取，或故障模式未关联源码文件。</p>
+    {% endif %}
+  
+{% endmacro %}
+
+{# ---- Donut chart macro: pure CSS conic-gradient pie, auto-completes remainder as "其他" ---- #}
+{% macro donut_chart(items, total='', total_label='') -%}
+{%- set palette = ['#4f7cff', '#37c7b5', '#8fb0ff', '#F59E0B', '#E5484D', '#8B5CF6', '#0EA5E9', '#EC4899'] -%}
+{%- set gray = '#C3CBD4' -%}
+{%- set ns = namespace(grad='', start=0.0) -%}
+{%- for item in items -%}
+  {%- set end = ns.start + (item.pct | float) -%}
+  {%- set ns.grad = ns.grad ~ palette[loop.index0 % (palette | length)] ~ ' ' ~ (ns.start | round(2)) ~ '% ' ~ (end | round(2)) ~ '%' -%}
+  {%- if not loop.last %}{%- set ns.grad = ns.grad ~ ', ' -%}{% endif -%}
+  {%- set ns.start = end -%}
+{%- endfor -%}
+{%- set remainder = (100 - ns.start) | round(2) -%}
+{%- if remainder > 0.5 -%}{%- set ns.grad = ns.grad ~ ', ' ~ gray ~ ' ' ~ (ns.start | round(2)) ~ '% 100%' -%}{%- endif -%}
+<div class="donut-row">
+  <div class="donut" style="background: conic-gradient({{ ns.grad }});">
+    <div class="donut-hole">
+      {% if total %}<div class="dh-num">{{ total }}</div><div class="dh-lbl">{{ total_label }}</div>{% endif %}
+    </div>
+  </div>
+  <ul class="donut-legend">
+    {% for item in items %}
+    <li>
+      <span class="lg-dot" style="background:{{ palette[loop.index0 % (palette | length)] }};"></span>
+      <span class="lg-name{% if item.code or item.pod or item.host %} mono{% endif %}">{% if item.code %}{{ item.code }} {{ item.name }}{% elif item.domain %}{{ item.domain }}{% elif item.pod %}{{ item.pod }}{% if item.host %} <span class="text-gray">@{{ item.host }}</span>{% endif %}{% elif item.host %}{{ item.host }}{% endif %}</span>
+      {% if item.fault %}<span class="fault-tag-sm">{{ item.fault }}</span>{% endif %}
+      <span class="lg-pct">{{ item.pct }}%</span>
+    </li>
+    {% endfor %}
+    {% if remainder > 0.5 %}
+    <li><span class="lg-dot" style="background:{{ gray }};"></span><span class="lg-name">其他</span><span class="lg-pct">{{ remainder }}%</span></li>
+    {% endif %}
+  </ul>
+</div>
+{%- endmacro %}
+
+
+<!-- SECTION 1: 日志基本信息 -->
+<div class="section section-appendix" id="overview">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="范围、来源与任务状态">日志基本信息</span>
+  </div>
+  <div class="section-body">
+    <div class="info-grid">
+      <div class="info-item">
+        <span class="info-label">知识库</span>
+        <span class="info-value">{{ basic_info.kb_name }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">KB ID</span>
+        <span class="info-value code">{{ basic_info.kb_id }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">日志文件</span>
+        <span class="info-value">{{ basic_info.log_file }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">操作类型</span>
+        <span class="info-value">{{ basic_info.operation }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">时间范围</span>
+        <span class="info-value code">{{ basic_info.time_range_start }} ~ {{ basic_info.time_range_end }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">总 Trace 数</span>
+        <span class="info-value">{{ basic_info.total_trace_cnt }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">故障 Trace</span>
+        <span class="info-value">{{ basic_info.fault_trace_cnt }} <span class="text-gray">({{ basic_info.fault_ratio }}%)</span></span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">任务状态</span>
+        <span class="info-value">
+          {% if basic_info.parse_ok %}
+          <span class="status-badge ok">解析完成</span>
+          {% else %}
+          <span class="status-badge warn">解析异常</span>
+          {% endif %}
+          {% if basic_info.diagnosis_ok %}
+          <span class="status-badge ok">诊断完成</span>
+          {% else %}
+          <span class="status-badge warn">诊断未完成</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 2: 事件诊断摘要 -->
+<div class="section section-focus" id="summary">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="{% if is_multi %}故障总数、主故障与总体影响{% else %}核心结论与关键发现{% endif %}">事件诊断摘要</span>
+  </div>
+  <div class="section-body">
+    <div class="conclusion-box">
+      <div class="conclusion-text">{{ inc.one_line_conclusion }}</div>
+      {% if is_multi %}
+      <div class="conclusion-cards">
+        <div class="conclusion-card"><div class="card-label">识别故障</div><div class="card-value">{{ inc.fault_count }} 个</div><div class="card-sub">主故障 1 · 次生 {{ inc.secondary_fault_count }} · 独立 {{ inc.independent_fault_count }}</div></div>
+        <div class="conclusion-card"><div class="card-label">主故障</div><div class="card-value mono">{{ inc.primary_fault_id }}</div><div class="card-sub">{{ pns.p.title }}</div></div>
+        <div class="conclusion-card"><div class="card-label">总体影响范围</div><div class="card-value" style="font-size:12.5px;line-height:1.5;">{{ inc.overall_impact or '—' }}</div></div>
+        <div class="conclusion-card"><div class="card-label">综合置信度</div><div class="card-value">{{ inc.confidence or '—' }}</div></div>
+      </div>
+      {% else %}
+      <div class="conclusion-cards">
+        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ f0.conclusion.fault_domain }}</div></div>
+        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ f0.conclusion.fault_component }}</div></div>
+        <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{{ f0.conclusion.affected_scope_pct }}%</div><div class="card-sub">{{ f0.conclusion.affected_scope_desc }}</div></div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ f0.conclusion.confidence }}</div></div>
+      </div>
+      {% if f0.conclusion.fault_function %}
+      <div class="conclusion-func">
+        <span class="func-label">故障函数</span>
+        <code class="func-name">{{ f0.conclusion.fault_function }}</code>
+        {% if f0.conclusion.fault_function_loc %}<code class="func-loc">{{ f0.conclusion.fault_function_loc }}</code>{% endif %}
+      </div>
+      {% endif %}
+      {% if f0.conclusion.key_findings %}
+      <div class="key-findings"><h4>关键发现</h4><ul>{% for finding in f0.conclusion.key_findings %}<li>{{ finding }}</li>{% endfor %}</ul></div>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 3: 故障清单与关系（仅多故障） -->
+{% if is_multi %}
+<div class="section" id="roster">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="故障编号、角色、确认状态、严重度与故障间关系">故障清单与关系</span>
+  </div>
+  <div class="section-body">
+    <table class="roster-table">
+      <thead><tr><th>编号</th><th>故障名称</th><th>角色</th><th>确认状态</th><th>严重级别</th><th>影响范围</th><th>置信度</th></tr></thead>
+      <tbody>
+      {% for f in fault_list %}
+        <tr>
+          <td><a class="fault-id-chip role-{{ f.role }}" href="#fault-{{ f.id }}">{{ f.id }}</a></td>
+          <td class="roster-name">{{ f.title }}</td>
+          <td><span class="chip chip-role-{{ f.role }}">{% if f.role == 'primary' %}主故障{% elif f.role == 'secondary' %}次生故障{% else %}独立故障{% endif %}</span></td>
+          <td><span class="chip chip-status-{{ f.status }}">{% if f.status == 'confirmed' %}已确认{% elif f.status == 'suspected' %}疑似{% elif f.status == 'excluded' %}已排除{% else %}{{ f.status }}{% endif %}</span></td>
+          <td>{% if f.severity %}<span class="chip chip-sev-{{ f.severity }}">{{ f.severity }}</span>{% else %}<span class="text-gray">—</span>{% endif %}</td>
+          <td class="roster-scope">{{ f.affected_scope or '—' }}</td>
+          <td class="mono">{% if f.confidence is number %}{{ f.confidence }}%{% else %}{{ f.confidence or '—' }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if rels %}
+    <h4 class="rel-title">故障关系</h4>
+    <div class="rel-list">
+      {% for r in rels %}
+      <div class="rel-row rel-{{ r.type }}">
+        <a class="rel-node" href="#fault-{{ r.from }}">{{ r.from }}</a>
+        <span class="rel-link">
+          <span class="rel-line"></span>
+          <span class="rel-type-tag">{% if r.type == 'causes' %}导致{% elif r.type == 'common_cause' %}同根因{% elif r.type == 'independent' %}相互独立{% elif r.type == 'correlated' %}时间相关{% else %}{{ r.type }}{% endif %}</span>
+          {% if r.confidence is number %}<span class="rel-conf">置信 {{ (r.confidence * 100) | round | int }}%</span>{% else %}<span class="rel-conf">置信 {{ r.confidence }}</span>{% endif %}
+          <span class="rel-arrow">&#9654;</span>
+        </span>
+        <a class="rel-node" href="#fault-{{ r.to }}">{{ r.to }}</a>
+        <span class="rel-evidence">{{ r.evidence }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="rel-legend">
+      <span><i class="lg-causes"></i>因果（A 导致 B）</span>
+      <span><i class="lg-common"></i>同根因</span>
+      <span><i class="lg-independent"></i>相互独立</span>
+      <span><i class="lg-correlated"></i>仅时间相关（不作为因果）</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- SECTION 4: 综合处置计划 -->
+{% if acts %}
+<div class="section" id="actionplan">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="跨故障措施合并、去重与排序；一条措施可关联多个故障">综合处置计划</span>
+  </div>
+  <div class="section-body">
+    <table class="ap-table">
+      <thead><tr><th>优先级</th><th>关联故障</th><th>处置操作</th><th>前置依赖</th><th>预期效果</th><th>验证标准</th></tr></thead>
+      <tbody>
+      {% for a in acts %}
+      <tr>
+        <td><span class="chip chip-pri-{{ a.priority }}">{{ a.priority }}</span></td>
+        <td class="ap-faults">{% for fid in a.fault_ids %}{% set fr = namespace(role='independent') %}{% for ff in fault_list %}{% if ff.id == fid %}{% set fr.role = ff.role %}{% endif %}{% endfor %}<a class="fault-id-chip sm role-{{ fr.role }}" href="#fault-{{ fid }}">{{ fid }}</a> {% endfor %}</td>
+        <td class="ap-action">{{ a.action }}</td>
+        <td class="ap-dep">{{ a.depends_on or '—' }}</td>
+        <td>{{ a.expected_effect or '—' }}</td>
+        <td>{{ a.verify or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+
+
+
+
+<!-- SECTION 5: 统计分析 -->
+<div class="section" id="statistics">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="关键指标、分布与异常时段">统计分析</span>
+  </div>
+  <div class="section-body">
+    {% set sbs = statistics.stage_breakdowns if statistics.stage_breakdowns else ([statistics.stage_breakdown] if statistics.stage_breakdown else []) %}
+    {% for sb in sbs %}
+    <div class="stat-block">
+      <h4>阶段分解（按请求流程阶段）<span style="font-weight:400;color:var(--gray-400);font-size:11px;"> — 操作: {{ sb.operation }} · 总时延 P99: {{ sb.total_p99_ms }}</span></h4>
+      {% if sb.share_bar %}
+      <div class="stage-share-bar">
+        {% for seg in sb.share_bar %}
+        <div class="stage-share-seg {{ seg.cls }}" style="width: {{ seg.pct }}%;" title="{{ seg.name }}: {{ seg.pct }}%">{% if seg.pct | float > 8 %}{{ seg.pct }}%{% endif %}</div>
+        {% endfor %}
+      </div>
+      <div class="stage-share-legend">
+        {% for seg in sb.share_bar %}
+        <div class="leg-item"><span class="leg-dot stage-share-seg {{ seg.cls }}" style="width:10px;height:10px;border-radius:3px;"></span>{{ seg.name }} {{ seg.pct }}%</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="stage-table">
+        <div class="stage-thead">
+          <span>阶段</span><span class="stage-num">P99 时延</span><span class="stage-num">时延异常率</span><span class="stage-num">失败占比</span><span>状态</span>
+        </div>
+        {% for st in sb.stages %}
+        {% set st_role = (fault_list | selectattr('id', 'equalto', st.fault) | map(attribute='role') | first) or 'independent' %}
+        <div class="stage-row {{ st.status }}">
+          <span class="stage-name">{{ st.name }}{% if st.fault %} <a class="fault-id-chip sm role-{{ st_role }}" href="#fault-{{ st.fault }}">{{ st.fault }}</a>{% endif %}</span>
+          <span class="stage-num">{{ st.p99 }}</span>
+          <span class="stage-num">{{ st.anomaly_rate }}</span>
+          {% if st.fail_share %}<span class="stage-num">{{ st.fail_share }}</span>{% else %}<span class="stage-na">—</span>{% endif %}
+          <span class="stage-status {{ st.status }}">
+            <span class="st-dot"></span>
+            {% if st.status == 'bottleneck' %}瓶颈{% elif st.status == 'warn' %}异常{% else %}正常{% endif %}
+          </span>
+          {% if st.detail %}<span class="stage-detail">{{ st.detail }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% if sb.conclusion %}
+      <div class="stage-conclusion">{{ sb.conclusion }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% if statistics.top_error_codes or statistics.top_failure_domains or statistics.top_pods or statistics.top_hosts %}
+    <div class="donut-grid">
+      {% if statistics.top_error_codes %}
+      <div class="donut-card">
+        <h4>错误码分布 (Top 5)</h4>
+        {{ donut_chart(statistics.top_error_codes, statistics.dist_total or '', '故障 Trace') }}
+      </div>
+      {% endif %}
+      {% if statistics.top_failure_domains %}
+      <div class="donut-card">
+        <h4>故障域分布</h4>
+        {{ donut_chart(statistics.top_failure_domains, statistics.dist_total or '', '故障 Trace') }}
+      </div>
+      {% endif %}
+      {% if statistics.top_pods %}
+      <div class="donut-card">
+        <h4>故障 Pod 分布 (Top 5)</h4>
+        {{ donut_chart(statistics.top_pods, statistics.dist_total or '', '故障 Trace') }}
+      </div>
+      {% endif %}
+      {% if statistics.top_hosts %}
+      <div class="donut-card">
+        <h4>故障 Host 分布 (Top 5)</h4>
+        {{ donut_chart(statistics.top_hosts, statistics.dist_total or '', '故障 Trace') }}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if statistics.time_heatmap %}
+    <div class="stat-block">
+      <h4>时间热点分布{% if statistics.heatmap_metric == 'latency' %}<span style="font-weight:400;color:var(--gray-400);font-size:11px;"> — 各时段 P99 时延</span>{% endif %}</h4>
+      <div class="tchart">
+        {% for slot in statistics.time_heatmap %}
+        <div class="tcol{% if slot.spike %} spike{% endif %}">
+          {% if slot.spike %}<span class="tbadge">尖峰</span>{% else %}<span class="tbadge" style="visibility:hidden;">尖峰</span>{% endif %}
+          <span class="tval">{% if slot.lat_ms %}{{ slot.lat_ms }}<span style="font-size:9px;">ms</span>{% else %}{{ slot.pct }}%{% endif %}</span>
+          <div class="tbar-wrap"><div class="tbar h{{ '4' if slot.spike else (slot.level if (slot.level | int) < 4 else 3) }}" style="height: {{ slot.pct }}%;"></div></div>
+          <span class="ttime">{{ slot.time }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="tlegend">
+        <span class="leg-item"><span class="leg-dot" style="background:#E4E9F0;"></span>无故障</span>
+        <span class="leg-item"><span class="leg-dot" style="background:var(--brand-pale);"></span>低</span>
+        <span class="leg-item"><span class="leg-dot" style="background:var(--brand-soft);"></span>中</span>
+        <span class="leg-item"><span class="leg-dot" style="background:var(--brand);"></span>高</span>
+        <span class="leg-item"><span class="leg-dot" style="background:#E5484D;"></span>尖峰/爆发</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- SECTION 6: 故障档案 -->
+<div class="section" id="faults">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="逐个故障的结论、根因、传播链、知识库、方案与源码">故障档案</span>
+  </div>
+  <div class="section-body">
+    {% for f in fault_list %}
+    <details class="fault-archive role-{{ f.role }} status-{{ f.status }}" id="fault-{{ f.id }}"{% if not is_multi %} open{% endif %}>
+      <summary class="fa-header">
+        <span class="fa-id role-{{ f.role }}">{{ f.id }}</span>
+        <span class="fa-title">{{ f.title }}</span>
+        <span class="fa-tags">
+          {% if f.category %}<span class="chip chip-cat-{{ f.category }}">{% if f.category == 'latency' %}时延类{% elif f.category == 'mixed' %}时延+错误{% else %}错误类{% endif %}</span>{% endif %}
+          <span class="chip chip-role-{{ f.role }}">{% if f.role == 'primary' %}主故障{% elif f.role == 'secondary' %}次生故障{% else %}独立故障{% endif %}</span>
+          <span class="chip chip-status-{{ f.status }}">{% if f.status == 'confirmed' %}已确认{% elif f.status == 'suspected' %}疑似{% elif f.status == 'excluded' %}已排除{% else %}{{ f.status }}{% endif %}</span>
+          {% if f.severity %}<span class="chip chip-sev-{{ f.severity }}">{{ f.severity }}</span>{% endif %}
+          {% if f.confidence %}<span class="chip chip-conf">置信 {% if f.confidence is number %}{{ f.confidence }}%{% else %}{{ f.confidence }}{% endif %}</span>{% endif %}
+        </span>
+        <span class="fa-ctrl"><span class="fa-hint"></span><span class="fa-chevron" aria-hidden="true">&#9656;</span></span>
+        {% if f.conclusion and f.conclusion.one_line_conclusion %}<span class="fa-oneline">{{ f.conclusion.one_line_conclusion }}</span>{% endif %}
+      </summary>
+      <div class="fa-body">
+        {% if f.role == 'secondary' %}
+        <div class="fa-secondary-note">本故障为 <a class="fault-id-chip sm role-primary" href="#fault-{{ f.upstream or inc.primary_fault_id }}">{{ f.upstream or inc.primary_fault_id }}</a> 的次生故障，已由上游传播链解释；{% if f.need_independent_fix %}影响面独立，<strong>需按下方方案独立修复</strong>。{% else %}上游修复后可自动恢复，<strong>无需独立修复</strong>。{% endif %}</div>
+        {% endif %}
+        {% if f.status == 'suspected' %}
+        <div class="fa-secondary-note" style="background:#f2f4f7;border-color:#e2e6ec;color:#5D6B7A;">本故障为候选假设，根因尚未确认，下列结论与证据仅供参考，不能直接认定。</div>
+        {% endif %}
+        {% if f.conclusion %}<h4 class="fa-sub">故障结论</h4>{{ m_conclusion(f.conclusion) }}{% endif %}
+        {% if f.latency %}<h4 class="fa-sub">时延阶段定位</h4>{{ m_latency(f.latency) }}{% endif %}
+        {% if not f.simplified %}
+          {% if f.root_cause %}<h4 class="fa-sub">根因推理链</h4>{{ m_root_cause(f.root_cause) }}{% endif %}
+          {% if f.propagation %}<h4 class="fa-sub">故障传播链</h4>{{ m_propagation(f.propagation) }}{% endif %}
+          {% if f.knowledge_matches %}<h4 class="fa-sub">知识库匹配</h4>{{ m_knowledge(f.knowledge_matches, f.id) }}{% endif %}
+          {% if f.solution %}<h4 class="fa-sub">解决方案</h4>{{ m_solution(f.solution) }}{% endif %}
+          {% if f.source_code %}<h4 class="fa-sub">源码分析</h4>{{ m_source(f.source_code) }}{% endif %}
+        {% elif f.solution and f.need_independent_fix %}
+          <h4 class="fa-sub">解决方案</h4>{{ m_solution(f.solution) }}
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- SECTION 7: 诊断工作追踪 -->
+<div class="section section-appendix" id="workflow">
+  <div class="section-header">
+    {% set sec_ns.n = sec_ns.n + 1 %}<span class="section-num">{{ '%02d' % sec_ns.n }}</span>
+    <span class="section-title" data-subtitle="诊断过程、调用与执行结果">诊断工作追踪</span>
+  </div>
+  <div class="section-body">
+    <div class="workflow-summary">
+      <div class="workflow-stat stat-session">
+        <div class="stat-num">{{ workflow.session_id }}</div>
+        <div class="stat-label">Session</div>
+      </div>
+      <div class="workflow-stat">
+        <div class="stat-num">{{ workflow.total_steps }}</div>
+        <div class="stat-label">Steps</div>
+      </div>
+      <div class="workflow-stat">
+        <div class="stat-num">{{ workflow.api_calls }}</div>
+        <div class="stat-label">API Calls</div>
+      </div>
+      <div class="workflow-stat">
+        <div class="stat-num">{{ workflow.duration }}</div>
+        <div class="stat-label">耗时</div>
+      </div>
+    </div>
+    {% for step in workflow.steps %}
+    <div class="workflow-step">
+      <div class="workflow-marker">
+        <div class="workflow-dot"></div>
+        <div class="workflow-connector"></div>
+      </div>
+      <div class="workflow-content">
+        <div class="workflow-step-title">{{ step.title }}</div>
+        {% if step.api_calls %}
+        <div class="workflow-step-detail">
+          {% for call in step.api_calls %}
+          → {{ call }}<br>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if step.result %}
+        <div class="workflow-step-result">{{ step.result }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="divider"></div>
+  Witty-UB Diagnostic Report · Generated by witty-ub-diagnostician · {{ report.generated_at }}
+</div>
+
+</div><!-- /.container -->
+<script>
+/* Progressive enhancement only:
+   1) in-page links (roster / relations / action plan) auto-expand the target fault;
+   2) before print/PDF export, expand all <details>, restore afterwards.
+   Content is fully accessible without JS (manual toggle + print CSS fallback). */
+(function () {
+  function openFromHash() {
+    var h = location.hash ? decodeURIComponent(location.hash.slice(1)) : '';
+    if (!h) return;
+    var el = document.getElementById(h);
+    if (el && el.tagName === 'DETAILS') { el.open = true; }
+  }
+  window.addEventListener('hashchange', openFromHash);
+  openFromHash();
+  window.addEventListener('beforeprint', function () {
+    document.querySelectorAll('details').forEach(function (d) {
+      d.dataset.wasOpen = d.open ? '1' : '0';
+      d.open = true;
+    });
+  });
+  window.addEventListener('afterprint', function () {
+    document.querySelectorAll('details[data-was-open]').forEach(function (d) {
+      d.open = d.dataset.wasOpen === '1';
+      delete d.dataset.wasOpen;
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -10,10 +10,10 @@ compatibility: >
   Requires HTTP API access to FastAPI backend on port 9772 via bash curl.
 metadata:
   author: witty-ub-diagnostician
-  version: "2.2"
-  keywords: [时延分析, 高时延, P99, 延迟升高, 慢查询, KVC, 分布式缓存, 时间窗口, IP对聚合, GET, SET, 读写分离]
+  version: "2.3"
+  keywords: [时延分析, 高时延, P99, 延迟升高, 慢查询, KVC, 分布式缓存, 时间窗口, IP对聚合, GET, SET, 读写分离, RPC阶段, bRPC]
 allowed-tools: >
-  Bash(curl:*) Bash(cd:*)
+  Bash(curl:*) Bash(cd:*) Bash(python3:*)
   experience-skill
 ---
 
@@ -31,20 +31,17 @@ allowed-tools: >
 ## 阶段 0：经验库预检索（诊断前）
 
 **在调用任何诊断接口之前**，先用 `experience-skill` 基于用户提供的
-初始关键词检索本地经验，作为**先验假设**输入（不能替代现场证据）。
+初始关键词检索本地经验，作为**先验假设**输入（不能替代现场证据）：
 
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
-
-# 时延相关关键词（用户提什么就换什么，如 P99、慢查询、延迟升高、超时）
+# 关键词随用户问题替换（如 P99、慢查询、延迟升高、超时）
 uv run experience-skill search-experiences \
     --query "P99 延迟升高 慢查询" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "KVC 分布式缓存 时延基线" --type WIKI --top-k 5
 ```
 
-**对每条命中结果**（无论是否最终采用），按文末"经验引用标注模板"记录
-基础信息，填入 `used_in_stage = "stage_0_pre_search"`。
+**对每条命中结果**（无论是否最终采用），按文末附录 A 记录，
+填入 `used_in_stage = "stage_0_pre_search"`。
 
 ---
 
@@ -66,28 +63,21 @@ uv run experience-skill search-experiences \
 
 ### 核心工具：`POST /aggregated_event/list`
 
-**默认参数模板（用户未给出时间/IP时使用，均为 JSON body 字段）：**
-
-```
-kb_id:       <阶段一拿到的ID>          （必填）
-log_id:      <阶段一该日志文件的 id>    （当前调查对应某日志文件时必传）
-operation:   "GET"          （必填；GET 或 SET；读写分开分析）
-stat_type:   "p99"          （时延异常首选百分位；若P99为空再试"ave"/"max"）
-sort_fields: [{field: "total_latency", order: "desc"}]
-page_cnt:    50             （保证覆盖 Top IP 对）
-```
+按源/目的 IP 对聚合时延。关键决策：`stat_type` 首选 `p99`（空值再降
+`ave`/`max`）；`sort_fields` 用 `total_latency` 降序；`page_cnt` 50
+覆盖 Top IP 对。完整参数表见 `references/TOOL_REFERENCE.md`。
 
 **GET/SET 操作区分**：
-- `operation` 必填，用于区分读操作（GET）和写操作（SET/CREATE/PUBLISH）
-- 读写操作的时延特征和瓶颈点可能不同，必须分别分析
+- `operation` 必填，区分读（GET）/写（SET/CREATE/PUBLISH）操作；读写路径与可观测字段都不同，必须分别分析
 - 用户未指定时，先查 GET，再查 SET，对比两者差异
+- `/stats/stages` 是**按 operation 的独立视角**（GET 8 桶 / SET 5 桶，key 不重叠）：两次各调一次，**禁止跨 operation 混合归桶**——SET 写路径走 CREATE/PUBLISH，与 GET 的 8 维读路径公式不通用
 
-**用户给了时间范围时：** 追加 `start_time` / `end_time`（`YYYY-MM-DD HH:MM:SS`）。
-**用户给了具体 IP 时：** 追加 `src_ip` / `dst_ip`，跳过广度扫描直接进入阶段四。
+**用户给了时间范围时**：追加 `start_time` / `end_time`（`YYYY-MM-DD HH:MM:SS`）。
+**用户给了具体 IP 时**：追加 `src_ip` / `dst_ip`，跳过广度扫描直接进入阶段四。
 
-**返回结果关注点：**
-- 取前 5~10 条显著高值，记录 `id`（= aggregated_event_id，下一阶段要用）
-- 记录 `src_ip`, `dst_ip`, `total_latency`，以及各时延分量（urma/worker_query_meta 等）
+**返回结果关注点**：取前 5~10 条显著高值，记录 `id`（= aggregated_event_id，
+下一阶段要用）、`src_ip`/`dst_ip`、`total_latency` 及各时延分量
+（urma/worker_query_meta 等）。
 
 ---
 
@@ -95,18 +85,10 @@ page_cnt:    50             （保证覆盖 Top IP 对）
 
 ### 核心工具：`POST /aggregated_event/list_time_window`
 
-对阶段二标记的可疑 IP 对逐一调用（JSON body）：
-
-```
-kb_id:       <ID>
-operation:   <阶段二的 operation>（必填；GET 或 SET）
-src_ip/dst_ip:  <阶段二的 IP>（不填=全量观察整体趋势）
-interval:    "minute"         （默认；>几小时故障用"hour"；<几分钟尖峰用"second"）
-stat_type:   "p99"
-sort_by:     "start_time"
-sort_order:  "asc"            （asc 便于画时间线）
-page_cnt:    100
-```
+对阶段二标记的可疑 IP 对逐一调用（不填 IP = 全量观察整体趋势）。
+关键决策：`interval` 默认 `minute`（>几小时故障用 `hour`，<几分钟尖峰用
+`second`）；`stat_type` 用 `p99`；按 `start_time` 升序便于画时间线。
+完整参数表见 `references/TOOL_REFERENCE.md`。
 
 **诊断要点：**
 1. 识别 P99 跳变 > 2× 相邻窗口的**尖峰时段**
@@ -119,28 +101,17 @@ page_cnt:    100
 
 ### 4.1 按聚合事件查异常日志：`POST /log_parse_result/list`
 
-对阶段二拿到的 `aggregated_event_id` 调用（JSON body）：
-
-```
-kb_id:                <ID>
-log_id:               <该日志文件的 id>（必传）
-operation:            <阶段二的 operation>（必填；GET 或 SET）
-aggregated_event_id:  <阶段二的 id>（可选；按聚合事件下钻时传）
-is_anomalous:         true
-page_cnt:             50
-```
+对阶段二拿到的 `aggregated_event_id` 下钻：`log_id` 必传、
+`is_anomalous=true`、`page_cnt` 50。完整参数表见 `references/TOOL_REFERENCE.md`。
 
 > 注意：该接口不存在 `exclude_normal`、`sort_by`、`sort_order`、`error_priority`
 > 参数，不要臆造。
 
-**返回重点字段（诊断证据来源）：**
-| 字段 | 含义 |
-|------|------|
-| `trace_id` | 唯一请求标识 |
-| `total_latency` / `urma_total_latency` / `worker_query_meta_latency` | 定位瓶颈在哪个阶段（网络 / Worker 元数据 / 存储层） |
-| `src_ip`, `dst_ip`, `host`, `pod`, `cluster` | 故障域 |
-| `anomaly_components` | 被标记异常的时延组件 |
-| `anomaly_score`, `error_priority` | 异常严重等级 |
+**返回重点字段（诊断证据来源）**：`trace_id`（唯一请求标识）；时延分量
+`total_latency` / `urma_total_latency` / `worker_query_meta_latency`
+（定位瓶颈在网络 / Worker 元数据 / 存储层）；`src_ip`/`dst_ip`/`host`/
+`pod`/`cluster`（故障域）；`anomaly_components`；`anomaly_score`、
+`error_priority`（异常严重等级）。
 
 ### 4.2 用户指定具体 trace/host/IP 时：
 
@@ -149,14 +120,10 @@ page_cnt:             50
 
 ### 4.3 量化时间序列：`POST /log_parse_result/metrics/latency`
 
-```
-kb_id:       <ID>        （必填）
-log_id:      <该日志文件的 id>（必传，= 阶段一 log_file.id，勿用文件名/路径/任务ID）
-operation:   必填 "GET" 或 "SET"；读写分开观察
-host/src/dst: <缩小范围，可空>
-sample_mode: "p99"（尖峰） / "ave"（趋势） / "max"（最坏）
-max_points:  1000（默认），细粒度可提至 5000；仅需完整数据时用 -1
-```
+`kb_id` + `log_id`（= 阶段一 `log_file.id`，勿用文件名/路径/任务 ID）必传，
+首次请求就同时传；`operation` 读写分开观察；`sample_mode` 按 `p99`（尖峰）/
+`ave`（趋势）/`max`（最坏）选取；`max_points` 默认 1000，细粒度可提至 5000，
+仅确需完整数据时用 `-1`。
 
 **GET/SET 对比分析**：
 - 分别查询 GET 和 SET 的指标，对比时延差异
@@ -171,21 +138,55 @@ max_points:  1000（默认），细粒度可提至 5000；仅需完整数据时�
 - 怀疑 Worker 瓶颈 → 查同时段其他客户端连此 Worker 的延迟是否也升
 - 怀疑网络 → 查同 host 其他 Pod 的延迟
 
+### 4.5 bRPC RPC 阶段深挖脚本（客户端等待主导时使用）
+
+**触发条件**：阶段四发现异常集中在客户端侧等待（worker 侧分量干净、
+total≈sdk 处理窗口），需要进一步区分 QueryMeta / RPC网络 / RPC排队 /
+Master元数据写 / DataWorker / URMA链路 时，调用本脚本。
+KVC 解析管线当前未入库新版 bRPC perf 行（`[BRPC_RPC_FRAMEWORK_SLOW]`，
+19 字段格式，嵌于 `ds_client_*.INFO.log`），本脚本旁路直扫原始日志补齐该维度。
+
+```bash
+cd witty_ub_diagnostician/.opencode/skills/latency-analysis/scripts
+
+# 输入 = 原始日志目录或上传 zip（须含 ds_client_*.INFO.log；预处理目录清理后用原始 zip）
+python3 brpc_stage_drill.py <日志目录|zip> --slow-ms 20 --failed-only --top 5
+
+# 常用过滤：
+#   --slow-ms 1.5    慢 RPC 阈值(ms)，按 trace 内最大 e2e 过滤（默认 1.5）
+#   --failed-only    只统计含失败 RPC（cntl_failed=1）的 trace
+#   --json out.json  结果另存 JSON（供报告生成）
+```
+
+**输出解读**：
+- **桶分布**：每条 trace 按 winner-take-all 归入唯一主导桶
+  （QueryMeta / RPC网络 / RPC排队 / Master元数据写 / DataWorker处理 / URMA链路），
+  每桶附治理指引文案，可直接用于报告建议章节。
+- **阶段拆解口径**：QueryMeta = QueryAndGet 的 `e2e − 框架分量`
+  （框架分量 = network_residual + server_req_queue + client_req_framework；
+  超时无响应时三分量无测量为 0，QueryMeta 吸收全额等待，与瓶颈脚本口径一致）。
+- **RPC 错误码分布**：`1008` = deadline 截止（即"RPC截止超时"），`2001`/`110`
+  结合现场判断。
+- **每桶 top 样例 trace**：可回填 `POST /log_parse_result/list(trace_id=...)`
+  取该 trace 的完整明细做交叉验证。
+
+**注意**：
+1. 脚本只依赖 Python 标准库，秒级完成（GB 级日志约分钟级）；
+2. `getBuffer-*` trace 的 RPC 子过程为 QueryAndGet（GET 路径查元数据），
+   `setStringView-*` 为 Create/Publish（SET 路径写元数据）——桶归属解读时注意路径差异；
+3. 本脚本结果与 `/stats/stages`（DB 轻量粗分）互补：API 出方向，脚本出 RPC 细分归因。
+
 ---
 
 ## 阶段五：经验库二次检索（诊断后，引用必须标注）
 
 **在形成候选根因和处理建议之后**，用阶段二~四发现的**更精确的新关键词**
-（如具体异常组件名、Host、时延分量、关键日志短语）再次检索经验库：
+（如具体异常组件名、Host、时延分量、关键日志短语）再次检索：
 
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
-
-# 示例：用发现的异常组件 worker_query_meta 作精确检索
 uv run experience-skill search-experiences \
     --query "worker_query_meta latency P99" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "URMA 延迟 基线" --type WIKI --top-k 5
 ```
 
 **关键规则**：
@@ -203,8 +204,9 @@ uv run experience-skill search-experiences \
 
 | 接口 | 何时用 | 注意点 |
 |------|--------|--------|
-| `POST /diagnosis_case/search` | 有初略信号（IP/host/异常组件）时查历史案例 | 结果是假设，必须对现场证据；用 `fault_type="latency"` |
-| `GET /diagnosis_case/{case_id}` | 搜索命中高相关案例时做完整复核 | |
+| `POST /diag_case_library/search` | 有初略信号（IP/host/异常组件）时查历史案例 | 只返回已人工确认的案例；结果是假设，仍须对现场证据；用 `fault_type="latency"` |
+| `GET /diag_case_library/{case_id}` | 搜索命中高相关案例时做完整复核 | |
+| `POST /diagnosis_case/search`（降级） | 确认案例库无结果时的兜底 | 旧表**未经人工确认**、内容物薄，引用必须标注来源 |
 
 ---
 
@@ -223,28 +225,24 @@ uv run experience-skill search-experiences \
 ## 时延 API 输入规则
 
 以下约束必须遵守，即使 OpenAPI schema 将参数标为可选，也按此显式传参。
+完整参数表见 `references/TOOL_REFERENCE.md`。
 
 - 所有 `sort_fields` 元素的 `field` 必须是非空字符串，`order` 只能是 `asc` 或 `desc`。
-- `POST /aggregated_event/list`
-  - `kb_id` 必填。
-  - 当前调查对应阶段一某个日志文件时，同时显式传该文件的 `id` 作为 `log_id`；多个相关文件分别查询。
-  - `operation` 只能是 `GET` 或 `SET`。
-  - `stat_type` 只能是 `p99`、`p95`、`ave`、`min` 或 `max`，未指定时显式传 `p99`。
-  - 未指定 `sort_fields` 或其值为空时，显式传 `[{"field": "total_latency", "order": "desc"}]`。
-- `POST /aggregated_event/list_time_window`
-  - `kb_id` 必填。
-  - `operation` 只能是 `GET` 或 `SET`；`interval` 只能是 `second`、`minute` 或 `hour`。
-  - `stat_type` 同上，未指定时显式传 `p99`。
-  - `sort_by` 只能是 `start_time` 或 `total_latency`；`sort_order` 只能是 `asc` 或 `desc`。
-- `POST /log_parse_result/list`
-  - `kb_id` 必填，`operation` 只能是 `GET` 或 `SET`。
-  - 未指定 `is_anomalous` 时显式传 `true`。
-- `POST /log_parse_result/metrics/latency`
-  - `kb_id` 必填，`operation` 只能是 `GET` 或 `SET`。
-  - 完成 `POST /log_file/list/{kb_id}` 后，必须把当前相关日志文件对象的 `id` 作为 `log_id` 显式传入；`log_file.id` 与请求字段 `log_id` 是同一个值，不得改用文件名、路径、任务 ID，也不得因 OpenAPI 标 `log_id` 可选而省略。
-  - 有多个相关日志文件时，逐文件查询并标明结果归属，不得任取一个代表整个知识库。
-  - `max_points` 只能是 `-1`，或 1 到 5000 的整数。
-- `POST /diagnosis_case/search` 的 `fault_type` 只能是 `latency`、`connectivity`、`mixed` 或 `unknown`。
+- `POST /aggregated_event/list`：`kb_id` 必填；调查对应某日志文件时显式传该文件
+  `id` 作 `log_id`；`operation` 只能 GET/SET；`stat_type` 限 `p99/p95/ave/min/max`，
+  未指定时显式传 `p99`；未指定 `sort_fields` 时显式传
+  `[{"field": "total_latency", "order": "desc"}]`。
+- `POST /aggregated_event/list_time_window`：`kb_id` 必填；`operation` 只能
+  GET/SET；`interval` 限 `second/minute/hour`；`stat_type` 同上；`sort_by` 限
+  `start_time/total_latency`；`sort_order` 限 `asc/desc`。
+- `POST /log_parse_result/list`：`kb_id` 必填；`operation` 只能 GET/SET；
+  未指定 `is_anomalous` 时显式传 `true`。
+- `POST /log_parse_result/metrics/latency`：`kb_id` 必填；`operation` 只能
+  GET/SET；`log_id` 必传（= `log_file.id`，不得改用文件名、路径、任务 ID）；
+  有多个相关日志文件时逐文件查询并标明结果归属，不得任取一个代表整个
+  知识库；`max_points` 只能 `-1` 或 1~5000 的整数。
+- `POST /diag_case_library/search`（及降级的 `POST /diagnosis_case/search`）的 `fault_type`
+  只能是 `latency`、`connectivity`、`mixed` 或 `unknown`。
 
 ## 时延标准流程补充
 
@@ -259,60 +257,16 @@ uv run experience-skill search-experiences \
 
 ---
 
-## 附录 A：experience-skill 引用标注模板（强制）
+## 附录 A：experience-skill 引用标注（强制）
 
-**任何时候**引用了 `experience-skill` 知识库（SKILL 或 WIKI）的内容，
-无论是用于根因假设、处理建议、还是参考了基线/阈值，都必须按以下 JSON 模板
-记录**每条**引用。该记录将被 `diagnostic-report-generation` Skill 直接
-采集并写入报告的 `chapter_0_experience_refs` 章节。
+凡引用 `experience-skill`（SKILL/WIKI）的内容——根因假设、处理建议、
+阈值/基线参考——**每条**都必须按统一 JSON 模板逐条记录；记录将被
+`diagnostic-report-generation` 采集写入报告 `chapter_0_experience_refs` 章节。
 
-### JSON 模板（每条引用一个对象，汇总为数组）
+**完整 JSON 模板、字段说明与铁律见
+`experience-skill/references/CITATION_TEMPLATE.md`**。铁律要点：用了必记且
+可追溯；经验 ≠ 证据，未经现场事实验证只能是 suggestion；检索命中但未采用
+也要记录 `considered_not_adopted` + 原因。
 
-```json
-{
-  "experience_refs": [
-    {
-      "experience_id": "<来自 Experience.id 的 UUID，必填>",
-      "experience_type": "SKILL | WIKI",
-      "name": "<来自 Experience.name>",
-      "source_path": "<来自 Experience.source，如 data/skill_hub/ds-kv-cache-diagnosis/skill_def.md>",
-      "keywords_matched": ["<检索该条经验时用的关键词，用于可追溯>"],
-      "search_query_used": "<完整的 search-experiences --query 值>",
-      "used_in_stage": "stage_0_pre_search | stage_5_post_search | stage_4_root_cause | stage_5_recommendation",
-      "adoption_status": "adopted_as_evidence | adopted_as_suggestion | considered_not_adopted",
-      "content_quoted": "<直接引用经验中的原文片段，≤200字；严禁超长粘贴>",
-      "how_used_in_diagnosis": "<一句话说明：用在根因排序/处理方案/阈值对比……，如 采用该经验的 Worker 磁盘阈值判断 host-101 为异常>",
-      "confidence_on_reference": 0.0 ~ 1.0,
-      "confidence_reason": "<为何信任此条：与现场证据相符 / 来自 curated Skill / 有历史案例佐证>"
-    }
-  ]
-}
-```
-
-### 字段说明（基于 `Experience` schema）
-
-| 字段 | 来源（Experience / search 结果） | 约束 |
-|------|---------------------------------|------|
-| `experience_id` | `Experience.id` | 必填，UUID |
-| `experience_type` | `Experience.type` | 必填，枚举 SKILL/WIKI |
-| `name` | `Experience.name` | 必填，非空 |
-| `source_path` | `Experience.source` | 必填，可追溯到 `data/skill_hub/.../skill_def.md` 或 `data/wiki_hub/...md` |
-| `keywords_matched` | 人工记录 + `Experience.keywords` 交集 | 非空数组 |
-| `search_query_used` | 执行 search-experiences 的 --query | 必填，可完全复现检索 |
-| `used_in_stage` | 人工标记诊断阶段 | 严格按枚举值 |
-| `adoption_status` | — | adopted_as_evidence = 影响了根因结论；adopted_as_suggestion = 仅用于建议；considered_not_adopted = 考虑过但未采用（必须填原因） |
-| `content_quoted` | 原文摘录 | ≤200字；不允许用"省略号"/"大意如下"，必须是原文片段 |
-| `how_used_in_diagnosis` | 人工描述 | ≤100字，说清楚引用 → 诊断结论的因果链 |
-| `confidence_on_reference` | 人工打分 | 0.0~1.0，精度 0.01 |
-| `confidence_reason` | 人工描述 | ≤100字 |
-
-### 三条铁律
-
-1. **用了必记，记必可追溯**：只要引用了经验（哪怕一句话），必须记录；
-   `experience_id` + `source_path` 必须能唯一定位到源文件。
-2. **经验 ≠ 证据**：`adopted_as_evidence` 需极度谨慎。经验库内容只有
-   在被 HTTP API 返回的**现场事实**（trace / metrics / logs）验证后，
-   才能升格为"证据"；否则只能是 suggestion 或 hypothesis。
-3. **不采用也要说明原因**：检索命中但最终没用的，也要记录
-   `considered_not_adopted` + 排除理由。这是避免"选择性忽略反例"
-   的关键手段。
+本 Skill 的 `used_in_stage` 枚举：`stage_0_pre_search` / `stage_5_post_search` /
+`stage_4_root_cause` / `stage_5_recommendation`。

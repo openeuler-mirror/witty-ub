@@ -33,19 +33,16 @@ allowed-tools: >
 ## 阶段 0:经验库预检索(诊断前)
 
 **在调用任何 BRPC 诊断 API 之前**,先用 `experience-skill` 基于用户提供的
-初始关键词检索本地经验:
+初始关键词检索本地经验(先验假设,不能替代现场证据):
 
 ```bash
 cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
-
-# BRPC 相关关键词
+# 关键词随用户问题替换(如 ubsocket、umq、urma、线程异常)
 uv run experience-skill search-experiences \
     --query "BRPC 故障诊断 ubsocket" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "BRPC 组件故障 通断异常" --type WIKI --top-k 5
 ```
 
-**对每条命中结果**,按文末"经验引用标注模板"记录,填入 `used_in_stage = "stage_0_pre_search"`。
+**对每条命中结果**,按文末附录 A 记录,填入 `used_in_stage = "stage_0_pre_search"`。
 
 ---
 
@@ -63,138 +60,72 @@ uv run experience-skill search-experiences \
 
 ---
 
+## 阶段 1.5:全局一页纸(summary 先行)
+
+阶段一核验批次后、进入阶段二下钻前,先调 summary 一次拿到全局画像:
+
+```
+GET /brpc-diagnosis/batch/{batch_id}/summary
+start_time:  <可空,缺省=批次全域>
+end_time:    <可空,缺省=批次全域>
+component:   <可空,ubsocket/umq/urma,聚焦单组件>
+top_n:       10            (默认;上限 50)
+```
+
+kb 级(跨批次全域)用 `GET /brpc-diagnosis/knowledge/{kb_id}/summary`,参数相同。
+
+**返回六块**:`hit_count` / `time_range`(实际查询范围) / `components[]`(组件命中分布,含 `pct`) / `top_pods[]` / `top_failure_modes[]` / `peak_window`(峰值单窗:最高命中 10s/1m/1h 窗口,自动选窗)。
+
+**诊断要点**:
+- 一页纸先回答四个问题:**哪个组件主导**(`components` 的 `pct`)、**哪些 Pod**(`top_pods`)、**什么时间窗**(`peak_window`)、**什么故障模式**(`top_failure_modes`)
+- `peak_window` 的 `[start_time, end_time)` 直接作为阶段二各接口的时间参数,替代人工猜窗口
+- `top_pods` 的 `pod_ip` 直接作为 pod-events 的 `pod_ip` 过滤参数
+- `top_failure_modes` 的 `failure_mode_id` 是后续 failure graph 下钻的锚点
+- `hit_count=0` 或某组件占比异常低时,如实记录,不虚构
+- 需要看时间序列形状(趋势/尖峰轮廓)时才进阶段二的 interface-timeline,summary 只给峰值单窗不给序列
+
+---
+
 ## 阶段二:选择调查入口
 
 根据问题类型选择合适的入口:
 
 | 问题类型 | 入口接口 | 后续串联 |
 |---------|-------------|---------|
-| 全局趋势未知 | `GET /brpc-diagnosis/batch/{batch_id}/interface-timeline` | 先看各组件接口命中趋势,再缩小时间段 |
+| 全局趋势未知 | `GET /brpc-diagnosis/batch/{batch_id}/summary`(1.5 一页纸先行)→ 需要趋势形状时 `GET /brpc-diagnosis/batch/{batch_id}/interface-timeline` | 一页纸定位组件/窗口,再缩小时间段 |
 | Pod 故障 | `GET /brpc-diagnosis/batch/{batch_id}/pod-events` | 定位时间窗口和 Pod → `.../pod-events/{event_id}` |
 | 瞬时线程故障 | `GET /brpc-diagnosis/batch/{batch_id}/thread-events` | 定位窗口和线程 → `.../thread-events/{event_id}` |
 | 持续异常线程 | `GET /brpc-diagnosis/batch/{batch_id}/abnormal-threads` | 按命中数排行 → `.../abnormal-threads/{thread_key}` |
 | 已知 (pod_ip, thread_id) | `GET /brpc-diagnosis/batch/{batch_id}/hits` | 直接获取命中日志 |
 
-### 2.1 全局趋势:interface-timeline
+各入口的完整参数表、返回字段与 `window_size` 取值见
+`references/TOOL_REFERENCE.md`。使用要点:
 
-```
-batch_id:     <ID>
-window_size:  "1m"          (默认;瞬时尖峰用 "10s";长时用 "10m" 或 "1h")
-start_time:   <批次 start 或用户指定>
-end_time:     <批次 end 或用户指定>
-component:    <可空,ubsocket/umq/urma>
-```
-
-**诊断要点**:
-- 识别命中突增的时间窗口
-- 对比不同组件的命中模式
-- 与用户报告的故障时间对齐
-
-### 2.2 Pod 维度聚合:pod-events
-
-```
-batch_id:     <ID>
-window_size:  "1m"          (仅 1s / 1m / 1h)
-start_time:   <故障窗口>
-end_time:     <故障窗口>
-pod_ip:       <可空>
-pod_name:     <可空>
-```
-
-**返回重点字段**:
-- `event_id` — 详情查询必需
-- `pod_ip`, `window_start_time`, `window_end_time` — 故障域定位
-- `interface_hits[].interface_hit_count` — 各接口命中次数与严重程度
-
-### 2.3 线程维度聚合:thread-events
-
-```
-batch_id:     <ID>
-window_size:  "1m"          (仅 1s / 1m / 1h)
-start_time:   <故障窗口>
-end_time:     <故障窗口>
-pod_ip:       <可空>
-```
-
-**返回重点字段**:
-- `event_id`, `thread_id` — 详情查询必需
-- `pod_ip`, `thread_id` — 线程标识
-- `interface_hits[].interface_hit_count` — 各接口命中次数
-
-### 2.4 异常线程排行:abnormal-threads
-
-```
-batch_id:     <ID>
-start_time:   <故障窗口>
-end_time:     <故障窗口>
-pod_ip:       <可空>
-search:       <可空,模糊匹配 thread_id / pod_ip / pod_name>
-```
-
-**诊断要点**:
-- 按 `total_interface_hit_count` 降序排列
-- 关注 `first_hit_time` 到 `last_hit_time` 的持续时间
-- `thread_key` 是详情查询必需;选择 Top 3-5 候选进入阶段三
+- **2.1 interface-timeline**(全局趋势):瞬时尖峰 `window_size` 用 `10s`,
+  长时用 `10m`/`1h`;识别命中突增窗口、对比不同组件命中模式、
+  与用户报告的故障时间对齐
+- **2.2 pod-events**(Pod 聚合,仅 `1s/1m/1h`):记录 `event_id` 与
+  `window_start/end_time`、`pod_ip`,供详情接口原样回传
+- **2.3 thread-events**(线程聚合,仅 `1s/1m/1h`):记录 `event_id`/`thread_id`
+- **2.4 abnormal-threads**(异常线程排行):按 `total_interface_hit_count`
+  降序;关注 `first_hit_time`~`last_hit_time` 持续时间;选 Top 3-5 候选
+  进阶段三
 
 ---
 
 ## 阶段三:深度下钻
 
-### 3.1 Pod 事件详情:`GET /brpc-diagnosis/batch/{batch_id}/pod-events/{event_id}`
+| 接口 | 关键参数 | 返回重点 |
+|------|---------|---------|
+| `GET .../pod-events/{event_id}` | `event_id` + window/pod_ip 原样回传 | `interface_hits`、`failure_modes`、`failure_graph`、`hits` 原始日志 |
+| `GET .../thread-events/{event_id}` | `event_id` + window/pod_ip/thread_id 原样回传 | 同上,线程粒度 |
+| `GET .../abnormal-threads/{thread_key}` | `thread_key` + pod_ip/thread_id 回传;`window_size` 10s/1m/10m/1h | 线程级接口时间趋势、故障模式详情、故障关系图、分页命中日志 |
+| `GET .../hits` | `pod_ip`(字符串)+ `thread_id`(整数)**必填** | 原始命中日志 |
 
-```
-batch_id:           <ID>
-event_id:           <阶段二返回>
-window_start_time:  <原样传回>
-window_end_time:    <原样传回>
-pod_ip:             <原样传回>
-```
-
-**返回内容**:
-- `interface_hits` — 接口级命中统计
-- `failure_modes` — 命中的故障模式及次数
-- `failure_graph` — 故障关系图(`directly_hit=true` 才是直接命中)
-- `hits` — 原始命中日志
-
-### 3.2 线程事件详情:`GET /brpc-diagnosis/batch/{batch_id}/thread-events/{event_id}`
-
-```
-batch_id:           <ID>
-event_id:           <阶段二返回>
-window_start_time:  <原样传回>
-window_end_time:    <原样传回>
-pod_ip:             <原样传回>
-thread_id:          <原样传回>
-```
-
-### 3.3 异常线程详情:`GET /brpc-diagnosis/batch/{batch_id}/abnormal-threads/{thread_key}`
-
-```
-batch_id:     <ID>
-thread_key:   <阶段二返回>
-pod_ip:       <原样传回>
-thread_id:    <原样传回>
-window_size:  "1m"          (10s / 1m / 10m / 1h)
-start_time:   <调查时间范围>
-end_time:     <调查时间范围>
-```
-
-**返回内容**:
-- 线程级接口时间趋势
-- 故障模式命中详情
-- 故障关系图
-- 分页命中日志
-
-### 3.4 命中日志查询:`GET /brpc-diagnosis/batch/{batch_id}/hits`
-
-```
-batch_id:     <ID>
-pod_ip:       <必填>
-thread_id:    <必填,整数>
-start_time:   <时间范围>
-end_time:     <时间范围>
-pod_name:     <已知时传递>
-```
+完整参数表见 `references/TOOL_REFERENCE.md`。**标识回传纪律**:从列表进入
+详情时,列表返回的 `event_id` / `thread_key` 以及 `window_start_time` /
+`window_end_time` / `pod_ip` / `thread_id` 必须原样传给详情接口,
+缺失或改动能导致详情查询失败。
 
 ---
 
@@ -240,12 +171,8 @@ BRPC 详情响应中的证据分层:
 
 ```bash
 cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
-
-# 示例:用发现的故障模式作精确检索
 uv run experience-skill search-experiences \
     --query "ubsocket 连接超时 failure_mode" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "BRPC 组件故障 根因分析" --type WIKI --top-k 5
 ```
 
 **关键规则**:
@@ -268,25 +195,29 @@ uv run experience-skill search-experiences \
 
 - 所有 BRPC 查询接口都是 `GET`;时间参数必须使用 UTC+8 字符串
   `YYYY-MM-DD HH:MM:SS`,作为 query 参数传入(用 `curl --get --data-urlencode`)。
-- `component` 只能是 `ubsocket`、`umq`、`urma`;**仅** `interface-timeline` 接受
-  `component` 过滤。`pod-events`、`thread-events`、`abnormal-threads`、`hits`
-  以及三个详情接口都**没有** `component` 参数,不得臆造。
-- `window_size` 取值按接口区分:
-  - `interface-timeline`、`abnormal-threads/{thread_key}`:`10s`、`1m`、`10m`、`1h`;
-  - `pod-events`、`thread-events`:`1s`、`1m`、`1h`。
-- `event_id` 与 `thread_key` 是 64 位小写十六进制字符串;详情查询必须把列表返回的
-  `event_id` / `thread_key`、`window_start_time`、`window_end_time`、`pod_ip`、
-  `thread_id` 原样回传,不得改动或省略。
+- `summary` 两个变体(`batch/{batch_id}/summary`、`knowledge/{kb_id}/summary`)的
+  `start_time`/`end_time` **可选**,缺省为 batch/kb 全域,`time_range` 回显实际
+  查询范围;`top_n` 默认 10、上限 50。其余接口时间参数必填。
+- `component` 只能是 `ubsocket`、`umq`、`urma`;仅 `interface-timeline` 和
+  `summary` 支持 `component` 过滤,其余接口**没有**该参数,不得臆造。
+- `summary` 的 `peak_window.window_size` 由服务端按跨度自动选窗
+  (≤10min→10s、≤2h→1m、否则 1h),不接受 `window_size` 参数;其余接口
+  `window_size` 取值按接口区分(`interface-timeline`、`abnormal-threads/{thread_key}`
+  为 10s/1m/10m/1h;`pod-events`、`thread-events` 为 1s/1m/1h)。
+- `event_id` 与 `thread_key` 是 64 位小写十六进制字符串;详情查询必须把列表
+  返回的标识与窗口字段原样回传(见阶段三标识回传纪律)。
 - `hits` 的 `pod_ip`(字符串)与 `thread_id`(整数)都是必填。
-- `sort_order` 只能是 `asc` 或 `desc`;使用 `sort_field`/`sort_direction` 时必须一一对应。
-- `page_num` ≥ 1;`page_cnt` 在 1 到 1000 之间(诊断期建议 ≤ 100)。
+- `sort_order` 只能是 `asc` 或 `desc`;`page_num` ≥ 1,`page_cnt` 1~1000
+  (诊断期建议 ≤ 100)。完整参数枚举见 `references/TOOL_REFERENCE.md`。
 
 ## BRPC 标准流程补充
 
 1. **批次定位**:用户给 `task_id` 时先 `GET /brpc-diagnosis/task/{task_id}/batch`
    拿到 `batch_id`;用户直接给 `batch_id` 时先 `GET /brpc-diagnosis/batch/{batch_id}`
    核验元数据。`hit_count=0` 时如实报告"批次无命中",停止虚构异常。
-2. **入口选择**:全局趋势未知 → `interface-timeline`;已知是某个 Pod 的问题 →
+2. **入口选择**:全局画像未知 → `summary` 一页纸先定组件/Pod/时间窗/故障模式
+   (`peak_window` 时间窗直接作为后续接口时间参数),需要趋势形状时
+   `interface-timeline`;已知是某个 Pod 的问题 →
    `pod-events` → `pod-events/{event_id}`;是瞬时线程问题 → `thread-events` →
    `thread-events/{event_id}`;需要找持续异常线程 → `abnormal-threads` →
    `abnormal-threads/{thread_key}`;已知 `(pod_ip, thread_id)` → `hits` 直查。
@@ -306,44 +237,22 @@ uv run experience-skill search-experiences \
 | 用户问题 | 第一步 | 后续串联 |
 |---------|--------|---------|
 | "BRPC 诊断 task_id=xxx" | `GET /brpc-diagnosis/task/{task_id}/batch` | 获取 batch_id → 阶段二选择入口 |
-| "batch_id=xxx 有什么异常" | `GET /brpc-diagnosis/batch/{batch_id}` | 核验批次 → interface-timeline 全局扫描 |
+| "batch_id=xxx 有什么异常" | `GET /brpc-diagnosis/batch/{batch_id}/summary` | 一页纸定组件/窗口 → 阶段二对应入口下钻 |
 | "pod-xxx BRPC 报错" | `GET /brpc-diagnosis/batch/{batch_id}/pod-events?pod_ip=...` | 定位窗口 → `.../pod-events/{event_id}` |
 | "thread-xxx 异常" | `GET /brpc-diagnosis/batch/{batch_id}/thread-events` | 定位窗口 → `.../thread-events/{event_id}` |
 | "哪些线程持续异常" | `GET /brpc-diagnosis/batch/{batch_id}/abnormal-threads` | 排行 → `.../abnormal-threads/{thread_key}` |
 
 ---
 
-## 附录 A:experience-skill 引用标注模板(强制)
+## 附录 A:experience-skill 引用标注(强制)
 
-**任何时候**引用了 `experience-skill` 知识库的内容,都必须按以下 JSON 模板记录。
+凡引用 `experience-skill`(SKILL/WIKI)的内容,都必须按统一 JSON 模板逐条记录
+(含 `conflict_with_curated_knowledge` / `conflict_detail` 字段);记录将被
+`diagnostic-report-generation` 采集写入报告 `chapter_0_experience_refs` 章节。
 
-### JSON 模板
+**完整 JSON 模板、字段说明与铁律见
+`experience-skill/references/CITATION_TEMPLATE.md`**。铁律要点:用了必记且
+可追溯;经验 ≠ 证据,未经现场事实验证只能是 suggestion;检索命中但未采用
+也要记录 `considered_not_adopted` + 原因。
 
-```json
-{
-  "experience_refs": [
-    {
-      "experience_id": "<Experience.id UUID>",
-      "experience_type": "SKILL | WIKI",
-      "name": "<Experience.name>",
-      "source_path": "<Experience.source>",
-      "keywords_matched": ["<匹配的关键词>"],
-      "search_query_used": "<完整的 search-experiences --query 字符串>",
-      "used_in_stage": "stage_0_pre_search | stage_6_post_search",
-      "adoption_status": "adopted_as_evidence | adopted_as_suggestion | considered_not_adopted",
-      "conflict_with_curated_knowledge": true | false,
-      "conflict_detail": "<仅 conflict=true 时填>",
-      "content_quoted": "<引用原文片段,≤200字>",
-      "how_used_in_diagnosis": "<一句话说明引用如何作用于诊断结论>",
-      "confidence_on_reference": 0.0 ~ 1.0,
-      "confidence_reason": "<为何信任/不信任该引用>"
-    }
-  ]
-}
-```
-
-### 三条铁律
-
-1. **用了必记,记必可追溯**
-2. **经验 ≠ 证据**:adopted_as_evidence 需极度谨慎
-3. **不采用也要说明原因**
+本 Skill 的 `used_in_stage` 枚举:`stage_0_pre_search` / `stage_6_post_search`。

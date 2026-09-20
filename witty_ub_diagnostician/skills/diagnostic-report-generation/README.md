@@ -13,7 +13,7 @@ KVC 分布式缓存**诊断报告标准化生成**Skill。引导 Agent 按**七�
 | 3 故障现象与指纹 | 现象描述、结构化信号（status_code/IPs/hosts/pods/components） | POST /aggregated_event/list / 各 failure 接口 结果 |
 | 4 根因分析与置信度 | 候选根因排序（置信度）、证据引用、反证排除 | 诊断结论 + 工具返回事实 |
 | 5 处理建议 | 短期缓解 + 长期修复 + 验证步骤 | GET /failure_mode/{failure_mode_id} solution + 通用知识 |
-| 6 关联信息 | failure_mode_ids、status_codes、历史案例ID、原始日志引用 | GET /failure_mode/status_code/{status_code} / POST /diagnosis_case/search |
+| 6 关联信息 | failure_mode_ids、status_codes、历史案例ID、原始日志引用 | GET /failure_mode/status_code/{status_code} / POST /diag_case_library/search |
 | 7 生成元数据 | 生成时间、生成者、版本 | 系统字段 |
 
 ## 使用流程
@@ -22,7 +22,8 @@ KVC 分布式缓存**诊断报告标准化生成**Skill。引导 Agent 按**七�
 2. 按本 Skill 七章节顺序逐一填充 JSON 片段
 3. 组合为完整报告 JSON
 4. 使用 references/REPORT_SCHEMA.json 校验（Pydantic/jsonschema 库）
-5. 通过后端写入接口（或手动）沉淀为 diagnosis_case
+5. 通过后端写入接口沉淀为案例：`POST /diag_case_library`（建草稿）→
+   `POST /diag_case_library/{case_id}/confirm`（走确认闸门，通过后才可被检索召回）
 
 详细流程见 [SKILL.md](SKILL.md)，Schema 定义见
 [references/REPORT_SCHEMA.md](references/REPORT_SCHEMA.md)。
