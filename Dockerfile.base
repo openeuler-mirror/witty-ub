@@ -29,7 +29,7 @@ RUN dnf update -y --allowerasing && \
     jsoncpp-devel tinyxml2-devel openssl-devel \
     zlib-devel brotli-devel re2-devel \
     log4cplus sqlite brotli zlib jsoncpp tinyxml2 \
-    openssl-libs re2 nginx python3 python3-pip curl \
+    openssl-libs re2 nginx python3 python3-pip python3-jinja2 curl \
     gettext \
     git wget nodejs npm && \
     dnf clean all && \
@@ -151,7 +151,7 @@ LABEL description="Witty-UB frontend base image (Nginx + OpenCode)"
 
 RUN dnf update -y --allowerasing && \
     dnf install -y --allowerasing \
-    nginx python3 python3-pip curl gettext nodejs npm findutils && \
+    nginx python3 python3-pip python3-jinja2 curl gettext nodejs npm findutils && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
